@@ -62,6 +62,14 @@ public static class LocalBackupWorkflow
             if(before==paths.Count)throw new InvalidDataException("Selected plugin data not found");
         }
         if(paths.Count==0)throw new InvalidDataException("No supported files selected");
+        // Fail before staging if this fixed local disk cannot hold the selected files.
+        // A reserve is intentional: File hashes and the manifest do not prove ASA consistency.
+        long totalBytes=0;
+        foreach(var entry in paths)totalBytes=checked(totalBytes+new FileInfo(entry.Value).Length);
+        long reserve=Math.Max(64L*1024*1024,totalBytes/10);
+        long free=new DriveInfo(Path.GetPathRoot(target)!).AvailableFreeSpace;
+        if(totalBytes>free || reserve>free-totalBytes)
+            throw new IOException("Insufficient free disk space for backup and safety reserve");
         string data=Path.Combine(staging,"data");
         Directory.CreateDirectory(data);
         foreach(var entry in paths)
