@@ -47,8 +47,8 @@ public static class ManagerFeatureMatrix
             "Player count, WAN/jitter and genuine ASA readiness incomplete"),
         new("updater","Windows updater and local rollback","TEST",false,
             "Published signed Preview/Stable releases and test-PC acceptance missing"),
-        new("discord","Discord server status","BLOCKED",false,
-            "No opt-in authenticated Discord delivery connector yet"),
+        new("discord","Discord server status","MANUAL",false,
+            "Opt-in verified local Supervisor one-shot webhook available; no automatic alerts, bot/admin or live acceptance"),
         new("mobile","Mobile management","BLOCKED",false,
             "No authenticated VPN/mobile UI or operator roles"),
         new("license","Cloudflare license activation","BLOCKED",false,
@@ -102,7 +102,7 @@ public static class SafeSupportBundle
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         string temp=full+"."+Guid.NewGuid().ToString("N")+".tmp";
         var valid=events?.Where(e=>e!=null &&
-            e.Code.Length is > 0 and <= 100 &&
+            e.Code is {Length: > 0 and <= 100} &&
             e.Code.All(c=>char.IsAsciiLetterOrDigit(c)||c is '-' or '_') &&
             e.Severity is "Information" or "Warning" or "Error")
             .OrderByDescending(e=>e.Utc).Take(100)
