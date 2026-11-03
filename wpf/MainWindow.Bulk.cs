@@ -48,41 +48,6 @@ public partial class MainWindow
             }
         }
     }
-    private void ShowBulkPluginsControls()
-    {
-        Add(Box(V(Label("Plugin telepítése több helyi mapra",20,Mint,true),
-            Label("A helyi ASA API plugin könyvtárakat kezeli. A meglévő verziót átnevezve elmenti; "+
-                  "futó szerverre nem telepít és semmilyen távoli gépet nem ír.",12,Soft))));
-        var selected=new ListBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",
-            SelectionMode=SelectionMode.Multiple,Height=150,Foreground=Brushes.White,
-            Background=Panel,BorderBrush=Aqua};
-        var source=new TextBox{Height=36,IsReadOnly=true};
-        var result=Label("Nincs kiválasztott pluginmappa.",12,Soft);
-        Add(Box(V(Label("Helyi mapok",13,Aqua,true),selected,
-            Label("Plugin könyvtár helyi forrása (gyökérben DLL szükséges)",13,Aqua,true),source,
-            Btn("Pluginmappa kiválasztása",()=>{
-                using var picker=new Forms.FolderBrowserDialog{
-                    Description="Válaszd ki a helyi plugin mappáját (.dll fájllal)"};
-                if(picker.ShowDialog()==Forms.DialogResult.OK)source.Text=picker.SelectedPath;
-            }),
-            Btn("Telepítés a kijelölt, leállított mapokra",()=>{
-                var maps=selected.SelectedItems.OfType<LocalMap>().ToList();
-                if(maps.Count==0||string.IsNullOrWhiteSpace(source.Text)){
-                    result.Text="Válassz pluginmappát és legalább egy helyi mapot.";return;}
-                if(WinMessageBox.Show($"A plugin mappája {maps.Count} helyi mapra települ. "+
-                    "A meglévő pluginról külön mentés készül. A Kova Store-hoz nem nyúlunk. Folytatod?",
-                    "Plugintelepítés",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-                var successes=new List<string>();
-                var failures=new List<string>();
-                foreach(var map in maps){
-                    try{
-                        if(!_cluster.Check(map).ConfirmedStopped)throw new InvalidOperationException("A szerver leállított állapota nem igazolt");
-                        string dest=LocalContentOperations.InstallLocalPluginFolder(map,source.Text);
-                        successes.Add(map.Name+" → "+dest);
-                    }catch(Exception ex){failures.Add(map.Name+": "+ex.Message);WriteLog("plugin-install",ex);}
-                }
-                result.Text=$"Sikeres: {successes.Count} · Sikertelen: {failures.Count}\n"+
-                   string.Join("\n",successes.Concat(failures));
-            }),result)));
-    }
+    private void ShowBulkPluginsControls() => ShowSafeZipPluginsControls();
+
 }
