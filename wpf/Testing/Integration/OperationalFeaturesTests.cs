@@ -133,6 +133,72 @@ public static class OperationalFeaturesTests
         Check(!AsaApiInspector.Inspect(install,stopped).Complete,
             "invalid ASA API DLL is rejected");
 
+        // Independent Supervisor recurring runner: real read-only callback,
+        // durable claims, no retry/catch-up, all live modifications blocked.
+        string recurringRoot=Path.Combine(root,"v15-recurring-supervisor");
+        var runner=new RecurringReadOnlyRunner(recurringRoot);
+        var owner=new HashSet<Guid>{map.Id};
+        var readOnlyJob=new RecurringSchedule{
+            Map=map.Id,Kind=OperationalTaskKind.ModCheck,
+            Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=5,
+            LastDueUtc=now,Enabled=true};
+        int inspections=0;
+        var registered=runner.Tick(new[]{readOnlyJob},owner,now,
+            _=>false,_=>inspections++);
+        Check(registered.Length==0 && inspections==0,
+            "new recurring job records future slot without immediate execution");
+        var fired=runner.Tick(new[]{readOnlyJob},owner,now.AddMinutes(5).AddSeconds(1),
+            _=>false,_=>inspections++);
+        Check(inspections==1 && fired.Any(x=>x.Status=="succeeded"),
+            "Supervisor recurring read-only ModCheck executes once at scheduled slot");
+        var restartedRunner=new RecurringReadOnlyRunner(recurringRoot);
+        Check(restartedRunner.Tick(new[]{readOnlyJob},owner,
+            now.AddMinutes(5).AddSeconds(2),_=>false,_=>inspections++).Length==0 &&
+            inspections==1,"restarting Supervisor never replays already-claimed slot");
+        var unsafeJob=new RecurringSchedule{
+            Map=map.Id,Kind=OperationalTaskKind.ServerRestart,
+            Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=5,
+            LastDueUtc=now,Enabled=true};
+        restartedRunner.Tick(new[]{readOnlyJob,unsafeJob},owner,now.AddMinutes(6),
+            _=>false,_=>inspections++);
+        var rejected=restartedRunner.Tick(new[]{readOnlyJob,unsafeJob},owner,
+            now.AddMinutes(11),_=>false,_=>inspections++);
+        Check(rejected.Any(x=>x.Job==unsafeJob.Id &&
+            x.Status=="live-operation-disabled") && inspections==2,
+            "recurring restart is always blocked while read-only jobs may execute");
+        var maintenanceJob=new RecurringSchedule{
+            Map=map.Id,Kind=OperationalTaskKind.ApiCheck,Enabled=true,
+            Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=5,
+            LastDueUtc=now};
+        restartedRunner.Tick(new[]{maintenanceJob},owner,now.AddMinutes(12),
+            _=>true,_=>inspections++);
+        var maintenanceResults=restartedRunner.Tick(new[]{maintenanceJob},owner,
+            now.AddMinutes(17),_=>true,_=>inspections++);
+        Check(maintenanceResults.Any(x=>x.Status=="maintenance-blocked"),
+            "recurring read-only inspection respects maintenance");
+        var missedJob=new RecurringSchedule{
+            Map=map.Id,Kind=OperationalTaskKind.SteamCheck,Enabled=true,
+            Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=5,
+            LastDueUtc=now};
+        restartedRunner.Tick(new[]{missedJob},owner,now.AddMinutes(18),
+            _=>false,_=>inspections++);
+        var missed=restartedRunner.Tick(new[]{missedJob},owner,
+            now.AddMinutes(30),_=>false,_=>inspections++);
+        Check(missed.Any(x=>x.Status=="missed-no-catchup") &&
+            !missed.Any(x=>x.Status=="succeeded"),
+            "missed recurring slot cannot run after long Supervisor outage");
+        var foreignSchedule=new RecurringSchedule{
+            Map=Guid.NewGuid(),Kind=OperationalTaskKind.ModCheck,Enabled=true,
+            Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=5,
+            LastDueUtc=now};
+        restartedRunner.Tick(new[]{foreignSchedule},owner,now.AddMinutes(31),
+            _=>false,_=>inspections++);
+        var foreignResult=restartedRunner.Tick(new[]{foreignSchedule},owner,
+            now.AddMinutes(36),_=>false,_=>inspections++);
+        Check(foreignResult.Any(x=>x.Status=="foreign-map-blocked"),
+            "recurring runner refuses remote map operations");
+        Check(restartedRunner.Recent().Any(x=>x.Status=="failed-not-retried")==false,
+            "read-only recurring action history remains deterministic");
         var daily=new RecurringSchedule{Map=map.Id,Kind=OperationalTaskKind.WildDinoWipe,
             Enabled=false,LocalClock=new TimeSpan(7,30,0)};
         var calendar=OperationalScheduler.Next(daily,
