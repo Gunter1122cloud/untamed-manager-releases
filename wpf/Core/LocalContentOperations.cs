@@ -9,6 +9,38 @@ public static class LocalContentOperations
 {
     private static readonly Regex ModsParameter =
         new(@"(?<!\S)-mods=(?<ids>[^ \t""]+)",RegexOptions.IgnoreCase|RegexOptions.Compiled);
+    // Strict, read-only inspection of the exact launch argument order. Unknown or duplicate
+    // entries are rejected rather than silently normalized, preserving existing settings.
+    public static IReadOnlyList<string> ReadMods(string? existing)
+    {
+        existing??="";
+        var matches=ModsParameter.Matches(existing);
+        if(matches.Count>1 || Regex.Matches(existing,@"(?<!\\S)-mods=",RegexOptions.IgnoreCase).Count!=matches.Count)
+            throw new InvalidDataException("Ambiguous or malformed -mods argument; manual review required");
+        if(matches.Count==0)return Array.Empty<string>();
+        var mods=matches[0].Groups["ids"].Value.Split(',',StringSplitOptions.None);
+        if(mods.Any(x=>!Regex.IsMatch(x,@"\\A[0-9]{5,12}\\z")) ||
+           mods.Distinct(StringComparer.Ordinal).Count()!=mods.Length)
+            throw new InvalidDataException("Invalid or duplicate mod IDs; manual review required");
+        return mods;
+    }
+    // Reorder only; never installs, removes, or changes membership. Preserve all other
+    // launch flags verbatim and leave the running server untouched.
+    public static string ReorderMods(string existing,IEnumerable<string> order)
+    {
+        existing??="";
+        if(order==null)throw new ArgumentNullException(nameof(order));
+        var current=ReadMods(existing);
+        if(current.Count==0)throw new InvalidOperationException("No existing -mods list to reorder");
+        var proposed=order.Select(x=>x?.Trim()??"").ToArray();
+        if(proposed.Length!=current.Count ||
+           proposed.Any(x=>!Regex.IsMatch(x,@"\\A[0-9]{5,12}\\z")) ||
+           proposed.Distinct(StringComparer.Ordinal).Count()!=proposed.Length ||
+           proposed.Except(current,StringComparer.Ordinal).Any())
+            throw new InvalidDataException("Reorder must contain each current mod ID exactly once");
+        var match=ModsParameter.Match(existing);
+        return existing[..match.Index]+"-mods="+string.Join(",",proposed)+existing[(match.Index+match.Length)..];
+    }
     public static string ModifyMods(string existing,IEnumerable<string> input,bool add)
     {
         existing??="";
@@ -17,15 +49,7 @@ public static class LocalContentOperations
         if(requested.Any(x=>!Regex.IsMatch(x,@"\A[0-9]{5,12}\z")))
             throw new InvalidDataException("CurseForge mod IDs must be 5-12 digits");
         var matches=ModsParameter.Matches(existing);
-        if(matches.Count>1)throw new InvalidDataException("Multiple -mods parameters found; manual review required");
-        var mods=new List<string>();
-        if(matches.Count==1)
-        {
-            string body=matches[0].Groups["ids"].Value;
-            if(body.Split(',',StringSplitOptions.RemoveEmptyEntries).Any(x=>!Regex.IsMatch(x,@"\A[0-9]{5,12}\z")))
-                throw new InvalidDataException("Unknown -mods value; refusing to corrupt launch arguments");
-            mods.AddRange(body.Split(',',StringSplitOptions.RemoveEmptyEntries));
-        }
+        var mods=ReadMods(existing).ToList();
         if(add){foreach(var id in requested)if(!mods.Contains(id,StringComparer.Ordinal))mods.Add(id);}
         else mods.RemoveAll(x=>requested.Contains(x,StringComparer.Ordinal));
         var without=matches.Count==1?existing.Remove(matches[0].Index,matches[0].Length).Trim():existing.Trim();
