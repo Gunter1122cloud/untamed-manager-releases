@@ -27,29 +27,29 @@ public static class KovaAuditBridge
     {
         if(string.IsNullOrWhiteSpace(file) || !Path.IsPathFullyQualified(file) ||
             file.StartsWith(@"\\") || !file.EndsWith(".json",StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Explicit local, copied Kova JSON audit required");
+            throw new InvalidDataException("Helyi, másolt Vault-audit JSON szükséges");
         string full=Path.GetFullPath(file);
         if(new DriveInfo(Path.GetPathRoot(full)!).DriveType!=DriveType.Fixed)
-            throw new InvalidDataException("Kova audit must be on a local fixed disk");
+            throw new InvalidDataException("A Vault-audit csak helyi meghajtón elemezhető");
         for(var dir=new DirectoryInfo(Path.GetDirectoryName(full)!);dir!=null;dir=dir.Parent)
             if(dir.Exists && (dir.Attributes&FileAttributes.ReparsePoint)!=0)
-                throw new InvalidDataException("Kova audit symlink/junction refused");
+                throw new InvalidDataException("Hivatkozott Vault-audit mappa nem fogadható el");
         if(!File.Exists(full) ||
             (File.GetAttributes(full)&FileAttributes.ReparsePoint)!=0 ||
             new FileInfo(full).Length is < 10 or > 2_000_000)
-            throw new InvalidDataException("Invalid or linked Kova audit file");
+            throw new InvalidDataException("Hiányzó vagy nem megfelelő Vault-audit");
         byte[] data=File.ReadAllBytes(full);
         string hash=Convert.ToHexString(SHA256.HashData(data));
         using var document=JsonDocument.Parse(data,new JsonDocumentOptions{
             MaxDepth=40,AllowTrailingCommas=false,CommentHandling=JsonCommentHandling.Disallow});
         JsonElement root=document.RootElement;
         if(root.ValueKind!=JsonValueKind.Object)
-            throw new InvalidDataException("Expected a JSON object Kova audit");
+            throw new InvalidDataException("Vault-audit JSON objektum szükséges");
 
         string cluster=String(root,host==KovaAuditHost.Hp?"ClusterId":"ClusterID");
         string mode=String(root,"Mode");
         var problems=new List<string>();
-        if(cluster!="KovaCluster")problems.Add("Cluster ID differs from KovaCluster");
+        if(cluster!="KovaCluster")problems.Add("A cluster azonosítója eltér a mentett formátumtól");
         if(!mode.Equals("shared",StringComparison.OrdinalIgnoreCase))
             problems.Add("The audit does not describe shared Store mode");
 
@@ -124,7 +124,7 @@ public static class KovaAuditBridge
         if(host==KovaAuditHost.Hp)
         {
             if(markers.ValueKind!=JsonValueKind.Array)
-                throw new InvalidDataException("HP Kova audit markers must be array");
+                throw new InvalidDataException("HP-audit jelzőlistája érvénytelen");
             foreach(var marker in markers.EnumerateArray())
             {
                 string name=String(marker,"Name");
@@ -137,7 +137,7 @@ public static class KovaAuditBridge
         else
         {
             if(markers.ValueKind!=JsonValueKind.Object)
-                throw new InvalidDataException("Ryzen Kova audit markers must be object");
+                throw new InvalidDataException("Ryzen-audit jelzőobjektuma érvénytelen");
             op=Boolean(markers,"Operation");
             running=Boolean(markers,"Running");
             mutation=Boolean(markers,"MutationLock");
@@ -147,7 +147,7 @@ public static class KovaAuditBridge
         // Source must still contain exact same bytes after parser finished.
         if(!Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(full))).Equals(hash,
             StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Kova audit file changed during read");
+            throw new IOException("Vault-audit fájl megváltozott olvasás közben");
         return new(host,cluster,mode,hash,names.ToArray(),
             peers.GetArrayLength(),peersDone,sessions,active,op,running,mutation,
             problems.Count==0,problems.ToArray());
@@ -168,17 +168,17 @@ public static class KovaAuditBridge
             issues.Add("At least one historical audit is not internally consistent");
         return new(issues.Count==0,maps,issues.ToArray(),
             "Historical audit comparison only. Live Store session/peer liveness, transfer safety, "+
-            "backup consistency and Kova 1:1 compatibility are NOT proven. No Store writes permitted.");
+            "backup consistency and complete character-transfer compatibility are NOT proven. No Store writes permitted.");
     }
 
     private static JsonElement Required(JsonElement e,string property)
         =>e.ValueKind==JsonValueKind.Object && e.TryGetProperty(property,out var v)?
-            v:throw new InvalidDataException("Missing Kova audit field: "+property);
+            v:throw new InvalidDataException("Hiányzó Vault-audit mező: "+property);
     private static JsonElement RequiredArray(JsonElement e,string name)
     {
         var x=Required(e,name);
         return x.ValueKind==JsonValueKind.Array?x:
-            throw new InvalidDataException("Expected Kova audit array: "+name);
+            throw new InvalidDataException("Hibás Vault-audit lista: "+name);
     }
     private static string String(JsonElement e,string name)
     {
