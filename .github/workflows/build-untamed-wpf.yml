@@ -50,7 +50,11 @@ jobs:
         shell: pwsh
         run: |
           $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--smoke-test" -PassThru
-          if (-not $p.WaitForExit(25000)) { $p.Kill(); throw "WPF smoke test timed out" }
+          $finished = $p.WaitForExit(90000)
+          $logDir = Join-Path $env:LOCALAPPDATA "UntamedManager/WPF"
+          if (Test-Path "$logDir/smoke.log") { Get-Content "$logDir/smoke.log" }
+          if (Test-Path "$logDir/crash.log") { Get-Content "$logDir/crash.log" -Tail 50 }
+          if (-not $finished) { $p.Kill(); throw "WPF smoke test timed out" }
           if ($p.ExitCode -ne 0) { throw "WPF initialization failed with exit code $($p.ExitCode)" }
       - name: Save Windows EXE
         uses: actions/upload-artifact@v4
