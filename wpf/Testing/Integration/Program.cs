@@ -28,6 +28,32 @@ ClusterService? hp=null;
 ClusterService? ryzen=null;
 try
 {
+    var restore=new SyntheticRestore();
+    File.WriteAllText(Path.Combine(restore.TargetDirectory,"world"),"old world");
+    string restoreSource=Path.Combine(root,"restore-source");Directory.CreateDirectory(restoreSource);
+    File.WriteAllText(Path.Combine(restoreSource,"world"),"new world");
+    string restorePackage=Path.Combine(root,"restore-package");
+    TestBackupPackage.Create(restoreSource,restorePackage,restore.Owner,"Synthetic world");
+    restore.Restore(restorePackage);
+    Assert(File.ReadAllText(Path.Combine(restore.TargetDirectory,"world"))=="new world","Synthetic restore stages and verifies complete payload");
+    File.WriteAllText(Path.Combine(restore.TargetDirectory,"world"),"protected world");
+    bool interruptedRestore=false;
+    try { restore.Restore(restorePackage,true); } catch(IOException) { interruptedRestore=true; }
+    Assert(interruptedRestore && restore.RecoveryRequired,"Interrupted restore retains durable recovery journal");
+    restore.Recover();
+    Assert(!restore.RecoveryRequired && File.ReadAllText(Path.Combine(restore.TargetDirectory,"world"))=="protected world","Rollback restores and hashes the original directory");
+    File.WriteAllText(Path.Combine(restorePackage,"data","world"),"bad payload");
+    bool restoreCorrupt=false;
+    try { restore.Restore(restorePackage); } catch(InvalidDataException) { restoreCorrupt=true; }
+    Assert(restoreCorrupt && File.ReadAllText(Path.Combine(restore.TargetDirectory,"world"))=="protected world","Corrupt restore rejected before target changes");
+    var loaderIdentity=new ProcessIdentity{Pid=10,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath="loader.exe",Arguments="--test"};
+    var childIdentity=new ProcessIdentity{Pid=11,StartedUtc=loaderIdentity.StartedUtc.AddSeconds(1),ExecutablePath="server.exe",Arguments="--map=test"};
+    var observedLoader=new ObservedProcess(10,1,loaderIdentity.StartedUtc,"loader.exe","--test");
+    var observedChild=new ObservedProcess(11,10,childIdentity.StartedUtc,"server.exe","--map=test");
+    Assert(ProcessFamily.IsVerifiedPair(new[]{observedLoader,observedChild},loaderIdentity,childIdentity),"Exact loader-child observation validates");
+    Assert(!ProcessFamily.IsVerifiedPair(new[]{observedLoader,observedChild with {ParentPid=99}},loaderIdentity,childIdentity),"Wrong parent rejects loader-child relationship");
+    Assert(!ProcessFamily.IsVerifiedPair(new[]{observedLoader,observedChild with {StartedUtc=loaderIdentity.StartedUtc.AddSeconds(-1)}},loaderIdentity,childIdentity),"Reused child identity rejected");
+    Assert(!ProcessFamily.IsVerifiedPair(new[]{observedLoader},loaderIdentity,childIdentity),"Missing child rejected");
     string backupDir=Path.Combine(root,"backup-fixture");
     Directory.CreateDirectory(backupDir);
     string backupFile=Path.Combine(backupDir,"world.test");
