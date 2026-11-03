@@ -36,6 +36,7 @@ try
     await OperationalFeaturesTests.Run(root,fake,args.Length>3?args[3]:null);
     await ProfessionalOperationsTests.Run(root,fake);
     ClusterVaultTests.Run(root);
+    ManagerMigrationArchiveTests.Run(root);
     SafeSupportBundleTests.Run(root);
     await DiscordStatusTests.Run();
     NetworkLatencyTests.Run();
