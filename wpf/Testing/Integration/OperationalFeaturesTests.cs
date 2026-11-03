@@ -22,7 +22,7 @@ public static class OperationalFeaturesTests
         Directory.CreateDirectory(install);
         var map=new LocalMap{Name="Local v1.5 fixture",InstallationPath=install,
             ExecutablePath=fakeAsa,
-            Arguments="--map=TheIsland_WP -mods=928548,912815 -passivemods=930170 -log",
+            Arguments="--map=TheIsland_WP -mods=930170,928548,912815 -passivemods=930170 -log",
             DisabledModIds=new(){"935528"}};
         var baseline=ModStateController.Read(map);
         Check(baseline.Active.SequenceEqual(new[]{"928548","912815"}) &&
@@ -31,6 +31,7 @@ public static class OperationalFeaturesTests
         var preview=ModStateController.Preview(map,new(map.Id,"935528",ModMode.Active,0));
         Check(preview.Updated.Active[0]=="935528" &&
             preview.Updated.Disabled.Count==0 &&
+            preview.NewArguments.Contains("-mods=930170,935528,928548,912815") &&
             preview.NewArguments.Contains("-passivemods=930170") &&
             preview.NewArguments.Contains("--map=TheIsland_WP"),
             "mod state move preserves original non-mod arguments");
@@ -44,8 +45,10 @@ public static class OperationalFeaturesTests
                 new ModEdit(map.Id,"912815",ModMode.Passive,0)});
             var restored=ModStateController.Read(cluster.Config.LocalMaps.Single());
             Check(restored.Pending && restored.Passive.SequenceEqual(new[]{"912815","930170"}) &&
-                restored.Active.SequenceEqual(new[]{"935528","928548"}),
-                "local atomic mod changes saved as pending and do not restart ASA");
+                restored.Active.SequenceEqual(new[]{"935528","928548"}) &&
+                cluster.Config.LocalMaps.Single().Arguments.Contains(
+                    "-mods=912815,930170,935528,928548 -passivemods=912815,930170"),
+                "local atomic mod changes preserve passive subset and do not restart ASA");
             bool foreign=false;
             try{ModStateController.ApplyLocalBatch(cluster,new[]{
                 new ModEdit(Guid.NewGuid(),"928548",ModMode.Disabled)});}
@@ -56,11 +59,17 @@ public static class OperationalFeaturesTests
         bool duplicated=false;try{ModStateController.Read(invalid);}
         catch(InvalidDataException){duplicated=true;}
         Check(duplicated,"duplicate -mods parameters blocked");
-        var same=new LocalMap{Name="cross duplicate",
-            Arguments="-mods=928548 -passivemods=928548"};
-        bool cross=false;try{ModStateController.Read(same);}
-        catch(InvalidDataException){cross=true;}
-        Check(cross,"active/passive duplicate mod blocked");
+        var legacy=new LocalMap{Name="legacy passive subset",
+            Arguments="-mods=930170,928548 -passivemods=930170"};
+        var interpreted=ModStateController.Read(legacy);
+        Check(interpreted.Active.SequenceEqual(new[]{"928548"}) &&
+            interpreted.Passive.SequenceEqual(new[]{"930170"}),
+            "existing -mods/-passivemods overlapping switches are imported without state loss");
+        var missingPassive=new LocalMap{Name="passive missing from load list",
+            Arguments="-mods=928548 -passivemods=930170"};
+        bool missingRejected=false;try{ModStateController.Read(missingPassive);}
+        catch(InvalidDataException){missingRejected=true;}
+        Check(missingRejected,"passive project absent from -mods must fail closed");
 
         var stopped=new ProcessCheck(false,"verified stopped",null,true);
         string iniRoot=Path.Combine(install,"ShooterGame","Saved","Config","WindowsServer");
