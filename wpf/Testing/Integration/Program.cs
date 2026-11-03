@@ -488,9 +488,9 @@ try
     };
     const string recoveryToken="synthetic-save-correlation";
     var savedSignals=new[]{
-        new SyntheticSaveSignal(recoveryToken,SyntheticSaveSignalKind.Started,
+        new SyntheticSaveSignal(recoveryMap,recoveryToken,SyntheticSaveSignalKind.Started,
             syntheticProcess,syntheticTime.AddMilliseconds(100)),
-        new SyntheticSaveSignal(recoveryToken,SyntheticSaveSignalKind.Completed,
+        new SyntheticSaveSignal(recoveryMap,recoveryToken,SyntheticSaveSignalKind.Completed,
             syntheticProcess,syntheticTime.AddMilliseconds(400))
     };
     var proof=SaveWorldValidator.VerifySynthetic(recoveryMap,syntheticProcess,
@@ -504,6 +504,9 @@ try
     Assert(!SaveWorldValidator.VerifySynthetic(recoveryMap,syntheticProcess,
         recoveryToken,syntheticTime,syntheticTime.AddSeconds(1),savedSignals.Concat(savedSignals)).Proven,
         "Duplicate or replayed SaveWorld event pair fails closed");
+    Assert(!SaveWorldValidator.VerifySynthetic(Guid.NewGuid(),syntheticProcess,
+        recoveryToken,syntheticTime,syntheticTime.AddSeconds(1),savedSignals).Proven,
+        "FakeAsa SaveWorld events cannot be replayed for a different local map");
     var modifiedProcess=new ProcessIdentity{
         Pid=syntheticProcess.Pid,StartedUtc=syntheticProcess.StartedUtc.AddSeconds(-1),
         ExecutablePath=syntheticProcess.ExecutablePath,Arguments=syntheticProcess.Arguments
@@ -590,7 +593,8 @@ try
         "No SaveWorld proof prevents simulated DoExit and Start");
     var failedExitMap=Guid.NewGuid();
     var noExit=RecoverySimulator.Run(recoveryJournal,syntheticScenario with{
-        Map=failedExitMap,FakeExitConfirmed=false});
+        Map=failedExitMap,FakeExitConfirmed=false,
+        SaveSignals=savedSignals.Select(x=>x with{Map=failedExitMap}).ToArray()});
     Assert(noExit.Phase==RecoveryPhase.Blocked &&
         !recoveryJournal.Read().Any(x=>x.Attempt==noExit.Attempt &&
             x.Phase==RecoveryPhase.StartConfirmed),
@@ -605,6 +609,17 @@ try
     Assert(crashCannotResume &&
         recoveryJournal.Read().Last(x=>x.Map==crashedMap).Phase==RecoveryPhase.Prepared,
         "Interrupted recovery state cannot auto-resume after Manager restart");
+    var rateMap=Guid.NewGuid();
+    for(int i=0;i<3;i++)
+    {
+        var sampled=syntheticTime.AddMinutes(6*i);
+        var started=recoveryJournal.Begin(rateMap,sampled);
+        recoveryJournal.Advance(started.Attempt,RecoveryPhase.Blocked,sampled);
+    }
+    bool rateLimited=false;
+    try{recoveryJournal.Begin(rateMap,syntheticTime.AddMinutes(18));}
+    catch(InvalidOperationException){rateLimited=true;}
+    Assert(rateLimited,"Fourth synthetic recovery attempt within one hour is rate limited");
     bool foreignRecoveryBlocked=false;
     try{RecoverySimulator.Run(recoveryJournal,syntheticScenario with{
         Map=Guid.NewGuid(),Owned=false});}
@@ -648,7 +663,9 @@ try
     string safeSql=Path.Combine(recoveryRoot,"database.fixture");
     File.WriteAllText(safeStore,"original Kova synthetic fixture");
     File.WriteAllText(safeSql,"original SQL synthetic fixture");
-    RecoverySimulator.Run(recoveryJournal,syntheticScenario with {Map=Guid.NewGuid()});
+    var untouchedMap=Guid.NewGuid();
+    RecoverySimulator.Run(recoveryJournal,syntheticScenario with {
+        Map=untouchedMap,SaveSignals=savedSignals.Select(x=>x with{Map=untouchedMap}).ToArray()});
     Assert(File.ReadAllText(safeStore)=="original Kova synthetic fixture" &&
            File.ReadAllText(safeSql)=="original SQL synthetic fixture",
         "Fake recovery never modifies synthetic Kova Store or SQL data");
