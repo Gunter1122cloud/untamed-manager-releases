@@ -11,6 +11,13 @@ This is a development-only build. Do not install it on UK-HOME-01/02.
 - Windows integration tests for backup integrity, tampering, scope isolation and plugin data preservation.
 - Retains v1.3.3 Supervisor, LAN encryption, scheduler, updater and its E2E tests.
 
+## Additional development increment (pending Windows CI verification)
+
+- Strict local `-mods=` inspection and order-only changes in the WPF Mod Center. An existing list must be unambiguous and the reordered list must contain exactly the original IDs; other arguments remain untouched.
+- Added simulated integration tests for mod order, missing IDs, duplicate IDs, ambiguous arguments and preservation when adding new IDs.
+- Read-only offline SteamCMD executable preflight: verifies local fixed-disk path, rejects links, reports file size, modification time and SHA-256. It does **not** execute SteamCMD, check online ASA build versions, install or update servers.
+- Plugin ZIP preflight additionally rejects Windows device-name and trailing-dot path aliases, with isolated tests.
+
 ## Safety limits
 
 - **No live ASA save consistency proof**: file-hash verified does not mean a consistent online game snapshot.
