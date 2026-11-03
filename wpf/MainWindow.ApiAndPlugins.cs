@@ -52,6 +52,24 @@ public partial class MainWindow
                 "védőmásolat szükséges. Betöltött futásidejű modul nem következtethető a lemezről.",12,Soft),
             mapList,
             Btn("Helyi ASA API / pluginleltár újraellenőrzése",Inspect),
+            Btn("Hivatalos ASA API legújabb verzió ellenőrzése (READ-ONLY)",async ()=>{
+                try
+                {
+                    status.Text="Hivatalos ArkServerApi GitHub-verzió lekérdezése...";
+                    var release=await AsaApiReleaseCatalog.FetchLatestAsync(_http);
+                    status.Text="ASA API hivatalos upstream: "+release.Tag+
+                        "\nKiadás (UTC): "+(release.PublishedUtc?.ToString("O")??"ismeretlen")+
+                        "\nFájlok: "+string.Join(", ",release.Assets.Select(x=>x.Name+
+                            " ("+(x.OfficialSha256==null?"nincs kiadói SHA-256":"kiadói SHA-256 ismert")+")"))+
+                        "\n"+release.HtmlUrl+"\n"+release.Statement+
+                        "\nAPI telepítés és valódi module-load változatlanul külön validációhoz kötött.";
+                }
+                catch(Exception ex)
+                {
+                    status.Text="ASA API verzió lekérdezése sikertelen: "+ex.Message;
+                    WriteLog("asa-api-release",ex);
+                }
+            }),
             Label("Plugin mappaneve",12,Aqua),plugin,
             Btn("Kijelölt plugin KIKAPCSOLÁSA – csak igazoltan leállított map",()=>{
                 Toggle(false);
