@@ -27,7 +27,7 @@ public static class KovaStoreV1CopyReader
     public static KovaStoreV1CopyObservation Inspect(
         string coordinationCopy,string hpLocalCopy,string ryzenLocalCopy)
     {
-        var shared=Root(coordinationCopy),hp=Root(hpLocalCopy),ryzen=Root(ryzenLocalCopy);
+        string shared=Root(coordinationCopy),hp=Root(hpLocalCopy),ryzen=Root(ryzenLocalCopy);
         if(new[]{shared,hp,ryzen}.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=3)
             throw new InvalidDataException("Shared and both local Kova snapshot roots must be distinct");
         using var operation=Json(shared,"operation.json");
