@@ -81,6 +81,11 @@ try
         try{ReleaseCapabilityGate.DemandFakeAsaStart(gateService,invalidMap);}
         catch(InvalidOperationException){wrongBinaryDenied=true;}
         Assert(wrongBinaryDenied,"Test Start gate refuses an arbitrary Windows executable");
+        bool serviceGatewayDenied=false;
+        try{gateService.LaunchLocal(invalidMap.Id);}
+        catch(InvalidOperationException){serviceGatewayDenied=true;}
+        Assert(serviceGatewayDenied,
+            "ClusterService itself refuses real/arbitrary executable even if fake inspector says stopped");
     }
 
     var profileConfig=new ManagerConfig{LocalHostId=Guid.NewGuid().ToString("N"),
