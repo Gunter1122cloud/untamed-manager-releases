@@ -31,6 +31,71 @@ ClusterService? hp=null;
 ClusterService? ryzen=null;
 try
 {
+    // v1.3.4: Local file-copy backup does NOT claim live ASA, cluster or database consistency.
+    string offlineMap=Path.Combine(root,"offline-map");
+    string worldDir=Path.Combine(offlineMap,"ShooterGame","Saved","SavedArks");
+    string iniDir=Path.Combine(offlineMap,"ShooterGame","Saved","Config","WindowsServer");
+    string pluginsDir=Path.Combine(offlineMap,"ShooterGame","Binaries","Win64","ArkApi","Plugins","SamplePlugin");
+    Directory.CreateDirectory(worldDir);Directory.CreateDirectory(iniDir);Directory.CreateDirectory(pluginsDir);
+    File.WriteAllText(Path.Combine(worldDir,"world.ark"),"synthetic-world");
+    File.WriteAllText(Path.Combine(iniDir,"Game.ini"),"synthetic-ini");
+    File.WriteAllText(Path.Combine(pluginsDir,"settings.json"),"{\"secret\":\"preserve\"}");
+    File.WriteAllText(Path.Combine(pluginsDir,"license.key"),"keep-license");
+    File.WriteAllText(Path.Combine(pluginsDir,"data.db"),"persistent-rows");
+    File.WriteAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"),"old-binary");
+    var offline=new LocalMap{Name="BackupFixture",InstallationPath=offlineMap};
+    var stoppedMap=new ProcessCheck(false,"confirmed stopped",null,true);
+    string goodPackage=Path.Combine(root,"scoped-backup");
+    var scoped=LocalBackupWorkflow.Create(offline,stoppedMap,goodPackage,
+        LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini|LocalBackupScope.Plugins);
+    Assert(scoped.Manifest.Files.Count==6 &&
+        TestBackupPackage.Verify(goodPackage,offline.Id).Files.Count==6,
+        "Offline scoped world, INI and plugin backup verifies exact source files");
+    Assert(scoped.Consistency.Contains("NOT established"),"Offline file-copy does not claim ASA consistency");
+    bool runningBackupBlocked=false;
+    try{LocalBackupWorkflow.Create(offline,new ProcessCheck(true,"running",null),
+        Path.Combine(root,"running-copy"),LocalBackupScope.Ini);}catch(InvalidOperationException){runningBackupBlocked=true;}
+    Assert(runningBackupBlocked,"Backup requires confirmed stopped local map");
+    bool nestedBackupBlocked=false;
+    try{LocalBackupWorkflow.Create(offline,stoppedMap,Path.Combine(offlineMap,"nested-backup"),
+        LocalBackupScope.Ini);}catch(InvalidDataException){nestedBackupBlocked=true;}
+    Assert(nestedBackupBlocked,"Backup refuses source-destination path overlap");
+    File.WriteAllText(Path.Combine(goodPackage,"data","ShooterGame","Saved","SavedArks","world.ark"),"tampered");
+    bool scopedCorruption=false;
+    try{TestBackupPackage.Verify(goodPackage,offline.Id);}catch(InvalidDataException){scopedCorruption=true;}
+    Assert(scopedCorruption,"Scoped backup detects tampered world file");
+    string packageZip=Path.Combine(root,"plugin-update.zip");
+    using(var stream=File.Create(packageZip))
+    using(var archive=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create))
+    {
+        using(var writer=new StreamWriter(archive.CreateEntry("SamplePlugin/SamplePlugin.dll").Open()))writer.Write("new-binary");
+        using(var writer=new StreamWriter(archive.CreateEntry("SamplePlugin/settings.json").Open()))writer.Write("{\"secret\":\"overwrite-attempt\"}");
+    }
+    var zipInfo=SafePluginZip.Inspect(packageZip);
+    Assert(zipInfo.PluginName=="SamplePlugin"&&zipInfo.BinaryCount==1&&zipInfo.SkippedNonBinaryCount==1,
+        "Safe plugin ZIP identifies root DLL and omitted configuration");
+    bool runningInstallBlocked=false;
+    try{SafePluginZip.Install(offline,new ProcessCheck(false,"unknown",null),
+        packageZip,Path.Combine(root,"plugin-backups"));}catch(InvalidOperationException){runningInstallBlocked=true;}
+    Assert(runningInstallBlocked,"Plugin ZIP refuses uncertain server state");
+    var installed=SafePluginZip.Install(offline,stoppedMap,packageZip,Path.Combine(root,"plugin-backups"));
+    Assert(File.ReadAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"))=="new-binary",
+        "Plugin ZIP replaces binary on confirmed stopped map");
+    Assert(File.ReadAllText(Path.Combine(pluginsDir,"settings.json"))=="{\"secret\":\"preserve\"}" &&
+        File.ReadAllText(Path.Combine(pluginsDir,"data.db"))=="persistent-rows" &&
+        File.ReadAllText(Path.Combine(pluginsDir,"license.key"))=="keep-license",
+        "Plugin ZIP preserves config, persistent data and license");
+    Assert(installed.PreviousBackup!=null&&
+        File.ReadAllText(Path.Combine(installed.PreviousBackup,"SamplePlugin.dll"))=="old-binary" &&
+        !installed.PreviousBackup.StartsWith(offlineMap,StringComparison.OrdinalIgnoreCase),
+        "Previous plugin fully backed up outside active installation");
+    string unsafeZip=Path.Combine(root,"unsafe-plugin.zip");
+    using(var stream=File.Create(unsafeZip))
+    using(var archive=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create))
+        using(var writer=new StreamWriter(archive.CreateEntry("SamplePlugin/../evil.dll").Open()))writer.Write("evil");
+    bool unsafeBlocked=false;
+    try{SafePluginZip.Inspect(unsafeZip);}catch(InvalidDataException){unsafeBlocked=true;}
+    Assert(unsafeBlocked,"Plugin ZIP traversal is rejected before disk modification");
     familyLoader=Process.Start(new ProcessStartInfo(fake,"--loader-only-fixture"){UseShellExecute=false,CreateNoWindow=true})!;
     await Task.Delay(200);
     var loaderOnlyMap=new LocalMap{Name="Starting",ExecutablePath=fake,Arguments="--child-fixture",ApiLoaderPath=fake,ApiLoaderArguments="--loader-only-fixture"};
