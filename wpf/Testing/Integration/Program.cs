@@ -41,6 +41,7 @@ try
     await DiscordStatusTests.Run();
     NetworkLatencyTests.Run();
     AsaHistoricalEvidenceTests.Run();
+    await RconTransportTests.Run();
     var steam=SteamCmdPreflight.Inspect(steamFixture);
     Assert(steam.LengthBytes==new FileInfo(steamFixture).Length &&
         steam.Sha256==Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
