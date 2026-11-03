@@ -21,7 +21,7 @@ public static class SafePluginZip
     // Reject those paths before extraction, not after a partial plugin replacement.
     private static bool SafeWindowsPart(string part)
     {
-        if(!SafePart.IsMatch(part) || part.EndsWith('.',StringComparison.Ordinal))return false;
+        if(!SafePart.IsMatch(part) || part.EndsWith(".",StringComparison.Ordinal))return false;
         string stem=part.Split('.')[0];
         if(new[]{"CON","PRN","AUX","NUL"}.Contains(stem,StringComparer.OrdinalIgnoreCase))
             return false;
