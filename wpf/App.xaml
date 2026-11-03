@@ -41,6 +41,28 @@
         <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#21443E"/></Trigger>
       </Style.Triggers>
     </Style>
+        <LinearGradientBrush x:Key="MetalTitleBrush" StartPoint="0,0" EndPoint="0,1">
+      <GradientStop Color="#FFFFFF" Offset="0"/>
+      <GradientStop Color="#E8F7F4" Offset="0.35"/>
+      <GradientStop Color="#9FBABC" Offset="0.67"/>
+      <GradientStop Color="#FFFFFF" Offset="0.94"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="SideArtGradient" StartPoint="0,0" EndPoint="0,1">
+      <GradientStop Color="#071719" Offset="0"/>
+      <GradientStop Color="#062D2C" Offset="0.77"/>
+      <GradientStop Color="#00342F" Offset="1"/>
+    </LinearGradientBrush>
+    <Style x:Key="SectionHeading" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#F6FFF9"/>
+      <Setter Property="FontSize" Value="21"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#9ACCC4" BlurRadius="4" ShadowDepth="0" Opacity="0.38"/></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="HeroIcon" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="26"/>
+      <Setter Property="Foreground" Value="#4CF6DB"/>
+      <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#1BFFE2" BlurRadius="13" ShadowDepth="0" Opacity="0.78"/></Setter.Value></Setter>
+    </Style>
     <SolidColorBrush x:Key="Accent" Color="#A6F873"/>
     <SolidColorBrush x:Key="Teal" Color="#72DED0"/>
     <SolidColorBrush x:Key="Muted" Color="#9DB7B2"/>
