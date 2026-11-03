@@ -34,6 +34,7 @@ try
     string steamFixture=Path.Combine(root,"steamcmd.exe");
     File.WriteAllText(steamFixture,"offline synthetic steamcmd file");
     await OperationalFeaturesTests.Run(root,fake,args.Length>3?args[3]:null);
+    await ProfessionalOperationsTests.Run(root,fake);
     var steam=SteamCmdPreflight.Inspect(steamFixture);
     Assert(steam.LengthBytes==new FileInfo(steamFixture).Length &&
         steam.Sha256==Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
