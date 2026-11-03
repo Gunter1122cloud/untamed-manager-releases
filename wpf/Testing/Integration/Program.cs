@@ -344,9 +344,19 @@ try
     familyService=new ClusterService("family-test",familyRoot);familyMap=familyService.Config.LocalMaps.Single();
     Assert(familyService.Check(familyMap).Running,"Restarted Manager reattaches verified family");
     familyLoader.Kill();await familyLoader.WaitForExitAsync();familyLoader.Dispose();familyLoader=null;
-    Assert(familyService.Check(familyMap).Running,"Persisted child reattaches after loader exits");
-    await familyService.DisposeAsync();
+    // WMI may still expose the just-terminated parent for a short interval.
+    // Keep the production inspector fail-closed; wait for a fresh observation
+    // rather than claiming a stale or ambiguous family is safe.
+    var orphanObservation=familyService.Check(familyMap);
+    for(int retry=0;retry<30 && !orphanObservation.Running && !familyChild.HasExited;retry++)
+    {
+        await Task.Delay(100);
+        orphanObservation=familyService.Check(familyMap);
+    }
     Assert(!familyChild.HasExited,"Fixture child survives loader exit");
+    Assert(orphanObservation.Running,
+        "Persisted child reattaches after loader exits: "+orphanObservation.Status);
+    await familyService.DisposeAsync();
     familyChild.Kill();await familyChild.WaitForExitAsync();familyChild.Dispose();familyChild=null;
     var restore=new SyntheticRestore();
     File.WriteAllText(Path.Combine(restore.TargetDirectory,"world"),"old world");
