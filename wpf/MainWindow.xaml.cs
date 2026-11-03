@@ -93,7 +93,7 @@ public partial class MainWindow : Window
                 QueryPort=query,RconPort=rcon,CoverBrush=gradient,CoverImage=photo });
         }
         ServerCards.ItemsSource = _maps;
-        SetupTray();
+        if (!App.IsSmokeTest) SetupTray();
     }
 
     private void SetupTray()
@@ -130,6 +130,13 @@ public partial class MainWindow : Window
     }
     private void AnimateBackground()
     {
+        if (HeroImage.RenderTransform is ScaleTransform imageScale)
+        {
+            var zoom = new DoubleAnimation(1.03,1.12,TimeSpan.FromSeconds(24))
+            { AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever };
+            imageScale.BeginAnimation(ScaleTransform.ScaleXProperty,zoom);
+            imageScale.BeginAnimation(ScaleTransform.ScaleYProperty,zoom);
+        }
         var glow = FindName("AmbientGlow") as FrameworkElement;
         if (glow is not null)
         {
