@@ -58,7 +58,7 @@ public sealed class TelemetryHistory
             observation.CpuPercent,observation.MemoryBytes,observation.Players,
             null,null,observation.Error,false));
         string temp=file+".tmp";
-        File.WriteAllLines(temp,entries.TakeLast(2000).Select(JsonSerializer.Serialize));
+        File.WriteAllLines(temp,entries.TakeLast(2000).Select(e=>JsonSerializer.Serialize(e)));
         File.Move(temp,file,true);
         sampled[observation.Map]=observation.ObservedUtc;
     }
