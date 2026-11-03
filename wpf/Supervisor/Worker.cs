@@ -18,6 +18,7 @@ public static class SupervisorWorker
             var channel=new SupervisorChannel(store.Root);var events=new EventJournal(channel.Root);
             var scheduler=new PersistentScheduler(channel.Root);var inspector=new WindowsProcessInspector();var policy=new SupervisorPolicy();
             var telemetry=new TelemetryHistory(channel.Root);
+            var recurring=new RecurringReadOnlyRunner(channel.Root);
             using var self=Process.GetCurrentProcess();var started=new DateTimeOffset(self.StartTime.ToUniversalTime());
             var watchdogStates=new Dictionary<Guid,SupervisionState>();
             var advancedWatchdog=new WatchdogDiagnostics();
@@ -125,6 +126,50 @@ public static class SupervisorWorker
                             return Task.CompletedTask;
                         });
                         foreach(var receipt in scheduler.Receipts.Skip(receiptCount))events.Append(config.LocalHostName,null,receipt.Status=="succeeded"?"Information":"Warning","schedule-"+receipt.Status);
+                        // Background recurring schedules are independent of the WPF window.
+                        // Only bounded read-only inspections can execute. All restart,
+                        // wipe, Store, SQL, backup-copy or other mutating schedules are
+                        // recorded as blocked; nothing is backfilled after downtime.
+                        try
+                        {
+                            var ownedMaps=config.LocalMaps.ToDictionary(x=>x.Id);
+                            var results=recurring.Tick(config.RecurringSchedules,
+                                ownedMaps.Keys.ToHashSet(),now,
+                                job=>ownedMaps.TryGetValue(job.Map,out var m)&&m.Maintenance,
+                                job=>
+                                {
+                                    var m=ownedMaps[job.Map];
+                                    switch(job.Kind)
+                                    {
+                                        case OperationalTaskKind.Observation:
+                                            if(!observations.Any(o=>o.Map==m.Id))
+                                                throw new IOException("Supervisor observation unavailable");
+                                            break;
+                                        case OperationalTaskKind.ModCheck:
+                                            ModStateController.Read(m);
+                                            break;
+                                        case OperationalTaskKind.ApiCheck:
+                                            AsaApiInspector.Inspect(m.InstallationPath,
+                                                new ProcessCheck(false,"Read-only API inventory",null));
+                                            break;
+                                        case OperationalTaskKind.SteamCheck:
+                                            AsaInstallationInventory.Inspect(new[]{m},
+                                                map=>inspector.Inspect(map));
+                                            break;
+                                        default:
+                                            throw new InvalidOperationException("Mutation schedule disabled");
+                                    }
+                                });
+                            foreach(var result in results)
+                                events.Append(config.LocalHostName,result.Map,
+                                    result.Status=="succeeded"?"Information":"Warning",
+                                    "recurring-"+result.Status);
+                        }
+                        catch(Exception)
+                        {
+                            events.Append(config.LocalHostName,null,"Warning",
+                                "recurring-readonly-evaluation-failed");
+                        }
                         channel.Write(new(config.LocalHostId,Environment.ProcessId,started,Environment.ProcessPath!,DateTimeOffset.UtcNow,observations.ToArray()));
                         // Compatibility heartbeat for existing consumers; GUI trusts only the authenticated channel.
                         string heartbeat=Path.Combine(store.Root,"supervisor-heartbeat.json");
