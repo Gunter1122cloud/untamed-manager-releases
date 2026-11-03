@@ -1,0 +1,182 @@
+<Window x:Class="UntamedManager.MainWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="Untamed Kingdom Manager · Kingdom Edition WPF"
+ Width="1550" Height="940" MinWidth="1100" MinHeight="720"
+ WindowStartupLocation="CenterScreen" Background="#07191B"
+ Loaded="Window_Loaded" Closing="Window_Closing">
+ <Window.Resources>
+  <LinearGradientBrush x:Key="HeroBack" StartPoint="0,0" EndPoint="1,1">
+   <GradientStop Color="#092529" Offset="0"/><GradientStop Color="#174D48" Offset="0.52"/><GradientStop Color="#8D8148" Offset="0.85"/><GradientStop Color="#183A35" Offset="1"/>
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Cave" StartPoint="0,0" EndPoint="1,1">
+   <GradientStop Color="#112D31" Offset="0"/><GradientStop Color="#102327" Offset="0.7"/><GradientStop Color="#0C1C20" Offset="1"/>
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Night" StartPoint="0,0" EndPoint="0,1">
+   <GradientStop Color="#E2000D10" Offset="0"/><GradientStop Color="#F70B2020" Offset="1"/>
+  </LinearGradientBrush>
+  <Style x:Key="NavItem" TargetType="Button" BasedOn="{StaticResource NavButton}">
+   <Setter Property="Margin" Value="12,2"/>
+  </Style>
+  <Style x:Key="MapCardButton" TargetType="Button">
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Margin" Value="0,0,14,14"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Template">
+     <Setter.Value><ControlTemplate TargetType="Button">
+      <Border x:Name="Card" Background="#12282A" BorderBrush="#487F72" BorderThickness="1" CornerRadius="13" ClipToBounds="True">
+       <ContentPresenter/>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsMouseOver" Value="True">
+        <Setter TargetName="Card" Property="BorderBrush" Value="#A6F873"/>
+        <Setter TargetName="Card" Property="BorderThickness" Value="2"/>
+       </Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate></Setter.Value>
+    </Setter>
+  </Style>
+ </Window.Resources>
+ <Grid>
+  <Grid.ColumnDefinitions><ColumnDefinition Width="242"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <Grid Grid.Column="0" Background="#0B1B1F">
+   <Grid.RowDefinitions><RowDefinition Height="165"/><RowDefinition Height="*"/><RowDefinition Height="104"/></Grid.RowDefinitions>
+   <Grid Grid.Row="0">
+    <Rectangle Fill="#17342D"/>
+    <Canvas>
+     <Path Fill="#355C42" Data="M0 97 L53 44 91 80 143 8 204 83 242 37 242 0 0 0Z" Opacity="0.65"/>
+     <Path Fill="#0A241E" Data="M0 142 L54 102 96 131 151 74 205 122 242 96 242 165 0 165Z"/>
+    </Canvas>
+    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+     <TextBlock Text="◈" Foreground="#A6F873" FontSize="45" TextAlignment="Center" FontWeight="Bold"/>
+     <TextBlock Text="UNTAMED" Foreground="#F0FAEF" FontSize="27" FontWeight="Black" TextAlignment="Center" LetterSpacing="2"/>
+     <TextBlock Text="KINGDOM  MANAGER" Foreground="#9BF56E" FontSize="12" FontWeight="Bold" TextAlignment="Center"/>
+    </StackPanel>
+   </Grid>
+   <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="0,12,0,12">
+     <TextBlock Text="IRÁNYÍTÓKÖZPONT" Foreground="#91AFAA" FontSize="11" Margin="24,5,0,6"/>
+     <Button Content="⌂     Áttekintés" Style="{StaticResource NavItem}" Tag="dashboard" Click="Navigate_Click" Background="#22513C"/>
+     <Button Content="▤     Szerverek" Style="{StaticResource NavItem}" Tag="servers" Click="Navigate_Click"/>
+     <TextBlock Text="TARTALOM ÉS KONFIGURÁCIÓ" Foreground="#91AFAA" FontSize="11" Margin="24,22,0,6"/>
+     <Button Content="◇     CurseForge modok" Style="{StaticResource NavItem}" Tag="mods" Click="Navigate_Click"/>
+     <Button Content="✳     ASA API / pluginok" Style="{StaticResource NavItem}" Tag="plugins" Click="Navigate_Click"/>
+     <Button Content="▤     INI szerkesztő" Style="{StaticResource NavItem}" Tag="ini" Click="Navigate_Click"/>
+     <TextBlock Text="ÜZEMELTETÉS" Foreground="#91AFAA" FontSize="11" Margin="24,22,0,6"/>
+     <Button Content="▣     Mentések" Style="{StaticResource NavItem}" Tag="backups" Click="Navigate_Click"/>
+     <Button Content="⌘     RCON konzol" Style="{StaticResource NavItem}" Tag="rcon" Click="Navigate_Click"/>
+     <Button Content="◷     Ütemezések" Style="{StaticResource NavItem}" Tag="schedules" Click="Navigate_Click"/>
+     <TextBlock Text="ALKALMAZÁS" Foreground="#91AFAA" FontSize="11" Margin="24,22,0,6"/>
+     <Button Content="✧     Licenc / Frissítés" Style="{StaticResource NavItem}" Tag="license" Click="Navigate_Click"/>
+     <Button Content="⚙     Beállítások" Style="{StaticResource NavItem}" Tag="settings" Click="Navigate_Click"/>
+    </StackPanel>
+   </ScrollViewer>
+   <StackPanel Grid.Row="2" Margin="15,0,15,18" VerticalAlignment="Bottom">
+    <Border Background="#214236" CornerRadius="7" Padding="9,7"><TextBlock Text="ELKÜLÖNÍTETT TESZTGÉP" Foreground="#B8F89C" FontSize="10" TextAlignment="Center"/></Border>
+    <TextBlock Text="Kova Store: változatlan" Foreground="#73D8C6" FontSize="11" Margin="4,9,0,0"/>
+    <TextBlock Text="0 aktív agent · Offline audit" Foreground="#8FB7B1" FontSize="11" Margin="4,5,0,0"/>
+   </StackPanel>
+  </Grid>
+  <Grid Grid.Column="1">
+   <Grid.RowDefinitions><RowDefinition Height="70"/><RowDefinition Height="*"/><RowDefinition Height="34"/></Grid.RowDefinitions>
+   <Border Grid.Row="0" Background="#0B2426" BorderBrush="#33534B" BorderThickness="0,0,0,1">
+    <DockPanel Margin="24,0,24,0">
+     <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+      <TextBlock Text="UNTAMED KINGDOM  /  SZERVERÜZEMELTETÉS" FontSize="13" Foreground="#DDF2E7" FontWeight="SemiBold"/>
+      <TextBlock Text="Windows WPF alkalmazás · helyi tesztadatok · élő kapcsolat nélkül" FontSize="11" Foreground="#8BBAB3" Margin="0,5,0,0"/>
+     </StackPanel>
+     <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
+      <Border Background="#203F3B" CornerRadius="8" Padding="13,8" Margin="0,0,10,0"><TextBlock Text="WPF 1.0.1" Foreground="#73DDC8" FontSize="11"/></Border>
+      <Border Background="#433122" CornerRadius="8" Padding="13,8"><TextBlock Text="NINCS ÉLŐ AGENT" Foreground="#F4BB78" FontSize="11"/></Border>
+     </StackPanel>
+    </DockPanel>
+   </Border>
+   <Grid Grid.Row="1">
+    <ScrollViewer x:Name="Dashboard" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+     <StackPanel Margin="22,18,8,25">
+      <Border Height="276" BorderBrush="#548A6B" BorderThickness="1" CornerRadius="16" ClipToBounds="True" Background="{StaticResource HeroBack}">
+       <Grid>
+        <Canvas ClipToBounds="True">
+         <Path Fill="#163E35" Opacity="0.75" Data="M0 209 L95 157 170 190 280 103 380 160 525 113 676 170 811 102 940 187 1140 135 1340 207 1340 290 0 290Z"/>
+         <Path Fill="#0A2B26" Data="M0 234 L101 193 220 225 350 147 499 231 624 189 786 233 940 182 1120 216 1340 209 1340 290 0 290Z"/>
+         <Path Stroke="#61E9CB" StrokeThickness="9" Opacity="0.75" Data="M906 52 L906 213"/>
+         <Path Fill="#113D3B" Stroke="#5EAF9A" StrokeThickness="2" Data="M883 214 L899 111 909 61 928 112 946 214Z"/>
+         <Path Fill="#9BE96F" Opacity="0.42" Data="M893 121 L908 79 920 121Z"/>
+         <Path Fill="#071719" Stroke="#70A982" StrokeThickness="3" Data="M1003 178 C1013 118 1059 74 1137 76 C1183 77 1204 97 1210 131 L1263 141 1221 160 1203 166 C1190 191 1177 207 1152 210 L1162 260 1130 260 1110 217 1060 217 1037 262 1008 262 1025 209 1003 178Z"/>
+         <Path Fill="#0A2420" Data="M1204 140 L1282 156 1220 166Z"/>
+         <Ellipse Fill="#DDF9A0" Width="8" Height="8" Canvas.Left="1183" Canvas.Top="121"/>
+         <Path Fill="#061618" Data="M0 270 L77 235 101 267 156 215 189 271 279 222 310 290 0 290Z"/>
+        </Canvas>
+        <Rectangle Fill="{StaticResource Night}"/>
+        <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center" Margin="33,0,370,0">
+         <TextBlock Text="ARK: SURVIVAL ASCENDED" FontWeight="SemiBold" FontSize="12" Foreground="#A6F873"/>
+         <TextBlock Text="UNTAMED KINGDOM" FontSize="35" FontWeight="Black" Foreground="White" Margin="0,11,0,0" TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="CONTROL CENTER  /  10 WORLD INSTANCES" FontSize="16" Foreground="#73E3CD" Margin="0,4,0,0"/>
+         <TextBlock Text="Két gazdagép · egy cluster · saját Windows-kezelő" FontSize="13" Foreground="#E7F5EF" Margin="0,13,0,0"/>
+         <StackPanel Orientation="Horizontal" Margin="0,21,0,0">
+          <Button Style="{StaticResource ActionButton}" Background="#A6F873" Foreground="#102219" Content="Szerverek kezelése" Tag="servers" Click="Navigate_Click"/>
+          <Button Style="{StaticResource ActionButton}" Content="Mod Center" Tag="mods" Click="Navigate_Click"/>
+          <Button Style="{StaticResource ActionButton}" Content="Mentések" Tag="backups" Click="Navigate_Click"/>
+         </StackPanel>
+        </StackPanel>
+       </Grid>
+      </Border>
+      <UniformGrid Columns="4" Margin="0,18,0,4">
+       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="TÉRKÉPEK" Foreground="#9DB7B2"/><TextBlock Text="10" Foreground="#A6F873" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="5 HP + 5 Ryzen" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
+       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="GAZDAGÉPEK" Foreground="#9DB7B2"/><TextBlock Text="2" Foreground="White" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Külön Windows gépek" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
+       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="MOD-HOZZÁRENDELÉS" Foreground="#9DB7B2"/><TextBlock Text="294" Foreground="#73DDC8" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="2026.11.02-i audit" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
+       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="ÉLŐ KAPCSOLAT" Foreground="#9DB7B2"/><TextBlock Text="0 / 2" Foreground="#F4BB78" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Agent nincs csatlakoztatva" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
+      </UniformGrid>
+      <DockPanel Margin="0,4,12,14">
+       <TextBlock Text="Gazdagépek / infrastruktúra" DockPanel.Dock="Left" FontSize="21" FontWeight="Bold"/>
+       <TextBlock Text="Kova Store: változatlan és védett" DockPanel.Dock="Right" Foreground="#7DE6C8" FontSize="11" VerticalAlignment="Center"/>
+      </DockPanel>
+      <UniformGrid Columns="2">
+       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-01  ·  HP EliteDesk 800 G6" FontWeight="Bold" FontSize="16"/><TextBlock Text="Intel Core i7-10700    •    79,34 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
+       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-02  ·  Ryzen 5 5600X" FontWeight="Bold" FontSize="16"/><TextBlock Text="AMD Ryzen 5 5600X    •    80 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
+      </UniformGrid>
+      <DockPanel Margin="0,2,12,13"><TextBlock Text="Cluster szerverek (10)" DockPanel.Dock="Left" FontWeight="Bold" FontSize="21"/><TextBlock Text="TÖRTÉNETI AUDIT · NEM ÉLŐ ÁLLAPOT" DockPanel.Dock="Right" Foreground="#F4BB78" FontSize="11" VerticalAlignment="Center"/></DockPanel>
+      <ItemsControl x:Name="ServerCards">
+       <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+       <ItemsControl.ItemTemplate>
+        <DataTemplate>
+         <Button Style="{StaticResource MapCardButton}" Width="216" Height="173" Tag="{Binding}" Click="Map_Click">
+          <Grid>
+           <Grid.RowDefinitions><RowDefinition Height="107"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+           <Grid Grid.Row="0" ClipToBounds="True">
+            <Border Background="{Binding CoverBrush}"/>
+            <Canvas>
+             <Path Fill="#416E55" Opacity="0.56" Data="M0 110 L48 67 81 90 134 26 172 87 215 45 215 115Z"/>
+             <Path Fill="#163B38" Data="M0 110 L59 92 92 110 154 71 216 109 216 117 0 117Z"/>
+            </Canvas>
+            <Border Background="#B01A211E" Padding="8,5" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="5" Margin="0,8,9,0"><TextBlock Text="AUDIT" FontSize="10" Foreground="#F2C18A"/></Border>
+           </Grid>
+           <StackPanel Grid.Row="1" Margin="12,7,7,4">
+            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="16" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Text="{Binding Caption}" Foreground="#73DDC8" FontSize="11" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+           </StackPanel>
+          </Grid>
+         </Button>
+        </DataTemplate>
+       </ItemsControl.ItemTemplate>
+      </ItemsControl>
+     </StackPanel>
+    </ScrollViewer>
+    <ScrollViewer x:Name="OtherPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+     <StackPanel Margin="27,26,26,35">
+      <TextBlock x:Name="PageEyebrow" Text="UNTAMED KINGDOM / MANAGEMENT" Foreground="#73DDC8" FontSize="12"/>
+      <TextBlock x:Name="PageTitle" Text="Szerverek" Foreground="White" FontSize="29" FontWeight="Bold" Margin="0,10,0,5"/>
+      <TextBlock x:Name="PageDescription" Text="Adatelemzés" Foreground="#A6C5C0" TextWrapping="Wrap" Margin="0,0,0,22"/>
+      <StackPanel x:Name="PageBody"/>
+     </StackPanel>
+    </ScrollViewer>
+   </Grid>
+   <Border Grid.Row="2" Background="#0D2425" BorderBrush="#325650" BorderThickness="0,1,0,0" Padding="15,7">
+    <DockPanel><TextBlock Text="●  Elkülönített tesztgép · nincs éles szerverkapcsolat" Foreground="#73DDC8" FontSize="11"/>
+     <TextBlock Text="UNTAMED KINGDOM" DockPanel.Dock="Right" Foreground="#92AAA6" FontSize="11"/></DockPanel>
+   </Border>
+  </Grid>
+ </Grid>
+</Window>
