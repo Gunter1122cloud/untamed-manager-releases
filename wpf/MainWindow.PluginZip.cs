@@ -37,6 +37,35 @@ public partial class MainWindow
                 }
                 catch(Exception ex){result.Text="ZIP elutasítva: "+ex.Message;}
             }),
+            Btn("Kijelölt mapok pluginfrissítési előnézete (írás nélkül)",()=>{
+                var selected=maps.SelectedItems.OfType<LocalMap>().ToArray();
+                if(selected.Length==0){result.Text="Előbb jelölj ki helyi mapokat.";return;}
+                try
+                {
+                    var preview=new List<string>();
+                    string backups=Path.Combine(_cluster.Store.Root,"plugin-backups");
+                    foreach(var map in selected)
+                    {
+                        if(!_cluster.Config.LocalMaps.Contains(map))
+                            throw new UnauthorizedAccessException("Only registered local maps allowed");
+                        var state=_cluster.Check(map);
+                        var info=SafePluginZip.Preview(map,state,path.Text.Trim(),backups);
+                        preview.Add(map.Name+" · "+info.PluginName+" · "+
+                            (info.Ready?"Előkészíthető":"TILTVA")+" · "+
+                            info.BinaryCount+" DLL · kihagyott config/adatfájl: "+
+                            info.SkippedFiles+" · "+
+                            (info.PreviousPluginExists?"Meglévő plugin külön mentendő":"Új plugin")+
+                            " · "+info.Reason);
+                    }
+                    result.Text=string.Join("\n",preview)+
+                        "\nEz csak előnézet. A végrehajtás minden feltételt újra ellenőriz.";
+                }
+                catch(Exception ex)
+                {
+                    result.Text="Előnézet elutasítva: "+ex.Message;
+                    WriteLog("plugin-zip-preview",ex);
+                }
+            }),
             Btn("DLL-ek frissítése a kijelölt leállított mapokon",()=>{
                 var selected=maps.SelectedItems.OfType<LocalMap>().ToArray();
                 if(selected.Length==0){result.Text="Válassz legalább egy helyi mapot.";return;}
