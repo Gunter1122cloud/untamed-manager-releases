@@ -19,6 +19,8 @@ public static class SupervisorWorker
             var scheduler=new PersistentScheduler(channel.Root);var inspector=new WindowsProcessInspector();var policy=new SupervisorPolicy();
             using var self=Process.GetCurrentProcess();var started=new DateTimeOffset(self.StartTime.ToUniversalTime());
             var watchdogStates=new Dictionary<Guid,SupervisionState>();
+            var advancedWatchdog=new WatchdogDiagnostics();
+            var lastDiagnosticCodes=new Dictionary<Guid,string>();
             var previous=new Dictionary<Guid,MapObservation>();var cpu=new Dictionary<int,(DateTimeOffset time,TimeSpan cpu,DateTimeOffset start)>();
             var config=store.Read();events.Append(config.LocalHostName,null,"Information","supervisor-start");
             try
@@ -64,6 +66,35 @@ public static class SupervisorWorker
                                 }catch(UnauthorizedAccessException){rcon="RCON hitelesítési hiba";}
                                 catch{rcon="RCON nem elérhető vagy időtúllépés";}
                             }
+                            // Watchdog 2.0 observes independent failure categories.
+                            // RCON failure alone never proves that a running game is frozen.
+                            RconSignal rconSignal=rcon=="RCON hitelesítési hiba"?
+                                RconSignal.AuthenticationFailed:
+                                rcon=="RCON nem elérhető vagy időtúllépés"?
+                                RconSignal.Unreachable:
+                                rcon.StartsWith("Hitelesített válasz",StringComparison.Ordinal)?
+                                RconSignal.Responding:RconSignal.NotConfigured;
+                            bool previouslyRunning=previous.TryGetValue(map.Id,out var previousMap)&&
+                                previousMap.Running==true;
+                            var diagnosis=advancedWatchdog.Observe(new WatchdogEvidence(
+                                map.Id,state,previouslyRunning,
+                                !string.IsNullOrWhiteSpace(map.ApiLoaderPath),
+                                state.LoaderIdentity!=null,rconSignal,true,true,maintenance,now));
+                            string diagnosticKey=diagnosis.Maintenance?"maintenance":
+                                string.Join(",",diagnosis.Issues.OrderBy(x=>x))+
+                                ":"+diagnosis.NeedsAttention;
+                            if(!lastDiagnosticCodes.TryGetValue(map.Id,out var oldDiagnostic) ||
+                               oldDiagnostic!=diagnosticKey)
+                            {
+                                events.Append(config.LocalHostName,map.Id,
+                                    diagnosis.NeedsAttention?"Warning":"Information",
+                                    WatchdogDiagnostics.EventCode(diagnosis));
+                                lastDiagnosticCodes[map.Id]=diagnosticKey;
+                            }
+                            string advancedStatus=diagnosis.Recommendation+
+                                (diagnosis.FailureCounts.Count==0?"":
+                                    " · "+string.Join(", ",diagnosis.FailureCounts
+                                        .Select(x=>x.Key+":"+x.Value)));
                             string log="Nem elérhető";
                             try
                             {
@@ -73,7 +104,7 @@ public static class SupervisorWorker
                             }catch{}
                             var observation=new MapObservation(map.Id,map.Name,state.Running?true:state.ConfirmedStopped?false:null,
                                 string.IsNullOrWhiteSpace(map.ApiLoaderPath)?"Nincs konfigurálva":state.LoaderIdentity!=null?state.Status:"Ismeretlen / indulás alatt",rcon,load,ram,uptime,now,null,maintenance,
-                                watchdog.AttentionRequired?"Kézi ellenőrzés szükséges; automatikus beavatkozás tiltva":"Csak megfigyelés",log,"Nincs szerverbeavatkozás",state.Status);
+                                advancedStatus,log,"Nincs szerverbeavatkozás",state.Status);
                             if(!previous.TryGetValue(map.Id,out var oldObservation)||oldObservation.Running!=observation.Running||oldObservation.Loader!=observation.Loader)
                                 events.Append(config.LocalHostName,map.Id,state.Running?"Information":"Warning","process-observation-changed");
                             if(oldObservation==null||oldObservation.Rcon!=rcon)events.Append(config.LocalHostName,map.Id,"Information","rcon-observation-changed");
