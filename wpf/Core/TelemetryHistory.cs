@@ -13,6 +13,7 @@ public sealed record TelemetrySample(Guid Map,DateTimeOffset ObservedUtc,
 public sealed class TelemetryHistory
 {
     private readonly string root;
+    private readonly Dictionary<Guid,DateTimeOffset> sampled=new();
     public TelemetryHistory(string localProfile)
     {
         if(string.IsNullOrWhiteSpace(localProfile) ||
@@ -39,6 +40,8 @@ public sealed class TelemetryHistory
         if(observation.ObservedUtc>now.AddSeconds(5) ||
            now-observation.ObservedUtc>TimeSpan.FromSeconds(30))
             return; // never treat stale observations as live samples
+        if(sampled.TryGetValue(observation.Map,out var previous) &&
+           observation.ObservedUtc-previous<TimeSpan.FromSeconds(30))return;
         string file=FileFor(observation.Map);
         var lines=File.Exists(file)?File.ReadAllLines(file):Array.Empty<string>();
         var entries=new List<TelemetrySample>();
@@ -57,6 +60,7 @@ public sealed class TelemetryHistory
         string temp=file+".tmp";
         File.WriteAllLines(temp,entries.TakeLast(2000).Select(JsonSerializer.Serialize));
         File.Move(temp,file,true);
+        sampled[observation.Map]=observation.ObservedUtc;
     }
     public IReadOnlyList<TelemetrySample> Read(Guid map,DateTimeOffset now,int max=500)
     {
