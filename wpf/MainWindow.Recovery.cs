@@ -139,6 +139,18 @@ public partial class MainWindow
                 }
                 catch(Exception ex){recovery.Text="Helyreállítási napló nem olvasható: "+ex.Message;}
             }),recovery)));
+        string AffectedLocalMaps()
+        {
+            if(_supervisorSnapshot==null ||
+               !StatusFreshness.IsFresh(_supervisorSnapshot.ObservedUtc,DateTimeOffset.UtcNow))
+                return "Korábban futó mapok: nem igazolt friss Supervisor-mérésből.";
+            var names=_cluster.Config.LocalMaps.Where(map=>
+                _supervisorSnapshot.Maps.Any(obs=>obs.Map==map.Id && obs.Running==true &&
+                    StatusFreshness.IsFresh(obs.ObservedUtc,DateTimeOffset.UtcNow)))
+                .Select(map=>map.Name).ToArray();
+            return "Korábban futó, frissen megfigyelt helyi mapok (csak előnézet): "+
+                (names.Length==0?"nincs igazolt futó map":string.Join(", ",names));
+        }
         var wan=Label("A WAN-monitor nincs elindítva; sem a router, sem a DDNS beállításai nem változnak.",12,Soft);
         Add(Box(V(
             Label("WAN-IP / untamedkingdom.ddns.net – csak megfigyelés",18,Mint,true),
@@ -153,7 +165,7 @@ public partial class MainWindow
                 var change=tracker.Observe(new WanProbe(start.AddSeconds(93),"1.1.1.1","1.1.1.1",new[]{"1.1.1.1"}));
                 wan.Text="SZIMULÁCIÓ · "+change.State+" · "+
                     (change.ConfirmedChange?"IP-váltás megerősítve":"nincs megerősítve")+
-                    "\n"+change.Message+"\nÉles map-újraindítás tiltva.";
+                    "\n"+change.Message+"\n"+AffectedLocalMaps()+"\nÉles map-újraindítás tiltva.";
             }),
             Btn("Valós IP + DDNS ellenőrzése (csak olvasás)",async ()=>{
                 if(DateTimeOffset.UtcNow-_lastWanProbe<TimeSpan.FromMinutes(2))
@@ -168,7 +180,7 @@ public partial class MainWindow
                     wan.Text="Mérés: "+result.State+"\nWAN alapvonal: "+
                         (result.Baseline??"még nem igazolt")+" · DNS egyezik: "+
                         (result.DdnsMatches?"igen":"nem igazolt")+"\n"+
-                        result.Message+"\nMegerősítés után sincs automatikus restart.";
+                        result.Message+"\n"+AffectedLocalMaps()+"\nMegerősítés után sincs automatikus restart.";
                 }
                 catch(Exception ex){wan.Text="WAN megfigyelés sikertelen: "+ex.GetType().Name+
                     ". Szerverművelet nem történt.";}
