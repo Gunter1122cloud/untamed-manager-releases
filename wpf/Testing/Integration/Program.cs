@@ -37,6 +37,7 @@ try
     await ProfessionalOperationsTests.Run(root,fake);
     ClusterVaultTests.Run(root);
     SafeSupportBundleTests.Run(root);
+    await DiscordStatusTests.Run();
     var steam=SteamCmdPreflight.Inspect(steamFixture);
     Assert(steam.LengthBytes==new FileInfo(steamFixture).Length &&
         steam.Sha256==Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
