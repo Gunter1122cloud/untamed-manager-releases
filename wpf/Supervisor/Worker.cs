@@ -17,6 +17,7 @@ public static class SupervisorWorker
             if(!entered)throw new IOException("Supervisor already owns this local profile");
             var channel=new SupervisorChannel(store.Root);var events=new EventJournal(channel.Root);
             var scheduler=new PersistentScheduler(channel.Root);var inspector=new WindowsProcessInspector();var policy=new SupervisorPolicy();
+            var telemetry=new TelemetryHistory(channel.Root);
             using var self=Process.GetCurrentProcess();var started=new DateTimeOffset(self.StartTime.ToUniversalTime());
             var watchdogStates=new Dictionary<Guid,SupervisionState>();
             var advancedWatchdog=new WatchdogDiagnostics();
@@ -108,6 +109,7 @@ public static class SupervisorWorker
                             if(!previous.TryGetValue(map.Id,out var oldObservation)||oldObservation.Running!=observation.Running||oldObservation.Loader!=observation.Loader)
                                 events.Append(config.LocalHostName,map.Id,state.Running?"Information":"Warning","process-observation-changed");
                             if(oldObservation==null||oldObservation.Rcon!=rcon)events.Append(config.LocalHostName,map.Id,"Information","rcon-observation-changed");
+                            try{telemetry.Observe(observation,now);}catch{events.Append(config.LocalHostName,map.Id,"Warning","telemetry-write-rejected");}
                             previous[map.Id]=observation;observations.Add(observation);
                         }
                         int receiptCount=scheduler.Receipts.Length;
