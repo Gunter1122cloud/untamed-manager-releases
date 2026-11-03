@@ -18,6 +18,10 @@ public sealed record CurseForgeMod(int Id,string Name,string Summary,string? Web
     string? LatestFile,DateTimeOffset? ModifiedUtc);
 public sealed record CurseForgeSearchResult(int GameId,IReadOnlyList<CurseForgeMod> Mods,
     int TotalCount,int Index,bool HasMore);
+public sealed record CurseForgeFile(int FileId,int ModId,string Name,DateTimeOffset? Published,
+    bool Available,IReadOnlyList<int> Dependencies);
+public sealed record CurseForgeFilesResult(int ModId,IReadOnlyList<CurseForgeFile> Files,
+    int Index,int Total,bool HasMore);
 
 public sealed class CurseForgeCatalog
 {
@@ -75,6 +79,47 @@ public sealed class CurseForgeCatalog
            pagination.ValueKind==JsonValueKind.Object)
             total=Int(pagination,"totalCount");
         return new(game,mods,total,index,index+PageSize<Math.Min(total,10000));
+    }
+
+    // Official Core API file metadata only. Not a download entitlement and not
+    // proof that a mod is Crossplay, free or enabled on the local ASA runtime.
+    public async Task<CurseForgeFilesResult> GetModFilesAsync(string key,int modId,
+        int index=0,CancellationToken ct=default)
+    {
+        if(string.IsNullOrWhiteSpace(key) || key.Length>512 || key.Any(char.IsControl))
+            throw new ArgumentException("Approved CurseForge API key required",nameof(key));
+        if(modId<10000 || index<0 || index>9975 || index%25!=0)
+            throw new ArgumentOutOfRangeException(nameof(modId));
+        using var document=await Request(key,
+            "/v1/mods/"+modId+"/files?index="+index+"&pageSize=25",ct);
+        var root=document.RootElement;
+        var data=Array(root,"data");
+        var files=new List<CurseForgeFile>();
+        foreach(var item in data.EnumerateArray())
+        {
+            int fileId=Int(item,"id");
+            if(fileId<=0 || Int(item,"modId")!=modId)continue;
+            string display=Str(item,"displayName")??Str(item,"fileName")??"";
+            if(display.Length==0)display="File "+fileId;
+            DateTimeOffset? published=null;
+            if(DateTimeOffset.TryParse(Str(item,"fileDate"),out var when))
+                published=when;
+            var deps=new List<int>();
+            if(item.TryGetProperty("dependencies",out var dependencies) &&
+               dependencies.ValueKind==JsonValueKind.Array)
+                foreach(var dependency in dependencies.EnumerateArray())
+                {
+                    var id=Int(dependency,"modId");
+                    if(id>0 && !deps.Contains(id) && deps.Count<100)deps.Add(id);
+                }
+            bool available=item.TryGetProperty("isAvailable",out var availability) &&
+                availability.ValueKind==JsonValueKind.True;
+            files.Add(new(fileId,modId,display,published,available,deps));
+        }
+        int total=files.Count;
+        if(root.TryGetProperty("pagination",out var page)&&page.ValueKind==JsonValueKind.Object)
+            total=Int(page,"totalCount");
+        return new(modId,files,index,total,index+25<Math.Min(total,10000));
     }
 
     private async Task<int> FindAsaGameAsync(string key,CancellationToken ct)
