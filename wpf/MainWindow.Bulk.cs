@@ -27,6 +27,7 @@ public partial class MainWindow
             Label("CurseForge mod ID-k, vesszővel elválasztva",13,Aqua,true),ids,
             Btn("Modok hozzáadása a kijelölt helyi mapokhoz",()=>Apply(true)),
             Btn("Modok eltávolítása a kijelölt helyi mapokból",()=>Apply(false)),info)));
+        ShowModOrderingControls();
         void Apply(bool add)
         {
             var maps=selected.SelectedItems.OfType<LocalMap>().ToList();
@@ -47,6 +48,57 @@ public partial class MainWindow
                 WriteLog("bulk-mods",e);
             }
         }
+    }
+    private void ShowModOrderingControls()
+    {
+        var maps=new ListBox {
+            ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",
+            SelectionMode=SelectionMode.Single,Height=125,Foreground=Brushes.White,
+            Background=Panel,BorderBrush=Aqua
+        };
+        var order=new TextBox { Height=38,Background=Panel,Foreground=Brushes.White,
+            BorderBrush=Aqua,ToolTip="Pontosan a meglévő mod ID-k, új sorrendben" };
+        var status=Label("Csak a modok sorrendje változhat; hozzáadás és eltávolítás itt tiltott.",12,Soft);
+        Add(Box(V(
+            Label("Modok betöltési sorrendje – helyi map",20,Mint,true),
+            Label("Az indítási -mods= lista olvasása és biztonságos átrendezése; futó szervert nem módosítunk.",12,Soft),
+            maps,
+            Btn("Jelenlegi sorrend beolvasása",()=>{
+                try
+                {
+                    if(maps.SelectedItem is not LocalMap map || !_cluster.Config.LocalMaps.Contains(map))
+                        throw new InvalidOperationException("Válassz egy helyi mapot");
+                    order.Text=string.Join(",",LocalContentOperations.ReadMods(map.Arguments));
+                    status.Text=map.Name+": a jelenlegi mod ID-k sorrendje betöltve.";
+                }
+                catch(Exception e){status.Text="Beolvasás sikertelen: "+e.Message;WriteLog("mod-order-read",e);}
+            }),
+            Label("Mod ID-k kívánt sorrendben, vesszővel elválasztva",13,Aqua),
+            order,
+            Btn("Sorrend előnézete és mentése",()=>{
+                if(maps.SelectedItem is not LocalMap map || !_cluster.Config.LocalMaps.Contains(map))
+                { status.Text="Válassz egy helyi mapot.";return; }
+                var original=map.Arguments;
+                try
+                {
+                    var requested=order.Text.Split(',',StringSplitOptions.TrimEntries);
+                    var proposed=LocalContentOperations.ReorderMods(original,requested);
+                    if(WinMessageBox.Show(
+                        $"A(z) {map.Name} modbetöltési sorrendje a KÖVETKEZŐ indításkor változik:\n\n"+
+                        proposed+"\n\nA többi indítási paraméter és a modlista tartalma változatlan. Mented?",
+                        "Modok sorrendje",MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)return;
+                    map.Arguments=proposed;
+                    _cluster.Save();
+                    status.Text=map.Name+": a modok sorrendje mentve. Nincs automatikus újraindítás.";
+                }
+                catch(Exception e)
+                {
+                    map.Arguments=original;
+                    status.Text="Sorrendmódosítás elutasítva: "+e.Message;
+                    WriteLog("mod-order",e);
+                }
+            }),
+            status)));
     }
     private void ShowBulkPluginsControls() => ShowSafeZipPluginsControls();
 
