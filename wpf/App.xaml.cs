@@ -38,11 +38,13 @@ public partial class App : System.Windows.Application
             {
                 const int width=1650, height=930;
                 var window=new MainWindow {Width=width,Height=height};
+                window.Show();
                 window.Measure(new Size(width,height));
                 window.Arrange(new Rect(0,0,width,height));
                 window.UpdateLayout();
+                window.Dispatcher.Invoke(() => { },DispatcherPriority.Render);
                 var bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
-                bitmap.Render(window);
+                bitmap.Render((Visual)window.Content);
                 var png=new PngBitmapEncoder();
                 png.Frames.Add(BitmapFrame.Create(bitmap));
                 string path=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_PATH") ?? Path.Combine(LogDir,"preview.png");
