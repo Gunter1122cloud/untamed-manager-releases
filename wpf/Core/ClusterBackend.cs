@@ -23,6 +23,8 @@ public sealed class LocalMap
     public string InstallationPath { get; set; } = "";
     public string Arguments { get; set; } = "";
     public string LogFilePath { get; set; } = "";
+    public string ApiLoaderPath { get; set; } = "";
+    public string StoreTestRoot { get; set; } = "";
     public int GamePort { get; set; }
     public int QueryPort { get; set; }
     public int RconPort { get; set; }
@@ -381,6 +383,15 @@ public sealed class ClusterService : IAsyncDisposable
     public ProcessCheck Check(LocalMap map)
     {
         if(!Config.LocalMaps.Contains(map)) throw new UnauthorizedAccessException("Not a local map");
+        if(!string.IsNullOrWhiteSpace(map.ApiLoaderPath))
+            return new(false,"API-loader identity is unverified; operations blocked",null);
+        if(map.Arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase))
+            return new(false,"Store conversion is forbidden",null);
+        if(map.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase))
+        {
+            var store=LocalStoreProbe.Inspect(map.StoreTestRoot,"KovaCluster",map.Arguments);
+            if(!store.Safe)return new(false,store.Reason,null);
+        }
         var check=_inspect(map);
         if(check.Running && check.Identity!=null)
         {

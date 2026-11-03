@@ -45,6 +45,44 @@ try
     bool missing=false;
     try { BackupIntegrity.Verify(backupDir,manifest,backupOwner); } catch(InvalidDataException) { missing=true; }
     Assert(missing,"Missing backup file rejected");
+    string packageSource=Path.Combine(root,"package-source");
+    Directory.CreateDirectory(packageSource);
+    File.WriteAllText(Path.Combine(packageSource,"world.fixture"),"synthetic data");
+    string package=Path.Combine(root,"package");
+    TestBackupPackage.Create(packageSource,package,backupOwner,"Synthetic world only");
+    Assert(TestBackupPackage.Verify(package,backupOwner).Files.Count==1,"Actual staged test backup commits and verifies");
+    File.WriteAllText(Path.Combine(package,"data","world.fixture"),"damaged");
+    bool packageCorrupt=false;
+    try { TestBackupPackage.Verify(package,backupOwner); } catch(InvalidDataException) { packageCorrupt=true; }
+    Assert(packageCorrupt,"Actual backup payload corruption rejected");
+    File.Delete(Path.Combine(package,"complete"));
+    bool incomplete=false;
+    try { TestBackupPackage.Verify(package,backupOwner); } catch(InvalidDataException) { incomplete=true; }
+    Assert(incomplete,"Uncommitted backup rejected");
+    Assert(!LocalStoreProbe.Inspect(Path.Combine(root,"missing-store"),"KovaCluster","-usestore").Safe,"Unavailable Store blocks operations");
+    Assert(!LocalStoreProbe.Inspect(packageSource,"KovaCluster","-usestore").Safe,"Unknown Store metadata fails closed");
+    Assert(!LocalStoreProbe.Inspect(packageSource,"KovaCluster","-usestore -converttostore").Safe,"Store conversion is rejected");
+    foreach(var mode in new[]{"success","no-save-proof","rcon-failure","timeout","unknown-exit"})
+    {
+        var session=new LifecycleFixture(mode);
+        bool succeeded=false;
+        try { await SafeLifecycle.Stop(session,true,TimeSpan.FromMilliseconds(300)); succeeded=true; }
+        catch(Exception ex) when(ex is InvalidOperationException or IOException or OperationCanceledException) {}
+        Assert(succeeded==(mode=="success"),"Lifecycle result: "+mode);
+        Assert(session.Starts==(mode=="success"?1:0),"Restart only after verified exit: "+mode);
+        if(mode=="no-save-proof" || mode=="rcon-failure")
+            Assert(!session.Commands.Contains("DoExit"),"No DoExit without save evidence: "+mode);
+    }
+    var stalled=new TcpListener(IPAddress.Loopback,0);stalled.Start();
+    try
+    {
+        using var deadline=new CancellationTokenSource(200);
+        bool timedOut=false;
+        try { await RconProtocol.Execute("127.0.0.1",((IPEndPoint)stalled.LocalEndpoint).Port,"fixture","SaveWorld",deadline.Token); }
+        catch(OperationCanceledException) { timedOut=true; }
+        Assert(timedOut,"Real RCON socket cancellation on silent endpoint");
+    }
+    finally { stalled.Stop(); }
     byte[] cipherKey=System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
     byte[] secret=System.Text.Encoding.UTF8.GetBytes("Private map status");
     byte[] encrypted=StatusCipher.Encrypt(cipherKey,secret);
@@ -100,6 +138,15 @@ try
         GamePort=7827,QueryPort=27025,RconPort=27030
     };
     hp.AddMap(mapA);ryzen.AddMap(mapB);
+    mapA.ApiLoaderPath="unverified-loader.exe";
+    Assert(!hp.Check(mapA).ConfirmedStopped,"Unverified API loader blocks launch");
+    mapA.ApiLoaderPath="";
+    string beforeStoreArgs=mapA.Arguments;
+    mapA.Arguments+=" -usestore";
+    bool storeLaunchBlocked=false;
+    try { hp.LaunchLocal(mapA.Id); } catch(InvalidOperationException) { storeLaunchBlocked=true; }
+    Assert(storeLaunchBlocked,"Store failure reaches actual local launch gate");
+    mapA.Arguments=beforeStoreArgs;
     Assert(hp.Config.LocalMaps.Count==1 && ryzen.Config.LocalMaps.Count==1,
         "Each Manager has only its explicitly registered map");
     bool remoteWriteBlocked=false;
@@ -166,4 +213,23 @@ finally
     if(duplicate!=null)try{if(!duplicate.HasExited)duplicate.Kill(true);duplicate.Dispose();}catch{}
     if(p!=null)try{if(!p.HasExited)p.Kill(true);p.Dispose();}catch{}
     try{Directory.Delete(root,true);}catch{}
+}
+
+sealed class LifecycleFixture(string mode) : ILocalServerSession
+{
+    public List<string> Commands { get; }=new();
+    public int Starts { get; private set; }
+    private bool exited;
+    private readonly ProcessIdentity identity=new(){Pid=123,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath="fixture.exe",Arguments="--map=test"};
+    public ProcessCheck Check() => exited ? mode=="unknown-exit" ? new(false,"unknown",null) :
+        new(false,"stopped",null,true) : new(true,"running",identity);
+    public async Task Command(string command,CancellationToken ct)
+    {
+        Commands.Add(command);
+        if(mode=="rcon-failure")throw new IOException("fixture RCON failed");
+        if(mode=="timeout")await Task.Delay(Timeout.Infinite,ct);
+        if(command=="DoExit")exited=true;
+    }
+    public Task<bool> SaveCompleted(CancellationToken ct)=>Task.FromResult(mode!="no-save-proof");
+    public void Start() { if(!Check().ConfirmedStopped)throw new Exception("Unsafe restart");Starts++; }
 }

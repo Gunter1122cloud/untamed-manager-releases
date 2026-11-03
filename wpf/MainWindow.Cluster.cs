@@ -191,7 +191,10 @@ public partial class MainWindow
             var x=_cluster.Check(map);
             Notice(x.Status);
         }));
-        // Deliberately no kill/terminate action; managed stop requires verified RCON save+DoExit.
+        var stopUnavailable=Btn("Stop / Restart – mentésigazolás hiányzik",()=>{});
+        stopUnavailable.IsEnabled=false;
+        stopUnavailable.ToolTip="Az ASA mentés befejezését igazoló adapter még nincs validálva. RCON-válasz önmagában nem elég.";
+        startStop.Children.Add(stopUnavailable);
         Tab("Áttekintés",V(
             Label("Végrehajtható fájl: "+map.ExecutablePath,12,Soft),
             Label("Indítási argumentumok: "+map.Arguments,12,Soft),
