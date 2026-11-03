@@ -32,7 +32,7 @@ public partial class MainWindow
         Add(Box(V(
             Label("RECOVERY ENGINE: KIZÁRÓLAG SZIMULÁCIÓ",21,Mint,true),
             Label("Sem SaveWorld, sem DoExit, sem Kill, sem szerverindítás nem hajtható végre ezen a felületen. "+
-                "A KovaCluster Store és SQL adatok változatlanok maradnak.",13,Soft))));
+                "A Cluster Vault és SQL adatok változatlanok maradnak.",13,Soft))));
         var maps=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",
             SelectedIndex=_cluster.Config.LocalMaps.Count>0?0:-1,
             Foreground=Brushes.White,Background=Panel};
