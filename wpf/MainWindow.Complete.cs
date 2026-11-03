@@ -137,6 +137,7 @@ public partial class MainWindow
                 catch(Exception ex){kova.Text="Kova-fixture teszt elutasítva: "+ex.Message;
                     WriteLog("kova-fixture",ex);}
             }),kova)));
+        ShowHistoricalTwoHostKovaAudit();
     }
 
     private void ShowSteamUpdateCenter()
