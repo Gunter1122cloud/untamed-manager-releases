@@ -61,6 +61,7 @@ public sealed class ManagerConfig
     public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public string PublisherCertificateThumbprint { get; set; } = "";
     public List<ScheduledTask> ScheduledTasks { get; set; } = new();
+    public List<RecurringSchedule> RecurringSchedules { get; set; } = new();
     public List<LocalMap> LocalMaps { get; set; } = new();
 }
 public sealed class PublicMapStatus
