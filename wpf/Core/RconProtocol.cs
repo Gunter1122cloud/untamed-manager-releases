@@ -20,7 +20,9 @@ public static class RconProtocol
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         if (string.IsNullOrEmpty(password)) throw new InvalidOperationException("Missing RCON password");
-        if (command.Length==0||command.Length>1024) throw new ArgumentException("Invalid command");
+        if (command!="ListPlayers")
+            throw new InvalidOperationException(
+                "Live RCON is restricted to the read-only ListPlayers probe");
         if (!await IsLocalAddress(host))throw new UnauthorizedAccessException("RCON host must be a local interface");
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(8));
@@ -38,22 +40,47 @@ public static class RconProtocol
         }
         if(!authenticated)throw new IOException("RCON login response invalid");
         int commandId=Random.Shared.Next(1000,1000000);
+        int barrierId=commandId+1;
         await WritePacket(stream,commandId,2,command,timeout.Token);
         var responses=new List<string>();
-        // Read until short quiet timeout, with strict total bounds.
-        for(int i=0;i<32;i++)
+        bool barrierSent=false;
+        int totalBytes=0;
+        // ASA's populated ListPlayers may span multiple packets. A quiet
+        // period is NEVER proof of a complete list. The ordered second
+        // read-only request acts as an explicit completion barrier.
+        for(int i=0;i<128;i++)
         {
-            using var quiet=CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
-            quiet.CancelAfter(TimeSpan.FromMilliseconds(i==0?1800:350));
-            try{
-                var packet=await ReadPacket(stream,quiet.Token);
-                if(packet.Id==-1)throw new UnauthorizedAccessException("RCON response rejected");
-                if(packet.Id==commandId)responses.Add(packet.Body);
-                if(responses.Sum(s=>s.Length)>250000)break;
+            var packet=await ReadPacket(stream,timeout.Token);
+            if(packet.Id==-1)throw new UnauthorizedAccessException("RCON response rejected");
+            if(packet.Type!=0)
+                throw new InvalidDataException("Unexpected RCON response packet");
+            if(packet.Id==commandId)
+            {
+                totalBytes=checked(totalBytes+System.Text.Encoding.UTF8.GetByteCount(packet.Body));
+                if(totalBytes>250_000)throw new InvalidDataException("Oversized RCON player list");
+                responses.Add(packet.Body);
+                if(responses.Count==1 &&
+                   System.Text.RegularExpressions.Regex.IsMatch(packet.Body.Trim(),
+                       @"\ANo Players Connected\.?\z",
+                       System.Text.RegularExpressions.RegexOptions.IgnoreCase|
+                       System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+                    return packet.Body;
+                if(!barrierSent)
+                {
+                    barrierSent=true;
+                    await WritePacket(stream,barrierId,2,"ListPlayers",timeout.Token);
+                }
             }
-            catch(OperationCanceledException) when(!timeout.IsCancellationRequested){break;}
+            else if(packet.Id==barrierId && barrierSent)
+            {
+                if(responses.Count==0 || string.IsNullOrWhiteSpace(
+                    string.Concat(responses)))
+                    throw new InvalidDataException("Incomplete RCON player list");
+                return string.Concat(responses);
+            }
+            else throw new InvalidDataException("Unmatched RCON reply ID");
         }
-        return responses.Count==0?"RCON parancs elküldve, a szerver nem küldött válaszszöveget.":string.Join("\n",responses);
+        throw new InvalidDataException("RCON player list completion not proven");
     }
     private sealed record Packet(int Id,int Type,string Body);
     private static async Task WritePacket(Stream stream,int id,int type,string body,CancellationToken ct)
@@ -76,6 +103,8 @@ public static class RconProtocol
         if(length<10||length>64000)throw new InvalidDataException("Invalid RCON frame");
         byte[] data=new byte[length];
         await stream.ReadExactlyAsync(data,ct);
+        if(data[length-2]!=0 || data[length-1]!=0)
+            throw new InvalidDataException("RCON frame terminator missing");
         int id=BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(0,4));
         int type=BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(4,4));
         return new Packet(id,type,Encoding.UTF8.GetString(data,8,length-10).TrimEnd('\0'));
