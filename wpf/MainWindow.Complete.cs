@@ -113,6 +113,7 @@ public partial class MainWindow
                 catch(Exception ex){sqlStatus.Text="Restore-szimuláció elutasítva: "+ex.Message;}
             }),sqlStatus)));
         ShowClusterVaultArchiveCenter();
+        ShowUntamedManagerArchiveAudit();
         ShowHistoricalTwoHostKovaAudit();
         ShowKovaStoreV1CopyReader();
         ShowOfflineClusterBackupWizard();
