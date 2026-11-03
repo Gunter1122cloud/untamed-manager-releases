@@ -417,6 +417,10 @@ public sealed class ClusterService : IAsyncDisposable
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
             throw new UnauthorizedAccessException("Map is not owned by this Manager");
+        // RC safety enforcement belongs to the service, not merely the WPF button:
+        // prevent timers, other UI components or direct method callers from
+        // launching actual ArkAscendedServer.exe before production validation.
+        ReleaseCapabilityGate.DemandFakeAsaStart(this,map);
         string key=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
             Path.GetFullPath(map.ExecutablePath).ToUpperInvariant())));
         using var gate=new Mutex(false,"Local\\Untamed-Launch-"+key);
