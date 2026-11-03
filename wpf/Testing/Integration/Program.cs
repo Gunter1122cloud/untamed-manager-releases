@@ -24,10 +24,33 @@ string aRoot=Path.Combine(root,"HP");
 string bRoot=Path.Combine(root,"Ryzen");
 Process? p=null;
 Process? duplicate=null;
+Process? familyLoader=null;
+Process? familyChild=null;
 ClusterService? hp=null;
 ClusterService? ryzen=null;
 try
 {
+    familyLoader=Process.Start(new ProcessStartInfo(fake,"--loader-fixture"){UseShellExecute=false,CreateNoWindow=true})!;
+    for(int attempt=0;attempt<30 && familyChild==null;attempt++)
+    {
+        await Task.Delay(100);
+        using var query=new System.Management.ManagementObjectSearcher("SELECT ProcessId,ParentProcessId,ExecutablePath,CommandLine FROM Win32_Process");
+        using var rows=query.Get();
+        foreach(System.Management.ManagementObject row in rows)
+        {
+            if(Convert.ToInt32(row["ParentProcessId"])!=familyLoader.Id)continue;
+            if(!WindowsProcessInspector.CommandMatches(Convert.ToString(row["CommandLine"])??"",fake,"--child-fixture"))continue;
+            if(!StringComparer.OrdinalIgnoreCase.Equals(Convert.ToString(row["ExecutablePath"]),fake))continue;
+            familyChild=Process.GetProcessById(Convert.ToInt32(row["ProcessId"]));
+        }
+    }
+    Assert(familyChild!=null,"Windows WMI finds actual fixture child with exact EXE and arguments");
+    var actualParent=new ProcessIdentity{Pid=familyLoader.Id,StartedUtc=new DateTimeOffset(familyLoader.StartTime.ToUniversalTime()),ExecutablePath=fake,Arguments="--loader-fixture"};
+    var actualChild=new ProcessIdentity{Pid=familyChild!.Id,StartedUtc=new DateTimeOffset(familyChild.StartTime.ToUniversalTime()),ExecutablePath=fake,Arguments="--child-fixture"};
+    Assert(ProcessFamily.IsVerifiedPair(new[]{new ObservedProcess(actualParent.Pid,0,actualParent.StartedUtc,fake,actualParent.Arguments),new ObservedProcess(actualChild.Pid,actualParent.Pid,actualChild.StartedUtc,fake,actualChild.Arguments)},actualParent,actualChild),"Actual Windows fixture identities validate parent-child pair");
+    familyLoader.Kill();await familyLoader.WaitForExitAsync();familyLoader.Dispose();familyLoader=null;
+    Assert(!familyChild.HasExited,"Fixture child survives loader exit");
+    familyChild.Kill();await familyChild.WaitForExitAsync();familyChild.Dispose();familyChild=null;
     var restore=new SyntheticRestore();
     File.WriteAllText(Path.Combine(restore.TargetDirectory,"world"),"old world");
     string restoreSource=Path.Combine(root,"restore-source");Directory.CreateDirectory(restoreSource);
@@ -237,6 +260,8 @@ finally
 {
     if(hp!=null)await hp.DisposeAsync();
     if(ryzen!=null)await ryzen.DisposeAsync();
+    if(familyChild!=null)try{if(!familyChild.HasExited)familyChild.Kill();familyChild.Dispose();}catch{}
+    if(familyLoader!=null)try{if(!familyLoader.HasExited)familyLoader.Kill();familyLoader.Dispose();}catch{}
     if(duplicate!=null)try{if(!duplicate.HasExited)duplicate.Kill(true);duplicate.Dispose();}catch{}
     if(p!=null)try{if(!p.HasExited)p.Kill(true);p.Dispose();}catch{}
     try{Directory.Delete(root,true);}catch{}
