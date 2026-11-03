@@ -23,10 +23,10 @@ public partial class MainWindow
             if(dialog.ShowDialog()==Forms.DialogResult.OK)target.Text=dialog.FileName;
         }
         Add(Box(V(
-            Label("Kova kétgépes történeti audit · HP + Ryzen",20,Mint,true),
+            Label("Untamed Cluster Vault · Kétgépes állapotfelmérés",20,Mint,true),
             Label("A 2026.11.02-i eredeti HP- és Ryzen-audit különböző "+
                 "JSON-sémáit ismeri. Kizárólag kimásolt JSON-fájlokat olvas. "+
-                "Nem ellenőrzi a MOST futó Kova peer-eket, nem csatlakozik SMB-hez "+
+                "Nem ellenőrzi a MOST futó cluster-partnereket, nem csatlakozik SMB-hez "+
                 "és nem ad engedélyt karakter/Store átvételre.",12,Soft),
             Label("HP / UK-HOME-01 cluster-store.json (másolat)",12,Aqua),hp,
             Btn("HP riport kiválasztása",()=>Select(hp,"HP")),
@@ -47,12 +47,12 @@ public partial class MainWindow
                         "\nMapok: "+string.Join(", ",pair.MapNames)+
                         "\n"+(pair.Issues.Length>0?
                             string.Join("\n",pair.Issues)+"\n":"")+
-                        "NEM élő állapot és NEM Kova Store 1:1 kompatibilitási igazolás.";
+                        "TÖRTÉNETI ÁLLAPOT: az élő karaktertranszfer még nincs igazolva.";
                 }
                 catch(Exception ex)
                 {
-                    result.Text="Kova-audit elutasítva: "+ex.Message;
-                    WriteLog("kova-readonly-audit",ex);
+                    result.Text="Vault-audit elutasítva: "+ex.Message;
+                    WriteLog("vault-readonly-audit",ex);
                 }
             }),result)));
     }
