@@ -16,7 +16,7 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         Directory.CreateDirectory(LogDir);
-        IsSmokeTest = Array.Exists(e.Args, a => a == "--smoke-test");
+        IsSmokeTest = Array.Exists(e.Args, a => a == "--smoke-test" || a == "--screenshot-test");
         mutex = new Mutex(true,@"Local\UntamedManager_WPF_Desktop",out bool first);
         if (!first)
         {
