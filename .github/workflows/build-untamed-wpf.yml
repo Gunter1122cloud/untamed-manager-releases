@@ -115,6 +115,6 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.3.exe" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.0.3-SETUP.exe#UntamedManager-1.0.3-SETUP.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
           } else {
-            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.3.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.0.3 - Installer Fix" --prerelease --notes "Isolated Windows WPF desktop preview. No host agent installed. No live Kova Store writes. Test on a third Windows PC only." --repo "$env:GITHUB_REPOSITORY"
+            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.3.exe" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.0.3-SETUP.exe#UntamedManager-1.0.3-SETUP.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.0.3 - Installer Fix" --prerelease --notes "Isolated Windows WPF desktop preview. No host agent installed. No live Kova Store writes. Test on a third Windows PC only." --repo "$env:GITHUB_REPOSITORY"
           }
           if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
