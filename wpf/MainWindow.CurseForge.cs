@@ -18,7 +18,7 @@ public partial class MainWindow
         var query=new TextBox { Height=38,Foreground=Brushes.White,Background=Panel,
             BorderBrush=Aqua,Text="Shiny" };
         var results=new ListBox { Height=260,Foreground=Brushes.White,Background=Panel,
-            BorderBrush=Aqua };
+            BorderBrush=Aqua,DisplayMemberPath="Name" };
         var detail=Label("Válassz modot a találati listából a részletekhez.",12,Soft);
         var paging=Label("Nincs lekérdezés.",12,Soft);
         var status=Label(
