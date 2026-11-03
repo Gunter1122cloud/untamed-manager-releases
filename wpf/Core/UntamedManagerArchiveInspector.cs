@@ -159,8 +159,7 @@ public static class UntamedManagerArchiveInspector
                !Str(pcfg,"path").Equals(Str(op,"path"),
                    StringComparison.OrdinalIgnoreCase))
                 sessions=false;
-            string calculated=Sha(JsonSerializer.SerializeToUtf8Bytes(pcfg,Compact));
-            if(!calculated.Equals(Str(p,"configHash"),StringComparison.OrdinalIgnoreCase))
+            if(!StoreV1Fingerprint.Matches(pcfg,Str(p,"configHash")))
                 hashes=false;
             var members=Array(p,"members").EnumerateArray().ToArray();
             var selected=Array(p,"selected").EnumerateArray()
