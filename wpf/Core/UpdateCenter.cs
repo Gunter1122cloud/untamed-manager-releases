@@ -34,40 +34,14 @@ public static class UpdateCenter
     public static bool ValidRepository(string repo) =>
         Regex.IsMatch(repo,@"\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}/[a-zA-Z0-9_.-]{1,100}\z")
         && !repo.Contains("..",StringComparison.Ordinal);
-    public static async Task<UpdateRelease?> CheckStableAsync(string repository,
-        CancellationToken cancellationToken=default)
+    public static Task<UpdateRelease?> CheckStableAsync(string repository,CancellationToken ct=default)
+        => CheckAsync(repository,UpdateChannel.Stable,ct);
+    public static async Task<UpdateRelease?> CheckAsync(string repository,UpdateChannel channel,CancellationToken ct=default)
     {
-        if(!ValidRepository(repository))throw new ArgumentException("Invalid GitHub repository",nameof(repository));
-        string url="https://api.github.com/repos/"+repository+"/releases/latest";
-        using var response=await Client.GetAsync(url,cancellationToken);
-        if(response.StatusCode==System.Net.HttpStatusCode.NotFound)
-            return null; // Only prereleases exist or repository has no stable release.
+        if(!ValidRepository(repository))throw new ArgumentException("Invalid repository");
+        using var response=await Client.GetAsync("https://api.github.com/repos/"+repository+"/releases?per_page=100",ct);
         response.EnsureSuccessStatusCode();
-        using var doc=JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
-        var root=doc.RootElement;
-        if(root.GetProperty("prerelease").GetBoolean()||root.GetProperty("draft").GetBoolean())
-            throw new InvalidDataException("Release is not stable");
-        string tag=root.GetProperty("tag_name").GetString()??"";
-        string clean=tag.TrimStart('v','V');
-        if(!Version.TryParse(clean,out var version))
-            throw new InvalidDataException("Stable tag must be a semantic version, e.g. v1.3.0");
-        string expected=$"UntamedManager-{version.Major}.{version.Minor}.{version.Build}-SETUP.exe";
-        foreach(var item in root.GetProperty("assets").EnumerateArray())
-        {
-            string name=item.GetProperty("name").GetString()??"";
-            if(!name.Equals(expected,StringComparison.OrdinalIgnoreCase))continue;
-            string link=item.GetProperty("browser_download_url").GetString()??"";
-            string expectedPrefix="https://github.com/"+repository+"/releases/download/";
-            if(!link.StartsWith(expectedPrefix,StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Unexpected release asset URL");
-            string digest=item.TryGetProperty("digest",out var d)?d.GetString()??"":"";
-            if(!Regex.IsMatch(digest,@"\Asha256:[0-9a-fA-F]{64}\z"))
-                throw new InvalidDataException("Release asset has no trusted GitHub SHA-256 digest");
-            return new UpdateRelease(version,tag,
-                root.TryGetProperty("body",out var body)?body.GetString()??"":"",
-                link,digest.Substring(7).ToLowerInvariant(),name);
-        }
-        throw new InvalidDataException("Stable release has no suitable signed/reproducible installer asset");
+        return ReleaseCatalog.Select(await response.Content.ReadAsStringAsync(ct),repository,channel);
     }
     public static async Task<string> DownloadAndVerifyAsync(UpdateRelease release,
         string destinationDirectory,IProgress<(long received,long? total)>? progress=null,

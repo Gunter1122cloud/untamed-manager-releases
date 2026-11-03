@@ -70,6 +70,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitializeAutomaticUpdates();
         var rows = new (string name, string host, int mods, int game, int query, int rcon, string a, string b)[] {
             ("Astraeos","HP",30,7847,27016,27021,"#244A57","#4B8C72"),
             ("Genesis Part 1","HP",29,7867,27018,27023,"#2B255E","#7053A9"),

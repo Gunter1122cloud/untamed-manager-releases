@@ -24,6 +24,8 @@ public sealed class LocalMap
     public string Arguments { get; set; } = "";
     public string LogFilePath { get; set; } = "";
     public string ApiLoaderPath { get; set; } = "";
+    public string ApiLoaderArguments { get; set; } = "";
+    public ProcessIdentity? LastLoader { get; set; }
     public string StoreTestRoot { get; set; } = "";
     public int GamePort { get; set; }
     public int QueryPort { get; set; }
@@ -49,6 +51,7 @@ public sealed class ManagerConfig
     public int PeerPort { get; set; }
     public string PairingKeyProtected { get; set; } = "";
     public string GitHubRepository { get; set; } = "Gunter1122cloud/untamed-manager-releases";
+    public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public string PublisherCertificateThumbprint { get; set; } = "";
     public List<LocalMap> LocalMaps { get; set; } = new();
 }
@@ -133,9 +136,9 @@ public sealed class ConfigStore
     }
 }
 public sealed record ProcessCheck(bool Running, string Status, ProcessIdentity? Identity,
-    bool ConfirmedStopped = false);
+    bool ConfirmedStopped = false, ProcessIdentity? LoaderIdentity = null);
 
-public sealed class WindowsProcessInspector
+public sealed partial class WindowsProcessInspector
 {
     public ProcessCheck Inspect(LocalMap map)
     {
@@ -214,10 +217,11 @@ public sealed class WindowsProcessInspector
     public ProcessIdentity Launch(LocalMap map)
     {
         if (string.IsNullOrWhiteSpace(map.ExecutablePath)) throw new InvalidOperationException("Missing executable path");
-        var exe = Path.GetFullPath(map.ExecutablePath);
+        var exe = Path.GetFullPath(string.IsNullOrWhiteSpace(map.ApiLoaderPath)?map.ExecutablePath:map.ApiLoaderPath);
+        string arguments=string.IsNullOrWhiteSpace(map.ApiLoaderPath)?map.Arguments:map.ApiLoaderArguments;
         if (!File.Exists(exe)) throw new FileNotFoundException("ASA server executable not found",exe);
         // No Windows job object, no kill-on-dispose. Server survives Manager UI exit/update.
-        var psi = new ProcessStartInfo(exe,map.Arguments) {
+        var psi = new ProcessStartInfo(exe,arguments) {
             WorkingDirectory=string.IsNullOrWhiteSpace(map.InstallationPath) ?
                 Path.GetDirectoryName(exe)! : Path.GetFullPath(map.InstallationPath),
             UseShellExecute=false, CreateNoWindow=true
@@ -225,7 +229,7 @@ public sealed class WindowsProcessInspector
         using var process=Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null");
         return new ProcessIdentity {
             Pid=process.Id, StartedUtc=new DateTimeOffset(process.StartTime.ToUniversalTime()),
-            ExecutablePath=exe, Arguments=map.Arguments
+            ExecutablePath=exe, Arguments=arguments
         };
     }
 }
@@ -383,9 +387,6 @@ public sealed class ClusterService : IAsyncDisposable
     public ProcessCheck Check(LocalMap map)
     {
         if(!Config.LocalMaps.Contains(map)) throw new UnauthorizedAccessException("Not a local map");
-        if(!string.IsNullOrWhiteSpace(map.ApiLoaderPath) ||
-            Path.GetFileName(map.ExecutablePath).Contains("loader",StringComparison.OrdinalIgnoreCase))
-            return new(false,"API-loader identity is unverified; operations blocked",null);
         if(map.Arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase))
             return new(false,"Store conversion is forbidden",null);
         if(map.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase))
@@ -393,12 +394,12 @@ public sealed class ClusterService : IAsyncDisposable
             var store=LocalStoreProbe.Inspect(map.StoreTestRoot,"KovaCluster",map.Arguments);
             if(!store.Safe)return new(false,store.Reason,null);
         }
-        var check=_inspect(map);
+        var check=string.IsNullOrWhiteSpace(map.ApiLoaderPath)?_inspect(map):_inspector.InspectFamily(map);
         if(check.Running && check.Identity!=null)
         {
             if(map.LastProcess?.Pid!=check.Identity.Pid ||
                map.LastProcess.StartedUtc!=check.Identity.StartedUtc)
-            {map.LastProcess=check.Identity;Save();}
+            {map.LastProcess=check.Identity;map.LastLoader=check.LoaderIdentity;Save();}
         }
         return check;
     }
@@ -416,7 +417,9 @@ public sealed class ClusterService : IAsyncDisposable
             if(!acquired)throw new InvalidOperationException("Another local launch is in progress");
             if (!Check(map).ConfirmedStopped)
                 throw new InvalidOperationException("Server is running or its stopped state cannot be verified");
-            var identity=_inspector.Launch(map);map.LastProcess=identity;Save();return identity;
+            var identity=_inspector.Launch(map);
+            if(string.IsNullOrWhiteSpace(map.ApiLoaderPath))map.LastProcess=identity;else map.LastLoader=identity;
+            Save();return identity;
         }
         finally { if(acquired)gate.ReleaseMutex(); }
     }

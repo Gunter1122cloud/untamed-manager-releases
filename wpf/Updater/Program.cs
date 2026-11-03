@@ -95,6 +95,7 @@ public sealed class UpdateForm : Form
             catch(ArgumentException){} // Already exited.
             Update("Korábbi alkalmazás mentése…",25);
             transaction.Prepare(Path.GetDirectoryName(appExe)!);
+            UpdateHistory.Append("snapshot-prepared",expected);
             var log=Path.Combine(snapshotRoot,"setup.log");
             Update("Új Windows-verzió telepítése…",45);
             var start=new ProcessStartInfo(installer){UseShellExecute=false,
@@ -122,8 +123,10 @@ public sealed class UpdateForm : Form
             if(!await Task.Run(()=>health.WaitForExit(60000)))
             { health.Kill();await health.WaitForExitAsync();throw new IOException("Health check timed out"); }
             if(health.ExitCode!=0)throw new IOException("Application health check failed");
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(appExe)!,"installed-release.txt"),Required("--tag"));
             Restart(appExe,profile);
             transaction.Commit();
+            UpdateHistory.Append("installation-committed",expected);
             Update("Frissítés sikeres!",100);
             await Task.Delay(1000);
             Close();
@@ -137,6 +140,7 @@ public sealed class UpdateForm : Form
                 {
                     Update("Korábbi verzió visszaállítása…",70);
                     transaction.Rollback();
+                    UpdateHistory.Append("rollback-verified","");
                     if(profile!=null)Restart(appExe,profile);
                     message+="\nA teljes korábbi alkalmazáskönyvtár hash-ellenőrzéssel visszaállítva.";
                 }

@@ -48,7 +48,20 @@ try
     var actualParent=new ProcessIdentity{Pid=familyLoader.Id,StartedUtc=new DateTimeOffset(familyLoader.StartTime.ToUniversalTime()),ExecutablePath=fake,Arguments="--loader-fixture"};
     var actualChild=new ProcessIdentity{Pid=familyChild!.Id,StartedUtc=new DateTimeOffset(familyChild.StartTime.ToUniversalTime()),ExecutablePath=fake,Arguments="--child-fixture"};
     Assert(ProcessFamily.IsVerifiedPair(new[]{new ObservedProcess(actualParent.Pid,0,actualParent.StartedUtc,fake,actualParent.Arguments),new ObservedProcess(actualChild.Pid,actualParent.Pid,actualChild.StartedUtc,fake,actualChild.Arguments)},actualParent,actualChild),"Actual Windows fixture identities validate parent-child pair");
+    var familyRoot=Path.Combine(root,"family-profile");
+    var familyService=new ClusterService("family-test",familyRoot);
+    var familyMap=new LocalMap{Name="Family",InstallationPath=Path.GetDirectoryName(fake)!,ExecutablePath=fake,Arguments="--child-fixture",ApiLoaderPath=fake,ApiLoaderArguments="--loader-fixture"};
+    familyService.AddMap(familyMap);
+    Assert(familyService.Check(familyMap).Running,"Manager integrates WMI family validation");
+    bool familyDuplicate=false;
+    try{familyService.LaunchLocal(familyMap.Id);}catch(InvalidOperationException){familyDuplicate=true;}
+    Assert(familyDuplicate,"Family launch gate rejects duplicate start");
+    await familyService.DisposeAsync();
+    familyService=new ClusterService("family-test",familyRoot);familyMap=familyService.Config.LocalMaps.Single();
+    Assert(familyService.Check(familyMap).Running,"Restarted Manager reattaches verified family");
     familyLoader.Kill();await familyLoader.WaitForExitAsync();familyLoader.Dispose();familyLoader=null;
+    Assert(familyService.Check(familyMap).Running,"Persisted child reattaches after loader exits");
+    await familyService.DisposeAsync();
     Assert(!familyChild.HasExited,"Fixture child survives loader exit");
     familyChild.Kill();await familyChild.WaitForExitAsync();familyChild.Dispose();familyChild=null;
     var restore=new SyntheticRestore();
@@ -133,6 +146,21 @@ try
         Assert(timedOut,"Real RCON socket cancellation on silent endpoint");
     }
     finally { stalled.Stop(); }
+    string repo="Gunter1122cloud/untamed-manager-releases";
+    object Release(string tag,bool preview,bool draft=false,string? digest=null)=>new {
+        tag_name=tag,prerelease=preview,draft,body="fixture",assets=new[]{new {
+            name="UntamedManager-2.0.0-SETUP.exe",browser_download_url=$"https://github.com/{repo}/releases/download/{tag}/UntamedManager-2.0.0-SETUP.exe",
+            digest=digest??"sha256:"+new string('a',64)}}};
+    string releaseJson=System.Text.Json.JsonSerializer.Serialize(new[]{Release("v2.0.0-wpf-preview.2",true),Release("v2.0.0-wpf-preview.10",true)});
+    Assert(ReleaseCatalog.Select(releaseJson,repo,UpdateChannel.Stable)==null,"Stable channel excludes previews");
+    var selectedPreview=ReleaseCatalog.Select(releaseJson,repo,UpdateChannel.Preview)!;
+    Assert(selectedPreview.Tag.EndsWith(".10"),"Preview version 10 sorts after preview 2");
+    Assert(ReleaseCatalog.IsNewer(selectedPreview,new Version(1,0,0),"v2.0.0-wpf-preview.2"),"Preview-to-preview upgrade allowed");
+    Assert(!ReleaseCatalog.IsNewer(selectedPreview,new Version(2,0,0),"v2.0.0"),"Stable never downgrades to same-version preview");
+    string stableJson=System.Text.Json.JsonSerializer.Serialize(new[]{Release("v2.0.0",false),Release("v2.0.0-wpf-preview.10",true)});
+    Assert(ReleaseCatalog.Select(stableJson,repo,UpdateChannel.Preview)!.Tag=="v2.0.0","Stable final supersedes same-version preview");
+    string rejectedJson=System.Text.Json.JsonSerializer.Serialize(new[]{Release("v2.0.0",false,true),Release("v2.0.0-wpf-preview.10",true,false,"invalid")});
+    Assert(ReleaseCatalog.Select(rejectedJson,repo,UpdateChannel.Preview)==null,"Draft and unhashed release packages rejected");
     byte[] cipherKey=System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
     byte[] secret=System.Text.Encoding.UTF8.GetBytes("Private map status");
     byte[] encrypted=StatusCipher.Encrypt(cipherKey,secret);
