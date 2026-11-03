@@ -202,6 +202,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
           if (!(Test-Path "dist/UntamedManager-1.3.3-SETUP.exe")) { throw "Windows setup missing" }
           Get-FileHash "dist/UntamedManager-1.3.3-SETUP.exe" -Algorithm SHA256
+      - name: Actual isolated installer updater health failure and recovery tests
+        shell: pwsh
+        run: |
+          ./wpf/Testing/UpdaterE2E.ps1 -Distribution "$env:GITHUB_WORKSPACE/dist" -FakeServer "$env:RUNNER_TEMP/FakeAsa/FakeAsa.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Updater end-to-end tests failed" }
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:

@@ -13,6 +13,7 @@ public static class UpdateHistory
         {
             Directory.CreateDirectory(Path.GetDirectoryName(LogPath)!);
             File.AppendAllText(LogPath,JsonSerializer.Serialize(new {utc=DateTimeOffset.UtcNow,phase,version})+Environment.NewLine);
+            new EventJournal(Path.GetDirectoryName(LogPath)!).Append(Environment.MachineName,null,phase.Contains("error",StringComparison.OrdinalIgnoreCase)?"Error":"Information","update-"+phase);
         }
         catch(IOException){}catch(UnauthorizedAccessException){}
     }

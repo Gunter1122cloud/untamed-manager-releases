@@ -107,7 +107,9 @@ public partial class MainWindow
         if(_events!=null)
         {
             Guid? mapId=Guid.TryParse(_eventMap,out var parsed)?parsed:null;
-            foreach(var e in _events.Read(_eventHost.Length==0?null:_eventHost,mapId,_eventSeverity.Length==0?null:_eventSeverity,DateTimeOffset.UtcNow.AddHours(-_eventHours)))
+            var records=_events.Read(_eventHost.Length==0?null:_eventHost,mapId,_eventSeverity.Length==0?null:_eventSeverity,DateTimeOffset.UtcNow.AddHours(-_eventHours))
+                .Concat(new EventJournal(UpdateCenter.UpdateRoot).Read(_eventHost.Length==0?null:_eventHost,mapId,_eventSeverity.Length==0?null:_eventSeverity,DateTimeOffset.UtcNow.AddHours(-_eventHours)));
+            foreach(var e in records.OrderByDescending(x=>x.Utc).Take(500))
                 Add(Box(Label($"{e.Utc.LocalDateTime:yyyy-MM-dd HH:mm:ss} · {e.Severity} · {e.Host} · {e.Map}\n{e.Code} · {e.Id}",12,Soft)));
         }
         Add(Box(V(Label("Frissítési események",16,Aqua),Label(UpdateHistory.ReadRecent(),11,Soft))));

@@ -342,17 +342,17 @@ public partial class MainWindow
                     throw new InvalidDataException("Érvénytelen Query port");
                 if(!int.TryParse(fields["RCON TCP port"].Text,out var rcon)||rcon is < 1 or > 65535)
                     throw new InvalidDataException("Érvénytelen RCON port");
-                var target=existing??new LocalMap();
-                target.Name=name;target.InstallationPath=root;target.ExecutablePath=exe;
-                target.Arguments=fields["Indítási paraméterek (pontos egyezés)"].Text.Trim();
                 string loader=fields["API-loader EXE (opcionális)"].Text.Trim();
                 if(loader.Length>0 && (!File.Exists(loader)||!IsUnderRoot(loader,root)))
                     throw new InvalidDataException("A loader EXE-nek a helyi mapgyökérben kell lennie");
+                if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,out var interval)||interval<5||interval>3600)throw new InvalidDataException("Érvénytelen watchdog-időköz");
+                var target=existing??new LocalMap();
+                target.Name=name;target.InstallationPath=root;target.ExecutablePath=exe;
+                target.Arguments=fields["Indítási paraméterek (pontos egyezés)"].Text.Trim();
                 target.ApiLoaderPath=loader.Length==0?"":Path.GetFullPath(loader);
                 target.ApiLoaderArguments=fields["API-loader argumentumok"].Text.Trim();
                 target.Maintenance=maintenance.IsChecked==true;
                 target.MonitorRcon=monitorRcon.IsChecked==true;
-                if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,out var interval)||interval<5||interval>3600)throw new InvalidDataException("Érvénytelen watchdog-időköz");
                 target.WatchdogIntervalSeconds=interval;
                 target.GamePort=game;target.QueryPort=query;target.RconPort=rcon;
                 target.RconHost=fields["RCON host (helyi IP)"].Text.Trim();
