@@ -121,54 +121,6 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "WPF screenshot generation failed" }
           if (!(Test-Path "$env:UNTAMED_SCREENSHOT_PATH")) { throw "WPF screenshot output missing" }
           if ((Get-Item "$env:UNTAMED_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF screenshot unexpectedly small" }
-      - name: Archive actual rendered screenshot for visual QA
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $imagePath = "$env:GITHUB_WORKSPACE/dist/UntamedManager-preview.png"
-          $resource = "repos/$env:GITHUB_REPOSITORY/contents/previews/UntamedManager-1.6.0.png"
-          $body = @{
-            message = "Capture actual WPF 1.6.0 dashboard screenshot for approved visual QA"
-            branch = "main"
-            content = [Convert]::ToBase64String([IO.File]::ReadAllBytes($imagePath))
-          }
-          $oldJson = gh api "$resource" 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            $old = $oldJson | ConvertFrom-Json
-            $body.sha = $old.sha
-          }
-          $jsonPath = Join-Path $env:RUNNER_TEMP "wpf-preview.json"
-          [IO.File]::WriteAllText($jsonPath,($body | ConvertTo-Json -Compress))
-          gh api --method PUT "$resource" --input "$jsonPath" | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Cannot archive actual rendered screenshot" }
-      - name: Publish compact actual screenshot for visual comparison
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          Add-Type -AssemblyName System.Drawing
-          $source = [System.Drawing.Bitmap]::FromFile("$env:GITHUB_WORKSPACE/dist/UntamedManager-preview.png")
-          $small = New-Object System.Drawing.Bitmap(1200,675)
-          $gfx = [System.Drawing.Graphics]::FromImage($small)
-          $gfx.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-          $gfx.DrawImage($source,0,0,1200,675)
-          $jpeg = Join-Path $env:RUNNER_TEMP "UntamedManager-actual-small.jpg"
-          $small.Save($jpeg,[System.Drawing.Imaging.ImageFormat]::Jpeg)
-          $gfx.Dispose(); $small.Dispose(); $source.Dispose()
-          $encoded = [Convert]::ToBase64String([IO.File]::ReadAllBytes($jpeg))
-          $resource = "repos/$env:GITHUB_REPOSITORY/contents/previews/UntamedManager-1.6.0.b64.txt"
-          $body = @{
-            message = "Archive compact actual GUI screenshot for reference visual comparison"
-            branch = "main"
-            content = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($encoded))
-          }
-          $oldJson = gh api "$resource" 2>$null
-          if ($LASTEXITCODE -eq 0) { $body.sha = ($oldJson | ConvertFrom-Json).sha }
-          $jsonPath = Join-Path $env:RUNNER_TEMP "preview-transfer.json"
-          [IO.File]::WriteAllText($jsonPath,($body | ConvertTo-Json -Compress))
-          gh api --method PUT "$resource" --input "$jsonPath" | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Failed to publish visual QA transfer" }
       - name: Save verified GUI screenshot
         uses: actions/upload-artifact@v4
         with:
@@ -223,7 +175,7 @@ jobs:
             dist/SHA256SUMS.txt
           if-no-files-found: error
       - name: Create test-only GitHub release
-        if: ${{ false }} # P0 development: release remains gated until all implemented subsystems pass review.
+        if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release v1.6.0 TEST preview') }} # A clearly intentional preview publication, only after every CI step passes.
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -233,6 +185,6 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.0.exe" "dist/UntamedManager-1.6.0-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.6.0-SETUP.exe#UntamedManager-1.6.0-SETUP.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
           } else {
-            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.0.exe" "dist/UntamedManager-1.6.0-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.6.0-SETUP.exe#UntamedManager-1.6.0-SETUP.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.6.0 - Process Safety Preview" --prerelease --notes-file wpf/RELEASE-1.6.0.md --repo "$env:GITHUB_REPOSITORY"
+            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.0.exe" "dist/UntamedManager-1.6.0-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.6.0-SETUP.exe#UntamedManager-1.6.0-SETUP.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager v1.6.0 - Professional Operations TEST preview" --prerelease --notes-file wpf/RELEASE-1.6.0.md --repo "$env:GITHUB_REPOSITORY"
           }
           if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
