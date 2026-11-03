@@ -84,6 +84,8 @@
      <Button Content="▤    INI szerkesztő" Style="{StaticResource NavItem}" Tag="ini" Click="Navigate_Click"/>
      <TextBlock Text="ÜZEMELTETÉS" Foreground="#91AFAA" FontSize="11" Margin="24,12,0,5"/>
      <Button Content="▣    Mentések" Style="{StaticResource NavItem}" Tag="backups" Click="Navigate_Click"/>
+     <Button Content="▦    SQL / Kova tesztadatok" Style="{StaticResource NavItem}" Tag="data" Click="Navigate_Click"/>
+     <Button Content="⟳    SteamCMD Update Center" Style="{StaticResource NavItem}" Tag="steam" Click="Navigate_Click"/>
      <Button Content="⌘    RCON konzol" Style="{StaticResource NavItem}" Tag="rcon" Click="Navigate_Click"/>
      <Button Content="◉    Monitoring / Események" Style="{StaticResource NavItem}" Tag="monitoring" Click="Navigate_Click"/>
      <Button Content="⛨    Recovery Center (TEST)" Style="{StaticResource NavItem}" Tag="recovery" Click="Navigate_Click"/>
@@ -91,6 +93,7 @@
      <TextBlock Text="ALKALMAZÁS" Foreground="#91AFAA" FontSize="11" Margin="24,12,0,5"/>
      <Button Content="✧    Licenc / Frissítés" Style="{StaticResource NavItem}" Tag="license" Click="Navigate_Click"/>
      <Button Content="⚙    Beállítások" Style="{StaticResource NavItem}" Tag="settings" Click="Navigate_Click"/>
+     <Button Content="✧    Beállítóvarázsló" Style="{StaticResource NavItem}" Tag="setup" Click="Navigate_Click"/>
      <Button Content="◉    LAN párosítás" Style="{StaticResource NavItem}" Tag="lan" Click="Navigate_Click"/>
     </StackPanel>
    </ScrollViewer>
