@@ -51,7 +51,7 @@ public static class LocalPluginInventory
                 { /* Version resources are optional for third-party binaries. */ }
                 binaries.Add(new(file.Name,version,file.Length,hash));
             }
-            output.Add(new(plugin.Name,binaries,true==false));
+            output.Add(new(plugin.Name,binaries,false));
         }
         return output;
     }
