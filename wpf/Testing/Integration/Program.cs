@@ -161,6 +161,40 @@ try
         File.ReadAllText(Path.Combine(installed.PreviousBackup,"SamplePlugin.dll"))=="old-binary" &&
         !installed.PreviousBackup.StartsWith(offlineMap,StringComparison.OrdinalIgnoreCase),
         "Previous plugin fully backed up outside active installation");
+    string syntheticKova=Path.Combine(offlineMap,"ShooterGame","Binaries","Win64",
+        "ArkApi","Plugins","KovaCluster");
+    Directory.CreateDirectory(syntheticKova);
+    File.WriteAllText(Path.Combine(syntheticKova,"store.db"),"do not inspect this");
+    var localInventory=LocalPluginInventory.Scan(offline);
+    Assert(localInventory.Any(p=>p.PluginName=="SamplePlugin" && !p.Protected &&
+        p.Binaries.Single().Sha256==Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                File.ReadAllBytes(Path.Combine(pluginsDir,"SamplePlugin.dll"))))),
+        "Local plugin inventory reports verified DLL hashes without config reads");
+    Assert(localInventory.Any(p=>p.PluginName=="KovaCluster" &&
+        p.Protected && p.Binaries.Count==0) &&
+        File.ReadAllText(Path.Combine(syntheticKova,"store.db"))=="do not inspect this",
+        "Kova plugin is protected and store files remain unchanged");
+
+    string sharedAsa=Path.Combine(root,"shared-asa");
+    string asaExe=Path.Combine(sharedAsa,"ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+    Directory.CreateDirectory(Path.GetDirectoryName(asaExe)!);
+    File.WriteAllText(asaExe,"synthetic binary fixture");
+    Directory.CreateDirectory(Path.Combine(sharedAsa,"steamapps"));
+    File.WriteAllText(Path.Combine(sharedAsa,"steamapps","appmanifest_2430930.acf"),
+        "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456789\"\n}");
+    var sharedA=new LocalMap{Name="AstraeosSynthetic",InstallationPath=sharedAsa};
+    var sharedB=new LocalMap{Name="GenesisSynthetic",InstallationPath=sharedAsa};
+    var groupedAsa=AsaInstallationInventory.Inspect(
+        new[]{sharedA,sharedB},_=>new ProcessCheck(false,"stopped",null,true));
+    Assert(groupedAsa.Count==1 && groupedAsa[0].LocalMaps.Count==2 &&
+        groupedAsa[0].InstalledSteamBuild=="123456789" && groupedAsa[0].UpdateBlocked,
+        "Shared ASA installation groups both local maps and never enables update");
+    var runningAsa=AsaInstallationInventory.Inspect(
+        new[]{sharedA,sharedB},_=>new ProcessCheck(true,"running",null));
+    Assert(runningAsa[0].UpdateBlocked &&
+        runningAsa[0].Reason.Contains("running or has uncertain"),
+        "ASA update remains blocked when any map on shared installation is running");
     string unsafeZip=Path.Combine(root,"unsafe-plugin.zip");
     using(var stream=File.Create(unsafeZip))
     using(var archive=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create))
