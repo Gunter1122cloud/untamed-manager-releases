@@ -148,10 +148,9 @@
            <Grid.RowDefinitions><RowDefinition Height="107"/><RowDefinition Height="*"/></Grid.RowDefinitions>
            <Grid Grid.Row="0" ClipToBounds="True">
             <Border Background="{Binding CoverBrush}"/>
-            <Canvas>
-             <Path Fill="#416E55" Opacity="0.56" Data="M0 110 L48 67 81 90 134 26 172 87 215 45 215 115Z"/>
-             <Path Fill="#163B38" Data="M0 110 L59 92 92 110 154 71 216 109 216 117 0 117Z"/>
-            </Canvas>
+            <Image Source="{Binding CoverImage}" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
+            <Rectangle Fill="#1208181B"/>
+            <Border Background="#B008181B" Height="25" VerticalAlignment="Bottom"/>
             <Border Background="#B01A211E" Padding="8,5" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="5" Margin="0,8,9,0"><TextBlock Text="AUDIT" FontSize="10" Foreground="#F2C18A"/></Border>
            </Grid>
            <StackPanel Grid.Row="1" Margin="12,7,7,4">
