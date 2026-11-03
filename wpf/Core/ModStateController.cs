@@ -13,8 +13,8 @@ public sealed record ModEdit(Guid Map,string ModId,ModMode? Target,int? Position
 public sealed record ModPreview(Guid Map,string PreviousArguments,string NewArguments,
     ModSet Previous,ModSet Updated,bool Changed);
 
-// Active and passive are distinct ASA switches; disabled IDs are owned only by
-// the local Manager and must never appear in its launch arguments.
+// The ASA -mods switch includes both passive and active projects. -passivemods
+// is a subset of -mods; disabled projects never enter launch arguments.
 public static class ModStateController
 {
     private static readonly Regex Param=new(
@@ -44,12 +44,16 @@ public static class ModStateController
                 throw new InvalidDataException("Mod launch parameter cannot be empty");
             return CheckList(raw.Split(',',StringSplitOptions.None));
         }
-        var active=ReadSwitch("mods");
+        var enabled=ReadSwitch("mods");
         var passive=ReadSwitch("passivemods");
         var disabled=CheckList((map.DisabledModIds??new()).ToArray());
-        if(active.Concat(passive).Concat(disabled).Distinct(StringComparer.Ordinal).Count()!=
-           active.Length+passive.Length+disabled.Length)
-            throw new InvalidDataException("Mod ID cannot appear in multiple states");
+        var enabledSet=new HashSet<string>(enabled,StringComparer.Ordinal);
+        if(passive.Any(id=>!enabledSet.Contains(id)) ||
+           disabled.Any(id=>enabledSet.Contains(id)))
+            throw new InvalidDataException(
+                "Passive mods must be a subset of -mods and disabled mods cannot be enabled");
+        var passiveSet=new HashSet<string>(passive,StringComparer.Ordinal);
+        var active=enabled.Where(id=>!passiveSet.Contains(id)).ToArray();
         return new(active,passive,disabled,map.ModChangesPending);
     }
 
@@ -90,8 +94,11 @@ public static class ModStateController
         // and every other unknown argument in original order and form.
         var remaining=Param.Replace(arg,"").Trim();
         remaining=Regex.Replace(remaining,@"[ \t]{2,}"," ");
+        // A passive project stays in the normal load list and is also tagged
+        // passive. Passive projects are first, preserving each state's order.
+        var enabled=passive.Concat(active).ToArray();
         var next=remaining+
-            (active.Count>0?(remaining.Length>0?" ":"")+"-mods="+string.Join(",",active):"");
+            (enabled.Length>0?(remaining.Length>0?" ":"")+"-mods="+string.Join(",",enabled):"");
         next+=(passive.Count>0?(next.Length>0?" ":"")+"-passivemods="+
             string.Join(",",passive):"");
         bool changed=!string.Equals(next,arg,StringComparison.Ordinal) ||
