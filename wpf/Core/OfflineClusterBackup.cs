@@ -23,6 +23,58 @@ public sealed record OfflineClusterBackupManifest(
     bool KovaStoreIncluded,bool MariaDbSnapshotConsistencyProven,string Disclaimer);
 public static class OfflineClusterBackup
 {
+    // Four-folder Windows wizard: select previously copied, independently
+    // verified packages without editing JSON, credentials or Kova Store files.
+    // Folder convention: HP/<five package dirs>, RYZEN/<five package dirs>,
+    // SQL/arkshop, SQL/arkpermissions, SQL/lethalquests.
+    public static OfflineClusterBackupManifest BuildFromFolders(
+        string hpRoot,string ryzenRoot,string sqlRoot,string destination)
+    {
+        string hp=Fixed(hpRoot),ryzen=Fixed(ryzenRoot),sql=Fixed(sqlRoot);
+        if(new[]{hp,ryzen,sql}.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=3)
+            throw new InvalidDataException("HP, Ryzen and SQL source roots must be distinct");
+        foreach(var x in new[]{hp,ryzen,sql})
+            if(!Directory.Exists(x))
+                throw new DirectoryNotFoundException("Missing offline source folder: "+x);
+        OfflineMapBackupInput[] ScanHost(string directory,string role)
+        {
+            var list=Directory.GetDirectories(directory);
+            if(list.Length!=5)throw new InvalidDataException(role+" requires exactly five copied map backups");
+            return list.Select(package=>
+            {
+                string name=Path.GetFileName(package);
+                if((File.GetAttributes(package)&FileAttributes.ReparsePoint)!=0)
+                    throw new InvalidDataException("Linked offline map backup folder");
+                var meta=ReadManifest(package);
+                TestBackupPackage.Verify(package,meta.MapId);
+                return new OfflineMapBackupInput(role,meta.MapId,name,package);
+            }).ToArray();
+        }
+        var mapInputs=ScanHost(hp,"HP").Concat(ScanHost(ryzen,"RYZEN")).ToArray();
+        var sqlInputs=OfflineSqlArchive.SupportedDatabases.Select(name=>
+        {
+            string package=Path.Combine(sql,name);
+            if(!Directory.Exists(package))
+                throw new DirectoryNotFoundException("Missing SQL package: "+name);
+            var meta=ReadManifest(package);
+            OfflineSqlArchive.Verify(package,name,meta.MapId);
+            return new OfflineSqlBackupInput(name,meta.MapId,package);
+        }).ToArray();
+        return Build(new(mapInputs,sqlInputs),destination);
+    }
+    private static BackupManifest ReadManifest(string package)
+    {
+        string path=Path.Combine(Fixed(package),"manifest.json");
+        if(!File.Exists(path)||(File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0 ||
+           new FileInfo(path).Length>5_000_000)
+            throw new InvalidDataException("Missing or oversized offline package manifest");
+        var info=JsonSerializer.Deserialize<BackupManifest>(File.ReadAllText(path))
+            ??throw new InvalidDataException("Unreadable offline package manifest");
+        if(info.Version!=1 ||info.MapId==Guid.Empty ||info.Files==null)
+            throw new InvalidDataException("Invalid offline package manifest identity");
+        return info;
+    }
+
     private const string Warning="Complete 10-map/3-SQL OFFLINE FILE INTEGRITY COPY. "+
         "Not a consistent live ASA snapshot, not a Kova Store backup and not an SQL transaction.";
     public static OfflineClusterBackupManifest Build(OfflineClusterBackupRequest request,
