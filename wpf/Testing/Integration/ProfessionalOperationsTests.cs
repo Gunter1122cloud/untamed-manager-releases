@@ -162,7 +162,6 @@ public static class ProfessionalOperationsTests
         Directory.CreateDirectory(storeRyzen);
         Guid deviceHp=Guid.NewGuid(),deviceRyzen=Guid.NewGuid(),sessionId=Guid.NewGuid();
         string clusterUnc=@"\\localhost\synthetic-Store";
-        string hpHash=new string('a',64),ryzenHash=new string('b',64);
         var hpMembers=hpMaps.Select((name,i)=>new{
             id=hpIds[i].ToString(),root=@"D:\offline\hp\"+i,map=name}).ToArray();
         var ryzenMembers=ryzenMaps.Select((name,i)=>new{
@@ -171,6 +170,10 @@ public static class ProfessionalOperationsTests
             path=clusterUnc,members=hpMembers};
         var configRyzen=new{id="KovaCluster",mode="shared",
             path=clusterUnc,members=ryzenMembers};
+        using var hpConfigDoc=JsonDocument.Parse(JsonSerializer.Serialize(configHp));
+        using var ryzenConfigDoc=JsonDocument.Parse(JsonSerializer.Serialize(configRyzen));
+        string hpHash=StoreV1Fingerprint.Compute(hpConfigDoc.RootElement);
+        string ryzenHash=StoreV1Fingerprint.Compute(ryzenConfigDoc.RootElement);
         var selectedHp=hpMembers.Select(x=>x.id).ToArray();
         var selectedRyzen=ryzenMembers.Select(x=>x.id).ToArray();
         File.WriteAllText(Path.Combine(storeShared,"operation.json"),
