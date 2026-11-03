@@ -81,6 +81,27 @@ try
     try{LocalContentOperations.ReorderMods("-log",new[]{"912815"});}
     catch(InvalidOperationException){absentOrderBlocked=true;}
     Assert(absentOrderBlocked,"Reorder refuses to invent a missing mod list");
+    // The CurseForge catalog is tested with an injected HTTP handler: no real API key,
+    // no network, no mod downloads and no server modifications.
+    using(var client=new HttpClient(new SimulatedCurseForgeHttp()))
+    {
+        var catalog=new CurseForgeCatalog(client);
+        var mods=await catalog.SearchAsaAsync("synthetic-approved-key","Shiny");
+        Assert(mods.GameId==83374 && mods.Mods.Count==1 &&
+            mods.Mods[0].Id==928548 && mods.Mods[0].Name=="Shiny! Dinos",
+            "Approved-key CurseForge game discovery and read-only search parse fixture");
+        Assert(mods.Mods[0].LatestFile=="Synthetic release" &&
+            mods.Mods[0].Website=="https://www.curseforge.com/ark-survival-ascended/mods/shiny-dinos",
+            "CurseForge search displays grounded metadata and safe provider URL");
+        bool missingKey=false;
+        try{await catalog.SearchAsaAsync("","Shiny");}
+        catch(ArgumentException){missingKey=true;}
+        Assert(missingKey,"CurseForge API refuses missing credentials");
+        bool unauthorized=false;
+        try{await catalog.SearchAsaAsync("invalid-key","Shiny");}
+        catch(UnauthorizedAccessException){unauthorized=true;}
+        Assert(unauthorized,"CurseForge denied API key is reported and no fallback scraping occurs");
+    }
     // v1.3.4: Local file-copy backup does NOT claim live ASA, cluster or database consistency.
     string offlineMap=Path.Combine(root,"offline-map");
     string worldDir=Path.Combine(offlineMap,"ShooterGame","Saved","SavedArks");
@@ -598,4 +619,27 @@ sealed class LifecycleFixture(string mode) : ILocalServerSession
     }
     public Task<bool> SaveCompleted(CancellationToken ct)=>Task.FromResult(mode!="no-save-proof");
     public void Start() { if(!Check().ConfirmedStopped)throw new Exception("Unsafe restart");Starts++; }
+}
+
+sealed class SimulatedCurseForgeHttp : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        string? key=request.Headers.TryGetValues("x-api-key",out var values)
+            ? values.SingleOrDefault() : null;
+        if(key!="synthetic-approved-key")
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden));
+        string url=request.RequestUri?.AbsolutePath??"";
+        string json=url switch
+        {
+            "/v1/games" => """{"data":[{"id":83374,"slug":"ark-survival-ascended","name":"ARK Survival Ascended"}],"pagination":{"totalCount":1}}""",
+            "/v1/mods/search" => """{"data":[{"id":928548,"gameId":83374,"name":"Shiny! Dinos","summary":"Synthetic test only","dateModified":"2026-01-01T12:00:00Z","links":{"websiteUrl":"https://www.curseforge.com/ark-survival-ascended/mods/shiny-dinos"},"latestFiles":[{"displayName":"Synthetic release"}]}],"pagination":{"totalCount":1}}""",
+            _ => """{"data":[]}"""
+        };
+        var response=new HttpResponseMessage(System.Net.HttpStatusCode.OK){
+            Content=new StringContent(json,System.Text.Encoding.UTF8,"application/json")
+        };
+        return Task.FromResult(response);
+    }
 }
