@@ -27,7 +27,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 Source: "..\..\dist\UntamedManager.exe"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
-Name: "{autoprograms}\Untamed Manager"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
-Name: "{autodesktop}\Untamed Manager"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
+Name: "{autoprograms}\Untamed Kingdom Manager"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
+Name: "{autodesktop}\Untamed Kingdom Manager"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Untamed Manager indítása"; Flags: nowait postinstall skipifsilent
