@@ -1,0 +1,146 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace UntamedManager.Core;
+
+// Read-only CurseForge Core API client. Requires a user-provided, approved x-api-key.
+// Mod downloads, subscriptions and installation are intentionally not implemented.
+public sealed record CurseForgeMod(int Id,string Name,string Summary,string? Website,
+    string? LatestFile,DateTimeOffset? ModifiedUtc);
+public sealed record CurseForgeSearchResult(int GameId,IReadOnlyList<CurseForgeMod> Mods,
+    int TotalCount,int Index,bool HasMore);
+
+public sealed class CurseForgeCatalog
+{
+    private const int PageSize=25;
+    private const int MaxJsonBytes=2_000_000;
+    private readonly HttpClient http;
+    public CurseForgeCatalog(HttpClient httpClient) =>
+        http=httpClient??throw new ArgumentNullException(nameof(httpClient));
+
+    public async Task<CurseForgeSearchResult> SearchAsaAsync(string key,string term,int index=0,
+        CancellationToken ct=default)
+    {
+        if(string.IsNullOrWhiteSpace(key) || key.Length>512 || key.Any(char.IsControl))
+            throw new ArgumentException("Approved CurseForge API key required",nameof(key));
+        term=term?.Trim()??"";
+        if(term.Length<2 || term.Length>80)
+            throw new ArgumentException("Search text must contain 2-80 characters",nameof(term));
+        if(index<0 || index+PageSize>10000 || index%PageSize!=0)
+            throw new ArgumentOutOfRangeException(nameof(index));
+        int game=await FindAsaGameAsync(key,ct);
+        string path="/v1/mods/search?gameId="+game+"&searchFilter="+
+            Uri.EscapeDataString(term)+"&index="+index+"&pageSize="+PageSize;
+        using var document=await Request(key,path,ct);
+        var root=document.RootElement;
+        var data=Array(root,"data");
+        var mods=new List<CurseForgeMod>();
+        foreach(var item in data.EnumerateArray())
+        {
+            int id=Int(item,"id");
+            string name=Str(item,"name")??"";
+            if(id<=0 || name.Length==0 || Int(item,"gameId")!=game)continue;
+            string? url=null;
+            if(item.TryGetProperty("links",out var links) && links.ValueKind==JsonValueKind.Object)
+            {
+                var offered=Str(links,"websiteUrl");
+                if(Uri.TryCreate(offered,UriKind.Absolute,out var parsed) &&
+                   parsed.Scheme==Uri.UriSchemeHttps &&
+                   (parsed.Host.Equals("curseforge.com",StringComparison.OrdinalIgnoreCase) ||
+                    parsed.Host.EndsWith(".curseforge.com",StringComparison.OrdinalIgnoreCase)))
+                    url=parsed.ToString();
+            }
+            string? file=null;
+            if(item.TryGetProperty("latestFiles",out var latest) &&
+               latest.ValueKind==JsonValueKind.Array && latest.GetArrayLength()>0)
+                file=Str(latest[0],"displayName")??Str(latest[0],"fileName");
+            DateTimeOffset? date=null;
+            if(DateTimeOffset.TryParse(Str(item,"dateModified"),out var parsedDate))
+                date=parsedDate;
+            mods.Add(new(id,name,Str(item,"summary")??"",url,file,date));
+        }
+        int total=0;
+        if(root.TryGetProperty("pagination",out var pagination) &&
+           pagination.ValueKind==JsonValueKind.Object)
+            total=Int(pagination,"totalCount");
+        return new(game,mods,total,index,index+PageSize<total);
+    }
+
+    private async Task<int> FindAsaGameAsync(string key,CancellationToken ct)
+    {
+        // Resolve game ID from the authenticated catalog. Do not assume that an
+        // old hard-coded ID remains valid or that an empty search is authoritative.
+        for(int index=0;index<1250;index+=50)
+        {
+            using var document=await Request(key,
+                "/v1/games?index="+index+"&pageSize=50",ct);
+            var data=Array(document.RootElement,"data");
+            foreach(var item in data.EnumerateArray())
+            {
+                string name=Str(item,"name")??"";
+                string slug=Str(item,"slug")??"";
+                if(slug.Equals("ark-survival-ascended",StringComparison.OrdinalIgnoreCase) ||
+                   name.Replace(":","").Replace(" ","")
+                       .Equals("ARKSurvivalAscended",StringComparison.OrdinalIgnoreCase))
+                {
+                    int id=Int(item,"id");
+                    if(id>0)return id;
+                }
+            }
+            if(data.GetArrayLength()<50)break;
+        }
+        throw new InvalidDataException(
+            "ARK Survival Ascended is not visible to this approved CurseForge API key");
+    }
+
+    private async Task<JsonDocument> Request(string key,string relative,CancellationToken ct)
+    {
+        using var request=new HttpRequestMessage(HttpMethod.Get,
+            new Uri("https://api.curseforge.com"+relative,UriKind.Absolute));
+        request.Headers.Add("x-api-key",key);
+        request.Headers.Accept.ParseAdd("application/json");
+        using var response=await http.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,ct);
+        if(response.StatusCode==HttpStatusCode.Unauthorized ||
+           response.StatusCode==HttpStatusCode.Forbidden)
+            throw new UnauthorizedAccessException("CurseForge API access denied; check approved key");
+        if((int)response.StatusCode==429)
+            throw new IOException("CurseForge API rate limit reached; retry later");
+        if(!response.IsSuccessStatusCode)
+            throw new HttpRequestException("CurseForge request failed: HTTP "+(int)response.StatusCode);
+        if(response.Content.Headers.ContentLength>MaxJsonBytes)
+            throw new InvalidDataException("CurseForge JSON response exceeds safe size");
+        await using var input=await response.Content.ReadAsStreamAsync(ct);
+        using var memory=new MemoryStream();
+        var buffer=new byte[16384];
+        int count;
+        while((count=await input.ReadAsync(buffer,ct))>0)
+        {
+            if(memory.Length+count>MaxJsonBytes)
+                throw new InvalidDataException("CurseForge JSON response exceeds safe size");
+            memory.Write(buffer,0,count);
+        }
+        memory.Position=0;
+        return await JsonDocument.ParseAsync(memory,cancellationToken:ct);
+    }
+    private static JsonElement Array(JsonElement root,string name)
+    {
+        if(!root.TryGetProperty(name,out var arr) || arr.ValueKind!=JsonValueKind.Array)
+            throw new InvalidDataException("CurseForge JSON missing '"+name+"' array");
+        return arr;
+    }
+    private static string? Str(JsonElement root,string name) =>
+        root.ValueKind==JsonValueKind.Object &&
+        root.TryGetProperty(name,out var val) && val.ValueKind==JsonValueKind.String
+            ? val.GetString():null;
+    private static int Int(JsonElement root,string name) =>
+        root.ValueKind==JsonValueKind.Object &&
+        root.TryGetProperty(name,out var val) && val.ValueKind==JsonValueKind.Number &&
+        val.TryGetInt32(out var number)?number:0;
+}
