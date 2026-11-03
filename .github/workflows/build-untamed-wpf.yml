@@ -77,25 +77,44 @@ jobs:
       - name: Save verified GUI screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.0.2-actual-screenshot
+          name: UntamedManager-WPF-v1.0.3-actual-screenshot
           path: dist/UntamedManager-preview.png
           if-no-files-found: error
       - name: Save Windows EXE
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.0.2-windows-x64
+          name: UntamedManager-WPF-v1.0.3-windows-x64
           path: dist/UntamedManager.exe
+          if-no-files-found: error
+      - name: Build per-user Windows installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\\Inno Setup 6\\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe missing" }
+          & $iscc "wpf/installer/UntamedManager.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
+          if (!(Test-Path "dist/UntamedManager-1.0.3-SETUP.exe")) { throw "Windows setup missing" }
+          Get-FileHash "dist/UntamedManager-1.0.3-SETUP.exe" -Algorithm SHA256
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: UntamedManager-WPF-v1.0.3-installer
+          path: dist/UntamedManager-1.0.3-SETUP.exe
           if-no-files-found: error
       - name: Create test-only GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.0.2-wpf-preview.1"
+          $tag = "v1.0.3-wpf-preview.1"
           gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.2.exe" "dist/UntamedManager-preview.png#UntamedManager-preview.png" --clobber --repo "$env:GITHUB_REPOSITORY"
+            gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.3.exe" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.0.3-SETUP.exe#UntamedManager-1.0.3-SETUP.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
           } else {
-            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.1.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.0.2 - Neon GUI Preview" --prerelease --notes "Isolated Windows WPF desktop preview. No host agent installed. No live Kova Store writes. Test on a third Windows PC only." --repo "$env:GITHUB_REPOSITORY"
+            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.3.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.0.3 - Installer Fix" --prerelease --notes "Isolated Windows WPF desktop preview. No host agent installed. No live Kova Store writes. Test on a third Windows PC only." --repo "$env:GITHUB_REPOSITORY"
           }
           if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
