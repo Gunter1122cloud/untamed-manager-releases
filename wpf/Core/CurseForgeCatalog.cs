@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,6 +24,8 @@ public sealed class CurseForgeCatalog
     private const int PageSize=25;
     private const int MaxJsonBytes=2_000_000;
     private readonly HttpClient http;
+    private int? cachedAsaGame;
+    private string? cachedKeyDigest;
     public CurseForgeCatalog(HttpClient httpClient) =>
         http=httpClient??throw new ArgumentNullException(nameof(httpClient));
 
@@ -70,14 +74,16 @@ public sealed class CurseForgeCatalog
         if(root.TryGetProperty("pagination",out var pagination) &&
            pagination.ValueKind==JsonValueKind.Object)
             total=Int(pagination,"totalCount");
-        return new(game,mods,total,index,index+PageSize<total);
+        return new(game,mods,total,index,index+PageSize<Math.Min(total,10000));
     }
 
     private async Task<int> FindAsaGameAsync(string key,CancellationToken ct)
     {
+        var digest=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+        if(cachedAsaGame.HasValue && cachedKeyDigest==digest)return cachedAsaGame.Value;
         // Resolve game ID from the authenticated catalog. Do not assume that an
         // old hard-coded ID remains valid or that an empty search is authoritative.
-        for(int index=0;index<1250;index+=50)
+        for(int index=0;index<10000;index+=50)
         {
             using var document=await Request(key,
                 "/v1/games?index="+index+"&pageSize=50",ct);
@@ -91,7 +97,7 @@ public sealed class CurseForgeCatalog
                        .Equals("ARKSurvivalAscended",StringComparison.OrdinalIgnoreCase))
                 {
                     int id=Int(item,"id");
-                    if(id>0)return id;
+                    if(id>0){cachedAsaGame=id;cachedKeyDigest=digest;return id;}
                 }
             }
             if(data.GetArrayLength()<50)break;
