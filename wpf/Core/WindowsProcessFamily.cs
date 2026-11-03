@@ -56,10 +56,11 @@ public sealed partial class WindowsProcessInspector
                 if(!ProcessFamily.IsVerifiedPair(observed,parent,child))return new(false,"Loader-child relationship unverified",null);
                 return new(true,"Loader and server family verified",child,false,parent);
             }
-            // An orphan may only reattach to the exact previously proven child and parent identity.
-            if(map.LastProcess!=null && map.LastLoader!=null && children[0].ParentPid==map.LastLoader.Pid &&
-                map.LastProcess.Pid==child.Pid && map.LastProcess.StartedUtc==child.StartedUtc &&
-                map.LastProcess.ExecutablePath.Equals(child.ExecutablePath,StringComparison.OrdinalIgnoreCase)&&map.LastProcess.Arguments==child.Arguments)
+            // A loader may exit while its child remains alive. Windows does not
+            // guarantee the orphan's ParentProcessId still equals the original
+            // loader PID; use the exact persisted verified identities instead.
+            if(ProcessFamily.IsPersistedSurvivor(children[0],map.LastProcess,map.LastLoader,
+                server,map.Arguments,loader,map.ApiLoaderArguments))
                 return new(true,"Verified server survives loader exit",child,false,map.LastLoader);
             return new(false,"Orphan server has no persisted family evidence",null);
         }
