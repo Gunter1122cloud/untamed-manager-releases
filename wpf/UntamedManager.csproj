@@ -12,5 +12,5 @@
     <ApplicationIcon>Assets/UntamedManager.ico</ApplicationIcon>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
-  <ItemGroup><Resource Include="Assets/kingdom-hero.jpg" /><Resource Include="Assets/map-atlas.jpg" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets/kingdom-hero.jpg" /><Resource Include="Assets/map-atlas.jpg" /><Resource Include="Assets/UntamedManager.ico" /></ItemGroup>
 </Project>
