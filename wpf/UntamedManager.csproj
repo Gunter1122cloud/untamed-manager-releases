@@ -19,5 +19,6 @@
   <ItemGroup>
     <Compile Remove="Updater/**/*.cs" />
     <Compile Remove="Testing/**/*.cs" />
+    <Compile Remove="Supervisor/**/*.cs" />
   </ItemGroup>
 </Project>

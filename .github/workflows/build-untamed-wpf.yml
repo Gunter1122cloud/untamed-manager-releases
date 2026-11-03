@@ -65,6 +65,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Updater publish failed" }
           Copy-Item "$env:RUNNER_TEMP/untamed-updater/UntamedUpdater.exe" "dist/UntamedUpdater.exe"
           if (!(Test-Path "dist/UntamedUpdater.exe")) { throw "Updater helper missing" }
+      - name: Build and run independent read-only supervisor
+        shell: pwsh
+        run: |
+          dotnet publish wpf/Supervisor/UntamedSupervisor.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP/supervisor" --nologo
+          if ($LASTEXITCODE -ne 0) { throw "Supervisor build failed" }
+          Copy-Item "$env:RUNNER_TEMP/supervisor/UntamedSupervisor.exe" dist/UntamedSupervisor.exe
+          & dist/UntamedSupervisor.exe --once --root "$env:RUNNER_TEMP/supervisor-profile"
+          if ($LASTEXITCODE -ne 0) { throw "Supervisor run failed" }
+          if (!(Test-Path "$env:RUNNER_TEMP/supervisor-profile/supervisor-heartbeat.json")) { throw "Missing independent heartbeat" }
       - name: Windows two-Manager integration tests with fake server process
         shell: pwsh
         run: |
@@ -149,7 +158,7 @@ jobs:
       - name: Package complete portable test build
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/UntamedManager.exe,dist/UntamedUpdater.exe -DestinationPath dist/UntamedManager-1.3.2-win-x64.zip
+          Compress-Archive -Path dist/UntamedManager.exe,dist/UntamedUpdater.exe,dist/UntamedSupervisor.exe -DestinationPath dist/UntamedManager-1.3.2-win-x64.zip
           Get-FileHash dist/UntamedManager-1.3.2-win-x64.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  UntamedManager-1.3.2-win-x64.zip" } | Set-Content dist/SHA256SUMS.txt
       - name: Save Windows EXE
         uses: actions/upload-artifact@v4
@@ -158,6 +167,7 @@ jobs:
           path: |
             dist/UntamedManager.exe
             dist/UntamedUpdater.exe
+            dist/UntamedSupervisor.exe
             dist/UntamedManager-1.3.2-win-x64.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error

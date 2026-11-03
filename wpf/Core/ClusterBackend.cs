@@ -33,6 +33,7 @@ public sealed class LocalMap
     public string RconHost { get; set; } = "127.0.0.1";
     public string RconPasswordProtected { get; set; } = "";
     public bool AutoStart { get; set; } = false;
+    public bool Maintenance { get; set; } = false;
     public ProcessIdentity? LastProcess { get; set; }
 }
 public sealed class ProcessIdentity
@@ -361,6 +362,8 @@ public sealed class ClusterService : IAsyncDisposable
     private readonly WindowsProcessInspector _inspector=new();
     private readonly Func<LocalMap, ProcessCheck> _inspect;
     private PeerStatusListener? _listener;
+    private bool _remoteReachable;
+    public bool RemoteIsFresh=>_remoteReachable && RemoteSnapshot!=null && StatusFreshness.IsFresh(RemoteSnapshot.ObservedUtc,DateTimeOffset.UtcNow);
     public HostStatus? RemoteSnapshot { get; private set; }
     public string RemoteMessage { get; private set; }="Nincs peer beállítva";
     public ClusterService(string profile = "default",string? rootOverride=null,
@@ -415,6 +418,7 @@ public sealed class ClusterService : IAsyncDisposable
         {
             try { acquired=gate.WaitOne(0); } catch(AbandonedMutexException) { acquired=true; }
             if(!acquired)throw new InvalidOperationException("Another local launch is in progress");
+            if(map.Maintenance)throw new InvalidOperationException("Maintenance mode blocks launch");
             if (!Check(map).ConfirmedStopped)
                 throw new InvalidOperationException("Server is running or its stopped state cannot be verified");
             var identity=_inspector.Launch(map);
@@ -453,11 +457,12 @@ public sealed class ClusterService : IAsyncDisposable
                 SecureStore.Unprotect(Config.PairingKeyProtected),ct);
             if(snapshot.HostId==Config.LocalHostId)
                 throw new InvalidDataException("Peer host ID equals local host ID");
-            RemoteSnapshot=snapshot;RemoteMessage="LAN kapcsolat működik";return snapshot;
+            if(!StatusFreshness.IsFresh(snapshot.ObservedUtc,DateTimeOffset.UtcNow))throw new InvalidDataException("Peer measurement is stale");
+            RemoteSnapshot=snapshot;_remoteReachable=true;RemoteMessage="LAN kapcsolat működik";return snapshot;
         }
         catch(Exception ex) {
             RemoteMessage="A másik gép offline vagy nem hitelesíthető: "+ex.Message;
-            RemoteSnapshot=null;return null; // Local manager must keep functioning.
+            _remoteReachable=false;return null; // Preserve last observation, explicitly stale.
         }
     }
     public async ValueTask DisposeAsync()

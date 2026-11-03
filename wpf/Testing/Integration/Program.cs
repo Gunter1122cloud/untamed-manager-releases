@@ -146,6 +146,15 @@ try
         Assert(timedOut,"Real RCON socket cancellation on silent endpoint");
     }
     finally { stalled.Stop(); }
+    var policy=new SupervisorPolicy();Guid monitored=Guid.NewGuid();var now=DateTimeOffset.UtcNow;
+    var unknown=new ProcessCheck(false,"unknown",null);
+    policy.Observe(monitored,unknown,false,now);policy.Observe(monitored,unknown,false,now);
+    Assert(policy.Observe(monitored,unknown,false,now).AttentionRequired,"Supervisor flags repeated uncertain observations");
+    Assert(policy.Observe(monitored,unknown,false,now).ConsecutiveFailures==3,"Supervisor failure counter is bounded");
+    Assert(!policy.Observe(monitored,unknown,true,now).AttentionRequired,"Maintenance suppresses intervention recommendations");
+    Assert(policy.DueNotification(monitored,now,now,false) && !policy.DueNotification(monitored,now,now,false),"Scheduler notification emitted once per due event");
+    Assert(!policy.DueNotification(Guid.NewGuid(),now,now,true),"Maintenance suppresses scheduled notifications");
+    Assert(!StatusFreshness.IsFresh(now.AddMinutes(-1),now) && !StatusFreshness.IsFresh(now.AddMinutes(1),now) && StatusFreshness.IsFresh(now,now),"Stale and future status timestamps rejected");
     string repo="Gunter1122cloud/untamed-manager-releases";
     object Release(string tag,bool preview,bool draft=false,string? digest=null)=>new {
         tag_name=tag,prerelease=preview,draft,body="fixture",assets=new[]{new {

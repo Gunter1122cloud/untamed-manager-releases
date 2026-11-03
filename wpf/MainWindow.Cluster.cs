@@ -113,12 +113,12 @@ public partial class MainWindow
         Add(Box(V(Label("◉  TÁVOLI MANAGER",20,Aqua,true),
             Label(_cluster.RemoteSnapshot==null?_cluster.RemoteMessage:
                 $"{_cluster.RemoteSnapshot.HostName} · {_cluster.RemoteSnapshot.Maps.Count} map · "+
-                $"adatok: {_cluster.RemoteSnapshot.ObservedUtc.LocalDateTime:HH:mm:ss}",12,Soft))));
+                $"adatok: {_cluster.RemoteSnapshot.ObservedUtc.LocalDateTime:HH:mm:ss} · "+(_cluster.RemoteIsFresh?"FRISS":"ELAVULT / OFFLINE"),12,Soft))));
         if(_cluster.RemoteSnapshot is { } remote)
         {
             foreach(var m in remote.Maps)
-                Add(Box(V(Label($"{(m.Running?"●":"○")}  {m.Name}",16,Brushes.White,true),
-                    Label($"{m.Status} · UDP {m.GamePort} · CSAK MEGFIGYELÉS",12,Aqua))));
+                Add(Box(V(Label($"{(_cluster.RemoteIsFresh && m.Running?"●":"○")}  {m.Name}",16,Brushes.White,true),
+                    Label($"{(_cluster.RemoteIsFresh?m.Status:"ELAVULT MÉRÉS · "+m.Status)} · UDP {m.GamePort} · CSAK MEGFIGYELÉS",12,Aqua))));
         }
         Add(Btn("Peer állapot frissítése",async()=>{
             await _cluster.PollPeerAsync();
