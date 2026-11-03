@@ -63,6 +63,26 @@ public partial class MainWindow
             }
             catch(Exception ex){status.Text="Mentés nem ellenőrizhető: "+ex.Message;WriteLog("backup-verify",ex);}
         });
+        var history=Btn("Mentési előzmények és SHA-256 állapot ellenőrzése",async ()=>{
+            try
+            {
+                if(!_cluster.Config.LocalMaps.Contains(map))
+                    throw new UnauthorizedAccessException("Not a local map");
+                string root=folder.Text.Trim();
+                status.Text="Mentési előzmények fájlonkénti ellenőrzése folyamatban...";
+                var packages=await Task.Run(()=>LocalBackupCatalog.Inspect(root,map.Id,15));
+                status.Text=packages.Count==0?"Nem található mentés ezen a helyi útvonalon.":
+                    string.Join("\n",packages.Select(p=>
+                        $"{(p.Valid?"ÉP":"HIBÁS")} · {Path.GetFileName(p.PackageDirectory)} · "+
+                        $"{p.FileCount} fájl · {p.Status}"))+
+                    "\nA helyreállítás továbbra is tiltva.";
+            }
+            catch(Exception ex)
+            {
+                status.Text="Mentésleltár nem ellenőrizhető: "+ex.Message;
+                WriteLog("backup-history",ex);
+            }
+        });
         return V(
             Label("Csak helyileg regisztrált, igazoltan leállított mapról készíthető offline fájlmásolat.",12,Aqua),
             Label("Az SQL, a közös KovaCluster Store és a kétgépes clustertransfer nem része ennek a mentésnek.",12,Soft),
@@ -72,6 +92,6 @@ public partial class MainWindow
                 using var pick=new Forms.FolderBrowserDialog{Description="Válassz a map gyökerétől különálló helyi mentési mappát"};
                 if(pick.ShowDialog()==Forms.DialogResult.OK)folder.Text=pick.SelectedPath;
             }),
-            create,verify,status);
+            create,verify,history,status);
     }
 }
