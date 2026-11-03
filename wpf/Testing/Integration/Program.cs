@@ -81,6 +81,25 @@ try
     try{LocalContentOperations.ReorderMods("-log",new[]{"912815"});}
     catch(InvalidOperationException){absentOrderBlocked=true;}
     Assert(absentOrderBlocked,"Reorder refuses to invent a missing mod list");
+    var modA=new LocalMap{Name="Astraeos inventory",Arguments="-log -mods=912815,928548,942024"};
+    var modB=new LocalMap{Name="Island inventory",Arguments="-mods=928548,912815,950914"};
+    var modC=new LocalMap{Name="Genesis inventory",Arguments="-mods=912815,928548"};
+    var modList=LocalModAssignments.Inspect(new[]{modA,modB,modC});
+    Assert(modList.Complete && modList.Maps.Count==3 &&
+        modList.Maps[0].OrderedIds.SequenceEqual(new[]{"912815","928548","942024"}) &&
+        modList.CommonIds.SequenceEqual(new[]{"912815","928548"}) &&
+        modList.SingleMapIds.SequenceEqual(new[]{"942024","950914"}) &&
+        modList.UniqueIdCount==4,
+        "Local-only mod inventory reports actual order, shared and exclusive IDs");
+    var broken=new LocalMap{Name="Invalid mod arguments",Arguments="-mods=912815,912815"};
+    var uncertain=LocalModAssignments.Inspect(new[]{modA,broken});
+    Assert(!uncertain.Complete && uncertain.CommonIds.Count==0 &&
+        uncertain.SingleMapIds.Count==0 && uncertain.Maps.Last().Error!=null,
+        "Corrupt map mod list never produces an unproven global common-mod claim");
+    bool invalidMapBlocked=false;
+    try{LocalModAssignments.Inspect(new[]{modA,modA});}
+    catch(InvalidDataException){invalidMapBlocked=true;}
+    Assert(invalidMapBlocked,"Local mod inventory rejects duplicate map ownership identities");
     // The CurseForge catalog is tested with an injected HTTP handler: no real API key,
     // no network, no mod downloads and no server modifications.
     using(var client=new HttpClient(new SimulatedCurseForgeHttp()))
