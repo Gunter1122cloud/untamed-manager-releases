@@ -7,7 +7,7 @@ namespace UntamedManager.Core;
 // v1.3.7 synthetic proof format for FakeAsa fixtures only. An RCON success,
 // changed timestamp, file size, or generic log line is never sufficient.
 public enum SyntheticSaveSignalKind { Started, Completed }
-public sealed record SyntheticSaveSignal(string OperationToken,SyntheticSaveSignalKind Kind,
+public sealed record SyntheticSaveSignal(Guid Map,string OperationToken,SyntheticSaveSignalKind Kind,
     ProcessIdentity Server,DateTimeOffset Utc);
 public sealed record SyntheticSaveResult(bool Proven,string Reason,DateTimeOffset? CompletedUtc);
 
@@ -28,6 +28,8 @@ public static class SaveWorldValidator
         if(now<commandUtc || now-commandUtc>TimeSpan.FromMinutes(3))
             return new(false,"Synthetic proof expired or time reversed",null);
         var signals=observations.Where(x=>x.OperationToken==operationToken).ToArray();
+        if(signals.Any(x=>x.Map!=ownedMap))
+            return new(false,"Synthetic save evidence belongs to a different map",null);
         if(signals.Length!=2 || signals.Count(x=>x.Kind==SyntheticSaveSignalKind.Started)!=1 ||
            signals.Count(x=>x.Kind==SyntheticSaveSignalKind.Completed)!=1)
             return new(false,"Expected exactly one correlated start and completion",null);
