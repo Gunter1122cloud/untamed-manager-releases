@@ -29,12 +29,12 @@ public static class KovaStoreV1CopyReader
     {
         string shared=Root(coordinationCopy),hp=Root(hpLocalCopy),ryzen=Root(ryzenLocalCopy);
         if(new[]{shared,hp,ryzen}.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=3)
-            throw new InvalidDataException("Shared and both local Kova snapshot roots must be distinct");
+            throw new InvalidDataException("A közös és a két helyi Vault-mappa legyen külön");
         using var operation=Json(shared,"operation.json");
         var op=operation.RootElement;
         if(Int(op,"schema")!=1 || !Guid.TryParse(Str(op,"session"),out var session)||
            Str(op,"cluster")!="KovaCluster")
-            throw new InvalidDataException("Unknown Kova Store-v1 operation contract");
+            throw new InvalidDataException("Nem támogatott közös Vault-munkamenet");
         string clusterPath=Str(op,"path");
         if(string.IsNullOrWhiteSpace(clusterPath))
             throw new InvalidDataException("Store operation cluster path missing");
@@ -52,7 +52,7 @@ public static class KovaStoreV1CopyReader
             var localDevice=device.RootElement;
             if(Int(localDevice,"schema")!=1 ||
                !Guid.TryParse(Str(localDevice,"id"),out var deviceId))
-                throw new InvalidDataException("Invalid Kova Store device identity");
+                throw new InvalidDataException("Érvénytelen Vault hostazonosító");
             string key=deviceId.ToString();
             if(!peers.Any(x=>Guid.Parse(x)==deviceId))
                 throw new InvalidDataException("Local Store device is not in operation peer list");
@@ -149,15 +149,15 @@ public static class KovaStoreV1CopyReader
     private static string Root(string dir)
     {
         if(string.IsNullOrWhiteSpace(dir)||!Path.IsPathFullyQualified(dir)||dir.StartsWith(@"\\"))
-            throw new InvalidDataException("Explicit copied local Kova Store folder required");
+            throw new InvalidDataException("Helyi másolt Vault-metaadatmappa szükséges");
         string full=Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar);
         if(new DriveInfo(Path.GetPathRoot(full)!).DriveType!=DriveType.Fixed)
-            throw new InvalidDataException("Kova Store copies must be on fixed disk");
+            throw new InvalidDataException("A Vault-másolatok csak helyi meghajtón elemezhetők");
         for(var node=new DirectoryInfo(full);node!=null;node=node.Parent)
             if(node.Exists&&(node.Attributes&FileAttributes.ReparsePoint)!=0)
                 throw new InvalidDataException("Linked Store copy path rejected");
         if(!Directory.Exists(full))
-            throw new DirectoryNotFoundException("Missing copied Kova Store folder");
+            throw new DirectoryNotFoundException("Hiányzó Vault-adatmásolat mappa");
         return full;
     }
     private static JsonDocument Json(string dir,string name)
