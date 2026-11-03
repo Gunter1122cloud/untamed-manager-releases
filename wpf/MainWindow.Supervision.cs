@@ -113,6 +113,7 @@ public partial class MainWindow
                 Add(Box(Label($"{e.Utc.LocalDateTime:yyyy-MM-dd HH:mm:ss} · {e.Severity} · {e.Host} · {e.Map}\n{e.Code} · {e.Id}",12,Soft)));
         }
         Add(Box(V(Label("Frissítési események",16,Aqua),Label(UpdateHistory.ReadRecent(),11,Soft))));
+        ShowTelemetryHistoryControls();
     }
     private void ShowBackgroundSchedules()
     {
@@ -141,5 +142,6 @@ public partial class MainWindow
             if(_supervisorChannel!=null)foreach(var receipt in new PersistentScheduler(_supervisorChannel.Root).Receipts.TakeLast(50).Reverse())
                 Add(Box(Label($"{receipt.Task} · {receipt.DueUtc:O} · {receipt.Status} · kísérletek: {receipt.Attempts}",12,Soft)));
         }catch{Add(Box(Label("Ütemezőállapot nem olvasható.",12,Soft)));}
+        ShowRecurringOperationalCalendar();
     }
 }
