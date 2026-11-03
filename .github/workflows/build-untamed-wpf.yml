@@ -125,9 +125,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $imagePath = "$env:GITHUB_WORKSPACE/dist/UntamedManager-preview.png"
-          $resource = "repos/$env:GITHUB_REPOSITORY/contents/previews/UntamedManager-1.3.7.png"
+          $resource = "repos/$env:GITHUB_REPOSITORY/contents/previews/UntamedManager-1.4.0.png"
           $body = @{
-            message = "Capture actual WPF 1.3.7 dashboard screenshot for approved visual QA"
+            message = "Capture actual WPF 1.4.0 dashboard screenshot for approved visual QA"
             branch = "main"
             content = [Convert]::ToBase64String([IO.File]::ReadAllBytes($imagePath))
           }
@@ -155,7 +155,7 @@ jobs:
           $small.Save($jpeg,[System.Drawing.Imaging.ImageFormat]::Jpeg)
           $gfx.Dispose(); $small.Dispose(); $source.Dispose()
           $encoded = [Convert]::ToBase64String([IO.File]::ReadAllBytes($jpeg))
-          $resource = "repos/$env:GITHUB_REPOSITORY/contents/previews/UntamedManager-1.3.7.b64.txt"
+          $resource = "repos/$env:GITHUB_REPOSITORY/contents/previews/UntamedManager-1.4.0.b64.txt"
           $body = @{
             message = "Archive compact actual GUI screenshot for reference visual comparison"
             branch = "main"
@@ -170,23 +170,23 @@ jobs:
       - name: Save verified GUI screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.3.7-actual-screenshot
+          name: UntamedManager-WPF-v1.4.0-actual-screenshot
           path: dist/UntamedManager-preview.png
           if-no-files-found: error
       - name: Package complete portable test build
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/UntamedManager.exe,dist/UntamedUpdater.exe,dist/UntamedSupervisor.exe -DestinationPath dist/UntamedManager-1.3.7-win-x64.zip
-          Get-FileHash dist/UntamedManager-1.3.7-win-x64.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  UntamedManager-1.3.7-win-x64.zip" } | Set-Content dist/SHA256SUMS.txt
+          Compress-Archive -Path dist/UntamedManager.exe,dist/UntamedUpdater.exe,dist/UntamedSupervisor.exe -DestinationPath dist/UntamedManager-1.4.0-win-x64.zip
+          Get-FileHash dist/UntamedManager-1.4.0-win-x64.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  UntamedManager-1.4.0-win-x64.zip" } | Set-Content dist/SHA256SUMS.txt
       - name: Save Windows EXE
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.3.7-windows-x64
+          name: UntamedManager-WPF-v1.4.0-windows-x64
           path: |
             dist/UntamedManager.exe
             dist/UntamedUpdater.exe
             dist/UntamedSupervisor.exe
-            dist/UntamedManager-1.3.7-win-x64.zip
+            dist/UntamedManager-1.4.0-win-x64.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error
       - name: Build per-user Windows installer
@@ -200,8 +200,8 @@ jobs:
           if (!(Test-Path $iscc)) { throw "ISCC.exe missing" }
           & $iscc "wpf/installer/UntamedManager.iss"
           if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
-          if (!(Test-Path "dist/UntamedManager-1.3.7-SETUP.exe")) { throw "Windows setup missing" }
-          Get-FileHash "dist/UntamedManager-1.3.7-SETUP.exe" -Algorithm SHA256
+          if (!(Test-Path "dist/UntamedManager-1.4.0-SETUP.exe")) { throw "Windows setup missing" }
+          Get-FileHash "dist/UntamedManager-1.4.0-SETUP.exe" -Algorithm SHA256
       - name: Actual isolated installer updater health failure and recovery tests
         shell: pwsh
         run: |
@@ -210,8 +210,8 @@ jobs:
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.3.7-installer
-          path: dist/UntamedManager-1.3.7-SETUP.exe
+          name: UntamedManager-WPF-v1.4.0-installer
+          path: dist/UntamedManager-1.4.0-SETUP.exe
           if-no-files-found: error
       - name: Create test-only GitHub release
         if: ${{ false }} # P0 development: release remains gated until all implemented subsystems pass review.
@@ -219,11 +219,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.3.7-wpf-preview.1"
+          $tag = "v1.4.0-wpf-preview.1"
           gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.3.7.exe" "dist/UntamedManager-1.3.7-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.3.7-SETUP.exe#UntamedManager-1.3.7-SETUP.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
+            gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.4.0.exe" "dist/UntamedManager-1.4.0-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.4.0-SETUP.exe#UntamedManager-1.4.0-SETUP.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
           } else {
-            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.3.7.exe" "dist/UntamedManager-1.3.7-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.3.7-SETUP.exe#UntamedManager-1.3.7-SETUP.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.3.7 - Process Safety Preview" --prerelease --notes-file wpf/RELEASE-1.3.7.md --repo "$env:GITHUB_REPOSITORY"
+            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.4.0.exe" "dist/UntamedManager-1.4.0-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.4.0-SETUP.exe#UntamedManager-1.4.0-SETUP.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.4.0 - Process Safety Preview" --prerelease --notes-file wpf/RELEASE-1.4.0.md --repo "$env:GITHUB_REPOSITORY"
           }
           if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
