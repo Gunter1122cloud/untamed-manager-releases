@@ -12,8 +12,10 @@
   <LinearGradientBrush x:Key="Cave" StartPoint="0,0" EndPoint="1,1">
    <GradientStop Color="#112D31" Offset="0"/><GradientStop Color="#102327" Offset="0.7"/><GradientStop Color="#0C1C20" Offset="1"/>
   </LinearGradientBrush>
-  <LinearGradientBrush x:Key="Night" StartPoint="0,0" EndPoint="0,1">
-   <GradientStop Color="#E2000D10" Offset="0"/><GradientStop Color="#F70B2020" Offset="1"/>
+  <LinearGradientBrush x:Key="Night" StartPoint="0,0" EndPoint="1,0">
+   <GradientStop Color="#F0091C1D" Offset="0"/>
+   <GradientStop Color="#B0082021" Offset="0.42"/>
+   <GradientStop Color="#00082021" Offset="0.83"/>
   </LinearGradientBrush>
   <Style x:Key="NavItem" TargetType="Button" BasedOn="{StaticResource NavButton}">
    <Setter Property="Margin" Value="12,2"/>
@@ -110,7 +112,7 @@
          <Path Fill="#061618" Data="M0 270 L77 235 101 267 156 215 189 271 279 222 310 290 0 290Z"/>
         </Canvas>
         <Image x:Name="HeroImage" Source="/Assets/kingdom-hero.jpg" Stretch="UniformToFill" Opacity="0.95" RenderTransformOrigin="0.5,0.5"><Image.RenderTransform><ScaleTransform ScaleX="1.03" ScaleY="1.03"/></Image.RenderTransform></Image><Rectangle Fill="{StaticResource Night}"/>
-        <Ellipse x:Name="AmbientGlow" HorizontalAlignment="Right" VerticalAlignment="Top" Width="430" Height="300" Margin="0,-64,-85,0" Fill="#2966FFE0" Opacity="0.48" IsHitTestVisible="False"/>
+        <Ellipse x:Name="AmbientGlow" HorizontalAlignment="Right" VerticalAlignment="Top" Width="430" Height="300" Margin="0,-64,-85,0" Fill="#1066FFE0" Opacity="0.12" IsHitTestVisible="False"/>
         <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center" Margin="33,0,370,0">
          <TextBlock Text="ARK: SURVIVAL ASCENDED" FontWeight="SemiBold" FontSize="12" Foreground="#A6F873"/>
          <TextBlock Text="UNTAMED KINGDOM" FontSize="35" FontWeight="Black" Foreground="White" Margin="0,11,0,0" TextTrimming="CharacterEllipsis"/>
