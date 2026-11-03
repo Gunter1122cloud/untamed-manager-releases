@@ -160,6 +160,26 @@ try
     Assert(history.Count==2 && history.Any(x=>!x.Valid &&
         x.Status.Contains("Incomplete backup")),
         "Incomplete backup staging is visible and never marked restorable");
+    string overviewRoot=Path.Combine(root,"multi-map-overview");
+    var otherOwned=new LocalMap{Name="OtherLocalFixture"};
+    string ownerRoot=Path.Combine(overviewRoot,"local-backups",offline.Id.ToString("N"));
+    string ownerGood=Path.Combine(ownerRoot,"complete");
+    TestBackupPackage.Create(historySource,ownerGood,offline.Id,"Synthetic multi-map history");
+    var overview=LocalBackupOverview.Inspect(overviewRoot,new[]{offline,otherOwned});
+    Assert(overview.Count==2 && overview[0].ValidPackages==1 &&
+        overview[0].VerifiedBytes==new FileInfo(Path.Combine(historySource,"world.dat")).Length &&
+        overview[1].ValidPackages==0,
+        "Read-only multi-map backup overview reports real verified sizes and empty owned maps");
+    File.WriteAllText(Path.Combine(ownerGood,"data","world.dat"),"corrupt");
+    Directory.CreateDirectory(Path.Combine(ownerRoot,"interrupted.incomplete"));
+    overview=LocalBackupOverview.Inspect(overviewRoot,new[]{offline,otherOwned});
+    Assert(overview[0].ValidPackages==0 && overview[0].InvalidPackages==2 &&
+        overview[0].VerifiedBytes==0,
+        "Multi-map overview fails closed on corrupt and interrupted backup packages");
+    bool duplicateOverviewBlocked=false;
+    try{LocalBackupOverview.Inspect(overviewRoot,new[]{offline,offline});}
+    catch(InvalidDataException){duplicateOverviewBlocked=true;}
+    Assert(duplicateOverviewBlocked,"Multi-map backup overview rejects duplicate local map ownership");
     bool runningBackupBlocked=false;
     try{LocalBackupWorkflow.Create(offline,new ProcessCheck(true,"running",null),
         Path.Combine(root,"running-copy"),LocalBackupScope.Ini);}catch(InvalidOperationException){runningBackupBlocked=true;}
