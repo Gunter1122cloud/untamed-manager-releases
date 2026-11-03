@@ -3,6 +3,7 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  StartupUri="MainWindow.xaml">
   <Application.Resources>
+    <!-- Visual contrast review -->
     <SolidColorBrush x:Key="Accent" Color="#A6F873"/>
     <SolidColorBrush x:Key="Teal" Color="#72DED0"/>
     <SolidColorBrush x:Key="Muted" Color="#9DB7B2"/>
