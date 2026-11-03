@@ -256,6 +256,7 @@ public partial class MainWindow : Window
             case "rcon": Rcon(); break;
             case "schedules": ShowBackgroundSchedules(); break;
             case "monitoring": ShowMonitoring(); break;
+            case "recovery": ShowRecoveryCenter(); break;
             case "license": ShowUpdateCenter(); break;
             case "settings": Settings(); break;
         }
