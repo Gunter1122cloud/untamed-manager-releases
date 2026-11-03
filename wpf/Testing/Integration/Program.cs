@@ -28,6 +28,36 @@ ClusterService? hp=null;
 ClusterService? ryzen=null;
 try
 {
+    string backupDir=Path.Combine(root,"backup-fixture");
+    Directory.CreateDirectory(backupDir);
+    string backupFile=Path.Combine(backupDir,"world.test");
+    File.WriteAllText(backupFile,"original world fixture");
+    Guid backupOwner=Guid.NewGuid();
+    var manifest=BackupIntegrity.Create(backupDir,backupOwner,"Synthetic world only; no Store or SQL");
+    manifest=System.Text.Json.JsonSerializer.Deserialize<BackupManifest>(BackupIntegrity.Serialize(manifest))!;
+    BackupIntegrity.Verify(backupDir,manifest,backupOwner);
+    Assert(manifest.Files.Count==1,"Manifest roundtrip preserves scope, ownership and file hashes");
+    File.WriteAllText(backupFile,"corrupt world fixture!");
+    bool corrupt=false;
+    try { BackupIntegrity.Verify(backupDir,manifest,backupOwner); } catch(InvalidDataException) { corrupt=true; }
+    Assert(corrupt,"Corrupt backup rejected");
+    File.Delete(backupFile);
+    bool missing=false;
+    try { BackupIntegrity.Verify(backupDir,manifest,backupOwner); } catch(InvalidDataException) { missing=true; }
+    Assert(missing,"Missing backup file rejected");
+    byte[] cipherKey=System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+    byte[] secret=System.Text.Encoding.UTF8.GetBytes("Private map status");
+    byte[] encrypted=StatusCipher.Encrypt(cipherKey,secret);
+    Assert(StatusCipher.Decrypt(cipherKey,encrypted).SequenceEqual(secret),"Encrypted status round trip");
+    Assert(!encrypted.SequenceEqual(StatusCipher.Encrypt(cipherKey,secret)),"Fresh nonce for each encrypted status");
+    encrypted[^1]^=1;
+    bool tampered=false;
+    try { StatusCipher.Decrypt(cipherKey,encrypted); } catch(System.Security.Cryptography.CryptographicException) { tampered=true; }
+    Assert(tampered,"Tampered status rejected");
+    bool wrongKey=false;
+    try { StatusCipher.Decrypt(new byte[32],StatusCipher.Encrypt(cipherKey,secret)); }
+    catch(System.Security.Cryptography.CryptographicException) { wrongKey=true; }
+    Assert(wrongKey,"Wrong pairing key rejected");
     string exe=Path.GetFullPath(fake);
     Assert(WindowsProcessInspector.CommandMatches($"\"{exe}\" --map=Astraeos",exe,"--map=Astraeos"),
         "Exact quoted executable and argument suffix accepted");

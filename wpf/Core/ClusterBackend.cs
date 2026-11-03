@@ -265,14 +265,14 @@ public sealed class PeerStatusListener : IAsyncDisposable
             ?? throw new InvalidDataException("Missing frame");
         if (!Verify(frame)) return;
         byte[] request=Convert.FromBase64String(frame.PayloadBase64);
-        if (Encoding.UTF8.GetString(request) != "GET_STATUS") return;
+        if (Encoding.UTF8.GetString(StatusCipher.Decrypt(_key, request)) != "GET_STATUS") return;
         var payload=JsonSerializer.SerializeToUtf8Bytes(_status());
-        await Framing.Write(stream, JsonSerializer.SerializeToUtf8Bytes(Sign(payload)),_cts.Token);
+        await Framing.Write(stream, JsonSerializer.SerializeToUtf8Bytes(Sign(StatusCipher.Encrypt(_key, payload), frame.Nonce)),_cts.Token);
     }
-    private WireEnvelope Sign(byte[] payload)
+    private WireEnvelope Sign(byte[] payload, string requestNonce)
     {
         var f=new WireEnvelope { UnixSeconds=DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            Nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16)),PayloadBase64=Convert.ToBase64String(payload)};
+            Nonce=requestNonce,PayloadBase64=Convert.ToBase64String(payload)};
         f.SignatureHex=Convert.ToHexString(HMACSHA256.HashData(_key,Encoding.UTF8.GetBytes(
             $"{f.UnixSeconds}\n{f.Nonce}\n{f.PayloadBase64}")));
         return f;
@@ -329,7 +329,7 @@ public static class PeerStatusClient
         var key=SHA256.HashData(Encoding.UTF8.GetBytes(sharedSecret));
         var f=new WireEnvelope{UnixSeconds=DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             Nonce=Convert.ToHexString(RandomNumberGenerator.GetBytes(16)),
-            PayloadBase64=Convert.ToBase64String(Encoding.UTF8.GetBytes("GET_STATUS"))};
+            PayloadBase64=Convert.ToBase64String(StatusCipher.Encrypt(key, Encoding.UTF8.GetBytes("GET_STATUS")))};
         f.SignatureHex=Convert.ToHexString(HMACSHA256.HashData(key,Encoding.UTF8.GetBytes(
             $"{f.UnixSeconds}\n{f.Nonce}\n{f.PayloadBase64}")));
         using var socket=new TcpClient();
@@ -338,13 +338,13 @@ public static class PeerStatusClient
         await Framing.Write(stream,JsonSerializer.SerializeToUtf8Bytes(f),ct);
         var response=JsonSerializer.Deserialize<WireEnvelope>(await Framing.Read(stream,ct))
             ?? throw new InvalidDataException("Empty LAN response");
-        if(Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeSeconds()-response.UnixSeconds)>45)
+        if(response.Nonce != f.Nonce || Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeSeconds()-response.UnixSeconds)>45)
             throw new InvalidDataException("LAN response clock skew");
         byte[] digest=HMACSHA256.HashData(key,Encoding.UTF8.GetBytes(
             $"{response.UnixSeconds}\n{response.Nonce}\n{response.PayloadBase64}"));
         if (!CryptographicOperations.FixedTimeEquals(digest,Convert.FromHexString(response.SignatureHex)))
             throw new InvalidDataException("LAN response signature mismatch");
-        return JsonSerializer.Deserialize<HostStatus>(Convert.FromBase64String(response.PayloadBase64))
+        return JsonSerializer.Deserialize<HostStatus>(StatusCipher.Decrypt(key, Convert.FromBase64String(response.PayloadBase64)))
             ?? throw new InvalidDataException("Invalid status response");
     }
 }
