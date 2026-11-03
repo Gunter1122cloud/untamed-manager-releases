@@ -278,6 +278,22 @@ try
     var actualParent=new ProcessIdentity{Pid=familyLoader.Id,StartedUtc=new DateTimeOffset(familyLoader.StartTime.ToUniversalTime()),ExecutablePath=fake,Arguments="--loader-fixture"};
     var actualChild=new ProcessIdentity{Pid=familyChild!.Id,StartedUtc=new DateTimeOffset(familyChild.StartTime.ToUniversalTime()),ExecutablePath=fake,Arguments="--child-fixture"};
     Assert(ProcessFamily.IsVerifiedPair(new[]{new ObservedProcess(actualParent.Pid,0,actualParent.StartedUtc,fake,actualParent.Arguments),new ObservedProcess(actualChild.Pid,actualParent.Pid,actualChild.StartedUtc,fake,actualChild.Arguments)},actualParent,actualChild),"Actual Windows fixture identities validate parent-child pair");
+    // Simulate Windows WMI reporting a changed orphan parent PID after loader exit.
+    var survivor=new ObservedProcess(actualChild.Pid,0,actualChild.StartedUtc,fake,actualChild.Arguments);
+    Assert(ProcessFamily.IsPersistedSurvivor(survivor,actualChild,actualParent,
+        fake,"--child-fixture",fake,"--loader-fixture"),
+        "Verified orphan child reattaches despite Windows reparenting");
+    Assert(!ProcessFamily.IsPersistedSurvivor(survivor,new ProcessIdentity{
+        Pid=actualChild.Pid,StartedUtc=actualChild.StartedUtc.AddSeconds(-5),
+        ExecutablePath=fake,Arguments="--child-fixture"},actualParent,
+        fake,"--child-fixture",fake,"--loader-fixture"),
+        "Orphan PID reuse and mismatched creation time are rejected");
+    Assert(!ProcessFamily.IsPersistedSurvivor(survivor,actualChild,null,
+        fake,"--child-fixture",fake,"--loader-fixture"),
+        "Orphan cannot reattach without previously verified loader identity");
+    Assert(!ProcessFamily.IsPersistedSurvivor(survivor,actualChild,actualParent,
+        fake,"--other-map",fake,"--loader-fixture"),
+        "Orphan cannot reattach with altered map launch arguments");
     var familyRoot=Path.Combine(root,"family-profile");
     var familyService=new ClusterService("family-test",familyRoot);
     var familyMap=new LocalMap{Name="Family",InstallationPath=Path.GetDirectoryName(fake)!,ExecutablePath=fake,Arguments="--child-fixture",ApiLoaderPath=fake,ApiLoaderArguments="--loader-fixture"};
