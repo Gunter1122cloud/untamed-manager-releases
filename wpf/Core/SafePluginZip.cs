@@ -17,6 +17,21 @@ public static class SafePluginZip
     private const long MaxFileBytes=100L*1024*1024;
     private static readonly Regex SafePart=new(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$",RegexOptions.Compiled);
 
+    // Windows normalizes trailing dots and reserves device names even with extensions.
+    // Reject those paths before extraction, not after a partial plugin replacement.
+    private static bool SafeWindowsPart(string part)
+    {
+        if(!SafePart.IsMatch(part) || part.EndsWith('.',StringComparison.Ordinal))return false;
+        string stem=part.Split('.')[0];
+        if(new[]{"CON","PRN","AUX","NUL"}.Contains(stem,StringComparer.OrdinalIgnoreCase))
+            return false;
+        if(stem.Length==4 && stem[3]>='1' && stem[3]<='9' &&
+           (stem.StartsWith("COM",StringComparison.OrdinalIgnoreCase) ||
+            stem.StartsWith("LPT",StringComparison.OrdinalIgnoreCase)))
+            return false;
+        return true;
+    }
+
     public static PluginZipInfo Inspect(string zipPath)
     {
         using var archive=Open(zipPath);
@@ -110,7 +125,7 @@ public static class SafePluginZip
             if(string.IsNullOrWhiteSpace(name)||name.StartsWith('/')||name.Contains('\\')||name.Contains(':')||
                name.Contains('\0'))throw new InvalidDataException("Unsafe ZIP path");
             var pieces=name.TrimEnd('/').Split('/');
-            if(pieces.Length==0||(!name.EndsWith('/')&&pieces.Length<2)||pieces.Any(x=>x=="."||x==".."||!SafePart.IsMatch(x)))
+            if(pieces.Length==0||(!name.EndsWith('/')&&pieces.Length<2)||pieces.Any(x=>x=="."||x==".."||!SafeWindowsPart(x)))
                 throw new InvalidDataException("ZIP must contain a named plugin folder with safe paths");
             if(plugin==null)plugin=pieces[0];
             else if(!string.Equals(plugin,pieces[0],StringComparison.OrdinalIgnoreCase))
