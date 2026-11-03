@@ -20,20 +20,20 @@ public partial class MainWindow
             if(dialog.ShowDialog()==Forms.DialogResult.OK)target.Text=dialog.SelectedPath;
         }
         Add(Box(V(
-            Label("v1.6 · Valódi Kova Store-v1 koordinációs formátum – csak olvasás",19,Mint,true),
+            Label("Untamed Cluster Vault · Közös munkamenet-ellenőrzés",19,Mint,true),
             Label("A kézi másolatban operation.json és két peer UUID.json, "+
-                "helyi másolatokban shared-store-device-v1.json és "+
-                "shared-store-lock-v1.json szükséges. A Kova forrása, Store, lock "+
+                "helyi másolatokban az azonosító és zárolási metaadatok "+
+                "szükségesek. A közös archívum, munkamenet és zárolások "+
                 "és transferadatok változatlanok maradnak. NEM élő kompatibilitási tanúsítvány.",12,Soft),
             Label("Közös koordinációs könyvtár helyi MÁSOLATA",12,Aqua),share,
             Btn("Közös koordinációs mappa kijelölése",()=>Pick(share,
-                "Kizárólag a közös .kova-store-v1 mappa offline másolata")),
-            Label("HP helyi Kova-metaadatok MÁSOLATA",12,Aqua),hp,
+                "Kizárólag a közös cluster-koordináció helyi másolata")),
+            Label("HP helyi Vault-metaadatok MÁSOLATA",12,Aqua),hp,
             Btn("HP helyi másolat kijelölése",()=>Pick(hp,
-                "HP: device/lock fájlok másolata, nem az éles Kova adatkönyvtár")),
-            Label("Ryzen helyi Kova-metaadatok MÁSOLATA",12,Aqua),ryzen,
+                "HP: azonosító/zárolás másolata, nem az éles adatkönyvtár")),
+            Label("Ryzen helyi Vault-metaadatok MÁSOLATA",12,Aqua),ryzen,
             Btn("Ryzen helyi másolat kijelölése",()=>Pick(ryzen,
-                "Ryzen: device/lock fájlok másolata, nem az éles Kova adatkönyvtár")),
+                "Ryzen: azonosító/zárolás másolata, nem az éles adatkönyvtár")),
             Btn("Két peer / session / map és lock ellenőrzése (READ-ONLY)",()=>{
                 try
                 {
@@ -52,7 +52,7 @@ public partial class MainWindow
                 catch(Exception ex)
                 {
                     result.Text="Store-v1 olvasó elutasítva: "+ex.Message;
-                    WriteLog("kova-raw-store-v1",ex);
+                    WriteLog("vault-coordination-copy",ex);
                 }
             }),result)));
     }
