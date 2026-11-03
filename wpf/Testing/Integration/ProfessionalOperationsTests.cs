@@ -206,7 +206,7 @@ public static class ProfessionalOperationsTests
             File.ReadAllText(Path.Combine(storeShared,"operation.json"))==opBefore,
             "authentic shared-store-v1 copied operation+2 peers+local locks pass read-only checks");
         Check(liveContractCopy.Warning.Contains("NOT proven") &&
-            liveContractCopy.InspectedSha256.Length==5,
+            liveContractCopy.InspectedSha256.Length==7,
             "real Kova contract copied file checksums never certify production compatibility");
         Directory.CreateDirectory(Path.Combine(storeShared,"mutation.lock"));
         Check(!KovaStoreV1CopyReader.Inspect(
