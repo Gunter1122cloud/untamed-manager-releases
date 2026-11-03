@@ -123,6 +123,24 @@ try
         TestBackupPackage.Verify(goodPackage,offline.Id).Files.Count==6,
         "Offline scoped world, INI and plugin backup verifies exact source files");
     Assert(scoped.Consistency.Contains("NOT established"),"Offline file-copy does not claim ASA consistency");
+    string historyDirectory=Path.Combine(root,"backup-history-fixture");
+    string historySource=Path.Combine(root,"backup-history-source");
+    Directory.CreateDirectory(historySource);
+    File.WriteAllText(Path.Combine(historySource,"world.dat"),"intact synthetic world");
+    TestBackupPackage.Create(historySource,Path.Combine(historyDirectory,"20261103-demo"),
+        offline.Id,"Synthetic backup history only");
+    var history=LocalBackupCatalog.Inspect(historyDirectory,offline.Id);
+    Assert(history.Count==1 && history[0].Valid && history[0].FileCount==1,
+        "Per-map backup history verifies an intact package");
+    File.WriteAllText(Path.Combine(historyDirectory,"20261103-demo","data","world.dat"),"damaged");
+    history=LocalBackupCatalog.Inspect(historyDirectory,offline.Id);
+    Assert(history.Count==1 && !history[0].Valid,
+        "Per-map backup history flags corrupted packages without restoring them");
+    Directory.CreateDirectory(Path.Combine(historyDirectory,"20261103-interrupted.incomplete"));
+    history=LocalBackupCatalog.Inspect(historyDirectory,offline.Id);
+    Assert(history.Count==2 && history.Any(x=>!x.Valid &&
+        x.Status.Contains("Incomplete backup")),
+        "Incomplete backup staging is visible and never marked restorable");
     bool runningBackupBlocked=false;
     try{LocalBackupWorkflow.Create(offline,new ProcessCheck(true,"running",null),
         Path.Combine(root,"running-copy"),LocalBackupScope.Ini);}catch(InvalidOperationException){runningBackupBlocked=true;}
