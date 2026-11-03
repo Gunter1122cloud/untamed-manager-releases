@@ -32,7 +32,6 @@ public partial class App : System.Windows.Application
         TaskScheduler.UnobservedTaskException += (_,a) => { Log(a.Exception); a.SetObserved(); };
         if (IsSmokeTest)
         {
-            StartupUri = null;
             try
             {
                 File.WriteAllText(Path.Combine(LogDir,"smoke.log"),"starting\n");
