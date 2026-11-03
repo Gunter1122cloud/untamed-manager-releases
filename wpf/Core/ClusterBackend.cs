@@ -57,6 +57,8 @@ public sealed class ManagerConfig
     public string PairingKeyProtected { get; set; } = "";
     // Approved CurseForge key: stored only as Windows-user DPAPI ciphertext.
     public string CurseForgeApiKeyProtected { get; set; } = "";
+    // Optional, explicitly configured outbound status webhook. Stored only with user-bound DPAPI.
+    public string DiscordWebhookProtected { get; set; } = "";
     public string GitHubRepository { get; set; } = "Gunter1122cloud/untamed-manager-releases";
     public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public string PublisherCertificateThumbprint { get; set; } = "";
