@@ -117,5 +117,26 @@
       <Setter Property="Padding" Value="17"/>
       <Setter Property="Margin" Value="0,0,12,12"/>
     </Style>
+
+    <Style TargetType="Border" x:Key="NeonStatPanel" BasedOn="{StaticResource Panel}">
+      <Setter Property="Background">
+        <Setter.Value>
+          <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#0D3431" Offset="0"/>
+            <GradientStop Color="#062521" Offset="1"/>
+          </LinearGradientBrush>
+        </Setter.Value>
+      </Setter>
+      <Setter Property="BorderBrush" Value="#249D82"/>
+      <Setter Property="Effect">
+        <Setter.Value><DropShadowEffect Color="#00E8C2" BlurRadius="16" ShadowDepth="0" Opacity="0.17"/></Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="Border" x:Key="AmberStatPanel" BasedOn="{StaticResource NeonStatPanel}">
+      <Setter Property="BorderBrush" Value="#C28A38"/>
+      <Setter Property="Effect">
+        <Setter.Value><DropShadowEffect Color="#FFB33C" BlurRadius="16" ShadowDepth="0" Opacity="0.16"/></Setter.Value>
+      </Setter>
+    </Style>
   </Application.Resources>
 </Application>
