@@ -1,7 +1,7 @@
 name: Untamed Manager WPF Windows Build
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/store-lifecycle-evidence-parity-20261103']
     paths:
       - 'wpf/**'
       - '.github/workflows/build-untamed-wpf.yml'
@@ -175,7 +175,7 @@ jobs:
             dist/SHA256SUMS.txt
           if-no-files-found: error
       - name: Create test-only GitHub release
-        if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release v1.6.1 TEST preview') }} # A clearly intentional preview publication, only after every CI step passes.
+        if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release v1.6.1 TEST preview') }} # A clearly intentional preview publication, only after every CI step passes.
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
