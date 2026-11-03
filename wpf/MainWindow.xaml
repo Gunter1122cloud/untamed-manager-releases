@@ -2,7 +2,7 @@
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  Title="Untamed Kingdom Manager · Neon Kingdom WPF" Icon="/Assets/UntamedManager.ico"
- Width="1650" Height="930" MinWidth="1200" MinHeight="760"
+ Width="1672" Height="941" MinWidth="1200" MinHeight="760"
  WindowStartupLocation="CenterScreen" Background="#07191B"
  Loaded="Window_Loaded" Closing="Window_Closing">
  <Window.Resources>
@@ -67,20 +67,10 @@
  <Grid>
   <Grid.ColumnDefinitions><ColumnDefinition Width="235"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Grid Grid.Column="0" Background="#06191A">
-   <Grid.RowDefinitions><RowDefinition Height="172"/><RowDefinition Height="*"/><RowDefinition Height="88"/></Grid.RowDefinitions>
+   <Grid.RowDefinitions><RowDefinition Height="188"/><RowDefinition Height="*"/><RowDefinition Height="162"/></Grid.RowDefinitions>
    <Grid Grid.Row="0" ClipToBounds="True">
-    <Rectangle Fill="#10342C"/>
-    <Image Source="/Assets/kingdom-hero.jpg" Stretch="UniformToFill" Opacity="0.13"/>
-    <Rectangle Fill="#AC071B1B"/>
-    <Canvas>
-     <Path Fill="#355C42" Data="M0 97 L53 44 91 80 143 8 204 83 242 37 242 0 0 0Z" Opacity="0.65"/>
-     <Path Fill="#0A241E" Data="M0 142 L54 102 96 131 151 74 205 122 242 96 242 165 0 165Z"/>
-    </Canvas>
-    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-     <TextBlock Text="△" Foreground="#77F8CB" FontSize="61" TextAlignment="Center" FontWeight="ExtraBold" Margin="0,-6,0,-10"><TextBlock.Effect><DropShadowEffect Color="#05F2C4" BlurRadius="19" ShadowDepth="0" Opacity="0.95"/></TextBlock.Effect></TextBlock><TextBlock Text="✦" Foreground="#F6B75A" FontSize="15" TextAlignment="Center" Margin="0,-16,0,8"/>
-     <TextBlock Text="UNTAMED" Foreground="#F0FAEF" FontSize="27" FontWeight="Black" TextAlignment="Center"/>
-     <TextBlock Text="KINGDOM  MANAGER" Foreground="#9BF56E" FontSize="12" FontWeight="Bold" TextAlignment="Center"/>
-    </StackPanel>
+     <Rectangle Fill="#051A1A"/>
+     <Image x:Name="BrandArtwork" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
    </Grid>
    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
     <StackPanel x:Name="NavigationMenu" Margin="0,12,0,12">
@@ -100,11 +90,16 @@
      <Button Content="⚙    Beállítások" Style="{StaticResource NavItem}" Tag="settings" Click="Navigate_Click"/>
     </StackPanel>
    </ScrollViewer>
-   <StackPanel Grid.Row="2" Margin="15,0,15,18" VerticalAlignment="Bottom">
-    <Border Background="#214236" CornerRadius="7" Padding="9,7"><TextBlock Text="ELKÜLÖNÍTETT TESZTGÉP" Foreground="#B8F89C" FontSize="10" TextAlignment="Center"/></Border>
-    <TextBlock Text="Kova Store: változatlan" Foreground="#73D8C6" FontSize="11" Margin="4,9,0,0"/>
-    <TextBlock Text="0 aktív agent · Offline audit" Foreground="#8FB7B1" FontSize="11" Margin="4,5,0,0"/>
-   </StackPanel>
+   <Grid Grid.Row="2" ClipToBounds="True">
+    <Image x:Name="FooterArtwork" Stretch="UniformToFill" Opacity="0.86" RenderOptions.BitmapScalingMode="HighQuality"/>
+    <Rectangle Fill="#3B001D1B"/>
+    <StackPanel VerticalAlignment="Bottom" Margin="10,0,10,10">
+      <Border BorderBrush="#35D0A5" BorderThickness="1" Background="#D3052520" CornerRadius="8" Padding="8">
+       <TextBlock Text="◆  ELKÜLÖNÍTETT TESZTGÉP" Foreground="#B8FFCE" FontWeight="SemiBold" FontSize="10" TextAlignment="Center"/>
+      </Border>
+      <TextBlock Text="Kova Store: változatlan   •   0 aktív agent" Foreground="#D8F5ED" FontSize="10" Margin="3,8,0,0"/>
+    </StackPanel>
+   </Grid>
   </Grid>
   <Grid Grid.Column="1" Background="#061819">
    <Grid.RowDefinitions><RowDefinition Height="59"/><RowDefinition Height="*"/><RowDefinition Height="32"/></Grid.RowDefinitions>
@@ -115,7 +110,7 @@
       <TextBlock Text="Windows WPF alkalmazás · helyi tesztadatok · élő kapcsolat nélkül" FontSize="11" Foreground="#8BBAB3" Margin="0,5,0,0"/>
      </StackPanel>
      <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
-      <Border Background="#203F3B" CornerRadius="8" Padding="13,8" Margin="0,0,10,0"><TextBlock Text="WPF 1.1.0" Foreground="#73DDC8" FontSize="11"/></Border>
+      <Border Background="#203F3B" CornerRadius="8" Padding="13,8" Margin="0,0,10,0"><TextBlock Text="WPF 1.2.0" Foreground="#73DDC8" FontSize="11"/></Border>
       <Border Background="#433122" CornerRadius="8" Padding="13,8"><TextBlock Text="NINCS ÉLŐ AGENT" Foreground="#F4BB78" FontSize="11"/></Border>
      </StackPanel>
     </DockPanel>
@@ -123,7 +118,7 @@
    <Grid Grid.Row="1">
     <ScrollViewer x:Name="Dashboard" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="#061819">
      <StackPanel Margin="18,0,18,14">
-      <Border Height="252" BorderBrush="#356C65" BorderThickness="0,0,0,1" CornerRadius="0" ClipToBounds="True" Background="{StaticResource HeroBack}">
+      <Border Height="225" BorderBrush="#356C65" BorderThickness="0,0,0,1" CornerRadius="0" ClipToBounds="True" Background="{StaticResource HeroBack}">
        <Grid>
         <Canvas ClipToBounds="True">
          <Path Fill="#163E35" Opacity="0.75" Data="M0 209 L95 157 170 190 280 103 380 160 525 113 676 170 811 102 940 187 1140 135 1340 207 1340 290 0 290Z"/>
@@ -191,9 +186,9 @@
        <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="7"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
        <ItemsControl.ItemTemplate>
         <DataTemplate>
-         <Button Style="{StaticResource MapCardButton}" Height="148" Tag="{Binding}" Click="Map_Click">
+         <Button Style="{StaticResource MapCardButton}" Height="140" Tag="{Binding}" Click="Map_Click" ToolTip="{Binding Name}">
           <Grid>
-           <Grid.RowDefinitions><RowDefinition Height="98"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+           <Grid.RowDefinitions><RowDefinition Height="91"/><RowDefinition Height="*"/></Grid.RowDefinitions>
            <Grid Grid.Row="0" ClipToBounds="True">
             <Border Background="{Binding CoverBrush}"/>
             <Image Source="{Binding CoverImage}" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/><Rectangle Fill="{Binding CoverBrush}" Opacity="0.10"/>
