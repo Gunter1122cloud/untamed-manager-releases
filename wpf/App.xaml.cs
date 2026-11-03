@@ -9,10 +9,12 @@ namespace UntamedManager;
 public partial class App : System.Windows.Application
 {
     private Mutex? mutex;
+    public static bool IsSmokeTest { get; private set; }
     public static readonly string LogDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"UntamedManager","WPF");
     protected override void OnStartup(StartupEventArgs e)
     {
         Directory.CreateDirectory(LogDir);
+        IsSmokeTest = Array.Exists(e.Args, a => a == "--smoke-test");
         mutex = new Mutex(true,@"Local\UntamedManager_WPF_Desktop",out bool first);
         if (!first)
         {
@@ -28,6 +30,13 @@ public partial class App : System.Windows.Application
         };
         AppDomain.CurrentDomain.UnhandledException += (_,a) => { if(a.ExceptionObject is Exception x) Log(x); };
         TaskScheduler.UnobservedTaskException += (_,a) => { Log(a.Exception); a.SetObserved(); };
+        if (IsSmokeTest)
+        {
+            StartupUri = null;
+            try { var window = new MainWindow(); window.UpdateLayout(); Shutdown(0); }
+            catch (Exception ex) { Log(ex); Shutdown(1); }
+            return;
+        }
         base.OnStartup(e);
     }
     private static void Log(Exception e) {try {File.AppendAllText(Path.Combine(LogDir,"crash.log"),DateTimeOffset.Now+"\n"+e+"\n");}catch{}}
