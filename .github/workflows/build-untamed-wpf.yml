@@ -40,6 +40,10 @@ jobs:
           if ($ico.encoding -ne "base64") { throw "Icon blob invalid" }
           [IO.File]::WriteAllBytes("wpf/Assets/UntamedManager.ico",[Convert]::FromBase64String(($ico.content -replace '\s','')))
           if ((Get-Item "wpf/Assets/UntamedManager.ico").Length -lt 800) { throw "Icon file incomplete" }
+      - name: Prepare ten original WPF map card artworks
+        shell: pwsh
+        run: |
+          ./wpf/PrepareArtwork.ps1
       - name: Check source files
         shell: pwsh
         run: |
@@ -77,13 +81,13 @@ jobs:
       - name: Save verified GUI screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.0.4-actual-screenshot
+          name: UntamedManager-WPF-v1.1.0-actual-screenshot
           path: dist/UntamedManager-preview.png
           if-no-files-found: error
       - name: Save Windows EXE
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.0.4-windows-x64
+          name: UntamedManager-WPF-v1.1.0-windows-x64
           path: dist/UntamedManager.exe
           if-no-files-found: error
       - name: Build per-user Windows installer
@@ -97,24 +101,24 @@ jobs:
           if (!(Test-Path $iscc)) { throw "ISCC.exe missing" }
           & $iscc "wpf/installer/UntamedManager.iss"
           if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
-          if (!(Test-Path "dist/UntamedManager-1.0.4-SETUP.exe")) { throw "Windows setup missing" }
-          Get-FileHash "dist/UntamedManager-1.0.4-SETUP.exe" -Algorithm SHA256
+          if (!(Test-Path "dist/UntamedManager-1.1.0-SETUP.exe")) { throw "Windows setup missing" }
+          Get-FileHash "dist/UntamedManager-1.1.0-SETUP.exe" -Algorithm SHA256
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.0.4-installer
-          path: dist/UntamedManager-1.0.4-SETUP.exe
+          name: UntamedManager-WPF-v1.1.0-installer
+          path: dist/UntamedManager-1.1.0-SETUP.exe
           if-no-files-found: error
       - name: Create test-only GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.0.4-wpf-preview.1"
+          $tag = "v1.1.0-wpf-preview.1"
           gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.4.exe" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.0.4-SETUP.exe#UntamedManager-1.0.4-SETUP.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
+            gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.1.0.exe" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.1.0-SETUP.exe#UntamedManager-1.1.0-SETUP.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
           } else {
-            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.4.exe" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.0.4-SETUP.exe#UntamedManager-1.0.4-SETUP.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.0.4 - Installer Fix" --prerelease --notes "Isolated Windows WPF desktop preview. No host agent installed. No live Kova Store writes. Test on a third Windows PC only." --repo "$env:GITHUB_REPOSITORY"
+            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.1.0.exe" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.1.0-SETUP.exe#UntamedManager-1.1.0-SETUP.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.1.0 - Installer Fix" --prerelease --notes "Isolated Windows WPF desktop preview. No host agent installed. No live Kova Store writes. Test on a third Windows PC only." --repo "$env:GITHUB_REPOSITORY"
           }
           if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
