@@ -10,4 +10,4 @@
     <Version>1.3.0</Version>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
-</Project>
+<ItemGroup><Compile Include="../Core/DirectoryUpdateTransaction.cs" Link="DirectoryUpdateTransaction.cs" /></ItemGroup></Project>

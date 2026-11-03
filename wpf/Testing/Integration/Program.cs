@@ -219,6 +219,38 @@ try
     }
     Assert(check.Running && check.Identity?.Pid==own.Pid,
         "Windows WMI matches running fake server executable, arguments and start time");
+    string appTree=Path.Combine(root,"update-application");Directory.CreateDirectory(appTree);
+    Directory.CreateDirectory(Path.Combine(appTree,"dependencies"));
+    File.WriteAllText(Path.Combine(appTree,"manager.bin"),"old exe");
+    File.WriteAllText(Path.Combine(appTree,"dependencies","library.dll"),"old dll");
+    File.WriteAllText(Path.Combine(appTree,"config.json"),"original local settings");
+    string externalProfile=Path.Combine(root,"external-profile.json");File.WriteAllText(externalProfile,"map list");
+    string fullSnapshot=Path.Combine(root,"update-snapshot");
+    var updateTransaction=new DirectoryUpdateTransaction(fullSnapshot);updateTransaction.Prepare(appTree);
+    File.WriteAllText(Path.Combine(appTree,"manager.bin"),"broken install");
+    File.Delete(Path.Combine(appTree,"dependencies","library.dll"));
+    File.WriteAllText(Path.Combine(appTree,"new-unwanted.dll"),"new dependency");
+    // Reconstruct the coordinator as after updater process loss; recover from durable state.
+    new DirectoryUpdateTransaction(fullSnapshot).Rollback();
+    Assert(File.ReadAllText(Path.Combine(appTree,"manager.bin"))=="old exe" &&
+        File.ReadAllText(Path.Combine(appTree,"dependencies","library.dll"))=="old dll" &&
+        !File.Exists(Path.Combine(appTree,"new-unwanted.dll")),"Full updater rollback restores EXE, deleted dependency and removes new files");
+    Assert(File.ReadAllText(Path.Combine(appTree,"config.json"))=="original local settings" &&
+        File.ReadAllText(externalProfile)=="map list","Updater rollback preserves configuration and external map list");
+    Assert(!p.HasExited,"Real FakeAsa survives full directory rollback");
+    new DirectoryUpdateTransaction(fullSnapshot).Rollback();
+    Assert(!p.HasExited,"Repeated rollback is idempotent and leaves FakeAsa alive");
+    string corruptSnapshot=Path.Combine(root,"corrupt-update-snapshot");
+    var corruptUpdate=new DirectoryUpdateTransaction(corruptSnapshot);corruptUpdate.Prepare(appTree);
+    File.WriteAllText(Path.Combine(corruptSnapshot,"snapshot","manager.bin"),"corrupted snapshot");
+    bool corruptRollbackBlocked=false;
+    try { corruptUpdate.Rollback(); } catch(IOException) { corruptRollbackBlocked=true; }
+    Assert(corruptRollbackBlocked && File.ReadAllText(Path.Combine(appTree,"manager.bin"))=="old exe","Corrupt rollback point rejected before application mutation");
+    string successSnapshot=Path.Combine(root,"success-update-snapshot");
+    var successUpdate=new DirectoryUpdateTransaction(successSnapshot);successUpdate.Prepare(appTree);
+    File.WriteAllText(Path.Combine(appTree,"manager.bin"),"healthy new application");successUpdate.Commit();
+    successUpdate.Rollback();
+    Assert(File.ReadAllText(Path.Combine(appTree,"manager.bin"))=="healthy new application" && !p.HasExited,"Committed update retained while FakeAsa stays alive");
     string originalArgs=mapA.Arguments;
     mapA.Arguments+=" --changed";
     Assert(!hp.Check(mapA).ConfirmedStopped,"Changed arguments on same installation are uncertain, not stopped");

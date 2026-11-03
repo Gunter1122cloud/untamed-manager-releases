@@ -1,4 +1,5 @@
 using System;
+using UntamedManager.Core;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -60,11 +61,17 @@ public sealed class UpdateForm : Form
     }
     private async Task RunAsync()
     {
-        string? oldBinary=null;
+        DirectoryUpdateTransaction? transaction=null;
         string? appExe=null;
         string? profile=null;
         try
         {
+            if(_arguments.Contains("--recover"))
+            {
+                appExe=Path.GetFullPath(Required("--app"));profile=Required("--profile");
+                transaction=new DirectoryUpdateTransaction(Required("--backup"));
+                transaction.Rollback();Restart(appExe,profile);Close();return;
+            }
             int managerPid=int.Parse(Required("--pid"));
             string installer=Path.GetFullPath(Required("--installer"));
             appExe=Path.GetFullPath(Required("--app"));
@@ -77,7 +84,7 @@ public sealed class UpdateForm : Form
                 throw new DirectoryNotFoundException("Manager install folder missing");
             // Never access cluster config, save games, backups or ASA installation paths.
             Directory.CreateDirectory(snapshotRoot);
-            oldBinary=Path.Combine(snapshotRoot,"UntamedManager.previous.exe");
+            transaction=new DirectoryUpdateTransaction(snapshotRoot);
             Update("Manager felületének bezárása…",10);
             try
             {
@@ -87,14 +94,14 @@ public sealed class UpdateForm : Form
             }
             catch(ArgumentException){} // Already exited.
             Update("Korábbi alkalmazás mentése…",25);
-            File.Copy(appExe,oldBinary,true);
+            transaction.Prepare(Path.GetDirectoryName(appExe)!);
             var log=Path.Combine(snapshotRoot,"setup.log");
             Update("Új Windows-verzió telepítése…",45);
             var start=new ProcessStartInfo(installer){UseShellExecute=false,
                 CreateNoWindow=true,WorkingDirectory=Path.GetDirectoryName(installer)!};
             foreach(var arg in new[]{"/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART",
                                       "/CLOSEAPPLICATIONS","/RESTARTAPPLICATIONS=0",
-                                      "/LOG="+log})start.ArgumentList.Add(arg);
+                                      "/DIR="+Path.GetDirectoryName(appExe)!,"/LOG="+log})start.ArgumentList.Add(arg);
             using var setup=Process.Start(start) ?? throw new InvalidOperationException("Could not launch installer");
             if(!await Task.Run(()=>setup.WaitForExit(180000)))
             {
@@ -108,7 +115,15 @@ public sealed class UpdateForm : Form
                !version.Equals(expected,StringComparison.Ordinal))
                 throw new InvalidDataException($"Installed version mismatch: expected {expected}, got {version}");
             Update("Új verzió elindítása…",95);
+            var healthStart=new ProcessStartInfo(appExe){UseShellExecute=false,CreateNoWindow=true};
+            healthStart.ArgumentList.Add("--smoke-test");
+            healthStart.ArgumentList.Add("--profile");healthStart.ArgumentList.Add(profile);
+            using var health=Process.Start(healthStart)??throw new IOException("Health check failed to start");
+            if(!await Task.Run(()=>health.WaitForExit(60000)))
+            { health.Kill();await health.WaitForExitAsync();throw new IOException("Health check timed out"); }
+            if(health.ExitCode!=0)throw new IOException("Application health check failed");
             Restart(appExe,profile);
+            transaction.Commit();
             Update("Frissítés sikeres!",100);
             await Task.Delay(1000);
             Close();
@@ -118,12 +133,12 @@ public sealed class UpdateForm : Form
             string message=ex.ToString();
             try
             {
-                if(oldBinary!=null&&File.Exists(oldBinary)&&appExe!=null)
+                if(transaction!=null&&appExe!=null)
                 {
                     Update("Korábbi verzió visszaállítása…",70);
-                    File.Copy(oldBinary,appExe,true);
+                    transaction.Rollback();
                     if(profile!=null)Restart(appExe,profile);
-                    message+="\nA korábbi EXE visszaállítva.";
+                    message+="\nA teljes korábbi alkalmazáskönyvtár hash-ellenőrzéssel visszaállítva.";
                 }
             }
             catch(Exception rollback){message+="\nA visszaállítás is hibára futott: "+rollback;}
