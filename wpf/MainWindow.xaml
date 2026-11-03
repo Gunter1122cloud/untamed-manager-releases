@@ -137,8 +137,8 @@
        <TextBlock Text="Kova Store: változatlan és védett" DockPanel.Dock="Right" Foreground="#7DE6C8" FontSize="11" VerticalAlignment="Center"/>
       </DockPanel>
       <UniformGrid Columns="2">
-       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-01  ·  HP EliteDesk 800 G6" FontWeight="Bold" FontSize="16"/><TextBlock Text="Intel Core i7-10700    •    79,34 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
-       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-02  ·  Ryzen 5 5600X" FontWeight="Bold" FontSize="16"/><TextBlock Text="AMD Ryzen 5 5600X    •    80 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
+       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-01  ·  HP EliteDesk 800 G6" Foreground="White" FontWeight="Bold" FontSize="16"/><TextBlock Text="Intel Core i7-10700    •    79,34 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
+       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-02  ·  Ryzen 5 5600X" Foreground="White" FontWeight="Bold" FontSize="16"/><TextBlock Text="AMD Ryzen 5 5600X    •    80 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
       </UniformGrid>
       <DockPanel Margin="0,2,12,13"><TextBlock Text="Cluster szerverek (10)" Foreground="White" DockPanel.Dock="Left" FontWeight="Bold" FontSize="21"/><TextBlock Text="TÖRTÉNETI AUDIT · NEM ÉLŐ ÁLLAPOT" DockPanel.Dock="Right" Foreground="#F4BB78" FontSize="11" VerticalAlignment="Center"/></DockPanel>
       <ItemsControl x:Name="ServerCards">
