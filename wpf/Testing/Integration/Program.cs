@@ -382,6 +382,57 @@ try
         File.ReadAllText(Path.Combine(installed.PreviousBackup,"SamplePlugin.dll"))=="old-binary" &&
         !installed.PreviousBackup.StartsWith(offlineMap,StringComparison.OrdinalIgnoreCase),
         "Previous plugin fully backed up outside active installation");
+    Assert(installed.PreviousBackup!=null &&
+        File.Exists(installed.PreviousBackup+".untamed-manifest.json"),
+        "Plugin update persists full SHA-256 manifest for guarded rollback");
+    bool unknownRollbackBlocked=false;
+    try{SafePluginZip.PreviewRollback(offline,new ProcessCheck(false,"unknown",null),
+        "SamplePlugin",installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));}
+    catch(InvalidOperationException){unknownRollbackBlocked=true;}
+    // Preview returns not-ready rather than throwing for uncertain process.
+    var rollbackNotReady=SafePluginZip.PreviewRollback(offline,
+        new ProcessCheck(false,"unknown",null),"SamplePlugin",
+        installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));
+    Assert(!rollbackNotReady.Allowed,
+        "Plugin rollback cannot be applied to uncertain or running map");
+    var previewRollback=SafePluginZip.PreviewRollback(offline,stoppedMap,
+        "SamplePlugin",installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));
+    Assert(previewRollback.Allowed && previewRollback.PreviousBinaryCount==1,
+        "Guarded rollback preview validates prior full backup and map ownership");
+    bool wrongOwnerRollbackBlocked=false;
+    try{SafePluginZip.PreviewRollback(new LocalMap{
+        Name="Foreign",InstallationPath=offline.InstallationPath},stoppedMap,
+        "SamplePlugin",installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));}
+    catch(UnauthorizedAccessException){wrongOwnerRollbackBlocked=true;}
+    Assert(wrongOwnerRollbackBlocked,
+        "Plugin backup cannot be imported into a different local map identity");
+    bool kovaRollbackBlocked=false;
+    try{SafePluginZip.PreviewRollback(offline,stoppedMap,
+        "KovaCluster",installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));}
+    catch(InvalidDataException){kovaRollbackBlocked=true;}
+    Assert(kovaRollbackBlocked,"KovaCluster plugin rollback is forbidden");
+    var rolledBack=SafePluginZip.Rollback(offline,stoppedMap,
+        "SamplePlugin",installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));
+    Assert(rolledBack.RestoredBinaryCount==1 &&
+        File.ReadAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"))=="old-binary",
+        "Guarded plugin rollback restores earlier DLL from verified backup");
+    Assert(File.ReadAllText(Path.Combine(pluginsDir,"settings.json"))=="{\"secret\":\"preserve\"}" &&
+        File.ReadAllText(Path.Combine(pluginsDir,"data.db"))=="persistent-rows" &&
+        File.ReadAllText(Path.Combine(pluginsDir,"license.key"))=="keep-license",
+        "Plugin rollback retains current configuration, database and license files");
+    Assert(File.ReadAllText(Path.Combine(rolledBack.PreRollbackBackup,
+        "SamplePlugin.dll"))=="new-binary" &&
+        File.Exists(rolledBack.PreRollbackBackup+".untamed-manifest.json"),
+        "Plugin rollback makes complete preimage protection before binary swap");
+    File.WriteAllText(Path.Combine(installed.PreviousBackup!,"SamplePlugin.dll"),
+        "tampered backup");
+    bool tamperedRollbackBlocked=false;
+    try{SafePluginZip.Rollback(offline,stoppedMap,"SamplePlugin",
+        installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));}
+    catch(InvalidDataException){tamperedRollbackBlocked=true;}
+    Assert(tamperedRollbackBlocked &&
+        File.ReadAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"))=="old-binary",
+        "Corrupt rollback backup rejected before changing active plugin DLL");
     string syntheticKova=Path.Combine(offlineMap,"ShooterGame","Binaries","Win64",
         "ArkApi","Plugins","KovaCluster");
     Directory.CreateDirectory(syntheticKova);
