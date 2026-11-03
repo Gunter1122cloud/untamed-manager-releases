@@ -124,9 +124,7 @@ public static class ClusterVaultArchiveInspector
                !string.Equals(Field(config,"path"),sharePath,
                    StringComparison.OrdinalIgnoreCase))
                 warnings.Add("Eltérő peer-konfiguráció");
-            string calculated=Convert.ToHexString(SHA256.HashData(
-                JsonSerializer.SerializeToUtf8Bytes(config,CompactJson)));
-            if(!calculated.Equals(Field(p,"configHash"),StringComparison.OrdinalIgnoreCase))
+            if(!StoreV1Fingerprint.Matches(config,Field(p,"configHash")))
                 configHashes=false;
             var fromConfig=Required(config,"members").EnumerateArray().ToArray();
             var fromPeer=Required(p,"members").EnumerateArray().ToArray();
