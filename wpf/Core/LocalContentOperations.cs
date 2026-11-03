@@ -15,11 +15,11 @@ public static class LocalContentOperations
     {
         existing??="";
         var matches=ModsParameter.Matches(existing);
-        if(matches.Count>1 || Regex.Matches(existing,@"(?<!\\S)-mods=",RegexOptions.IgnoreCase).Count!=matches.Count)
+        if(matches.Count>1 || Regex.Matches(existing,@"(?<!\S)-mods=",RegexOptions.IgnoreCase).Count!=matches.Count)
             throw new InvalidDataException("Ambiguous or malformed -mods argument; manual review required");
         if(matches.Count==0)return Array.Empty<string>();
         var mods=matches[0].Groups["ids"].Value.Split(',',StringSplitOptions.None);
-        if(mods.Any(x=>!Regex.IsMatch(x,@"\\A[0-9]{5,12}\\z")) ||
+        if(mods.Any(x=>!Regex.IsMatch(x,@"\A[0-9]{5,12}\z")) ||
            mods.Distinct(StringComparer.Ordinal).Count()!=mods.Length)
             throw new InvalidDataException("Invalid or duplicate mod IDs; manual review required");
         return mods;
@@ -34,7 +34,7 @@ public static class LocalContentOperations
         if(current.Count==0)throw new InvalidOperationException("No existing -mods list to reorder");
         var proposed=order.Select(x=>x?.Trim()??"").ToArray();
         if(proposed.Length!=current.Count ||
-           proposed.Any(x=>!Regex.IsMatch(x,@"\\A[0-9]{5,12}\\z")) ||
+           proposed.Any(x=>!Regex.IsMatch(x,@"\A[0-9]{5,12}\z")) ||
            proposed.Distinct(StringComparer.Ordinal).Count()!=proposed.Length ||
            proposed.Except(current,StringComparer.Ordinal).Any())
             throw new InvalidDataException("Reorder must contain each current mod ID exactly once");
