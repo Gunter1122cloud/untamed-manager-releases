@@ -325,6 +325,7 @@ public partial class MainWindow : Window
         input.TextChanged+=(_,_)=>results.ItemsSource=_modNames.Where(m=>m.Contains(input.Text,StringComparison.OrdinalIgnoreCase)).ToArray();
         Add(Label("Keresés a leltárban",13,Soft));Add(input);Add(results);
         Add(Label("CurseForge online telepítés: az ügynök és a telepítő tesztelése után kapcsolható be.",12,Soft));
+        ShowBulkModsControls();
     }
     private void Plugins()
     {
@@ -333,6 +334,7 @@ public partial class MainWindow : Window
             Label("Az auditált pluginrekordok száma 100. Itt a közös pluginfajták láthatók.",12,Soft))));
         Add(List(_plugins,380));
         Add(Label("A maponkénti DLL-állapotok végleges kezelése külön agentintegrációt igényel.",12,Soft));
+        ShowBulkPluginsControls();
     }
     private void Ini()
     {
