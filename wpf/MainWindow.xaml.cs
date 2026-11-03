@@ -381,6 +381,7 @@ public partial class MainWindow : Window
         choice.SelectionChanged+=(_,_)=>SelectMap();
         Add(Box(V(Label("Helyi map kiválasztása",13,Aqua),choice,pane)));
         SelectMap();
+        ShowRetentionPreviewControls();
     }
     private void Rcon()
     {
