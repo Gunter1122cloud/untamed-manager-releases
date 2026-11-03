@@ -17,7 +17,7 @@ public static class ModUpdatePlanner
     // is NOT derivable from its mod/project ID or folder timestamp.
     public static LocalModEvidence InspectCandidate(string installRoot,string projectId)
     {
-        if(!System.Text.RegularExpressions.Regex.IsMatch(projectId??"",
+        if(projectId==null || !System.Text.RegularExpressions.Regex.IsMatch(projectId,
             @"\A[0-9]{5,12}\z"))
             throw new InvalidDataException("Invalid CurseForge project ID");
         if(string.IsNullOrWhiteSpace(installRoot)||!Path.IsPathFullyQualified(installRoot) ||
@@ -49,7 +49,7 @@ public static class ModUpdatePlanner
     public static ModUpdateAssessment Assess(LocalModEvidence local,
         CurseForgeFilesResult remote)
     {
-        if(local==null||remote==null||int.Parse(local.ModId)!=remote.ModId)
+        if(local==null||remote==null||!int.TryParse(local.ModId,out var id)||id!=remote.ModId)
             throw new InvalidDataException("Mod project identity mismatch");
         var valid=remote.Files.Where(x=>x.ModId==remote.ModId&&x.Available)
             .OrderByDescending(x=>x.Published??DateTimeOffset.MinValue)
