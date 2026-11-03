@@ -23,6 +23,8 @@ namespace UntamedManager;
 
 public sealed class MapInfo
 {
+    public Guid Id { get; init; }
+    public bool IsRemote { get; init; }
     public string Name { get; init; } = "";
     public string Host { get; init; } = "";
     public int ModCount { get; init; }
@@ -114,6 +116,7 @@ public partial class MainWindow : Window
         } catch (Exception e) { WriteLog("settings",e); }
         UpdateNavSelection("dashboard");
         if (!App.IsSmokeTest) SetupTray();
+        StartClusterUi();
     }
 
     private void SetupTray()
@@ -137,6 +140,7 @@ public partial class MainWindow : Window
     private void Exit()
     {
         _exit=true;
+        EndClusterUi();
         _tray.Visible=false;_tray.Dispose();_http.Dispose();
         Close();System.Windows.Application.Current.Shutdown();
     }
@@ -192,7 +196,7 @@ public partial class MainWindow : Window
         if (sender is Button button && button.Tag is MapInfo map)
         {
             _selected = map;
-            Navigate("servers");
+            Navigate(map.IsRemote ? "cluster" : "servers");
         }
     }
     private void UpdateNavSelection(string page)
@@ -239,7 +243,9 @@ public partial class MainWindow : Window
         OtherPage.ScrollToTop();
         switch(page)
         {
-            case "servers": Servers(); break;
+            case "servers": ShowLocalServerPage(); break;
+            case "cluster": ShowClusterPage(); break;
+            case "lan": ShowLanSettings(); break;
             case "mods": Mods(); break;
             case "plugins": Plugins(); break;
             case "ini": Ini(); break;
