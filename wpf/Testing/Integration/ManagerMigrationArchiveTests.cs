@@ -184,6 +184,12 @@ public static class ManagerMigrationArchiveTests
             result.DiscordControlsConfigured&&result.EmbeddedSensitiveState&&
             !result.ProductionImportAllowed,
             "process identity unknown, missing backup policies, disabled bot with controls and private browser state are flagged");
+        var historical=HistoricalLaunchProfileReader.Inspect(path);
+        Check(!historical.ReadyForLiveControl &&historical.Maps.Length==5 &&
+            historical.Maps.All(m=>m.ExistingStoreActive&&m.EnabledMods==1&&
+                m.PassiveMods==0&&m.ArgumentsPreview.EndsWith(" -usestore")) &&
+            historical.Maps.Select(m=>m.MapId).Distinct().Count()==5,
+            "historical Manager launch profiles preserve five-map Store mode, no live control");
         Check(result.SourceSha256==originalSha&&
             Hash(File.ReadAllBytes(path))==originalSha&&
             result.Findings.All(x=>!x.Contains("SYNTHETIC_NOT_A_REAL_CREDENTIAL")&&
