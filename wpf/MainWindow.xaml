@@ -51,7 +51,7 @@
     </Canvas>
     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
      <TextBlock Text="◈" Foreground="#A6F873" FontSize="45" TextAlignment="Center" FontWeight="Bold"/>
-     <TextBlock Text="UNTAMED" Foreground="#F0FAEF" FontSize="27" FontWeight="Black" TextAlignment="Center" LetterSpacing="2"/>
+     <TextBlock Text="UNTAMED" Foreground="#F0FAEF" FontSize="27" FontWeight="Black" TextAlignment="Center"/>
      <TextBlock Text="KINGDOM  MANAGER" Foreground="#9BF56E" FontSize="12" FontWeight="Bold" TextAlignment="Center"/>
     </StackPanel>
    </Grid>
