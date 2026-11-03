@@ -214,8 +214,7 @@ public partial class MainWindow
             List(_plugins,240)));
         Tab("INI",MapIniPane(map));
         Tab("RCON / Konzol",MapRconPane(map));
-        Tab("Mentések",V(Label("Kova Store érintetlen",18,Mint,true),
-            Label("A mentési és restore írási funkciók addig tiltva, amíg az 1:1 kompatibilitás nincs tesztelve.",12,Soft)));
+        Tab("Mentések",MapBackupPane(map));
         Tab("Naplók",MapLogPane(map));
         parent.Children.Add(tabs);
     }
