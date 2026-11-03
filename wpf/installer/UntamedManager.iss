@@ -1,5 +1,5 @@
 #define AppName "Untamed Manager"
-#define AppVersion "1.2.0"
+#define AppVersion "1.3.0"
 #define AppExeName "UntamedManager.exe"
 [Setup]
 AppId={{F32A414B-35F7-4253-97B1-430DCA9A361E}
@@ -11,7 +11,7 @@ DefaultDirName={localappdata}\Programs\Untamed Manager
 DefaultGroupName=Untamed Manager
 UninstallDisplayIcon={app}\{#AppExeName}
 OutputDir=..\..\dist
-OutputBaseFilename=UntamedManager-1.2.0-SETUP
+OutputBaseFilename=UntamedManager-1.3.0-SETUP
 SetupIconFile=..\Assets\UntamedManager.ico
 Compression=lzma2
 SolidCompression=yes
@@ -27,6 +27,7 @@ SetupLogging=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 Source: "..\..\dist\UntamedManager.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\UntamedUpdater.exe"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{userprograms}\Untamed Kingdom Manager"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
 
