@@ -171,8 +171,15 @@ public static class KovaProfileImporter
         =>root.ValueKind==JsonValueKind.Object&&root.TryGetProperty(field,out var el)&&
           el.ValueKind==JsonValueKind.String?el.GetString():null;
     private static int Num(JsonElement root,string field)
-        =>root.ValueKind==JsonValueKind.Object&&root.TryGetProperty(field,out var el)&&
-          el.TryGetInt32(out var n)?n:0;
+    {
+        if(root.ValueKind!=JsonValueKind.Object || !root.TryGetProperty(field,out var value))
+            return 0;
+        if(value.ValueKind==JsonValueKind.Number && value.TryGetInt32(out var numeric))
+            return numeric;
+        if(value.ValueKind==JsonValueKind.String &&
+           int.TryParse(value.GetString(),out var textNumber))return textNumber;
+        return -1;
+    }
     private static bool Bool(JsonElement root,string field)
         =>root.ValueKind==JsonValueKind.Object&&root.TryGetProperty(field,out var el)&&
           el.ValueKind==JsonValueKind.True;
