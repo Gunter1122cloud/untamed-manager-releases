@@ -16,8 +16,9 @@ public partial class MainWindow
             Height=235,Foreground=Brushes.White,Background=Panel,BorderBrush=Aqua
         };
         var status=Label("Az összes helyi map mentései még nincsenek ellenőrizve.",12,Soft);
-        var button=Btn("Összes helyi map mentéseinek SHA-256 ellenőrzése",async ()=>{
-            button.IsEnabled=false;
+        Button? button=null;
+        button=Btn("Összes helyi map mentéseinek SHA-256 ellenőrzése",async ()=>{
+            if(button!=null)button.IsEnabled=false;
             status.Text="Mentési csomagok újraellenőrzése folyamatban...";
             try
             {
@@ -40,7 +41,7 @@ public partial class MainWindow
                 status.Text="Mentésleltár ellenőrzése nem sikerült: "+ex.Message;
                 WriteLog("multi-map-backup",ex);
             }
-            finally{button.IsEnabled=true;}
+            finally{if(button!=null)button.IsEnabled=true;}
         });
         Add(Box(V(
             Label("Helyi mapok mentési áttekintője – csak olvasás",20,Mint,true),
