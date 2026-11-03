@@ -77,27 +77,27 @@
      <Path Fill="#0A241E" Data="M0 142 L54 102 96 131 151 74 205 122 242 96 242 165 0 165Z"/>
     </Canvas>
     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-     <TextBlock Text="◈" Foreground="#A6F873" FontSize="52" TextAlignment="Center" FontWeight="Bold"/>
+     <TextBlock Text="△" Foreground="#77F8CB" FontSize="61" TextAlignment="Center" FontWeight="ExtraBold" Margin="0,-6,0,-10"/><TextBlock Text="✦" Foreground="#F6B75A" FontSize="15" TextAlignment="Center" Margin="0,-16,0,8"/>
      <TextBlock Text="UNTAMED" Foreground="#F0FAEF" FontSize="27" FontWeight="Black" TextAlignment="Center"/>
      <TextBlock Text="KINGDOM  MANAGER" Foreground="#9BF56E" FontSize="12" FontWeight="Bold" TextAlignment="Center"/>
     </StackPanel>
    </Grid>
    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="0,12,0,12">
+    <StackPanel x:Name="NavigationMenu" Margin="0,12,0,12">
      <TextBlock Text="IRÁNYÍTÓKÖZPONT" Foreground="#91AFAA" FontSize="11" Margin="24,5,0,6"/>
-     <Button Content="⌂     Áttekintés" Style="{StaticResource NavItem}" Tag="dashboard" Click="Navigate_Click" Background="#22513C"/>
-     <Button Content="▤     Szerverek" Style="{StaticResource NavItem}" Tag="servers" Click="Navigate_Click"/>
+     <Button Content="⌂    Áttekintés" Style="{StaticResource NavItem}" Tag="dashboard" Click="Navigate_Click" Background="#22513C"/>
+     <Button Content="▤    Szerverek" Style="{StaticResource NavItem}" Tag="servers" Click="Navigate_Click"/>
      <TextBlock Text="TARTALOM ÉS KONFIGURÁCIÓ" Foreground="#91AFAA" FontSize="11" Margin="24,22,0,6"/>
-     <Button Content="◇     CurseForge modok" Style="{StaticResource NavItem}" Tag="mods" Click="Navigate_Click"/>
-     <Button Content="✳     ASA API / pluginok" Style="{StaticResource NavItem}" Tag="plugins" Click="Navigate_Click"/>
-     <Button Content="▤     INI szerkesztő" Style="{StaticResource NavItem}" Tag="ini" Click="Navigate_Click"/>
+     <Button Content="◇    CurseForge modok" Style="{StaticResource NavItem}" Tag="mods" Click="Navigate_Click"/>
+     <Button Content="✳    ASA API / pluginok" Style="{StaticResource NavItem}" Tag="plugins" Click="Navigate_Click"/>
+     <Button Content="▤    INI szerkesztő" Style="{StaticResource NavItem}" Tag="ini" Click="Navigate_Click"/>
      <TextBlock Text="ÜZEMELTETÉS" Foreground="#91AFAA" FontSize="11" Margin="24,22,0,6"/>
-     <Button Content="▣     Mentések" Style="{StaticResource NavItem}" Tag="backups" Click="Navigate_Click"/>
-     <Button Content="⌘     RCON konzol" Style="{StaticResource NavItem}" Tag="rcon" Click="Navigate_Click"/>
-     <Button Content="◷     Ütemezések" Style="{StaticResource NavItem}" Tag="schedules" Click="Navigate_Click"/>
+     <Button Content="▣    Mentések" Style="{StaticResource NavItem}" Tag="backups" Click="Navigate_Click"/>
+     <Button Content="⌘    RCON konzol" Style="{StaticResource NavItem}" Tag="rcon" Click="Navigate_Click"/>
+     <Button Content="◷    Ütemezések" Style="{StaticResource NavItem}" Tag="schedules" Click="Navigate_Click"/>
      <TextBlock Text="ALKALMAZÁS" Foreground="#91AFAA" FontSize="11" Margin="24,22,0,6"/>
-     <Button Content="✧     Licenc / Frissítés" Style="{StaticResource NavItem}" Tag="license" Click="Navigate_Click"/>
-     <Button Content="⚙     Beállítások" Style="{StaticResource NavItem}" Tag="settings" Click="Navigate_Click"/>
+     <Button Content="✧    Licenc / Frissítés" Style="{StaticResource NavItem}" Tag="license" Click="Navigate_Click"/>
+     <Button Content="⚙    Beállítások" Style="{StaticResource NavItem}" Tag="settings" Click="Navigate_Click"/>
     </StackPanel>
    </ScrollViewer>
    <StackPanel Grid.Row="2" Margin="15,0,15,18" VerticalAlignment="Bottom">
@@ -160,13 +160,33 @@
       </UniformGrid>
       <DockPanel Margin="0,12,12,14">
        <TextBlock Text="Gazdagépek / infrastruktúra" Foreground="White" DockPanel.Dock="Left" FontSize="21" FontWeight="Bold"/>
-       <TextBlock Text="Kova Store: változatlan és védett" DockPanel.Dock="Right" Foreground="#7DE6C8" FontSize="11" VerticalAlignment="Center"/>
+       <TextBlock Text="◈  Kova Store: változatlan és védett" DockPanel.Dock="Right" Foreground="#7DE6C8" FontSize="11" VerticalAlignment="Center"/>
       </DockPanel>
       <UniformGrid Columns="2">
-       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-01  ·  HP EliteDesk 800 G6" Foreground="White" FontWeight="Bold" FontSize="16"/><TextBlock Text="Intel Core i7-10700    •    79,34 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
-       <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-02  ·  Ryzen 5 5600X" Foreground="White" FontWeight="Bold" FontSize="16"/><TextBlock Text="AMD Ryzen 5 5600X    •    80 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
+       <Border Style="{StaticResource Panel}" BorderBrush="#2CC6B1" Height="83">
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="66"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <Border Width="51" Height="48" CornerRadius="8" BorderBrush="#70F8D4" BorderThickness="1" Background="#144D46" HorizontalAlignment="Left" VerticalAlignment="Center">
+          <TextBlock Text="▤" FontSize="28" Foreground="#82FFCE" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+         </Border>
+         <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="UK-HOME-01    •    HP EliteDesk 800 G6" Foreground="White" FontWeight="Bold" FontSize="16"/>
+          <TextBlock Text="Intel Core i7-10700    •    79,34 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0" FontSize="12"/>
+         </StackPanel>
+        </Grid>
+       </Border>
+       <Border Style="{StaticResource Panel}" BorderBrush="#D7A85D" Height="83">
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="66"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <Border Width="51" Height="48" CornerRadius="8" BorderBrush="#E3A857" BorderThickness="1" Background="#4A3420" HorizontalAlignment="Left" VerticalAlignment="Center">
+          <TextBlock Text="▤" FontSize="28" Foreground="#FFBA61" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+         </Border>
+         <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="UK-HOME-02    •    Ryzen 5 5600X" Foreground="White" FontWeight="Bold" FontSize="16"/>
+          <TextBlock Text="AMD Ryzen 5 5600X    •    80 GiB RAM    •    5 map" Foreground="#F0C884" Margin="0,8,0,0" FontSize="12"/>
+         </StackPanel>
+        </Grid>
+       </Border>
       </UniformGrid>
-      <DockPanel Margin="0,10,12,13"><TextBlock Text="Cluster szerverek (10)" Foreground="White" DockPanel.Dock="Left" FontWeight="Bold" FontSize="21"/><TextBlock Text="TÖRTÉNETI AUDIT · NEM ÉLŐ ÁLLAPOT" DockPanel.Dock="Right" Foreground="#F4BB78" FontSize="11" VerticalAlignment="Center"/></DockPanel>
+      <DockPanel Margin="0,10,12,13"><TextBlock Text="Cluster szerverek (10)" Foreground="White" DockPanel.Dock="Left" FontWeight="Bold" FontSize="21"/><TextBlock Text="◷  TÖRTÉNETI AUDIT · NEM ÉLŐ ÁLLAPOT" DockPanel.Dock="Right" Foreground="#F4BB78" FontSize="11" VerticalAlignment="Center"/></DockPanel>
       <ItemsControl x:Name="ServerCards">
        <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="5"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
        <ItemsControl.ItemTemplate>
