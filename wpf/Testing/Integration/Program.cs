@@ -31,6 +31,22 @@ ClusterService? hp=null;
 ClusterService? ryzen=null;
 try
 {
+    string steamFixture=Path.Combine(root,"steamcmd.exe");
+    File.WriteAllText(steamFixture,"offline synthetic steamcmd file");
+    var steam=SteamCmdPreflight.Inspect(steamFixture);
+    Assert(steam.LengthBytes==new FileInfo(steamFixture).Length &&
+        steam.Sha256==Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            File.ReadAllBytes(steamFixture))),"SteamCMD offline preflight hashes a local fixed file");
+    Assert(File.ReadAllText(steamFixture)=="offline synthetic steamcmd file",
+        "SteamCMD preflight is read-only");
+    bool wrongExecutableBlocked=false;
+    try{SteamCmdPreflight.Inspect(Path.Combine(root,"other.exe"));}
+    catch(InvalidDataException){wrongExecutableBlocked=true;}
+    Assert(wrongExecutableBlocked,"SteamCMD preflight rejects other executable names");
+    bool missingExecutableBlocked=false;
+    try{SteamCmdPreflight.Inspect(Path.Combine(root,"missing","steamcmd.exe"));}
+    catch(FileNotFoundException){missingExecutableBlocked=true;}
+    Assert(missingExecutableBlocked,"SteamCMD preflight rejects missing executables");
     // Mod order must be explicit, exact and local-only; it is never an update/download.
     const string modArguments="-log -mods=912815,928548,942024 -port=7777";
     Assert(LocalContentOperations.ReadMods(modArguments).SequenceEqual(new[]{"912815","928548","942024"}),
