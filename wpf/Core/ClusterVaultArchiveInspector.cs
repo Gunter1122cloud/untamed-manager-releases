@@ -156,8 +156,9 @@ public static class ClusterVaultArchiveInspector
         using var clusterConfig=Document(files,LocalPrefix+"cluster-v1.json");
         using var localStore=Document(files,LocalPrefix+"cluster-store-v1.json");
         string localId=Field(device.RootElement,"id");
+        JsonElement localPeer=default;
         bool localValid=Number(device.RootElement,"schema")==1 &&
-            peerDocs.TryGetValue(localId,out var localPeer) &&
+            peerDocs.TryGetValue(localId,out localPeer) &&
             Number(locked.RootElement,"schema")==1 &&
             Guid.TryParse(Field(locked.RootElement,"session"),out var lockSession) &&
             lockSession==sessionGuid;
