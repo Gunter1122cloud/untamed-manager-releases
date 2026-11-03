@@ -88,6 +88,7 @@
      <Button Content="⟳    SteamCMD Update Center" Style="{StaticResource NavItem}" Tag="steam" Click="Navigate_Click"/>
      <Button Content="⌘    RCON konzol" Style="{StaticResource NavItem}" Tag="rcon" Click="Navigate_Click"/>
      <Button Content="◉    Monitoring / Események" Style="{StaticResource NavItem}" Tag="monitoring" Click="Navigate_Click"/>
+     <Button Content="⌁    Hálózat / jitter mérés" Style="{StaticResource NavItem}" Tag="network" Click="Navigate_Click"/>
      <Button Content="✉    Discord szerverstátusz" Style="{StaticResource NavItem}" Tag="discord" Click="Navigate_Click"/>
      <Button Content="⛨    Recovery Center (TEST)" Style="{StaticResource NavItem}" Tag="recovery" Click="Navigate_Click"/>
      <Button Content="◷    Ütemezések" Style="{StaticResource NavItem}" Tag="schedules" Click="Navigate_Click"/>
