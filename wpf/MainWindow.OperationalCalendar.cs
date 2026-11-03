@@ -202,15 +202,15 @@ public partial class MainWindow
             Background=Panel,Foreground=Brushes.White};
         var store=new TextBox{Height=32,IsReadOnly=true,
             Background=Panel,Foreground=Brushes.White};
-        var status=Label("Csak másolt Kova JSON állományokat olvas. Nem nyitja meg a Kova folyamatát.",12,Soft);
+        var status=Label("Csak korábban kimásolt helyi JSON-adatokat olvas. Nem kapcsolódik az élő szerverfolyamatokhoz.",12,Soft);
         KovaProfileReport? report=null;
-        Add(Box(V(Label("v1.5 · Kova 1.8.3 profilimport / READ-ONLY",19,Mint,true),
-            Label("kova-manager-v1 JSON export és opcionális cluster-store-v1 JSON másolata. "+
-                "A jelenlegi Kova-profil, Store, transferfájlok és jelszavak változatlanok "+
+        Add(Box(V(Label("Untamed Cluster Vault · Profilátvételi előnézet",19,Mint,true),
+            Label("Korábban készített profil-JSON és opcionális cluster-metaadatmásolat. "+
+                "Az eredeti profil, közös adatfájlok, transzferadatok és jelszavak változatlanok "+
                 "maradnak. Csak letiltott, maintenance állapotú Untamed-tervezet készíthető.",12,Soft),
-            source,Btn("Kova profil másolatának kiválasztása",()=>{
+            source,Btn("Korábbi profil másolatának kiválasztása",()=>{
                 using var picker=new Forms.OpenFileDialog{CheckFileExists=true,
-                    Filter="Kova JSON másolat (*.json)|*.json"};
+                    Filter="Profil JSON másolat (*.json)|*.json"};
                 if(picker.ShowDialog()==Forms.DialogResult.OK)
                 {source.Text=picker.FileName;report=null;}
             }),
@@ -220,7 +220,7 @@ public partial class MainWindow
                 if(picker.ShowDialog()==Forms.DialogResult.OK)
                 {store.Text=picker.FileName;report=null;}
             }),
-            Btn("Kova profilok elemzése – kizárólag olvasás",()=>{
+            Btn("Vault profilok elemzése – kizárólag olvasás",()=>{
                 try
                 {
                     report=KovaProfileImporter.InspectCopy(source.Text.Trim(),
@@ -234,14 +234,14 @@ public partial class MainWindow
                         "\n"+string.Join("\n",report.Warnings);
                 }
                 catch(Exception ex){report=null;
-                    status.Text="Kova profil elutasítva: "+ex.Message;}
+                    status.Text="Vault profil elutasítva: "+ex.Message;}
             }),
             Btn("Titokmentes, INAKTÍV Untamed-tervezet exportálása",()=>{
                 try
                 {
                     if(report==null)throw new InvalidOperationException("Előbb vizsgáld meg az exportot");
                     using var picker=new Forms.SaveFileDialog{
-                        FileName="Untamed-Kova-Import-PREVIEW.json",
+                        FileName="Untamed-ClusterVault-Import-PREVIEW.json",
                         Filter="JSON export|*.json"};
                     if(picker.ShowDialog()!=Forms.DialogResult.OK)return;
                     if(File.Exists(picker.FileName))
@@ -281,7 +281,7 @@ public partial class MainWindow
                         string.Join("\n",plan.Items.Select(x=>x.Backup.Package+
                             " · "+(x.Eligible?"karanténjelölt":"megőrzendő")+
                             " · "+x.Reason))+
-                        "\nValódi ASA/Kova/SQL mentés nem törlődött.";
+                        "\nValódi ASA/Cluster Vault/SQL mentés nem törlődött.";
                 }
                 catch(Exception ex){status.Text="Retenciós szimuláció elutasítva: "+ex.Message;}
             }),status)));
