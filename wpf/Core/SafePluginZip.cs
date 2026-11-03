@@ -92,6 +92,9 @@ public static class SafePluginZip
                 CopyTree(target,backup);
                 var copyManifest=BackupIntegrity.Create(target,map.Id,"Pre-plugin-update complete plugin data");
                 BackupIntegrity.Verify(backup,copyManifest,map.Id);
+                // A separate manifest binds the full pre-update plugin tree to
+                // the local map identity for a later explicit rollback.
+                File.WriteAllText(backup+".untamed-manifest.json",BackupIntegrity.Serialize(copyManifest));
                 CopyTree(target,staging);
             }
             else Directory.CreateDirectory(staging);
