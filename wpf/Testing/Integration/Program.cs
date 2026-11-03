@@ -47,6 +47,152 @@ try
     try{SteamCmdPreflight.Inspect(Path.Combine(root,"missing","steamcmd.exe"));}
     catch(FileNotFoundException){missingExecutableBlocked=true;}
     Assert(missingExecutableBlocked,"SteamCMD preflight rejects missing executables");
+    // v1.4.0 combined release-candidate acceptance: safe real code paths
+    // and explicit refusal of unverified production ASA/SQL/Store operations.
+    foreach(var denied in new[]{ManagerOperation.RealAsaStart,
+        ManagerOperation.RealAsaStop,ManagerOperation.RealAsaRestart,
+        ManagerOperation.RealAsaKill,ManagerOperation.LiveSteamUpdate,
+        ManagerOperation.LiveSqlRestore,ManagerOperation.LiveKovaStoreWrite})
+    {
+        var decision=ReleaseCapabilityGate.Check(denied,true,
+            confirmedStopped:true,realSaveWorldProof:true,storeVerified:true);
+        Assert(!decision.Allowed,"Production RC capability remains blocked without real Kova/ASA proof: "+denied);
+    }
+    Assert(!ReleaseCapabilityGate.Check(ManagerOperation.LocalProcessObservation,false).Allowed,
+        "Foreign map cannot claim local process observation permission");
+    Assert(ReleaseCapabilityGate.Check(ManagerOperation.FakeAsaStart,true,
+        confirmedStopped:true).Allowed &&
+        !ReleaseCapabilityGate.Check(ManagerOperation.FakeAsaStart,true,
+        confirmedStopped:false).Allowed,
+        "Only confirmed stopped, owned FakeAsa test start may be prepared");
+    var gateRoot=Path.Combine(root,"capability-test-profile");
+    await using(var gateService=new ClusterService("capability-test",gateRoot,
+        inspect:_=>new ProcessCheck(false,"synthetic stopped",null,true)))
+    {
+        var gateMap=new LocalMap{Name="FakeAsa safe launch",ExecutablePath=fake,
+            InstallationPath=Path.GetDirectoryName(fake)!,
+            Arguments="--safe-fixture-only"};
+        gateService.AddMap(gateMap);
+        ReleaseCapabilityGate.DemandFakeAsaStart(gateService,gateMap);
+        var invalidMap=new LocalMap{Name="Unsafe executable test",ExecutablePath=steamFixture,
+            InstallationPath=root,Arguments="-log"};
+        gateService.AddMap(invalidMap);
+        bool wrongBinaryDenied=false;
+        try{ReleaseCapabilityGate.DemandFakeAsaStart(gateService,invalidMap);}
+        catch(InvalidOperationException){wrongBinaryDenied=true;}
+        Assert(wrongBinaryDenied,"Test Start gate refuses an arbitrary Windows executable");
+    }
+
+    var profileConfig=new ManagerConfig{LocalHostId=Guid.NewGuid().ToString("N"),
+        CurseForgeApiKeyProtected="TEST_SECRET_SHOULD_NOT_EXPORT",
+        PairingKeyProtected="DO_NOT_EXPORT_PAIRING"};
+    var prefMap=new LocalMap{Name="Offline preference map",
+        RconPasswordProtected="TEST_RCON_SECRET",Arguments="-secret=DO_NOT_EXPORT",
+        WatchdogIntervalSeconds=15,MonitorRcon=false};
+    profileConfig.LocalMaps.Add(prefMap);
+    string preferences=LocalProfileTransfer.Export(profileConfig);
+    Assert(!preferences.Contains("TEST_SECRET_SHOULD_NOT_EXPORT") &&
+        !preferences.Contains("DO_NOT_EXPORT_PAIRING") &&
+        !preferences.Contains("TEST_RCON_SECRET") &&
+        !preferences.Contains("DO_NOT_EXPORT") &&
+        LocalProfileTransfer.Preview(profileConfig,preferences).Allowed,
+        "Host-bound exported profile excludes secrets, executable arguments and RCON credentials");
+    prefMap.WatchdogIntervalSeconds=60;prefMap.MonitorRcon=true;
+    LocalProfileTransfer.Apply(profileConfig,preferences);
+    Assert(prefMap.WatchdogIntervalSeconds==15 && !prefMap.MonitorRcon,
+        "Allowed profile import restores only non-secret local monitoring preferences");
+    var otherProfile=new ManagerConfig{LocalHostId=Guid.NewGuid().ToString("N")};
+    otherProfile.LocalMaps.Add(prefMap);
+    Assert(!LocalProfileTransfer.Preview(otherProfile,preferences).Allowed,
+        "Profile transfer rejects foreign Manager host ownership");
+    var evilPref=System.Text.Json.JsonSerializer.Deserialize<SafeProfileBundle>(preferences)!;
+    var injected=evilPref with{Maps=new[]{evilPref.Maps[0],
+        evilPref.Maps[0]}};
+    Assert(!LocalProfileTransfer.Preview(profileConfig,
+        System.Text.Json.JsonSerializer.Serialize(injected)).Allowed,
+        "Duplicate map IDs in imported preferences fail closed");
+
+    string offlineSourceRoot=Path.Combine(root,"exported-sql-fixtures");
+    Directory.CreateDirectory(offlineSourceRoot);
+    string sqlFile=Path.Combine(offlineSourceRoot,"arkshop.sql");
+    File.WriteAllText(sqlFile,"-- synthetic offline SQL export\nCREATE TABLE fake_fixture (id INT);\n");
+    string sqlProfile=Path.Combine(root,"offline-sql-manager-profile");
+    var sqlOwner=Guid.NewGuid();
+    var sqlArchive=OfflineSqlArchive.ImportFixture(sqlProfile,sqlFile,"arkshop",sqlOwner);
+    Assert(sqlArchive.Verified && sqlArchive.Bytes==new FileInfo(sqlFile).Length &&
+        OfflineSqlArchive.Verify(sqlArchive.Package,"arkshop",sqlOwner).Sha256==sqlArchive.Sha256,
+        "Offline ArkShop .sql import hashes and verifies one isolated backup archive");
+    string restoredSql=OfflineSqlArchive.SimulateRestore(sqlArchive.Package,"arkshop",sqlOwner);
+    Assert(File.ReadAllText(restoredSql)==File.ReadAllText(sqlFile),
+        "Offline SQL restore rehearsal copies only into a new TEMP sandbox");
+    bool crossDbDenied=false;
+    try{OfflineSqlArchive.Verify(sqlArchive.Package,"arkpermissions",sqlOwner);}
+    catch(InvalidDataException){crossDbDenied=true;}
+    Assert(crossDbDenied,"SQL archive cannot be reinterpreted as another database");
+    File.WriteAllText(Path.Combine(sqlArchive.Package,"data","arkshop.sql"),"TAMPER");
+    bool corruptSqlBlocked=false;
+    try{OfflineSqlArchive.SimulateRestore(sqlArchive.Package,"arkshop",sqlOwner);}
+    catch(InvalidDataException){corruptSqlBlocked=true;}
+    Assert(corruptSqlBlocked,"Tampered SQL archive is rejected before any offline restore");
+    Assert(File.ReadAllText(sqlFile).Contains("fake_fixture"),
+        "Original user-supplied offline SQL fixture remains untouched");
+
+    string kovaFixture=Path.Combine(Path.GetTempPath(),
+        "Untamed-Kova-Fixture-"+Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(kovaFixture);
+    File.WriteAllText(Path.Combine(kovaFixture,"synthetic.fixture"),
+        "NOT A REAL KOVA STORE OR CHARACTER");
+    var kovaOwner=Guid.NewGuid();
+    var audited=KovaFixtureAudit.Inspect(kovaFixture,kovaOwner);
+    Assert(!audited.FormatCompatible && audited.Files==1,
+        "Kova synthetic fixture can be SHA-audited without claiming unknown Store schema support");
+    string kovaArchivePath=Path.Combine(root,"synthetic-kova-backup");
+    KovaFixtureAudit.Snapshot(kovaFixture,kovaOwner,kovaArchivePath);
+    Assert(TestBackupPackage.Verify(kovaArchivePath,kovaOwner).Files.Count==1 &&
+        File.ReadAllText(Path.Combine(kovaFixture,"synthetic.fixture"))==
+        "NOT A REAL KOVA STORE OR CHARACTER",
+        "Kova byte-preserving synthetic backup leaves source file unchanged");
+    bool liveStoreDenied=false;
+    try{KovaFixtureAudit.Inspect(Path.Combine(root,"actual-KovaCluster"),kovaOwner);}
+    catch(UnauthorizedAccessException){liveStoreDenied=true;}
+    Assert(liveStoreDenied,"Kova fixture audit refuses arbitrary non-TEMP live Store paths");
+
+    string steamInstall=Path.Combine(root,"shared-asa-installation");
+    string steamBin=Path.Combine(steamInstall,"ShooterGame","Binaries","Win64");
+    Directory.CreateDirectory(steamBin);
+    Directory.CreateDirectory(Path.Combine(steamInstall,"steamapps"));
+    File.WriteAllText(Path.Combine(steamBin,"ArkAscendedServer.exe"),"fake ASA test executable");
+    File.WriteAllText(Path.Combine(steamInstall,"steamapps","appmanifest_2430930.acf"),
+        "\"buildid\" \"12345\"");
+    var steamA=new LocalMap{Name="Offline shared install A",InstallationPath=steamInstall};
+    var steamB=new LocalMap{Name="Offline shared install B",InstallationPath=steamInstall};
+    var steamPlan=SteamUpdateDryRun.Plan(steamFixture,steamInstall,
+        new[]{steamA,steamB},
+        _=>new ProcessCheck(false,"synthetic stopped",null,true),1024*1024);
+    Assert(steamPlan.DryRunAllowed && steamPlan.Maps.Length==2 &&
+        steamPlan.InstalledBuild=="12345",
+        "Steam dry-run groups shared ASA installation and recognizes local build manifest");
+    string steamPreviewRoot=Path.Combine(root,"simulated-steam-update");
+    var steamReceipt=SteamUpdateDryRun.Simulate(steamPlan,steamPreviewRoot);
+    Assert(steamReceipt.State=="dry-run-complete" &&
+        Directory.GetFiles(Path.Combine(steamPreviewRoot,"steamcmd-test-logs")).Length==1 &&
+        File.ReadAllText(Path.Combine(steamBin,"ArkAscendedServer.exe"))=="fake ASA test executable",
+        "SteamCMD simulator writes only Manager receipts and never executes or modifies ASA");
+    var runningPlan=SteamUpdateDryRun.Plan(steamFixture,steamInstall,
+        new[]{steamA,steamB},
+        x=>x.Id==steamA.Id?new ProcessCheck(true,"synthetic running",
+            new ProcessIdentity{Pid=555,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath=fake}):
+            new ProcessCheck(false,"synthetic stopped",null,true),1024*1024);
+    Assert(!runningPlan.DryRunAllowed,"Steam dry-run refuses one running map in a shared installation");
+    bool foreignInstallDenied=false;
+    try{SteamUpdateDryRun.Plan(steamFixture,Path.Combine(root,"foreign-asa"),
+        new[]{steamA,steamB},
+        _=>new ProcessCheck(false,"stopped",null,true),1024*1024);}
+    catch(UnauthorizedAccessException){foreignInstallDenied=true;}
+    Assert(foreignInstallDenied,"Steam planner refuses installation without a locally registered map");
+    Assert(File.ReadAllText(steamFixture)=="offline synthetic steamcmd file",
+        "SteamCMD source executable is never run or altered by dry-run");
+
     // Mod order must be explicit, exact and local-only; it is never an update/download.
     const string modArguments="-log -mods=912815,928548,942024 -port=7777";
     Assert(LocalContentOperations.ReadMods(modArguments).SequenceEqual(new[]{"912815","928548","942024"}),
