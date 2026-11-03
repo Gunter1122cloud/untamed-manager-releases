@@ -131,14 +131,14 @@
        <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="ÉLŐ KAPCSOLAT" Foreground="#9DB7B2"/><TextBlock Text="0 / 2" Foreground="#F4BB78" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Agent nincs csatlakoztatva" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
       </UniformGrid>
       <DockPanel Margin="0,4,12,14">
-       <TextBlock Text="Gazdagépek / infrastruktúra" DockPanel.Dock="Left" FontSize="21" FontWeight="Bold"/>
+       <TextBlock Text="Gazdagépek / infrastruktúra" Foreground="White" DockPanel.Dock="Left" FontSize="21" FontWeight="Bold"/>
        <TextBlock Text="Kova Store: változatlan és védett" DockPanel.Dock="Right" Foreground="#7DE6C8" FontSize="11" VerticalAlignment="Center"/>
       </DockPanel>
       <UniformGrid Columns="2">
        <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-01  ·  HP EliteDesk 800 G6" FontWeight="Bold" FontSize="16"/><TextBlock Text="Intel Core i7-10700    •    79,34 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
        <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="UK-HOME-02  ·  Ryzen 5 5600X" FontWeight="Bold" FontSize="16"/><TextBlock Text="AMD Ryzen 5 5600X    •    80 GiB RAM    •    5 map" Foreground="#73E3CD" Margin="0,8,0,0"/></StackPanel></Border>
       </UniformGrid>
-      <DockPanel Margin="0,2,12,13"><TextBlock Text="Cluster szerverek (10)" DockPanel.Dock="Left" FontWeight="Bold" FontSize="21"/><TextBlock Text="TÖRTÉNETI AUDIT · NEM ÉLŐ ÁLLAPOT" DockPanel.Dock="Right" Foreground="#F4BB78" FontSize="11" VerticalAlignment="Center"/></DockPanel>
+      <DockPanel Margin="0,2,12,13"><TextBlock Text="Cluster szerverek (10)" Foreground="White" DockPanel.Dock="Left" FontWeight="Bold" FontSize="21"/><TextBlock Text="TÖRTÉNETI AUDIT · NEM ÉLŐ ÁLLAPOT" DockPanel.Dock="Right" Foreground="#F4BB78" FontSize="11" VerticalAlignment="Center"/></DockPanel>
       <ItemsControl x:Name="ServerCards">
        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
        <ItemsControl.ItemTemplate>
@@ -155,7 +155,7 @@
             <Border Background="#B01A211E" Padding="8,5" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="5" Margin="0,8,9,0"><TextBlock Text="AUDIT" FontSize="10" Foreground="#F2C18A"/></Border>
            </Grid>
            <StackPanel Grid.Row="1" Margin="12,7,7,4">
-            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="16" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Text="{Binding Name}" Foreground="White" FontWeight="Bold" FontSize="16" TextTrimming="CharacterEllipsis"/>
             <TextBlock Text="{Binding Caption}" Foreground="#73DDC8" FontSize="11" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
            </StackPanel>
           </Grid>
