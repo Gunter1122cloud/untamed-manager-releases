@@ -22,7 +22,8 @@ public partial class MainWindow
         var folder=new TextBox{Text=defaultRoot,Height=35,Foreground=Brushes.White,Background=Panel};
         var status=Label("Nincs elkészült mentés. Restore és SQL/Kova Store-írás letiltva.",12,Soft);
         int counted=0;
-        var create=Btn("Ellenőrzött fájlmentés létrehozása",async ()=>
+        Button? create=null;
+        create=Btn("Ellenőrzött fájlmentés létrehozása",async ()=>
         {
             try
             {
@@ -39,7 +40,7 @@ public partial class MainWindow
                 if(WinMessageBox.Show("Ez LEÁLLÍTOTT mapról készülő, SHA-256-tal ellenőrzött fájlmásolat.\n"+
                     "Nem minősül bizonyítottan konzisztens ASA/SQL/Store mentésnek.\n\n"+output+
                     "\n\nFolytatod?","Helyi mentés",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-                status.Text="Mentés folyamatban...";counted=0;create.IsEnabled=false;
+                status.Text="Mentés folyamatban...";counted=0;if(create!=null)create.IsEnabled=false;
                 var result=await Task.Run(()=>LocalBackupWorkflow.Create(map,state,output,chosen,_=>{
                     int n=Interlocked.Increment(ref counted);
                     if(n%25==0)Dispatcher.BeginInvoke(()=>status.Text=$"Mentés folyamatban: {n} fájl...");
@@ -48,7 +49,7 @@ public partial class MainWindow
                     result.PackageDirectory+"\nASA konzisztencia nem bizonyított; restore tiltva.";
             }
             catch(Exception ex){status.Text="Mentés sikertelen: "+ex.Message;WriteLog("backup",ex);}
-            finally{create.IsEnabled=true;}
+            finally{if(create!=null)create.IsEnabled=true;}
         });
         var verify=Btn("Meglévő mentés SHA-256 ellenőrzése",()=>
         {
