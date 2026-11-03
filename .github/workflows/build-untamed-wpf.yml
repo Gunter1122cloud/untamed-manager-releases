@@ -78,6 +78,27 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "WPF screenshot generation failed" }
           if (!(Test-Path "$env:UNTAMED_SCREENSHOT_PATH")) { throw "WPF screenshot output missing" }
           if ((Get-Item "$env:UNTAMED_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF screenshot unexpectedly small" }
+      - name: Archive actual rendered screenshot for visual QA
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $imagePath = "$env:GITHUB_WORKSPACE/dist/UntamedManager-preview.png"
+          $resource = "repos/$env:GITHUB_REPOSITORY/contents/previews/UntamedManager-1.2.0.png"
+          $body = @{
+            message = "Capture actual WPF 1.2.0 dashboard screenshot for approved visual QA"
+            branch = "main"
+            content = [Convert]::ToBase64String([IO.File]::ReadAllBytes($imagePath))
+          }
+          $oldJson = gh api "$resource" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $old = $oldJson | ConvertFrom-Json
+            $body.sha = $old.sha
+          }
+          $jsonPath = Join-Path $env:RUNNER_TEMP "wpf-preview.json"
+          [IO.File]::WriteAllText($jsonPath,($body | ConvertTo-Json -Compress))
+          gh api --method PUT "$resource" --input "$jsonPath" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Cannot archive actual rendered screenshot" }
       - name: Save verified GUI screenshot
         uses: actions/upload-artifact@v4
         with:
