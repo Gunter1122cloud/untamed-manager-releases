@@ -138,6 +138,7 @@ public partial class MainWindow
                     WriteLog("kova-fixture",ex);}
             }),kova)));
         ShowHistoricalTwoHostKovaAudit();
+        ShowKovaStoreV1CopyReader();
         ShowOfflineClusterBackupWizard();
     }
 
