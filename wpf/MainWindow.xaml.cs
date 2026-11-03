@@ -16,6 +16,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Effects;
 using System.ComponentModel;
+using UntamedManager.Core;
 using Forms = System.Windows.Forms;
 using WinMessageBox = System.Windows.MessageBox;
 
