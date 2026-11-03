@@ -20,7 +20,13 @@ A korábbi megbeszélések, a TELJES-KEZELOFULET-TERV-HU.md, a 2026.11.02-i audi
 - Szándékosan nem küld automatikusan szerverállapotot, és sem Discord-admin, sem RCON-parancsot nem fogad.
 - A küldési folyamat HTTP-állapotai Windows CI alatt **szintetikus HTTP handlerrel** teszteltek; valódi Discord szerverre nem küldtünk, így éles end-to-end Discord elfogadás még szükséges.
 
-### 3. Őszinte termékkészültség
+### 3. Kézi hálózati diagnosztika
+- Új natív WPF menüpont: router és külső IPv4 célpont kézi ICMP mérése, 12+12 mintával.
+- Válaszok/darab, csomagvesztés, medián, P95, csúcs, egymást követő válaszok átlagos abszolút eltérése (jitter).
+- A válasz nélküli mintákat nem jeleníti meg nulla késleltetésként; ICMP nem egyenlő ASA-UDP vagy clustertransfer mérésével.
+- Router/ASA/DDNS beállítások nem változnak, automatikus restart nem indul. Szintetikus CI statisztikai tesztek.
+
+### 4. Őszinte termékkészültség
 - Új 'Fejlesztési állapot / funkciók' WPF oldal 20 külön vizsgált területtel.
 - A státuszjelzők LOCAL, READ_ONLY, MANUAL, TEST, OFFLINE, SIMULATED, BLOCKED; egyik sincs éles productionnak feltüntetve.
 - Teljes, forrásokra és valódi kódra alapozott összevetés: [REQUIREMENTS-AUDIT-2026-11-03.md](../REQUIREMENTS-AUDIT-2026-11-03.md).
