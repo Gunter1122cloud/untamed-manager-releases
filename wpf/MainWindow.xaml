@@ -158,7 +158,7 @@
        <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="⬡  MOD-HOZZÁRENDELÉS" Foreground="#9DB7B2"/><TextBlock Text="294" Foreground="#73DDC8" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="2026.11.02-i audit" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
        <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="◉  ÉLŐ KAPCSOLAT" Foreground="#9DB7B2"/><TextBlock Text="0 / 2" Foreground="#F4BB78" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Agent nincs csatlakoztatva" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
       </UniformGrid>
-      <DockPanel Margin="0,6,12,9">
+      <DockPanel LastChildFill="False" Margin="0,6,12,9">
        <TextBlock Text="Gazdagépek / infrastruktúra" Foreground="White" DockPanel.Dock="Left" FontSize="21" FontWeight="Bold"/>
        <TextBlock Text="◈  Kova Store: változatlan és védett" DockPanel.Dock="Right" Foreground="#7DE6C8" FontSize="11" VerticalAlignment="Center"/>
       </DockPanel>
@@ -230,7 +230,7 @@
     </ScrollViewer>
    </Grid>
    <Border Grid.Row="2" Background="#0D2425" BorderBrush="#325650" BorderThickness="0,1,0,0" Padding="15,7">
-    <DockPanel><TextBlock Text="●  Elkülönített tesztgép · nincs éles szerverkapcsolat" Foreground="#73DDC8" FontSize="11"/>
+    <DockPanel LastChildFill="False"><TextBlock Text="●  Elkülönített tesztgép · nincs éles szerverkapcsolat" Foreground="#73DDC8" FontSize="11"/>
      <TextBlock Text="UNTAMED KINGDOM" DockPanel.Dock="Right" Foreground="#92AAA6" FontSize="11"/></DockPanel>
    </Border>
   </Grid>
