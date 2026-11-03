@@ -147,6 +147,21 @@ try
     bool unsafeBlocked=false;
     try{SafePluginZip.Inspect(unsafeZip);}catch(InvalidDataException){unsafeBlocked=true;}
     Assert(unsafeBlocked,"Plugin ZIP traversal is rejected before disk modification");
+    foreach(var unsafeName in new[]{"SamplePlugin/CON.dll","SamplePlugin/extra.dll."})
+    {
+        string invalidZip=Path.Combine(root,"winpath-"+Guid.NewGuid().ToString("N")+".zip");
+        using(var stream=File.Create(invalidZip))
+        using(var archive=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create))
+        {
+            using(var writer=new StreamWriter(archive.CreateEntry("SamplePlugin/SamplePlugin.dll").Open()))
+                writer.Write("safe-root");
+            using(var writer=new StreamWriter(archive.CreateEntry(unsafeName).Open()))
+                writer.Write("unsafe-path");
+        }
+        bool rejected=false;
+        try{SafePluginZip.Inspect(invalidZip);}catch(InvalidDataException){rejected=true;}
+        Assert(rejected,"Windows-reserved ZIP plugin paths are rejected before extraction: "+unsafeName);
+    }
     familyLoader=Process.Start(new ProcessStartInfo(fake,"--loader-only-fixture"){UseShellExecute=false,CreateNoWindow=true})!;
     await Task.Delay(200);
     var loaderOnlyMap=new LocalMap{Name="Starting",ExecutablePath=fake,Arguments="--child-fixture",ApiLoaderPath=fake,ApiLoaderArguments="--loader-only-fixture"};
