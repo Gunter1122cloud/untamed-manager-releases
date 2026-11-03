@@ -387,6 +387,7 @@ public partial class MainWindow : Window
             Add(Label("Nincs kézzel regisztrált helyi map. Előbb a Szerverek nézetben adj hozzá egyet.",13,Soft));
             return;
         }
+        ShowMultiMapBackupOverview();
         var choice=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",SelectedIndex=0};
         var pane=new StackPanel();
         void SelectMap()
