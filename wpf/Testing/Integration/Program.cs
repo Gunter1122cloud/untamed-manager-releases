@@ -68,6 +68,7 @@ try
     using(var stream=File.Create(packageZip))
     using(var archive=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create))
     {
+        archive.CreateEntry("SamplePlugin/"); // Normal ZIP tools include the plugin root directory.
         using(var writer=new StreamWriter(archive.CreateEntry("SamplePlugin/SamplePlugin.dll").Open()))writer.Write("new-binary");
         using(var writer=new StreamWriter(archive.CreateEntry("SamplePlugin/settings.json").Open()))writer.Write("{\"secret\":\"overwrite-attempt\"}");
     }
