@@ -344,6 +344,7 @@ try
     File.Move(binary+".next",binary,true);
     Assert(!p.HasExited && File.ReadAllText(binary)=="VERSION=2",
         "Mock UI update changes Manager binary only, never terminates server");
+    Assert(await hp.PollPeerAsync()!=null,"Restarted Manager obtains fresh peer observation before outage");
     await ryzen.DisposeAsync();ryzen=null;
     var peerOffline=await hp.PollPeerAsync();
     Assert(!hp.RemoteIsFresh && hp.RemoteSnapshot!=null,"Peer outage retains explicitly stale last observation");
