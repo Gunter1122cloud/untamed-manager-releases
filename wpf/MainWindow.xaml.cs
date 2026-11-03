@@ -339,6 +339,7 @@ public partial class MainWindow : Window
         ShowSteamCmdPreflightControls();
         ShowAsaInstallationPreflightControls();
         ShowCurseForgeSearchControls();
+        ShowModUpdateCenter();
     }
     private void Plugins()
     {
@@ -388,6 +389,7 @@ public partial class MainWindow : Window
             Label("A hitelesített hostagent és a szerverenkénti jogosultságellenőrzés bevezetéséig nem küldünk parancsokat éles gépre.",13,Soft))));
         var input=new TextBox{Text="ListPlayers",IsEnabled=false,Height=40,Background=Panel,Foreground=Brushes.White,FontSize=15};
         Add(input);
+        ShowRconActionPreviews();
     }
     private void Schedules()
     {
