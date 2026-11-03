@@ -6,6 +6,9 @@ on:
       - 'wpf/**'
       - '.github/workflows/build-untamed-wpf.yml'
   workflow_dispatch:
+concurrency:
+  group: untamed-wpf-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
@@ -43,6 +46,12 @@ jobs:
           if (!(Test-Path "dist/UntamedManager.exe")) { throw "EXE not produced" }
           Get-Item "dist/UntamedManager.exe" | Select-Object Name,Length
           Get-FileHash "dist/UntamedManager.exe" -Algorithm SHA256
+      - name: Windows runtime startup smoke test
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--smoke-test" -PassThru
+          if (-not $p.WaitForExit(25000)) { $p.Kill(); throw "WPF smoke test timed out" }
+          if ($p.ExitCode -ne 0) { throw "WPF initialization failed with exit code $($p.ExitCode)" }
       - name: Save Windows EXE
         uses: actions/upload-artifact@v4
         with:
