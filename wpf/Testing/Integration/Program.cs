@@ -207,6 +207,24 @@ try
     try{SafePluginZip.Install(offline,new ProcessCheck(false,"unknown",null),
         packageZip,Path.Combine(root,"plugin-backups"));}catch(InvalidOperationException){runningInstallBlocked=true;}
     Assert(runningInstallBlocked,"Plugin ZIP refuses uncertain server state");
+    var pluginPreview=SafePluginZip.Preview(offline,stoppedMap,packageZip,
+        Path.Combine(root,"plugin-backups"));
+    Assert(pluginPreview.Ready && pluginPreview.PreviousPluginExists &&
+        pluginPreview.PluginName=="SamplePlugin" && pluginPreview.BinaryCount==1,
+        "Plugin ZIP preview identifies existing plugin before changes");
+    Assert(File.ReadAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"))=="old-binary",
+        "ZIP preview does not mutate existing plugin DLL");
+    var blockedPreview=SafePluginZip.Preview(offline,new ProcessCheck(false,"unknown",null),
+        packageZip,Path.Combine(root,"plugin-backups"));
+    Assert(!blockedPreview.Ready,"Plugin ZIP preview blocks uncertain local map state");
+    string kovaZip=Path.Combine(root,"protected-kova-plugin.zip");
+    using(var stream=File.Create(kovaZip))
+    using(var archive=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create))
+        using(var writer=new StreamWriter(archive.CreateEntry("KovaCluster/KovaCluster.dll").Open()))
+            writer.Write("synthetic forbidden DLL");
+    bool protectedZipBlocked=false;
+    try{SafePluginZip.Inspect(kovaZip);}catch(InvalidDataException){protectedZipBlocked=true;}
+    Assert(protectedZipBlocked,"Kova plugin ZIP rejected before any installation or backup writes");
     var installed=SafePluginZip.Install(offline,stoppedMap,packageZip,Path.Combine(root,"plugin-backups"));
     Assert(File.ReadAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"))=="new-binary",
         "Plugin ZIP replaces binary on confirmed stopped map");
