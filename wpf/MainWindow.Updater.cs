@@ -87,9 +87,12 @@ public partial class MainWindow
                 } catch(Exception ex){status.Text="Frissítési ellenőrzési hiba: "+ex.Message;WriteLog("updates-check",ex);}
             }),status,details,install,bar,progressText)));
         Add(Box(V(Label("Frissítési előzmények",18,Mint,true),Label(UpdateHistory.ReadRecent(),11,Soft))));
+        channel.SelectionChanged+=(_,_)=>{candidate=null;install.Visibility=Visibility.Collapsed;};
+        repository.TextChanged+=(_,_)=>{candidate=null;install.Visibility=Visibility.Collapsed;};
         // Keep the install control real and functional, never show it until update is verified as newer.
         install.Click+=async(_,_)=>{
-            if(candidate==null)return;
+            var selected=candidate;
+            if(selected==null)return;
             install.IsEnabled=false;
             bar.Visibility=Visibility.Visible;
             progressText.Text="Letöltés és SHA-256 ellenőrzés…";
@@ -99,8 +102,8 @@ public partial class MainWindow
                     progressText.Text=$"Letöltés: {p.received/1048576.0:F1} MiB"+
                         (p.total.HasValue?$" / {p.total.Value/1048576.0:F1} MiB":"");
                 });
-                UpdateHistory.Append("download-start",candidate.Tag);
-                string package=await UpdateCenter.DownloadAndVerifyAsync(candidate,
+                UpdateHistory.Append("download-start",selected.Tag);
+                string package=await UpdateCenter.DownloadAndVerifyAsync(selected,
                     UpdateCenter.UpdateRoot,progress);
                 bar.Value=98;progressText.Text="SHA-256 ellenőrizve. Kiadói hitelesség ellenőrzése…";
                 UpdateCenter.CheckAuthenticodePublisher(package,_cluster.Config.PublisherCertificateThumbprint);
@@ -114,8 +117,8 @@ public partial class MainWindow
                     "--pid",Environment.ProcessId.ToString(),
                     "--installer",package,
                     "--app",exe,
-                    "--expected",candidate.Version.ToString(3),
-                    "--tag",candidate.Tag,
+                    "--expected",selected.Version.ToString(3),
+                    "--tag",selected.Tag,
                     "--profile",App.ProfileName,
                     "--backup",backup})
                     psi.ArgumentList.Add(arg);
@@ -125,7 +128,7 @@ public partial class MainWindow
                 Exit();
             }
             catch(Exception ex){
-                UpdateHistory.Append("installation-error",candidate.Tag);
+                UpdateHistory.Append("installation-error",selected.Tag);
                 status.Text="Frissítés megszakítva: "+ex.Message;
                 WriteLog("updates-install",ex);install.IsEnabled=true;
             }

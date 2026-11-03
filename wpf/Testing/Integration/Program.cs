@@ -30,6 +30,12 @@ ClusterService? hp=null;
 ClusterService? ryzen=null;
 try
 {
+    familyLoader=Process.Start(new ProcessStartInfo(fake,"--loader-only-fixture"){UseShellExecute=false,CreateNoWindow=true})!;
+    await Task.Delay(200);
+    var loaderOnlyMap=new LocalMap{Name="Starting",ExecutablePath=fake,Arguments="--child-fixture",ApiLoaderPath=fake,ApiLoaderArguments="--loader-only-fixture"};
+    var loaderOnlyState=new WindowsProcessInspector().InspectFamily(loaderOnlyMap);
+    Assert(!loaderOnlyState.ConfirmedStopped,"Actual loader without child blocks duplicate start");
+    familyLoader.Kill();await familyLoader.WaitForExitAsync();familyLoader.Dispose();familyLoader=null;
     familyLoader=Process.Start(new ProcessStartInfo(fake,"--loader-fixture"){UseShellExecute=false,CreateNoWindow=true})!;
     for(int attempt=0;attempt<30 && familyChild==null;attempt++)
     {
