@@ -17,4 +17,8 @@
     <PackageReference Include="System.Management" Version="10.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Updater/**/*.cs" />
+    <Compile Remove="Testing/**/*.cs" />
+  </ItemGroup>
 </Project>
