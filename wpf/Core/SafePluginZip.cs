@@ -13,6 +13,10 @@ public sealed record PluginZipInfo(string PluginName,int BinaryCount,int Skipped
 public sealed record PluginInstallResult(string PluginName,string Target,string? PreviousBackup,int BinaryCount);
 public sealed record PluginZipPreview(string PluginName,int BinaryCount,int SkippedFiles,
     bool PreviousPluginExists,bool Ready,string Reason);
+public sealed record PluginRollbackPreview(string PluginName,string BackupFolder,
+    int PreviousBinaryCount,bool Allowed,string Reason);
+public sealed record PluginRollbackResult(string PluginName,string Target,
+    string PreRollbackBackup,int RestoredBinaryCount);
 public static class SafePluginZip
 {
     private const long MaxPackageBytes=256L*1024*1024;
@@ -126,6 +130,120 @@ public static class SafePluginZip
             }
             else if(installed&&Directory.Exists(target))Directory.Delete(target,true);
             if(Directory.Exists(staging))Directory.Delete(staging,true);
+            throw;
+        }
+    }
+
+    // Rollback explicitly restores only DLL/PDB from the SHA-verified, previously
+    // captured plugin backup. Current JSON, licenses, databases and saves are
+    // retained in the target and independently backed up before the swap.
+    public static PluginRollbackPreview PreviewRollback(LocalMap map,ProcessCheck check,
+        string pluginName,string previousBackup,string backupRoot)
+    {
+        if(map==null || map.Id==Guid.Empty)throw new InvalidDataException("Map identity required");
+        if(!SafeWindowsPart(pluginName) || pluginName.Contains("Kova",StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Protected or unsafe plugin name");
+        string install=FixedLocal(map.InstallationPath);
+        string backups=FixedLocal(backupRoot);
+        if(Inside(install,backups) || Inside(backups,install) ||
+           install.Equals(backups,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Backup and installation must not overlap");
+        string allowedRoot=Path.Combine(backups,map.Id.ToString("N"),pluginName);
+        string previous=FixedLocal(previousBackup);
+        if(!Inside(allowedRoot,previous) || !Directory.Exists(previous))
+            throw new UnauthorizedAccessException("Plugin backup is not owned by this map/plugin");
+        CheckTree(previous);
+        string manifestPath=previous+".untamed-manifest.json";
+        CheckAncestors(manifestPath);
+        if(!File.Exists(manifestPath) ||
+           (File.GetAttributes(manifestPath)&FileAttributes.ReparsePoint)!=0 ||
+           new FileInfo(manifestPath).Length>2_000_000)
+            throw new InvalidDataException("Previous plugin backup manifest unavailable");
+        var manifest=System.Text.Json.JsonSerializer.Deserialize<BackupManifest>(
+            File.ReadAllText(manifestPath))??throw new InvalidDataException("Invalid rollback manifest");
+        if(manifest.Scope!="Pre-plugin-update complete plugin data")
+            throw new InvalidDataException("Unexpected rollback backup scope");
+        BackupIntegrity.Verify(previous,manifest,map.Id);
+        int binaryCount=manifest.Files.Count(x=>
+            x.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase) ||
+            x.Path.EndsWith(".pdb",StringComparison.OrdinalIgnoreCase));
+        if(binaryCount==0 || !manifest.Files.Any(x=>x.Path.Equals(pluginName+".dll",
+            StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("Rollback backup missing plugin root DLL");
+        string target=Path.Combine(install,"ShooterGame","Binaries","Win64","ArkApi",
+            "Plugins",pluginName);
+        CheckAncestors(target);
+        if(!Directory.Exists(target))throw new DirectoryNotFoundException(target);
+        CheckTree(target);
+        bool ready=check.ConfirmedStopped && !check.Running && !map.Maintenance;
+        return new(pluginName,previous,binaryCount,ready,
+            ready?"Previous DLL/PDB hashes verified; current config/database/license preserved":
+                "Server is running, uncertain or in maintenance");
+    }
+
+    public static PluginRollbackResult Rollback(LocalMap map,ProcessCheck check,
+        string pluginName,string previousBackup,string backupRoot)
+    {
+        var preview=PreviewRollback(map,check,pluginName,previousBackup,backupRoot);
+        if(!preview.Allowed)throw new InvalidOperationException(preview.Reason);
+        string install=FixedLocal(map.InstallationPath);
+        string backupRootChecked=FixedLocal(backupRoot);
+        string plugins=Path.Combine(install,"ShooterGame","Binaries","Win64","ArkApi","Plugins");
+        string target=Path.Combine(plugins,pluginName);
+        string token=Guid.NewGuid().ToString("N");
+        string staging=Path.Combine(plugins,".untamed-rollback-stage-"+token);
+        string displaced=Path.Combine(plugins,".untamed-rollback-old-"+token);
+        string preimage=Path.Combine(backupRootChecked,map.Id.ToString("N"),
+            pluginName,"prerollback-"+token);
+        bool moved=false;
+        try
+        {
+            // Another complete, verified copy protects current binaries AND configs.
+            CopyTree(target,preimage);
+            var premanifest=BackupIntegrity.Create(target,map.Id,
+                "Pre-plugin-rollback full protection");
+            BackupIntegrity.Verify(preimage,premanifest,map.Id);
+            File.WriteAllText(preimage+".untamed-manifest.json",
+                BackupIntegrity.Serialize(premanifest));
+            CopyTree(target,staging);
+            foreach(var file in Directory.EnumerateFiles(staging,"*",SearchOption.AllDirectories))
+                if(file.EndsWith(".dll",StringComparison.OrdinalIgnoreCase) ||
+                   file.EndsWith(".pdb",StringComparison.OrdinalIgnoreCase))
+                    File.Delete(file);
+            var prior=System.Text.Json.JsonSerializer.Deserialize<BackupManifest>(
+                File.ReadAllText(previousBackup+".untamed-manifest.json"))!;
+            BackupIntegrity.Verify(previousBackup,prior,map.Id);
+            foreach(var binary in prior.Files.Where(x=>
+                x.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase) ||
+                x.Path.EndsWith(".pdb",StringComparison.OrdinalIgnoreCase)))
+            {
+                string destination=Path.GetFullPath(Path.Combine(staging,binary.Path));
+                if(!Inside(staging,destination))
+                    throw new InvalidDataException("Backup binary escapes staging");
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(Path.Combine(previousBackup,binary.Path),destination,false);
+                using var stream=File.OpenRead(destination);
+                if(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream))!=
+                    binary.Sha256)throw new InvalidDataException("Restored plugin hash mismatch");
+            }
+            CheckTree(staging);
+            Directory.Move(target,displaced);
+            moved=true;
+            Directory.Move(staging,target);
+            // If cleanup fails, the displaced directory remains safely recoverable.
+            try{Directory.Delete(displaced,true);}catch{}
+            return new(pluginName,target,preimage,preview.PreviousBinaryCount);
+        }
+        catch
+        {
+            if(moved && Directory.Exists(displaced))
+            {
+                if(Directory.Exists(target))
+                    Directory.Move(target,target+".failed-"+Guid.NewGuid().ToString("N"));
+                Directory.Move(displaced,target);
+            }
+            if(Directory.Exists(staging))
+                try{Directory.Delete(staging,true);}catch{}
             throw;
         }
     }
