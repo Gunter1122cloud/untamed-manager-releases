@@ -36,6 +36,8 @@ A felhasználó TELJES-KEZELOFELULET-TERV-HU.md dokumentuma, Untamed-Manager-Kut
 2. **Valós képességállapot-áttekintő:** a WPF-ben Fejlesztési állapot / funkciók menü, 20 terület pontosan TEST/LOCAL/READ_ONLY/MANUAL/SIMULATED/OFFLINE/BLOCKED besorolással. Egyetlen nem validált éles funkció sem lehet késznek jelölve.
 3. **Discord szerverstátusz:** új WPF menü és DPAPI-s titkosított webhook, külön előnézet, megerősített egyszeri HTTP POST a kizárólag hitelesített, friss, helyi Supervisor térképekről. Discord HTTP wait=true és mentett message ID; allowed_mentions üres, szigorú discord.com/HTTPS URL, 429-re nincs automatikus retry, nincs közvetlen RCON vagy parancsfogadás. Az első teszt szintetikus HTTP handler, éles Discord-üzenet NEM történt.
 
+4. **Kézi hálózati diagnosztika:** valódi, felhasználó által kiváltott, cél-IP alapú ICMP-ping routerre és külső címre; packet loss/medián/P95/jitter, nem automatikus, sem DDNS- sem szerverállapot-módosítás. Szintetikus offline teszt validálja az értékeket, és nem jelenti az éles clusterutazási UDP késleltetés bizonyítását.
+
 ## Maradék feladatok és blokkolók – sorrend
 
 **P0:** valós ASA SaveWorld-befejezési bizonyíték; egyetlen writer tulajdonjog és API Loader/process ID; teljes Kova/Untamed Vault 1:1 transzfer-rendszer és maradéktalan kétgépes karakter- és adatkonzisztencia; három SQL adatbázis konzisztens dump/restore másolaton; izolált valódi ASA tesztcluster. Ezek NEM dönthetők el kizárólag FakeAsa Windows CI alapján.
