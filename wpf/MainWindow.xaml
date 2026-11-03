@@ -115,7 +115,7 @@
       <TextBlock Text="Windows WPF alkalmazás · helyi tesztadatok · élő kapcsolat nélkül" FontSize="11" Foreground="#8BBAB3" Margin="0,5,0,0"/>
      </StackPanel>
      <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
-      <Border Background="#203F3B" CornerRadius="8" Padding="13,8" Margin="0,0,10,0"><TextBlock Text="WPF 1.0.3" Foreground="#73DDC8" FontSize="11"/></Border>
+      <Border Background="#203F3B" CornerRadius="8" Padding="13,8" Margin="0,0,10,0"><TextBlock Text="WPF 1.0.4" Foreground="#73DDC8" FontSize="11"/></Border>
       <Border Background="#433122" CornerRadius="8" Padding="13,8"><TextBlock Text="NINCS ÉLŐ AGENT" Foreground="#F4BB78" FontSize="11"/></Border>
      </StackPanel>
     </DockPanel>
