@@ -350,37 +350,12 @@ public partial class MainWindow : Window
         ShowLocalPluginInventoryControls();
         ShowBulkPluginsControls();
         ShowPluginRollbackControls();
+        ShowSafeTextEditor(ConfigKind.PluginJson);
     }
     private void Ini()
     {
-        Header("INI szerkesztő","Kizárólag helyi, tesztelésre kiválasztott Game.ini / GameUserSettings.ini fájlok. Mentés előtt .bak készül.");
-        var path=Label("Nincs fájl kiválasztva",13,Soft);
-        var input=new TextBox{AcceptsReturn=true,TextWrapping=TextWrapping.NoWrap,
-            VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
-            Background=Panel,Foreground=Brushes.White,BorderBrush=Aqua,
-            FontFamily=new FontFamily("Consolas"),FontSize=12,Height=360,
-            IsEnabled=false};
-        string? location=null;
-        var open=Btn("Helyi INI megnyitása",()=>{
-            var dlg=new Microsoft.Win32.OpenFileDialog
-            {Filter="ARK ini fájlok|Game.ini;GameUserSettings.ini",CheckFileExists=true};
-            if(dlg.ShowDialog(this)!=true)return;
-            var name=Path.GetFileName(dlg.FileName);
-            if (name!="Game.ini" && name!="GameUserSettings.ini"){Notice("Csak Game.ini vagy GameUserSettings.ini engedélyezett.");return;}
-            if(dlg.FileName.Contains("KovaCluster",StringComparison.OrdinalIgnoreCase)){Notice("Cluster Store-hoz nem nyúlunk.");return;}
-            location=dlg.FileName;path.Text=location;input.Text=File.ReadAllText(location);input.IsEnabled=true;
-        });
-        var save=Btn("Mentés biztonsági másolattal",()=>{
-            if(location is null)return;
-            if(WinMessageBox.Show("Mented a kiválasztott helyi INI fájlt?","INI",MessageBoxButton.YesNo,
-                 MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-            var temp=location+".untamed.tmp";var backup=location+".untamed."+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".bak";
-            File.Copy(location,backup,false);File.WriteAllText(temp,input.Text,Encoding.UTF8);
-            File.Move(temp,location,true);Notice("Mentve. Biztonsági másolat: "+backup);
-        });
-        var actions=new StackPanel{Orientation=Orientation.Horizontal};
-        actions.Children.Add(open);actions.Children.Add(save);
-        Add(Box(V(path,actions,input)));
+        Header("INI Editor 2.0","SHA-256 ellenőrzés, BOM/sorvégek megőrzése, atomikus mentés és .bak védőmásolat.");
+        ShowSafeTextEditor(ConfigKind.GameIni);
     }
     private void Backups()
     {
