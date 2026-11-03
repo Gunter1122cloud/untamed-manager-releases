@@ -37,7 +37,11 @@ public static class SafeSupportBundleTests
             new MonitorEvent(Guid.NewGuid(),now,"PRIVATE-HOST-UK",
                 Guid.NewGuid(),"Information","manager-start"),
             new MonitorEvent(Guid.NewGuid(),now,"PRIVATE-HOST-UK",
-                null,"Warning","ATTACK_SECRET-RCON-DPAPI / unsafe text")
+                null,"Warning","ATTACK_SECRET-RCON-DPAPI / unsafe text"),
+            new MonitorEvent(Guid.NewGuid(),now,"PRIVATE-HOST-UK",
+                null,"Warning","SECRET-CONFIDENTIAL-WEBHOOK"),
+            new MonitorEvent(Guid.NewGuid(),now,"PRIVATE-HOST-UK",
+                null,"Warning","watchdog-SECRET-TOKEN")
         };
         string file=Path.Combine(root,"support-test.zip");
         var report=SafeSupportBundle.Create(file,cfg,events,now);
@@ -58,7 +62,8 @@ public static class SafeSupportBundleTests
                 "SECRET-RCON-PASSWORD","SECRET-DPAPI-PAIRING",
                 "SECRET-CURSEFORGE-DPAPI","SECRET-RCON-DPAPI",
                 "SECRET-NETWORK-IP","SECRET-WAN-PEER","PLAYER-SECRET-NAME",
-                "UK-TEST-SECRET-HOST-ID","SECRET-PUBLISHER-ID"})
+                "UK-TEST-SECRET-HOST-ID","SECRET-PUBLISHER-ID",
+                "SECRET-CONFIDENTIAL-WEBHOOK","watchdog-SECRET-TOKEN"})
                 Check(!joined.Contains(leak,StringComparison.Ordinal),
                     "sensitive config source data excluded: "+leak.Split('-')[0]);
             Check(joined.Contains("watchdog-check")&&
