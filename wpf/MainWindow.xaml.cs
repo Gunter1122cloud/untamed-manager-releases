@@ -350,6 +350,7 @@ public partial class MainWindow : Window
         ShowLocalPluginInventoryControls();
         ShowBulkPluginsControls();
         ShowPluginRollbackControls();
+        ShowAsaApiAndPluginStates();
         ShowSafeTextEditor(ConfigKind.PluginJson);
     }
     private void Ini()
