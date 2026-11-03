@@ -152,6 +152,80 @@ public static class ProfessionalOperationsTests
         catch(InvalidDataException){switched=true;}
         Check(switched,"Kova host role swap rejected");
 
+        // Real Kova shared-store-v1 JSON coordination *copies* (not a generic
+        // audit shape): operation, per-peer records, two device/lock copies.
+        string storeShared=Path.Combine(root,"v16-real-store-copy");
+        string storeHp=Path.Combine(root,"v16-real-store-local-hp");
+        string storeRyzen=Path.Combine(root,"v16-real-store-local-ryzen");
+        Directory.CreateDirectory(storeShared);
+        Directory.CreateDirectory(storeHp);
+        Directory.CreateDirectory(storeRyzen);
+        Guid deviceHp=Guid.NewGuid(),deviceRyzen=Guid.NewGuid(),sessionId=Guid.NewGuid();
+        string clusterUnc=@"\\localhost\synthetic-Store";
+        string hpHash=new string('a',64),ryzenHash=new string('b',64);
+        var hpMembers=hpMaps.Select((name,i)=>new{
+            id=hpIds[i].ToString(),root=@"D:\offline\hp\"+i,map=name}).ToArray();
+        var ryzenMembers=ryzenMaps.Select((name,i)=>new{
+            id=ryzenIds[i].ToString(),root=@"C:\offline\ryzen\"+i,map=name}).ToArray();
+        var configHp=new{id="KovaCluster",mode="shared",
+            path=clusterUnc,members=hpMembers};
+        var configRyzen=new{id="KovaCluster",mode="shared",
+            path=clusterUnc,members=ryzenMembers};
+        var selectedHp=hpMembers.Select(x=>x.id).ToArray();
+        var selectedRyzen=ryzenMembers.Select(x=>x.id).ToArray();
+        File.WriteAllText(Path.Combine(storeShared,"operation.json"),
+            JsonSerializer.Serialize(new{
+                schema=1,session=sessionId.ToString(),cluster="KovaCluster",
+                path=clusterUnc.ToLowerInvariant(),
+                peers=new[]{deviceHp.ToString(),deviceRyzen.ToString()}}));
+        File.WriteAllText(Path.Combine(storeShared,deviceHp+".json"),
+            JsonSerializer.Serialize(new{
+                session=sessionId.ToString(),id=deviceHp.ToString(),phase="done",
+                config=configHp,configHash=hpHash,members=hpMembers,selected=selectedHp}));
+        File.WriteAllText(Path.Combine(storeShared,deviceRyzen+".json"),
+            JsonSerializer.Serialize(new{
+                session=sessionId.ToString(),id=deviceRyzen.ToString(),phase="done",
+                config=configRyzen,configHash=ryzenHash,
+                members=ryzenMembers,selected=selectedRyzen}));
+        File.WriteAllText(Path.Combine(storeHp,"shared-store-device-v1.json"),
+            JsonSerializer.Serialize(new{schema=1,id=deviceHp.ToString()}));
+        File.WriteAllText(Path.Combine(storeRyzen,"shared-store-device-v1.json"),
+            JsonSerializer.Serialize(new{schema=1,id=deviceRyzen.ToString()}));
+        File.WriteAllText(Path.Combine(storeHp,"shared-store-lock-v1.json"),
+            JsonSerializer.Serialize(new{schema=1,session=sessionId.ToString(),
+                config=configHp,configHash=hpHash,selected=selectedHp}));
+        File.WriteAllText(Path.Combine(storeRyzen,"shared-store-lock-v1.json"),
+            JsonSerializer.Serialize(new{schema=1,session=sessionId.ToString(),
+                config=configRyzen,configHash=ryzenHash,selected=selectedRyzen}));
+        string opBefore=File.ReadAllText(Path.Combine(storeShared,"operation.json"));
+        var liveContractCopy=KovaStoreV1CopyReader.Inspect(
+            storeShared,storeHp,storeRyzen);
+        Check(liveContractCopy.HistoricalConsistent &&
+            liveContractCopy.MapNames.Length==10 &&
+            liveContractCopy.Session==sessionId &&
+            File.ReadAllText(Path.Combine(storeShared,"operation.json"))==opBefore,
+            "authentic shared-store-v1 copied operation+2 peers+local locks pass read-only checks");
+        Check(liveContractCopy.Warning.Contains("NOT proven") &&
+            liveContractCopy.InspectedSha256.Length==5,
+            "real Kova contract copied file checksums never certify production compatibility");
+        Directory.CreateDirectory(Path.Combine(storeShared,"mutation.lock"));
+        Check(!KovaStoreV1CopyReader.Inspect(
+            storeShared,storeHp,storeRyzen).HistoricalConsistent,
+            "Kova mutation.lock marks copied session as unsafe for takeover");
+        Directory.Delete(Path.Combine(storeShared,"mutation.lock"));
+        File.WriteAllText(Path.Combine(storeShared,"running.json"),
+            JsonSerializer.Serialize(new{session=sessionId.ToString()}));
+        Check(!KovaStoreV1CopyReader.Inspect(
+            storeShared,storeHp,storeRyzen).HistoricalConsistent,
+            "Kova running.json marker blocks historical Store-v1 consistency");
+        File.Delete(Path.Combine(storeShared,"running.json"));
+        bool wrongPeerBlocked=false;
+        File.WriteAllText(Path.Combine(storeHp,"shared-store-lock-v1.json"),
+            JsonSerializer.Serialize(new{schema=1,session=Guid.NewGuid().ToString(),
+                config=configHp,configHash=hpHash,selected=selectedHp}));
+        var badSession=KovaStoreV1CopyReader.Inspect(storeShared,storeHp,storeRyzen);
+        Check(!badSession.HistoricalConsistent,
+            "Kova lock session different from operation is explicitly rejected");
         // The real subprocess is the harmless FakeAsa Windows binary and
         // only the integration test's own TEMP directory can be controlled.
         string life=Path.Combine(root,"v16-lifecycle-fixture");
