@@ -44,7 +44,7 @@ public static class ManagerFeatureMatrix
         new("rcon","RCON ListPlayers and mutating command previews","READ_ONLY",false,
             "No production mutating command authorization"),
         new("monitor","Local Supervisor CPU/RAM, event history","READ_ONLY",false,
-            "Player count, WAN/jitter and genuine ASA readiness incomplete"),
+            "Manual ICMP jitter/loss check available; verified player count, uplink and real ASA readiness incomplete"),
         new("updater","Windows updater and local rollback","TEST",false,
             "Published signed Preview/Stable releases and test-PC acceptance missing"),
         new("discord","Discord server status","MANUAL",false,
@@ -54,7 +54,7 @@ public static class ManagerFeatureMatrix
         new("license","Cloudflare license activation","BLOCKED",false,
             "No verified activation/Ed25519 offline ticket integration"),
         new("ups","UPS shutdown monitoring","BLOCKED",false,
-            "No supported UPS provider integration or tested save/stop safety"),
+            "Manual ICMP router/external latency available; no UPS provider integration or tested save/stop safety"),
         new("wan","WAN/DDNS observation","READ_ONLY",false,
             "Opt-in observation only; no automatic IP-triggered restart")
     };
