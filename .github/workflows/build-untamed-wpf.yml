@@ -32,6 +32,10 @@ jobs:
           if ($json.encoding -ne "base64") { throw "Image blob not base64" }
           [IO.File]::WriteAllBytes("wpf/Assets/kingdom-hero.jpg",[Convert]::FromBase64String(($json.content -replace '\s','')))
           if ((Get-Item "wpf/Assets/kingdom-hero.jpg").Length -lt 1000) { throw "Image incomplete" }
+          $atlas = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/0e482cc9b6389908588d11846789ec8fbd434320" | ConvertFrom-Json
+          if ($atlas.encoding -ne "base64") { throw "Map atlas blob invalid" }
+          [IO.File]::WriteAllBytes("wpf/Assets/map-atlas.jpg",[Convert]::FromBase64String(($atlas.content -replace '\s','')))
+          if ((Get-Item "wpf/Assets/map-atlas.jpg").Length -lt 3000) { throw "Map atlas incomplete" }
       - name: Check source files
         shell: pwsh
         run: |
@@ -59,7 +63,7 @@ jobs:
       - name: Save Windows EXE
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.0.1-windows-x64
+          name: UntamedManager-WPF-v1.0.2-windows-x64
           path: dist/UntamedManager.exe
           if-no-files-found: error
       - name: Create test-only GitHub release
@@ -67,11 +71,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.0.1-wpf-preview.1"
+          $tag = "v1.0.2-wpf-preview.1"
           gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.1.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
+            gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.2.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
           } else {
-            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.1.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.0.1 - Test PC Preview" --prerelease --notes "Isolated Windows WPF desktop preview. No host agent installed. No live Kova Store writes. Test on a third Windows PC only." --repo "$env:GITHUB_REPOSITORY"
+            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.0.1.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager WPF v1.0.2 - Neon GUI Preview" --prerelease --notes "Isolated Windows WPF desktop preview. No host agent installed. No live Kova Store writes. Test on a third Windows PC only." --repo "$env:GITHUB_REPOSITORY"
           }
           if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
