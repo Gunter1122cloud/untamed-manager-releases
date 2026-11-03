@@ -92,6 +92,7 @@
      <Button Content="◷    Ütemezések" Style="{StaticResource NavItem}" Tag="schedules" Click="Navigate_Click"/>
      <TextBlock Text="ALKALMAZÁS" Foreground="#91AFAA" FontSize="11" Margin="24,12,0,5"/>
      <Button Content="✧    Licenc / Frissítés" Style="{StaticResource NavItem}" Tag="license" Click="Navigate_Click"/>
+     <Button Content="☑    Fejlesztési állapot / funkciók" Style="{StaticResource NavItem}" Tag="readiness" Click="Navigate_Click"/>
      <Button Content="⚙    Beállítások" Style="{StaticResource NavItem}" Tag="settings" Click="Navigate_Click"/>
      <Button Content="✧    Beállítóvarázsló" Style="{StaticResource NavItem}" Tag="setup" Click="Navigate_Click"/>
      <Button Content="◉    LAN párosítás" Style="{StaticResource NavItem}" Tag="lan" Click="Navigate_Click"/>
