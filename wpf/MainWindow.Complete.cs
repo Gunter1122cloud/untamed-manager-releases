@@ -28,7 +28,7 @@ public partial class MainWindow
 
     private void ShowSetupWizard()
     {
-        Header("Kezdeti beállítás / Tesztgép","Géphez kötött map-regisztráció. Nem importálunk automatikusan Kova/SQL-adatokat.");
+        Header("Kezdeti beállítás / Tesztgép","Géphez kötött map-regisztráció. Nem importálunk automatikusan meglévő karakter- vagy SQL-adatokat.");
         Add(Box(V(
             Label("1. Jelenlegi Manager profil",20,Mint,true),
             Label("Gép: "+_cluster.Config.LocalHostName+" · Profil: "+App.ProfileName+
@@ -47,19 +47,19 @@ public partial class MainWindow
                 "A frissítés, Stop/Restart/Kill és adatbázis-restore továbbra is tiltva.",12,Soft),
             Btn("Recovery Center megnyitása",()=>Navigate("recovery")),
             Btn("Mentésellenőrzés megnyitása",()=>Navigate("backups")),
-            Btn("SQL / Kova tesztközpont",()=>Navigate("data")))));
+            Btn("Cluster Vault / SQL központ",()=>Navigate("data")))));
         ShowKovaProfilePreviewControls();
     }
 
     private void ShowDataSafetyCenter()
     {
-        Header("SQL és KovaCluster / Offline adatközpont",
-            "Kizárólag helyi, már exportált SQL tesztfájlok és szintetikus Kova-másolat. Nincs adatbázis-kapcsolat.");
+        Header("Untamed Kingdom · Cluster Vault és SQL",
+            "Helyi exportok, Vault-archívumok és ellenőrzött mentésmásolatok. Nincs élő adatbázis-kapcsolat.");
         Add(Box(V(
             Label("Adatbiztonsági kapuk – Release Candidate",19,Mint,true),
-            Label("MariaDB SQL restore: TILTVA. KovaCluster Store írás/konverzió: TILTVA. "+
+            Label("MariaDB SQL restore: TILTVA. Cluster Vault módosítás/konverzió: TILTVA. "+
                 "Karakter- és tribe-állományok módosítása: TILTVA. "+
-                "A csomagintegritás nem bizonyít ASA/Kova adatkompatibilitást.",12,Soft))));
+                "A csomagintegritás nem bizonyít éles ASA- vagy karaktertranszfer-kompatibilitást.",12,Soft))));
         var database=new ComboBox{ItemsSource=OfflineSqlArchive.SupportedDatabases,
             SelectedIndex=0,Foreground=Brushes.White,Background=Panel};
         var selected=new TextBox{Height=34,IsReadOnly=true,
@@ -112,31 +112,7 @@ public partial class MainWindow
                 }
                 catch(Exception ex){sqlStatus.Text="Restore-szimuláció elutasítva: "+ex.Message;}
             }),sqlStatus)));
-        var kova=Label("Kova formátum: nem igazolt. Szintetikus TEMP-másolat nélkül nincs olvasás.",12,Soft);
-        Add(Box(V(
-            Label("KovaCluster – változatlan fájlformátum, csak szimuláció",19,Mint,true),
-            Label("Nem veszünk át éles karakter/tribe/Store fájlokat, és nem konvertálunk. "+
-                "A gomb kizárólag ártalmatlan, saját generálású mintafájlokat kezel.",12,Soft),
-            Btn("Szimulált Kova fájlok auditja és bytepontos védőmásolata",()=>{
-                try
-                {
-                    string fixture=Path.Combine(Path.GetTempPath(),
-                        "Untamed-Kova-Fixture-"+Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(fixture);
-                    File.WriteAllText(Path.Combine(fixture,"synthetic-character.fixture"),
-                        "untamed synthetic fixture; not a real Kova Save or character");
-                    var owner=Guid.NewGuid();
-                    var report=KovaFixtureAudit.Inspect(fixture,owner);
-                    string package=Path.Combine(_cluster.Store.Root,"kova-synthetic-backups",
-                        Guid.NewGuid().ToString("N"));
-                    KovaFixtureAudit.Snapshot(fixture,owner,package);
-                    kova.Text="Szimulált fájlok: "+report.Files+"; méret: "+report.Bytes+
-                        " bájt; ellenőrzött másolat: "+package+
-                        "\nValódi Kova formátum 1:1 kompatibilitása NEM igazolt.";
-                }
-                catch(Exception ex){kova.Text="Kova-fixture teszt elutasítva: "+ex.Message;
-                    WriteLog("kova-fixture",ex);}
-            }),kova)));
+        ShowClusterVaultArchiveCenter();
         ShowHistoricalTwoHostKovaAudit();
         ShowKovaStoreV1CopyReader();
         ShowOfflineClusterBackupWizard();
@@ -224,7 +200,7 @@ public partial class MainWindow
             Label("Manager profil átvitele – titkok nélkül",19,Mint,true),
             Label("Csak a saját gép pontos mapazonosítóira érvényes Watchdog és RCON-monitoring "+
                 "preferenciákat mentjük. Nem exportálunk jelszót, API-kulcsot, "+
-                "Kova Store adatot, SQL-t vagy szerverindítási paramétert.",12,Soft),
+                "Cluster Vault adatot, SQL-t vagy szerverindítási paramétert.",12,Soft),
             path,
             Btn("Biztonságos beállítás-export",()=>{
                 using var save=new Forms.SaveFileDialog{
