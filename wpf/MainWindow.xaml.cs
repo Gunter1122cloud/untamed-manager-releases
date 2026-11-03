@@ -331,6 +331,7 @@ public partial class MainWindow : Window
         Add(Label("CurseForge online telepítés: az ügynök és a telepítő tesztelése után kapcsolható be.",12,Soft));
         ShowBulkModsControls();
         ShowSteamCmdPreflightControls();
+        ShowCurseForgeSearchControls();
     }
     private void Plugins()
     {
