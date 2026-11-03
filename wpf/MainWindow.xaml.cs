@@ -14,6 +14,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Effects;
 using System.ComponentModel;
 using Forms = System.Windows.Forms;
 using WinMessageBox = System.Windows.MessageBox;
@@ -41,6 +42,8 @@ public partial class MainWindow : Window
     private bool _exit;
     private MapInfo? _selected;
     private string _page = "dashboard";
+    private bool _animationsEnabled = true;
+    private string SettingsFile => Path.Combine(App.LogDir,"visual-settings.json");
     private readonly string[] _modNames = {
         "S-Dino Variants (912815)", "Shiny! Dinos (928548)",
         "Utilities Plus (928621)", "Cliffans Backpacks (930170)",
@@ -93,6 +96,13 @@ public partial class MainWindow : Window
                 QueryPort=query,RconPort=rcon,CoverBrush=gradient,CoverImage=photo });
         }
         ServerCards.ItemsSource = _maps;
+        try {
+            if(File.Exists(SettingsFile)) {
+                using var doc=JsonDocument.Parse(File.ReadAllText(SettingsFile));
+                if(doc.RootElement.TryGetProperty("animations",out var a) && a.ValueKind==JsonValueKind.False) _animationsEnabled=false;
+            }
+        } catch (Exception e) { WriteLog("settings",e); }
+        UpdateNavSelection("dashboard");
         if (!App.IsSmokeTest) SetupTray();
     }
 
@@ -126,7 +136,7 @@ public partial class MainWindow : Window
     }
     private void Window_Loaded(object sender,RoutedEventArgs e)
     {
-        try { AnimateBackground(); } catch(Exception ex) { WriteLog("animation",ex); }
+        if(_animationsEnabled) try { AnimateBackground(); } catch(Exception ex) { WriteLog("animation",ex); }
     }
     private void AnimateBackground()
     {
@@ -171,9 +181,43 @@ public partial class MainWindow : Window
             Navigate("servers");
         }
     }
+    private void UpdateNavSelection(string page)
+    {
+        foreach(var element in NavigationMenu.Children)
+        {
+            if (element is not Button button || button.Tag is not string tag) continue;
+            bool active=tag==page;
+            button.Background=active?new SolidColorBrush(Color.FromRgb(13,91,68)):Brushes.Transparent;
+            button.BorderBrush=active?new SolidColorBrush(Color.FromRgb(108,243,174)):Brushes.Transparent;
+            button.Foreground=active?new SolidColorBrush(Color.FromRgb(208,255,223)):new SolidColorBrush(Color.FromRgb(224,246,238));
+            button.Effect=active?new DropShadowEffect { Color=Color.FromRgb(12,242,158), BlurRadius=13, Opacity=.43, ShadowDepth=0 }:null;
+        }
+    }
+    private void SetAnimations(bool enabled)
+    {
+        _animationsEnabled=enabled;
+        try
+        {
+            Directory.CreateDirectory(App.LogDir);
+            File.WriteAllText(SettingsFile,JsonSerializer.Serialize(new {animations=enabled}));
+            if(enabled) AnimateBackground();
+            else
+            {
+                if(HeroImage.RenderTransform is ScaleTransform x)
+                {
+                    x.BeginAnimation(ScaleTransform.ScaleXProperty,null);
+                    x.BeginAnimation(ScaleTransform.ScaleYProperty,null);
+                    x.ScaleX=1.03;x.ScaleY=1.03;
+                }
+                AmbientGlow.BeginAnimation(UIElement.OpacityProperty,null);
+                AmbientGlow.Opacity=.12;
+            }
+        } catch(Exception ex) { WriteLog("visual-settings",ex); }
+    }
     private void Navigate(string page)
     {
         _page=page;
+        UpdateNavSelection(page);
         Dashboard.Visibility=page=="dashboard" ? Visibility.Visible : Visibility.Collapsed;
         OtherPage.Visibility=page=="dashboard" ? Visibility.Collapsed : Visibility.Visible;
         if (page=="dashboard") { Dashboard.ScrollToTop(); return; }
@@ -350,10 +394,25 @@ public partial class MainWindow : Window
         Header("Beállítások","Windows-értesítési terület és diagnosztika.");
         Add(Box(V(Label("Windows integráció",19,Mint,true),
              Label("Az X gomb tálcára rejti az alkalmazást. Végleges kilépés: tálcaikon → Kilépés.",13,Soft))));
-        Add(Box(V(Label("Naplózás",19,Mint,true),
+        var animated=new CheckBox { Content="Animált háttér és finom fényhatások", IsChecked=_animationsEnabled,
+            Foreground=Brushes.White,FontSize=14,Margin=new Thickness(0,12,0,12) };
+        animated.Checked+=(_,_)=>SetAnimations(true);
+        animated.Unchecked+=(_,_)=>SetAnimations(false);
+        Add(Box(V(Label("Megjelenés / animáció",19,Mint,true),
+            Label("A mozgás külön kikapcsolható; a gombok és menük továbbra is működnek.",12,Soft), animated)));
+        Add(Box(V(Label("Naplózás és diagnosztika",19,Mint,true),
              Label(App.LogDir,12,Soft),
-             Btn("Diagnosztikai mappa megnyitása",()=>{
+             Btn("Diagnosztikai mappa",()=>{
                 Process.Start(new ProcessStartInfo{FileName=App.LogDir,UseShellExecute=true});
+             }),
+             Btn("Diagnosztika ZIP létrehozása",()=>{
+                 try {
+                     Directory.CreateDirectory(App.LogDir);
+                     var folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),"UntamedManager-Diagnosztika-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".zip");
+                     if(File.Exists(folder))File.Delete(folder);
+                     ZipFile.CreateFromDirectory(App.LogDir,folder);
+                     Notice("A diagnosztikai csomag elkészült az Asztalon.");
+                 } catch(Exception ex) { WriteLog("diagnostic-export",ex); Notice("Hiba: "+ex.Message); }
              }))));
     }
 }
