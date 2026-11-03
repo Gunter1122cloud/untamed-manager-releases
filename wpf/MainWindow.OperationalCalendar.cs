@@ -26,6 +26,13 @@ public partial class MainWindow
             SelectedItem=DayOfWeek.Sunday,Background=Panel,Foreground=Brushes.White};
         var status=Label("Budapest-időzónás sablonok: alapértelmezésben mind kikapcsolva.",12,Soft);
         var entries=Label("",12,Soft);
+        var recurringOptions=_cluster.Config.RecurringSchedules.Select(job=>
+            new System.Collections.Generic.KeyValuePair<Guid,string>(
+                job.Id,job.Kind+" · "+job.Id.ToString("N")[..8]+
+                " · "+(job.Enabled?"BE":"KI"))).ToArray();
+        var selectedSchedule=new ComboBox{ItemsSource=recurringOptions,
+            DisplayMemberPath="Value",SelectedIndex=recurringOptions.Length>0?0:-1,
+            Foreground=Brushes.White,Background=Panel};
         void Refresh()
         {
             try
@@ -85,6 +92,58 @@ public partial class MainWindow
                     Refresh();
                 }
                 catch(Exception ex){status.Text="Sablonimport elutasítva: "+ex.Message;}
+            }),
+            selectedSchedule,
+            Btn("Kijelölt READ-ONLY feladat bekapcsolása",()=>{
+                try
+                {
+                    if(selectedSchedule.SelectedItem is not
+                       System.Collections.Generic.KeyValuePair<Guid,string> chosen)
+                        throw new InvalidOperationException("Válassz egy mentett ütemezést");
+                    var job=_cluster.Config.RecurringSchedules.Single(x=>x.Id==chosen.Key);
+                    if(!_cluster.Config.LocalMaps.Any(x=>x.Id==job.Map))
+                        throw new UnauthorizedAccessException("Csak helyi map ütemezése módosítható");
+                    if(job.Kind is not (OperationalTaskKind.Observation or
+                        OperationalTaskKind.ModCheck or OperationalTaskKind.ApiCheck or
+                        OperationalTaskKind.SteamCheck))
+                        throw new InvalidOperationException("Az éles Start/Stop/Restart/Wipe és adatmentő műveletek nem engedélyezhetők");
+                    OperationalScheduler.Next(job,DateTimeOffset.UtcNow,true);
+                    if(System.Windows.MessageBox.Show(
+                        "Bekapcsolod a felülettől független, csak olvasó "+
+                        job.Kind+" ellenőrzést?\nA Supervisor rögzíti a méréseket; "+
+                        "nincs RCON írás és nincs automatikus szerverindítás.",
+                        "Csak olvasó ütemezés",
+                        MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)return;
+                    job.Enabled=true;_cluster.Save();
+                    Navigate("schedules");
+                }
+                catch(Exception ex){status.Text="Engedélyezés tiltva: "+ex.Message;}
+            }),
+            Btn("Kijelölt ismétlődő feladat letiltása",()=>{
+                try
+                {
+                    if(selectedSchedule.SelectedItem is not
+                       System.Collections.Generic.KeyValuePair<Guid,string> chosen)
+                        throw new InvalidOperationException("Válassz egy mentett ütemezést");
+                    var job=_cluster.Config.RecurringSchedules.Single(x=>x.Id==chosen.Key);
+                    if(!_cluster.Config.LocalMaps.Any(x=>x.Id==job.Map))
+                        throw new UnauthorizedAccessException("Csak helyi map");
+                    job.Enabled=false;_cluster.Save();Navigate("schedules");
+                }
+                catch(Exception ex){status.Text="Letiltás sikertelen: "+ex.Message;}
+            }),
+            Btn("Supervisor ismétlődő ellenőrzések naplója",()=>{
+                try
+                {
+                    if(_supervisorChannel==null)
+                        throw new IOException("Supervisor csatorna nem elérhető");
+                    var receipts=new RecurringReadOnlyRunner(_supervisorChannel.Root).Recent(20);
+                    status.Text=receipts.Length==0?"Nincs még háttérfeladat eredmény.":
+                        string.Join("\n",receipts.Reverse().Select(x=>
+                            x.ObservedUtc.ToLocalTime().ToString("MM-dd HH:mm:ss")+
+                            " · "+x.Status+" · "+x.Job.ToString("N")[..8]));
+                }
+                catch(Exception ex){status.Text="Ütemezési napló nem olvasható: "+ex.Message;}
             }),
             Btn("Ismétlődő időpontok újraszámítása",Refresh),
             status,entries)));
