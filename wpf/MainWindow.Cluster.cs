@@ -181,14 +181,18 @@ public partial class MainWindow
                 Padding=new Thickness(12)}});
         }
         var startStop=new StackPanel{Orientation=Orientation.Horizontal};
-        startStop.Children.Add(Btn("Indítás (csak helyi)",()=>{
+        startStop.Children.Add(Btn("Indítás (csak FakeAsa teszt)",()=>{
             try{
-                if(WinMessageBox.Show($"Elindítod a helyi szervert?\n{map.Name}",
-                    "Szerver indítása",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                ReleaseCapabilityGate.DemandFakeAsaStart(_cluster,map);
+                if(WinMessageBox.Show($"Elindítod az elkülönített FakeAsa tesztfolyamatot?\n{map.Name}",
+                    "FakeAsa teszt indítása",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                // Check once more immediately before launch; ClusterService also rechecks
+                // exact process identity while holding the launch mutex.
+                ReleaseCapabilityGate.DemandFakeAsaStart(_cluster,map);
                 _cluster.LaunchLocal(map.Id);
-                Notice("Folyamat elindítva. A Manager bezárása nem állítja le.");
+                Notice("Csak FakeAsa tesztfolyamat indult. ASA éles indítás nincs engedélyezve.");
                 ShowLocalServerPage();
-            } catch(Exception e){WriteLog("launch",e);Notice("Indítás sikertelen: "+e.Message);}
+            } catch(Exception e){WriteLog("launch-preview",e);Notice("Indítás tiltva: "+e.Message);}
         }));
         startStop.Children.Add(Btn("Státusz ellenőrzése",()=>{
             var x=_cluster.Check(map);
@@ -264,8 +268,15 @@ public partial class MainWindow
                 try{
                     var password=SecureStore.Unprotect(map.RconPasswordProtected);
                     if(string.IsNullOrEmpty(password))throw new InvalidOperationException("RCON jelszó nincs megadva");
-                    if(!_cluster.Check(map).Running)throw new InvalidOperationException("A helyi szerver nem fut");
-                    feedback.Text=await RconProtocol.Execute(map.RconHost,map.RconPort,password,command.Text);
+                    if(!_cluster.Config.LocalMaps.Contains(map))
+                        throw new UnauthorizedAccessException("Only local Manager map allowed");
+                    if(command.Text.Trim()!="ListPlayers")
+                        throw new InvalidOperationException("Release Candidate: only ListPlayers is allowed; lifecycle/administrative RCON disabled");
+                    var state=_cluster.Check(map);
+                    if(!ReleaseCapabilityGate.Check(ManagerOperation.LocalReadOnlyRcon,
+                        true,map.Maintenance,false,state.Running).Allowed)
+                        throw new InvalidOperationException("Verified running local map required");
+                    feedback.Text=await RconProtocol.Execute(map.RconHost,map.RconPort,password,"ListPlayers");
                 }catch(Exception ex){feedback.Text="RCON hiba: "+ex.Message;WriteLog("rcon",ex);}
             }),feedback);
     }
