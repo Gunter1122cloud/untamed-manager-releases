@@ -130,7 +130,8 @@ public sealed class ConfigStore
         else File.Move(temp, FilePath);
     }
 }
-public sealed record ProcessCheck(bool Running, string Status, ProcessIdentity? Identity);
+public sealed record ProcessCheck(bool Running, string Status, ProcessIdentity? Identity,
+    bool ConfirmedStopped = false);
 
 public sealed class WindowsProcessInspector
 {
@@ -139,20 +140,27 @@ public sealed class WindowsProcessInspector
         if (string.IsNullOrWhiteSpace(map.ExecutablePath) || !File.Exists(map.ExecutablePath))
             return new ProcessCheck(false, "Nincs érvényes helyi végrehajtható fájl", null);
         var matches = new List<ProcessIdentity>();
+        bool uncertain = false;
         string exe = Path.GetFullPath(map.ExecutablePath).TrimEnd(Path.DirectorySeparatorChar);
         try
         {
-            using var searcher = new ManagementObjectSearcher("SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process");
+            using var searcher = new ManagementObjectSearcher("SELECT ProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process");
             using var processes = searcher.Get();
             foreach (ManagementObject entry in processes)
             {
                 try
                 {
                     string path = Convert.ToString(entry["ExecutablePath"]) ?? "";
-                    if (string.IsNullOrWhiteSpace(path) ||
-                        !StringComparer.OrdinalIgnoreCase.Equals(Path.GetFullPath(path), exe)) continue;
+                    if (string.IsNullOrWhiteSpace(path))
+                    {
+                        if (StringComparer.OrdinalIgnoreCase.Equals(Convert.ToString(entry["Name"]), Path.GetFileName(exe)))
+                            uncertain = true;
+                        continue;
+                    }
+                    if (!StringComparer.OrdinalIgnoreCase.Equals(Path.GetFullPath(path), exe)) continue;
                     string command = Convert.ToString(entry["CommandLine"]) ?? "";
-                    if (!CommandMatches(command, exe, map.Arguments)) continue;
+                    // An installation with changed or unreadable arguments is not proven stopped.
+                    if (!CommandMatches(command, exe, map.Arguments)) { uncertain = true; continue; }
                     int id = Convert.ToInt32(entry["ProcessId"]);
                     using var p = Process.GetProcessById(id);
                     if (p.HasExited) continue;
@@ -164,16 +172,18 @@ public sealed class WindowsProcessInspector
                     // If a tracked process still exists, require matching creation time: never trust PID alone.
                     if (map.LastProcess != null && map.LastProcess.Pid == id &&
                         Math.Abs((identity.StartedUtc - map.LastProcess.StartedUtc).TotalSeconds) > 2)
-                        continue;
+                    { uncertain = true; continue; }
                     matches.Add(identity);
                 }
                 catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException
-                                           or System.ComponentModel.Win32Exception or ArgumentException) {}
+                                           or System.ComponentModel.Win32Exception or ArgumentException)
+                { uncertain = true; }
             }
         }
         catch (Exception ex) { return new ProcessCheck(false, "WMI folyamatellenőrzés hiba: " + ex.Message, null); }
+        if (uncertain) return new ProcessCheck(false,"Folyamatállapot ismeretlen – műveletek tiltva",null);
         return matches.Count switch {
-            0 => new ProcessCheck(false,"Leállítva vagy nem azonosítható",null),
+            0 => new ProcessCheck(false,"Leállítva · folyamatlista ellenőrizve",null,true),
             1 => new ProcessCheck(true,"Fut · folyamat ellenőrizve",matches[0]),
             _ => new ProcessCheck(false,"Több azonos folyamat – manuális azonosítás szükséges",null)
         };
@@ -194,6 +204,7 @@ public sealed class WindowsProcessInspector
         else
         {
             if (!prefix.StartsWith(exe, StringComparison.OrdinalIgnoreCase)) return false;
+            if (prefix.Length > exe.Length && !char.IsWhiteSpace(prefix[exe.Length])) return false;
             prefix = prefix.Substring(exe.Length).Trim();
         }
         return string.Equals(prefix, requiredArguments.Trim(), StringComparison.Ordinal);
@@ -342,13 +353,16 @@ public sealed class ClusterService : IAsyncDisposable
     public ConfigStore Store { get; }
     public ManagerConfig Config { get; private set; }
     private readonly WindowsProcessInspector _inspector=new();
+    private readonly Func<LocalMap, ProcessCheck> _inspect;
     private PeerStatusListener? _listener;
     public HostStatus? RemoteSnapshot { get; private set; }
     public string RemoteMessage { get; private set; }="Nincs peer beállítva";
-    public ClusterService(string profile = "default",string? rootOverride=null)
+    public ClusterService(string profile = "default",string? rootOverride=null,
+        Func<LocalMap, ProcessCheck>? inspect = null)
     {
         Store=new ConfigStore(profile,rootOverride);
         Config=Store.Read();
+        _inspect=inspect ?? _inspector.Inspect;
     }
     public void Save() => Store.Save(Config);
     public void UpdateSettings(Action<ManagerConfig> update) {update(Config);Save();}
@@ -367,7 +381,7 @@ public sealed class ClusterService : IAsyncDisposable
     public ProcessCheck Check(LocalMap map)
     {
         if(!Config.LocalMaps.Contains(map)) throw new UnauthorizedAccessException("Not a local map");
-        var check=_inspector.Inspect(map);
+        var check=_inspect(map);
         if(check.Running && check.Identity!=null)
         {
             if(map.LastProcess?.Pid!=check.Identity.Pid ||
@@ -380,8 +394,19 @@ public sealed class ClusterService : IAsyncDisposable
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
             throw new UnauthorizedAccessException("Map is not owned by this Manager");
-        if (Check(map).Running)throw new InvalidOperationException("Server already running");
-        var identity=_inspector.Launch(map);map.LastProcess=identity;Save();return identity;
+        string key=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            Path.GetFullPath(map.ExecutablePath).ToUpperInvariant())));
+        using var gate=new Mutex(false,"Local\\Untamed-Launch-"+key);
+        bool acquired=false;
+        try
+        {
+            try { acquired=gate.WaitOne(0); } catch(AbandonedMutexException) { acquired=true; }
+            if(!acquired)throw new InvalidOperationException("Another local launch is in progress");
+            if (!Check(map).ConfirmedStopped)
+                throw new InvalidOperationException("Server is running or its stopped state cannot be verified");
+            var identity=_inspector.Launch(map);map.LastProcess=identity;Save();return identity;
+        }
+        finally { if(acquired)gate.ReleaseMutex(); }
     }
     public HostStatus LocalStatus()
     {

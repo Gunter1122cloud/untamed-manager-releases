@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using UntamedManager.Core;
 using Forms = System.Windows.Forms;
+using WinMessageBox = System.Windows.MessageBox;
 
 namespace UntamedManager;
 
@@ -75,7 +76,7 @@ public partial class MainWindow
                 var failures=new List<string>();
                 foreach(var map in maps){
                     try{
-                        if(_cluster.Check(map).Running)throw new InvalidOperationException("A szerver még fut");
+                        if(!_cluster.Check(map).ConfirmedStopped)throw new InvalidOperationException("A szerver leállított állapota nem igazolt");
                         string dest=LocalContentOperations.InstallLocalPluginFolder(map,source.Text);
                         successes.Add(map.Name+" → "+dest);
                     }catch(Exception ex){failures.Add(map.Name+": "+ex.Message);WriteLog("plugin-install",ex);}

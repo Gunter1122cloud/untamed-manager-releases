@@ -23,10 +23,26 @@ Directory.CreateDirectory(root);
 string aRoot=Path.Combine(root,"HP");
 string bRoot=Path.Combine(root,"Ryzen");
 Process? p=null;
+Process? duplicate=null;
 ClusterService? hp=null;
 ClusterService? ryzen=null;
 try
 {
+    string exe=Path.GetFullPath(fake);
+    Assert(WindowsProcessInspector.CommandMatches($"\"{exe}\" --map=Astraeos",exe,"--map=Astraeos"),
+        "Exact quoted executable and argument suffix accepted");
+    Assert(!WindowsProcessInspector.CommandMatches(exe+".other --map=Astraeos",exe,".other --map=Astraeos"),
+        "Executable prefix collision rejected");
+    foreach(var state in new[]{"WMI unavailable","Ambiguous processes","PID reused","Arguments unavailable"})
+    {
+        await using var blocked=new ClusterService("blocked-test",Path.Combine(root,"blocked-"+Guid.NewGuid()),
+            _=>new ProcessCheck(false,state,null));
+        var blockedMap=new LocalMap{Name="Blocked",InstallationPath=Path.GetDirectoryName(fake)!,ExecutablePath=fake};
+        blocked.AddMap(blockedMap);
+        bool refused=false;
+        try { blocked.LaunchLocal(blockedMap.Id); } catch(InvalidOperationException) { refused=true; }
+        Assert(refused,"Launch denied for uncertain state: "+state);
+    }
     hp=new ClusterService("hp-test",aRoot);
     ryzen=new ClusterService("ryzen-test",bRoot);
     Assert(hp.Config.LocalMaps.Count==0 && ryzen.Config.LocalMaps.Count==0,
@@ -65,6 +81,7 @@ try
     Assert(hpRemote?.HostName=="UK-HOME-02-TEST" && hpRemote.Maps.Single().Name=="Ragnarok" &&
            ryzenRemote?.HostName=="UK-HOME-01-TEST",
            "Both Managers see authenticated read-only peer map lists");
+    Assert(hp.Check(mapA).ConfirmedStopped,"Clean process scan proves map is stopped");
     var own=hp.LaunchLocal(mapA.Id);
     p=Process.GetProcessById(own.Pid);
     ProcessCheck check=new(false,"",null);
@@ -75,6 +92,21 @@ try
     }
     Assert(check.Running && check.Identity?.Pid==own.Pid,
         "Windows WMI matches running fake server executable, arguments and start time");
+    string originalArgs=mapA.Arguments;
+    mapA.Arguments+=" --changed";
+    Assert(!hp.Check(mapA).ConfirmedStopped,"Changed arguments on same installation are uncertain, not stopped");
+    bool changedBlocked=false;
+    try { hp.LaunchLocal(mapA.Id); } catch(InvalidOperationException) { changedBlocked=true; }
+    Assert(changedBlocked,"Changed arguments cannot spawn a second server");
+    mapA.Arguments=originalArgs;
+    duplicate=Process.Start(new ProcessStartInfo(fake,originalArgs){UseShellExecute=false,CreateNoWindow=true})!;
+    await Task.Delay(500);
+    var ambiguous=hp.Check(mapA);
+    Assert(!ambiguous.Running && !ambiguous.ConfirmedStopped,"Two matching processes block dangerous operations");
+    bool duplicateBlocked=false;
+    try { hp.LaunchLocal(mapA.Id); } catch(InvalidOperationException) { duplicateBlocked=true; }
+    Assert(duplicateBlocked,"Ambiguous processes cannot spawn a third server");
+    duplicate.Kill(true);await duplicate.WaitForExitAsync();duplicate.Dispose();duplicate=null;
     await hp.DisposeAsync();hp=null;
     hp=new ClusterService("hp-test",aRoot);
     Assert(hp.Config.LocalMaps.Single().Id==mapA.Id,"Map configuration persists across Manager restart");
@@ -95,12 +127,13 @@ try
         "Peer LAN outage does not affect local server control or process state");
     Assert(hp.Config.LocalMaps.Count==1 && hp.Config.LocalMaps[0].Arguments=="--map=Astraeos --port=7777",
         "Map configuration and launch arguments survive simulated update");
-    Console.WriteLine("INTEGRATION PASSED: 9 tested conditions. This validates mock processes, not live ASA.");
+    Console.WriteLine("INTEGRATION PASSED. This validates FakeAsa and safety regressions, not live ASA or a real updater transaction.");
 }
 finally
 {
     if(hp!=null)await hp.DisposeAsync();
     if(ryzen!=null)await ryzen.DisposeAsync();
+    if(duplicate!=null)try{if(!duplicate.HasExited)duplicate.Kill(true);duplicate.Dispose();}catch{}
     if(p!=null)try{if(!p.HasExited)p.Kill(true);p.Dispose();}catch{}
     try{Directory.Delete(root,true);}catch{}
 }

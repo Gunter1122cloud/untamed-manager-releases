@@ -196,7 +196,8 @@ public partial class MainWindow
             Label("Végrehajtható fájl: "+map.ExecutablePath,12,Soft),
             Label("Indítási argumentumok: "+map.Arguments,12,Soft),
             Label($"Game {map.GamePort} / Query {map.QueryPort} / RCON {map.RconPort}",12,Aqua),
-            Label(result.Running?"Futó szerver visszacsatlakoztatva":"Nem fut; automatikus indítás nincs",13,result.Running?Mint:Soft),
+            Label(result.Running?"Futó szerver visszacsatlakoztatva":result.ConfirmedStopped?
+                "Leállítva; automatikus indítás nincs":"Ismeretlen folyamatállapot; indítás tiltva",13,result.Running?Mint:Soft),
             startStop));
         Tab("Modok / CurseForge",V(
             Label("Helyi map modok",17,Mint,true),
