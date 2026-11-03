@@ -100,7 +100,7 @@ public sealed class UpdateForm : Form
             var start=new ProcessStartInfo(installer){UseShellExecute=false,
                 CreateNoWindow=true,WorkingDirectory=Path.GetDirectoryName(installer)!};
             foreach(var arg in new[]{"/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART",
-                                      "/CLOSEAPPLICATIONS","/RESTARTAPPLICATIONS=0",
+                                      "/NOCLOSEAPPLICATIONS","/RESTARTAPPLICATIONS=0",
                                       "/DIR="+Path.GetDirectoryName(appExe)!,"/LOG="+log})start.ArgumentList.Add(arg);
             using var setup=Process.Start(start) ?? throw new InvalidOperationException("Could not launch installer");
             if(!await Task.Run(()=>setup.WaitForExit(180000)))
