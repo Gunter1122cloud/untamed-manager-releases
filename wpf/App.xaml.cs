@@ -4,6 +4,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace UntamedManager;
 public partial class App : System.Windows.Application
@@ -30,6 +32,26 @@ public partial class App : System.Windows.Application
         };
         AppDomain.CurrentDomain.UnhandledException += (_,a) => { if(a.ExceptionObject is Exception x) Log(x); };
         TaskScheduler.UnobservedTaskException += (_,a) => { Log(a.Exception); a.SetObserved(); };
+        if (Array.Exists(e.Args, a => a == "--screenshot-test"))
+        {
+            try
+            {
+                const int width=1650, height=930;
+                var window=new MainWindow {Width=width,Height=height};
+                window.Measure(new Size(width,height));
+                window.Arrange(new Rect(0,0,width,height));
+                window.UpdateLayout();
+                var bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
+                bitmap.Render(window);
+                var png=new PngBitmapEncoder();
+                png.Frames.Add(BitmapFrame.Create(bitmap));
+                string path=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_PATH") ?? Path.Combine(LogDir,"preview.png");
+                using (var output=File.Create(path)) png.Save(output);
+                Environment.Exit(0);
+            }
+            catch(Exception ex) { Log(ex); Environment.Exit(1); }
+            return;
+        }
         if (IsSmokeTest)
         {
             try
