@@ -640,12 +640,16 @@ try
         if(mode=="no-save-proof" || mode=="rcon-failure")
             Assert(!session.Commands.Contains("DoExit"),"No DoExit without save evidence: "+mode);
     }
+    bool refusedLiveWrite=false;
+    try { await RconProtocol.Execute("127.0.0.1",12345,"fixture","SaveWorld"); }
+    catch(InvalidOperationException){refusedLiveWrite=true;}
+    Assert(refusedLiveWrite,"Production RCON SaveWorld remains blocked before verified SaveComplete capability");
     var stalled=new TcpListener(IPAddress.Loopback,0);stalled.Start();
     try
     {
         using var deadline=new CancellationTokenSource(200);
         bool timedOut=false;
-        try { await RconProtocol.Execute("127.0.0.1",((IPEndPoint)stalled.LocalEndpoint).Port,"fixture","SaveWorld",deadline.Token); }
+        try { await RconProtocol.Execute("127.0.0.1",((IPEndPoint)stalled.LocalEndpoint).Port,"fixture","ListPlayers",deadline.Token); }
         catch(OperationCanceledException) { timedOut=true; }
         Assert(timedOut,"Real RCON socket cancellation on silent endpoint");
     }
