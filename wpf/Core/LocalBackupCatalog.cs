@@ -8,7 +8,7 @@ namespace UntamedManager.Core;
 // Safe read-only history for explicitly owned local backup packages.
 // This is not a restore facility and never reads SQL or shared Kova Store data.
 public sealed record LocalBackupHistoryEntry(string PackageDirectory,bool Valid,
-    int FileCount,DateTimeOffset? CreatedUtc,string Status);
+    int FileCount,DateTimeOffset? CreatedUtc,string Status,long TotalBytes=0);
 
 public static class LocalBackupCatalog
 {
@@ -46,7 +46,8 @@ public static class LocalBackupCatalog
             {
                 var manifest=TestBackupPackage.Verify(directory.FullName,mapId);
                 result.Add(new(directory.FullName,true,manifest.Files.Count,
-                    manifest.CreatedUtc,"SHA-256 verified; ASA consistency unproven"));
+                    manifest.CreatedUtc,"SHA-256 verified; ASA consistency unproven",
+                    manifest.Files.Sum(file=>file.Size)));
             }
             catch(Exception ex) when(ex is IOException or InvalidDataException or
                                      System.Text.Json.JsonException or UnauthorizedAccessException)
