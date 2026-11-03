@@ -177,7 +177,10 @@ jobs:
         shell: pwsh
         run: |
           Compress-Archive -Path dist/UntamedManager.exe,dist/UntamedUpdater.exe,dist/UntamedSupervisor.exe -DestinationPath dist/UntamedManager-1.4.0-win-x64.zip
-          Get-FileHash dist/UntamedManager-1.4.0-win-x64.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  UntamedManager-1.4.0-win-x64.zip" } | Set-Content dist/SHA256SUMS.txt
+          @("UntamedManager.exe","UntamedUpdater.exe","UntamedSupervisor.exe","UntamedManager-1.4.0-win-x64.zip") | ForEach-Object {
+            $value = Get-FileHash (Join-Path "dist" $_) -Algorithm SHA256
+            "$($value.Hash.ToLower())  $_"
+          } | Set-Content dist/SHA256SUMS.txt
       - name: Save Windows EXE
         uses: actions/upload-artifact@v4
         with:
@@ -201,7 +204,9 @@ jobs:
           & $iscc "wpf/installer/UntamedManager.iss"
           if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
           if (!(Test-Path "dist/UntamedManager-1.4.0-SETUP.exe")) { throw "Windows setup missing" }
-          Get-FileHash "dist/UntamedManager-1.4.0-SETUP.exe" -Algorithm SHA256
+          $setupHash = Get-FileHash "dist/UntamedManager-1.4.0-SETUP.exe" -Algorithm SHA256
+          "$($setupHash.Hash.ToLower())  UntamedManager-1.4.0-SETUP.exe" | Add-Content dist/SHA256SUMS.txt
+          $setupHash
       - name: Actual isolated installer updater health failure and recovery tests
         shell: pwsh
         run: |
@@ -211,7 +216,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: UntamedManager-WPF-v1.4.0-installer
-          path: dist/UntamedManager-1.4.0-SETUP.exe
+          path: |
+            dist/UntamedManager-1.4.0-SETUP.exe
+            dist/SHA256SUMS.txt
           if-no-files-found: error
       - name: Create test-only GitHub release
         if: ${{ false }} # P0 development: release remains gated until all implemented subsystems pass review.
