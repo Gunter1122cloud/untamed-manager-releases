@@ -567,8 +567,8 @@ try
     Assert(maintenanceDiagnosis.Maintenance && !maintenanceDiagnosis.NeedsAttention &&
         maintenanceDiagnosis.Issues.Count==0,"Maintenance suppresses all automatic Watchdog action");
 
-    string recoveryRoot=Path.Combine(root,"synthetic-recovery-profile");
-    var recoveryJournal=new RecoverySimulationJournal(recoveryRoot);
+    string syntheticRecoveryProfile=Path.Combine(root,"synthetic-recovery-profile");
+    var recoveryJournal=new RecoverySimulationJournal(syntheticRecoveryProfile);
     var syntheticScenario=new RecoveryScenario(recoveryMap,true,false,runningSynthetic,
         recoveryToken,syntheticTime,syntheticTime.AddSeconds(1),savedSignals,true,true);
     var done=RecoverySimulator.Run(recoveryJournal,syntheticScenario);
@@ -579,7 +579,7 @@ try
                 RecoveryPhase.StartConfirmed,RecoveryPhase.Completed}),
         "FakeAsa lifecycle records each synthetic SaveWorld/Stop/Start stage durably");
     bool blockedRepeat=false;
-    try{RecoverySimulator.Run(new RecoverySimulationJournal(recoveryRoot),syntheticScenario);}
+    try{RecoverySimulator.Run(new RecoverySimulationJournal(syntheticRecoveryProfile),syntheticScenario);}
     catch(InvalidOperationException){blockedRepeat=true;}
     Assert(blockedRepeat,"Completed synthetic attempt cannot be retried during cooldown");
 
@@ -603,7 +603,7 @@ try
     var crashedMap=Guid.NewGuid();
     var crashed=recoveryJournal.Begin(crashedMap,syntheticTime);
     bool crashCannotResume=false;
-    try{RecoverySimulator.Run(new RecoverySimulationJournal(recoveryRoot),
+    try{RecoverySimulator.Run(new RecoverySimulationJournal(syntheticRecoveryProfile),
         syntheticScenario with {Map=crashedMap,Now=syntheticTime.AddMinutes(7)});}
     catch(InvalidOperationException){crashCannotResume=true;}
     Assert(crashCannotResume &&
@@ -631,7 +631,7 @@ try
     Assert(RecoverySimulator.Run(recoveryJournal,syntheticScenario with{
         Map=Guid.NewGuid(),Initial=new ProcessCheck(false,"uncertain",null)}).Phase==
             RecoveryPhase.Blocked,"Unknown process state never enables a second FakeAsa");
-    Assert(!new RecoverySimulationJournal(recoveryRoot).Read().Any(x=>x.Code.Contains("kill")),
+    Assert(!new RecoverySimulationJournal(syntheticRecoveryProfile).Read().Any(x=>x.Code.Contains("kill")),
         "Recovery journal contains no real Kill or forced-start commands");
 
     // IP observations are offline fixtures: no router access and no real DDNS writes.
@@ -659,8 +659,8 @@ try
     Assert(privateWan.State=="Uncertain" && !privateWan.ConfirmedChange,
         "Private/LAN IP addresses are not mistaken for valid external WAN measurements");
     // The synthetic Store and SQL fixture contents never change in recovery tests.
-    string safeStore=Path.Combine(recoveryRoot,"KovaStore.fixture");
-    string safeSql=Path.Combine(recoveryRoot,"database.fixture");
+    string safeStore=Path.Combine(syntheticRecoveryProfile,"KovaStore.fixture");
+    string safeSql=Path.Combine(syntheticRecoveryProfile,"database.fixture");
     File.WriteAllText(safeStore,"original Kova synthetic fixture");
     File.WriteAllText(safeSql,"original SQL synthetic fixture");
     var untouchedMap=Guid.NewGuid();
