@@ -78,12 +78,16 @@ public static class KovaStoreV1CopyReader
             if(!string.Equals(localHash,peerHash,StringComparison.OrdinalIgnoreCase))
                 issues.Add("Peer and local lock configHash differ");
             var config=Required(p,"config");
+            if(!StoreV1Fingerprint.Matches(config,peerHash))
+                issues.Add("Peer configHash does not match stored ordered JSON");
             if(Str(config,"id")!="KovaCluster" ||
                Str(config,"mode")!="shared" ||
                !Str(config,"path").Equals(clusterPath,
                    StringComparison.OrdinalIgnoreCase))
                 issues.Add("Peer config differs from operation cluster/mode/path");
             var lockConfig=Required(localLock,"config");
+            if(!StoreV1Fingerprint.Matches(lockConfig,localHash))
+                issues.Add("Local configHash does not match stored ordered JSON");
             if(Str(lockConfig,"id")!=Str(config,"id") ||
                Str(lockConfig,"mode")!=Str(config,"mode") ||
                !Str(lockConfig,"path").Equals(Str(config,"path"),
