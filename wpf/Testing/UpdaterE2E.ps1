@@ -67,3 +67,8 @@ try {
     if (!$server.HasExited) { $server.Kill(); $server.WaitForExit() }
     $server.Dispose()
 }
+
+# The interrupted-updater scenario deliberately exits with code 17.
+# PowerShell retains that native exit code even after all subsequent managed test assertions pass.
+# Set the script's final exit code only once every scenario has succeeded.
+$global:LASTEXITCODE = 0
