@@ -19,6 +19,16 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
+      - name: Restore checked-in T-Rex artwork
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force wpf/Assets | Out-Null
+          $json = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/21f8154d985845935a30bac3a33914ab7c449575" | ConvertFrom-Json
+          if ($json.encoding -ne "base64") { throw "Image blob not base64" }
+          [IO.File]::WriteAllBytes("wpf/Assets/kingdom-hero.jpg",[Convert]::FromBase64String(($json.content -replace '\\s','')))
+          if ((Get-Item "wpf/Assets/kingdom-hero.jpg").Length -lt 1000) { throw "Image incomplete" }
       - name: Check source files
         shell: pwsh
         run: |
