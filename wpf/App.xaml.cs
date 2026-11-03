@@ -1,0 +1,35 @@
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Threading;
+
+namespace UntamedManager;
+public partial class App : System.Windows.Application
+{
+    private Mutex? mutex;
+    public static readonly string LogDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"UntamedManager","WPF");
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        Directory.CreateDirectory(LogDir);
+        mutex = new Mutex(true,@"Local\UntamedManager_WPF_Desktop",out bool first);
+        if (!first)
+        {
+            System.Windows.MessageBox.Show("Az Untamed Manager már fut. A tálcaikonról nyitható meg.","Untamed Manager");
+            Shutdown();
+            return;
+        }
+        DispatcherUnhandledException += (_,a) =>
+        {
+            Log(a.Exception);
+            a.Handled=true;
+            System.Windows.MessageBox.Show("Hiba történt. Részletek a crash.log fájlban.\n"+a.Exception.Message,"Untamed Manager",MessageBoxButton.OK,MessageBoxImage.Warning);
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_,a) => { if(a.ExceptionObject is Exception x) Log(x); };
+        TaskScheduler.UnobservedTaskException += (_,a) => { Log(a.Exception); a.SetObserved(); };
+        base.OnStartup(e);
+    }
+    private static void Log(Exception e) {try {File.AppendAllText(Path.Combine(LogDir,"crash.log"),DateTimeOffset.Now+"\n"+e+"\n");}catch{}}
+    protected override void OnExit(ExitEventArgs e) { try{mutex?.ReleaseMutex();}catch{} mutex?.Dispose();base.OnExit(e); }
+}
