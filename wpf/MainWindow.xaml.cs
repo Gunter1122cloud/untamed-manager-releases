@@ -88,6 +88,10 @@ public partial class MainWindow : Window
         var footerCrop = new CroppedBitmap(referenceAtlas,new Int32Rect(1000,260,200,140));
         footerCrop.Freeze();
         FooterArtwork.Source = footerCrop;
+        // Reference painting only: true buttons, titles, counters and badges remain live WPF controls.
+        var heroCrop = new CroppedBitmap(referenceAtlas,new Int32Rect(180,38,820,160));
+        heroCrop.Freeze();
+        HeroImage.Source = heroCrop;
         int mapIndex = 0;
         foreach (var (name,host,mods,game,query,rcon,a,b) in rows)
         {
@@ -142,6 +146,10 @@ public partial class MainWindow : Window
     }
     private void Window_Loaded(object sender,RoutedEventArgs e)
     {
+        Dispatcher.BeginInvoke(new Action(() => {
+            Dashboard.ScrollToTop();
+            Dashboard.ScrollToVerticalOffset(0);
+        }), System.Windows.Threading.DispatcherPriority.ContextIdle);
         if(_animationsEnabled) try { AnimateBackground(); } catch(Exception ex) { WriteLog("animation",ex); }
     }
     private void AnimateBackground()
