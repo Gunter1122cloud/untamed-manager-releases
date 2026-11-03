@@ -348,6 +348,7 @@ public partial class MainWindow : Window
         Add(Label("A maponkénti DLL-állapotok végleges kezelése külön agentintegrációt igényel.",12,Soft));
         ShowLocalPluginInventoryControls();
         ShowBulkPluginsControls();
+        ShowPluginRollbackControls();
     }
     private void Ini()
     {
