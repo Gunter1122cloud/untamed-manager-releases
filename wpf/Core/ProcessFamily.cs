@@ -8,6 +8,29 @@ public sealed record ObservedProcess(int Pid, int ParentPid, DateTimeOffset Star
     string ExecutablePath, string Arguments);
 public static class ProcessFamily
 {
+    // Windows may no longer report the original ParentProcessId after the loader exits.
+    // Reattach for observation only when BOTH identities came from an earlier verified
+    // parent/child pair and the live child matches the persisted identity exactly.
+    // Never use this to infer a stopped process, launch a replacement, or grant writes.
+    public static bool IsPersistedSurvivor(ObservedProcess observedChild,
+        ProcessIdentity? verifiedChild,ProcessIdentity? verifiedLoader,
+        string expectedServerPath,string expectedServerArgs,
+        string expectedLoaderPath,string expectedLoaderArgs)
+    {
+        if(verifiedChild==null || verifiedLoader==null)return false;
+        return verifiedChild.Pid>0 && verifiedLoader.Pid>0 &&
+            verifiedChild.Pid!=verifiedLoader.Pid &&
+            verifiedLoader.StartedUtc<=verifiedChild.StartedUtc &&
+            observedChild.Pid==verifiedChild.Pid &&
+            observedChild.StartedUtc==verifiedChild.StartedUtc &&
+            StringComparer.OrdinalIgnoreCase.Equals(observedChild.ExecutablePath,verifiedChild.ExecutablePath) &&
+            StringComparer.OrdinalIgnoreCase.Equals(observedChild.ExecutablePath,expectedServerPath) &&
+            StringComparer.OrdinalIgnoreCase.Equals(verifiedLoader.ExecutablePath,expectedLoaderPath) &&
+            observedChild.Arguments==verifiedChild.Arguments &&
+            observedChild.Arguments==expectedServerArgs &&
+            verifiedLoader.Arguments==expectedLoaderArgs;
+    }
+
     // Pure validation of a complete observation. Missing facts never imply a stopped server.
     public static bool IsVerifiedPair(IReadOnlyList<ObservedProcess> snapshot,
         ProcessIdentity loader, ProcessIdentity server)
