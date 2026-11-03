@@ -22,6 +22,8 @@ public sealed class LocalMap
     public string ExecutablePath { get; set; } = "";
     public string InstallationPath { get; set; } = "";
     public string Arguments { get; set; } = "";
+    public List<string> DisabledModIds { get; set; } = new();
+    public bool ModChangesPending { get; set; } = false;
     public string LogFilePath { get; set; } = "";
     public string ApiLoaderPath { get; set; } = "";
     public string ApiLoaderArguments { get; set; } = "";
