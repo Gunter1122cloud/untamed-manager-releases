@@ -11,7 +11,4 @@
     <Version>1.0.1</Version>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
-  <ItemGroup>
-    <Resource Include="Assets/hero.jpg" />
-  </ItemGroup>
 </Project>
