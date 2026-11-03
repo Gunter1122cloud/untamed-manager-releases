@@ -61,8 +61,8 @@ public partial class MainWindow
         }
         mapBox.SelectionChanged+=(_,_)=>Refresh();
         Add(Box(V(Label("v1.5 · ACTIVE / PASSIVE / DISABLED Mod Editor",20,Mint,true),
-            Label("Az ASA -mods= és -passivemods= listái külön kezelve. DISABLED csak a "+
-                "Manager helyi profiljában szerepel. Ismeretlen indítási kapcsolók változatlanok.",12,Soft),
+            Label("A PASSIVE modok a -mods= és -passivemods= kapcsolóban is szerepelnek. "+
+                "DISABLED csak a Manager helyi profiljában szerepel. Az ismeretlen kapcsolók megmaradnak.",12,Soft),
             mapBox,modId,mode,Label("Opcionális pozíció: 1, 2, 3... (üres = lista vége)",12,Aqua),
             order,
             Btn("Modállapot előnézete – írás nélkül",()=>{
