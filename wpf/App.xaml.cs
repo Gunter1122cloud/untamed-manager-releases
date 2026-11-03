@@ -104,6 +104,8 @@ public partial class App : System.Windows.Application
                 File.WriteAllText(Path.Combine(LogDir,"smoke.log"),"starting\n");
                 var window = new MainWindow();
                 File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"constructed\n");
+                window.VerifyRecoveryCenterCiSmoke();
+                File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"recovery-center-passed\n");
                 window.UpdateLayout();
                 File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"passed\n");
                 Environment.Exit(0);
