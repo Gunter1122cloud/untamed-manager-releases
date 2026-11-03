@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -11,13 +12,23 @@ namespace UntamedManager;
 public partial class App : System.Windows.Application
 {
     private Mutex? mutex;
+    public static string ProfileName { get; private set; } = "default";
     public static bool IsSmokeTest { get; private set; }
     public static readonly string LogDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"UntamedManager","WPF");
     protected override void OnStartup(StartupEventArgs e)
     {
         Directory.CreateDirectory(LogDir);
+        int profileArg = Array.FindIndex(e.Args, x => x == "--profile");
+        if (profileArg >= 0)
+        {
+            if (profileArg + 1 >= e.Args.Length) { MessageBox.Show("A --profile paraméternek értékre van szüksége."); Shutdown(2); return; }
+            var requested = e.Args[profileArg+1];
+            if (requested.Length is < 1 or > 40 || requested.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-' && c != '_'))
+            { MessageBox.Show("Érvénytelen profilnév."); Shutdown(2); return; }
+            ProfileName = requested;
+        }
         IsSmokeTest = Array.Exists(e.Args, a => a == "--smoke-test" || a == "--screenshot-test");
-        mutex = new Mutex(true,@"Local\UntamedManager_WPF_Desktop",out bool first);
+        mutex = new Mutex(true,@"Local\UntamedManager_WPF_Desktop_" + ProfileName,out bool first);
         if (!first)
         {
             System.Windows.MessageBox.Show("Az Untamed Manager már fut. A tálcaikonról nyitható meg.","Untamed Manager");
