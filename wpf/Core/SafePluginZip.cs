@@ -11,6 +11,8 @@ namespace UntamedManager.Core;
 // and licenses are copied unchanged. Full prior plugin is backed up OUTSIDE the Plugins tree.
 public sealed record PluginZipInfo(string PluginName,int BinaryCount,int SkippedNonBinaryCount);
 public sealed record PluginInstallResult(string PluginName,string Target,string? PreviousBackup,int BinaryCount);
+public sealed record PluginZipPreview(string PluginName,int BinaryCount,int SkippedFiles,
+    bool PreviousPluginExists,bool Ready,string Reason);
 public static class SafePluginZip
 {
     private const long MaxPackageBytes=256L*1024*1024;
@@ -36,6 +38,27 @@ public static class SafePluginZip
     {
         using var archive=Open(zipPath);
         return Validate(archive).info;
+    }
+    // Preflight only. This never creates directories or writes a plugin or backup.
+    // Installation revalidates every invariant independently at commit time.
+    public static PluginZipPreview Preview(LocalMap map,ProcessCheck check,string zipPath,string backupRoot)
+    {
+        if(map==null || map.Id==Guid.Empty)throw new InvalidDataException("Map identity required");
+        var install=FixedLocal(map.InstallationPath);
+        if(!Directory.Exists(install))throw new DirectoryNotFoundException(install);
+        var backup=FixedLocal(backupRoot);
+        if(Inside(install,backup)||Inside(backup,install)||
+           install.Equals(backup,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Plugin backup folder must be outside map installation");
+        using var zip=Open(zipPath);
+        var (info,_)=Validate(zip);
+        var target=Path.Combine(install,"ShooterGame","Binaries","Win64","ArkApi","Plugins",info.PluginName);
+        CheckAncestors(target);
+        bool previous=Directory.Exists(target);
+        if(previous)CheckTree(target);
+        bool ready=check.ConfirmedStopped && !check.Running;
+        return new(info.PluginName,info.BinaryCount,info.SkippedNonBinaryCount,
+            previous,ready,ready?"Confirmed stopped; preview only":"Server is running or uncertain; update blocked");
     }
     public static PluginInstallResult Install(LocalMap map,ProcessCheck check,string zipPath,string backupRoot)
     {
@@ -145,6 +168,8 @@ public static class SafePluginZip
             if(binary){if(name.EndsWith(".dll",StringComparison.OrdinalIgnoreCase))binaries++;}else ignored++;
             files.Add(entry);
         }
+        if(plugin!=null && plugin.Contains("Kova",StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("KovaCluster and Kova-related plugin updates are protected");
         if(binaries==0 || !files.Any(x=>x.FullName.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)&&
                                           x.FullName.Split('/').Length==2))
             throw new InvalidDataException("Plugin ZIP needs at least one root DLL");
