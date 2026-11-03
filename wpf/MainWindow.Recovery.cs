@@ -113,8 +113,8 @@ public partial class MainWindow
                         ExecutablePath="FakeAsa-test-only.exe",Arguments="--synthetic-map"};
                     string token=Guid.NewGuid().ToString("N");
                     var signals=new[]{
-                        new SyntheticSaveSignal(token,SyntheticSaveSignalKind.Started,fake,now.AddMilliseconds(10)),
-                        new SyntheticSaveSignal(token,SyntheticSaveSignalKind.Completed,fake,now.AddMilliseconds(50))
+                        new SyntheticSaveSignal(id,token,SyntheticSaveSignalKind.Started,fake,now.AddMilliseconds(10)),
+                        new SyntheticSaveSignal(id,token,SyntheticSaveSignalKind.Completed,fake,now.AddMilliseconds(50))
                     };
                     var simulatedAt=now.AddSeconds(1);
                     var scenario=new RecoveryScenario(id,true,false,
