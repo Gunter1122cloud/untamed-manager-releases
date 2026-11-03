@@ -313,7 +313,7 @@ public partial class MainWindow : Window
             detail.Children.Add(Box(V(
                 Label("Hálózat",18,Mint,true),
                 Label($"Game UDP: {m.GamePort}   ·   Query: {m.QueryPort}   ·   RCON: {m.RconPort}"),
-                Label("KovaCluster / -usestore · csak olvasás",12,Soft))));
+                Label("Untamed Cluster Vault · kompatibilis adattár",12,Soft))));
             detail.Children.Add(Label("Szervervezérlés",18,Brushes.White,true));
             detail.Children.Add(Box(V(Label("Start, Stop és Restart: biztonsági okból tiltva, amíg a hostagent nem ellenőrzött.",13,Soft))));
             detail.Children.Add(Label("Modpéldák az auditcsomagból",16,Brushes.White,true));
@@ -361,10 +361,10 @@ public partial class MainWindow : Window
     }
     private void Backups()
     {
-        Header("Mentések","Helyi, leállított map fájlszintű mentése; Kova Store, SQL és éles restore letiltva.");
-        Add(Box(V(Label("Kova Store · védett",19,Mint,true),
+        Header("Mentések","Helyi, leállított map fájlszintű mentése; Cluster Vault, SQL és éles restore letiltva.");
+        Add(Box(V(Label("Untamed Cluster Vault · védett",19,Mint,true),
             Label("Csak a kiválasztott helyi map fájljairól készül ellenőrzött másolat. "+
-                  "A közös KovaCluster Store-t és SQL adatokat nem olvassuk/módosítjuk.",12,Soft))));
+                  "A közös Cluster Vault és SQL adatait nem módosítjuk.",12,Soft))));
         if(_cluster.Config.LocalMaps.Count==0)
         {
             Add(Label("Nincs kézzel regisztrált helyi map. Előbb a Szerverek nézetben adj hozzá egyet.",13,Soft));
@@ -397,7 +397,7 @@ public partial class MainWindow : Window
         Header("Ütemezések","A korábbi két gazdagép feladatainak történeti összefoglalója.");
         Add(Box(V(Label("20 auditált ütemezett feladat",20,Mint,true),
             Label("A legutóbbi eltárolt 'skipped' eredmény nem bizonyítja, hogy az aktuális ütemezés hibás.",13,Soft))));
-        foreach(var item in new[]{"Kova Backup / világmentések","Kova Watchdog / AutoStart",
+        foreach(var item in new[]{"Cluster Vault Backup / világmentések","Untamed Watchdog / AutoStart",
               "Napi 07:30 vad dínó wipe","Egyedi boostok, restartok és házirendek"})
             Add(Box(V(Label(item,16,Brushes.White,true),Label("Csak történeti auditadat, szerkesztés tiltva.",12,Soft))));
     }
