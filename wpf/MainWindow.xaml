@@ -213,10 +213,18 @@
      </StackPanel>
     </ScrollViewer>
     <ScrollViewer x:Name="OtherPage" Background="#071C1D" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-     <StackPanel Margin="27,26,26,35">
-      <TextBlock x:Name="PageEyebrow" Text="UNTAMED KINGDOM / MANAGEMENT" Foreground="#73DDC8" FontSize="12"/>
-      <TextBlock x:Name="PageTitle" Text="Szerverek" Foreground="White" FontSize="29" FontWeight="Bold" Margin="0,10,0,5"/>
-      <TextBlock x:Name="PageDescription" Text="Adatelemzés" Foreground="#A6C5C0" TextWrapping="Wrap" Margin="0,0,0,22"/>
+     <StackPanel Margin="24,22,24,40">
+      <Border CornerRadius="15" Height="171" BorderBrush="#328F7C" BorderThickness="1" ClipToBounds="True" Margin="0,0,0,20">
+       <Grid>
+        <Image Source="/Assets/kingdom-hero.jpg" Stretch="UniformToFill" Opacity="0.60"/>
+        <Rectangle Fill="{StaticResource Night}"/>
+        <StackPanel VerticalAlignment="Center" Margin="26,14,280,14">
+         <TextBlock x:Name="PageEyebrow" Text="UNTAMED KINGDOM  /  MANAGEMENT" Foreground="#99F1D9" FontSize="12" FontWeight="SemiBold"/>
+         <TextBlock x:Name="PageTitle" Text="Szerverek" Foreground="White" FontSize="30" FontWeight="Bold" Margin="0,9,0,6"/>
+         <TextBlock x:Name="PageDescription" Text="Adatelemzés" Foreground="#B8E2D7" TextWrapping="Wrap" FontSize="13"/>
+        </StackPanel>
+       </Grid>
+      </Border>
       <StackPanel x:Name="PageBody"/>
      </StackPanel>
     </ScrollViewer>
