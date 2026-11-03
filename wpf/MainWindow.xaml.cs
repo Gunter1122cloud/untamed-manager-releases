@@ -372,11 +372,25 @@ public partial class MainWindow : Window
     }
     private void Backups()
     {
-        Header("Mentések","A karakter- és clusteradatok védelme elsődleges. Élő mentési és visszaállítási műveletek még nem aktívak.");
-        Add(Box(V(Label("Kova Store · védett",23,Mint,true),
-            Label("Nem módosítjuk a KovaCluster formátumát. Az 1:1 kompatibilitás csak izolált mentés-visszaállítási tesztek után engedélyezhető.",13,Soft))));
-        Add(Box(V(Label("Helyi tesztmentés",18,Brushes.White,true),
-          Label("A jelenlegi kiadás nem készít mentést a HP/Ryzen szerverekről.",13,Soft))));
+        Header("Mentések","Helyi, leállított map fájlszintű mentése; Kova Store, SQL és éles restore letiltva.");
+        Add(Box(V(Label("Kova Store · védett",19,Mint,true),
+            Label("Csak a kiválasztott helyi map fájljairól készül ellenőrzött másolat. "+
+                  "A közös KovaCluster Store-t és SQL adatokat nem olvassuk/módosítjuk.",12,Soft))));
+        if(_cluster.Config.LocalMaps.Count==0)
+        {
+            Add(Label("Nincs kézzel regisztrált helyi map. Előbb a Szerverek nézetben adj hozzá egyet.",13,Soft));
+            return;
+        }
+        var choice=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",SelectedIndex=0};
+        var pane=new StackPanel();
+        void SelectMap()
+        {
+            pane.Children.Clear();
+            if(choice.SelectedItem is LocalMap map)pane.Children.Add(MapBackupPane(map));
+        }
+        choice.SelectionChanged+=(_,_)=>SelectMap();
+        Add(Box(V(Label("Helyi map kiválasztása",13,Aqua),choice,pane)));
+        SelectMap();
     }
     private void Rcon()
     {
