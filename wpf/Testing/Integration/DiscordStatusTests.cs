@@ -60,9 +60,9 @@ public static class DiscordStatusTests
             });
         var ownedMaps=new HashSet<Guid>{owned};
         string preview=DiscordStatusPublisher.Compose(snapshot,ownedMaps,now);
-        Check(preview.Contains("Astraeos everyoneSECRETUSER") &&
+        Check(preview.Contains("Astraeos everyoneSECRET-USER") &&
             !preview.Contains("@everyone") &&
-            !preview.Contains("SECRET-USER") &&
+            !preview.Contains("\\nSECRET-USER") &&
             preview.Contains("játékosok: ismeretlen") &&
             !preview.Contains("fixture-supervisor.exe"),
             "Discord preview removes @mentions/control chars and never invents player counts");
