@@ -77,7 +77,7 @@ public partial class MainWindow : Window
             ("The Center","Ryzen",29,7797,27027,27032,"#245E58","#4D9B72"),
             ("Aberration","Ryzen",30,7807,27029,27034,"#2F295E","#8B4FA2")
         };
-        var master = new BitmapImage(new Uri("pack://application:,,,/Assets/kingdom-hero.jpg", UriKind.Absolute));
+        var master = new BitmapImage(new Uri("pack://application:,,,/Assets/map-atlas.jpg", UriKind.Absolute));
         master.Freeze();
         int mapIndex = 0;
         foreach (var (name,host,mods,game,query,rcon,a,b) in rows)
@@ -85,9 +85,9 @@ public partial class MainWindow : Window
             var gradient = new LinearGradientBrush((Color)ColorConverter.ConvertFromString(a),
                 (Color)ColorConverter.ConvertFromString(b), 20);
             gradient.Freeze();
-            int cropX = 90 + (mapIndex * 43) % Math.Max(1,master.PixelWidth - 306);
-            int cropY = (mapIndex++ * 17) % Math.Max(1,master.PixelHeight - 109);
-            var photo = new CroppedBitmap(master,new Int32Rect(cropX,cropY,216,108));
+            int cropX = (mapIndex % 5) * 180;
+            int cropY = (mapIndex++ / 5) * 108;
+            var photo = new CroppedBitmap(master,new Int32Rect(cropX,cropY,180,108));
             photo.Freeze();
             _maps.Add(new MapInfo { Name=name, Host=host, ModCount=mods, GamePort=game,
                 QueryPort=query,RconPort=rcon,CoverBrush=gradient,CoverImage=photo });
