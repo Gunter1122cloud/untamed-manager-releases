@@ -252,7 +252,7 @@ public partial class MainWindow : Window
             case "backups": Backups(); break;
             case "rcon": Rcon(); break;
             case "schedules": Schedules(); break;
-            case "license": License(); break;
+            case "license": ShowUpdateCenter(); break;
             case "settings": Settings(); break;
         }
     }
