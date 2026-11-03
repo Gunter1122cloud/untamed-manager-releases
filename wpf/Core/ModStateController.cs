@@ -44,7 +44,8 @@ public static class ModStateController
                 throw new InvalidDataException("Mod launch parameter cannot be empty");
             return CheckList(raw.Split(',',StringSplitOptions.None));
         }
-        var active=ReadSwitch("mods"),passive=ReadSwitch("passivemods");
+        var active=ReadSwitch("mods");
+        var passive=ReadSwitch("passivemods");
         var disabled=CheckList((map.DisabledModIds??new()).ToArray());
         if(active.Concat(passive).Concat(disabled).Distinct(StringComparer.Ordinal).Count()!=
            active.Length+passive.Length+disabled.Length)
