@@ -1,6 +1,6 @@
 param([Parameter(Mandatory)][string]$Distribution,[Parameter(Mandatory)][string]$FakeServer)
 $ErrorActionPreference = 'Stop'
-$installer = Join-Path $Distribution 'UntamedManager-1.4.0-SETUP.exe'
+$installer = Join-Path $Distribution 'UntamedManager-1.5.0-SETUP.exe'
 $updater = Join-Path $Distribution 'UntamedUpdater.exe'
 function Invoke-Checked {
     param([string]$Program,[string[]]$Parameters,[int]$Expected=0)
@@ -34,7 +34,7 @@ try {
         [IO.File]::WriteAllText((Join-Path $application 'user-settings.json'),'synthetic preserved settings')
         $external = Join-Path $testRoot 'external-map-list.json'
         [IO.File]::WriteAllText($external,'synthetic external map list')
-        $parameters = @('--pid','2147483647','--installer',$installer,'--app',$appExe,'--expected','1.4.0','--tag','v1.4.0-wpf-preview.1','--profile',$testProfile,'--backup',$backup,'--ci-root',$testRoot)
+        $parameters = @('--pid','2147483647','--installer',$installer,'--app',$appExe,'--expected','1.5.0','--tag','v1.5.0-wpf-preview.1','--profile',$testProfile,'--backup',$backup,'--ci-root',$testRoot)
         if ($scenario -eq 'health-failure') { $parameters += '--ci-fail-health' }
         if ($scenario -eq 'interrupted') {
             $parameters += '--ci-interrupt-after-snapshot'
