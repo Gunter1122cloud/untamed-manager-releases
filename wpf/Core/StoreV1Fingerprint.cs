@@ -38,11 +38,11 @@ public static class StoreV1Fingerprint
             case JsonValueKind.Object:
                 sb.Append('{');
                 bool first=true;
+                var seen=new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
                 foreach(var property in value.EnumerateObject())
                 {
-                    // Reject duplicate names: JsonDocument otherwise accepts the
-                    // last member while JS JSON.stringify would not reproduce the
-                    // original parsed configuration unambiguously.
+                    if(!seen.Add(property.Name))
+                        throw new InvalidDataException("Duplicate Store config property");
                     if(!first)sb.Append(',');
                     first=false;
                     Quote(property.Name,sb);
