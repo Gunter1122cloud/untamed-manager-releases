@@ -15,6 +15,16 @@ public partial class MainWindow
     private readonly WanChangeTracker _wanTracker=new();
     private DateTimeOffset _lastWanProbe=DateTimeOffset.MinValue;
 
+    // Invoked by the isolated CI GUI smoke path, with no server or WAN calls.
+    public void VerifyRecoveryCenterCiSmoke()
+    {
+        Navigate("recovery");
+        UpdateLayout();
+        if(PageTitle.Text!="Recovery Center – v1.3.7 TEST")
+            throw new InvalidOperationException("Recovery Center navigation failed");
+        Navigate("dashboard");
+    }
+
     private void ShowRecoveryCenter()
     {
         Header("Recovery Center – v1.3.7 TEST",
