@@ -110,7 +110,7 @@ public static class SafePluginZip
             if(string.IsNullOrWhiteSpace(name)||name.StartsWith('/')||name.Contains('\\')||name.Contains(':')||
                name.Contains('\0'))throw new InvalidDataException("Unsafe ZIP path");
             var pieces=name.TrimEnd('/').Split('/');
-            if(pieces.Length<2||pieces.Any(x=>x=="."||x==".."||!SafePart.IsMatch(x)))
+            if(pieces.Length==0||(!name.EndsWith('/')&&pieces.Length<2)||pieces.Any(x=>x=="."||x==".."||!SafePart.IsMatch(x)))
                 throw new InvalidDataException("ZIP must contain a named plugin folder with safe paths");
             if(plugin==null)plugin=pieces[0];
             else if(!string.Equals(plugin,pieces[0],StringComparison.OrdinalIgnoreCase))
