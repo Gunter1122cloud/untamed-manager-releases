@@ -99,6 +99,33 @@ jobs:
           [IO.File]::WriteAllText($jsonPath,($body | ConvertTo-Json -Compress))
           gh api --method PUT "$resource" --input "$jsonPath" | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Cannot archive actual rendered screenshot" }
+      - name: Publish compact actual screenshot for visual comparison
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $source = [System.Drawing.Bitmap]::FromFile("$env:GITHUB_WORKSPACE/dist/UntamedManager-preview.png")
+          $small = New-Object System.Drawing.Bitmap(1200,675)
+          $gfx = [System.Drawing.Graphics]::FromImage($small)
+          $gfx.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+          $gfx.DrawImage($source,0,0,1200,675)
+          $jpeg = Join-Path $env:RUNNER_TEMP "UntamedManager-actual-small.jpg"
+          $small.Save($jpeg,[System.Drawing.Imaging.ImageFormat]::Jpeg)
+          $gfx.Dispose(); $small.Dispose(); $source.Dispose()
+          $encoded = [Convert]::ToBase64String([IO.File]::ReadAllBytes($jpeg))
+          $resource = "repos/$env:GITHUB_REPOSITORY/contents/previews/UntamedManager-1.2.0.b64.txt"
+          $body = @{
+            message = "Archive compact actual GUI screenshot for reference visual comparison"
+            branch = "main"
+            content = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($encoded))
+          }
+          $oldJson = gh api "$resource" 2>$null
+          if ($LASTEXITCODE -eq 0) { $body.sha = ($oldJson | ConvertFrom-Json).sha }
+          $jsonPath = Join-Path $env:RUNNER_TEMP "preview-transfer.json"
+          [IO.File]::WriteAllText($jsonPath,($body | ConvertTo-Json -Compress))
+          gh api --method PUT "$resource" --input "$jsonPath" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Failed to publish visual QA transfer" }
       - name: Save verified GUI screenshot
         uses: actions/upload-artifact@v4
         with:
