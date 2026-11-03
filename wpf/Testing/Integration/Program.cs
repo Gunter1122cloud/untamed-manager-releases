@@ -478,6 +478,181 @@ try
     File.WriteAllText(Path.Combine(interruptedRoot,"scheduler-state.json"),System.Text.Json.JsonSerializer.Serialize(new[]{new TaskReceipt(interruptedJob.Id,interruptedJob.DueUtc,"claimed",0)}));
     await new PersistentScheduler(interruptedRoot).RunDue(new[]{interruptedJob},owned,DateTimeOffset.UtcNow,_=>throw new Exception("must not repeat uncertain action"));
     Assert(new PersistentScheduler(interruptedRoot).Receipts.Single().Status=="claimed","Interrupted claimed schedule is never blindly retried");
+    // v1.3.7: all recovery and SaveWorld proofs are FakeAsa-only, without a
+    // production RCON, filesystem restore, Process.Kill or server launch path.
+    var syntheticTime=DateTimeOffset.UtcNow;
+    var recoveryMap=Guid.NewGuid();
+    var syntheticProcess=new ProcessIdentity{
+        Pid=56780,StartedUtc=syntheticTime.AddMinutes(-5),
+        ExecutablePath="FakeAsa.exe",Arguments="--synthetic-only"
+    };
+    const string recoveryToken="synthetic-save-correlation";
+    var savedSignals=new[]{
+        new SyntheticSaveSignal(recoveryToken,SyntheticSaveSignalKind.Started,
+            syntheticProcess,syntheticTime.AddMilliseconds(100)),
+        new SyntheticSaveSignal(recoveryToken,SyntheticSaveSignalKind.Completed,
+            syntheticProcess,syntheticTime.AddMilliseconds(400))
+    };
+    var proof=SaveWorldValidator.VerifySynthetic(recoveryMap,syntheticProcess,
+        recoveryToken,syntheticTime,syntheticTime.AddSeconds(1),savedSignals);
+    Assert(proof.Proven,"Correlated FakeAsa SaveWorld start/end confirms only synthetic proof");
+    Assert(!SaveWorldValidator.VerifyLiveUnavailable("OK",syntheticTime).Proven,
+        "RCON reply and file modification cannot prove a live ASA SaveWorld");
+    Assert(!SaveWorldValidator.VerifySynthetic(recoveryMap,syntheticProcess,
+        recoveryToken,syntheticTime,syntheticTime.AddSeconds(1),savedSignals.Take(1)).Proven,
+        "SaveWorld started without completion does not authorize shutdown");
+    Assert(!SaveWorldValidator.VerifySynthetic(recoveryMap,syntheticProcess,
+        recoveryToken,syntheticTime,syntheticTime.AddSeconds(1),savedSignals.Concat(savedSignals)).Proven,
+        "Duplicate or replayed SaveWorld event pair fails closed");
+    var modifiedProcess=new ProcessIdentity{
+        Pid=syntheticProcess.Pid,StartedUtc=syntheticProcess.StartedUtc.AddSeconds(-1),
+        ExecutablePath=syntheticProcess.ExecutablePath,Arguments=syntheticProcess.Arguments
+    };
+    Assert(!SaveWorldValidator.VerifySynthetic(recoveryMap,syntheticProcess,
+        recoveryToken,syntheticTime,syntheticTime.AddSeconds(1),new[]{
+            savedSignals[0],
+            savedSignals[1] with {Server=modifiedProcess}
+        }).Proven,"SaveWorld completion from reused PID or changed process is rejected");
+    Assert(!SaveWorldValidator.VerifySynthetic(recoveryMap,syntheticProcess,
+        recoveryToken,syntheticTime,syntheticTime.AddMinutes(4),savedSignals).Proven,
+        "Old SaveWorld observations expire and cannot be reused");
+
+    var diagnosis=new WatchdogDiagnostics();
+    var runningSynthetic=new ProcessCheck(true,"running",syntheticProcess);
+    for(int i=1;i<=3;i++)
+    {
+        var rconDiagnosis=diagnosis.Observe(new WatchdogEvidence(recoveryMap,
+            runningSynthetic,false,false,false,RconSignal.Unreachable,true,true,
+            false,syntheticTime.AddSeconds(i)));
+        Assert(rconDiagnosis.ConfirmedRunning && !rconDiagnosis.ConfirmedStopped &&
+            rconDiagnosis.Issues.Contains(WatchdogIssue.RconUnreachable) &&
+            rconDiagnosis.FailureCounts[WatchdogIssue.RconUnreachable]==i &&
+            rconDiagnosis.NeedsAttention==(i==3),
+            "RCON failures accumulate without treating the ASA process as dead: "+i);
+    }
+    var recoveredRcon=diagnosis.Observe(new WatchdogEvidence(recoveryMap,
+        runningSynthetic,false,false,false,RconSignal.Responding,true,true,
+        false,syntheticTime.AddSeconds(4)));
+    Assert(!recoveredRcon.NeedsAttention && recoveredRcon.Issues.Count==0,
+        "Healthy independent RCON observation resets only relevant Watchdog counters");
+    var badAuth=diagnosis.Observe(new WatchdogEvidence(recoveryMap,
+        runningSynthetic,false,false,false,RconSignal.AuthenticationFailed,true,true,
+        false,syntheticTime.AddSeconds(5)));
+    Assert(badAuth.FailureCounts.ContainsKey(WatchdogIssue.RconAuthentication) &&
+        !badAuth.FailureCounts.ContainsKey(WatchdogIssue.RconUnreachable),
+        "Authentication failures have separate Watchdog counters");
+    var loaderMissing=diagnosis.Observe(new WatchdogEvidence(recoveryMap,
+        runningSynthetic,false,true,false,RconSignal.Responding,true,true,
+        false,syntheticTime.AddSeconds(6)));
+    Assert(loaderMissing.Issues.Contains(WatchdogIssue.LoaderUncertain) &&
+        loaderMissing.ConfirmedRunning,"Missing loader cannot justify a duplicate process");
+    var unknownWatchdog=diagnosis.Observe(new WatchdogEvidence(recoveryMap,
+        new ProcessCheck(false,"unknown",null),false,false,false,
+        RconSignal.NotConfigured,false,false,false,syntheticTime.AddSeconds(7)));
+    Assert(unknownWatchdog.Issues.Contains(WatchdogIssue.ProcessUncertain) &&
+        unknownWatchdog.Issues.Contains(WatchdogIssue.SupervisorStale) &&
+        unknownWatchdog.Issues.Contains(WatchdogIssue.NetworkUncertain),
+        "Stale heartbeat, unknown process and network outage are independent diagnoses");
+    var stoppedWatchdog=diagnosis.Observe(new WatchdogEvidence(recoveryMap,
+        new ProcessCheck(false,"verified stopped",null,true),true,false,false,
+        RconSignal.NotConfigured,true,true,false,syntheticTime.AddSeconds(8)));
+    Assert(stoppedWatchdog.Issues.Contains(WatchdogIssue.UnexpectedStop) &&
+        stoppedWatchdog.ConfirmedStopped,"Unexpected verified stop is distinct from unknown state");
+    var maintenanceDiagnosis=diagnosis.Observe(new WatchdogEvidence(recoveryMap,
+        new ProcessCheck(false,"unknown",null),true,true,false,
+        RconSignal.Unreachable,false,false,true,syntheticTime.AddSeconds(9)));
+    Assert(maintenanceDiagnosis.Maintenance && !maintenanceDiagnosis.NeedsAttention &&
+        maintenanceDiagnosis.Issues.Count==0,"Maintenance suppresses all automatic Watchdog action");
+
+    string recoveryRoot=Path.Combine(root,"synthetic-recovery-profile");
+    var recoveryJournal=new RecoverySimulationJournal(recoveryRoot);
+    var syntheticScenario=new RecoveryScenario(recoveryMap,true,false,runningSynthetic,
+        recoveryToken,syntheticTime,syntheticTime.AddSeconds(1),savedSignals,true,true);
+    var done=RecoverySimulator.Run(recoveryJournal,syntheticScenario);
+    Assert(done.Phase==RecoveryPhase.Completed && !done.ExecutedRealActions &&
+        recoveryJournal.Read().Where(x=>x.Attempt==done.Attempt).Select(x=>x.Phase).SequenceEqual(
+            new[]{RecoveryPhase.Prepared,RecoveryPhase.SaveRequested,
+                RecoveryPhase.SaveProven,RecoveryPhase.ExitConfirmed,
+                RecoveryPhase.StartConfirmed,RecoveryPhase.Completed}),
+        "FakeAsa lifecycle records each synthetic SaveWorld/Stop/Start stage durably");
+    bool blockedRepeat=false;
+    try{RecoverySimulator.Run(new RecoverySimulationJournal(recoveryRoot),syntheticScenario);}
+    catch(InvalidOperationException){blockedRepeat=true;}
+    Assert(blockedRepeat,"Completed synthetic attempt cannot be retried during cooldown");
+
+    var missingSaveMap=Guid.NewGuid();
+    var noProof=RecoverySimulator.Run(recoveryJournal,syntheticScenario with {
+        Map=missingSaveMap,SaveSignals=Array.Empty<SyntheticSaveSignal>()});
+    Assert(noProof.Phase==RecoveryPhase.Blocked &&
+        recoveryJournal.Read().Where(x=>x.Attempt==noProof.Attempt)
+            .All(x=>x.Phase!=RecoveryPhase.ExitConfirmed &&
+                x.Phase!=RecoveryPhase.StartConfirmed),
+        "No SaveWorld proof prevents simulated DoExit and Start");
+    var failedExitMap=Guid.NewGuid();
+    var noExit=RecoverySimulator.Run(recoveryJournal,syntheticScenario with{
+        Map=failedExitMap,FakeExitConfirmed=false});
+    Assert(noExit.Phase==RecoveryPhase.Blocked &&
+        !recoveryJournal.Read().Any(x=>x.Attempt==noExit.Attempt &&
+            x.Phase==RecoveryPhase.StartConfirmed),
+        "Unknown exit prevents synthetic restart");
+
+    var crashedMap=Guid.NewGuid();
+    var crashed=recoveryJournal.Begin(crashedMap,syntheticTime);
+    bool crashCannotResume=false;
+    try{RecoverySimulator.Run(new RecoverySimulationJournal(recoveryRoot),
+        syntheticScenario with {Map=crashedMap,Now=syntheticTime.AddMinutes(7)});}
+    catch(InvalidOperationException){crashCannotResume=true;}
+    Assert(crashCannotResume &&
+        recoveryJournal.Read().Last(x=>x.Map==crashedMap).Phase==RecoveryPhase.Prepared,
+        "Interrupted recovery state cannot auto-resume after Manager restart");
+    bool foreignRecoveryBlocked=false;
+    try{RecoverySimulator.Run(recoveryJournal,syntheticScenario with{
+        Map=Guid.NewGuid(),Owned=false});}
+    catch(UnauthorizedAccessException){foreignRecoveryBlocked=true;}
+    Assert(foreignRecoveryBlocked,"Remote map recovery is forbidden even in simulation");
+    Assert(RecoverySimulator.Run(recoveryJournal,syntheticScenario with{
+        Map=Guid.NewGuid(),Maintenance=true}).Phase==RecoveryPhase.Blocked,
+        "Maintenance prevents synthetic recovery before recording an attempt");
+    Assert(RecoverySimulator.Run(recoveryJournal,syntheticScenario with{
+        Map=Guid.NewGuid(),Initial=new ProcessCheck(false,"uncertain",null)}).Phase==
+            RecoveryPhase.Blocked,"Unknown process state never enables a second FakeAsa");
+    Assert(!new RecoverySimulationJournal(recoveryRoot).Read().Any(x=>x.Code.Contains("kill")),
+        "Recovery journal contains no real Kill or forced-start commands");
+
+    // IP observations are offline fixtures: no router access and no real DDNS writes.
+    var wanTracker=new WanChangeTracker();
+    var wan0=wanTracker.Observe(new WanProbe(syntheticTime,
+        "8.8.8.8","8.8.8.8",new[]{"8.8.8.8"}));
+    var wan1=wanTracker.Observe(new WanProbe(syntheticTime.AddSeconds(31),
+        "8.8.8.8","8.8.8.8",new[]{"8.8.8.8"}));
+    Assert(wan0.State=="Learning" && wan1.State=="Stable" &&
+        wan1.Baseline=="8.8.8.8" && !wan1.ConfirmedChange,
+        "Two independent time-separated measurements establish WAN baseline");
+    var disagreement=wanTracker.Observe(new WanProbe(syntheticTime.AddSeconds(62),
+        "8.8.8.8","1.1.1.1",new[]{"8.8.8.8"}));
+    Assert(disagreement.State=="Uncertain" && !disagreement.ConfirmedChange,
+        "Disagreeing WAN providers never trigger recovery");
+    var pendingChange=wanTracker.Observe(new WanProbe(syntheticTime.AddSeconds(93),
+        "1.1.1.1","1.1.1.1",new[]{"8.8.8.8"}));
+    var confirmedChange=wanTracker.Observe(new WanProbe(syntheticTime.AddSeconds(124),
+        "1.1.1.1","1.1.1.1",new[]{"8.8.8.8"}));
+    Assert(!pendingChange.ConfirmedChange && confirmedChange.ConfirmedChange &&
+        !confirmedChange.DdnsMatches && confirmedChange.Baseline=="1.1.1.1",
+        "Confirmed WAN change detects stale DDNS but never restarts servers");
+    var privateWan=wanTracker.Observe(new WanProbe(syntheticTime.AddSeconds(155),
+        "192.168.1.200","192.168.1.200",new[]{"192.168.1.200"}));
+    Assert(privateWan.State=="Uncertain" && !privateWan.ConfirmedChange,
+        "Private/LAN IP addresses are not mistaken for valid external WAN measurements");
+    // The synthetic Store and SQL fixture contents never change in recovery tests.
+    string safeStore=Path.Combine(recoveryRoot,"KovaStore.fixture");
+    string safeSql=Path.Combine(recoveryRoot,"database.fixture");
+    File.WriteAllText(safeStore,"original Kova synthetic fixture");
+    File.WriteAllText(safeSql,"original SQL synthetic fixture");
+    RecoverySimulator.Run(recoveryJournal,syntheticScenario with {Map=Guid.NewGuid()});
+    Assert(File.ReadAllText(safeStore)=="original Kova synthetic fixture" &&
+           File.ReadAllText(safeSql)=="original SQL synthetic fixture",
+        "Fake recovery never modifies synthetic Kova Store or SQL data");
+
     var policy=new SupervisorPolicy();Guid monitored=Guid.NewGuid();var now=DateTimeOffset.UtcNow;
     var unknown=new ProcessCheck(false,"unknown",null);
     policy.Observe(monitored,unknown,false,now);policy.Observe(monitored,unknown,false,now);
