@@ -1,1 +1,1 @@
-WPF visual patch preparation: dark text contrast and image bindings. No secrets.
+Visual QA: contrast and photo improvements needed.
