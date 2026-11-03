@@ -80,6 +80,14 @@ public partial class MainWindow : Window
             ("The Center","Ryzen",29,7797,27027,27032,"#245E58","#4D9B72"),
             ("Aberration","Ryzen",30,7807,27029,27034,"#2F295E","#8B4FA2")
         };
+        var referenceAtlas = new BitmapImage(new Uri("pack://application:,,,/Assets/reference-atlas.jpg",UriKind.Absolute));
+        referenceAtlas.Freeze();
+        var brandCrop = new CroppedBitmap(referenceAtlas,new Int32Rect(1000,0,200,200));
+        brandCrop.Freeze();
+        BrandArtwork.Source = brandCrop;
+        var footerCrop = new CroppedBitmap(referenceAtlas,new Int32Rect(1000,260,200,140));
+        footerCrop.Freeze();
+        FooterArtwork.Source = footerCrop;
         int mapIndex = 0;
         foreach (var (name,host,mods,game,query,rcon,a,b) in rows)
         {
@@ -87,9 +95,9 @@ public partial class MainWindow : Window
                 (Color)ColorConverter.ConvertFromString(a),
                 (Color)ColorConverter.ConvertFromString(b), 20);
             gradient.Freeze();
-            var uri = new Uri($"pack://application:,,,/Assets/card-{mapIndex++:D2}.jpg", UriKind.Absolute);
-            var photo = new BitmapImage(uri);
+            var photo = new CroppedBitmap(referenceAtlas,new Int32Rect((mapIndex % 5)*200,260+(mapIndex/5)*104,200,96));
             photo.Freeze();
+            mapIndex++;
             _maps.Add(new MapInfo { Name=name, Host=host, ModCount=mods, GamePort=game,
                 QueryPort=query, RconPort=rcon, CoverBrush=gradient, CoverImage=photo });
         }
