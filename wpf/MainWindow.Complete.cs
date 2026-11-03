@@ -48,6 +48,7 @@ public partial class MainWindow
             Btn("Recovery Center megnyitása",()=>Navigate("recovery")),
             Btn("Mentésellenőrzés megnyitása",()=>Navigate("backups")),
             Btn("SQL / Kova tesztközpont",()=>Navigate("data")))));
+        ShowKovaProfilePreviewControls();
     }
 
     private void ShowDataSafetyCenter()
