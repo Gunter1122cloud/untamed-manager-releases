@@ -53,6 +53,8 @@ public sealed class ManagerConfig
     public string PeerAddress { get; set; } = ""; // IPv4/host, configured explicitly by user.
     public int PeerPort { get; set; }
     public string PairingKeyProtected { get; set; } = "";
+    // Approved CurseForge key: stored only as Windows-user DPAPI ciphertext.
+    public string CurseForgeApiKeyProtected { get; set; } = "";
     public string GitHubRepository { get; set; } = "Gunter1122cloud/untamed-manager-releases";
     public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public string PublisherCertificateThumbprint { get; set; } = "";
