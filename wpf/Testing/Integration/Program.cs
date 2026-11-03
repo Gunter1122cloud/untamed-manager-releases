@@ -152,6 +152,54 @@ try
         Assert(timedOut,"Real RCON socket cancellation on silent endpoint");
     }
     finally { stalled.Stop(); }
+    string protectedProfile=Path.Combine(root,"authenticated-profile");Directory.CreateDirectory(protectedProfile);
+    var ipc=new SupervisorChannel(protectedProfile);
+    var signedSnapshot=new SupervisorSnapshot("test-host",Environment.ProcessId,DateTimeOffset.UtcNow,fake,DateTimeOffset.UtcNow,Array.Empty<MapObservation>());
+    ipc.Write(signedSnapshot);
+    Assert(ipc.Read("test-host").HostId=="test-host","Protected DPAPI/HMAC local IPC roundtrip");
+    var secondClient=new SupervisorChannel(protectedProfile);
+    Assert(secondClient.Read("test-host").HostId=="test-host","Local IPC reconnects with durable user-protected key");
+    bool wrongHost=false;try{ipc.Read("other-host");}catch(IOException){wrongHost=true;}
+    Assert(wrongHost,"Authenticated IPC rejects foreign host identity");
+    ipc.Write(signedSnapshot with{ObservedUtc=DateTimeOffset.UtcNow.AddMinutes(-2)});
+    bool staleIpc=false;try{ipc.Read("test-host");}catch(IOException){staleIpc=true;}
+    Assert(staleIpc,"Authenticated IPC rejects stale heartbeat");
+    ipc.Write(signedSnapshot);
+    var signedFrame=System.Text.Json.JsonSerializer.Deserialize<SignedObservation>(File.ReadAllText(ipc.SnapshotPath))!;
+    string badSignature=(signedFrame.Signature[0]=='0'?"1":"0")+signedFrame.Signature[1..];
+    File.WriteAllText(ipc.SnapshotPath,System.Text.Json.JsonSerializer.Serialize(signedFrame with{Signature=badSignature}));
+    bool tamperedIpc=false;try{ipc.Read("test-host");}catch(System.Security.Cryptography.CryptographicException){tamperedIpc=true;}
+    Assert(tamperedIpc,"Authenticated IPC rejects modified observation");
+    string eventRoot=Path.Combine(root,"events");var eventLog=new EventJournal(eventRoot);
+    eventLog.Append("hostA",backupOwner,"Warning","rcon-unavailable");
+    eventLog.Append("hostB",Guid.Empty,"Information","process-start");
+    var reopenedLog=new EventJournal(eventRoot);
+    Assert(reopenedLog.Read("hostA",backupOwner,"Warning",DateTimeOffset.UtcNow.AddMinutes(-1)).Length==1,"Events persist and filter by host, map, severity and time");
+    Assert(reopenedLog.Read().Select(x=>x.Id).Distinct().Count()==2,"Persisted events carry unique identifiers");
+    bool secretEvent=false;try{eventLog.Append("hostA",null,"Error","password=secret");}catch(ArgumentException){secretEvent=true;}
+    Assert(secretEvent,"Event codes reject arbitrary secret-bearing text");
+    string scheduleRoot=Path.Combine(root,"persistent-schedule");var durable=new PersistentScheduler(scheduleRoot);
+    var job=new ScheduledTask{Map=backupOwner,Kind=ScheduledKind.Notification,DueUtc=DateTimeOffset.UtcNow.AddSeconds(-1)};
+    int executions=0;var owned=new HashSet<Guid>{backupOwner};
+    await durable.RunDue(new[]{job},owned,DateTimeOffset.UtcNow,_=>{executions++;return Task.CompletedTask;});
+    await new PersistentScheduler(scheduleRoot).RunDue(new[]{job},owned,DateTimeOffset.UtcNow,_=>{executions++;return Task.CompletedTask;});
+    Assert(executions==1,"Persistent scheduler never repeats same due time after reconstruction");
+    var failedJob=new ScheduledTask{Map=backupOwner,Kind=ScheduledKind.Observation,DueUtc=DateTimeOffset.UtcNow.AddSeconds(-1)};
+    durable=new PersistentScheduler(scheduleRoot);
+    await durable.RunDue(new[]{failedJob},owned,DateTimeOffset.UtcNow,_=>throw new IOException("synthetic failure"));
+    durable=new PersistentScheduler(scheduleRoot);
+    await durable.RunDue(new[]{failedJob},owned,DateTimeOffset.UtcNow,_=>{executions++;return Task.CompletedTask;});
+    Assert(durable.Receipts.Single(x=>x.Task==failedJob.Id).Status=="failed-no-auto-retry"&&executions==1,"Failed schedule remains bounded and is not repeated on restart");
+    var foreignJob=new ScheduledTask{Map=Guid.Empty,Kind=ScheduledKind.Notification,DueUtc=DateTimeOffset.UtcNow.AddSeconds(-1)};
+    var autoJob=new ScheduledTask{Map=backupOwner,Kind=ScheduledKind.AutoStart,DueUtc=DateTimeOffset.UtcNow.AddSeconds(-1)};
+    await durable.RunDue(new[]{foreignJob,autoJob},owned,DateTimeOffset.UtcNow,_=>throw new Exception("must not execute"));
+    Assert(durable.Receipts.Single(x=>x.Task==foreignJob.Id).Status=="foreign-map-blocked","Scheduler enforces local map ownership");
+    Assert(durable.Receipts.Single(x=>x.Task==autoJob.Id).Status=="autostart-disabled","Automatic server start remains disabled");
+    var interruptedJob=new ScheduledTask{Map=backupOwner,Kind=ScheduledKind.Notification,DueUtc=DateTimeOffset.UtcNow.AddSeconds(-1)};
+    string interruptedRoot=Path.Combine(root,"interrupted-scheduler");Directory.CreateDirectory(interruptedRoot);
+    File.WriteAllText(Path.Combine(interruptedRoot,"scheduler-state.json"),System.Text.Json.JsonSerializer.Serialize(new[]{new TaskReceipt(interruptedJob.Id,interruptedJob.DueUtc,"claimed",0)}));
+    await new PersistentScheduler(interruptedRoot).RunDue(new[]{interruptedJob},owned,DateTimeOffset.UtcNow,_=>throw new Exception("must not repeat uncertain action"));
+    Assert(new PersistentScheduler(interruptedRoot).Receipts.Single().Status=="claimed","Interrupted claimed schedule is never blindly retried");
     var policy=new SupervisorPolicy();Guid monitored=Guid.NewGuid();var now=DateTimeOffset.UtcNow;
     var unknown=new ProcessCheck(false,"unknown",null);
     policy.Observe(monitored,unknown,false,now);policy.Observe(monitored,unknown,false,now);
@@ -282,6 +330,9 @@ try
         Assert(heartbeat.RootElement.GetProperty("readOnly").GetBoolean() && heartbeat.RootElement.GetProperty("states")[0].GetProperty("Map").GetGuid()==mapA.Id,
             "UI-independent worker observes registered local map and writes read-only heartbeat");
     }
+    var authenticatedWorker=new SupervisorChannel(aRoot).Read(hp.Config.LocalHostId);
+    Assert(authenticatedWorker.Maps.Single().Map==mapA.Id&&authenticatedWorker.Maps.Single().MemoryBytes>0&&authenticatedWorker.Maps.Single().Players==null,
+        "Real supervisor publishes measured RAM and unknown player count through authenticated IPC");
     Assert(!p.HasExited,"Independent supervisor observation leaves FakeAsa alive");
     string appTree=Path.Combine(root,"update-application");Directory.CreateDirectory(appTree);
     Directory.CreateDirectory(Path.Combine(appTree,"dependencies"));

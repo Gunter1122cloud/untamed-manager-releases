@@ -99,6 +99,7 @@ public partial class MainWindow
             "A helyi gépen teljes kezelés; a LAN-peer gép állapota kizárólag olvasható. "+
             "Internet és külső vezérlőszerver nélkül.");
         PageBody.Children.Clear();
+        Add(Box(Label("Alapértelmezett kiosztás (nem automatikus import): UK-HOME-01 / HP: Astraeos, Genesis 1, Valguero, Island, Extinction. UK-HOME-02 / Ryzen: Scorched, Lost Colony, Ragnarok, Center, Aberration.",12,Soft)));
         var local = _cluster.LocalStatus();
         Add(Box(V(Label($"◉  HELYI · {local.HostName}",20,Mint,true),
             Label($"{local.Maps.Count} manuálisan regisztrált map · írási jog kizárólag ezen a gépen",12,Soft))));
@@ -312,6 +313,8 @@ public partial class MainWindow
         Field("API-loader argumentumok",map.ApiLoaderArguments);
         var maintenance=new CheckBox{Content="Maintenance – helyi indítás tiltva",IsChecked=map.Maintenance,Foreground=Brushes.White};
         form.Children.Add(maintenance);
+        var monitorRcon=new CheckBox{Content="Hitelesített RCON-monitoring (ListPlayers)",IsChecked=map.MonitorRcon,Foreground=Brushes.White};
+        form.Children.Add(monitorRcon);
         Field("Game UDP port",map.GamePort==0?"":map.GamePort.ToString());
         Field("Query UDP port",map.QueryPort==0?"":map.QueryPort.ToString());
         Field("RCON TCP port",map.RconPort==0?"":map.RconPort.ToString());
@@ -345,6 +348,7 @@ public partial class MainWindow
                 target.ApiLoaderPath=loader.Length==0?"":Path.GetFullPath(loader);
                 target.ApiLoaderArguments=fields["API-loader argumentumok"].Text.Trim();
                 target.Maintenance=maintenance.IsChecked==true;
+                target.MonitorRcon=monitorRcon.IsChecked==true;
                 target.GamePort=game;target.QueryPort=query;target.RconPort=rcon;
                 target.RconHost=fields["RCON host (helyi IP)"].Text.Trim();
                 target.LogFilePath=fields["Helyi naplófájl"].Text.Trim();

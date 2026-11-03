@@ -71,6 +71,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         InitializeAutomaticUpdates();
+        InitializeSupervision();
         var rows = new (string name, string host, int mods, int game, int query, int rcon, string a, string b)[] {
             ("Astraeos","HP",30,7847,27016,27021,"#244A57","#4B8C72"),
             ("Genesis Part 1","HP",29,7867,27018,27023,"#2B255E","#7053A9"),
@@ -252,7 +253,8 @@ public partial class MainWindow : Window
             case "ini": Ini(); break;
             case "backups": Backups(); break;
             case "rcon": Rcon(); break;
-            case "schedules": Schedules(); break;
+            case "schedules": ShowBackgroundSchedules(); break;
+            case "monitoring": ShowMonitoring(); break;
             case "license": ShowUpdateCenter(); break;
             case "settings": Settings(); break;
         }

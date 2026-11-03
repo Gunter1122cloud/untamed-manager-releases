@@ -34,6 +34,7 @@ public sealed class LocalMap
     public string RconPasswordProtected { get; set; } = "";
     public bool AutoStart { get; set; } = false;
     public bool Maintenance { get; set; } = false;
+    public bool MonitorRcon { get; set; } = false;
     public ProcessIdentity? LastProcess { get; set; }
 }
 public sealed class ProcessIdentity
@@ -54,6 +55,7 @@ public sealed class ManagerConfig
     public string GitHubRepository { get; set; } = "Gunter1122cloud/untamed-manager-releases";
     public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public string PublisherCertificateThumbprint { get; set; } = "";
+    public List<ScheduledTask> ScheduledTasks { get; set; } = new();
     public List<LocalMap> LocalMaps { get; set; } = new();
 }
 public sealed class PublicMapStatus
