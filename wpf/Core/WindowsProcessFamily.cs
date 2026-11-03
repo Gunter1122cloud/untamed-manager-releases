@@ -39,7 +39,12 @@ public sealed partial class WindowsProcessInspector
             if(uncertain)return new(false,"Incomplete loader/server observation",null);
             var loaders=observed.Where(x=>x.ExecutablePath.Equals(loader,StringComparison.OrdinalIgnoreCase)&&x.Arguments==map.ApiLoaderArguments).ToArray();
             var children=observed.Where(x=>x.ExecutablePath.Equals(server,StringComparison.OrdinalIgnoreCase)&&x.Arguments==map.Arguments).ToArray();
-            if(loaders.Length==0&&children.Length==0)return new(false,"Loader and server verified stopped",null,true);
+            if(loaders.Length==0&&children.Length==0)
+            {
+                if(map.LastLoader!=null && DateTimeOffset.UtcNow-map.LastLoader.StartedUtc<TimeSpan.FromSeconds(60))
+                    return new(false,"Loader startup grace period; duplicate launch blocked",null);
+                return new(false,"Loader and server verified stopped",null,true);
+            }
             if(loaders.Length==1&&children.Length==0)return new(false,"Loader running; server starting or unverified",null);
             if(children.Length!=1||loaders.Length>1)return new(false,"Ambiguous loader/server family",null);
             ProcessIdentity Identity(ObservedProcess p)=>new(){Pid=p.Pid,StartedUtc=p.StartedUtc,ExecutablePath=p.ExecutablePath,Arguments=p.Arguments};

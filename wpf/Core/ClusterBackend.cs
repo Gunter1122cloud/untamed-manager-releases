@@ -390,18 +390,20 @@ public sealed class ClusterService : IAsyncDisposable
     public ProcessCheck Check(LocalMap map)
     {
         if(!Config.LocalMaps.Contains(map)) throw new UnauthorizedAccessException("Not a local map");
-        if(map.Arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase))
+        if((map.Arguments+" "+map.ApiLoaderArguments).Contains("converttostore",StringComparison.OrdinalIgnoreCase))
             return new(false,"Store conversion is forbidden",null);
         if(map.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase))
         {
             var store=LocalStoreProbe.Inspect(map.StoreTestRoot,"KovaCluster",map.Arguments);
             if(!store.Safe)return new(false,store.Reason,null);
         }
+        if(string.IsNullOrWhiteSpace(map.ApiLoaderPath)&&Path.GetFileName(map.ExecutablePath).Contains("loader",StringComparison.OrdinalIgnoreCase))
+            return new(false,"Configure loader and child executable separately",null);
         var check=string.IsNullOrWhiteSpace(map.ApiLoaderPath)?_inspect(map):_inspector.InspectFamily(map);
         if(check.Running && check.Identity!=null)
         {
             if(map.LastProcess?.Pid!=check.Identity.Pid ||
-               map.LastProcess.StartedUtc!=check.Identity.StartedUtc)
+               map.LastProcess.StartedUtc!=check.Identity.StartedUtc || map.LastLoader?.StartedUtc!=check.LoaderIdentity?.StartedUtc)
             {map.LastProcess=check.Identity;map.LastLoader=check.LoaderIdentity;Save();}
         }
         return check;

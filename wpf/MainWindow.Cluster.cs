@@ -87,11 +87,11 @@ public partial class MainWindow
         ServerCards.ItemsSource=active;
         if(ClusterMapCount!=null) ClusterMapCount.Text=active.Count.ToString();
         if(ClusterHostCount!=null) ClusterHostCount.Text=_cluster.RemoteSnapshot==null?"1":"2";
-        if(ClusterOnlineCount!=null) ClusterOnlineCount.Text=_cluster.RemoteSnapshot==null?"1 / 2":"2 / 2";
+        if(ClusterOnlineCount!=null) ClusterOnlineCount.Text=_cluster.RemoteIsFresh?"2 / 2":"1 / 2";
         if(ClusterStatusText!=null) ClusterStatusText.Text=
             $"{_cluster.Config.LocalHostName}: {_cluster.Config.LocalMaps.Count} helyi map · "+
             (_cluster.RemoteSnapshot==null?_cluster.RemoteMessage:
-             $"{_cluster.RemoteSnapshot.HostName}: {_cluster.RemoteSnapshot.Maps.Count} távoli map (csak olvasás)");
+             $"{_cluster.RemoteSnapshot.HostName}: {_cluster.RemoteSnapshot.Maps.Count} távoli map · "+(_cluster.RemoteIsFresh?"friss, csak olvasás":"ELAVULT / OFFLINE"));
     }
     private void ShowClusterPage()
     {
@@ -308,6 +308,10 @@ public partial class MainWindow
         Field("Map telepítési gyökérkönyvtára",map.InstallationPath);
         Field("Szerver EXE teljes elérési útja",map.ExecutablePath);
         Field("Indítási paraméterek (pontos egyezés)",map.Arguments);
+        Field("API-loader EXE (opcionális)",map.ApiLoaderPath);
+        Field("API-loader argumentumok",map.ApiLoaderArguments);
+        var maintenance=new CheckBox{Content="Maintenance – helyi indítás tiltva",IsChecked=map.Maintenance,Foreground=Brushes.White};
+        form.Children.Add(maintenance);
         Field("Game UDP port",map.GamePort==0?"":map.GamePort.ToString());
         Field("Query UDP port",map.QueryPort==0?"":map.QueryPort.ToString());
         Field("RCON TCP port",map.RconPort==0?"":map.RconPort.ToString());
@@ -335,6 +339,12 @@ public partial class MainWindow
                 var target=existing??new LocalMap();
                 target.Name=name;target.InstallationPath=root;target.ExecutablePath=exe;
                 target.Arguments=fields["Indítási paraméterek (pontos egyezés)"].Text.Trim();
+                string loader=fields["API-loader EXE (opcionális)"].Text.Trim();
+                if(loader.Length>0 && (!File.Exists(loader)||!IsUnderRoot(loader,root)))
+                    throw new InvalidDataException("A loader EXE-nek a helyi mapgyökérben kell lennie");
+                target.ApiLoaderPath=loader.Length==0?"":Path.GetFullPath(loader);
+                target.ApiLoaderArguments=fields["API-loader argumentumok"].Text.Trim();
+                target.Maintenance=maintenance.IsChecked==true;
                 target.GamePort=game;target.QueryPort=query;target.RconPort=rcon;
                 target.RconHost=fields["RCON host (helyi IP)"].Text.Trim();
                 target.LogFilePath=fields["Helyi naplófájl"].Text.Trim();

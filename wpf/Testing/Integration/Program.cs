@@ -245,6 +245,11 @@ try
     Assert(hpRemote?.HostName=="UK-HOME-02-TEST" && hpRemote.Maps.Single().Name=="Ragnarok" &&
            ryzenRemote?.HostName=="UK-HOME-01-TEST",
            "Both Managers see authenticated read-only peer map lists");
+    mapA.Maintenance=true;
+    bool maintenanceBlocked=false;
+    try{hp.LaunchLocal(mapA.Id);}catch(InvalidOperationException){maintenanceBlocked=true;}
+    Assert(maintenanceBlocked,"Maintenance mode blocks actual launch gateway");
+    mapA.Maintenance=false;
     Assert(hp.Check(mapA).ConfirmedStopped,"Clean process scan proves map is stopped");
     var own=hp.LaunchLocal(mapA.Id);
     p=Process.GetProcessById(own.Pid);
@@ -319,6 +324,7 @@ try
         "Mock UI update changes Manager binary only, never terminates server");
     await ryzen.DisposeAsync();ryzen=null;
     var peerOffline=await hp.PollPeerAsync();
+    Assert(!hp.RemoteIsFresh && hp.RemoteSnapshot!=null,"Peer outage retains explicitly stale last observation");
     Assert(peerOffline==null && hp.Check(hp.Config.LocalMaps.Single()).Running,
         "Peer LAN outage does not affect local server control or process state");
     Assert(hp.Config.LocalMaps.Count==1 && hp.Config.LocalMaps[0].Arguments=="--map=Astraeos --port=7777",
