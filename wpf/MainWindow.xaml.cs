@@ -260,6 +260,7 @@ public partial class MainWindow : Window
             case "monitoring": ShowMonitoring(); break;
             case "recovery": ShowRecoveryCenter(); break;
             case "license": ShowUpdateCenter(); break;
+            case "readiness": ShowReleaseReadiness(); break;
             case "settings": Settings(); break;
             case "setup": ShowSetupWizard(); break;
         }
@@ -433,18 +434,10 @@ public partial class MainWindow : Window
             Label("A mozgás külön kikapcsolható; a gombok és menük továbbra is működnek.",12,Soft), animated)));
         ShowSafeProfileTransfer();
         Add(Box(V(Label("Naplózás és diagnosztika",19,Mint,true),
-             Label(App.LogDir,12,Soft),
-             Btn("Diagnosztikai mappa",()=>{
-                Process.Start(new ProcessStartInfo{FileName=App.LogDir,UseShellExecute=true});
-             }),
-             Btn("Diagnosztika ZIP létrehozása",()=>{
-                 try {
-                     Directory.CreateDirectory(App.LogDir);
-                     var folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),"UntamedManager-Diagnosztika-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".zip");
-                     if(File.Exists(folder))File.Delete(folder);
-                     ZipFile.CreateFromDirectory(App.LogDir,folder);
-                     Notice("A diagnosztikai csomag elkészült az Asztalon.");
-                 } catch(Exception ex) { WriteLog("diagnostic-export",ex); Notice("Hiba: "+ex.Message); }
+             Label("A naplómappa csak helyben vizsgálható. A támogatási ZIP külön titokszűréssel készül.",12,Soft),
+             Btn("Diagnosztikai mappa megnyitása",()=>{
+                 Process.Start(new ProcessStartInfo{FileName=App.LogDir,UseShellExecute=true});
              }))));
+        ShowSafeSupportCenter();
     }
 }
