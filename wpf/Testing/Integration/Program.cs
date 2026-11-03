@@ -31,6 +31,40 @@ ClusterService? hp=null;
 ClusterService? ryzen=null;
 try
 {
+    // Mod order must be explicit, exact and local-only; it is never an update/download.
+    const string modArguments="-log -mods=912815,928548,942024 -port=7777";
+    Assert(LocalContentOperations.ReadMods(modArguments).SequenceEqual(new[]{"912815","928548","942024"}),
+        "Mod inspection preserves configured load order");
+    var reordered=LocalContentOperations.ReorderMods(modArguments,new[]{"942024","912815","928548"});
+    Assert(reordered=="-log -mods=942024,912815,928548 -port=7777",
+        "Mod reorder changes only mod order, preserving other launch flags");
+    var extended=LocalContentOperations.ModifyMods(modArguments,new[]{"950914"},true);
+    Assert(LocalContentOperations.ReadMods(extended).SequenceEqual(new[]{"912815","928548","942024","950914"}),
+        "Mod addition preserves prior order and appends new mod");
+    foreach(var invalidOrder in new[]{
+        new[]{"942024","912815"},
+        new[]{"912815","928548","928548"},
+        new[]{"912815","928548","999999"}
+    })
+    {
+        bool rejected=false;
+        try{LocalContentOperations.ReorderMods(modArguments,invalidOrder);}
+        catch(InvalidDataException){rejected=true;}
+        Assert(rejected,"Reorder refuses missing, duplicated or substituted mod IDs");
+    }
+    foreach(var malformed in new[]{
+        "-mods=912815,912815","-mods=912815,,928548","-mods=","-mods=912815 -mods=928548"
+    })
+    {
+        bool rejected=false;
+        try{LocalContentOperations.ReadMods(malformed);}
+        catch(InvalidDataException){rejected=true;}
+        Assert(rejected,"Ambiguous or malformed existing mod list is rejected");
+    }
+    bool absentOrderBlocked=false;
+    try{LocalContentOperations.ReorderMods("-log",new[]{"912815"});}
+    catch(InvalidOperationException){absentOrderBlocked=true;}
+    Assert(absentOrderBlocked,"Reorder refuses to invent a missing mod list");
     // v1.3.4: Local file-copy backup does NOT claim live ASA, cluster or database consistency.
     string offlineMap=Path.Combine(root,"offline-map");
     string worldDir=Path.Combine(offlineMap,"ShooterGame","Saved","SavedArks");
