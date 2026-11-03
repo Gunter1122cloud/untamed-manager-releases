@@ -34,7 +34,7 @@ public static class KovaProfileImporter
            !root.TryGetProperty("profiles",out var profiles)||
            profiles.ValueKind!=JsonValueKind.Array||
            profiles.GetArrayLength()>1000)
-            throw new InvalidDataException("Kova Manager v1 profile export required");
+            throw new InvalidDataException("A támogatott profil-export formátum szükséges");
         var store=ReadStoreCopy(storeJson);
         var result=new List<KovaImportedMap>();
         var ids=new HashSet<string>(StringComparer.Ordinal);
@@ -51,34 +51,34 @@ public static class KovaProfileImporter
                id.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c!='_'&&c!='-') ||
                string.IsNullOrWhiteSpace(path)||!Path.IsPathFullyQualified(path) ||
                path.StartsWith(@"\\"))
-                throw new InvalidDataException("Invalid or nonlocal Kova profile map binding");
+                throw new InvalidDataException("Érvénytelen vagy nem helyi profil-map összerendelés");
             var normalized=Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
             if(!ids.Add(id) || !paths.Add(normalized))
-                throw new InvalidDataException("Duplicate Kova profile ID or server root");
+                throw new InvalidDataException("Ismétlődő Vault profil vagy szervergyökér");
             var name=Str(profileEntry,"map")??id;
             var code=Str(profileEntry,"mapId")??"";
             int game=Num(profileEntry,"gamePort"),query=Num(profileEntry,"queryPort");
             if(game<0||game>65535||query<0||query>65535 ||
                game>0&&!ports.Add(game) || query>0&&!ports.Add(query))
-                throw new InvalidDataException("Kova profile port collision or invalid port");
+                throw new InvalidDataException("Vault profilok között portütközés található");
             if(!profileEntry.TryGetProperty("mods",out var modList) ||
                modList.ValueKind!=JsonValueKind.Array)
-                throw new InvalidDataException("Kova profile missing explicit mod list");
+                throw new InvalidDataException("A profil modlistája hiányzik");
             var mods=new List<KovaImportedMod>();
             var seen=new HashSet<string>(StringComparer.Ordinal);
             foreach(var item in modList.EnumerateArray())
             {
                 if(item.ValueKind!=JsonValueKind.Object || !item.TryGetProperty("id",out var itemId))
-                    throw new InvalidDataException("Invalid Kova mod item");
+                    throw new InvalidDataException("Hibás modbejegyzés");
                 string? modId=itemId.ValueKind==JsonValueKind.String?itemId.GetString():
                     itemId.ValueKind==JsonValueKind.Number?itemId.GetRawText():null;
                 if(modId==null || modId.Length<5 || modId.Length>12 ||
                    modId.Any(c=>c<'0'||c>'9') || !seen.Add(modId))
-                    throw new InvalidDataException("Invalid or duplicate Kova mod ID");
+                    throw new InvalidDataException("Hibás vagy ismétlődő modazonosító");
                 var mode=Str(item,"mode") switch{
                     null or "active"=>ModMode.Active,"passive"=>ModMode.Passive,
                     "disabled"=>ModMode.Disabled,
-                    _=>throw new InvalidDataException("Unknown Kova mod mode")
+                    _=>throw new InvalidDataException("Ismeretlen modállapot")
                 };
                 mods.Add(new(modId,mode));
             }
@@ -87,10 +87,10 @@ public static class KovaProfileImporter
             result.Add(new(id,name,normalized,code,game,query,mods,phase,false));
         }
         if(result.Count==0)warnings.Add("No locally managed profile found");
-        if(storeJson==null)warnings.Add("Kova Store metadata not supplied; active sessions unverified");
+        if(storeJson==null)warnings.Add("A közös Vault-metaadatok hiányoznak; a munkamenet nem igazolt");
         if(!Convert.ToHexString(SHA256.HashData(ReadBounded(profile,20_000_000)))
             .Equals(digest,StringComparison.Ordinal))
-            throw new IOException("Kova profile changed during read");
+            throw new IOException("A profiladatok megváltoztak az ellenőrzés közben");
         return new(digest,1,result,true,false,warnings,profile);
     }
 
@@ -98,7 +98,7 @@ public static class KovaProfileImporter
     {
         if(report==null||!report.ReadOnly||string.IsNullOrWhiteSpace(localHostId)||
            report.Maps.Count==0)
-            throw new InvalidDataException("Explicit host and inspected Kova copy required");
+            throw new InvalidDataException("Helyi host és ellenőrzött Vault-profilmásolat szükséges");
         var result=new ManagerConfig{LocalHostId=localHostId,LocalHostName="Imported offline preview",
             ListenPort=0,PeerAddress="",PeerPort=0};
         foreach(var row in report.Maps)
@@ -131,7 +131,7 @@ public static class KovaProfileImporter
         if(root.ValueKind!=JsonValueKind.Object || Num(root,"schema")!=1||
            !root.TryGetProperty("maps",out var maps)||
            maps.ValueKind!=JsonValueKind.Object)
-            throw new InvalidDataException("Unknown Kova Store-v1 copy schema");
+            throw new InvalidDataException("Ismeretlen Vault-adatformátum");
         foreach(var item in maps.EnumerateObject())
         {
             var phase=Str(item.Value,"phase");
@@ -139,7 +139,7 @@ public static class KovaProfileImporter
                Str(item.Value,"root")==null || Str(item.Value,"map")==null ||
                Str(item.Value,"backupId")==null ||
                !DateTimeOffset.TryParse(Str(item.Value,"preparedAt"),out _))
-                throw new InvalidDataException("Corrupt Kova Store-map metadata");
+                throw new InvalidDataException("Sérült cluster-map metaadatok");
             result[item.Name]=phase!;
         }
         return result;
@@ -155,16 +155,16 @@ public static class KovaProfileImporter
             throw new InvalidDataException("No network shares or mapped drives");
         for(var d=new DirectoryInfo(Path.GetDirectoryName(full)!);d!=null;d=d.Parent)
             if(d.Exists&&(d.Attributes&FileAttributes.ReparsePoint)!=0)
-                throw new InvalidDataException("Linked Kova copy path rejected");
+                throw new InvalidDataException("Hivatkozott Vault-fájlútvonal tiltott");
         if(!File.Exists(full)||(File.GetAttributes(full)&FileAttributes.ReparsePoint)!=0)
-            throw new InvalidDataException("Missing or linked Kova copy");
+            throw new InvalidDataException("Hiányzó vagy hivatkozott Vault-adatmásolat");
         return full;
     }
     private static byte[] ReadBounded(string path,int max)
     {
         var file=new FileInfo(path);
         if(file.Length>max || file.Length==0)
-            throw new InvalidDataException("Kova copy exceeds safe size");
+            throw new InvalidDataException("Vault-adatmásolat túl nagy");
         return File.ReadAllBytes(path);
     }
     private static string? Str(JsonElement root,string field)
