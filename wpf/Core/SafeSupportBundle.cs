@@ -79,6 +79,27 @@ public static class SafeSupportBundle
         bool AutoStartMayExecute,bool RealServerWritesAuthorized,
         bool LiveStoreTransferProven,bool LiveMariaDbRestoreAuthorized);
     private sealed record PublicEvent(DateTimeOffset Utc,string Severity,string Code);
+    // Exact allowlist: an arbitrary syntactically safe Code can still be a
+    // secret ("SECRET-RCON-PASSWORD"). Never export such values.
+    private static readonly HashSet<string> ExportableEventCodes=new(
+        StringComparer.Ordinal)
+    {
+        "manager-start","supervisor-start","supervisor-stop",
+        "watchdog-check","watchdog-maintenance","watchdog-attention-required",
+        "watchdog-observed-ok","watchdog-issue-observed",
+        "process-observation-changed","rcon-observation-changed",
+        "telemetry-write-rejected","supervisor-observation-failed",
+        "recurring-readonly-evaluation-failed",
+        "recurring-claimed","recurring-succeeded",
+        "recurring-failed-not-retried","recurring-maintenance-blocked",
+        "recurring-missed-no-catchup","recurring-foreign-map-blocked",
+        "recurring-live-operation-disabled",
+        "schedule-succeeded","schedule-failed-no-auto-retry",
+        "schedule-invalid-kind-blocked","schedule-foreign-map-blocked",
+        "schedule-autostart-disabled","schedule-claimed",
+        "discord-webhook-configured","discord-status-confirmed"
+    };
+
 
     public static SafeSupportBundleResult Create(string destination,
         ManagerConfig config,IEnumerable<MonitorEvent>? events,
@@ -102,8 +123,7 @@ public static class SafeSupportBundle
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         string temp=full+"."+Guid.NewGuid().ToString("N")+".tmp";
         var valid=events?.Where(e=>e!=null &&
-            e.Code is {Length: > 0 and <= 100} &&
-            e.Code.All(c=>char.IsAsciiLetterOrDigit(c)||c is '-' or '_') &&
+            e.Code is not null && ExportableEventCodes.Contains(e.Code) &&
             e.Severity is "Information" or "Warning" or "Error")
             .OrderByDescending(e=>e.Utc).Take(100)
             .Select(e=>new PublicEvent(e.Utc,e.Severity,e.Code)).ToArray()
