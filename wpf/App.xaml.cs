@@ -33,8 +33,16 @@ public partial class App : System.Windows.Application
         if (IsSmokeTest)
         {
             StartupUri = null;
-            try { var window = new MainWindow(); window.UpdateLayout(); Shutdown(0); }
-            catch (Exception ex) { Log(ex); Shutdown(1); }
+            try
+            {
+                File.WriteAllText(Path.Combine(LogDir,"smoke.log"),"starting\n");
+                var window = new MainWindow();
+                File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"constructed\n");
+                window.UpdateLayout();
+                File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"passed\n");
+                Environment.Exit(0);
+            }
+            catch (Exception ex) { Log(ex); Environment.Exit(1); }
             return;
         }
         base.OnStartup(e);
