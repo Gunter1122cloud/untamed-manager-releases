@@ -253,12 +253,15 @@ public partial class MainWindow : Window
             case "plugins": Plugins(); break;
             case "ini": Ini(); break;
             case "backups": Backups(); break;
+            case "data": ShowDataSafetyCenter(); break;
+            case "steam": ShowSteamUpdateCenter(); break;
             case "rcon": Rcon(); break;
             case "schedules": ShowBackgroundSchedules(); break;
             case "monitoring": ShowMonitoring(); break;
             case "recovery": ShowRecoveryCenter(); break;
             case "license": ShowUpdateCenter(); break;
             case "settings": Settings(); break;
+            case "setup": ShowSetupWizard(); break;
         }
     }
     private void Header(string title,string description)
@@ -447,6 +450,7 @@ public partial class MainWindow : Window
         animated.Unchecked+=(_,_)=>SetAnimations(false);
         Add(Box(V(Label("Megjelenés / animáció",19,Mint,true),
             Label("A mozgás külön kikapcsolható; a gombok és menük továbbra is működnek.",12,Soft), animated)));
+        ShowSafeProfileTransfer();
         Add(Box(V(Label("Naplózás és diagnosztika",19,Mint,true),
              Label(App.LogDir,12,Soft),
              Btn("Diagnosztikai mappa",()=>{
