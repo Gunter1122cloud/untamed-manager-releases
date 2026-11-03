@@ -267,6 +267,22 @@ try
     }
     Assert(check.Running && check.Identity?.Pid==own.Pid,
         "Windows WMI matches running fake server executable, arguments and start time");
+    if(args.Length<2 || !File.Exists(args[1]))throw new ArgumentException("Independent supervisor EXE required");
+    var supervisorStart=new ProcessStartInfo(Path.GetFullPath(args[1])){UseShellExecute=false,CreateNoWindow=true};
+    foreach(string value in new[]{"--once","--root",aRoot,"--profile","hp-test"})supervisorStart.ArgumentList.Add(value);
+    using(var worker=Process.Start(supervisorStart)!)
+    {
+        using var workerDeadline=new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try {await worker.WaitForExitAsync(workerDeadline.Token);}
+        catch(OperationCanceledException){worker.Kill();await worker.WaitForExitAsync();throw;}
+        Assert(worker.ExitCode==0,"Independent supervisor exits cleanly after real map observation");
+    }
+    using(var heartbeat=System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(aRoot,"supervisor-heartbeat.json"))))
+    {
+        Assert(heartbeat.RootElement.GetProperty("readOnly").GetBoolean() && heartbeat.RootElement.GetProperty("states")[0].GetProperty("Map").GetGuid()==mapA.Id,
+            "UI-independent worker observes registered local map and writes read-only heartbeat");
+    }
+    Assert(!p.HasExited,"Independent supervisor observation leaves FakeAsa alive");
     string appTree=Path.Combine(root,"update-application");Directory.CreateDirectory(appTree);
     Directory.CreateDirectory(Path.Combine(appTree,"dependencies"));
     File.WriteAllText(Path.Combine(appTree,"manager.bin"),"old exe");
