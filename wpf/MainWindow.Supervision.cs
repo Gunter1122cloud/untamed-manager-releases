@@ -11,6 +11,7 @@ using UntamedManager.Core;
 namespace UntamedManager;
 public partial class MainWindow
 {
+    public void CompleteSupervisionCiTest()=>Exit();
     private SupervisorChannel? _supervisorChannel;
     private SupervisorSnapshot? _supervisorSnapshot;
     private readonly DispatcherTimer _supervisorTimer=new(){Interval=TimeSpan.FromSeconds(5)};
@@ -46,6 +47,7 @@ public partial class MainWindow
         try
         {
             var snapshot=_supervisorChannel.Read(_cluster.Config.LocalHostId);
+            if(snapshot.Maps.Select(x=>x.Map).Distinct().Count()!=snapshot.Maps.Length || snapshot.Maps.Any(x=>!_cluster.Config.LocalMaps.Any(m=>m.Id==x.Map)))throw new IOException("Supervisor map ownership mismatch");
             using var process=Process.GetProcessById(snapshot.Pid);
             if(new DateTimeOffset(process.StartTime.ToUniversalTime())!=snapshot.StartedUtc||
                 !string.Equals(process.MainModule?.FileName,snapshot.Executable,StringComparison.OrdinalIgnoreCase))throw new IOException("Supervisor identity mismatch");
@@ -84,7 +86,8 @@ public partial class MainWindow
         SupervisorStatus.Text=_supervisorMessage+Environment.NewLine+string.Join(Environment.NewLine,lines);
         SupervisorBadge.Text=_supervisorSnapshot==null?"Supervisor: nem elérhető":"Supervisor: kapcsolódva";
     }
-    private static string FormatObservation(MapObservation x)=>
+    private static string FormatObservation(MapObservation x)=>!StatusFreshness.IsFresh(x.ObservedUtc,DateTimeOffset.UtcNow)?
+        x.Name+": ELAVULT MÉRÉS · "+x.ObservedUtc.ToString("O") :
         $"{x.Name}: {(x.Running==true?"Fut":x.Running==false?"Leállítva":"Ismeretlen")} · CPU {(x.CpuPercent.HasValue?x.CpuPercent.Value.ToString("F1")+"%":"Ismeretlen")} · RAM {(x.MemoryBytes.HasValue?(x.MemoryBytes.Value/1048576)+" MiB":"Ismeretlen")} · "+
         $"Uptime {(x.UptimeSeconds.HasValue?TimeSpan.FromSeconds(x.UptimeSeconds.Value).ToString():"Ismeretlen")}\n"+
         $"Loader: {x.Loader} · RCON: {x.Rcon} · Játékosok: {(x.Players.HasValue?x.Players.Value.ToString():"Ismeretlen")} · Maintenance: {x.Maintenance}\n"+

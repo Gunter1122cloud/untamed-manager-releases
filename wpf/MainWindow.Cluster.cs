@@ -17,7 +17,7 @@ namespace UntamedManager;
 
 public partial class MainWindow
 {
-    private readonly ClusterService _cluster = new(App.ProfileName);
+    private readonly ClusterService _cluster = new(App.ProfileName,App.ProfileRootOverride);
     private readonly CancellationTokenSource _peerCts = new();
     private Task? _peerLoop;
     private static readonly string[] KnownMaps = {
@@ -28,7 +28,7 @@ public partial class MainWindow
     {
         // No automatic map discovery or import. Only local maps explicitly saved by the user.
         RefreshDashboardMapCards();
-        if (!App.IsSmokeTest) _ = BeginClusterNetworkingAsync();
+        if (!App.IsSmokeTest && !App.IsSupervisionTest) _ = BeginClusterNetworkingAsync();
     }
     private async Task BeginClusterNetworkingAsync()
     {
@@ -38,7 +38,9 @@ public partial class MainWindow
             while(!_peerCts.IsCancellationRequested)
             {
                 try {
+                    bool wasFresh=_cluster.RemoteIsFresh;
                     await _cluster.PollPeerAsync(_peerCts.Token);
+                    if(wasFresh!=_cluster.RemoteIsFresh)try{_events?.Append(_cluster.Config.LocalHostName,null,_cluster.RemoteIsFresh?"Information":"Warning",_cluster.RemoteIsFresh?"lan-peer-connected":"lan-peer-stale");}catch{}
                     await Dispatcher.InvokeAsync(()=>{
                         RefreshDashboardMapCards();
                         if(_page=="cluster") ShowClusterPage();
@@ -315,6 +317,7 @@ public partial class MainWindow
         form.Children.Add(maintenance);
         var monitorRcon=new CheckBox{Content="Hitelesített RCON-monitoring (ListPlayers)",IsChecked=map.MonitorRcon,Foreground=Brushes.White};
         form.Children.Add(monitorRcon);
+        Field("Watchdog ellenőrzés másodpercben (5–3600)",map.WatchdogIntervalSeconds.ToString());
         Field("Game UDP port",map.GamePort==0?"":map.GamePort.ToString());
         Field("Query UDP port",map.QueryPort==0?"":map.QueryPort.ToString());
         Field("RCON TCP port",map.RconPort==0?"":map.RconPort.ToString());
@@ -349,6 +352,8 @@ public partial class MainWindow
                 target.ApiLoaderArguments=fields["API-loader argumentumok"].Text.Trim();
                 target.Maintenance=maintenance.IsChecked==true;
                 target.MonitorRcon=monitorRcon.IsChecked==true;
+                if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,out var interval)||interval<5||interval>3600)throw new InvalidDataException("Érvénytelen watchdog-időköz");
+                target.WatchdogIntervalSeconds=interval;
                 target.GamePort=game;target.QueryPort=query;target.RconPort=rcon;
                 target.RconHost=fields["RCON host (helyi IP)"].Text.Trim();
                 target.LogFilePath=fields["Helyi naplófájl"].Text.Trim();

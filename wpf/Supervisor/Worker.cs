@@ -18,6 +18,7 @@ public static class SupervisorWorker
             var channel=new SupervisorChannel(store.Root);var events=new EventJournal(channel.Root);
             var scheduler=new PersistentScheduler(channel.Root);var inspector=new WindowsProcessInspector();var policy=new SupervisorPolicy();
             using var self=Process.GetCurrentProcess();var started=new DateTimeOffset(self.StartTime.ToUniversalTime());
+            var watchdogStates=new Dictionary<Guid,SupervisionState>();
             var previous=new Dictionary<Guid,MapObservation>();var cpu=new Dictionary<int,(DateTimeOffset time,TimeSpan cpu,DateTimeOffset start)>();
             var config=store.Read();events.Append(config.LocalHostName,null,"Information","supervisor-start");
             try
@@ -33,7 +34,11 @@ public static class SupervisorWorker
                             var state=(map.Arguments+" "+map.ApiLoaderArguments).Contains("store",StringComparison.OrdinalIgnoreCase)?
                                 new ProcessCheck(false,"Store validation required",null):string.IsNullOrWhiteSpace(map.ApiLoaderPath)?inspector.Inspect(map):inspector.InspectFamily(map);
                             bool maintenance=map.Maintenance||config.ScheduledTasks.Any(x=>x.Enabled&&x.Map==map.Id&&x.Kind==ScheduledKind.Maintenance&&x.DueUtc<=now&&x.UntilUtc>now);
-                            var watchdog=policy.Observe(map.Id,state,maintenance,now);
+                            if(!watchdogStates.TryGetValue(map.Id,out var watchdog) || now-watchdog.ObservedUtc>=TimeSpan.FromSeconds(Math.Clamp(map.WatchdogIntervalSeconds,5,3600)) || watchdog.Maintenance!=maintenance)
+                            {
+                                watchdog=policy.Observe(map.Id,state,maintenance,now);watchdogStates[map.Id]=watchdog;
+                                events.Append(config.LocalHostName,map.Id,watchdog.AttentionRequired?"Warning":"Information","watchdog-check");
+                            }
                             double? load=null,uptime=null;long? ram=null;
                             if(state.Running && state.Identity!=null)
                             {
@@ -74,6 +79,7 @@ public static class SupervisorWorker
                             if(oldObservation==null||oldObservation.Rcon!=rcon)events.Append(config.LocalHostName,map.Id,"Information","rcon-observation-changed");
                             previous[map.Id]=observation;observations.Add(observation);
                         }
+                        int receiptCount=scheduler.Receipts.Length;
                         await scheduler.RunDue(config.ScheduledTasks,config.LocalMaps.Select(x=>x.Id).ToHashSet(),now,task=>
                         {
                             if(task.Kind==ScheduledKind.BackupIntegrity)
@@ -85,6 +91,7 @@ public static class SupervisorWorker
                             events.Append(config.LocalHostName,task.Map,"Information","scheduled-"+task.Kind.ToString().ToLowerInvariant());
                             return Task.CompletedTask;
                         });
+                        foreach(var receipt in scheduler.Receipts.Skip(receiptCount))events.Append(config.LocalHostName,null,receipt.Status=="succeeded"?"Information":"Warning","schedule-"+receipt.Status);
                         channel.Write(new(config.LocalHostId,Environment.ProcessId,started,Environment.ProcessPath!,DateTimeOffset.UtcNow,observations.ToArray()));
                         // Compatibility heartbeat for existing consumers; GUI trusts only the authenticated channel.
                         string heartbeat=Path.Combine(store.Root,"supervisor-heartbeat.json");

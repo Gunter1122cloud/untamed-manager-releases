@@ -100,7 +100,7 @@
       <Border BorderBrush="#35D0A5" BorderThickness="1" Background="#D3052520" CornerRadius="8" Padding="8">
        <TextBlock Text="◆  ELKÜLÖNÍTETT TESZTGÉP" Foreground="#B8FFCE" FontWeight="SemiBold" FontSize="10" TextAlignment="Center"/>
       </Border>
-      <TextBlock Text="Kova Store: változatlan   •   0 aktív agent" Foreground="#D8F5ED" FontSize="10" Margin="3,8,0,0"/>
+      <TextBlock Text="Store-írás tiltva   •   helyi Supervisor" Foreground="#D8F5ED" FontSize="10" Margin="3,8,0,0"/>
     </StackPanel>
    </Grid>
   </Grid>
@@ -110,7 +110,7 @@
     <DockPanel Margin="24,0,24,0">
      <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
       <TextBlock Text="UNTAMED KINGDOM  /  SZERVERÜZEMELTETÉS" FontSize="13" Foreground="#DDF2E7" FontWeight="SemiBold"/>
-      <TextBlock Text="Windows WPF alkalmazás · helyi tesztadatok · élő kapcsolat nélkül" FontSize="11" Foreground="#8BBAB3" Margin="0,5,0,0"/>
+      <TextBlock Text="Windows WPF alkalmazás · helyi felügyelet · hitelesített LAN-státusz" FontSize="11" Foreground="#8BBAB3" Margin="0,5,0,0"/>
      </StackPanel>
      <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
       <Border Background="#203F3B" CornerRadius="8" Padding="13,8" Margin="0,0,10,0"><TextBlock Text="WPF 1.3.3" Foreground="#73DDC8" FontSize="11"/></Border>
@@ -157,7 +157,7 @@
        <Border Style="{StaticResource NeonStatPanel}"><StackPanel><TextBlock Text="◇  TÉRKÉPEK" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterMapCount" Text="0" Foreground="#A6F873" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="5 HP + 5 Ryzen" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
        <Border Style="{StaticResource NeonStatPanel}"><StackPanel><TextBlock Text="▤  GAZDAGÉPEK" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterHostCount" Text="1" Foreground="White" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Külön Windows gépek" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
        <Border Style="{StaticResource NeonStatPanel}"><StackPanel><TextBlock Text="⬡  MOD-HOZZÁRENDELÉS" Foreground="#9DB7B2"/><TextBlock Text="Ismeretlen" Foreground="#73DDC8" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="2026.11.02-i audit" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
-       <Border Style="{StaticResource AmberStatPanel}"><StackPanel><TextBlock Text="◉  ÉLŐ KAPCSOLAT" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterOnlineCount" Text="1 / 2" Foreground="#F4BB78" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Agent nincs csatlakoztatva" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
+       <Border Style="{StaticResource AmberStatPanel}"><StackPanel><TextBlock Text="◉  ÉLŐ KAPCSOLAT" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterOnlineCount" Text="1 / 2" Foreground="#F4BB78" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Csak friss, hitelesített kapcsolatok" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
       </UniformGrid>
       <DockPanel LastChildFill="False" Margin="0,6,12,9">
        <TextBlock Text="Gazdagépek / infrastruktúra" Foreground="White" DockPanel.Dock="Left" FontSize="21" FontWeight="Bold"/>

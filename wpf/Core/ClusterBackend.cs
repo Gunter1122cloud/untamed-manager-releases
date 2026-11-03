@@ -35,6 +35,7 @@ public sealed class LocalMap
     public bool AutoStart { get; set; } = false;
     public bool Maintenance { get; set; } = false;
     public bool MonitorRcon { get; set; } = false;
+    public int WatchdogIntervalSeconds { get; set; } = 30;
     public ProcessIdentity? LastProcess { get; set; }
 }
 public sealed class ProcessIdentity

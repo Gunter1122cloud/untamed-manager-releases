@@ -26,6 +26,7 @@ Process? p=null;
 Process? duplicate=null;
 Process? familyLoader=null;
 Process? familyChild=null;
+Process? persistentWorker=null;
 ClusterService? hp=null;
 ClusterService? ryzen=null;
 try
@@ -334,6 +335,31 @@ try
     Assert(authenticatedWorker.Maps.Single().Map==mapA.Id&&authenticatedWorker.Maps.Single().MemoryBytes>0&&authenticatedWorker.Maps.Single().Players==null,
         "Real supervisor publishes measured RAM and unknown player count through authenticated IPC");
     Assert(!p.HasExited,"Independent supervisor observation leaves FakeAsa alive");
+    if(args.Length<3||!File.Exists(args[2]))throw new ArgumentException("Actual Manager EXE required for GUI lifetime test");
+    async Task RunManagerLifetime()
+    {
+        var start=new ProcessStartInfo(Path.GetFullPath(args[2])){UseShellExecute=false,CreateNoWindow=true};
+        foreach(string arg in new[]{"--supervisor-ci-test","--profile-root",aRoot,"--profile","hp-test"})start.ArgumentList.Add(arg);
+        using var manager=Process.Start(start)!;using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        try{await manager.WaitForExitAsync(deadline.Token);}catch{manager.Kill();await manager.WaitForExitAsync();throw;}
+        Assert(manager.ExitCode==0,"Actual WPF Manager connects to supervisor and exits cleanly");
+    }
+    await RunManagerLifetime();
+    var afterUi=new SupervisorChannel(aRoot).Read(hp.Config.LocalHostId);
+    persistentWorker=Process.GetProcessById(afterUi.Pid);
+    Assert(!persistentWorker.HasExited&&!p.HasExited,"Supervisor and FakeAsa survive actual Manager UI shutdown");
+    int persistedPid=persistentWorker.Id;
+    await RunManagerLifetime();
+    Assert(new SupervisorChannel(aRoot).Read(hp.Config.LocalHostId).Pid==persistedPid,"Restarted WPF Manager rejoins same supervisor process");
+    var duplicateStart=new ProcessStartInfo(Path.GetFullPath(args[1])){UseShellExecute=false,CreateNoWindow=true};
+    foreach(string arg in new[]{"--once","--root",aRoot,"--profile","hp-test"})duplicateStart.ArgumentList.Add(arg);
+    using(var duplicateWorker=Process.Start(duplicateStart)!)
+    {
+        using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        try{await duplicateWorker.WaitForExitAsync(deadline.Token);}catch{duplicateWorker.Kill();await duplicateWorker.WaitForExitAsync();throw;}
+        Assert(duplicateWorker.ExitCode!=0,"Second supervisor cannot acquire same profile lease");
+    }
+    persistentWorker.Kill();await persistentWorker.WaitForExitAsync();persistentWorker.Dispose();persistentWorker=null;
     string appTree=Path.Combine(root,"update-application");Directory.CreateDirectory(appTree);
     Directory.CreateDirectory(Path.Combine(appTree,"dependencies"));
     File.WriteAllText(Path.Combine(appTree,"manager.bin"),"old exe");
@@ -366,6 +392,13 @@ try
     File.WriteAllText(Path.Combine(appTree,"manager.bin"),"healthy new application");successUpdate.Commit();
     successUpdate.Rollback();
     Assert(File.ReadAllText(Path.Combine(appTree,"manager.bin"))=="healthy new application" && !p.HasExited,"Committed update retained while FakeAsa stays alive");
+    string recoveryRoot=Path.Combine(root,"startup-updates");Directory.CreateDirectory(recoveryRoot);
+    string recoverSnapshot=Path.Combine(recoveryRoot,"rollback-fixture");
+    var startupTransaction=new DirectoryUpdateTransaction(recoverSnapshot);startupTransaction.Prepare(appTree);
+    Assert(UpdateRecovery.FindPending(appTree,recoveryRoot)==recoverSnapshot,"Startup recognizes pending full-directory update");
+    Assert(UpdateRecovery.FindPending(Path.Combine(root,"other-app"),recoveryRoot)==null,"Startup recovery never targets another application");
+    startupTransaction.Rollback();
+    Assert(UpdateRecovery.FindPending(appTree,recoveryRoot)==null,"Verified rollback clears automatic recovery requirement");
     string originalArgs=mapA.Arguments;
     mapA.Arguments+=" --changed";
     Assert(!hp.Check(mapA).ConfirmedStopped,"Changed arguments on same installation are uncertain, not stopped");
@@ -409,6 +442,7 @@ finally
 {
     if(hp!=null)await hp.DisposeAsync();
     if(ryzen!=null)await ryzen.DisposeAsync();
+    if(persistentWorker!=null)try{if(!persistentWorker.HasExited)persistentWorker.Kill();persistentWorker.Dispose();}catch{}
     if(familyChild!=null)try{if(!familyChild.HasExited)familyChild.Kill();familyChild.Dispose();}catch{}
     if(familyLoader!=null)try{if(!familyLoader.HasExited)familyLoader.Kill();familyLoader.Dispose();}catch{}
     if(duplicate!=null)try{if(!duplicate.HasExited)duplicate.Kill(true);duplicate.Dispose();}catch{}

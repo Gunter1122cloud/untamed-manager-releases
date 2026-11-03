@@ -39,7 +39,7 @@ public sealed class PersistentScheduler
         foreach(var task in tasks.Where(x=>x.Enabled&&x.DueUtc<=now).OrderBy(x=>x.DueUtc))
         {
             if(receipts.Any(x=>x.Task==task.Id&&x.DueUtc==task.DueUtc))continue;
-            string status=!owned.Contains(task.Map)?"foreign-map-blocked":task.Kind==ScheduledKind.AutoStart?"autostart-disabled":"claimed";
+            string status=!Enum.IsDefined(task.Kind)?"invalid-kind-blocked":!owned.Contains(task.Map)?"foreign-map-blocked":task.Kind==ScheduledKind.AutoStart?"autostart-disabled":"claimed";
             int index=receipts.Count;receipts.Add(new(task.Id,task.DueUtc,status,0));Save();
             if(status!="claimed")continue;
             // Claim is durable before execution. Interrupted/uncertain jobs are never retried automatically.

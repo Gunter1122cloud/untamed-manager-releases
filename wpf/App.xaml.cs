@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using UntamedManager.Core;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -14,6 +16,8 @@ public partial class App : System.Windows.Application
     private Mutex? mutex;
     public static string ProfileName { get; private set; } = "default";
     public static bool IsSmokeTest { get; private set; }
+    public static bool IsSupervisionTest { get; private set; }
+    public static string? ProfileRootOverride { get; private set; }
     public static readonly string LogDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"UntamedManager","WPF");
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -27,7 +31,33 @@ public partial class App : System.Windows.Application
             { MessageBox.Show("Érvénytelen profilnév."); Shutdown(2); return; }
             ProfileName = requested;
         }
+        IsSupervisionTest=e.Args.Contains("--supervisor-ci-test");
+        if(IsSupervisionTest)
+        {
+            int i=Array.IndexOf(e.Args,"--profile-root");
+            if(i<0||i+1>=e.Args.Length){Shutdown(2);return;}
+            string root=Path.GetFullPath(e.Args[i+1]);
+            if(!root.StartsWith(Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)){Shutdown(2);return;}
+            ProfileRootOverride=root;
+        }
         IsSmokeTest = Array.Exists(e.Args, a => a == "--smoke-test" || a == "--screenshot-test");
+        if(!IsSmokeTest && !IsSupervisionTest && !e.Args.Contains("--update-verified"))
+        {
+            try
+            {
+                string app=Environment.ProcessPath??throw new IOException("Application path unavailable");
+                string? pending=UpdateRecovery.FindPending(Path.GetDirectoryName(app)!,UpdateCenter.UpdateRoot);
+                if(pending!=null)
+                {
+                    string helper=UpdateCenter.StageUpdater(Path.Combine(Path.GetDirectoryName(app)!,"UntamedUpdater.exe"));
+                    var start=new ProcessStartInfo(helper){UseShellExecute=false,CreateNoWindow=true};
+                    foreach(string arg in new[]{"--recover","--pid",Environment.ProcessId.ToString(),"--app",app,"--profile",ProfileName,"--backup",pending})start.ArgumentList.Add(arg);
+                    if(Process.Start(start)==null)throw new IOException("Recovery process did not start");
+                    UpdateHistory.Append("startup-recovery-requested","");Shutdown();return;
+                }
+            }
+            catch(Exception ex){Log(ex);MessageBox.Show("Megszakadt frissítés: a biztonságos helyreállítás kézi ellenőrzést igényel.");Shutdown(2);return;}
+        }
         mutex = new Mutex(true,@"Local\UntamedManager_WPF_Desktop_" + ProfileName,out bool first);
         if (!first)
         {
@@ -80,6 +110,23 @@ public partial class App : System.Windows.Application
             }
             catch (Exception ex) { Log(ex); Environment.Exit(1); }
             return;
+        }
+        if(IsSupervisionTest)
+        {
+            int tries=0;var timer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(1)};
+            timer.Tick+=(_,_)=>
+            {
+                try
+                {
+                    var store=new ConfigStore(ProfileName,ProfileRootOverride);var channel=new SupervisorChannel(store.Root);
+                    var snapshot=channel.Read(store.Read().LocalHostId);
+                    using var worker=Process.GetProcessById(snapshot.Pid);
+                    if(worker.HasExited||new DateTimeOffset(worker.StartTime.ToUniversalTime())!=snapshot.StartedUtc)throw new IOException("Worker not alive");
+                    if(MainWindow is UntamedManager.MainWindow window){timer.Stop();window.CompleteSupervisionCiTest();return;}
+                }catch{}
+                if(++tries>=30){timer.Stop();Environment.Exit(3);}
+            };
+            timer.Start();
         }
         base.OnStartup(e);
     }

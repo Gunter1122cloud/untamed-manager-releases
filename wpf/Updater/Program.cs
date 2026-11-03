@@ -57,11 +57,13 @@ public sealed class UpdateForm : Form
         var start=new ProcessStartInfo(exe){WorkingDirectory=Path.GetDirectoryName(exe)!,
             UseShellExecute=true};
         if(!string.IsNullOrWhiteSpace(profile)){start.ArgumentList.Add("--profile");start.ArgumentList.Add(profile);}
+        start.ArgumentList.Add("--update-verified");
         Process.Start(start);
     }
     private async Task RunAsync()
     {
         DirectoryUpdateTransaction? transaction=null;
+        bool snapshotPrepared=false;
         string? appExe=null;
         string? profile=null;
         try
@@ -70,7 +72,13 @@ public sealed class UpdateForm : Form
             {
                 appExe=Path.GetFullPath(Required("--app"));profile=Required("--profile");
                 transaction=new DirectoryUpdateTransaction(Required("--backup"));
-                transaction.Rollback();Restart(appExe,profile);Close();return;
+                int index=Array.IndexOf(_arguments,"--pid");
+                if(index>=0)
+                {
+                    try{using var old=Process.GetProcessById(int.Parse(Required("--pid")));if(!await Task.Run(()=>old.WaitForExit(90000)))throw new TimeoutException("Manager has not exited");}
+                    catch(ArgumentException){}
+                }
+                snapshotPrepared=true;transaction.Rollback();UpdateHistory.Append("startup-rollback-verified","");Restart(appExe,profile);Close();return;
             }
             int managerPid=int.Parse(Required("--pid"));
             string installer=Path.GetFullPath(Required("--installer"));
@@ -94,7 +102,7 @@ public sealed class UpdateForm : Form
             }
             catch(ArgumentException){} // Already exited.
             Update("Korábbi alkalmazás mentése…",25);
-            transaction.Prepare(Path.GetDirectoryName(appExe)!);
+            transaction.Prepare(Path.GetDirectoryName(appExe)!);snapshotPrepared=true;
             UpdateHistory.Append("snapshot-prepared",expected);
             var log=Path.Combine(snapshotRoot,"setup.log");
             Update("Új Windows-verzió telepítése…",45);
@@ -136,7 +144,7 @@ public sealed class UpdateForm : Form
             string message=ex.ToString();
             try
             {
-                if(transaction!=null&&appExe!=null)
+                if(snapshotPrepared&&transaction!=null&&appExe!=null)
                 {
                     Update("Korábbi verzió visszaállítása…",70);
                     transaction.Rollback();
