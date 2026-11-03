@@ -62,13 +62,14 @@ try
     Assert(!LocalStoreProbe.Inspect(Path.Combine(root,"missing-store"),"KovaCluster","-usestore").Safe,"Unavailable Store blocks operations");
     Assert(!LocalStoreProbe.Inspect(packageSource,"KovaCluster","-usestore").Safe,"Unknown Store metadata fails closed");
     Assert(!LocalStoreProbe.Inspect(packageSource,"KovaCluster","-usestore -converttostore").Safe,"Store conversion is rejected");
-    foreach(var mode in new[]{"success","no-save-proof","rcon-failure","timeout","unknown-exit"})
+    foreach(var mode in new[]{"success","no-save-proof","rcon-failure","timeout","exit-timeout","unknown-exit"})
     {
         var session=new LifecycleFixture(mode);
         bool succeeded=false;
         try { await SafeLifecycle.Stop(session,true,TimeSpan.FromMilliseconds(300)); succeeded=true; }
         catch(Exception ex) when(ex is InvalidOperationException or IOException or OperationCanceledException) {}
         Assert(succeeded==(mode=="success"),"Lifecycle result: "+mode);
+        if(mode=="success")Assert(session.Commands.SequenceEqual(new[]{"ServerChat Server maintenance: saving world before shutdown","SaveWorld","DoExit"}),"Stop command order preserves save-before-exit");
         Assert(session.Starts==(mode=="success"?1:0),"Restart only after verified exit: "+mode);
         if(mode=="no-save-proof" || mode=="rcon-failure")
             Assert(!session.Commands.Contains("DoExit"),"No DoExit without save evidence: "+mode);
@@ -228,7 +229,7 @@ sealed class LifecycleFixture(string mode) : ILocalServerSession
         Commands.Add(command);
         if(mode=="rcon-failure")throw new IOException("fixture RCON failed");
         if(mode=="timeout")await Task.Delay(Timeout.Infinite,ct);
-        if(command=="DoExit")exited=true;
+        if(command=="DoExit" && mode!="exit-timeout")exited=true;
     }
     public Task<bool> SaveCompleted(CancellationToken ct)=>Task.FromResult(mode!="no-save-proof");
     public void Start() { if(!Check().ConfirmedStopped)throw new Exception("Unsafe restart");Starts++; }

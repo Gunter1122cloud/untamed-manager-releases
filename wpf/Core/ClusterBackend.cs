@@ -383,7 +383,8 @@ public sealed class ClusterService : IAsyncDisposable
     public ProcessCheck Check(LocalMap map)
     {
         if(!Config.LocalMaps.Contains(map)) throw new UnauthorizedAccessException("Not a local map");
-        if(!string.IsNullOrWhiteSpace(map.ApiLoaderPath))
+        if(!string.IsNullOrWhiteSpace(map.ApiLoaderPath) ||
+            Path.GetFileName(map.ExecutablePath).Contains("loader",StringComparison.OrdinalIgnoreCase))
             return new(false,"API-loader identity is unverified; operations blocked",null);
         if(map.Arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase))
             return new(false,"Store conversion is forbidden",null);
