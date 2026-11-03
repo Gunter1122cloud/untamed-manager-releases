@@ -36,6 +36,10 @@ jobs:
           if ($atlas.encoding -ne "base64") { throw "Map atlas blob invalid" }
           [IO.File]::WriteAllBytes("wpf/Assets/map-atlas.jpg",[Convert]::FromBase64String(($atlas.content -replace '\s','')))
           if ((Get-Item "wpf/Assets/map-atlas.jpg").Length -lt 3000) { throw "Map atlas incomplete" }
+          $ico=gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/7d6fa69a40eac8b7cf343e0f39223d776d4131c2" | ConvertFrom-Json
+          if ($ico.encoding -ne "base64") { throw "Icon blob invalid" }
+          [IO.File]::WriteAllBytes("wpf/Assets/UntamedManager.ico",[Convert]::FromBase64String(($ico.content -replace '\s','')))
+          if ((Get-Item "wpf/Assets/UntamedManager.ico").Length -lt 800) { throw "Icon file incomplete" }
       - name: Check source files
         shell: pwsh
         run: |
