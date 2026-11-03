@@ -109,7 +109,7 @@
          <Ellipse Fill="#DDF9A0" Width="8" Height="8" Canvas.Left="1183" Canvas.Top="121"/>
          <Path Fill="#061618" Data="M0 270 L77 235 101 267 156 215 189 271 279 222 310 290 0 290Z"/>
         </Canvas>
-        <Rectangle Fill="{StaticResource Night}"/>
+        <Image Source="/Assets/kingdom-hero.jpg" Stretch="UniformToFill" Opacity="0.95"/><Rectangle Fill="{StaticResource Night}"/>
         <Ellipse x:Name="AmbientGlow" HorizontalAlignment="Right" VerticalAlignment="Top" Width="430" Height="300" Margin="0,-64,-85,0" Fill="#2966FFE0" Opacity="0.48" IsHitTestVisible="False"/>
         <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center" Margin="33,0,370,0">
          <TextBlock Text="ARK: SURVIVAL ASCENDED" FontWeight="SemiBold" FontSize="12" Foreground="#A6F873"/>
