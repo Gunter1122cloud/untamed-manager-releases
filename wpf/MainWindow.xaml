@@ -21,24 +21,47 @@
    <Setter Property="Margin" Value="12,2"/>
   </Style>
   <Style x:Key="MapCardButton" TargetType="Button">
-    <Setter Property="Padding" Value="0"/>
-    <Setter Property="Margin" Value="0,0,14,14"/>
-    <Setter Property="BorderThickness" Value="0"/>
-    <Setter Property="Background" Value="Transparent"/>
-    <Setter Property="Cursor" Value="Hand"/>
-    <Setter Property="Template">
-     <Setter.Value><ControlTemplate TargetType="Button">
-      <Border x:Name="Card" Background="#12282A" BorderBrush="#487F72" BorderThickness="1" CornerRadius="13" ClipToBounds="True">
-       <ContentPresenter/>
+   <Setter Property="Padding" Value="0"/>
+   <Setter Property="Margin" Value="0,0,13,14"/>
+   <Setter Property="BorderThickness" Value="0"/>
+   <Setter Property="Background" Value="Transparent"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Effect">
+    <Setter.Value><DropShadowEffect Color="#00E6C0" BlurRadius="13" Opacity="0.19" ShadowDepth="0"/></Setter.Value>
+   </Setter>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="Button">
+      <Border x:Name="Card" Background="#0B2829" BorderBrush="#498F84" BorderThickness="1" CornerRadius="13" ClipToBounds="True" RenderTransformOrigin="0.5,0.5">
+       <Border.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Border.RenderTransform>
+       <Grid>
+        <ContentPresenter/>
+        <Border x:Name="HoverGlow" BorderBrush="#7BF9D4" BorderThickness="2" CornerRadius="12" Opacity="0" IsHitTestVisible="False"/>
+       </Grid>
       </Border>
       <ControlTemplate.Triggers>
        <Trigger Property="IsMouseOver" Value="True">
-        <Setter TargetName="Card" Property="BorderBrush" Value="#A6F873"/>
-        <Setter TargetName="Card" Property="BorderThickness" Value="2"/>
+        <Setter TargetName="Card" Property="BorderBrush" Value="#90FFCF"/>
+        <Trigger.EnterActions>
+         <BeginStoryboard><Storyboard>
+          <DoubleAnimation Storyboard.TargetName="Card" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.032" Duration="0:0:0.18"/>
+          <DoubleAnimation Storyboard.TargetName="Card" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.032" Duration="0:0:0.18"/>
+          <DoubleAnimation Storyboard.TargetName="HoverGlow" Storyboard.TargetProperty="Opacity" To="0.75" Duration="0:0:0.18"/>
+         </Storyboard></BeginStoryboard>
+        </Trigger.EnterActions>
+        <Trigger.ExitActions>
+         <BeginStoryboard><Storyboard>
+          <DoubleAnimation Storyboard.TargetName="Card" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.20"/>
+          <DoubleAnimation Storyboard.TargetName="Card" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.20"/>
+          <DoubleAnimation Storyboard.TargetName="HoverGlow" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.20"/>
+         </Storyboard></BeginStoryboard>
+        </Trigger.ExitActions>
        </Trigger>
+       <Trigger Property="IsPressed" Value="True"><Setter TargetName="Card" Property="Opacity" Value="0.78"/></Trigger>
       </ControlTemplate.Triggers>
-     </ControlTemplate></Setter.Value>
-    </Setter>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
   </Style>
  </Window.Resources>
  <Grid>
@@ -159,8 +182,8 @@
             <Border Background="#B01A211E" Padding="8,5" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="5" Margin="0,8,9,0"><TextBlock Text="AUDIT" FontSize="10" Foreground="#F2C18A"/></Border>
            </Grid>
            <StackPanel Grid.Row="1" Margin="12,6,7,4">
-            <TextBlock Text="{Binding Name}" Foreground="White" FontWeight="Bold" FontSize="16" TextTrimming="CharacterEllipsis"/>
-            <TextBlock Text="{Binding Caption}" Foreground="#73DDC8" FontSize="11" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Text="{Binding Name}" Foreground="White" FontWeight="Bold" FontSize="15" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Text="{Binding Caption}" Foreground="#70DDCB" FontSize="11" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
            </StackPanel>
           </Grid>
          </Button>
