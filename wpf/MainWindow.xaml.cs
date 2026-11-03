@@ -334,6 +334,7 @@ public partial class MainWindow : Window
         Add(Label("Keresés a leltárban",13,Soft));Add(input);Add(results);
         Add(Label("CurseForge online telepítés: az ügynök és a telepítő tesztelése után kapcsolható be.",12,Soft));
         ShowLocalModAssignmentInventory();
+        ShowModStateEditor();
         ShowBulkModsControls();
         ShowSteamCmdPreflightControls();
         ShowAsaInstallationPreflightControls();
