@@ -118,9 +118,43 @@ public static class RconTransportTests
         finally{listener.Stop();}
     }
 
+    private static async Task ProbeReadOnlyLog(string command)
+    {
+        var listener=new TcpListener(IPAddress.Loopback,0);
+        listener.Start();
+        int port=((IPEndPoint)listener.LocalEndpoint).Port;
+        var server=Task.Run(async()=>{
+            using var accepted=await listener.AcceptTcpClientAsync();
+            using var stream=accepted.GetStream();
+            var auth=await ReadPacket(stream);
+            Assert(auth.Type==3,"read-only log probe authenticates");
+            await WritePacket(stream,auth.Id,2,"");
+            var query=await ReadPacket(stream);
+            Assert(query.Type==2&&query.Body==command,
+                "only an exact read-only log command is sent");
+            await WritePacket(stream,query.Id,0,"Line one – ",fragmented:true);
+            var barrier=await ReadPacket(stream);
+            Assert(barrier.Type==2&&barrier.Body=="ListPlayers",
+                "read-only log response uses a second read-only completion barrier");
+            await WritePacket(stream,query.Id,0,"Line two",fragmented:true);
+            await WritePacket(stream,barrier.Id,0,"1. Fixture player");
+        });
+        try
+        {
+            var answer=await RconProtocol.Execute(
+                "127.0.0.1",port,"fixture-only-secret",command);
+            await server;
+            Assert(answer=="Line one – Line two",
+                "RCON "+command+" waits for full fragmented log response");
+        }
+        finally{listener.Stop();}
+    }
+
     public static async Task Run()
     {
         await ProbeSaveWorldDispatch();
+        await ProbeReadOnlyLog("GetGameLog");
+        await ProbeReadOnlyLog("GetChat");
         string result=await Probe();
         Assert(result=="1. TestPlayer\n",
             "fragmented, multi-frame ListPlayers response waits for completion");
