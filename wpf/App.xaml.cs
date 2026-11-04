@@ -130,7 +130,10 @@ public partial class App : System.Windows.Application
         {
             try
             {
-                const int width=1650, height=930;
+                int width=int.TryParse(Environment.GetEnvironmentVariable("UNTAMED_CAPTURE_WIDTH"),
+                    out var captureWidth)?Math.Clamp(captureWidth,1050,2560):1650;
+                int height=int.TryParse(Environment.GetEnvironmentVariable("UNTAMED_CAPTURE_HEIGHT"),
+                    out var captureHeight)?Math.Clamp(captureHeight,670,1600):930;
                 var window=new MainWindow {Width=width,Height=height};
                 window.Show();
                 if (window.Content is not FrameworkElement content)
