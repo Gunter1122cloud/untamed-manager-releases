@@ -176,21 +176,24 @@ public partial class MainWindow
             {
                 var map=Selected();
                 var name=plugin.Text?.Trim()??"";
+                var preflight=PluginStateManager.InspectLocalToggle(_cluster,map.Id,name,enabling);
+                if(!preflight.Allowed)
+                    throw new InvalidOperationException(preflight.Reason);
                 if(WinMessageBox.Show(map.Name+" / "+name+"\n"+
                     (enabling?"Plugin engedélyezése":"Plugin letiltása")+
                     " – teljes pluginmappa és tartós adatok áthelyezése, "+
                     "előtte SHA-256 védőmásolat. A map nem indul újra.\nFolytatod?",
                     "Plugin állapotváltás",
                     MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-                var result=PluginStateManager.Toggle(map,_cluster.Check(map),name,
-                    enabling,_cluster.Store.Root);
+                var result=PluginStateManager.ToggleLocalChecked(
+                    _cluster,map.Id,name,enabling);
+                Inspect();
                 status.Text="Plugin tranzakció kész: "+result.Plugin+
                     (result.Enabled?" ENABLED":" DISABLED")+
                     "\nVédőmásolat: "+result.BackupPackage+
                     "\nKövetkező indításhoz restart szükséges (automatikus restart NINCS).";
-                Inspect();
             }
-            catch(Exception ex){status.Text="Plugin állapotváltás megtagadva: "+ex.Message;
+            catch(Exception ex){status.Text="Plugin állapotváltás megtagadva: "+UntamedPresentation.Redact(ex.Message);
                 WriteLog("plugin-toggle",ex);}
         }
     }
