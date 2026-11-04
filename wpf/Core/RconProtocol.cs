@@ -43,7 +43,8 @@ public static class RconProtocol
             throw new InvalidDataException("Invalid RCON credential framing");
         if(string.IsNullOrWhiteSpace(host)||host.Length>253)
             throw new InvalidDataException("Invalid RCON host");
-        if (allowSaveWorld ? command!="SaveWorld" : command!="ListPlayers")
+        if(allowSaveWorld ? command!="SaveWorld" :
+           command is not ("ListPlayers" or "GetGameLog" or "GetChat"))
             throw new InvalidOperationException(
                 "RCON operation not authorized by its explicit call path");
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -86,9 +87,9 @@ public static class RconProtocol
             if(packet.Id==commandId)
             {
                 totalBytes=checked(totalBytes+System.Text.Encoding.UTF8.GetByteCount(packet.Body));
-                if(totalBytes>250_000)throw new InvalidDataException("Oversized RCON player list");
+                if(totalBytes>250_000)throw new InvalidDataException("Oversized read-only RCON response");
                 responses.Add(packet.Body);
-                if(responses.Count==1 &&
+                if(command=="ListPlayers" && responses.Count==1 &&
                    System.Text.RegularExpressions.Regex.IsMatch(packet.Body.Trim(),
                        @"\ANo Players Connected\.?\z",
                        System.Text.RegularExpressions.RegexOptions.IgnoreCase|
@@ -104,12 +105,12 @@ public static class RconProtocol
             {
                 if(responses.Count==0 || string.IsNullOrWhiteSpace(
                     string.Concat(responses)))
-                    throw new InvalidDataException("Incomplete RCON player list");
+                    throw new InvalidDataException("Incomplete read-only RCON response");
                 return string.Concat(responses);
             }
             else throw new InvalidDataException("Unmatched RCON reply ID");
         }
-        throw new InvalidDataException("RCON player list completion not proven");
+        throw new InvalidDataException("Read-only RCON completion not proven");
     }
     private sealed record Packet(int Id,int Type,string Body);
     private static async Task WritePacket(Stream stream,int id,int type,string body,CancellationToken ct)
