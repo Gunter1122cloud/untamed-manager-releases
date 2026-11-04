@@ -141,6 +141,13 @@ public static class OperationSafetyTests
         VerifyBackupMembership(root);
         string redacted=UntamedPresentation.Redact("KovaCluster password=SECRET token='SECRET WITH SPACE' https://discord.com/api/webhooks/1/SECRET");
         Check(!redacted.Contains("SECRET")&&!redacted.Contains("Kova",StringComparison.OrdinalIgnoreCase),"user-facing branding and credential redaction");
+        string sensitiveException=UntamedPresentation.UnexpectedFailure(
+            new InvalidOperationException(@"password=SUPERSECRET SQL=C:\\private\\data token=DO-NOT-SHOW"));
+        Check(!sensitiveException.Contains("SUPERSECRET") &&
+            !sensitiveException.Contains("DO-NOT-SHOW") &&
+            !sensitiveException.Contains("private") &&
+            sensitiveException.Contains("UM-UNHANDLED"),
+            "unhandled WPF error messages never reveal raw exception content");
         Check(!typeof(ClusterService).Assembly.GetTypes().Any(t=>t.Name.StartsWith("Kova",StringComparison.Ordinal)),"own wrapper types use neutral names");
         var conflicting=new Session{ContradictoryExit=true};
         bool stopped=false;try{await SafeLifecycle.Stop(conflicting,true,TimeSpan.FromSeconds(1));}catch(InvalidOperationException){stopped=true;}
