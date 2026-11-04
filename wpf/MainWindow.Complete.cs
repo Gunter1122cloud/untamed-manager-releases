@@ -44,18 +44,24 @@ public partial class MainWindow
             ItemsSource=new[]{"The Island","Genesis Part 1","Scorched Earth"},
             SelectedIndex=1,Width=220,MaxDropDownHeight=320
         };
+        // The smoke runner does not show the MainWindow. Explicitly resolve
+        // the implicit application style before applying the native template.
+        chooser.Style=(Style)System.Windows.Application.Current.FindResource(typeof(ComboBox));
         chooser.ApplyTemplate();
-        if(chooser.Template.FindName("PART_Popup",chooser)
+        if(chooser.Template is not ControlTemplate comboTemplate)
+            throw new InvalidOperationException("Premium ComboBox style did not create a template");
+        if(comboTemplate.FindName("PART_Popup",chooser)
             is not System.Windows.Controls.Primitives.Popup popup)
             throw new InvalidOperationException("Premium ComboBox has no native dropdown popup");
         if(popup.Child is not Border surface ||
            surface.Background is not SolidColorBrush brush ||
            brush.Color != (Color)ColorConverter.ConvertFromString("#1B252B"))
             throw new InvalidOperationException("Premium ComboBox dropdown is not matte dark");
-        if(chooser.Template.FindName("PART_EditableTextBox",chooser)
+        if(comboTemplate.FindName("PART_EditableTextBox",chooser)
             is not TextBox || chooser.FocusVisualStyle==null)
             throw new InvalidOperationException("Premium ComboBox lacks editable text or keyboard focus");
         var item=new ComboBoxItem {Content="Genesis Part 1",IsSelected=true};
+        item.Style=(Style)System.Windows.Application.Current.FindResource(typeof(ComboBoxItem));
         item.ApplyTemplate();
         if(item.Template==null || item.FocusVisualStyle==null ||
            item.Foreground is not SolidColorBrush ink ||
