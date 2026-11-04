@@ -124,7 +124,7 @@ public partial class MainWindow
         Header(page switch{
             "servers"=>"Szerverek · OFFLINE DEMO",
             "cluster"=>"Cluster · OFFLINE DEMO",
-            "mods"=>"CurseForge Mod Center · OFFLINE DEMO",
+            "mods"=>"Mod Center · OFFLINE DEMO",
             "plugins"=>"ASA API / Pluginok · OFFLINE DEMO",
             "ini"=>"INI Editor · OFFLINE DEMO",
             "rcon"=>"RCON konzol · OFFLINE DEMO",
@@ -212,50 +212,142 @@ public partial class MainWindow
 
     private UIElement DemoModsPane(DemoMap map)
     {
+        // Exactly the same native input controls and visual tokens as the local
+        // editor. Only the operation executor is different: DemoWorkspace memory.
         var demo=_demo!;
-        var mods=new ListBox{Height=155,Background=Panel,Foreground=Brushes.White};
-        var project=new TextBox{Text="928548",Height=34};
-        var mode=new ComboBox{ItemsSource=new[]{"Active","Passive","Disabled","Remove"},
-            SelectedIndex=0,MinWidth=180};
-        var result=Label("Csak szimulált map-modlista módosítható.",12,Soft);
-        void Update()=>mods.ItemsSource=map.Mods.Select(m=>m.Mode+" · "+m.ProjectId).ToArray();
-        mods.SelectionChanged+=(_,_)=>{
-            if(mods.SelectedItem is not string value)return;
-            var pieces=value.Split(" · ",StringSplitOptions.None);
-            if(pieces.Length!=2)return;
-            project.Text=pieces[1];mode.SelectedItem=pieces[0];
+        var staged=map.Mods.ToList();
+        var list=new ListBox {
+            MinHeight=235,MaxHeight=380,
+            ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModRow")
         };
-        var buttons=new WrapPanel();
-        buttons.Children.Add(Btn("Modmód előnézete",()=>{
-            result.Text="[DEMO] "+map.Name+" · "+project.Text+" → "+mode.SelectedItem+
-                " (még semmi sem változott).";
-        }));
-        buttons.Children.Add(Btn("Modmód alkalmazása (DEMO)",()=>{
-            RunDemo(()=>{
-                DemoModMode? chosen=(string?)mode.SelectedItem switch{
-                    "Active"=>DemoModMode.Active,"Passive"=>DemoModMode.Passive,
-                    "Disabled"=>DemoModMode.Disabled,"Remove"=>null,
-                    _=>throw new InvalidOperationException("Válassz érvényes modállapotot")
-                };
-                demo.SetMod(map.Id,project.Text.Trim(),chosen);
-            },result,"Modlista módosult",Update);
-        }));
-        void MoveSelected(int direction)
+        var search=new TextBox {Width=180,Height=36,Margin=new Thickness(0,0,9,7)};
+        var project=new TextBox {Width=140,Height=36,Margin=new Thickness(0,0,9,7),
+            ToolTip="DEMO: modprojekt azonosító"};
+        var mode=new ComboBox {ItemsSource=new[]{"Aktív","Passzív","Letiltva","Eltávolítás"},
+            SelectedIndex=0,MinWidth=150,Margin=new Thickness(0,0,0,9)};
+        var selected=Label("Válassz modot",18,Mint,true);
+        var details=Label("DEMO: szimulált modállapot, nem éles telepítés.",12,Soft);
+        var summary=Label("",12,Soft);
+        var result=Label("DEMO · Nincs függőben lévő módosítás.",12,Soft);
+        var preview=Label("",12,Soft);
+        PremiumModRow? chosen=null;
+        string ModeName(DemoModMode value)=>value switch{
+            DemoModMode.Active=>"Aktív",DemoModMode.Passive=>"Passzív",
+            DemoModMode.Disabled=>"Letiltva",_=>"Ismeretlen"
+        };
+        DemoModMode? ParseMode()=>((string?)mode.SelectedItem) switch {
+            "Aktív"=>DemoModMode.Active,"Passzív"=>DemoModMode.Passive,
+            "Letiltva"=>DemoModMode.Disabled,"Eltávolítás"=>(DemoModMode?)null,
+            _=>throw new InvalidOperationException("Nincs kiválasztott DEMO modmód")
+        };
+        void ShowSelection()
         {
-            if(mods.SelectedItem is not string selected)
-            { result.Text="[DEMO] Előbb válassz modot a listából.";return; }
-            var id=selected.Split(" · ",StringSplitOptions.None).Last();
-            RunDemo(()=>{
-                if(!demo.MoveMod(map.Id,id,direction))
-                    throw new InvalidOperationException("A mod már a sorrend szélén van.");
-            },result,"Modok sorrendje módosult",Update);
+            chosen=list.SelectedItem as PremiumModRow;
+            selected.Text=chosen==null?"Válassz modot":"Projekt "+chosen.Id;
+            details.Text=chosen==null?"Jelölj ki egy modot az állapotválasztáshoz.":
+                chosen.State+" · DEMO konfiguráció. Minden változás csak memóriában marad.";
+            if(chosen!=null)mode.SelectedItem=chosen.State;
         }
-        buttons.Children.Add(Btn("↑  Feljebb (DEMO)",()=>MoveSelected(-1)));
-        buttons.Children.Add(Btn("↓  Lejjebb (DEMO)",()=>MoveSelected(1)));
-        Update();
-        return V(Label("Modok / betöltési mód",17,Mint,true),
-            Label("Aktív, passzív, tiltott és eltávolított módok; csak mintarekordok.",12,Soft),
-            project,mode,buttons,mods,result);
+        void Render()
+        {
+            string oldId=chosen?.Id??"";
+            var all=staged.Select((m,i)=>new PremiumModRow(m.ProjectId,ModeName(m.Mode),i+1,
+                map.Mods.SequenceEqual(staged)?"DEMO mintamod":"Függőben lévő szimulált módosítás")).ToArray();
+            string term=search.Text.Trim();
+            var visible=all.Where(x=>term.Length==0||
+                x.Id.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                x.State.Contains(term,StringComparison.OrdinalIgnoreCase)).ToArray();
+            list.ItemsSource=visible;
+            list.SelectedItem=visible.FirstOrDefault(x=>x.Id==oldId);
+            summary.Text=map.Name+" · "+all.Length+" mintamod · "+visible.Length+" megjelenítve";
+            result.Text=map.Mods.SequenceEqual(staged)?
+                "[DEMO] Nincs függőben lévő változás.":
+                "[DEMO] Módosítások előkészítve – még csak a képernyőn láthatók.";
+            ShowSelection();
+        }
+        void Stage(string id,DemoModMode? target)
+        {
+            if(!System.Text.RegularExpressions.Regex.IsMatch(id??"",
+                @"\A[0-9]{5,12}\z"))
+                throw new InvalidOperationException("5–12 számjegyű modazonosító szükséges.");
+            staged.RemoveAll(m=>m.ProjectId==id);
+            if(target.HasValue)staged.Add(new DemoMod(id,target.Value));
+            preview.Text="[DEMO] Előnézet mentés nélkül. Eltűnik a DEMO elhagyásakor.";
+            Render();
+        }
+        void Move(int delta)
+        {
+            if(chosen==null)throw new InvalidOperationException("Előbb válassz modot.");
+            var at=staged.FindIndex(x=>x.ProjectId==chosen.Id);
+            var to=at+delta;
+            if(at<0||to<0||to>=staged.Count)return;
+            (staged[at],staged[to])=(staged[to],staged[at]);
+            Render();
+        }
+        void Attempt(Action action)
+        {
+            try {action();}
+            catch(Exception ex){result.Text="[DEMO] Elutasítva: "+UntamedPresentation.Redact(ex.Message);}
+        }
+        list.SelectionChanged+=(_,_)=>ShowSelection();
+        search.TextChanged+=(_,_)=>Attempt(Render);
+
+        var leftToolbar=new WrapPanel {Margin=new Thickness(0,0,0,7)};
+        leftToolbar.Children.Add(search);
+        var addRow=new WrapPanel {Margin=new Thickness(0,9,0,0)};
+        addRow.Children.Add(project);
+        addRow.Children.Add(Btn("Mod hozzáadása",()=>Attempt(()=>
+            Stage(project.Text.Trim(),DemoModMode.Active))));
+        var left=V(Label("DEMO modlista",18,Mint,true),
+            Label("Keresés projektazonosító szerint",12,Soft),
+            leftToolbar,summary,list,addRow);
+        var right=V(Label("Mod részletei",17,Mint,true),selected,details,
+            Label("Állapot",12,Aqua),mode,
+            Btn("Állapot módosítása",()=>Attempt(()=>{
+                if(chosen==null)throw new InvalidOperationException("Válassz modot.");
+                Stage(chosen.Id,ParseMode());
+            })),
+            Btn("↑  Előrébb a sorrendben",()=>Attempt(()=>Move(-1))),
+            Btn("↓  Hátrébb a sorrendben",()=>Attempt(()=>Move(1))));
+        var grid=new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(2,GridUnitType.Star)});
+        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star),MinWidth=210});
+        var leftBox=Box(left);var rightBox=Box(right);
+        Grid.SetColumn(rightBox,1);
+        grid.Children.Add(leftBox);grid.Children.Add(rightBox);
+
+        var actions=new WrapPanel {Margin=new Thickness(0,8,0,7)};
+        actions.Children.Add(Btn("Változások előnézete",()=>{
+            preview.Text="[DEMO] Előtte: "+map.Mods.Count+
+                " mod · Utána: "+staged.Count+" mod\n"+
+                string.Join(" · ",staged.Select(m=>m.ProjectId+" ("+ModeName(m.Mode)+")"))+
+                "\nAz ASA, Store és SQL nincs csatlakoztatva.";
+        }));
+        actions.Children.Add(Btn("Módosítások elvetése",()=>{
+            staged=map.Mods.ToList();preview.Text="[DEMO] Módosítások elvetve.";Render();
+        }));
+        var apply=Btn("Módosítások alkalmazása (DEMO)",()=>RunDemo(()=>{
+            foreach(var existing in map.Mods.ToArray())
+                if(!staged.Any(m=>m.ProjectId==existing.ProjectId))
+                    demo.SetMod(map.Id,existing.ProjectId,null);
+            foreach(var wanted in staged)
+                if(!map.Mods.Any(x=>x.ProjectId==wanted.ProjectId && x.Mode==wanted.Mode))
+                    demo.SetMod(map.Id,wanted.ProjectId,wanted.Mode);
+            for(int i=0;i<staged.Count;i++)
+            {
+                int from=map.Mods.FindIndex(m=>m.ProjectId==staged[i].ProjectId);
+                while(from>i){demo.MoveMod(map.Id,staged[i].ProjectId,-1);from--;}
+            }
+            staged=map.Mods.ToList();
+        },result,"Modlista alkalmazva a DEMO memóriában",()=>{
+            preview.Text="[DEMO] Alkalmazva – az éles konfiguráció érintetlen.";
+            Render();
+        }));
+        apply.Style=(Style)System.Windows.Application.Current.FindResource("PrimaryAction");
+        actions.Children.Add(apply);
+        Render();
+        return V(grid,Box(V(Label("Függőben lévő változások",16,Mint,true),
+            result,actions,preview)));
     }
 
     private UIElement DemoPluginsPane(DemoMap map)
