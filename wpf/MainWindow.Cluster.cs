@@ -357,6 +357,7 @@ public partial class MainWindow
             _preferredPluginMapId=map.Id;Navigate("plugins");
         }));
         quick.Children.Add(Btn("Mentések",()=>{
+            _preferredBackupMapId=map.Id;
             Navigate("backups");
         }));
         parent.Children.Add(quick);
