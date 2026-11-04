@@ -15,4 +15,5 @@ await CurseForgeDependencyResolverTests.Run();
 await AsaApiReleaseStagingTests.Run();
 await RconTransportTests.Run();
 DurableWatchdogTrackerTests.Run(root);
+RecurringReadOnlyRecoveryTests.Run(root);
 Console.WriteLine("PASS T11-T13/T16 isolated Windows targeted regression suite");
