@@ -21,12 +21,12 @@ public partial class MainWindow
         var maps=_cluster.Config.LocalMaps.ToArray();
         if(maps.Length==0)
         {
-            var actions=new WrapPanel();
-            actions.Children.Add(Btn("Helyi map hozzáadása",()=>Navigate("servers")));
-            actions.Children.Add(Btn("Offline DEMO",EnterDemoMode));
+            var emptyActions=new WrapPanel();
+            emptyActions.Children.Add(Btn("Helyi map hozzáadása",()=>Navigate("servers")));
+            emptyActions.Children.Add(Btn("Offline DEMO",EnterDemoMode));
             Add(Box(V(Label("Nincs még helyi szerver",19,Mint,true),
                 Label("A pluginlista a regisztrált helyi ASA telepítésekből készül. A távoli gazdagép csak megfigyelhető.",12,Soft),
-                actions)));
+                emptyActions)));
             return;
         }
         var selector=new ComboBox {
@@ -47,14 +47,16 @@ public partial class MainWindow
         var readiness=Label("Állapotváltás csak igazoltan leállított helyi mapon.",12,Soft);
         var activity=Label("A frissítés csak olvasás. Nincs automatikus restart.",12,Soft);
         var binaries=new ListBox {MinHeight=50,MaxHeight=145,FontSize=11,Margin=new Thickness(0,7,0,4)};
-        var enable=Btn("Plugin bekapcsolása",()=>ChangePlugin(true));
-        var disable=Btn("Plugin kikapcsolása",()=>ChangePlugin(false));
-        var inventory=Btn("Kiválasztott DLL-ek ellenőrzése",InspectBinaries);
-        var advancedInfo=Label("Az ASA API futásidejű pluginbetöltése nem következtethető a fájlokból.",11,Soft);
         PremiumPluginRow? chosen=null;
         PremiumPluginRow[] all=Array.Empty<PremiumPluginRow>();
         bool busy=false;
         bool refreshing=false;
+        // Initialized before any callback closes over the controls.
+        Button enable=null!,disable=null!,inventory=null!;
+        enable=Btn("Plugin bekapcsolása",()=>ChangePlugin(true));
+        disable=Btn("Plugin kikapcsolása",()=>ChangePlugin(false));
+        inventory=Btn("Kiválasztott DLL-ek ellenőrzése",InspectBinaries);
+        var advancedInfo=Label("Az ASA API futásidejű pluginbetöltése nem következtethető a fájlokból.",11,Soft);
 
         LocalMap CurrentMap()=>selector.SelectedItem as LocalMap
             ??throw new InvalidOperationException("Előbb válassz helyi mapot.");
