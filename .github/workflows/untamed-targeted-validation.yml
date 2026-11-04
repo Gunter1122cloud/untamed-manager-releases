@@ -4,6 +4,14 @@ on:
     branches: ['chatgpt/untamed-manager-p0-fixes-20261104']
     paths:
       - '.github/workflows/untamed-targeted-validation.yml'
+      - 'wpf/Core/SteamCmdIsolatedUpdater.cs'
+      - 'wpf/Core/CurseForgeCatalog.cs'
+      - 'wpf/Core/CurseForgeDependencyResolver.cs'
+      - 'wpf/Core/ModDependencyPlanner.cs'
+      - 'wpf/Core/AsaApiReleaseStaging.cs'
+      - 'wpf/Core/RconProtocol.cs'
+      - 'wpf/Testing/Integration/*Tests.cs'
+      - 'wpf/Testing/Targeted/**'
   workflow_dispatch:
 permissions:
   contents: read

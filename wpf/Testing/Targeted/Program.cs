@@ -13,4 +13,5 @@ await SteamCmdIsolatedUpdaterTests.Run(root,args[0]);
 await ModDependencyPlannerTests.Run();
 await CurseForgeDependencyResolverTests.Run();
 await AsaApiReleaseStagingTests.Run();
-Console.WriteLine("PASS T11-T13 isolated Windows targeted regression suite");
+await RconTransportTests.Run();
+Console.WriteLine("PASS T11-T13/T16 isolated Windows targeted regression suite");
