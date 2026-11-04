@@ -445,6 +445,8 @@ public sealed class ClusterService : IAsyncDisposable
     public void UpdateSettings(Action<ManagerConfig> update) {update(Config);Save();}
     public void AddMap(LocalMap map)
     {
+        // Names are user-supplied; the installed game's current map list is not a cap.
+        map.Name=LocalMapNameRules.Normalize(map.Name);
         if(Config.LocalMaps.Any(m=>m.Id==map.Id))throw new InvalidOperationException("Duplicate map");
         if(Config.LocalMaps.Any(m=>m.Name.Equals(map.Name,StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Map is already registered locally");

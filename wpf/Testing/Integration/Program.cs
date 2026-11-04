@@ -8,6 +8,18 @@ static void Assert(bool condition,string reason)
     if(!condition)throw new Exception("INTEGRATION TEST FAILED: "+reason);
     Console.WriteLine("PASS "+reason);
 }
+static void CheckFutureMapNames()
+{
+    Assert(LocalMapNameRules.Normalize("Future Map 2030")=="Future Map 2030",
+        "Newly released ASA maps are not blocked by a hard-coded ten-map name list");
+    foreach(string bad in new[]{"", "    ", "../Map", "Bad\\Map", new string('X',101)})
+    {
+        bool refused=false;
+        try{LocalMapNameRules.Normalize(bad);}
+        catch(InvalidDataException){refused=true;}
+        Assert(refused,"Invalid local map names are refused");
+    }
+}
 static int FreePort()
 {
     var listener=new TcpListener(IPAddress.Loopback,0);
@@ -48,6 +60,7 @@ try
     await AsaApiReleaseStagingTests.Run();
     await AsaApiIsolatedInstallerTests.Run();
     AsaApiLaunchPolicyTests.Run(root,fake);
+    CheckFutureMapNames();
     await ModArgumentSafetyTests.Run(root);
     await GuardedPluginUpdateTests.Run(root);
     await IsolatedRconAdminQueueTests.Run(fake);

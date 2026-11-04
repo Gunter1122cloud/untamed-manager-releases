@@ -372,7 +372,7 @@ public partial class MainWindow
         form.Children.Add(Label("Kizárólag erre a Windows gépre felvett map",22,Mint,true));
         var names=new ComboBox{ItemsSource=KnownMaps,IsEditable=true,Text=map.Name,
             Foreground=Brushes.White,Background=Panel,Margin=new Thickness(0,0,0,12)};
-        form.Children.Add(Label("Map neve",13,Aqua,true));form.Children.Add(names);
+        form.Children.Add(Label("Map neve – az ismert mapok javaslatok, új ASA map neve is megadható",13,Aqua,true));form.Children.Add(names);
         Field("Map telepítési gyökérkönyvtára",map.InstallationPath);
         Field("Szerver EXE teljes elérési útja",map.ExecutablePath);
         Field("Indítási paraméterek (pontos egyezés)",map.Arguments);
@@ -402,9 +402,7 @@ public partial class MainWindow
         var actions=new StackPanel{Orientation=Orientation.Horizontal};
         actions.Children.Add(Btn("Mentés",()=>{
             try{
-                var name=names.Text.Trim();
-                if(!KnownMaps.Contains(name,StringComparer.OrdinalIgnoreCase))
-                    throw new InvalidDataException("Válassz egy ismert mapot a listából");
+                var name=LocalMapNameRules.Normalize(names.Text);
                 var root=Path.GetFullPath(fields["Map telepítési gyökérkönyvtára"].Text.Trim());
                 var exe=Path.GetFullPath(fields["Szerver EXE teljes elérési útja"].Text.Trim());
                 if(!Directory.Exists(root)||!File.Exists(exe)||!IsUnderRoot(exe,root))
