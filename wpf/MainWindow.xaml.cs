@@ -362,78 +362,119 @@ public partial class MainWindow : Window
     }
     private void Mods()
     {
-        Header("Mod Center","Helyi mapok tényleges indítási modlistája és a beépített CurseForge kereső.");
-        var summary=Label("Modlista beolvasása...",13,Soft);
-        var search=new TextBox{Height=40,Background=Panel,Foreground=Brushes.White,
-            BorderBrush=Aqua,FontSize=15,Padding=new Thickness(10),
-            ToolTip="Keresés a helyi mapnevek és konfigurált modazonosítók között"};
-        var results=List(Array.Empty<string>(),155);
-        string[] rows=Array.Empty<string>();
-        void Filter() => results.ItemsSource=rows
-            .Where(s=>s.Contains(search.Text,StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        void Refresh()
+        Header("Mod Center","Helyi konfigurációk, modállapotok, sorrend és CurseForge keresés. A telepítés és futásidő külön bizonyíték.");
+        var maps=_cluster.Config.LocalMaps.ToArray();
+        if(maps.Length==0)
         {
-            try
-            {
-                var snapshot=LocalContentSnapshotReader.Inspect(_cluster.Config.LocalMaps);
-                var mods=snapshot.Mods;
-                rows=mods.Maps.SelectMany(m=>m.Error!=null
-                    ?new[]{m.Name+" · HIBÁS MODPARAMÉTER · kézi ellenőrzést igényel"}
-                    :m.OrderedIds.Count==0
-                        ?new[]{m.Name+" · nincs konfigurált mod"}
-                        :m.OrderedIds.Select((id,i)=>m.Name+" · "+(i+1)+". · "+id))
-                    .ToArray();
-                        // A missing profile is a guided empty state, not a fake mod row.
-                if(rows.Length==0)rows=Array.Empty<string>();
-                summary.Text=mods.Maps.Count+" helyi map · "+
-                    snapshot.KnownModAssignments+" igazolt konfigurációs modhozzárendelés · "+
-                    mods.UniqueIdCount+" különböző ID · "+
-                    (mods.Complete?"a helyi konfigurációk olvashatók":
-                    "HIÁNYOS LELTÁR – legalább egy map modparaméterei hibásak")+
-                    "\nEz az indítási lista; nem bizonyít telepítést vagy futásidejű modbetöltést.";
-                Filter();
-            }
-            catch(Exception ex)
-            {
-                WriteLog("mod-center-inventory",ex);
-                rows=new[]{"A helyi modleltár nem ellenőrizhető; az adatok ismeretlenek."};
-                summary.Text="MODLELTÁR NEM ELLENŐRIZHETŐ – a szerverállapot nem módosult.";
-                Filter();
-            }
-        }
-        search.TextChanged+=(_,_)=>Filter();
-        var quickActions=new WrapPanel{Margin=new Thickness(0,8,0,5)};
-        quickActions.Children.Add(Btn("Frissítés",Refresh));
-        quickActions.Children.Add(Btn("Szerverek",()=>Navigate("servers")));
-        quickActions.Children.Add(Btn("Offline DEMO",EnterDemoMode));
-        search.Margin=new Thickness(0,8,0,9);
-        search.ToolTip="Mapnév vagy mod ID keresése a tényleges helyi indítási paraméterekben";
-        var inventory=V(Label("Telepített mapok modbeállításai",19,Mint,true),
-            summary,search,quickActions);
-        if(_cluster.Config.LocalMaps.Count==0)
-        {
-            Add(Box(V(Label("Nincs még hozzáadott szerver",21,Mint,true),
-                Label("Adj hozzá egy mapot a Szerverek oldalon, vagy próbáld ki "+
-                    "az interaktív OFFLINE DEMO módot. Valós modállapotot csak regisztrált helyi mapon tudok ellenőrizni.",13,Soft),
-                quickActions)));
+            var actions=new WrapPanel{Margin=new Thickness(0,11,0,0)};
+            actions.Children.Add(Btn("＋  Map hozzáadása",()=>Navigate("servers")));
+            actions.Children.Add(Btn("▶  DEMO mód kipróbálása",EnterDemoMode));
+            Add(Box(V(Label("Még nincs hozzáadott szerver",23,Mint,true),
+                Label("Adj hozzá egy mapot, vagy próbáld ki a DEMO módot. "+
+                    "Valós modadatot csak regisztrált helyi telepítésről jelenítünk meg.",13,Soft),
+                actions)));
             Add(Box(V(Label("CurseForge katalógus",18,Aqua,true),
-                Label("A katalógus külön, engedélyezett API-kulccsal működik; "+
-                    "nem indít szervert és nem módosít modlistát.",12,Soft))));
+                Label("Online kereső külön API-kulccsal; a keresés nem írja át az ASA modlistát.",12,Soft))));
             ShowCurseForgeSearchControls();
             return;
         }
-        Add(Box(V(inventory,
-            Label("Konfigurált modok · eredeti indítási sorrend",12,Aqua),
-            results)));
+        var summary=Label("Helyi indítási paraméterek beolvasása…",12,Soft);
+        var search=new TextBox{Height=37,FontSize=13,Padding=new Thickness(9),
+            ToolTip="Modazonosító, mapnév vagy aktív/passzív/tiltott állapot keresése"};
+        var scope=new ComboBox{
+            ItemsSource=new[]{"Összes helyi map"}.Concat(
+                maps.Select(m=>m.Name).Distinct(StringComparer.OrdinalIgnoreCase)).ToArray(),
+            SelectedIndex=0,MinWidth=200,Margin=new Thickness(8,0,0,0)
+        };
+        var results=new ListBox{MaxHeight=350,MinHeight=45,
+            Background=Panel,BorderThickness=new Thickness(0),
+            ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModInventoryCard")};
+        var empty=Label("",12,Soft);
+        var cards=Array.Empty<ConfiguredModCard>();
+        void Filter()
+        {
+            string term=search.Text.Trim();
+            string selected=scope.SelectedItem as string??"Összes helyi map";
+            var filtered=cards.Where(c=>
+                (selected=="Összes helyi map"||
+                 c.Map.Equals(selected,StringComparison.OrdinalIgnoreCase))&&
+                (term.Length==0 || c.Id.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                 c.Map.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                 c.Mode.Contains(term,StringComparison.OrdinalIgnoreCase))).ToArray();
+            results.ItemsSource=filtered;
+            empty.Text=filtered.Length==0?
+                (cards.Length==0?"A kiválasztott mapokon nincs konfigurált mod.":"Nincs találat a keresésre."):"";
+        }
+        void Refresh()
+        {
+            var collected=new System.Collections.Generic.List<ConfiguredModCard>();
+            int readable=0;
+            foreach(var map in maps)
+            {
+                try
+                {
+                    var state=ModStateController.Read(map);
+                    readable++;
+                    collected.AddRange(state.Active.Select((id,i)=>
+                        new ConfiguredModCard(map.Name,id,"AKTÍV",i+1,
+                            "Konfigurált indítás · telepítés nem igazolt",Mint)));
+                    collected.AddRange(state.Passive.Select((id,i)=>
+                        new ConfiguredModCard(map.Name,id,"PASSZÍV",i+1,
+                            "Konfigurált passzív indítás · betöltés nem igazolt",Aqua)));
+                    collected.AddRange(state.Disabled.Select((id,i)=>
+                        new ConfiguredModCard(map.Name,id,"TILTVA",i+1,
+                            "Csak Manager profil · nem kerül indításra",Brushes.Orange)));
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("premium-mod-inventory",ex);
+                    collected.Add(new ConfiguredModCard(map.Name,"—","NEM OLVASHATÓ",0,
+                        "Konfiguráció ellenőrzése szükséges",Brushes.Orange));
+                }
+            }
+            cards=collected.ToArray();
+            summary.Text=maps.Length+" regisztrált helyi map · "+readable+
+                " olvasható · "+cards.Count(c=>c.Id!="—")+
+                " modhozzárendelés. Az állapot a helyi indítási listát jelzi, nem az ASA runtime-ot.";
+            Filter();
+        }
+        search.TextChanged+=(_,_)=>Filter();
+        scope.SelectionChanged+=(_,_)=>Filter();
+        var filters=new Grid{Margin=new Thickness(0,9,0,11)};
+        filters.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(2,GridUnitType.Star)});
+        filters.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        Grid.SetColumn(search,0);
+        Grid.SetColumn(scope,1);
+        filters.Children.Add(search);filters.Children.Add(scope);
+        var actions=new WrapPanel{Margin=new Thickness(0,8,0,1)};
+        actions.Children.Add(Btn("⟳  Leltár frissítése",Refresh));
+        actions.Children.Add(Btn("▤  Szerverek",()=>Navigate("servers")));
+        actions.Children.Add(Btn("▶  Offline DEMO",EnterDemoMode));
+        Add(Box(V(Label("MOD INVENTORY   /   LOCAL HOSTS",12,Aqua,true),
+            Label("Modállapotok és betöltési sorrend",21,Mint,true),
+            summary,filters,results,empty,actions)));
         Refresh();
+        ShowCurseForgeSearchControls();
+        int before=PageBody.Children.Count;
         ShowModStateEditor();
         ShowBulkModsControls();
         ShowLocalModAssignmentInventory();
-        ShowCurseForgeSearchControls();
         ShowModUpdateCenter();
         ShowSteamCmdPreflightControls();
         ShowAsaInstallationPreflightControls();
+        var advanced=new StackPanel();
+        foreach(var element in PageBody.Children.Cast<UIElement>().Skip(before).ToArray())
+        {
+            PageBody.Children.Remove(element);
+            advanced.Children.Add(element);
+        }
+        Add(new Expander{
+            Header="HALADÓ MODKEZELÉS  ·  sorrend, többmapos módosítás, frissítés, ellenőrzés",
+            Foreground=Brushes.White,Background=Panel,BorderBrush=Aqua,
+            BorderThickness=new Thickness(1),Padding=new Thickness(10),
+            Margin=new Thickness(0,10,12,24),
+            IsExpanded=_preferredModMapId.HasValue,Content=advanced
+        });
     }
     private void Plugins()
     {
