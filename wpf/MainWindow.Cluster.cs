@@ -195,6 +195,7 @@ public partial class MainWindow
                 Padding=new Thickness(12)}});
         }
         var startStop=new StackPanel{Orientation=Orientation.Horizontal};
+        var readiness=Label("ASA / Loader / RCON Ready: még nincs ellenőrizve. API és csatlakozás külön igazolandó.",12,Soft);
         startStop.Children.Add(Btn("Indítás (csak FakeAsa teszt)",()=>{
             try{
                 ReleaseCapabilityGate.DemandFakeAsaStart(_cluster,map);
@@ -211,6 +212,25 @@ public partial class MainWindow
         startStop.Children.Add(Btn("Státusz ellenőrzése",()=>{
             var x=_cluster.Check(map);
             Notice(x.Status);
+        }));
+        bool readinessBusy=false;
+        startStop.Children.Add(Btn("ASA Ready vizsgálat",async()=>{
+            if(readinessBusy)return;
+            readinessBusy=true;
+            readiness.Text="ASA/Loader folyamat és helyi RCON ellenőrzés...";
+            try
+            {
+                var result=await AsaReadyProbe.ProbeAsync(_cluster,map.Id);
+                readiness.Text="ASA Ready: "+result.Stage+" · "+result.Explanation+
+                    " · API initialized: "+(result.ApiInitialized?"IGEN":"NEM IGAZOLT")+
+                    " · JOIN: "+(result.JoinAdvertised?"IGEN":"NEM IGAZOLT");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("asa-readiness",ex);
+                readiness.Text="ASA Ready vizsgálat sikertelen. Hitelesítési adat nem jeleníthető meg.";
+            }
+            finally{readinessBusy=false;}
         }));
         startStop.Children.Add(Btn("Folyamatazonosság rögzítése",()=>{
             try
@@ -237,7 +257,7 @@ public partial class MainWindow
             Label($"Game {map.GamePort} / Query {map.QueryPort} / RCON {map.RconPort}",12,Aqua),
             Label(result.Running?"Futó szerver visszacsatlakoztatva":result.ConfirmedStopped?
                 "Leállítva; automatikus indítás nincs":"Ismeretlen folyamatállapot; indítás tiltva",13,result.Running?Mint:Soft),
-            startStop));
+            startStop,readiness));
         Tab("Modok / CurseForge",V(
             Label("Helyi map modok",17,Mint,true),
             Label("A globális Mod Center megmarad; csak a helyi map indítási beállításai módosíthatók.",12,Soft),
