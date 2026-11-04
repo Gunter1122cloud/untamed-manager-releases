@@ -254,6 +254,18 @@ jobs:
               --notes "Windows WPF Premium preview, ten-map offline demo, compact native controls and verified installer. The live ASA/Store/SQL write operations are not certified for production. Install on a separate Windows test PC only."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
+          # A cancelled prior CI can leave an unpublished draft with the same tag.
+          # Updating assets is not enough: explicitly publish and point the tag
+          # to the successful, verified HEAD of THIS build.
+          $allReleases = gh api "repos/$repo/releases?per_page=100" | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0){ throw "Could not inspect premium release" }
+          $matches = @($allReleases | Where-Object { $_.tag_name -eq $tag })
+          if($matches.Count -ne 1){ throw "Expected exactly one premium release for $tag" }
+          $releaseId = $matches[0].id
+          gh api -X PATCH "repos/$repo/releases/$releaseId" -f "tag_name=$tag" -f "target_commitish=$env:GITHUB_SHA" -F "draft=false" -F "prerelease=true" --silent
+          if($LASTEXITCODE -ne 0){ throw "Premium release could not be published" }
+          gh release view $tag --repo $repo --json isDraft,isPrerelease,tagName --jq '{draft: .isDraft, prerelease: .isPrerelease, tag: .tagName}'
+          if($LASTEXITCODE -ne 0){ throw "Published premium release is not readable" }
 
   real-sql:
     runs-on: windows-latest
