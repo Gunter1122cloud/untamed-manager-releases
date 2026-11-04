@@ -231,7 +231,7 @@ jobs:
             dist/SHA256SUMS.txt
           if-no-files-found: error
       - name: Create test-only GitHub release
-        if: ${{ github.ref == 'refs/heads/chatgpt/untamed-manager-p0-fixes-20261104' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(test): premium') }}
+        if: ${{ github.ref == 'refs/heads/chatgpt/untamed-manager-p0-fixes-20261104' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release-test premium') }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
