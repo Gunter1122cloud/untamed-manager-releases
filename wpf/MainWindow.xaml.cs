@@ -62,6 +62,7 @@ public partial class MainWindow : Window
     private MapInfo? _selected;
     private Guid? _preferredModMapId;
     private Guid? _preferredPluginMapId;
+    private Guid? _preferredBackupMapId;
     private string _page = "dashboard";
     private bool _animationsEnabled = false;
     private string SettingsFile => Path.Combine(App.LogDir,"visual-settings.json");
@@ -430,12 +431,18 @@ public partial class MainWindow : Window
             return;
         }
         ShowMultiMapBackupOverview();
-        var choice=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",SelectedIndex=0};
+        var choice=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",
+            SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(x=>x.Id==_preferredBackupMapId)
+                ??_cluster.Config.LocalMaps[0]};
         var pane=new StackPanel();
         void SelectMap()
         {
             pane.Children.Clear();
-            if(choice.SelectedItem is LocalMap map)pane.Children.Add(MapBackupPane(map));
+            if(choice.SelectedItem is LocalMap map)
+            {
+                _preferredBackupMapId=map.Id;
+                pane.Children.Add(MapBackupPane(map));
+            }
         }
         choice.SelectionChanged+=(_,_)=>SelectMap();
         Add(Box(V(Label("Helyi map kiválasztása",13,Aqua),choice,pane)));
