@@ -18,7 +18,9 @@ public partial class MainWindow
             Label("A csomag kizárólag DLL/PDB fájlokat frissít. Meglévő JSON, adatbázis, licenc és egyéb állomány változatlan marad.",12,Soft),
             Label("Minden korábbi pluginfájl a telepítési mappán KÍVÜL kap SHA-256-tal ellenőrzött védőmásolatot.",12,Soft))));
         var maps=new ListBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",
-            SelectionMode=SelectionMode.Multiple,Height=140,Foreground=Brushes.White,
+            SelectionMode=SelectionMode.Multiple,
+            SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==_preferredPluginMapId),
+            Height=140,Foreground=Brushes.White,
             Background=Panel,BorderBrush=Aqua};
         var path=new TextBox{Height=35,IsReadOnly=true,Foreground=Brushes.White,Background=Panel};
         var result=Label("ZIP nincs kiválasztva.",12,Soft);
