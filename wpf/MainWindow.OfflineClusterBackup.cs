@@ -73,6 +73,42 @@ public partial class MainWindow
             Label("Célkönyvtár a külön tesztgépen",12,Aqua),target,
             Btn("Célkönyvtár kijelölése",()=>Pick(target,"Üres hely külön a forrásoktól")),
             build,
+            Btn("37 komponenses teljes OFFLINE batch – katalógus alapján",async ()=>{
+                using var input=new Forms.OpenFileDialog{
+                    Filter="Untamed offline batch JSON (*.json)|*.json",
+                    Title="37 ellenőrzött fájl és 5+5 map tulajdonosi katalógusa",
+                    CheckFileExists=true};
+                if(input.ShowDialog()!=Forms.DialogResult.OK)return;
+                using var output=new Forms.FolderBrowserDialog{
+                    Description="Új OFFLINE batch szülőmappája (a forrásfájloktól külön)"};
+                if(output.ShowDialog()!=Forms.DialogResult.OK)return;
+                string catalog=input.FileName;
+                string destination=Path.Combine(output.SelectedPath,
+                    "Untamed-Batch-"+Guid.NewGuid().ToString("N"));
+                if(WinMessageBox.Show(
+                    "A helyi katalógusban felsorolt 37 fájlt ellenőrzi és ÚJ offline "+
+                    "könyvtárba másolja. Nem végez éles Store/ASA/SQL műveletet "+
+                    "és nem bizonyít karaktertranszfer-konzisztenciát.\n\n"+
+                    "Cél: "+destination+"\n\nFolytatod?",
+                    "Untamed offline 37-komponenses batch",
+                    MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                status.Text="37 komponens ellenőrzése és tartós offline másolása...";
+                try
+                {
+                    var result=await Task.Run(()=>
+                        ClusterBatchCatalogImport.BuildFromCatalog(catalog,destination));
+                    status.Text="OFFLINE BATCH ELKÉSZÜLT · "+result.Components.Length+
+                        " fájl SHA-256 ellenőrzött"+
+                        "\nCsomag: "+destination+
+                        "\nASA/STORE/SQL konzisztencia: ÉLESBEN NEM IGAZOLT.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("offline-37-catalog",ex);
+                    status.Text="UM-37-BATCH: nem készült teljes batch. "+
+                        "Az esetleges .incomplete mappa külön vizsgálandó.";
+                }
+            }),
             Btn("Meglévő OFFLINE clusterarchívum ellenőrzése",async ()=>{
                 using var dialog=new Forms.FolderBrowserDialog{
                     Description="Korábban létrehozott Untamed-Offline-Cluster mappa"};
