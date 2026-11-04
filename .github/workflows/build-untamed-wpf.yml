@@ -207,3 +207,15 @@ jobs:
           }
           if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
 
+  real-sql:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Real isolated MariaDB logical dump and empty-target restore
+        shell: pwsh
+        run: ./wpf/Testing/MariaDb/Run-RealSql.ps1
+

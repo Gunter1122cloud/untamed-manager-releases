@@ -364,10 +364,11 @@ public partial class MainWindow : Window
     }
     private void Backups()
     {
-        Header("Mentések","Helyi, leállított map fájlszintű mentése; Cluster Vault, SQL és éles restore letiltva.");
+        Header("Mentések","Helyi mapfájlok és háromadatbázisos SQL-mentés; visszatöltés külön üres SQL-célra.");
         Add(Box(V(Label("Untamed Cluster Vault · védett",19,Mint,true),
             Label("Csak a kiválasztott helyi map fájljairól készül ellenőrzött másolat. "+
-                  "A közös Cluster Vault és SQL adatait nem módosítjuk.",12,Soft))));
+                  "A közös Cluster Vault és a karakterátvitel nem része ennek a fájlmentésnek.",12,Soft))));
+        ShowSqlBackupControls();
         if(_cluster.Config.LocalMaps.Count==0)
         {
             Add(Label("Nincs kézzel regisztrált helyi map. Előbb a Szerverek nézetben adj hozzá egyet.",13,Soft));
