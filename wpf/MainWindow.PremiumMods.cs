@@ -124,6 +124,19 @@ public partial class MainWindow
             Render();
             preview.Text="Előkészítve · visszavonás/újra elérhető · még nem mentettük.";
         }
+        void AddProject(string id)
+        {
+            id=id.Trim();
+            var stagedState=ModStateController.Read(draft.Projected());
+            if(stagedState.Active.Concat(stagedState.Passive).Concat(stagedState.Disabled)
+                .Contains(id,StringComparer.Ordinal))
+            {
+                search.Text=id;
+                status.Text="A projekt már a map modlistájában szerepel. Válaszd ki az állapot vagy sorrend módosításához.";
+                return;
+            }
+            Stage(id,ModMode.Active);
+        }
         void Safely(Action action)
         {
             try {action();}
@@ -191,7 +204,7 @@ public partial class MainWindow
         })));
         var addBar=new WrapPanel {Margin=new Thickness(0,5,0,8)};
         addBar.Children.Add(addId);
-        addBar.Children.Add(Btn("Mod hozzáadása",()=>Safely(()=>Stage(addId.Text,ModMode.Active))));
+        addBar.Children.Add(Btn("Mod hozzáadása",()=>Safely(()=>AddProject(addId.Text))));
         var left=V(Label("Modlista",19,Mint,true),
             Label("Map kiválasztása, keresés és új mod felvétele",12,Soft),
             toolbar,summary,rows,addBar);
@@ -260,7 +273,7 @@ public partial class MainWindow
 
         // The catalog selection stages the found project instead of asking for hand-entered IDs.
         _catalogSelectForMod=id=>Safely(()=>{
-            addId.Text=id;Stage(id,ModMode.Active);
+            addId.Text=id;AddProject(id);
             status.Text="CurseForge projekt "+id+" előkészítve – még nincs mentve.";
         });
         int before=PageBody.Children.Count;
