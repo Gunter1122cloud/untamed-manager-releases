@@ -79,6 +79,14 @@ public static class ClusterRestoreCoordinatorTests
             "SQL output is a verified file, never a live database import");
         Check(ClusterRestoreCoordinator.VerifyLab(destination).SourceBatch==sourceArchive.Batch,
             "independent disk verification succeeds only for an intact published workspace");
+        string indexFile=Path.Combine(destination,"restore-lab-index.json");
+        byte[] sealedIndex=File.ReadAllBytes(indexFile);
+        File.AppendAllText(indexFile," ");
+        Check(Refused(()=>ClusterRestoreCoordinator.VerifyLab(destination)),
+            "index byte corruption fails sealed manifest SHA verification");
+        File.WriteAllBytes(indexFile,sealedIndex);
+        Check(ClusterRestoreCoordinator.VerifyLab(destination).SourceBatch==sourceArchive.Batch,
+            "restoring exact index bytes reestablishes offline-only integrity");
         Check(Refused(()=>ClusterRestoreCoordinator.MaterializeToLab(cluster,destination)),
             "existing output is never silently replaced");
 
