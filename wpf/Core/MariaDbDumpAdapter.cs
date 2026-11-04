@@ -63,7 +63,9 @@ public sealed class MariaDbDumpAdapter
         string sql=Path.Combine(stage,"databases.sql");
         await using(var output=new FileStream(sql,FileMode.CreateNew,FileAccess.Write,FileShare.None))
         {
-            var args=Arguments(options).Concat(new[]{"--single-transaction","--skip-lock-tables",
+            // connect-timeout belongs to mariadb.exe, not mariadb-dump.
+            // The dump process is bounded by RunAsync's overall deadline.
+            var args=new[]{"--defaults-file="+options.Path}.Concat(new[]{"--single-transaction","--skip-lock-tables",
                 "--skip-add-locks","--quick","--routines","--events","--triggers","--hex-blob",
                 "--default-character-set=utf8mb4","--databases"}).Concat(MariaDbCompatibility.Databases).ToArray();
             await RunAsync(dump,args,output,null,TimeSpan.FromMinutes(10),2L*1024*1024*1024,ct);
