@@ -52,7 +52,8 @@ public partial class App : System.Windows.Application
             if(!root.StartsWith(Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)){Shutdown(2);return;}
             ProfileRootOverride=root;
         }
-        IsSmokeTest = Array.Exists(e.Args, a => a == "--smoke-test" || a == "--screenshot-test");
+        IsSmokeTest = Array.Exists(e.Args, a => a == "--smoke-test" ||
+            a == "--screenshot-test" || a == "--splash-screenshot-test");
         IsDemoStart = e.Args.Contains("--demo") && !IsSmokeTest && !IsSupervisionTest;
         if(IsDemoStart)
             ProfileRootOverride=Path.Combine(Path.GetTempPath(),
@@ -95,6 +96,36 @@ public partial class App : System.Windows.Application
         };
         AppDomain.CurrentDomain.UnhandledException += (_,a) => { if(a.ExceptionObject is Exception x) Log(x); };
         TaskScheduler.UnobservedTaskException += (_,a) => { Log(a.Exception); a.SetObserved(); };
+        if(e.Args.Contains("--splash-screenshot-test"))
+        {
+            try
+            {
+                const int width=930, height=510;
+                var window=new ManagerSplashWindow();
+                window.SetStage(ManagerStartupStage.InitializingInterface);
+                window.Show();
+                if(window.Content is not FrameworkElement content)
+                    throw new InvalidOperationException("WPF splash root missing");
+                content.Width=width;content.Height=height;
+                content.Measure(new Size(width,height));
+                content.Arrange(new Rect(0,0,width,height));
+                content.UpdateLayout();
+                window.Dispatcher.Invoke(()=>{},DispatcherPriority.Render);
+                var bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
+                bitmap.Render(content);
+                var encoder=new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                string path=Environment.GetEnvironmentVariable("UNTAMED_SPLASH_SCREENSHOT_PATH") ??
+                    Path.Combine(LogDir,"splash.png");
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                using(var output=File.Create(path))encoder.Save(output);
+                if(new FileInfo(path).Length<8000)
+                    throw new IOException("WPF splash screenshot unexpectedly small");
+                Environment.Exit(0);
+            }
+            catch(Exception ex){Log(ex);Environment.Exit(1);}
+            return;
+        }
         if (Array.Exists(e.Args, a => a == "--screenshot-test"))
         {
             try
@@ -109,7 +140,10 @@ public partial class App : System.Windows.Application
                 string gallery=Path.Combine(Path.GetDirectoryName(dashboardShotPath)??LogDir,"UI-Screenshots");
                 bool galleryEnabled=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_GALLERY")=="1";
                 var pages=galleryEnabled
-                    ? new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","ini"}
+                    ? new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","ini",
+                        "demo-dashboard","demo-servers","demo-cluster","demo-mods","demo-plugins",
+                        "demo-ini","demo-rcon","demo-backups","demo-schedules","demo-monitoring",
+                        "demo-recovery","demo-settings"}
                     : new[]{"dashboard"};
                 if(galleryEnabled)Directory.CreateDirectory(gallery);
                 foreach(string page in pages)

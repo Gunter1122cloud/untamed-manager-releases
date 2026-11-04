@@ -136,14 +136,27 @@ jobs:
           UNTAMED_SCREENSHOT_GALLERY: '1'
         run: |
           $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--screenshot-test" -PassThru
-          if (-not $p.WaitForExit(45000)) { $p.Kill(); throw "WPF screenshot render timeout" }
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "WPF screenshot render timeout" }
           if ($p.ExitCode -ne 0) { throw "WPF screenshot generation failed" }
           if (!(Test-Path "$env:UNTAMED_SCREENSHOT_PATH")) { throw "WPF screenshot output missing" }
           if ((Get-Item "$env:UNTAMED_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF screenshot unexpectedly small" }
-          foreach ($page in @("servers","mods","plugins","cluster","backups","settings","ini")) {
+          foreach ($page in @("servers","mods","plugins","cluster","backups","settings","ini",
+            "demo-dashboard","demo-servers","demo-cluster","demo-mods","demo-plugins",
+            "demo-ini","demo-rcon","demo-backups","demo-schedules","demo-monitoring",
+            "demo-recovery","demo-settings")) {
             $file = Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-$page.png"
             if (!(Test-Path $file) -or (Get-Item $file).Length -lt 8000) { throw "Missing or invalid WPF screenshot: $page" }
           }
+      - name: Render actual WPF splash screen
+        shell: pwsh
+        env:
+          UNTAMED_SPLASH_SCREENSHOT_PATH: ${{ github.workspace }}/dist/UI-Screenshots/UntamedManager-splash.png
+        run: |
+          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--splash-screenshot-test" -PassThru
+          if (-not $p.WaitForExit(45000)) { $p.Kill(); throw "WPF splash render timeout" }
+          if ($p.ExitCode -ne 0) { throw "WPF splash render failed" }
+          if (!(Test-Path "$env:UNTAMED_SPLASH_SCREENSHOT_PATH") -or
+              (Get-Item "$env:UNTAMED_SPLASH_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF splash screenshot missing" }
       - name: Save verified GUI screenshots
         uses: actions/upload-artifact@v4
         with:

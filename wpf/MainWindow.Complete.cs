@@ -17,12 +17,22 @@ public partial class MainWindow
     public void PrepareScreenshotPage(string page)
     {
         // Only rendered application pages, never a fabricated design preview.
-        if(!new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","ini"}
-            .Contains(page,StringComparer.Ordinal))
+        string demoPage=page.StartsWith("demo-",StringComparison.Ordinal)?page["demo-".Length..]:page;
+        if(!new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","ini",
+            "rcon","monitoring","schedules","recovery"}.Contains(demoPage,StringComparer.Ordinal))
             throw new ArgumentOutOfRangeException(nameof(page),"Unknown screenshot page");
-        Navigate(page);
+        if(page.StartsWith("demo-",StringComparison.Ordinal))
+        {
+            EnterDemoMode();
+            Navigate(demoPage);
+        }
+        else
+        {
+            if(_demo!=null)ExitDemoMode();
+            Navigate(demoPage);
+        }
         UpdateLayout();
-        if(page!="dashboard" && string.IsNullOrWhiteSpace(PageTitle.Text))
+        if(demoPage!="dashboard" && string.IsNullOrWhiteSpace(PageTitle.Text))
             throw new InvalidOperationException("Page did not render a title: "+page);
     }
 
@@ -38,6 +48,7 @@ public partial class MainWindow
                 throw new InvalidOperationException("Empty Release Candidate page: "+page);
         }
         VerifySignedPanelsCiSmoke();
+        VerifyDemoUiCiSmoke();
         VerifyDashboardUiCiSmoke();
         Navigate("dashboard");
     }
