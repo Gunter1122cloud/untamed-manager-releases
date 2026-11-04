@@ -120,7 +120,8 @@ public partial class MainWindow
                  (state=="Letiltott"&&!x.Enabled))).ToArray();
             list.ItemsSource=visible;
             list.SelectedItem=visible.FirstOrDefault(x=>
-                x.Name.Equals(old,StringComparison.OrdinalIgnoreCase));
+                x.Name.Equals(old,StringComparison.OrdinalIgnoreCase))
+                ??visible.FirstOrDefault();
             count.Text=CurrentMap().Name+" · "+all.Length+" lemezen talált plugin"+
                 " · "+all.Count(x=>x.Enabled)+" engedélyezett"+
                 " · "+all.Count(x=>!x.Enabled)+" letiltott"+
@@ -211,14 +212,17 @@ public partial class MainWindow
                 {
                     // Recheck at execution time, never trust the stale UI badge.
                     var result=PluginStateManager.ToggleLocalChecked(_cluster,map.Id,row.Name,enabling);
-                    Report((result.Enabled?"Bekapcsolva: ":"Kikapcsolva: ")+result.Plugin+
-                        "\nEllenőrzött biztonsági másolat: "+result.BackupPackage+
-                        "\nA betöltéshez igazolt újraindítás szükséges; automatika nem indult.");
+                    // The success receipt is shown after Refresh (which updates
+                    // only disk observation); it must not be erased by a read-only refresh.
                 }
                 finally{busy=false;}
                 string keep=row.Name;
                 Refresh();
-                list.SelectedItem=all.FirstOrDefault(x=>x.Name.Equals(keep,StringComparison.OrdinalIgnoreCase));
+                list.SelectedItem=list.Items.OfType<PremiumPluginRow>()
+                    .FirstOrDefault(x=>x.Name.Equals(keep,StringComparison.OrdinalIgnoreCase));
+                Report((result.Enabled?"Bekapcsolva: ":"Kikapcsolva: ")+result.Plugin+
+                    "\nSHA-256 védőmásolat: "+result.BackupPackage+
+                    "\nA szerver automatikus újraindítása nem történt meg.");
             });
         }
 
