@@ -272,6 +272,7 @@ public partial class MainWindow : Window
             case "recovery": ShowRecoveryCenter(); break;
             case "license": ShowUpdateCenter(); break;
             case "readiness": ShowReleaseReadiness(); break;
+            case "extensions": ShowManagerExtensions(); break;
             case "settings": Settings(); break;
             case "setup": ShowSetupWizard(); break;
         }

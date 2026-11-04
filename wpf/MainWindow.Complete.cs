@@ -18,7 +18,7 @@ public partial class MainWindow
     {
         if(VersionBadge.Text!="WPF "+UiVersion)
             throw new InvalidOperationException("Stale WPF version badge or assembly mismatch");
-        foreach(string page in new[]{"setup","data","steam","settings","readiness"})
+        foreach(string page in new[]{"setup","data","steam","settings","readiness","extensions"})
         {
             Navigate(page);
             UpdateLayout();
