@@ -59,6 +59,8 @@ public sealed class DemoWorkspace
         var templates=new (string Name,int Host,int Players,bool Running)[]{
             ("The Island",0,5,true),("Astraeos",0,3,true),
             ("Ragnarok",1,4,true),("Aberration",1,0,false),
+            ("Valguero",0,3,true),("Extinction",0,1,true),
+            ("The Center",1,2,true),("Scorched Earth",1,0,false),
             ("Lost Colony",2,0,false),("Genesis Part 1",2,0,false)
         };
         foreach(var t in templates)

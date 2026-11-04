@@ -157,6 +157,28 @@ public sealed class DirectoryUpdateTransaction
             throw new IOException("Update recovery paths overlap");
         return state;
     }
+    // Windows Defender/indexers and a just-exited WPF process can briefly keep
+    // file handles open after health smoke. Preserve fail-closed semantics:
+    // retry only rename collisions; never delete a locked app or bypass hashes.
+    private static void MoveWithBoundedRetry(string source,string target)
+    {
+        CheckPath(source);CheckPath(target);
+        for(int attempt=0;attempt<12;attempt++)
+        {
+            try
+            {
+                Directory.Move(source,target);
+                return;
+            }
+            catch(Exception ex) when(
+                (ex is IOException || ex is UnauthorizedAccessException) &&
+                attempt<11 && Directory.Exists(source) && !Directory.Exists(target))
+            {
+                System.Threading.Thread.Sleep(250*(attempt+1));
+            }
+        }
+    }
+
     public void Rollback()
     {
         var state=Read();
@@ -167,8 +189,9 @@ public sealed class DirectoryUpdateTransaction
         Copy(snapshot,staging,state.Hashes);
         Write(state with {Phase="rollingback"});
         if(Directory.Exists(state.Application))
-            Directory.Move(state.Application,state.Application+".failed-"+Guid.NewGuid().ToString("N"));
-        Directory.Move(staging,state.Application);
+            MoveWithBoundedRetry(state.Application,
+                state.Application+".failed-"+Guid.NewGuid().ToString("N"));
+        MoveWithBoundedRetry(staging,state.Application);
         Verify(state.Application,state.Hashes);
         Write(state with {Phase="rolledback"});
     }

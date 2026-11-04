@@ -12,8 +12,8 @@ public static class DemoWorkspaceTests
     public static void Run()
     {
         var demo=new DemoWorkspace();
-        Check(demo.Isolated && demo.Hosts.Count==3 && demo.Maps.Count==6,
-            "offline DEMO is constructed entirely in memory with 3 hosts and 6 maps");
+        Check(demo.Isolated && demo.Hosts.Count==3 && demo.Maps.Count==10,
+            "offline DEMO is constructed entirely in memory with 3 hosts and 10 maps");
         var map=demo.Maps.First(x=>x.Name=="The Island");
         demo.SetRunning(map.Id,false);
         Check(!map.Running && map.Players==0,"simulated stop updates only DEMO state");

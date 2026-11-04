@@ -412,7 +412,7 @@ public partial class MainWindow
     {
         EnterDemoMode();
         if(_demo==null || ServerCards.ItemsSource is not IEnumerable<MapInfo> cards ||
-           cards.Count()!=6 || cards.Any(x=>!x.IsDemo) ||
+           cards.Count()!=10 || cards.Any(x=>!x.IsDemo) ||
            ClusterHostCount.Text!="3" || DemoModeIndicator.Visibility!=Visibility.Visible)
             throw new InvalidOperationException("Demo dashboard was not isolated or marked");
         foreach(var page in new[]{"servers","cluster","mods","plugins","ini","rcon",
