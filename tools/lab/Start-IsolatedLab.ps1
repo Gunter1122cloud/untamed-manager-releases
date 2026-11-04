@@ -9,7 +9,9 @@ param([Parameter(Mandatory=$true)][string]$LabRoot,
       [ValidateRange(1,60)][int]$MaximumMinutes=10)
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'IsolatedLab.psm1') -Force
-$plan=New-IsolatedLabPlan -LabRoot $LabRoot -GuestIso $GuestIso -GuestDisk $GuestDisk -GuestAnswerMedia $GuestAnswerMedia
+Import-Module (Join-Path $PSScriptRoot 'LabQmp.psm1') -Force
+$monitorPipe='UntamedLab-Qmp-'+[Guid]::NewGuid().ToString('N')
+$plan=New-IsolatedLabPlan -LabRoot $LabRoot -GuestIso $GuestIso -GuestDisk $GuestDisk -GuestAnswerMedia $GuestAnswerMedia -MonitorPipe $monitorPipe
 if($plan.GuestIsoSha256 -ne $IsoSha256){throw 'Guest ISO hash mismatch'}
 if($GuestAnswerMedia -and ($GuestAnswerMediaSha256 -notmatch '^[A-Fa-f0-9]{64}$' -or $plan.GuestAnswerMediaSha256 -ne $GuestAnswerMediaSha256)){throw 'Lab answer media hash mismatch'}
 if(-not [IO.Path]::IsPathRooted($QemuExecutable) -or [IO.Path]::GetFileName($QemuExecutable) -ne 'qemu-system-x86_64.exe'){throw 'Explicit QEMU executable required'}
@@ -28,12 +30,23 @@ try {
     Assert-Headroom
     $plan|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 -LiteralPath (Join-Path $machine 'last-launch-plan.json')
     if($GuestAnswerMedia){Write-LabSetupClaim -LabRoot $LabRoot -GuestDisk $GuestDisk -MediaSha256 $GuestAnswerMediaSha256}
+    $artifacts=Assert-LabPath $LabRoot (Join-Path $LabRoot ('artifacts/guest-'+(Split-Path -Leaf $machine)))
+    [IO.Directory]::CreateDirectory($artifacts)|Out-Null
     $owned=[UntamedLab.WindowsLabJob]::Start($QemuExecutable,[string[]]$plan.Arguments,$machine,10,[UInt64]10GB)
     $until=[DateTime]::UtcNow.AddMinutes($MaximumMinutes)
+    $nextScreen=[DateTime]::UtcNow
     Write-Output "Isolated QEMU PID $($owned.ProcessId); CPU cap verified $($owned.CpuRate)/10000; job memory $($owned.MemoryLimit) bytes"
     while(-not $owned.Wait(5000)){
         Assert-Headroom
         if([DateTime]::UtcNow -ge $until){throw 'Lab time budget reached; stopping only owned lab process'}
+        if([DateTime]::UtcNow -ge $nextScreen){
+            try{
+                $png=Join-Path $artifacts ('screen-'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N')+'.png')
+                $screen=Save-LabGuestScreen -LabRoot $LabRoot -OutputFile $png -PipeName $monitorPipe -ExpectedQemuPid $owned.ProcessId
+                Write-Output ('Owned guest display: '+$screen.GuestStatus+'; '+$screen.Path)
+            }catch{Write-Output 'Owned guest display diagnostics unavailable; no host screen captured'}
+            $nextScreen=[DateTime]::UtcNow.AddSeconds(60)
+        }
     }
     if($owned.ExitCode -ne 0){throw "QEMU exited with code $($owned.ExitCode)"}
 } finally {

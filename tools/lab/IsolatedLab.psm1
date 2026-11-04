@@ -48,7 +48,8 @@ function New-IsolatedLabPlan {
     param([Parameter(Mandatory=$true)][string]$LabRoot,
           [Parameter(Mandatory=$true)][string]$GuestIso,
           [Parameter(Mandatory=$true)][string]$GuestDisk,
-          [string]$GuestAnswerMedia='')
+          [string]$GuestAnswerMedia='',
+          [string]$MonitorPipe='')
     $iso=Assert-LabPath $LabRoot $GuestIso
     $disk=Assert-LabPath $LabRoot $GuestDisk
     if([IO.Path]::GetExtension($iso) -ne '.iso' -or [IO.Path]::GetExtension($disk) -ne '.qcow2'){throw 'Explicit ISO and qcow2 required'}
@@ -70,6 +71,10 @@ function New-IsolatedLabPlan {
         $block=@{driver='throttle';'throttle-group'='labio';'node-name'='labanswer';'read-only'=$true;file=@{driver='raw';'read-only'=$true;file=@{driver='file';filename=$answer;'read-only'=$true}}}|ConvertTo-Json -Compress -Depth 6
         $extra=@('-blockdev',$block,'-device','isa-fdc,id=labfdc,fdtypeA=144,fdtypeB=none','-device','floppy,drive=labanswer,drive-type=144')
     }
+    if($MonitorPipe){
+        if($MonitorPipe -cnotmatch '^UntamedLab-Qmp-[a-f0-9]{32}$'){throw 'Invalid owned QMP pipe name'}
+        $extra+=@('-chardev',('pipe,id=labqmp,path='+$MonitorPipe),'-mon','chardev=labqmp,mode=control')
+    }
     $boot=if($GuestAnswerMedia){'order=c,once=d,menu=off'}else{'order=cd,menu=off'}
     return [pscustomobject]@{
         Schema=1; LabRoot=[IO.Path]::GetFullPath($LabRoot); HostRebootAllowed=$false
@@ -78,6 +83,7 @@ function New-IsolatedLabPlan {
         GuestIso=$iso; GuestIsoSha256=(Get-FileHash -LiteralPath $iso -Algorithm SHA256).Hash
         GuestDisk=$disk; ProductionAcceptance=$false
         GuestAnswerMedia=$answer;GuestAnswerMediaSha256=$answerHash
+        MonitorPipe=$MonitorPipe
         Arguments=@('-no-user-config','-nodefaults','-machine','q35,dump-guest-core=off',
             '-accel','tcg,thread=multi','-cpu','max','-smp','2','-m','8192',
             '-nic','none','-display','none','-monitor','none','-serial','none','-parallel','none',

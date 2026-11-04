@@ -24,7 +24,7 @@ backing file-t, a titkosítást és az incompatible feature flag-eket, köztük 
 külső adatfájlt. Nem nyit fizikai lemezt vagy már létező éles telepítést.
 
 A QEMU paramétereit a policy építi; nincs szabad extra argumentum. Nincs NIC,
-hostmegosztás, port forward, QMP/TCP-monitor, soros/parallel hosteszköz vagy
+hostmegosztás, port forward, TCP/HMP-monitor, soros/parallel hosteszköz vagy
 USB/nyerslemez-átadás. A virtuális lemez és az ISO közös 8 MiB/s / 200 IOPS
 throttle-csoportban van. A vendég telepítési rebootja a vendégre korlátozódik.
 
@@ -83,6 +83,21 @@ Az előző folyamat kilépése vagy időtúllépése nem oldja fel ezt a claimet
 vendéglemez törlését tartalmazó unattended setup nem ismétlődik automatikusan.
 Média nélküli későbbi boot elsőként a meglévő vendéglemezt próbálja, a telepítési
 állapotot külön kell ellenőrizni.
+
+## Kizárólag a saját vendég kijelzőjének megfigyelése
+
+A headless indító saját, véletlen nevű helyi Windows named pipe-on biztosít
+QMP diagnosztikát, TCP-listener nélkül. A kliens kernel API-val ellenőrzi, hogy
+a pipe szerverének PID-je pontosan a most indított saját QEMU-é. A diagnosztikai
+útvonal csak capability-negotiation, `query-status` és `screendump` parancsot küld.
+Nincs általános monitorparancs vagy lemez/hosteszköz-hozzáadás a diagnosztikai API-ban.
+Sorhossz, határidő és válaszszám korlátos; rossz owner/greeting esetén parancsot sem küld.
+
+A képfájl friss, laboron belüli PNG lehet, 16 MiB méretkorláttal és aláírásellenőrzéssel.
+A kép a vendég virtuális videokártyájából származik. A host asztalát és más
+alkalmazás ablakát nem rögzíti. Az indító percenként legfeljebb egy képet kér,
+és nem nyit a hoston interaktív ablakot. A vendég továbbra sem kap hálózati
+adaptert vagy hostmegosztást. A képek privát laboradatok, a repóba nem kerülnek.
 
 Microsoft források: [Setup automatizálás](https://learn.microsoft.com/windows-hardware/manufacture/desktop/windows-setup-automation-overview),
 [Windows Setup válaszfájl](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/automate-windows-setup).

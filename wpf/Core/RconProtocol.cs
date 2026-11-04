@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -15,19 +16,27 @@ namespace UntamedManager.Core;
 // Remote peer messages never reach this protocol.
 public static class RconProtocol
 {
+    private static readonly Encoding StrictUtf8=new UTF8Encoding(false,true);
     public static async Task<string> Execute(string host,int port,string password,string command,
         CancellationToken cancellationToken=default)
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         if (string.IsNullOrEmpty(password)) throw new InvalidOperationException("Missing RCON password");
+        if(password.Contains('\0')||Encoding.UTF8.GetByteCount(password)>4000)
+            throw new InvalidDataException("Invalid RCON credential framing");
+        if(string.IsNullOrWhiteSpace(host)||host.Length>253)
+            throw new InvalidDataException("Invalid RCON host");
         if (command!="ListPlayers")
             throw new InvalidOperationException(
                 "Live RCON is restricted to the read-only ListPlayers probe");
-        if (!await IsLocalAddress(host))throw new UnauthorizedAccessException("RCON host must be a local interface");
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(8));
-        using var client=new TcpClient();
-        await client.ConnectAsync(host,port,timeout.Token);
+        timeout.Token.ThrowIfCancellationRequested();
+        var address=await ResolveLocalAddress(host,timeout.Token);
+        using var client=new TcpClient(address.AddressFamily);
+        // Connect to the address already checked, never resolve the name a
+        // second time after authorization. The deadline includes DNS as well.
+        await client.ConnectAsync(address,port,timeout.Token);
         using var stream=client.GetStream();
         int challenge=Random.Shared.Next(1000,1000000);
         await WritePacket(stream,challenge,3,password,timeout.Token);
@@ -39,7 +48,7 @@ public static class RconProtocol
             if(packet.Id==challenge && packet.Type==2){authenticated=true;break;}
         }
         if(!authenticated)throw new IOException("RCON login response invalid");
-        int commandId=Random.Shared.Next(1000,1000000);
+        int commandId=challenge+4;
         int barrierId=commandId+1;
         await WritePacket(stream,commandId,2,command,timeout.Token);
         var responses=new List<string>();
@@ -107,14 +116,30 @@ public static class RconProtocol
             throw new InvalidDataException("RCON frame terminator missing");
         int id=BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(0,4));
         int type=BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(4,4));
-        return new Packet(id,type,Encoding.UTF8.GetString(data,8,length-10).TrimEnd('\0'));
+        string body;
+        try{body=StrictUtf8.GetString(data,8,length-10);}
+        catch(DecoderFallbackException ex){throw new InvalidDataException("Invalid RCON UTF-8",ex);}
+        if(body.Contains('\0'))throw new InvalidDataException("Embedded RCON body terminator");
+        return new Packet(id,type,body);
     }
-    private static async Task<bool> IsLocalAddress(string host)
+    private static async Task<IPAddress> ResolveLocalAddress(string host,CancellationToken ct)
     {
-        IPAddress[] resolved=await Dns.GetHostAddressesAsync(host);
-        var local=new HashSet<IPAddress>(await Dns.GetHostAddressesAsync(Dns.GetHostName())){
-            IPAddress.Loopback, IPAddress.IPv6Loopback
-        };
-        return resolved.Length>0 && resolved.All(local.Contains);
+        IPAddress Normalize(IPAddress address)=>address.IsIPv4MappedToIPv6?address.MapToIPv4():address;
+        var resolved=(IPAddress.TryParse(host,out var literal)?new[]{literal}:
+            await Dns.GetHostAddressesAsync(host,ct)).Select(Normalize).Distinct().ToArray();
+        ct.ThrowIfCancellationRequested();
+        if(resolved.Length==0)throw new UnauthorizedAccessException("RCON host must be a local interface");
+        if(resolved.Any(a=>!IPAddress.IsLoopback(a)))
+        {
+            // Local interface ownership comes from the OS, not from a DNS
+            // answer for this machine's own name.
+            var local=NetworkInterface.GetAllNetworkInterfaces().SelectMany(n=>
+                n.GetIPProperties().UnicastAddresses.Select(a=>Normalize(a.Address))).ToHashSet();
+            if(resolved.Any(a=>!IPAddress.IsLoopback(a)&&!local.Contains(a)))
+                throw new UnauthorizedAccessException("RCON host must be a local interface");
+        }
+        ct.ThrowIfCancellationRequested();
+        return resolved.OrderBy(a=>a.AddressFamily==AddressFamily.InterNetwork?0:1).First();
     }
 }
+

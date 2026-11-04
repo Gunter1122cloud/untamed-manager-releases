@@ -127,6 +127,26 @@ unattended setup nem indul újra automatikusan a virtuális lemez törlésével.
 További CI-próba a teljes médiagenerátor DPAPI-jelszórekordja és az ismételt
 generálás visszautasítása, az eredeti kép megőrzésével. Ezek is vendégindítás nélküli próbák.
 
+Az egyszeri setup-claim, a DPAPI-jelszórekord és a generátor eredeti médiát megőrző
+visszautasítása a [Windows CI 41825922704](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/41825922704)
+teljes futásában sikeres a `20cf6ef7d4298acd109036d518040e684c9599b4` commiton.
+
+## Következő ellenőrzés: RCON és saját vendégdiagnosztika
+
+- A read-only RCON a helyinek igazolt IP-címhez csatlakozik, név újrafeloldása
+  nélkül. A teljes 8 másodperces határidő a DNS-t is tartalmazza; a helyi interface
+  OS-leltárból származik. IPv4-mapped loopback normalizált; nem helyi cél elutasítva.
+- Auth- és query request ID garantáltan különböző. Hibás UTF-8 és embedded NUL
+  nem válik elfogadott játékoslistává. Megszakított vagy keretezési hibás hitelesítő
+  adatot tartalmazó kérés nem nyit kapcsolatot. A transport továbbra is ListPlayers.
+- A headless vendég saját kijelzőjéhez PID-ellenőrzött, helyi named-pipe diagnosztika
+  készült. Csak status/screenshot és a szükséges QMP-képességegyeztetés küldhető.
+  A screenshot a vendég VGA-ja, nem a host vagy az élő Manager ablaka. Nincs TCP,
+  NIC vagy megosztás. Rossz PID/greeting/túlméretes válasz negatív CI-fixture készült.
+
+Az új RCON/QMP-változások még külön CI-futásban igazolandók. A QMP-fixture saját
+Windows pipe-szerver, nem valódi QEMU/Windows-vendég vagy ASA-próba.
+
 ## Helyi izolált labor
 
 A felhasználó engedélyezte a munkamappán belüli elkülönített labort, de az élő

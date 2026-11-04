@@ -3,6 +3,8 @@ Import-Module (Join-Path $PSScriptRoot 'IsolatedLab.psm1') -Force
 Add-Type -Path (Join-Path $PSScriptRoot 'WindowsLabJob.cs')
 Add-Type -Path (Join-Path $PSScriptRoot 'LabAnswerMedia.cs')
 Import-Module (Join-Path $PSScriptRoot 'LabWindowsSetup.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'LabQmp.psm1') -Force
+Add-Type -Path (Join-Path $PSScriptRoot 'Testing/NamedPipeFixture.cs')
 function Assert([bool]$Condition,[string]$Reason){if(-not $Condition){throw $Reason};Write-Output "PASS lab $Reason"}
 function Refused([scriptblock]$Action,[string]$Reason){$denied=$false;try{& $Action|Out-Null}catch{$denied=$true};Assert $denied $Reason}
 $root=Join-Path ([IO.Path]::GetTempPath()) ('Untamed-Lab-Policy-'+[Guid]::NewGuid().ToString('N'))
@@ -68,6 +70,28 @@ try{
 Assert ($generated.Bytes -eq 1474560 -and -not $generated.GuestBooted -and -not $generated.HostInstallExecuted) 'media generator writes a real floppy without executing guest or host setup'
 Refused {& (Join-Path $PSScriptRoot 'New-LabWindowsSetupMedia.ps1') -LabRoot $root -MachineDirectory $generatedDirectory -VerifiedImageIndex 2} 'existing guest setup media and credential are never overwritten'
 Assert ((Get-FileHash -LiteralPath $generated.AnswerMedia -Algorithm SHA256).Hash -eq $generatedHash) 'refused media regeneration preserves original image bytes'
+$pipeName='UntamedLab-Qmp-'+[Guid]::NewGuid().ToString('N')
+$screenPath=Join-Path $root 'diagnostic.png'
+$fixture=[UntamedLab.Testing.NamedPipeFixture]::new($pipeName,$screenPath,0)
+try{
+    $screen=Save-LabGuestScreen -LabRoot $root -OutputFile $screenPath -PipeName $pipeName -ExpectedQemuPid ([UInt32]$PID)
+    Assert ($screen.GuestStatus -eq 'running' -and -not $screen.HostScreenCaptured -and (Test-Path -LiteralPath $screen.Path)) 'owned named-pipe diagnostics saves only the synthetic guest PNG'
+    Assert ($fixture.Finished(5000) -and ($fixture.Commands -join ',') -eq 'qmp_capabilities,query-status,screendump' -and $null -eq $fixture.Failure) 'QMP diagnostics sends only capability/status/screenshot requests and handles events'
+}finally{$fixture.Dispose()}
+foreach($case in @('wrong-pid','bad-greeting','oversize-greeting')){
+    $pipeName='UntamedLab-Qmp-'+[Guid]::NewGuid().ToString('N')
+    $kind=if($case -eq 'bad-greeting'){1}elseif($case -eq 'oversize-greeting'){2}else{0}
+    $badScreen=Join-Path $root ($case+'.png')
+    $fixture=[UntamedLab.Testing.NamedPipeFixture]::new($pipeName,$badScreen,$kind)
+    try{
+        $expected=if($case -eq 'wrong-pid'){[UInt32]($PID+1000000)}else{[UInt32]$PID}
+        Refused {Save-LabGuestScreen -LabRoot $root -OutputFile $badScreen -PipeName $pipeName -ExpectedQemuPid $expected} "named-pipe diagnostic $case refused"
+        Assert ($fixture.Finished(5000) -and $fixture.Commands.Count -eq 0 -and -not (Test-Path -LiteralPath $badScreen)) 'unverified diagnostic peer receives no QMP command or screenshot request'
+    }finally{$fixture.Dispose()}
+}
+$monitored=New-IsolatedLabPlan -LabRoot $root -GuestIso $iso -GuestDisk $disk -MonitorPipe ('UntamedLab-Qmp-'+[Guid]::NewGuid().ToString('N'))
+Assert ($monitored.NetworkAdapters -eq 0 -and $monitored.Arguments -contains 'chardev=labqmp,mode=control') 'optional diagnostic transport uses a local named pipe and no guest NIC'
+Refused {New-IsolatedLabPlan -LabRoot $root -GuestIso $iso -GuestDisk $disk -MonitorPipe 'tcp:0.0.0.0:4444'} 'TCP monitor or injected diagnostic arguments refused'
 $linked=Join-Path $root 'linked';$target=Join-Path $root 'real';[IO.Directory]::CreateDirectory($target)|Out-Null
 New-Item -ItemType Junction -Path $linked -Target $target|Out-Null
 Refused {Assert-LabPath $root (Join-Path $linked 'disk.qcow2')} 'junction refused'
