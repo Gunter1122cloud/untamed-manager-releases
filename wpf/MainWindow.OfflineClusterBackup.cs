@@ -84,7 +84,39 @@ public partial class MainWindow
                         " csomag, batch "+result.Batch+
                         "\n"+result.Disclaimer;
                 }
-                catch(Exception ex){status.Text="Archívum nem ellenőrizhető: "+ex.Message;}
+                catch(Exception ex){status.Text="Archívum nem ellenőrizhető: "+
+                    UntamedPresentation.Redact(ex.Message);}
+            }),
+            Btn("10 map + 3 SQL visszaállítási PRÓBA – kizárólag izolált TEMP",async ()=>{
+                using var dialog=new Forms.FolderBrowserDialog{
+                    Description="Válassz hitelesített offline clusterarchívumot (13 csomag)"};
+                if(dialog.ShowDialog()!=Forms.DialogResult.OK)return;
+                string archive=dialog.SelectedPath;
+                string destination=Path.Combine(Path.GetTempPath(),
+                    "Untamed-Isolated-Restore-"+Guid.NewGuid().ToString("N"));
+                if(WinMessageBox.Show(
+                    "A 10 map játékfájljait és 3 SQL-exportját egy ÚJ, elkülönített "+
+                    "TEMP könyvtárba másolja. Nem állít vissza valódi ASA/Store/SQL "+
+                    "szolgáltatást és nem írja felül a meglévő fájlokat.\n"+
+                    "Cél: "+destination+"\n\nFolytatod?",
+                    "Izolált offline restore-próba",MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                status.Text="Izolált restore fájlmásolás és SHA-256 ellenőrzés...";
+                try
+                {
+                    var result=await Task.Run(()=>
+                        ClusterRestoreCoordinator.MaterializeToLab(archive,destination));
+                    status.Text="IZOLÁLT RESTORE-FÁJLOK ELKÉSZÜLTEK\n"+
+                        "Mapok: "+result.Maps.Length+" · SQL-exportok: "+result.Sql.Length+
+                        "\nKönyvtár: "+destination+
+                        "\nÉLES ASA/SQL/STORE VISSZAÁLLÍTÁS NEM TÖRTÉNT.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("isolated-cluster-restore",ex);
+                    status.Text="UM-RESTORE-LAB: visszaállítási próba elutasítva. "+
+                        "Az esetleges .incomplete mappa külön operátori vizsgálatot igényel.";
+                }
             }),status)));
     }
 }
