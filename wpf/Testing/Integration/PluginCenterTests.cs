@@ -47,6 +47,9 @@ public static class PluginCenterTests
         var initial=PluginStateManager.Inventory(first);
         Check(initial.Count==1&&initial.Single().Enabled,
             "local disk inventory initially shows enabled plugin");
+        var unknown=PluginStateManager.InspectLocalToggle(cluster,first.Id,"MissingPlugin",false);
+        Check(!unknown.Allowed&&unknown.CheckedLocalMaps==0&&File.Exists(dll),
+            "unknown plugin has no actionable control and read-only lookup leaves disk untouched");
         var denied=PluginStateManager.InspectLocalToggle(cluster,first.Id,name,false);
         Check(!denied.Allowed&&denied.CheckedLocalMaps==2&&denied.Reason.Contains("Disposable map B"),
             "plugin toggle is denied when the other locally registered shared-install map runs");
