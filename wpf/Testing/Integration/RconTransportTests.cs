@@ -84,8 +84,43 @@ public static class RconTransportTests
         finally{listener.Stop();}
     }
 
+    private static async Task ProbeSaveWorldDispatch()
+    {
+        var listener=new TcpListener(IPAddress.Loopback,0);
+        listener.Start();
+        int port=((IPEndPoint)listener.LocalEndpoint).Port;
+        var server=Task.Run(async()=>{
+            using var accepted=await listener.AcceptTcpClientAsync();
+            using var stream=accepted.GetStream();
+            var auth=await ReadPacket(stream);
+            Assert(auth.Type==3,"save dispatch authenticates before command");
+            await WritePacket(stream,auth.Id,2,"");
+            var sent=await ReadPacket(stream);
+            Assert(sent.Type==2 && sent.Body=="SaveWorld",
+                "explicit SaveWorld dispatch sends only approved single command");
+        });
+        try
+        {
+            var result=await RconProtocol.DispatchSaveWorldAsync(
+                "127.0.0.1",port,"isolated-rcon-credential");
+            await server;
+            Assert(result.DispatchedUtc> DateTimeOffset.UtcNow.AddMinutes(-1) &&
+                   !result.SaveCompleteProven,
+                "authenticated SaveWorld RCON write cannot masquerade as SaveComplete");
+            bool refused=false;
+            try
+            {
+                await RconProtocol.Execute("127.0.0.1",port,"fixture","DoExit");
+            }
+            catch(InvalidOperationException){refused=true;}
+            Assert(refused,"read-only RCON API still refuses DoExit and other mutations");
+        }
+        finally{listener.Stop();}
+    }
+
     public static async Task Run()
     {
+        await ProbeSaveWorldDispatch();
         string result=await Probe();
         Assert(result=="1. TestPlayer\n",
             "fragmented, multi-frame ListPlayers response waits for completion");
