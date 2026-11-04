@@ -80,7 +80,7 @@ public partial class MainWindow
             mode.SelectedItem=row.StartsWith("PASSIVE",StringComparison.Ordinal)?"PASSIVE":
                 row.StartsWith("DISABLED",StringComparison.Ordinal)?"DISABLED":"ACTIVE";
         };
-        Add(Box(V(Label("v1.5 · ACTIVE / PASSIVE / DISABLED Mod Editor",20,Mint,true),
+        Add(Box(V(Label("v"+UiVersion+" · ACTIVE / PASSIVE / DISABLED Mod Editor",20,Mint,true),
             Label("A PASSIVE modok a -mods= és -passivemods= kapcsolóban is szerepelnek. "+
                 "DISABLED csak a Manager helyi profiljában szerepel. Az ismeretlen kapcsolók megmaradnak.",12,Soft),
             mapBox,modId,mode,Label("Opcionális pozíció: 1, 2, 3... (üres = lista vége)",12,Aqua),
