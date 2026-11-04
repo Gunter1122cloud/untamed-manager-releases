@@ -4,11 +4,14 @@ param([Parameter(Mandatory=$true)][string]$LabRoot,
       [Parameter(Mandatory=$true)][string]$QemuExecutable,
       [Parameter(Mandatory=$true)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$QemuSha256,
       [Parameter(Mandatory=$true)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$IsoSha256,
+      [string]$GuestAnswerMedia='',
+      [string]$GuestAnswerMediaSha256='',
       [ValidateRange(1,60)][int]$MaximumMinutes=10)
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'IsolatedLab.psm1') -Force
-$plan=New-IsolatedLabPlan -LabRoot $LabRoot -GuestIso $GuestIso -GuestDisk $GuestDisk
+$plan=New-IsolatedLabPlan -LabRoot $LabRoot -GuestIso $GuestIso -GuestDisk $GuestDisk -GuestAnswerMedia $GuestAnswerMedia
 if($plan.GuestIsoSha256 -ne $IsoSha256){throw 'Guest ISO hash mismatch'}
+if($GuestAnswerMedia -and ($GuestAnswerMediaSha256 -notmatch '^[A-Fa-f0-9]{64}$' -or $plan.GuestAnswerMediaSha256 -ne $GuestAnswerMediaSha256)){throw 'Lab answer media hash mismatch'}
 if(-not [IO.Path]::IsPathRooted($QemuExecutable) -or [IO.Path]::GetFileName($QemuExecutable) -ne 'qemu-system-x86_64.exe'){throw 'Explicit QEMU executable required'}
 if((Get-FileHash -LiteralPath $QemuExecutable -Algorithm SHA256).Hash -ne $QemuSha256){throw 'QEMU runtime hash mismatch'}
 Add-Type -Path (Join-Path $PSScriptRoot 'WindowsLabJob.cs')

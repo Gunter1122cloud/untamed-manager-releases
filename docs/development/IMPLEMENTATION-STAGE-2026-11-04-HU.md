@@ -104,6 +104,21 @@ helyi/peer konfigurációs hash-t talált. A részletes, titokmentes megállapí
 A másolatokat nem módosítjuk és az eltérést nem alakítjuk automatikusan egyezéssé.
 Az új páros ZIP-ellenőrző a meglévő WPF-be került; eredeti metadata nem kerül GitHubra.
 
+A páros ZIP és lifecycle védelmek [Windows CI 41823027430](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/41823027430)
+futása teljes egészében sikeres a `2fef822d83adb80bdb3d3d54b524cb6502ea8e1f`
+commiton, a Store-negatív esetekkel, WPF-fel és az összes korábbi csomagteszttel.
+Az eredeti privát ZIP-ek nem kerültek a runnerre; a CI saját szintetikus párt használ.
+
+## Következő laborlépés: válaszlemez
+
+A Windows vendéghez készült egy valós FAT12 médiagenerátor, VFAT hosszú
+`Autounattend.xml` fájlnévvel és ellenőrzött médiaképpel. Új, külön vendégjelszót
+generál, a hoston DPAPI-val védett másolatot tárol; a jelszót nem írja naplóba.
+A WIM image-indexet a kész hivatalos ISO alapján külön kell igazolni. A média
+csak a vendég virtuális 0-s lemezének telepítési válaszfájlja, a hoston semmilyen
+setup/particionálás nem fut. Az új CI külön 7-Zip FAT-olvasóval is ellenőrzi
+a médiát. A médiateszt nem igazol Windows- vagy ASA-települést; a vendég nem indult.
+
 ## Helyi izolált labor
 
 A felhasználó engedélyezte a munkamappán belüli elkülönített labort, de az élő

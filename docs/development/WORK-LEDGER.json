@@ -3194,13 +3194,13 @@
       "BacklogTasks": [
         "T05"
       ],
-      "Status": "BLOCKED",
-      "Changes": "Ebben a szakaszban nincs új megvalósítás; korábbi kód és elfogadási feltételek nyomon követve.",
-      "TestType": "Prior audit / prior CI evidence only",
-      "TestResult": "NOT_REVALIDATED_IN_THIS_STAGE",
-      "ImplementationCommit": "3b8b448fb906a02d45615a466ef2900ca40200f0",
-      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/3",
-      "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
+      "Status": "PARTIAL",
+      "Changes": "A meglévő WPF két eredeti másolat-ZIP-et is ellenőriz: manifestes koordináció és négyfájlos helyi metadata. A HP történeti másolata megérkezett; session/map/backup egyezés mellett eltérő UNC-gépnév és konfigurációs hash igazolt. Nincs automatikus konverzió vagy writer-jog.",
+      "TestType": "Windows synthetic paired-ZIP regressions; independent private copied-metadata comparison in PowerShell",
+      "TestResult": "PASS Windows CI 41823027430 on 2fef822d83adb80bdb3d3d54b524cb6502ea8e1f; private HP reference has UNC/config hash mismatch; live ownership and transfer unverified",
+      "ImplementationCommit": "2fef822d83adb80bdb3d3d54b524cb6502ea8e1f",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
+      "Remaining": "Az eltérő UNC-gépnevek alias-azonossága és a koordinációval azonos konfigurációjú kétoldali referencia nem igazolt. Élő Store ownership/karaktertranszfer és valós ASA-teszt továbbra is szükséges."
     },
     {
       "Id": "T06",
@@ -3692,10 +3692,10 @@
         "T04"
       ],
       "Status": "TESTED",
-      "Changes": "Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
-      "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
-      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "Changes": "Szigorú ASA- és Loader-identitás; kezdeti ellentmondás vagy megszakított token esetén nincs adapterparancs. Mentés utáni Loader-csere blokkolja a DoExit/restartot; cancellationt figyelmen kívül hagyó adapterre is határidő.",
+      "TestType": "Synthetic lifecycle sessions on Windows; no real ASA SaveComplete",
+      "TestResult": "PASS Windows CI 41823027430 on 2fef822d83adb80bdb3d3d54b524cb6502ea8e1f; initial contradiction, pre-cancel, changed Loader, hung adapter and exit guards",
+      "ImplementationCommit": "2fef822d83adb80bdb3d3d54b524cb6502ea8e1f",
       "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },

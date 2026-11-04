@@ -47,7 +47,8 @@ function Assert-LabDisk {
 function New-IsolatedLabPlan {
     param([Parameter(Mandatory=$true)][string]$LabRoot,
           [Parameter(Mandatory=$true)][string]$GuestIso,
-          [Parameter(Mandatory=$true)][string]$GuestDisk)
+          [Parameter(Mandatory=$true)][string]$GuestDisk,
+          [string]$GuestAnswerMedia='')
     $iso=Assert-LabPath $LabRoot $GuestIso
     $disk=Assert-LabPath $LabRoot $GuestDisk
     if([IO.Path]::GetExtension($iso) -ne '.iso' -or [IO.Path]::GetExtension($disk) -ne '.qcow2'){throw 'Explicit ISO and qcow2 required'}
@@ -55,19 +56,34 @@ function New-IsolatedLabPlan {
     Assert-LabDisk $disk
     $throttle=@{driver='throttle';'throttle-group'='labio';'node-name'='labdisk';file=@{driver='qcow2';file=@{driver='file';filename=$disk}}}|ConvertTo-Json -Compress -Depth 6
     $cd=@{driver='throttle';'throttle-group'='labio';'node-name'='labiso';'read-only'=$true;file=@{driver='raw';'read-only'=$true;file=@{driver='file';filename=$iso;'read-only'=$true}}}|ConvertTo-Json -Compress -Depth 6
+    $answer=$null;$answerHash=$null;$extra=@()
+    if($GuestAnswerMedia){
+        $answer=Assert-LabPath $LabRoot $GuestAnswerMedia
+        if([IO.Path]::GetExtension($answer) -ne '.img'){throw 'Lab answer floppy image required'}
+        if((Get-Item -LiteralPath $answer).Length -ne 1474560){throw 'Lab answer floppy size mismatch'}
+        if(-not ('UntamedLab.LabAnswerMedia' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'LabAnswerMedia.cs')}
+        $answerBytes=[IO.File]::ReadAllBytes($answer)
+        $xmlBytes=[UntamedLab.LabAnswerMedia]::ExtractVerified($answerBytes)
+        Import-Module (Join-Path $PSScriptRoot 'LabWindowsSetup.psm1') -Force
+        Read-LabAnswerXml $xmlBytes|Out-Null
+        $answerHash=(Get-FileHash -LiteralPath $answer -Algorithm SHA256).Hash
+        $block=@{driver='throttle';'throttle-group'='labio';'node-name'='labanswer';'read-only'=$true;file=@{driver='raw';'read-only'=$true;file=@{driver='file';filename=$answer;'read-only'=$true}}}|ConvertTo-Json -Compress -Depth 6
+        $extra=@('-blockdev',$block,'-device','isa-fdc,id=labfdc,fdtypeA=144,fdtypeB=none','-device','floppy,drive=labanswer,drive-type=144')
+    }
     return [pscustomobject]@{
         Schema=1; LabRoot=[IO.Path]::GetFullPath($LabRoot); HostRebootAllowed=$false
         HostShares=@(); NetworkAdapters=0; HostPortForwards=@(); GuestRamMiB=8192
         CpuPercent=10; JobMemoryBytes=[UInt64]10GB; DiskBytesPerSecond=8MB; DiskIops=200
         GuestIso=$iso; GuestIsoSha256=(Get-FileHash -LiteralPath $iso -Algorithm SHA256).Hash
         GuestDisk=$disk; ProductionAcceptance=$false
+        GuestAnswerMedia=$answer;GuestAnswerMediaSha256=$answerHash
         Arguments=@('-no-user-config','-nodefaults','-machine','q35,dump-guest-core=off',
             '-accel','tcg,thread=multi','-cpu','max','-smp','2','-m','8192',
             '-nic','none','-display','none','-monitor','none','-serial','none','-parallel','none',
             '-object','throttle-group,id=labio,x-bps-total=8388608,x-iops-total=200',
             '-blockdev',$throttle,'-device','ide-hd,drive=labdisk,bus=ide.0',
             '-blockdev',$cd,'-device','ide-cd,drive=labiso,bus=ide.1','-device','VGA',
-            '-boot','order=c,once=d,menu=off')
+            '-boot','order=c,once=d,menu=off')+$extra
     }
 }
 Export-ModuleMember -Function Assert-LabPath,Assert-LabDisk,New-IsolatedLabPlan

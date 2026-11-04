@@ -1,6 +1,8 @@
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'IsolatedLab.psm1') -Force
 Add-Type -Path (Join-Path $PSScriptRoot 'WindowsLabJob.cs')
+Add-Type -Path (Join-Path $PSScriptRoot 'LabAnswerMedia.cs')
+Import-Module (Join-Path $PSScriptRoot 'LabWindowsSetup.psm1') -Force
 function Assert([bool]$Condition,[string]$Reason){if(-not $Condition){throw $Reason};Write-Output "PASS lab $Reason"}
 function Refused([scriptblock]$Action,[string]$Reason){$denied=$false;try{& $Action|Out-Null}catch{$denied=$true};Assert $denied $Reason}
 $root=Join-Path ([IO.Path]::GetTempPath()) ('Untamed-Lab-Policy-'+[Guid]::NewGuid().ToString('N'))
@@ -24,6 +26,28 @@ foreach($offset in @(8,16,32,72,79)){
     Refused {Assert-LabDisk $disk} "unsafe qcow2 header byte $offset refused"
 }
 [IO.File]::WriteAllBytes($disk,$header)
+$xml=New-LabWindowsAnswerXml -ImageIndex 2 -GuestPassword 'Synthetic-Lab-Only-Aa9!<&'
+$answer=[Text.Encoding]::UTF8.GetBytes($xml)
+$media=[UntamedLab.LabAnswerMedia]::Create($answer)
+$roundtrip=[UntamedLab.LabAnswerMedia]::ExtractVerified($media)
+Assert ([Convert]::ToBase64String($answer) -ceq [Convert]::ToBase64String($roundtrip)) 'FAT12 long-name answer file preserves exact XML bytes'
+$document=Read-LabAnswerXml $roundtrip
+$ns=[Xml.XmlNamespaceManager]::new($document.NameTable);$ns.AddNamespace('u','urn:schemas-microsoft-com:unattend')
+Assert ($document.SelectSingleNode('//u:AdministratorPassword/u:Value',$ns).InnerText -ceq 'Synthetic-Lab-Only-Aa9!<&') 'guest password XML escaping round-trips without logging it'
+Assert ($document.SelectSingleNode('//u:InstallTo/u:DiskID',$ns).InnerText -eq '0' -and $document.SelectSingleNode('//u:InstallTo/u:PartitionID',$ns).InnerText -eq '2') 'answer file targets only the guest disk layout'
+$answerPath=Join-Path $root 'answer.img';[IO.File]::WriteAllBytes($answerPath,$media)
+$withAnswer=New-IsolatedLabPlan -LabRoot $root -GuestIso $iso -GuestDisk $disk -GuestAnswerMedia $answerPath
+Assert ($withAnswer.GuestAnswerMediaSha256 -eq (Get-FileHash -LiteralPath $answerPath -Algorithm SHA256).Hash -and $withAnswer.Arguments -contains 'floppy,drive=labanswer,drive-type=144') 'read-only guest answer medium is explicit and hashed'
+$media[100]=1;[IO.File]::WriteAllBytes($answerPath,$media)
+Refused {New-IsolatedLabPlan -LabRoot $root -GuestIso $iso -GuestDisk $disk -GuestAnswerMedia $answerPath} 'unrecognized answer-media header refused'
+Refused {Read-LabAnswerXml ([Text.Encoding]::UTF8.GetBytes('<!DOCTYPE x [<!ENTITY secret SYSTEM "file:///C:/Windows/win.ini">]><unattend xmlns="urn:schemas-microsoft-com:unattend">&secret;</unattend>'))} 'external XML entity cannot read host files'
+$sevenZip=Join-Path $env:ProgramFiles '7-Zip/7z.exe'
+if(-not (Test-Path -LiteralPath $sevenZip)){throw 'Independent 7-Zip FAT12 validation tool unavailable on Windows runner'}
+[IO.File]::WriteAllBytes($answerPath,[UntamedLab.LabAnswerMedia]::Create($answer))
+$extracted=Join-Path $root 'answer-extracted'
+& $sevenZip x $answerPath ('-o'+$extracted) '-y' '-bso0' '-bsp0'
+if($LASTEXITCODE -ne 0){throw 'Independent FAT12 extraction failed'}
+Assert ([IO.File]::ReadAllText((Join-Path $extracted 'Autounattend.xml')) -ceq $xml) 'independent 7-Zip reader recognizes FAT12 and exact long filename'
 $linked=Join-Path $root 'linked';$target=Join-Path $root 'real';[IO.Directory]::CreateDirectory($target)|Out-Null
 New-Item -ItemType Junction -Path $linked -Target $target|Out-Null
 Refused {Assert-LabPath $root (Join-Path $linked 'disk.qcow2')} 'junction refused'

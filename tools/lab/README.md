@@ -12,7 +12,7 @@ Az éles ASA/Loader/Manager/Store/SQL nem tesztcél.
 - A fájlellenőrzés és a Windows erőforráskorlát valódi CI-gyermekfolyamatokon tesztelt.
 - A policy-teszt szintetikus ISO/disk fejlécet használ; azt sosem indítja el.
 - Az eszközök önmagukban nem telepítenek Windowst vagy ASA-t. A headless vendéghez
-  előkészített, felügyelet nélküli Windows-telepítő és a tesztadatok még szükségesek.
+  befejezett, ellenőrzött Windows ISO és tesztadatok még szükségesek.
 - Nincs valódi ASA SaveComplete, travel vagy SQL restore elfogadási eredmény.
 
 ## Védelem
@@ -55,3 +55,28 @@ ezek nem vendégtelepítési vagy ASA-elfogadási próbák.
 Források: [QEMU kapcsolók](https://www.qemu.org/docs/master/system/qemu-manpage.html),
 [Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects),
 [CPU hard cap](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information).
+
+## Vendég Windows telepítési média
+
+A `New-LabWindowsSetupMedia.ps1` a már előkészített labor qcow2 mellé készít új,
+1,44 MiB FAT12 képet `Autounattend.xml` hosszú fájlnévvel. A `VerifiedImageIndex`
+paramétert az elkészült hivatalos ISO WIM-katalógusából kell meghatározni; a
+tesztben használt 2-es index önmagában nem bizonyítja a letöltött ISO kiadását.
+A generátor kizárólag új fájlokat hoz létre, meglévő médiát/jelszót nem ír felül.
+A vendég egyedi erős adminjelszót kap; a hoston tárolt külön jelszórekord DPAPI-val
+védett. A válaszlemez bizalmas és a laboron kívülre/GitHubra nem kerül.
+
+Az XML kizárólag a vendég Windows Setup bemenete. A hoston nem futtat setupot,
+particionálót, rendszerfunkció-telepítést vagy újraindítást. A konfigurációban a
+vendég 0-s virtuális lemeze két BIOS/MBR-partíciót kap; fizikai hostlemez nincs
+átadva. Windows Dynamic Update nincs, hálózati adapter továbbra sincs.
+
+A tervhez opcionálisan átadott válaszlemez fejlécét, FAT/LFN szerkezetét és teljes
+byte-képét a helper ellenőrzi, SHA-256-tal azonosítja, csak olvasható emulált
+floppyként kapcsolja be, a közös I/O-throttle alatt. XML-feldolgozáskor DTD és
+külső entitás tiltott. A CI egy külön 7-Zip FAT-olvasóval is ellenőrzi a hosszú
+fájlnevet és az eredeti XML byte-jait. Ez médiakészítési próba; a valódi Windows
+települését és az ASA integrációt külön kell igazolni.
+
+Microsoft források: [Setup automatizálás](https://learn.microsoft.com/windows-hardware/manufacture/desktop/windows-setup-automation-overview),
+[Windows Setup válaszfájl](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/automate-windows-setup).
