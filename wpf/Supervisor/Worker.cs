@@ -153,7 +153,7 @@ public static class SupervisorWorker
                             }
                             events.Append(config.LocalHostName,task.Map,"Information","scheduled-"+task.Kind.ToString().ToLowerInvariant());
                             return Task.CompletedTask;
-                        });
+                        },mapId=>config.LocalMaps.Any(m=>m.Id==mapId&&m.Maintenance));
                         foreach(var receipt in scheduler.Receipts.Skip(receiptCount))events.Append(config.LocalHostName,null,receipt.Status=="succeeded"?"Information":"Warning","schedule-"+receipt.Status);
                         // Background recurring schedules are independent of the WPF window.
                         // Only bounded read-only inspections can execute. All restart,

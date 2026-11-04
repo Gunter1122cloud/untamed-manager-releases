@@ -41,6 +41,7 @@ public static class OperationalScheduler
     {
         if(job==null||job.Map==Guid.Empty||job.Id==Guid.Empty ||
            !Enum.IsDefined(job.Kind)||!Enum.IsDefined(job.Frequency) ||
+           (job.Frequency==ScheduleFrequency.Weekly&&!Enum.IsDefined(job.WeekDay))||
            job.LocalClock<TimeSpan.Zero||job.LocalClock>=TimeSpan.FromDays(1))
             throw new InvalidDataException("Invalid recurring schedule identity/settings");
         DateTimeOffset utc=afterUtc.ToUniversalTime();
@@ -68,6 +69,8 @@ public static class OperationalScheduler
                    date.DayOfWeek!=job.WeekDay)continue;
                 var time=DateTime.SpecifyKind(date+job.LocalClock,DateTimeKind.Unspecified);
                 // DST spring gap: first valid wall-clock minute after requested time.
+                if(Zone.IsInvalidTime(time))time=new DateTime(time.Year,time.Month,time.Day,
+                    time.Hour,time.Minute,0,DateTimeKind.Unspecified);
                 int shifts=0;
                 while(Zone.IsInvalidTime(time)&&shifts++<120)time=time.AddMinutes(1);
                 if(Zone.IsInvalidTime(time))throw new InvalidDataException("No valid DST time");

@@ -21,6 +21,8 @@ if(args.Length==4&&args[0]=="--coordinator-hold")
     lease.MarkMutationStarted();File.WriteAllText(args[3],"ready");
     await Task.Delay(Timeout.Infinite);return;
 }
+if(args.Length==3&&args[0]=="--scheduler-claim-child")
+{await SchedulerConcurrencyTests.Hold(args[1],args[2]);return;}
 if(args.Length==0||!File.Exists(args[0]))
     throw new ArgumentException("First argument must be the built FakeAsa.exe");
 string fake=Path.GetFullPath(args[0]);
@@ -48,6 +50,7 @@ try
     await ModArgumentSafetyTests.Run(root);
     await GuardedPluginUpdateTests.Run(root);
     await IsolatedRconAdminQueueTests.Run(fake);
+    await SchedulerConcurrencyTests.Run(root);
     await ProfessionalOperationsTests.Run(root,fake);
     await OperationSafetyTests.Run(root);
     DurableWatchdogTrackerTests.Run(root);
