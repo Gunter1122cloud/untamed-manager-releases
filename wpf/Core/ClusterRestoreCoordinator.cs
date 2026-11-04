@@ -22,6 +22,7 @@ public static class ClusterRestoreCoordinator
 {
     private const string Scope="Untamed isolated 10-map/3-SQL materialization only; no live restore or Store ownership";
     private const string Index="restore-lab-index.json";
+    private const string IndexHash="restore-lab-index.sha256";
     private const string Marker="complete";
     private static string VerifyLabTarget(string destination)
     {
@@ -137,6 +138,7 @@ public static class ClusterRestoreCoordinator
             maps.ToArray(),sql.ToArray(),false,Scope);
         string index=Path.Combine(incomplete,Index);
         WriteDurable(index,JsonSerializer.Serialize(staged));
+        WriteDurable(Path.Combine(incomplete,IndexHash),Hash(index));
         WriteDurable(Path.Combine(incomplete,Marker),verified.Batch.ToString("N"));
         VerifyInternal(incomplete,true);
         Directory.Move(incomplete,target);
@@ -158,10 +160,15 @@ public static class ClusterRestoreCoordinator
         for(var dir=new DirectoryInfo(root);dir!=null;dir=dir.Parent)
             if(dir.Exists&&(dir.Attributes&FileAttributes.ReparsePoint)!=0)
                 throw new InvalidDataException("Linked restore workspace rejected");
-        string index=Path.Combine(root,Index),marker=Path.Combine(root,Marker);
-        if(!Directory.Exists(root)||!File.Exists(index)||!File.Exists(marker)||
+        string index=Path.Combine(root,Index),marker=Path.Combine(root,Marker),
+            indexHash=Path.Combine(root,IndexHash);
+        if(!Directory.Exists(root)||!File.Exists(index)||!File.Exists(indexHash)||
+           !File.Exists(marker)||
            (File.GetAttributes(index)&FileAttributes.ReparsePoint)!=0||
-           new FileInfo(index).Length is <32 or >2_000_000)
+           new FileInfo(index).Length is <32 or >2_000_000||
+           new FileInfo(indexHash).Length is <64 or >80||
+           !string.Equals(File.ReadAllText(indexHash).Trim(),Hash(index),
+               StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Isolated restore is incomplete or index invalid");
         OfflineRestoreStagingManifest report;
         try{report=JsonSerializer.Deserialize<OfflineRestoreStagingManifest>(File.ReadAllText(index))
@@ -176,7 +183,7 @@ public static class ClusterRestoreCoordinator
                 .SetEquals(OfflineSqlArchive.SupportedDatabases)==false||
            File.ReadAllText(marker).Trim()!=report.SourceBatch.ToString("N"))
             throw new InvalidDataException("Offline restore inventory identity or scope mismatch");
-        if(Directory.GetFiles(root).Length!=2||Directory.GetDirectories(root).Length!=3)
+        if(Directory.GetFiles(root).Length!=3||Directory.GetDirectories(root).Length!=3)
             throw new InvalidDataException("Extra or missing isolated restore root content");
         foreach(string host in new[]{"HP","RYZEN"})
             if(!Directory.Exists(Path.Combine(root,host))||
