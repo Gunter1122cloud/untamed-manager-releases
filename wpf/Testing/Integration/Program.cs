@@ -46,6 +46,7 @@ try
     StorePathIdentityTests.Run(root);
     await VerifiedRestartTests.Run();
     ClusterTransferConsistencyTests.Run();
+    ClusterBackupInventoryTests.Run();
     ClusterVaultTests.Run(root);
     ManagerMigrationArchiveTests.Run(root);
     SafeSupportBundleTests.Run(root);
