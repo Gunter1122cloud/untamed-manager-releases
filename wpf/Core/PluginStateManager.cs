@@ -10,6 +10,12 @@ public sealed record PluginStateItem(string Name,bool Enabled,bool Exists,bool R
 public sealed record PluginToggleResult(Guid Map,string Plugin,bool Enabled,
     string Destination,string BackupPackage,bool RequiresRestart);
 
+// Safety is established from the local Manager's entire registered installation
+// group. A stopped selected map alone cannot authorize a shared plugin move.
+public sealed record PluginToggleReadiness(Guid Map,string Plugin,bool TargetEnabled,
+    bool Allowed,string Reason,int CheckedLocalMaps);
+
+
 // Moves the ENTIRE plugin directory on the SAME installation volume. JSON,
 // license and database files move together with the binaries. Runtime-loaded
 // state is deliberately not inferred from mere disk presence.
@@ -24,11 +30,66 @@ public static class PluginStateManager
         var d=Directory.Exists(disabled)?
             Directory.GetDirectories(disabled).Select(Path.GetFileName).Where(x=>x!=null).Cast<string>():
             Enumerable.Empty<string>();
+        // A folder in both roots is not a valid toggle state. Do not silently
+        // treat ambiguous disk state as enabled or expose an actionable switch.
+        if(a.Intersect(d,StringComparer.OrdinalIgnoreCase).Any())
+            throw new InvalidDataException("Plugin exists in both active and disabled roots");
         return a.Concat(d).Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(x=>x,StringComparer.OrdinalIgnoreCase)
             .Select(name=>new PluginStateItem(name,a.Contains(name,StringComparer.OrdinalIgnoreCase),
                 true,false,"Disk state only; actual API runtime load is unverified"))
             .ToArray();
+    }
+
+    public static PluginToggleReadiness InspectLocalToggle(
+        ClusterService cluster,Guid mapId,string plugin,bool enabled)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+        var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId);
+        if(map==null)throw new UnauthorizedAccessException("Plugin ownership is local only");
+        if(string.IsNullOrWhiteSpace(plugin))
+            return new(mapId,plugin??"",enabled,false,"Válassz plugint.",0);
+        var entries=Inventory(map);
+        var match=entries.SingleOrDefault(x=>x.Name.Equals(plugin,StringComparison.OrdinalIgnoreCase));
+        if(match==null)
+            return new(mapId,plugin,enabled,false,"A plugin mappája nem található.",0);
+        if(match.Name.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase))
+            return new(mapId,match.Name,enabled,false,"Védett plugin: állapotváltás tiltva.",0);
+        if(match.Enabled==enabled)
+            return new(mapId,match.Name,enabled,false,"A plugin már a kiválasztott állapotban van.",0);
+        if(map.Maintenance)
+            return new(mapId,match.Name,enabled,false,"A map karbantartási állapotban van.",0);
+        string installation=Path.GetFullPath(map.InstallationPath)
+            .TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar);
+        var shared=cluster.Config.LocalMaps.Where(m=>
+            !string.IsNullOrWhiteSpace(m.InstallationPath) &&
+            Path.GetFullPath(m.InstallationPath).TrimEnd(
+                Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar)
+                .Equals(installation,StringComparison.OrdinalIgnoreCase)).ToArray();
+        if(shared.Length==0)
+            return new(mapId,match.Name,enabled,false,"Nincs helyi telepítési hozzárendelés.",0);
+        foreach(var member in shared)
+        {
+            var process=cluster.Check(member); // observation only, no identity capture or writes
+            if(member.Maintenance || process.Running || !process.ConfirmedStopped)
+                return new(mapId,match.Name,enabled,false,
+                    member.Name+" · nem igazoltan leállított szerver (vagy karbantartás).",shared.Length);
+        }
+        return new(mapId,match.Name,enabled,true,
+            shared.Length+" közös telepítésű helyi map igazoltan leállítva.",shared.Length);
+    }
+
+    public static PluginToggleResult ToggleLocalChecked(
+        ClusterService cluster,Guid mapId,string plugin,bool enabled)
+    {
+        // Called after the operator's confirmation, on the UI thread. This
+        // READ/VERIFY phase never claims a real ASA-loaded plugin state.
+        var permit=InspectLocalToggle(cluster,mapId,plugin,enabled);
+        if(!permit.Allowed)throw new InvalidOperationException(permit.Reason);
+        var map=cluster.Config.LocalMaps.Single(x=>x.Id==mapId);
+        // Final check belongs to the actual file operation too; the underlying
+        // Toggle reacquires a configuration lock and protects the whole folder.
+        return Toggle(map,cluster.Check(map),permit.Plugin,enabled,cluster.Store.Root);
     }
 
     public static PluginToggleResult Toggle(LocalMap map,ProcessCheck state,
