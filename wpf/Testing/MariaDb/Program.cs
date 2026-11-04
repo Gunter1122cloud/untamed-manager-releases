@@ -79,6 +79,11 @@ try
             "CREATE TRIGGER `"+db+"`.before_item BEFORE INSERT ON `"+db+"`.items FOR EACH ROW SET NEW.id=NEW.id;\n"+
             "CREATE EVENT `"+db+"`.inert_event ON SCHEDULE EVERY 1 DAY DO SET @untamed_test=1;\n");
     var adapter=new MariaDbDumpAdapter(client,dump,Path.Combine(root,"private-options"));
+    foreach(string grant in (await Actor(source.Port,"SHOW GRANTS;" )).Split('\n'))
+    {
+        var scope=System.Text.RegularExpressions.Regex.Match(grant,@"\bON (\S+) TO ");
+        if(scope.Success)Console.WriteLine("Fixture grant scope: "+scope.Groups[1].Value);
+    }
     var sourceEndpoint=new MariaDbEndpoint(source.Port,source.Data,"sqlactor",password);
     var targetEndpoint=new MariaDbEndpoint(target.Port,target.Data,"sqlactor",password);
     Guid owner=Guid.NewGuid();string package=Path.Combine(root,"logical-backup");
