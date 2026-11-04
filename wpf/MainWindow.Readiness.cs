@@ -16,6 +16,7 @@ public partial class MainWindow
             "Az eddig egyeztetett Manager-funkciók tényleges állapota. "+
             "A Windows CI nem jelenti az éles ASA/karaktermegőrzés bizonyítását.");
         ManagerFeatureMatrix.AssertHonest();
+        ShowDevelopmentLedgerControls();
         var all=ManagerFeatureMatrix.Current;
         Add(Box(V(
             Label("UNTAMED KINGDOM · KIADÁSI KÉPESSÉGEK",20,Mint,true),
@@ -74,3 +75,4 @@ public partial class MainWindow
             }),status)));
     }
 }
+

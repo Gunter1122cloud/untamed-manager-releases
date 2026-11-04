@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Windows.Controls;
@@ -8,6 +9,19 @@ using UntamedManager.Core;
 namespace UntamedManager;
 public partial class MainWindow
 {
+    private static string ModItemId(string value)=>value.Split(' ',StringSplitOptions.RemoveEmptyEntries).LastOrDefault()??"";
+    internal static void RefreshModList(ListBox list,string[] items)
+    {
+        var selected=list.SelectedItem is string text?ModItemId(text):null;
+        if(list.ItemsSource is not ObservableCollection<string> rows)
+        {rows=new ObservableCollection<string>();list.ItemsSource=rows;}
+        if(rows.SequenceEqual(items))return;
+        for(int i=0;i<items.Length;i++)
+            if(i>=rows.Count)rows.Add(items[i]);else if(rows[i]!=items[i])rows[i]=items[i];
+        while(rows.Count>items.Length)rows.RemoveAt(rows.Count-1);
+        if(selected!=null)list.SelectedItem=rows.FirstOrDefault(x=>ModItemId(x)==selected);
+        // Never steal keyboard focus or leave a captured mouse after refresh.
+    }
     private void ShowModStateEditor()
     {
         var mapBox=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
@@ -47,10 +61,10 @@ public partial class MainWindow
             {
                 var map=Selected();
                 var state=ModStateController.Read(map);
-                list.ItemsSource=state.Active.Select((id,i)=>"ACTIVE   "+(i+1)+".  "+id)
+                RefreshModList(list,state.Active.Select((id,i)=>"ACTIVE   "+(i+1)+".  "+id)
                     .Concat(state.Passive.Select((id,i)=>"PASSIVE  "+(i+1)+".  "+id))
                     .Concat(state.Disabled.Select((id,i)=>"DISABLED "+(i+1)+".  "+id))
-                    .ToArray();
+                    .ToArray());
                 status.Text=map.Name+" · ACTIVE: "+state.Active.Count+
                     " · PASSIVE: "+state.Passive.Count+
                     " · DISABLED: "+state.Disabled.Count+
@@ -60,6 +74,12 @@ public partial class MainWindow
             catch(Exception ex){status.Text="Modállapot nem olvasható: "+ex.Message;}
         }
         mapBox.SelectionChanged+=(_,_)=>Refresh();
+        list.SelectionChanged+=(_,_)=>{
+            if(list.SelectedItem is not string row)return;
+            modId.Text=ModItemId(row);
+            mode.SelectedItem=row.StartsWith("PASSIVE",StringComparison.Ordinal)?"PASSIVE":
+                row.StartsWith("DISABLED",StringComparison.Ordinal)?"DISABLED":"ACTIVE";
+        };
         Add(Box(V(Label("v1.5 · ACTIVE / PASSIVE / DISABLED Mod Editor",20,Mint,true),
             Label("A PASSIVE modok a -mods= és -passivemods= kapcsolóban is szerepelnek. "+
                 "DISABLED csak a Manager helyi profiljában szerepel. Az ismeretlen kapcsolók megmaradnak.",12,Soft),
@@ -70,8 +90,8 @@ public partial class MainWindow
                 {
                     var map=Selected();var preview=ModStateController.Preview(map,EditFor(map));
                     status.Text="ELŐNÉZET · "+map.Name+
-                        "\nEredeti argumentumok: "+preview.PreviousArguments+
-                        "\nÚj argumentumok: "+preview.NewArguments+
+                        "\nEredeti argumentumok: "+UntamedPresentation.Redact(preview.PreviousArguments)+
+                        "\nÚj argumentumok: "+UntamedPresentation.Redact(preview.NewArguments)+
                         "\nDISABLED: "+string.Join(",",preview.Updated.Disabled)+
                         "\nVáltozás: "+(preview.Changed?"IGEN":"NINCS")+
                         "\nSzerverindítás és RCON: NEM TÖRTÉNT.";
@@ -84,7 +104,7 @@ public partial class MainWindow
                     var map=Selected();var preview=ModStateController.Preview(map,EditFor(map));
                     if(System.Windows.MessageBox.Show(
                         map.Name+" indítási modparaméterei módosulnak; szerver nem indul újra.\n"+
-                        preview.NewArguments,
+                        UntamedPresentation.Redact(preview.NewArguments),
                         "Modlista mentése",System.Windows.MessageBoxButton.YesNo,
                         System.Windows.MessageBoxImage.Question)!=
                         System.Windows.MessageBoxResult.Yes)return;
@@ -119,3 +139,4 @@ public partial class MainWindow
         Refresh();
     }
 }
+

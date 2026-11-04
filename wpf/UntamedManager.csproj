@@ -14,6 +14,7 @@
   </PropertyGroup>
   <ItemGroup><Resource Include="Assets/kingdom-hero.jpg" /><Resource Include="Assets/reference-atlas.jpg" /><Resource Include="Assets/UntamedManager.ico" /></ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../docs/development/WORK-LEDGER.json" LogicalName="UntamedManager.WorkLedger.json" />
     <PackageReference Include="System.Management" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup>

@@ -29,7 +29,7 @@ public sealed record ClusterVaultArchiveReport(
 
 public static class ClusterVaultArchiveInspector
 {
-    internal const string SharedPrefix="SHARED/.kova-store-v1/";
+    internal const string SharedPrefix=VaultProtocol.ArchiveCoordinationPrefix;
     private static readonly string[] LocalNames={
         "cluster-v1.json","cluster-store-v1.json",
         "shared-store-device-v1.json","shared-store-lock-v1.json"};
@@ -56,7 +56,7 @@ public static class ClusterVaultArchiveInspector
         var op=operation.RootElement;
         string session=Text(op,"session"),sharedPath=Text(op,"path");
         if(!Schema(op)||!Guid.TryParse(session,out var sessionId)||
-           Text(op,"cluster")!="KovaCluster"||!sharedPath.StartsWith(@"\\")||
+           Text(op,"cluster")!=VaultProtocol.ClusterId||!sharedPath.StartsWith(@"\\")||
            sharedPath.Split('\\',StringSplitOptions.RemoveEmptyEntries).Length<2)
             throw new InvalidDataException("VAULT_SCHEMA: ismeretlen koordináció");
         var peerIds=Strings(Required(op,"peers"));
@@ -96,7 +96,7 @@ public static class ClusterVaultArchiveInspector
             var config=Required(peer,"config");
             bool hashOk=StoreV1Fingerprint.Matches(config,Text(peer,"configHash"));
             if(!hashOk)Issue(VaultFindingCode.ConfigHashMismatch,"A peer konfigurációlenyomata eltér.");
-            if(Text(config,"id")!="KovaCluster"||Text(config,"mode")!="shared"||
+            if(Text(config,"id")!=VaultProtocol.ClusterId||Text(config,"mode")!="shared"||
                !Equal(Text(config,"path"),sharedPath))
                 Issue(VaultFindingCode.ConfigMismatch,"Eltérő cluster, mód vagy közös útvonal.");
             var members=Elements(Required(peer,"members"));

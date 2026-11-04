@@ -36,7 +36,7 @@ public static class ManagerFeatureMatrix
         new("backup","Verified local/offline 10-map and SQL archive","OFFLINE",false,
             "No coordinated live 2-host + Store + MariaDB snapshot"),
         new("restore","Data restore","BLOCKED",false,
-            "Live Kova, ASA and SQL restore disabled until isolated acceptance"),
+            "Live Untamed Cluster Vault, ASA and SQL restore disabled until isolated acceptance"),
         new("lifecycle","ASA Start/Save/Stop/Restart and Watchdog recovery","SIMULATED",false,
             "Only real Windows FakeAsa process; no validated live ASA SaveWorld proof"),
         new("scheduler","Supervisor read-only recurring inspections","READ_ONLY",false,
@@ -128,7 +128,7 @@ public static class SafeSupportBundle
             .OrderByDescending(e=>e.Utc).Take(100)
             .Select(e=>new PublicEvent(e.Utc,e.Severity,e.Code)).ToArray()
             ??Array.Empty<PublicEvent>();
-        var summary=new PublicSummary(1,"Untamed Kingdom ASA Manager",
+        var summary=new PublicSummary(1,"Untamed Manager",
             typeof(SafeSupportBundle).Assembly.GetName().Version?.ToString(3)??"unknown",
             createdUtc,"ISOLATED_TEST",config.LocalMaps.Count,
             config.ScheduledTasks.Count,config.RecurringSchedules.Count,
@@ -142,7 +142,7 @@ public static class SafeSupportBundle
                 Add(archive,"features.json",JsonSerializer.Serialize(ManagerFeatureMatrix.Current));
                 Add(archive,"events-redacted.json",JsonSerializer.Serialize(valid));
                 Add(archive,"README.txt",
-                    "Untamed Kingdom ASA Manager - explicit redacted support report\n"+
+                    "Untamed Manager - explicit redacted support report\n"+
                     "No raw logs, credentials, IP addresses, host names, player data, "+
                     "full file paths, process arguments or Store records are exported.\n"+
                     "No production lifecycle or character-transfer compatibility is proven.\n");
@@ -163,3 +163,4 @@ public static class SafeSupportBundle
         writer.Write(text);
     }
 }
+

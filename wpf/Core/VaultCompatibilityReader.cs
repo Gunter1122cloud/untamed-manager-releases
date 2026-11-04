@@ -7,16 +7,16 @@ using System.Text.Json;
 
 namespace UntamedManager.Core;
 
-public sealed record KovaStoreV1CopyObservation(
+public sealed record VaultCompatibilityObservation(
     Guid Session,string Cluster,string[] MapNames,string[] DeviceIds,
     bool HistoricalConsistent,string[] Problems,string[] InspectedSha256,string Warning)
 {
     public ClusterVaultArchiveReport? Report {get;init;}
 }
 
-public static class KovaStoreV1CopyReader
+public static class VaultCompatibilityReader
 {
-    public static KovaStoreV1CopyObservation Inspect(
+    public static VaultCompatibilityObservation Inspect(
         string coordinationCopy,string hpLocalCopy,string ryzenLocalCopy)
     {
         var roots=new[]{coordinationCopy,hpLocalCopy,ryzenLocalCopy}
@@ -69,7 +69,7 @@ public static class KovaStoreV1CopyReader
             if(before.Contains(shared+marker)!=(File.Exists(path)||Directory.Exists(path)))
                 throw new InvalidDataException("VAULT_CHANGED: koordináció változott olvasás közben");
         }
-        return new(Guid.Parse(VaultReadSnapshot.Text(op.RootElement,"session")),"KovaCluster",
+        return new(Guid.Parse(VaultReadSnapshot.Text(op.RootElement,"session")),VaultProtocol.ClusterId,
             report.MapNames,ids,report.HistoricalConsistent,
             report.Findings.Select(f=>f.Code+": "+f.Message).ToArray(),
             files.Values.Where(b=>b.Length>0).Select(b=>Convert.ToHexString(SHA256.HashData(b))).ToArray(),

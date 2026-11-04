@@ -127,7 +127,8 @@ public partial class MainWindow
             }),
             preview,
             Label("A Discord-küldés nem jelenti a karaktertranszfer, "+
-                "a Kova-kompatibilitás vagy az ASA éles vezérlésének "+
+                "a Vault-kompatibilitás vagy az ASA éles vezérlésének "+
                 "hitelesítését. A gomb semmilyen szerverműveletet nem indít.",12,Soft))));
     }
 }
+

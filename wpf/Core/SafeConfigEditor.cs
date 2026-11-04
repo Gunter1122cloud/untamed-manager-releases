@@ -48,6 +48,7 @@ public static class SafeConfigEditor
     public static string Save(ConfigSnapshot baseline,string edited,string mapInstallation,
         ProcessCheck current,bool maintenance=false)
     {
+        using var operation=new UntamedOperationCoordinator().Acquire(mapInstallation,UntamedOperationKind.Configuration);
         ValidatePath(baseline.Path,mapInstallation,baseline.Kind,current,maintenance);
         var preview=Preview(baseline,edited);
         if(!preview.Changed)return "";
@@ -60,6 +61,7 @@ public static class SafeConfigEditor
         string backup=target+".untamed-"+token+".bak";
         try
         {
+            operation.MarkMutationStarted();
             var data=Encode(baseline,Normalize(edited,baseline.LineEnding));
             File.WriteAllBytes(tmp,data);
             if(!Hex(File.ReadAllBytes(tmp)).Equals(preview.NewSha256,StringComparison.Ordinal))
@@ -69,6 +71,7 @@ public static class SafeConfigEditor
             File.Replace(tmp,target,backup,true);
             if(!Hex(File.ReadAllBytes(target)).Equals(preview.NewSha256,StringComparison.Ordinal))
                 throw new IOException("Applied config checksum mismatch; manual recovery required: "+backup);
+            operation.Complete();
             return backup;
         }
         finally{if(File.Exists(tmp))File.Delete(tmp);}
@@ -141,10 +144,10 @@ public static class SafeConfigEditor
         if(!p.StartsWith(r+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase) ||
            new DriveInfo(Path.GetPathRoot(r)!).DriveType!=DriveType.Fixed)
             throw new UnauthorizedAccessException("Config must be inside registered local map root");
-        if(p.Contains("Kova",StringComparison.OrdinalIgnoreCase) ||
+        if(p.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase) ||
            p.Contains(".kova-store",StringComparison.OrdinalIgnoreCase) ||
            p.Contains("ClusterRoot",StringComparison.OrdinalIgnoreCase))
-            throw new UnauthorizedAccessException("KovaCluster metadata/config modification prohibited");
+            throw new UnauthorizedAccessException("Untamed Cluster Vault metadata/config modification prohibited");
         for(var d=new DirectoryInfo(Path.GetDirectoryName(p)!);d!=null;d=d.Parent)
             if(d.Exists&&(d.Attributes&FileAttributes.ReparsePoint)!=0)
                 throw new InvalidDataException("Junction or linked config directory");
@@ -198,3 +201,4 @@ public static class SafeConfigEditor
     }
     private static string Hex(byte[] data)=>Convert.ToHexString(SHA256.HashData(data));
 }
+

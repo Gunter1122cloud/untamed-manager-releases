@@ -10,20 +10,20 @@ namespace UntamedManager.Core;
 // Supports the two different *sanitized audit export* shapes supplied in
 // November 2026. Does not interpret or write the live .kova-store-v1 protocol.
 // A clean audit snapshot is historical evidence, NEVER an ownership/restore token.
-public enum KovaAuditHost { Hp, Ryzen }
-public sealed record KovaAuditSnapshot(
-    KovaAuditHost Host,string ClusterId,string Mode,string SourceHash,
+public enum VaultAuditHost { Hp, Ryzen }
+public sealed record VaultAuditSnapshot(
+    VaultAuditHost Host,string ClusterId,string Mode,string SourceHash,
     string[] MapNames,int PeerCount,bool PeersDone,bool SessionsAgree,
     bool AllLocalActive,bool MarkerOperation,bool MarkerRunning,
     bool MarkerMutationLock,bool SnapshotInternallyConsistent,
     string[] Issues);
-public sealed record KovaAuditPair(
+public sealed record VaultAuditPair(
     bool HistoricalSnapshotConsistent,string[] MapNames,
     string[] Issues,string SafetyStatement);
 
-public static class KovaAuditBridge
+public static class VaultAuditBridge
 {
-    public static KovaAuditSnapshot InspectCopy(string file,KovaAuditHost host)
+    public static VaultAuditSnapshot InspectCopy(string file,VaultAuditHost host)
     {
         if(string.IsNullOrWhiteSpace(file) || !Path.IsPathFullyQualified(file) ||
             file.StartsWith(@"\\") || !file.EndsWith(".json",StringComparison.OrdinalIgnoreCase))
@@ -46,14 +46,14 @@ public static class KovaAuditBridge
         if(root.ValueKind!=JsonValueKind.Object)
             throw new InvalidDataException("Vault-audit JSON objektum szükséges");
 
-        string cluster=String(root,host==KovaAuditHost.Hp?"ClusterId":"ClusterID");
+        string cluster=String(root,host==VaultAuditHost.Hp?"ClusterId":"ClusterID");
         string mode=String(root,"Mode");
         var problems=new List<string>();
-        if(cluster!="KovaCluster")problems.Add("A cluster azonosítója eltér a mentett formátumtól");
+        if(cluster!=VaultProtocol.ClusterId)problems.Add("A cluster azonosítója eltér a mentett formátumtól");
         if(!mode.Equals("shared",StringComparison.OrdinalIgnoreCase))
             problems.Add("The audit does not describe shared Store mode");
 
-        JsonElement maps=RequiredArray(root,host==KovaAuditHost.Hp?
+        JsonElement maps=RequiredArray(root,host==VaultAuditHost.Hp?
             "LocalStoreMaps":"StoreMaps");
         var names=new List<string>();
         var roots=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -67,10 +67,10 @@ public static class KovaAuditBridge
                string.IsNullOrWhiteSpace(path)||!profiles.Add(profile)||!roots.Add(path))
                 problems.Add("Missing or duplicated local profile/Store map root");
             if(String(item,"Phase")!="active")active=false;
-            if(host==KovaAuditHost.Hp &&
+            if(host==VaultAuditHost.Hp &&
                 (!Boolean(item,"Confirmed")||!Boolean(item,"SessionMatchesOperation")))
                 active=false;
-            if(host==KovaAuditHost.Ryzen && !Boolean(item,"HasSharedSession"))
+            if(host==VaultAuditHost.Ryzen && !Boolean(item,"HasSharedSession"))
                 active=false;
             names.Add(name);
         }
@@ -79,14 +79,14 @@ public static class KovaAuditBridge
         if(!active)problems.Add("Local Store map(s) not proven active/session matched");
 
         bool peersDone=true,sessions=true;
-        JsonElement peers=RequiredArray(root,host==KovaAuditHost.Hp?
+        JsonElement peers=RequiredArray(root,host==VaultAuditHost.Hp?
             "Peers":"PhysicalPeerChecks");
         if(peers.GetArrayLength()!=2)problems.Add("Two peer entries required");
         foreach(var peer in peers.EnumerateArray())
         {
             if(String(peer,"Phase")!="done")peersDone=false;
             if(!Boolean(peer,"SessionMatches"))sessions=false;
-            if(host==KovaAuditHost.Hp)
+            if(host==VaultAuditHost.Hp)
             {
                 if(!Boolean(peer,"ReadOK") || Number(peer,"MemberCount")!=5 ||
                    Number(peer,"SelectedCount")!=5)
@@ -101,7 +101,7 @@ public static class KovaAuditBridge
                     sessions=false;
             }
         }
-        if(host==KovaAuditHost.Hp)
+        if(host==VaultAuditHost.Hp)
         {
             if(Number(root,"PeerCount")!=2 || !Boolean(root,"ShareReadable") ||
                !Boolean(root,"LocalLockSessionMatches") ||
@@ -121,7 +121,7 @@ public static class KovaAuditBridge
 
         bool op=false,running=false,mutation=false;
         JsonElement markers=Required(root,"Markers");
-        if(host==KovaAuditHost.Hp)
+        if(host==VaultAuditHost.Hp)
         {
             if(markers.ValueKind!=JsonValueKind.Array)
                 throw new InvalidDataException("HP-audit jelzőlistája érvénytelen");
@@ -153,12 +153,12 @@ public static class KovaAuditBridge
             problems.Count==0,problems.ToArray());
     }
 
-    public static KovaAuditPair Evaluate(KovaAuditSnapshot hp,KovaAuditSnapshot ryzen)
+    public static VaultAuditPair Evaluate(VaultAuditSnapshot hp,VaultAuditSnapshot ryzen)
     {
-        if(hp.Host!=KovaAuditHost.Hp || ryzen.Host!=KovaAuditHost.Ryzen)
+        if(hp.Host!=VaultAuditHost.Hp || ryzen.Host!=VaultAuditHost.Ryzen)
             throw new InvalidDataException("HP and Ryzen audit roles must not be swapped");
         var issues=hp.Issues.Concat(ryzen.Issues).ToList();
-        if(hp.ClusterId!=ryzen.ClusterId || hp.ClusterId!="KovaCluster")
+        if(hp.ClusterId!=ryzen.ClusterId || hp.ClusterId!=VaultProtocol.ClusterId)
             issues.Add("Host cluster ID differs");
         var maps=hp.MapNames.Concat(ryzen.MapNames).ToArray();
         if(maps.Length!=10 ||
@@ -193,3 +193,4 @@ public static class KovaAuditBridge
         e.ValueKind==JsonValueKind.Object&&e.TryGetProperty(name,out var v)&&
         v.ValueKind==JsonValueKind.Number&&v.TryGetInt32(out int n)?n:-1;
 }
+

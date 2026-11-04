@@ -106,6 +106,9 @@ public static class SecureStore
 }
 public sealed class ConfigStore
 {
+    private string? expectedHash;
+    private static string? Digest(string path)=>File.Exists(path)?
+        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))):null;
     public string Root { get; }
     public string FilePath => Path.Combine(Root, "cluster-config.json");
     public ConfigStore(string profile = "default", string? rootOverride = null)
@@ -115,16 +118,29 @@ public sealed class ConfigStore
             throw new ArgumentException("Invalid local profile name", nameof(profile));
         Root = rootOverride ?? Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData), "UntamedManager", "Profiles", profile);
+        UntamedOperationCoordinator.ResourceKey(Root);
         Directory.CreateDirectory(Root);
+        expectedHash=Digest(FilePath);
     }
     public ManagerConfig Read()
     {
-        if (!File.Exists(FilePath)) return new ManagerConfig();
-        return JsonSerializer.Deserialize<ManagerConfig>(File.ReadAllText(FilePath)) ??
+        if (!File.Exists(FilePath)){expectedHash=null;return new ManagerConfig();}
+        byte[] bytes=File.ReadAllBytes(FilePath);
+        expectedHash=Convert.ToHexString(SHA256.HashData(bytes));
+        return JsonSerializer.Deserialize<ManagerConfig>(Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF')) ??
                throw new InvalidDataException("Config JSON invalid");
     }
     public void Save(ManagerConfig cfg)
     {
+        string key=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(FilePath).ToUpperInvariant())));
+        using var gate=new Mutex(false,"Global\\Untamed-Config-"+key);
+        bool entered=false;
+        string? temp=null;
+        try
+        {
+        try{entered=gate.WaitOne(0);}catch(AbandonedMutexException){entered=true;}
+        if(!entered)throw new IOException("UNTAMED_CONFIG_BUSY");
+        if(Digest(FilePath)!=expectedHash)throw new IOException("UNTAMED_CONFIG_CHANGED_RELOAD_REQUIRED");
         Directory.CreateDirectory(Root);
         // Prevent accidental replacement with another machine's configuration.
         if (string.IsNullOrWhiteSpace(cfg.LocalHostId)) throw new InvalidDataException("Missing host ID");
@@ -136,7 +152,7 @@ public sealed class ConfigStore
             if (map.GamePort is < 0 or > 65535 || map.QueryPort is < 0 or > 65535 ||
                 map.RconPort is < 0 or > 65535) throw new InvalidDataException("Invalid map port");
         }
-        string temp = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        temp = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented=true }), Encoding.UTF8);
         if (File.Exists(FilePath))
         {
@@ -144,6 +160,13 @@ public sealed class ConfigStore
             File.Replace(temp, FilePath, backup, true);
         }
         else File.Move(temp, FilePath);
+        expectedHash=Digest(FilePath);
+        }
+        finally
+        {
+            try{if(temp!=null&&File.Exists(temp))File.Delete(temp);}
+            finally{if(entered)gate.ReleaseMutex();}
+        }
     }
 }
 public sealed record ProcessCheck(bool Running, string Status, ProcessIdentity? Identity,
@@ -367,6 +390,7 @@ public static class PeerStatusClient
 }
 public sealed class ClusterService : IAsyncDisposable
 {
+    public UntamedOperationCoordinator Operations {get;}
     public ConfigStore Store { get; }
     public ManagerConfig Config { get; private set; }
     private readonly WindowsProcessInspector _inspector=new();
@@ -380,6 +404,7 @@ public sealed class ClusterService : IAsyncDisposable
         Func<LocalMap, ProcessCheck>? inspect = null)
     {
         Store=new ConfigStore(profile,rootOverride);
+        Operations=new UntamedOperationCoordinator();
         Config=Store.Read();
         _inspect=inspect ?? _inspector.Inspect;
     }
@@ -404,7 +429,7 @@ public sealed class ClusterService : IAsyncDisposable
             return new(false,"Store conversion is forbidden",null);
         if(map.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase))
         {
-            var store=LocalStoreProbe.Inspect(map.StoreTestRoot,"KovaCluster",map.Arguments);
+            var store=LocalStoreProbe.Inspect(map.StoreTestRoot,VaultProtocol.ClusterId,map.Arguments);
             if(!store.Safe)return new(false,store.Reason,null);
         }
         if(string.IsNullOrWhiteSpace(map.ApiLoaderPath)&&Path.GetFileName(map.ExecutablePath).Contains("loader",StringComparison.OrdinalIgnoreCase))
@@ -426,22 +451,14 @@ public sealed class ClusterService : IAsyncDisposable
         // prevent timers, other UI components or direct method callers from
         // launching actual ArkAscendedServer.exe before production validation.
         ReleaseCapabilityGate.DemandFakeAsaStart(this,map);
-        string key=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            Path.GetFullPath(map.ExecutablePath).ToUpperInvariant())));
-        using var gate=new Mutex(false,"Local\\Untamed-Launch-"+key);
-        bool acquired=false;
-        try
-        {
-            try { acquired=gate.WaitOne(0); } catch(AbandonedMutexException) { acquired=true; }
-            if(!acquired)throw new InvalidOperationException("Another local launch is in progress");
+        using var operation=Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch);
             if(map.Maintenance)throw new InvalidOperationException("Maintenance mode blocks launch");
             if (!Check(map).ConfirmedStopped)
                 throw new InvalidOperationException("Server is running or its stopped state cannot be verified");
+            operation.MarkMutationStarted();
             var identity=_inspector.Launch(map);
             if(string.IsNullOrWhiteSpace(map.ApiLoaderPath))map.LastProcess=identity;else map.LastLoader=identity;
-            Save();return identity;
-        }
-        finally { if(acquired)gate.ReleaseMutex(); }
+            Save();operation.Complete();return identity;
     }
     public HostStatus LocalStatus()
     {
@@ -487,3 +504,4 @@ public sealed class ClusterService : IAsyncDisposable
         // Deliberately never kill or dispose an ASA process here.
     }
 }
+

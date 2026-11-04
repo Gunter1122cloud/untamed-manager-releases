@@ -10,7 +10,7 @@ namespace UntamedManager;
 
 public partial class MainWindow
 {
-    private void ShowHistoricalTwoHostKovaAudit()
+    private void ShowHistoricalVaultAudit()
     {
         var hp=new TextBox{Height=34,IsReadOnly=true,Foreground=Brushes.White,Background=Panel};
         var ryzen=new TextBox{Height=34,IsReadOnly=true,Foreground=Brushes.White,Background=Panel};
@@ -35,9 +35,9 @@ public partial class MainWindow
             Btn("5+5 map, peer, session, lock és SHA-256 ellenőrzése",()=>{
                 try
                 {
-                    var first=KovaAuditBridge.InspectCopy(hp.Text,KovaAuditHost.Hp);
-                    var second=KovaAuditBridge.InspectCopy(ryzen.Text,KovaAuditHost.Ryzen);
-                    var pair=KovaAuditBridge.Evaluate(first,second);
+                    var first=VaultAuditBridge.InspectCopy(hp.Text,VaultAuditHost.Hp);
+                    var second=VaultAuditBridge.InspectCopy(ryzen.Text,VaultAuditHost.Ryzen);
+                    var pair=VaultAuditBridge.Evaluate(first,second);
                     result.Text=(pair.HistoricalSnapshotConsistent?
                         "TÖRTÉNETI AUDIT EGYEZIK":"TÖRTÉNETI AUDIT ELUTASÍTVA")+
                         "\nHP: "+first.MapNames.Length+" map, "+
@@ -57,3 +57,4 @@ public partial class MainWindow
             }),result)));
     }
 }
+

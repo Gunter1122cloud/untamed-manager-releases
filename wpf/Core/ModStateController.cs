@@ -115,6 +115,10 @@ public static class ModStateController
         if(requests.Length==0 || requests.Length>100)throw new InvalidDataException("Invalid batch size");
         var originals=new Dictionary<Guid,(string Args,List<string> Disabled,bool Pending)>();
         var previews=new List<ModPreview>();
+        using var operation=cluster.Operations.AcquireMany(new[]{cluster.Store.Root}.Concat(
+            requests.Select(e=>cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==e.Map))
+                .Where(m=>m!=null&&!string.IsNullOrWhiteSpace(m.InstallationPath))
+                .Select(m=>m!.InstallationPath)),UntamedOperationKind.Configuration);
         try
         {
             foreach(var edit in requests)
@@ -131,7 +135,9 @@ public static class ModStateController
                 map.ModChangesPending=preview.Updated.Pending;
                 previews.Add(preview);
             }
+            operation.MarkMutationStarted();
             cluster.Save();
+            operation.Complete();
             return previews;
         }
         catch
@@ -157,3 +163,4 @@ public static class ModStateController
             "A confirmed real ASA restart and loaded-mod reconciliation are not yet certified");
     }
 }
+

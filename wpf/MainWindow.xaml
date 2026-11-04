@@ -1,7 +1,7 @@
 <Window x:Class="UntamedManager.MainWindow"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- Title="Untamed Kingdom Manager · Neon Kingdom WPF" Icon="/Assets/UntamedManager.ico"
+ Title="Untamed Manager · Neon Kingdom WPF" Icon="/Assets/UntamedManager.ico"
  Width="1672" Height="941" MinWidth="1200" MinHeight="760"
  WindowStartupLocation="CenterScreen" Background="#07191B"
  Loaded="Window_Loaded" Closing="Window_Closing">

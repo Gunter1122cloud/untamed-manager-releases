@@ -257,7 +257,7 @@ public partial class MainWindow
         string parent=Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar;
         string full=Path.GetFullPath(path);
         return full.StartsWith(parent,StringComparison.OrdinalIgnoreCase) &&
-            !full.Contains("KovaCluster",StringComparison.OrdinalIgnoreCase);
+            !full.Contains(VaultProtocol.ClusterId,StringComparison.OrdinalIgnoreCase);
     }
     private UIElement MapRconPane(LocalMap map)
     {
@@ -419,3 +419,4 @@ public partial class MainWindow
             }))));
     }
 }
+

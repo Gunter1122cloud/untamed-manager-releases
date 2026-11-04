@@ -128,7 +128,7 @@ public partial class MainWindow : Window
         {
             var exe = Environment.ProcessPath;
             _tray.Icon = exe is not null ? System.Drawing.Icon.ExtractAssociatedIcon(exe) : System.Drawing.SystemIcons.Application;
-            _tray.Text = "Untamed Kingdom Manager";
+            _tray.Text = "Untamed Manager";
             var menu = new Forms.ContextMenuStrip();
             menu.Items.Add("Megnyitás",null,(_,_)=>Dispatcher.Invoke(Restore));
             menu.Items.Add("Frissítések",null,(_,_)=>Dispatcher.Invoke(()=>{Restore();Navigate("license");}));
@@ -183,12 +183,12 @@ public partial class MainWindow : Window
         {
             Directory.CreateDirectory(App.LogDir);
             File.AppendAllText(Path.Combine(App.LogDir,"operations.log"),
-                $"{DateTimeOffset.Now:O} [{area}] {ex}\n");
+                UntamedPresentation.Redact($"{DateTimeOffset.Now:O} [{area}] {ex}\n"));
         }
         catch { }
     }
     private static void Notice(string message) =>
-        WinMessageBox.Show(message,"Untamed Kingdom Manager",MessageBoxButton.OK,MessageBoxImage.Information);
+        WinMessageBox.Show(UntamedPresentation.Redact(message),"Untamed Manager",MessageBoxButton.OK,MessageBoxImage.Information);
 
     private void Navigate_Click(object sender,RoutedEventArgs e)
     {
@@ -272,7 +272,7 @@ public partial class MainWindow : Window
         PageTitle.Text=title;PageDescription.Text=description;
     }
     private static TextBlock Label(string text,int size=14,Brush? color=null,bool bold=false) =>
-       new() { Text=text,Foreground=color??Brushes.White,FontSize=size,
+       new() { Text=UntamedPresentation.Display(text),Foreground=color??Brushes.White,FontSize=size,
            TextWrapping=TextWrapping.Wrap,FontWeight=bold?FontWeights.Bold:FontWeights.Normal,
            Margin=new Thickness(0,0,0,10) };
     private static Border Box(UIElement child) =>
@@ -287,7 +287,7 @@ public partial class MainWindow : Window
     }
     private static Button Btn(string text, Action action)
     {
-        var b=new Button { Content=text,Style=(Style)System.Windows.Application.Current.Resources["ActionButton"] };
+        var b=new Button { Content=UntamedPresentation.Display(text),Style=(Style)System.Windows.Application.Current.Resources["ActionButton"] };
         b.Click+=(_,_)=>action();return b;
     }
     private void Add(UIElement e) => PageBody.Children.Add(e);
@@ -443,3 +443,4 @@ public partial class MainWindow : Window
         ShowSafeSupportCenter();
     }
 }
+

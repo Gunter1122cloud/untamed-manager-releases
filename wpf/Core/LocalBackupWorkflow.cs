@@ -24,6 +24,7 @@ public static class LocalBackupWorkflow
         if(scope==LocalBackupScope.None || (scope & ~(LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini|LocalBackupScope.Plugins))!=0)
             throw new InvalidDataException("Unsupported backup scope");
         var root=FixedLocalPath(map.InstallationPath);
+        using var operation=new UntamedOperationCoordinator().Acquire(root,UntamedOperationKind.Backup);
         var target=FixedLocalPath(destination);
         if(!Directory.Exists(root))throw new DirectoryNotFoundException(root);
         if(IsInside(root,target)||IsInside(target,root)||string.Equals(root,target,StringComparison.OrdinalIgnoreCase))
@@ -71,6 +72,7 @@ public static class LocalBackupWorkflow
         if(totalBytes>free || reserve>free-totalBytes)
             throw new IOException("Insufficient free disk space for backup and safety reserve");
         string data=Path.Combine(staging,"data");
+        operation.MarkMutationStarted();
         Directory.CreateDirectory(data);
         foreach(var entry in paths)
         {
@@ -99,6 +101,7 @@ public static class LocalBackupWorkflow
         File.WriteAllText(Path.Combine(staging,"complete"),"1");
         Directory.Move(staging,target);
         TestBackupPackage.Verify(target,map.Id);
+        operation.Complete();
         return new(target,manifest);
     }
 
@@ -134,3 +137,4 @@ public static class LocalBackupWorkflow
         return full;
     }
 }
+

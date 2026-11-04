@@ -17,7 +17,7 @@ public partial class MainWindow
             ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",SelectedIndex=0,
             Foreground=Brushes.White,Background=Panel};
         var pluginName=new TextBox{Height=34,Foreground=Brushes.White,Background=Panel,
-            ToolTip="Exact installed plugin directory name (Kova plugins forbidden)"};
+            ToolTip="Exact installed plugin directory name (Untamed Cluster Vault plugins forbidden)"};
         var previous=new TextBox{Height=34,IsReadOnly=true,
             Foreground=Brushes.White,Background=Panel};
         var status=Label("Válassz ellenőrzött helyi DLL-mentést. Minden Store/SQL művelet tiltott.",12,Soft);
@@ -82,3 +82,4 @@ public partial class MainWindow
             }),status)));
     }
 }
+

@@ -107,6 +107,7 @@ public partial class App : System.Windows.Application
                 window.VerifyRecoveryCenterCiSmoke();
                 File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"recovery-center-passed\n");
                 window.VerifyCompleteManagerCiSmoke();
+                window.VerifyModListFocusCiSmoke();
                 File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"rc-all-pages-passed\n");
                 window.UpdateLayout();
                 File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"passed\n");
@@ -134,6 +135,6 @@ public partial class App : System.Windows.Application
         }
         base.OnStartup(e);
     }
-    private static void Log(Exception e) {try {File.AppendAllText(Path.Combine(LogDir,"crash.log"),DateTimeOffset.Now+"\n"+e+"\n");}catch{}}
+    private static void Log(Exception e) {try {File.AppendAllText(Path.Combine(LogDir,"crash.log"),DateTimeOffset.Now+"\n"+UntamedManager.Core.UntamedPresentation.Redact(e.ToString())+"\n");}catch{}}
     protected override void OnExit(ExitEventArgs e) { try{mutex?.ReleaseMutex();}catch{} mutex?.Dispose();base.OnExit(e); }
 }

@@ -29,7 +29,7 @@ public static class LocalPluginInventory
             if(plugin.Name.StartsWith(".untamed-",StringComparison.OrdinalIgnoreCase))
                 continue;
             // Do not inspect Kova plugins beyond their folder name: the Store remains protected.
-            if(plugin.Name.Contains("Kova",StringComparison.OrdinalIgnoreCase))
+            if(plugin.Name.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase))
             {
                 output.Add(new(plugin.Name,Array.Empty<PluginBinaryInfo>(),true));
                 continue;
@@ -72,3 +72,4 @@ public static class LocalPluginInventory
                 throw new InvalidDataException("Plugin path contains a linked directory");
     }
 }
+

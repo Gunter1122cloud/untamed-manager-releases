@@ -16,7 +16,7 @@ public partial class MainWindow
 {
     public void VerifyCompleteManagerCiSmoke()
     {
-        foreach(string page in new[]{"setup","data","steam","settings"})
+        foreach(string page in new[]{"setup","data","steam","settings","readiness"})
         {
             Navigate(page);
             UpdateLayout();
@@ -48,13 +48,15 @@ public partial class MainWindow
             Btn("Recovery Center megnyitása",()=>Navigate("recovery")),
             Btn("Mentésellenőrzés megnyitása",()=>Navigate("backups")),
             Btn("Cluster Vault / SQL központ",()=>Navigate("data")))));
-        ShowKovaProfilePreviewControls();
+        ShowVaultProfilePreviewControls();
     }
 
     private void ShowDataSafetyCenter()
     {
-        Header("Untamed Kingdom · Cluster Vault és SQL",
+        Header("Untamed Cluster Vault és SQL",
             "Helyi exportok, Vault-archívumok és ellenőrzött mentésmásolatok. Nincs élő adatbázis-kapcsolat.");
+        Add(Label("MariaDB referencia: "+MariaDbCompatibility.DeploymentBaseline+
+            ". A 11.4-es ág nem automatikus frissítési cél; dump/restore előtt a szerver és az eszközök verzióját külön igazolni kell.",12,Aqua));
         Add(Box(V(
             Label("Adatbiztonsági kapuk – Release Candidate",19,Mint,true),
             Label("MariaDB SQL restore: TILTVA. Cluster Vault módosítás/konverzió: TILTVA. "+
@@ -114,8 +116,8 @@ public partial class MainWindow
             }),sqlStatus)));
         ShowClusterVaultArchiveCenter();
         ShowUntamedManagerArchiveAudit();
-        ShowHistoricalTwoHostKovaAudit();
-        ShowKovaStoreV1CopyReader();
+        ShowHistoricalVaultAudit();
+        ShowVaultSessionCopyReader();
         ShowOfflineClusterBackupWizard();
     }
 
@@ -250,3 +252,4 @@ public partial class MainWindow
             }),result)));
     }
 }
+

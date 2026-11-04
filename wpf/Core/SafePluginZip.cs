@@ -69,6 +69,7 @@ public static class SafePluginZip
         if(map==null||map.Id==Guid.Empty)throw new InvalidDataException("Map identity required");
         if(!check.ConfirmedStopped||check.Running)
             throw new InvalidOperationException("Plugin update requires confirmed stopped local server");
+        using var operation=new UntamedOperationCoordinator().Acquire(map.InstallationPath,UntamedOperationKind.PluginChange);
         string install=FixedLocal(map.InstallationPath);
         if(!Directory.Exists(install))throw new DirectoryNotFoundException(install);
         string archives=FixedLocal(backupRoot);
@@ -85,6 +86,7 @@ public static class SafePluginZip
         string displaced=Path.Combine(plugins,".untamed-old-"+token);
         string? backup=null;
         bool moved=false, installed=false;
+        operation.MarkMutationStarted();
         Directory.CreateDirectory(plugins);
         try
         {
@@ -119,6 +121,7 @@ public static class SafePluginZip
             if(Directory.Exists(target)){Directory.Move(target,displaced);moved=true;}
             Directory.Move(staging,target);installed=true;
             if(moved&&Directory.Exists(displaced))Directory.Delete(displaced,true);
+            operation.Complete();
             return new(info.PluginName,target,backup,info.BinaryCount);
         }
         catch
@@ -141,7 +144,7 @@ public static class SafePluginZip
         string pluginName,string previousBackup,string backupRoot)
     {
         if(map==null || map.Id==Guid.Empty)throw new InvalidDataException("Map identity required");
-        if(!SafeWindowsPart(pluginName) || pluginName.Contains("Kova",StringComparison.OrdinalIgnoreCase))
+        if(!SafeWindowsPart(pluginName) || pluginName.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Protected or unsafe plugin name");
         string install=FixedLocal(map.InstallationPath);
         string backups=FixedLocal(backupRoot);
@@ -186,6 +189,7 @@ public static class SafePluginZip
     {
         var preview=PreviewRollback(map,check,pluginName,previousBackup,backupRoot);
         if(!preview.Allowed)throw new InvalidOperationException(preview.Reason);
+        using var operation=new UntamedOperationCoordinator().Acquire(map.InstallationPath,UntamedOperationKind.Restore);
         string install=FixedLocal(map.InstallationPath);
         string backupRootChecked=FixedLocal(backupRoot);
         string plugins=Path.Combine(install,"ShooterGame","Binaries","Win64","ArkApi","Plugins");
@@ -196,6 +200,7 @@ public static class SafePluginZip
         string preimage=Path.Combine(backupRootChecked,map.Id.ToString("N"),
             pluginName,"prerollback-"+token);
         bool moved=false;
+        operation.MarkMutationStarted();
         try
         {
             // Another complete, verified copy protects current binaries AND configs.
@@ -232,6 +237,7 @@ public static class SafePluginZip
             Directory.Move(staging,target);
             // If cleanup fails, the displaced directory remains safely recoverable.
             try{Directory.Delete(displaced,true);}catch{}
+            operation.Complete();
             return new(pluginName,target,preimage,preview.PreviousBinaryCount);
         }
         catch
@@ -289,8 +295,8 @@ public static class SafePluginZip
             if(binary){if(name.EndsWith(".dll",StringComparison.OrdinalIgnoreCase))binaries++;}else ignored++;
             files.Add(entry);
         }
-        if(plugin!=null && plugin.Contains("Kova",StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("KovaCluster and Kova-related plugin updates are protected");
+        if(plugin!=null && plugin.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Untamed Cluster Vault plugin updates are protected");
         if(binaries==0 || !files.Any(x=>x.FullName.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)&&
                                           x.FullName.Split('/').Length==2))
             throw new InvalidDataException("Plugin ZIP needs at least one root DLL");
@@ -332,3 +338,4 @@ public static class SafePluginZip
             CopyTree(sub,Path.Combine(target,Path.GetFileName(sub)));
     }
 }
+

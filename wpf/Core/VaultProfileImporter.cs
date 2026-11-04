@@ -8,21 +8,21 @@ using System.Text.Json;
 
 namespace UntamedManager.Core;
 
-public sealed record KovaImportedMod(string Id,ModMode Mode);
-public sealed record KovaImportedMap(string SourceId,string Name,string Root,
-    string MapCode,int GamePort,int QueryPort,IReadOnlyList<KovaImportedMod> Mods,
+public sealed record VaultImportedMod(string Id,ModMode Mode);
+public sealed record VaultImportedMap(string SourceId,string Name,string Root,
+    string MapCode,int GamePort,int QueryPort,IReadOnlyList<VaultImportedMod> Mods,
     string StorePhase,bool SafeToStart);
-public sealed record KovaProfileReport(string SourceHash,int Version,
-    IReadOnlyList<KovaImportedMap> Maps,bool ReadOnly,bool StoreCompatible,
+public sealed record VaultProfileReport(string SourceHash,int Version,
+    IReadOnlyList<VaultImportedMap> Maps,bool ReadOnly,bool StoreCompatible,
     IReadOnlyList<string> Warnings,string SourcePath);
 
 // Read-only Kova 1.8.3 profile v1 reader. Produces an inert migration
 // proposal, NEVER claims Store binary compatibility or starts a server.
 // Accepted input is a user-selected, locally copied JSON export; not live
 // Kova localStorage, remote SMB or Store coordination folder.
-public static class KovaProfileImporter
+public static class VaultProfileImporter
 {
-    public static KovaProfileReport InspectCopy(string profileJson,string? storeJson=null)
+    public static VaultProfileReport InspectCopy(string profileJson,string? storeJson=null)
     {
         string profile=FixedCopy(profileJson);
         byte[] raw=ReadBounded(profile,20_000_000);
@@ -36,7 +36,7 @@ public static class KovaProfileImporter
            profiles.GetArrayLength()>1000)
             throw new InvalidDataException("A támogatott profil-export formátum szükséges");
         var store=ReadStoreCopy(storeJson);
-        var result=new List<KovaImportedMap>();
+        var result=new List<VaultImportedMap>();
         var ids=new HashSet<string>(StringComparer.Ordinal);
         var paths=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ports=new HashSet<int>();
@@ -64,7 +64,7 @@ public static class KovaProfileImporter
             if(!profileEntry.TryGetProperty("mods",out var modList) ||
                modList.ValueKind!=JsonValueKind.Array)
                 throw new InvalidDataException("A profil modlistája hiányzik");
-            var mods=new List<KovaImportedMod>();
+            var mods=new List<VaultImportedMod>();
             var seen=new HashSet<string>(StringComparer.Ordinal);
             foreach(var item in modList.EnumerateArray())
             {
@@ -94,7 +94,7 @@ public static class KovaProfileImporter
         return new(digest,1,result,true,false,warnings,profile);
     }
 
-    public static ManagerConfig BuildInertLocalDraft(KovaProfileReport report,string localHostId)
+    public static ManagerConfig BuildInertLocalDraft(VaultProfileReport report,string localHostId)
     {
         if(report==null||!report.ReadOnly||string.IsNullOrWhiteSpace(localHostId)||
            report.Maps.Count==0)
@@ -184,3 +184,4 @@ public static class KovaProfileImporter
         =>root.ValueKind==JsonValueKind.Object&&root.TryGetProperty(field,out var el)&&
           el.ValueKind==JsonValueKind.True;
 }
+

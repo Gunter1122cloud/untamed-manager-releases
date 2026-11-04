@@ -25,8 +25,8 @@ public sealed record UntamedManagerArchiveReport(
 
 public static class UntamedManagerArchiveInspector
 {
-    private const string Legacy="Kova/";
-    private const string Shared="SHARED/.kova-store-v1/";
+    private const string Legacy=VaultProtocol.HistoricalManagerPrefix;
+    private const string Shared=VaultProtocol.ArchiveCoordinationPrefix;
     private static readonly JsonSerializerOptions Compact=new(){
         Encoder=JavaScriptEncoder.UnsafeRelaxedJsonEscaping};
 
@@ -54,7 +54,7 @@ public static class UntamedManagerArchiveInspector
         var failures=new List<string>();
 
         var localMembers=Array(config.RootElement,"members").EnumerateArray().ToArray();
-        if(Str(config.RootElement,"id")!="KovaCluster"||
+        if(Str(config.RootElement,"id")!=VaultProtocol.ClusterId||
            Str(config.RootElement,"mode")!="shared"||localMembers.Length!=5)
             throw new InvalidDataException("A mentett közös konfiguráció nem támogatott");
         var localIds=localMembers.Select(x=>Str(x,"id")).ToHashSet(
@@ -81,7 +81,7 @@ public static class UntamedManagerArchiveInspector
             failures.Add("A helyi szerverregiszter és a maplista eltérnek");
 
         var op=operation.RootElement;
-        if(Int32(op,"schema")!=1 || Str(op,"cluster")!="KovaCluster"||
+        if(Int32(op,"schema")!=1 || Str(op,"cluster")!=VaultProtocol.ClusterId||
            !Guid.TryParse(Str(op,"session"),out var session))
             throw new InvalidDataException("Nem támogatott közös munkamenet");
         var peerIds=Array(op,"peers").EnumerateArray()
@@ -102,7 +102,7 @@ public static class UntamedManagerArchiveInspector
                 sessions=false;
             if(Str(p,"phase")!="done")phases=false;
             var pcfg=Required(p,"config");
-            if(Str(pcfg,"id")!="KovaCluster"||Str(pcfg,"mode")!="shared" ||
+            if(Str(pcfg,"id")!=VaultProtocol.ClusterId||Str(pcfg,"mode")!="shared" ||
                !Str(pcfg,"path").Equals(Str(op,"path"),
                    StringComparison.OrdinalIgnoreCase))
                 sessions=false;

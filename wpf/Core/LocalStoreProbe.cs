@@ -21,7 +21,7 @@ public static class LocalStoreProbe
                 if(dir.Exists && (dir.Attributes & FileAttributes.ReparsePoint)!=0)
                     return new(false,"Linked Store paths are forbidden");
             var tokens=arguments.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries);
-            if(clusterId!="KovaCluster" || !tokens.Contains("-usestore",StringComparer.OrdinalIgnoreCase) ||
+            if(clusterId!=VaultProtocol.ClusterId || !tokens.Contains("-usestore",StringComparer.OrdinalIgnoreCase) ||
                 arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase))
                 return new(false,"Cluster ID or Store launch parameters are unsafe");
             if(!Directory.Exists(full))return new(false,"Store test copy unavailable");
@@ -32,3 +32,4 @@ public static class LocalStoreProbe
         { return new(false,"Store inspection failed: "+ex.Message); }
     }
 }
+

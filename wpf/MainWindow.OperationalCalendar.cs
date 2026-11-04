@@ -196,14 +196,14 @@ public partial class MainWindow
             }),canvas,status)));
     }
 
-    private void ShowKovaProfilePreviewControls()
+    private void ShowVaultProfilePreviewControls()
     {
         var source=new TextBox{Height=32,IsReadOnly=true,
             Background=Panel,Foreground=Brushes.White};
         var store=new TextBox{Height=32,IsReadOnly=true,
             Background=Panel,Foreground=Brushes.White};
         var status=Label("Csak korábban kimásolt helyi JSON-adatokat olvas. Nem kapcsolódik az élő szerverfolyamatokhoz.",12,Soft);
-        KovaProfileReport? report=null;
+        VaultProfileReport? report=null;
         Add(Box(V(Label("Untamed Cluster Vault · Profilátvételi előnézet",19,Mint,true),
             Label("Korábban készített profil-JSON és opcionális cluster-metaadatmásolat. "+
                 "Az eredeti profil, közös adatfájlok, transzferadatok és jelszavak változatlanok "+
@@ -223,7 +223,7 @@ public partial class MainWindow
             Btn("Vault profilok elemzése – kizárólag olvasás",()=>{
                 try
                 {
-                    report=KovaProfileImporter.InspectCopy(source.Text.Trim(),
+                    report=VaultProfileImporter.InspectCopy(source.Text.Trim(),
                         store.Text.Trim().Length==0?null:store.Text.Trim());
                     status.Text="Forrás SHA-256: "+report.SourceHash+
                         "\nHelyi profilok: "+report.Maps.Count+
@@ -246,7 +246,7 @@ public partial class MainWindow
                     if(picker.ShowDialog()!=Forms.DialogResult.OK)return;
                     if(File.Exists(picker.FileName))
                         throw new IOException("Csak új célfájl engedélyezett");
-                    var inert=KovaProfileImporter.BuildInertLocalDraft(report,
+                    var inert=VaultProfileImporter.BuildInertLocalDraft(report,
                         _cluster.Config.LocalHostId);
                     File.WriteAllText(picker.FileName,
                         System.Text.Json.JsonSerializer.Serialize(inert,
@@ -287,3 +287,4 @@ public partial class MainWindow
             }),status)));
     }
 }
+

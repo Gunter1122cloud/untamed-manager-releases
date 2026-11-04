@@ -37,10 +37,11 @@ public static class PluginStateManager
         if(map==null || map.Id==Guid.Empty || state==null ||
            !state.ConfirmedStopped || state.Running || map.Maintenance)
             throw new InvalidOperationException("Plugin toggle requires confirmed stopped local map");
+        using var operation=new UntamedOperationCoordinator().Acquire(map.InstallationPath,UntamedOperationKind.PluginChange);
         if(string.IsNullOrWhiteSpace(plugin) || plugin.Length>80 ||
            !char.IsAsciiLetterOrDigit(plugin[0]) ||
            plugin.Any(c=>!char.IsAsciiLetterOrDigit(c) && c is not '_' and not '-' and not '.') ||
-           plugin=="." || plugin==".." || plugin.Contains("Kova",StringComparison.OrdinalIgnoreCase))
+           plugin=="." || plugin==".." || plugin.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Unsafe or protected plugin name");
         var (active,disabled)=Roots(map);
         string source=Path.Combine(enabled?disabled:active,plugin);
@@ -60,6 +61,7 @@ public static class PluginStateManager
         string backup=Path.Combine(profile,"plugin-toggle-backups",
             map.Id.ToString("N"),plugin,Guid.NewGuid().ToString("N"));
         // A complete SHA-verified source protection survives every toggle.
+        operation.MarkMutationStarted();
         TestBackupPackage.Create(source,backup,map.Id,
             "Pre-plugin-toggle full directory; configs and licenses included");
         var package=TestBackupPackage.Verify(backup,map.Id);
@@ -74,6 +76,7 @@ public static class PluginStateManager
                 Directory.Move(target,source);
             throw;
         }
+        operation.Complete();
         return new(map.Id,plugin,enabled,target,backup,true);
     }
 
@@ -112,3 +115,4 @@ public static class PluginStateManager
                 throw new InvalidDataException("Linked plugin subdirectory");
     }
 }
+

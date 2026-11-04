@@ -37,7 +37,7 @@ public partial class MainWindow
         Add(Box(V(Label(kind==ConfigKind.GameIni?"INI Editor 2.0":"Plugin JSON Editor",
                 20,Mint,true),
             Label("Kódolás/BOM, sorvégek, kommentek és ismeretlen mezők megőrzése. "+
-                "Kizárólag igazoltan leállított map fájljait módosítja; nem olvas Kova Store-t.",12,Soft),
+                "Kizárólag igazoltan leállított map fájljait módosítja; nem olvas Untamed Cluster Vault-t.",12,Soft),
             maps,
             Btn(kind==ConfigKind.GameIni?"Helyi Game.ini / GameUserSettings.ini megnyitása":
                 "Helyi plugin JSON megnyitása",()=>{
@@ -115,3 +115,4 @@ public partial class MainWindow
         }
     }
 }
+

@@ -64,7 +64,7 @@ public static class ProfessionalOperationsTests
             combined.Items.Count(x=>x.Host=="SQL")==3,
             "two-host physical file copy packages exactly 10 maps and 3 SQL offline exports");
         Check(!combined.RealAsaConsistencyProven &&
-            !combined.KovaStoreIncluded &&
+            !combined.VaultStoreIncluded &&
             !combined.MariaDbSnapshotConsistencyProven &&
             OfflineClusterBackup.Verify(output).Batch==combined.Batch,
             "offline bundle verifies hashes but never claims live ASA/Kova/SQL consistency");
@@ -127,30 +127,30 @@ public static class ProfessionalOperationsTests
         string originalRyzen=JsonSerializer.Serialize(ryzenExport);
         File.WriteAllText(hpFile,originalHp);
         File.WriteAllText(ryzenFile,originalRyzen);
-        var hp=KovaAuditBridge.InspectCopy(hpFile,KovaAuditHost.Hp);
-        var ryzen=KovaAuditBridge.InspectCopy(ryzenFile,KovaAuditHost.Ryzen);
-        var pair=KovaAuditBridge.Evaluate(hp,ryzen);
+        var hp=VaultAuditBridge.InspectCopy(hpFile,VaultAuditHost.Hp);
+        var ryzen=VaultAuditBridge.InspectCopy(ryzenFile,VaultAuditHost.Ryzen);
+        var pair=VaultAuditBridge.Evaluate(hp,ryzen);
         Check(pair.HistoricalSnapshotConsistent&&pair.MapNames.Length==10 &&
             File.ReadAllText(hpFile)==originalHp &&
             File.ReadAllText(ryzenFile)==originalRyzen,
             "original HP and Ryzen sanitized audit formats validate ten unique maps without source writes");
         Check(pair.SafetyStatement.Contains("NOT proven") &&
             hp.SourceHash.Length==64 &&ryzen.SourceHash.Length==64,
-            "Kova historical snapshots never unlock live Store compatibility or ownership");
+            "Untamed Cluster Vault historical snapshots never unlock live Store compatibility or ownership");
         using(var doc=JsonDocument.Parse(originalRyzen))
         {
             var node=System.Text.Json.Nodes.JsonNode.Parse(originalRyzen)!;
             node["Markers"]!["MutationLock"]=true;
             File.WriteAllText(ryzenFile,node.ToJsonString());
         }
-        var bad=KovaAuditBridge.InspectCopy(ryzenFile,KovaAuditHost.Ryzen);
+        var bad=VaultAuditBridge.InspectCopy(ryzenFile,VaultAuditHost.Ryzen);
         Check(!bad.SnapshotInternallyConsistent &&
-            !KovaAuditBridge.Evaluate(hp,bad).HistoricalSnapshotConsistent,
-            "Kova active mutation lock blocks a two-host matching audit");
+            !VaultAuditBridge.Evaluate(hp,bad).HistoricalSnapshotConsistent,
+            "Untamed Cluster Vault active mutation lock blocks a two-host matching audit");
         bool switched=false;
-        try{KovaAuditBridge.Evaluate(ryzen,hp);}
+        try{VaultAuditBridge.Evaluate(ryzen,hp);}
         catch(InvalidDataException){switched=true;}
-        Check(switched,"Kova host role swap rejected");
+        Check(switched,"Untamed Cluster Vault host role swap rejected");
 
         // Real Kova shared-store-v1 JSON coordination *copies* (not a generic
         // audit shape): operation, per-peer records, two device/lock copies.
@@ -213,7 +213,7 @@ public static class ProfessionalOperationsTests
             schema=1,maps=ryzenMembers.ToDictionary(m=>m.id,m=>new{
                 m.root,m.map,phase="active",backupId=backupRyzen,sharedSession=sessionId.ToString()})}));
         string opBefore=File.ReadAllText(Path.Combine(storeShared,"operation.json"));
-        var liveContractCopy=KovaStoreV1CopyReader.Inspect(
+        var liveContractCopy=VaultCompatibilityReader.Inspect(
             storeShared,storeHp,storeRyzen);
         Check(liveContractCopy.HistoricalConsistent &&
             liveContractCopy.MapNames.Length==10 &&
@@ -224,13 +224,13 @@ public static class ProfessionalOperationsTests
             liveContractCopy.InspectedSha256.Length==12,
             "real Kova contract copied file checksums never certify production compatibility");
         Directory.CreateDirectory(Path.Combine(storeShared,"mutation.lock"));
-        Check(!KovaStoreV1CopyReader.Inspect(
+        Check(!VaultCompatibilityReader.Inspect(
             storeShared,storeHp,storeRyzen).HistoricalConsistent,
             "Kova mutation.lock marks copied session as unsafe for takeover");
         Directory.Delete(Path.Combine(storeShared,"mutation.lock"));
         File.WriteAllText(Path.Combine(storeShared,"running.json"),
             JsonSerializer.Serialize(new{session=sessionId.ToString()}));
-        Check(!KovaStoreV1CopyReader.Inspect(
+        Check(!VaultCompatibilityReader.Inspect(
             storeShared,storeHp,storeRyzen).HistoricalConsistent,
             "Kova running.json marker blocks historical Store-v1 consistency");
         File.Delete(Path.Combine(storeShared,"running.json"));
@@ -238,7 +238,7 @@ public static class ProfessionalOperationsTests
         File.WriteAllText(Path.Combine(storeHp,"shared-store-lock-v1.json"),
             JsonSerializer.Serialize(new{schema=1,session=Guid.NewGuid().ToString(),
                 config=configHp,configHash=hpHash,selected=selectedHp}));
-        var badSession=KovaStoreV1CopyReader.Inspect(storeShared,storeHp,storeRyzen);
+        var badSession=VaultCompatibilityReader.Inspect(storeShared,storeHp,storeRyzen);
         Check(!badSession.HistoricalConsistent,
             "Kova lock session different from operation is explicitly rejected");
         // The real subprocess is the harmless FakeAsa Windows binary and

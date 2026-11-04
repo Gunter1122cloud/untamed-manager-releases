@@ -303,22 +303,22 @@ public static class OperationalFeaturesTests
                     backupId="synthetic-backup",preparedAt="2026-10-20T00:00:00Z"}
             }}));
         string originalKova=File.ReadAllText(kovaExport);
-        var importer=KovaProfileImporter.InspectCopy(kovaExport,storeCopy);
-        var inert=KovaProfileImporter.BuildInertLocalDraft(importer,Guid.NewGuid().ToString("N"));
+        var importer=VaultProfileImporter.InspectCopy(kovaExport,storeCopy);
+        var inert=VaultProfileImporter.BuildInertLocalDraft(importer,Guid.NewGuid().ToString("N"));
         Check(importer.Maps.Count==1 && importer.Maps[0].StorePhase=="active" &&
             !importer.StoreCompatible && inert.LocalMaps.Single().Maintenance &&
             !inert.LocalMaps.Single().AutoStart &&
             string.IsNullOrEmpty(inert.LocalMaps.Single().ExecutablePath),
-            "Kova profile v1 + Store-v1 copy produces maintenance-only inert no-launch draft");
+            "Untamed Cluster Vault profile v1 + Store-v1 copy produces maintenance-only inert no-launch draft");
         Check(File.ReadAllText(kovaExport)==originalKova &&
             inert.LocalMaps.Single().DisabledModIds.Count==2,
-            "Kova copies remain unmodified and no executable or Store conversion is imported");
+            "Untamed Cluster Vault copies remain unmodified and no executable or Store conversion is imported");
         bool duplicateKova=false;
         File.WriteAllText(kovaExport,JsonSerializer.Serialize(new{
             version=1,profiles=new[]{kovaSource.profiles[0],kovaSource.profiles[0]}}));
-        try{KovaProfileImporter.InspectCopy(kovaExport);}
+        try{VaultProfileImporter.InspectCopy(kovaExport);}
         catch(InvalidDataException){duplicateKova=true;}
-        Check(duplicateKova,"Kova duplicate server roots and profile IDs blocked");
+        Check(duplicateKova,"Untamed Cluster Vault duplicate server roots and profile IDs blocked");
 
         var files=new CurseForgeFilesResult(928548,
             new[]{
@@ -365,6 +365,7 @@ public static class OperationalFeaturesTests
         }
         Check(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaRestart,true,
             confirmedStopped:true,realSaveWorldProof:true,storeVerified:true).Allowed,
-            "v1.5 tests do not unlock production ASA restart or Kova Store mutation");
+            "v1.5 tests do not unlock production ASA restart or Untamed Cluster Vault mutation");
     }
 }
+

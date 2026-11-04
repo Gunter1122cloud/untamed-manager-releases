@@ -8,7 +8,7 @@ using Forms=System.Windows.Forms;
 namespace UntamedManager;
 public partial class MainWindow
 {
-    private void ShowKovaStoreV1CopyReader()
+    private void ShowVaultSessionCopyReader()
     {
         TextBox Field()=>new(){Height=34,IsReadOnly=true,
             Foreground=Brushes.White,Background=Panel};
@@ -37,7 +37,7 @@ public partial class MainWindow
             Btn("Két peer / session / map és lock ellenőrzése (READ-ONLY)",()=>{
                 try
                 {
-                    var x=KovaStoreV1CopyReader.Inspect(
+                    var x=VaultCompatibilityReader.Inspect(
                         share.Text.Trim(),hp.Text.Trim(),ryzen.Text.Trim());
                     result.Text=x.Report==null?"Hiányzó ellenőrzési jelentés.":FormatVaultReport(x.Report);
                 }

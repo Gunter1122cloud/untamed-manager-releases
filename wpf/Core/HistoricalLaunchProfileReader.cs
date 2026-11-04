@@ -34,7 +34,7 @@ public static class HistoricalLaunchProfileReader
         using var cluster=Read(zip,"Kova/cluster-v1.json");
         if(Number(launch.RootElement,"version")!=1 ||
            Number(world.RootElement,"schema")!=1 ||
-           Str(cluster.RootElement,"id")!="KovaCluster" ||
+           Str(cluster.RootElement,"id")!=VaultProtocol.ClusterId ||
            Str(cluster.RootElement,"mode")!="shared")
             throw new InvalidDataException("Unsupported historical launch contract");
         var local=Required(world.RootElement,"maps");

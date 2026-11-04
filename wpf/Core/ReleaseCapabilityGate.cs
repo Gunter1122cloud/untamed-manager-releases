@@ -13,7 +13,7 @@ public enum ManagerOperation
     OfflineBackup, OfflineSqlArchive, OfflineStoreInventory,
     FakeAsaStart, FakeAsaRecoverySimulation, SteamCmdDryRun,
     RealAsaStart, RealAsaStop, RealAsaRestart, RealAsaKill,
-    LiveSteamUpdate, LiveSqlRestore, LiveKovaStoreWrite
+    LiveSteamUpdate, LiveSqlRestore, LiveVaultStoreWrite
 }
 public sealed record OperationReadiness(ManagerOperation Operation,bool Allowed,string Reason);
 public static class ReleaseCapabilityGate
@@ -67,3 +67,4 @@ public static class ReleaseCapabilityGate
             throw new InvalidOperationException("FakeAsa process state is not verified stopped");
     }
 }
+

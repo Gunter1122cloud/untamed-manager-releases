@@ -1,0 +1,170 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+
+namespace UntamedManager.Core;
+
+public enum UntamedOperationKind { Launch, Configuration, PluginChange, Backup, Restore, Update }
+public enum UntamedOperationPhase { Prepared, Mutating, Completed, CancelledBeforeMutation, NeedsOperator }
+public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Operation,
+    UntamedOperationKind Kind,UntamedOperationPhase Phase,DateTimeOffset UpdatedUtc);
+
+// One machine-wide named semaphore per installation, independent of map/profile ID.
+// Semaphores are not thread-affine: a lease can span await safely. Persistent
+// pending state is NEVER cleared because of a timeout, PID exit, or GUI restart.
+// Live Store/SQL/ASA permissions remain the responsibility of capability gates.
+public sealed class UntamedOperationCoordinator
+{
+    private readonly string stateRoot;
+    public static string DefaultRoot=>Path.Combine(Environment.GetFolderPath(
+        Environment.SpecialFolder.CommonApplicationData),"UntamedManager","Operations-v1");
+    public UntamedOperationCoordinator(string? stateRoot=null)
+    {
+        this.stateRoot=LocalPath(stateRoot??DefaultRoot);
+    }
+    public static string ResourceKey(string installation)
+    {
+        string path=LocalPath(installation).TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar);
+        // Reject 8.3/reparse aliases rather than permitting a second resource key.
+        if(path.Contains('~'))throw new InvalidDataException("UNTAMED_PATH_ALIAS");
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(path.ToUpperInvariant())));
+    }
+    private static string LocalPath(string path)
+    {
+        if(string.IsNullOrWhiteSpace(path)||!Path.IsPathFullyQualified(path)||
+           path.StartsWith(@"\\")||path.StartsWith("//",StringComparison.Ordinal))
+            throw new InvalidDataException("UNTAMED_LOCAL_PATH_REQUIRED");
+        string full=Path.GetFullPath(path);
+        if(new DriveInfo(Path.GetPathRoot(full)!).DriveType!=DriveType.Fixed)
+            throw new InvalidDataException("UNTAMED_FIXED_DISK_REQUIRED");
+        foreach(string part in full[Path.GetPathRoot(full)!.Length..].Split(
+            new[]{Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar},StringSplitOptions.RemoveEmptyEntries))
+            if(part.EndsWith('.')||part.EndsWith(' '))throw new InvalidDataException("UNTAMED_PATH_ALIAS");
+        for(var node=new DirectoryInfo(full);node!=null;node=node.Parent)
+            if(node.Exists&&(node.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("UNTAMED_LINKED_PATH");
+        return full;
+    }
+    public Lease Acquire(string installation,UntamedOperationKind kind)
+    {
+        if(!Enum.IsDefined(kind))throw new InvalidDataException("UNTAMED_OPERATION_KIND");
+        string key=ResourceKey(installation);
+        var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        bool entered=false;
+        try
+        {
+            entered=semaphore.WaitOne(0);
+            if(!entered)throw new IOException("UNTAMED_OPERATION_BUSY");
+            Directory.CreateDirectory(LocalPath(stateRoot));
+            string journal=Path.Combine(stateRoot,key+".json");
+            var old=Read(journal,key);
+            if(old!=null&&old.Phase is not (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation))
+                throw new IOException("UNTAMED_OPERATION_NEEDS_OPERATOR");
+            var record=new UntamedOperationRecord(1,key,Guid.NewGuid(),kind,
+                UntamedOperationPhase.Prepared,DateTimeOffset.UtcNow);
+            Write(journal,record);
+            return new Lease(semaphore,journal,record);
+        }
+        catch
+        {
+            if(entered)semaphore.Release();semaphore.Dispose();throw;
+        }
+    }
+    public UntamedOperationRecord? Observe(string installation)
+    {
+        string key=ResourceKey(installation);
+        return Read(Path.Combine(stateRoot,key+".json"),key);
+    }
+    public Batch AcquireMany(IEnumerable<string> installations,UntamedOperationKind kind)
+    {
+        var leases=new List<Lease>();
+        try
+        {
+            foreach(var root in installations.GroupBy(ResourceKey).OrderBy(g=>g.Key,StringComparer.Ordinal).Select(g=>g.First()))
+                leases.Add(Acquire(root,kind));
+            return new Batch(leases);
+        }
+        catch{foreach(var lease in leases.AsEnumerable().Reverse())lease.Dispose();throw;}
+    }
+    public sealed class Batch : IDisposable
+    {
+        private readonly List<Lease> leases;
+        internal Batch(List<Lease> leases){this.leases=leases;}
+        public void MarkMutationStarted(){foreach(var lease in leases)lease.MarkMutationStarted();}
+        public void Complete(){foreach(var lease in leases)lease.Complete();}
+        public void Dispose()
+        {
+            Exception? failure=null;
+            foreach(var lease in leases.AsEnumerable().Reverse())
+                try{lease.Dispose();}catch(Exception ex){failure??=ex;}
+            if(failure!=null)throw new IOException("UNTAMED_BATCH_JOURNAL_FAILED",failure);
+        }
+    }
+    private static UntamedOperationRecord? Read(string path,string key)
+    {
+        if(!File.Exists(path))return null;
+        if((File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0||new FileInfo(path).Length is <2 or >16384)
+            throw new InvalidDataException("UNTAMED_OPERATION_JOURNAL_INVALID");
+        try
+        {
+            using var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+            var record=JsonSerializer.Deserialize<UntamedOperationRecord>(file);
+            if(record==null||record.Schema!=1||record.Resource!=key||record.Operation==Guid.Empty||
+               !Enum.IsDefined(record.Phase)||!Enum.IsDefined(record.Kind))
+                throw new InvalidDataException("UNTAMED_OPERATION_JOURNAL_INVALID");
+            return record;
+        }
+        catch(JsonException){throw new InvalidDataException("UNTAMED_OPERATION_JOURNAL_INVALID");}
+    }
+    private static void Write(string path,UntamedOperationRecord record)
+    {
+        string temporary=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+        try
+        {
+            using(var stream=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+            {JsonSerializer.Serialize(stream,record);stream.Flush(true);}
+            File.Move(temporary,path,true);
+        }
+        finally{if(File.Exists(temporary))File.Delete(temporary);}
+    }
+    public sealed class Lease : IDisposable
+    {
+        private readonly Semaphore semaphore;
+        private readonly string journal;
+        private UntamedOperationRecord record;
+        private bool disposed,completed;
+        internal Lease(Semaphore semaphore,string journal,UntamedOperationRecord record)
+        {this.semaphore=semaphore;this.journal=journal;this.record=record;}
+        public void MarkMutationStarted()
+        {
+            if(disposed||completed||record.Phase!=UntamedOperationPhase.Prepared)
+                throw new InvalidOperationException("UNTAMED_OPERATION_PHASE");
+            var next=record with {Phase=UntamedOperationPhase.Mutating,UpdatedUtc=DateTimeOffset.UtcNow};
+            Write(journal,next);record=next;
+        }
+        public void Complete()
+        {
+            if(disposed||completed)throw new InvalidOperationException("UNTAMED_OPERATION_PHASE");
+            var next=record with {Phase=UntamedOperationPhase.Completed,UpdatedUtc=DateTimeOffset.UtcNow};
+            Write(journal,next);record=next;completed=true;
+        }
+        public void Dispose()
+        {
+            if(disposed)return;
+            disposed=true;
+            try
+            {
+                if(!completed)Write(journal,record with {
+                    Phase=record.Phase==UntamedOperationPhase.Prepared?
+                        UntamedOperationPhase.CancelledBeforeMutation:UntamedOperationPhase.NeedsOperator,
+                    UpdatedUtc=DateTimeOffset.UtcNow});
+            }
+            finally{semaphore.Release();semaphore.Dispose();}
+        }
+    }
+}

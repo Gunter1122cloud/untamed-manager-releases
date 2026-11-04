@@ -201,10 +201,10 @@ try
         File.WriteAllBytes(Path.Combine(folder,item.Key.Split('/').Last()),item.Value);
     }
     var hashes=Directory.GetFiles(root,"*.json",SearchOption.AllDirectories).ToDictionary(p=>p,p=>Sha(File.ReadAllBytes(p)));
-    var copy=KovaStoreV1CopyReader.Inspect(coord,h0,h1);
+    var copy=VaultCompatibilityReader.Inspect(coord,h0,h1);
     Check(copy.HistoricalConsistent&&copy.Report!.CompleteTwoHostEvidence,"synthetic ZIP metadata test-copy restore uses same full validator");
-    Check(KovaStoreV1CopyReader.Inspect(coord,h1,h0).HistoricalConsistent,"folder order does not override device identity");
-    Check(KovaStoreV1CopyReader.Inspect(coord,h0,h1).HistoricalConsistent,"read after restart preserves recognition");
+    Check(VaultCompatibilityReader.Inspect(coord,h1,h0).HistoricalConsistent,"folder order does not override device identity");
+    Check(VaultCompatibilityReader.Inspect(coord,h0,h1).HistoricalConsistent,"read after restart preserves recognition");
     Check(hashes.All(x=>Sha(File.ReadAllBytes(x.Key))==x.Value),"all copied metadata source bytes preserved");
     using(var snapshot=new VaultReadSnapshot())
     {
@@ -213,8 +213,8 @@ try
         catch(IOException){exclusive=true;}Check(exclusive,"snapshot excludes concurrent Windows writers");
     }
     File.Delete(Path.Combine(h0,"cluster-store-v1.json"));
-    Check(!KovaStoreV1CopyReader.Inspect(coord,h0,h1).HistoricalConsistent,"lost local metadata after interruption blocks success");
-    bool missingShare=false;try{KovaStoreV1CopyReader.Inspect(Path.Combine(root,"unavailable-copy"),h0,h1);}
+    Check(!VaultCompatibilityReader.Inspect(coord,h0,h1).HistoricalConsistent,"lost local metadata after interruption blocks success");
+    bool missingShare=false;try{VaultCompatibilityReader.Inspect(Path.Combine(root,"unavailable-copy"),h0,h1);}
     catch(InvalidDataException){missingShare=true;}Check(missingShare,"unavailable copied coordination fails closed");
     bool unc=false;try{ClusterVaultArchiveInspector.Inspect(@"\\192.0.2.1\not-contacted\input.zip");}
     catch(InvalidDataException){unc=true;}Check(unc,"SMB input refused before connection");

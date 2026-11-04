@@ -15,7 +15,7 @@ public partial class MainWindow
             Background=Panel,Foreground=Brushes.White};
         var entries=new ListBox{Height=230,Background=Panel,Foreground=Brushes.White,
             BorderBrush=Aqua};
-        var status=Label("Ez a nézet csak helyi DLL-eket vizsgál; nem olvas adatbázist vagy Kova Store-t.",12,Soft);
+        var status=Label("Ez a nézet csak helyi DLL-eket vizsgál; nem olvas adatbázist vagy Untamed Cluster Vault-t.",12,Soft);
         Add(Box(V(
             Label("Helyi ASA API pluginleltár",20,Mint,true),
             Label("DLL jelenlét, fájlverzió és SHA-256; a betöltött plugin állapota ebből nem állapítható meg.",12,Soft),
@@ -38,3 +38,4 @@ public partial class MainWindow
             entries,status)));
     }
 }
+

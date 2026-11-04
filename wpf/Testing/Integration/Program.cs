@@ -15,6 +15,12 @@ static int FreePort()
     int port=((IPEndPoint)listener.LocalEndpoint).Port;
     listener.Stop();return port;
 }
+if(args.Length==4&&args[0]=="--coordinator-hold")
+{
+    using var lease=new UntamedOperationCoordinator(args[1]).Acquire(args[2],UntamedOperationKind.Update);
+    lease.MarkMutationStarted();File.WriteAllText(args[3],"ready");
+    await Task.Delay(Timeout.Infinite);return;
+}
 if(args.Length==0||!File.Exists(args[0]))
     throw new ArgumentException("First argument must be the built FakeAsa.exe");
 string fake=Path.GetFullPath(args[0]);
@@ -35,6 +41,7 @@ try
     File.WriteAllText(steamFixture,"offline synthetic steamcmd file");
     await OperationalFeaturesTests.Run(root,fake,args.Length>3?args[3]:null);
     await ProfessionalOperationsTests.Run(root,fake);
+    await OperationSafetyTests.Run(root);
     ClusterVaultTests.Run(root);
     ManagerMigrationArchiveTests.Run(root);
     SafeSupportBundleTests.Run(root);
@@ -61,7 +68,7 @@ try
     foreach(var denied in new[]{ManagerOperation.RealAsaStart,
         ManagerOperation.RealAsaStop,ManagerOperation.RealAsaRestart,
         ManagerOperation.RealAsaKill,ManagerOperation.LiveSteamUpdate,
-        ManagerOperation.LiveSqlRestore,ManagerOperation.LiveKovaStoreWrite})
+        ManagerOperation.LiveSqlRestore,ManagerOperation.LiveVaultStoreWrite})
     {
         var decision=ReleaseCapabilityGate.Check(denied,true,
             confirmedStopped:true,realSaveWorldProof:true,storeVerified:true);
@@ -152,24 +159,24 @@ try
         "Original user-supplied offline SQL fixture remains untouched");
 
     string kovaFixture=Path.Combine(Path.GetTempPath(),
-        "Untamed-Kova-Fixture-"+Guid.NewGuid().ToString("N"));
+        "Untamed-Vault-Fixture-"+Guid.NewGuid().ToString("N"));
     Directory.CreateDirectory(kovaFixture);
     File.WriteAllText(Path.Combine(kovaFixture,"synthetic.fixture"),
         "NOT A REAL KOVA STORE OR CHARACTER");
     var kovaOwner=Guid.NewGuid();
-    var audited=KovaFixtureAudit.Inspect(kovaFixture,kovaOwner);
+    var audited=VaultFixtureAudit.Inspect(kovaFixture,kovaOwner);
     Assert(!audited.FormatCompatible && audited.Files==1,
-        "Kova synthetic fixture can be SHA-audited without claiming unknown Store schema support");
+        "Untamed Cluster Vault synthetic fixture can be SHA-audited without claiming unknown Store schema support");
     string kovaArchivePath=Path.Combine(root,"synthetic-kova-backup");
-    KovaFixtureAudit.Snapshot(kovaFixture,kovaOwner,kovaArchivePath);
+    VaultFixtureAudit.Snapshot(kovaFixture,kovaOwner,kovaArchivePath);
     Assert(TestBackupPackage.Verify(kovaArchivePath,kovaOwner).Files.Count==1 &&
         File.ReadAllText(Path.Combine(kovaFixture,"synthetic.fixture"))==
         "NOT A REAL KOVA STORE OR CHARACTER",
-        "Kova byte-preserving synthetic backup leaves source file unchanged");
+        "Untamed Cluster Vault byte-preserving synthetic backup leaves source file unchanged");
     bool liveStoreDenied=false;
-    try{KovaFixtureAudit.Inspect(Path.Combine(root,"actual-KovaCluster"),kovaOwner);}
+    try{VaultFixtureAudit.Inspect(Path.Combine(root,"actual-KovaCluster"),kovaOwner);}
     catch(UnauthorizedAccessException){liveStoreDenied=true;}
-    Assert(liveStoreDenied,"Kova fixture audit refuses arbitrary non-TEMP live Store paths");
+    Assert(liveStoreDenied,"Untamed Cluster Vault fixture audit refuses arbitrary non-TEMP live Store paths");
 
     string steamInstall=Path.Combine(root,"shared-asa-installation");
     string steamBin=Path.Combine(steamInstall,"ShooterGame","Binaries","Win64");
@@ -384,7 +391,7 @@ try
             writer.Write("synthetic forbidden DLL");
     bool protectedZipBlocked=false;
     try{SafePluginZip.Inspect(kovaZip);}catch(InvalidDataException){protectedZipBlocked=true;}
-    Assert(protectedZipBlocked,"Kova plugin ZIP rejected before any installation or backup writes");
+    Assert(protectedZipBlocked,"Untamed Cluster Vault plugin ZIP rejected before any installation or backup writes");
     var installed=SafePluginZip.Install(offline,stoppedMap,packageZip,Path.Combine(root,"plugin-backups"));
     Assert(File.ReadAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"))=="new-binary",
         "Plugin ZIP replaces binary on confirmed stopped map");
@@ -460,7 +467,7 @@ try
     Assert(localInventory.Any(p=>p.PluginName=="KovaCluster" &&
         p.Protected && p.Binaries.Count==0) &&
         File.ReadAllText(Path.Combine(syntheticKova,"store.db"))=="do not inspect this",
-        "Kova plugin is protected and store files remain unchanged");
+        "Untamed Cluster Vault plugin is protected and store files remain unchanged");
 
     string sharedAsa=Path.Combine(root,"shared-asa");
     string asaExe=Path.Combine(sharedAsa,"ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
@@ -884,16 +891,16 @@ try
     Assert(privateWan.State=="Uncertain" && !privateWan.ConfirmedChange,
         "Private/LAN IP addresses are not mistaken for valid external WAN measurements");
     // The synthetic Store and SQL fixture contents never change in recovery tests.
-    string safeStore=Path.Combine(syntheticRecoveryProfile,"KovaStore.fixture");
+    string safeStore=Path.Combine(syntheticRecoveryProfile,"Untamed Cluster VaultStore.fixture");
     string safeSql=Path.Combine(syntheticRecoveryProfile,"database.fixture");
-    File.WriteAllText(safeStore,"original Kova synthetic fixture");
+    File.WriteAllText(safeStore,"original Untamed Cluster Vault synthetic fixture");
     File.WriteAllText(safeSql,"original SQL synthetic fixture");
     var untouchedMap=Guid.NewGuid();
     RecoverySimulator.Run(recoveryJournal,syntheticScenario with {
         Map=untouchedMap,SaveSignals=savedSignals.Select(x=>x with{Map=untouchedMap}).ToArray()});
-    Assert(File.ReadAllText(safeStore)=="original Kova synthetic fixture" &&
+    Assert(File.ReadAllText(safeStore)=="original Untamed Cluster Vault synthetic fixture" &&
            File.ReadAllText(safeSql)=="original SQL synthetic fixture",
-        "Fake recovery never modifies synthetic Kova Store or SQL data");
+        "Fake recovery never modifies synthetic Untamed Cluster Vault or SQL data");
 
     var policy=new SupervisorPolicy();Guid monitored=Guid.NewGuid();var now=DateTimeOffset.UtcNow;
     var unknown=new ProcessCheck(false,"unknown",null);
@@ -1185,3 +1192,4 @@ sealed class SimulatedCurseForgeHttp : HttpMessageHandler
         return Task.FromResult(response);
     }
 }
+

@@ -4,10 +4,11 @@
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../Core/VaultProtocol.cs" Link="Core/VaultProtocol.cs" />
     <Compile Include="../../Core/StoreV1Fingerprint.cs" Link="Core/StoreV1Fingerprint.cs" />
     <Compile Include="../../Core/VaultReadSnapshot.cs" Link="Core/VaultReadSnapshot.cs" />
     <Compile Include="../../Core/ClusterVaultArchiveInspector.cs" Link="Core/ClusterVaultArchiveInspector.cs" />
-    <Compile Include="../../Core/KovaStoreV1CopyReader.cs" Link="Core/KovaStoreV1CopyReader.cs" />
+    <Compile Include="../../Core/VaultCompatibilityReader.cs" Link="Core/VaultCompatibilityReader.cs" />
     <Compile Include="../../Core/UntamedManagerArchiveInspector.cs" Link="Core/UntamedManagerArchiveInspector.cs" />
     <Compile Include="../../Core/HistoricalLaunchProfileReader.cs" Link="Core/HistoricalLaunchProfileReader.cs" />
     <Compile Include="../Integration/ClusterVaultTests.cs" Link="Existing/ClusterVaultTests.cs" />
