@@ -434,14 +434,52 @@ public sealed class ClusterService : IAsyncDisposable
         }
         if(string.IsNullOrWhiteSpace(map.ApiLoaderPath)&&Path.GetFileName(map.ExecutablePath).Contains("loader",StringComparison.OrdinalIgnoreCase))
             return new(false,"Configure loader and child executable separately",null);
-        var check=string.IsNullOrWhiteSpace(map.ApiLoaderPath)?_inspect(map):_inspector.InspectFamily(map);
-        if(check.Running && check.Identity!=null)
+        // Observation is strictly read-only: a dashboard refresh, LAN status query
+        // or watchdog poll must never modify cluster-config.json.
+        return string.IsNullOrWhiteSpace(map.ApiLoaderPath)?_inspect(map):_inspector.InspectFamily(map);
+    }
+    private static bool SameIdentity(ProcessIdentity? left,ProcessIdentity? right)
+    {
+        if(left==null||right==null)return left==null&&right==null;
+        return left.Pid==right.Pid && left.StartedUtc==right.StartedUtc &&
+            string.Equals(left.ExecutablePath,right.ExecutablePath,StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(left.Arguments,right.Arguments,StringComparison.Ordinal);
+    }
+
+    // Explicit operator-requested persistence, not a side effect of Check().
+    // Re-observe under the installation-wide operation lease to prevent accepting
+    // stale PIDs, a replaced loader or another Manager's changing state.
+    public bool RecordObservedIdentity(Guid mapId,ProcessCheck expected)
+    {
+        var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId) ??
+            throw new UnauthorizedAccessException("Map is not owned by this Manager");
+        if(expected==null||!expected.Running||expected.Identity==null||expected.Identity.Pid<=0)
+            throw new InvalidOperationException("A running, identified local process is required");
+        using var operation=Operations.Acquire(map.InstallationPath,UntamedOperationKind.Configuration);
+        var current=Check(map);
+        if(!current.Running||current.Identity==null||
+           !SameIdentity(expected.Identity,current.Identity)||
+           !SameIdentity(expected.LoaderIdentity,current.LoaderIdentity))
+            throw new InvalidOperationException("Process identity changed; repeat the observation");
+        if(SameIdentity(map.LastProcess,current.Identity)&&SameIdentity(map.LastLoader,current.LoaderIdentity))
         {
-            if(map.LastProcess?.Pid!=check.Identity.Pid ||
-               map.LastProcess.StartedUtc!=check.Identity.StartedUtc || map.LastLoader?.StartedUtc!=check.LoaderIdentity?.StartedUtc)
-            {map.LastProcess=check.Identity;map.LastLoader=check.LoaderIdentity;Save();}
+            operation.Complete();
+            return false;
         }
-        return check;
+        var previousProcess=map.LastProcess;
+        var previousLoader=map.LastLoader;
+        operation.MarkMutationStarted();
+        map.LastProcess=current.Identity;
+        map.LastLoader=current.LoaderIdentity;
+        try { Save(); }
+        catch
+        {
+            map.LastProcess=previousProcess;
+            map.LastLoader=previousLoader;
+            throw;
+        }
+        operation.Complete();
+        return true;
     }
     public ProcessIdentity LaunchLocal(Guid id)
     {
