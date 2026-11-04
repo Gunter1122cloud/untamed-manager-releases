@@ -158,7 +158,8 @@ public static class ModStateController
     }
 
     public static IReadOnlyList<ModPreview> ApplyLocalBatch(ClusterService cluster,
-        IEnumerable<ModEdit> edits)
+        IEnumerable<ModEdit> edits,
+        IReadOnlyDictionary<Guid,ModEditBaseline>? expectedBaselines=null)
     {
         if(cluster==null||edits==null)throw new ArgumentNullException();
         var requests=edits.ToArray();
@@ -176,8 +177,18 @@ public static class ModStateController
                 var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==edit.Map);
                 if(map==null)throw new UnauthorizedAccessException("Cannot edit a peer map");
                 if(!originals.ContainsKey(map.Id))
+                {
+                    // Verify the editor snapshot while the configuration lease is
+                    // held, before any staging or disk write. Never silently
+                    // overwrite a concurrent INI/mod editor change.
+                    if(expectedBaselines!=null &&
+                       (!expectedBaselines.TryGetValue(map.Id,out var expected) ||
+                        !expected.Matches(map)))
+                        throw new InvalidOperationException(
+                            "Mod configuration changed outside this draft; reload is required");
                     originals.Add(map.Id,(map.Arguments,
                         (map.DisabledModIds??new()).ToList(),map.ModChangesPending));
+                }
                 // Staged in-memory edits; no server restart and no file writes yet.
                 var preview=Preview(map,edit);
                 map.Arguments=preview.NewArguments;
