@@ -20,6 +20,11 @@ public sealed record ModEditBaseline(string Arguments,string[] DisabledIds,bool 
         Pending==map.ModChangesPending;
 }
 
+// Explicit field-level preview of configured mode and order differences.
+// A position refers to its own Active, Passive or Disabled group (1-based).
+public sealed record ModDraftDifference(string ProjectId,ModMode? BeforeMode,
+    int? BeforePosition,ModMode? AfterMode,int? AfterPosition);
+
 // A reusable editor session: edits are ordered operations, not a dictionary
 // keyed by project ID. Repeating a change, moving a mod twice and undo/redo
 // therefore keep exactly the sequence the operator previewed.
@@ -66,6 +71,33 @@ public sealed class ModDraftSession
         foreach(var edit in _history.Take(_cursor))ApplyToCopy(copy,edit);
         return copy;
     }
+    public IReadOnlyList<ModDraftDifference> Differences()
+    {
+        static Dictionary<string,(ModMode Mode,int Position)> Index(ModSet set)
+        {
+            var result=new Dictionary<string,(ModMode Mode,int Position)>(StringComparer.Ordinal);
+            void Add(IReadOnlyList<string> ids,ModMode mode)
+            {
+                for(int i=0;i<ids.Count;i++)result.Add(ids[i],(mode,i+1));
+            }
+            Add(set.Active,ModMode.Active);
+            Add(set.Passive,ModMode.Passive);
+            Add(set.Disabled,ModMode.Disabled);
+            return result;
+        }
+        var before=Index(ModStateController.Read(CopyBaseline()));
+        var after=Index(ModStateController.Read(Projected()));
+        var ordered=before.Keys.Concat(after.Keys).Distinct(StringComparer.Ordinal).ToArray();
+        return ordered.Select(id=>{
+            var existed=before.TryGetValue(id,out var prior);
+            var present=after.TryGetValue(id,out var current);
+            return new ModDraftDifference(id,
+                existed?prior.Mode:null,existed?prior.Position:null,
+                present?current.Mode:null,present?current.Position:null);
+        }).Where(x=>x.BeforeMode!=x.AfterMode ||
+            x.BeforePosition!=x.AfterPosition).ToArray();
+    }
+
     public bool IsDirty
     {
         get
