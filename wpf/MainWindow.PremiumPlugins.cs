@@ -210,12 +210,11 @@ public partial class MainWindow
                     MessageBoxButton.YesNo,MessageBoxImage.Warning);
                 if(answer!=MessageBoxResult.Yes)return;
                 busy=true;enable.IsEnabled=false;disable.IsEnabled=false;
+                PluginToggleResult result;
                 try
                 {
                     // Recheck at execution time, never trust the stale UI badge.
-                    var result=PluginStateManager.ToggleLocalChecked(_cluster,map.Id,row.Name,enabling);
-                    // The success receipt is shown after Refresh (which updates
-                    // only disk observation); it must not be erased by a read-only refresh.
+                    result=PluginStateManager.ToggleLocalChecked(_cluster,map.Id,row.Name,enabling);
                 }
                 finally{busy=false;}
                 string keep=row.Name;
