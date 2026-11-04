@@ -198,6 +198,21 @@ public partial class MainWindow
             var x=_cluster.Check(map);
             Notice(x.Status);
         }));
+        startStop.Children.Add(Btn("Folyamatazonosság rögzítése",()=>{
+            try
+            {
+                var observed=_cluster.Check(map);
+                bool changed=_cluster.RecordObservedIdentity(map.Id,observed);
+                Notice(changed
+                    ? "Ellenőrzött folyamatazonosság rögzítve a helyi profilban."
+                    : "A folyamatazonosság változatlan; nem történt konfigurációírás.");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("process-identity-capture",ex);
+                Notice("Az azonosító rögzítése elutasítva. Ellenőrizd a folyamatot és a műveleti naplót.");
+            }
+        }));
         var stopUnavailable=Btn("Stop / Restart – mentésigazolás hiányzik",()=>{});
         stopUnavailable.IsEnabled=false;
         stopUnavailable.ToolTip="Az ASA mentés befejezését igazoló adapter még nincs validálva. RCON-válasz önmagában nem elég.";
