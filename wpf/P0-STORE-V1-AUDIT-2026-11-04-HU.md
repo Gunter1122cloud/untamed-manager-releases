@@ -20,7 +20,7 @@ A privát ZIP-ek és tartalmuk nem kerülnek commitba vagy CI-artifactba.
 | A Vault ZIP pontosan nyolc adatfájlt és rögzített Ryzen-könyvtárat fogadott. | Manifesttel lefedett, egy- vagy kéthostos másolat; hostazonosítás device ID alapján. |
 | A mappaolvasó csak operation/peer/device/lock adatokat nézett; hiányzó helyi Store mellett is egyezést jelzett. | Mindkét host négy helyi fájlja, ACTIVE mapok, root/map/session/backup összerendelés szükséges a teljes egyezéshez. |
 | A peer config és local lock teljes tagsága eltérhetett. | Teljes, sorrendtartó config-egyezés; helyi cluster config hashének ellenőrzése. |
-| A hostokon át ismételt mapazonosító vagy gyökér nem volt kizárva. | Tíz egyedi mapnév, profilazonosító és gyökér; kiválasztás és tagság összevetése. |
+| A hostokon át ismételt mapazonosító, illetve egy hoston ismételt gyökér nem volt kizárva. | Tíz egyedi mapnév/profilazonosító és hostonként egyedi gyökér; azonos útvonalszöveg két külön fizikai hoston megengedett. |
 | A pontos nyolcfájlos ZIP-séma miatt a koordinációs markerállapotok nem voltak érdemben jelenthetők. | running/cancelled/attempted/mutation.lock, fájl- és üres könyvtárzár felismerése. |
 | A fájl külön parse- és hash-olvasás között megváltozhatott; történeti profilolvasó újranyitotta a ZIP-et. | Írást/törlést kizáró, az ellenőrzés végéig tartott Windows fájlhandle; memóriabeli ZIP; handle-útvonal, reparse és hardlink ellenőrzés. |
 | JSON ismételt kulcs, ZIP útvonalalias és fájl/könyvtár ütközés nem volt egységesen tiltva. | Közös snapshot/manifest olvasó, korlátos bejegyzésolvasás, link- és ütközésellenőrzés. |
@@ -65,7 +65,7 @@ dotnet run --project wpf/Testing/StoreV1/StoreV1.csproj -c Release
 dotnet run --project wpf/Testing/StoreV1/StoreV1.csproj -c Release -- <Store-ZIP> <Manager-ZIP>
 ```
 
-Helyi eredmény: 82 új szintetikus állítás + 4 privát referenciaállítás sikeres;
+Helyi eredmény: 85 új szintetikus állítás + 4 privát referenciaállítás sikeres;
 ezen felül a két meglévő archívumteszt-csoport is lefutott.
 Az új teljes Windows build eredményét kizárólag a pontos commit CI-runja igazolja.
 A workflow codex ágakon is fut; release továbbra is csak a korábbi szigorú main/push

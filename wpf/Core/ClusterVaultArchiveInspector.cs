@@ -108,8 +108,8 @@ public static class ClusterVaultArchiveInspector
             foreach(var member in members)
             {
                 string id=Text(member,"id"),map=Text(member,"map"),root=Text(member,"root");
-                if(!Guid.TryParse(id,out _)||!memberIds.Add(id)||!allIds.Add(id)||
-                   !SafeMap(map)||!allMaps.Add(map)||!LocalRoot(root)||!allRoots.Add(NormalRoot(root)))
+                if(!Guid.TryParseExact(id,"D",out _)||!memberIds.Add(id)||!allIds.Add(id)||
+                   !SafeMap(map)||!allMaps.Add(map)||!LocalRoot(root)||!allRoots.Add(peerId+":"+NormalRoot(root)))
                     Issue(VaultFindingCode.MapAssignment,"Hiányos, ismételt vagy hibás map/azonosító/gyökér.");
                 names.Add(SafeMap(map)?map:"Ismeretlen map");
             }
@@ -215,10 +215,11 @@ public static class ClusterVaultArchiveInspector
     private static JsonElement Wrap(JsonElement e)=>JsonSerializer.SerializeToElement(new{value=e});
     private static bool SafeMap(string map)=>map.Length is >0 and <=48&&
         map.All(c=>char.IsAsciiLetterOrDigit(c)||c is '_' or '-' or '.' or ' ');
-    private static bool LocalRoot(string root)=>root.Length>=3&&char.IsAsciiLetter(root[0])&&
+    private static bool LocalRoot(string root)=>root.Length>3&&char.IsAsciiLetter(root[0])&&
         root[1]==':'&&(root[2]=='\\'||root[2]=='/')&&
-        !root.Replace('\\','/').Split('/').Any(s=>s is "." or "..")&&
-        !root.Skip(2).Any(c=>c<32||c==':');
+        !root[3..].Replace('\\','/').TrimEnd('/').Split('/').Any(s=>
+            s.Length==0||s is "." or ".."||s.EndsWith('.')||s.EndsWith(' '))&&
+        !root.Skip(2).Any(c=>c<32||c is ':' or '<' or '>' or '"' or '|' or '?' or '*');
     private static string NormalRoot(string root)=>root.Replace('/','\\').TrimEnd('\\');
 }
 

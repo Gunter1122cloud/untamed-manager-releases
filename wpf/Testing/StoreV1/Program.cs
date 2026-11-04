@@ -98,6 +98,28 @@ try
     Check(!full.ProductionUseAllowed,"historical success never grants production or writer rights");
     Check(before==Sha(File.ReadAllBytes(good)),"full inspection preserves original ZIP");
     string first=shared+peers[0]+".json",second=shared+peers[1]+".json";
+    var samePaths=new Dictionary<string,string>(original,StringComparer.OrdinalIgnoreCase);
+    var firstPeer=JsonNode.Parse(samePaths[first])!;
+    Edit(samePaths,second,n=>{
+        for(int i=0;i<5;i++)
+        {
+            var value=firstPeer["members"]![i]!["root"]!.DeepClone();
+            n["members"]![i]!["root"]=value.DeepClone();
+            n["config"]!["members"]![i]!["root"]=value.DeepClone();
+        }
+    });
+    Rehash(samePaths,second);
+    var updatedPeer=JsonNode.Parse(samePaths[second])!;
+    samePaths["HOST1/cluster-v1.json"]=updatedPeer["config"]!.ToJsonString(options);
+    Edit(samePaths,"HOST1/shared-store-lock-v1.json",n=>{
+        n["config"]=updatedPeer["config"]!.DeepClone();n["configHash"]=updatedPeer["configHash"]!.DeepClone();
+    });
+    Edit(samePaths,"HOST1/cluster-store-v1.json",n=>{
+        foreach(var m in updatedPeer["members"]!.AsArray())
+            n["maps"]![m!["id"]!.GetValue<string>()]!["root"]=m["root"]!.DeepClone();
+    });
+    Check(ClusterVaultArchiveInspector.Inspect(Archive(samePaths)).HistoricalConsistent,
+        "identical local path strings on different physical peers are valid");
     Negative("asymmetric one-host package",c=>{
         foreach(string k in c.Keys.Where(k=>k.StartsWith("HOST0/")).ToArray())c.Remove(k);
     },VaultFindingCode.MissingLocalHost);
@@ -113,6 +135,10 @@ try
     Negative("duplicate selected",c=>Edit(c,first,n=>n["selected"]![1]=n["selected"]![0]!.DeepClone()),VaultFindingCode.SelectedMaps);
     Negative("wrong map root",c=>Edit(c,"HOST0/cluster-store-v1.json",n=>
         n["maps"]!.AsObject().First().Value!["root"]=@"D:\other"),VaultFindingCode.LocalStore);
+    Negative("Windows root path alias",c=>{
+        Edit(c,first,n=>{n["members"]![0]!["root"]=@"D:\synthetic\alias.";
+            n["config"]!["members"]![0]!["root"]=@"D:\synthetic\alias.";});Rehash(c,first);
+    },VaultFindingCode.MapAssignment);
     Negative("wrong backup identity",c=>Edit(c,"HOST0/cluster-store-v1.json",n=>
         n["maps"]!.AsObject().First().Value!["backupId"]=Guid.NewGuid().ToString()),VaultFindingCode.BackupMismatch);
     Negative("missing peer backup",c=>Edit(c,first,n=>n.AsObject().Remove("backup")));
