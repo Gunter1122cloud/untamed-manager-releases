@@ -69,7 +69,7 @@ public partial class App : System.Windows.Application
         {
             Log(a.Exception);
             a.Handled=true;
-            System.Windows.MessageBox.Show("Hiba történt. Részletek a crash.log fájlban.\n"+a.Exception.Message,"Untamed Manager",MessageBoxButton.OK,MessageBoxImage.Warning);
+            System.Windows.MessageBox.Show(UntamedPresentation.UnexpectedFailure(a.Exception),"Untamed Manager",MessageBoxButton.OK,MessageBoxImage.Warning);
         };
         AppDomain.CurrentDomain.UnhandledException += (_,a) => { if(a.ExceptionObject is Exception x) Log(x); };
         TaskScheduler.UnobservedTaskException += (_,a) => { Log(a.Exception); a.SetObserved(); };
