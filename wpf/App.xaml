@@ -62,7 +62,7 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate>
-            <Border BorderBrush="#F5DC9D" BorderThickness="2" CornerRadius="11"
+            <Border BorderBrush="#5BC4B7" BorderThickness="2" CornerRadius="11"
                     Margin="1" SnapsToDevicePixels="True"/>
           </ControlTemplate>
         </Setter.Value>
@@ -70,7 +70,7 @@
     </Style>
     <Style TargetType="Button" x:Key="NavButton">
       <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="Foreground" Value="#B6CBC7"/>
+      <Setter Property="Foreground" Value="#A9BBBD"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FocusVisualStyle" Value="{StaticResource NavKeyboardFocus}"/>
@@ -97,16 +97,16 @@
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Surface" Property="Background" Value="#193735"/>
+                <Setter TargetName="Surface" Property="Background" Value="#243139"/>
                 <Setter Property="Foreground" Value="#F1FFFA"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Surface" Property="Background" Value="#275A4B"/>
+                <Setter TargetName="Surface" Property="Background" Value="#295248"/>
                 <Setter Property="Foreground" Value="White"/>
               </Trigger>
               <Trigger Property="local:NavSelection.IsCurrent" Value="True">
-                <Setter TargetName="Surface" Property="Background" Value="#164C41"/>
-                <Setter TargetName="Surface" Property="BorderBrush" Value="#428B78"/>
+                <Setter TargetName="Surface" Property="Background" Value="#24443C"/>
+                <Setter TargetName="Surface" Property="BorderBrush" Value="#346F60"/>
                 <Setter TargetName="SelectionRail" Property="Opacity" Value="1"/>
                 <Setter Property="Foreground" Value="#E9FFF6"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
@@ -116,8 +116,8 @@
                   <Condition Property="local:NavSelection.IsCurrent" Value="True"/>
                   <Condition Property="IsMouseOver" Value="True"/>
                 </MultiTrigger.Conditions>
-                <Setter TargetName="Surface" Property="Background" Value="#1E5A49"/>
-                <Setter TargetName="Surface" Property="BorderBrush" Value="#67C9A9"/>
+                <Setter TargetName="Surface" Property="Background" Value="#2B4C44"/>
+                <Setter TargetName="Surface" Property="BorderBrush" Value="#5BC4B7"/>
               </MultiTrigger>
               <Trigger Property="IsEnabled" Value="False">
                 <Setter TargetName="Surface" Property="Opacity" Value="0.38"/>
@@ -130,12 +130,12 @@
     </Style>
     <!-- Premium low-motion buttons: no focus jumps or scaling. -->
     <Style TargetType="Button" x:Key="ActionButton">
-      <Setter Property="Background" Value="#24393C"/>
+      <Setter Property="Background" Value="#233037"/>
       <Setter Property="Foreground" Value="#E7F7F3"/>
       <Setter Property="FontFamily" Value="Segoe UI"/>
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="BorderBrush" Value="#43676A"/>
+      <Setter Property="BorderBrush" Value="#334249"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Padding" Value="14,10"/>
       <Setter Property="MinHeight" Value="35"/>
@@ -153,13 +153,13 @@
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-              <Setter TargetName="Surface" Property="BorderBrush" Value="#66C6B2"/>
-              <Setter TargetName="Surface" Property="Background" Value="#2B4B4A"/>
+              <Setter TargetName="Surface" Property="BorderBrush" Value="#53756E"/>
+              <Setter TargetName="Surface" Property="Background" Value="#304149"/>
               <Setter Property="Foreground" Value="White"/>
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
-              <Setter TargetName="Surface" Property="Background" Value="#34675B"/>
-              <Setter TargetName="Surface" Property="BorderBrush" Value="#A0E8D2"/>
+              <Setter TargetName="Surface" Property="Background" Value="#2B5950"/>
+              <Setter TargetName="Surface" Property="BorderBrush" Value="#5BC4B7"/>
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter TargetName="Surface" Property="Opacity" Value="0.4"/>
@@ -170,40 +170,26 @@
       </Setter.Value></Setter>
     </Style>
     <Style TargetType="Button" x:Key="PrimaryAction" BasedOn="{StaticResource ActionButton}">
-      <Setter Property="Background" Value="#176A55"/><Setter Property="BorderBrush" Value="#6DD8B8"/>
+      <Setter Property="Background" Value="#23896D"/><Setter Property="BorderBrush" Value="#3E9F87"/>
     </Style>
     <Style TargetType="Button" x:Key="GoldAction" BasedOn="{StaticResource ActionButton}">
-      <Setter Property="Background" Value="#514229"/><Setter Property="BorderBrush" Value="#BDA16B"/>
+      <Setter Property="Background" Value="#3C372D"/><Setter Property="BorderBrush" Value="#947E55"/>
     </Style>
     <Style TargetType="Border" x:Key="Panel">
-      <Setter Property="Background" Value="#152025"/>
-      <Setter Property="BorderBrush" Value="#354C51"/>
+      <Setter Property="Background" Value="{StaticResource SurfacePanel}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource SurfaceLine}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="14"/>
-      <Setter Property="Padding" Value="17"/>
-      <Setter Property="Margin" Value="0,0,12,12"/>
+      <Setter Property="CornerRadius" Value="9"/>
+      <Setter Property="Padding" Value="14"/>
+      <Setter Property="Margin" Value="0,0,10,10"/>
     </Style>
-
     <Style TargetType="Border" x:Key="NeonStatPanel" BasedOn="{StaticResource Panel}">
-      <Setter Property="Background">
-        <Setter.Value>
-          <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#1A2B2F" Offset="0"/>
-            <GradientStop Color="#101B20" Offset="1"/>
-          </LinearGradientBrush>
-        </Setter.Value>
-      </Setter>
-      <Setter Property="BorderBrush" Value="#355F61"/>
-      <Setter Property="Effect">
-        <Setter.Value><DropShadowEffect Color="#00E8C2" BlurRadius="12" ShadowDepth="0" Opacity="0.08"/></Setter.Value>
-      </Setter>
+      <Setter Property="Background" Value="{StaticResource SurfacePanel}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource SurfaceLine}"/>
     </Style>
     <Style TargetType="Border" x:Key="AmberStatPanel" BasedOn="{StaticResource NeonStatPanel}">
-      <Setter Property="BorderBrush" Value="#C28A38"/>
-      <Setter Property="Effect">
-        <Setter.Value><DropShadowEffect Color="#FFB33C" BlurRadius="16" ShadowDepth="0" Opacity="0.16"/></Setter.Value>
-      </Setter>
+      <Setter Property="BorderBrush" Value="#63523A"/>
     </Style>
-      </ResourceDictionary>
+  </ResourceDictionary>
   </Application.Resources>
 </Application>
