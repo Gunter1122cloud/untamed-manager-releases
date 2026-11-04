@@ -14,6 +14,18 @@ namespace UntamedManager;
 // Full cluster SQL/ASA/Store recovery remains deliberately uncertified.
 public partial class MainWindow
 {
+    public void PrepareScreenshotPage(string page)
+    {
+        // Only rendered application pages, never a fabricated design preview.
+        if(!new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","ini"}
+            .Contains(page,StringComparer.Ordinal))
+            throw new ArgumentOutOfRangeException(nameof(page),"Unknown screenshot page");
+        Navigate(page);
+        UpdateLayout();
+        if(page!="dashboard" && string.IsNullOrWhiteSpace(PageTitle.Text))
+            throw new InvalidOperationException("Page did not render a title: "+page);
+    }
+
     public void VerifyCompleteManagerCiSmoke()
     {
         if(VersionBadge.Text!="WPF "+UiVersion)

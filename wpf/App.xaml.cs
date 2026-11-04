@@ -96,18 +96,34 @@ public partial class App : System.Windows.Application
                 const int width=1650, height=930;
                 var window=new MainWindow {Width=width,Height=height};
                 window.Show();
-                if (window.Content is not FrameworkElement content) throw new InvalidOperationException("WPF root missing");
-                content.Width=width; content.Height=height;
-                content.Measure(new Size(width,height));
-                content.Arrange(new Rect(0,0,width,height));
-                content.UpdateLayout();
-                window.Dispatcher.Invoke(() => { },DispatcherPriority.Render);
-                var bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
-                bitmap.Render(content);
-                var png=new PngBitmapEncoder();
-                png.Frames.Add(BitmapFrame.Create(bitmap));
-                string path=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_PATH") ?? Path.Combine(LogDir,"preview.png");
-                using (var output=File.Create(path)) png.Save(output);
+                if (window.Content is not FrameworkElement content)
+                    throw new InvalidOperationException("WPF root missing");
+                string first=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_PATH") ??
+                    Path.Combine(LogDir,"preview.png");
+                string gallery=Path.Combine(Path.GetDirectoryName(first)??LogDir,"UI-Screenshots");
+                bool galleryEnabled=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_GALLERY")=="1";
+                var pages=galleryEnabled
+                    ? new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","ini"}
+                    : new[]{"dashboard"};
+                if(galleryEnabled)Directory.CreateDirectory(gallery);
+                foreach(string page in pages)
+                {
+                    window.PrepareScreenshotPage(page);
+                    content.Width=width;content.Height=height;
+                    content.Measure(new Size(width,height));
+                    content.Arrange(new Rect(0,0,width,height));
+                    content.UpdateLayout();
+                    window.Dispatcher.Invoke(() => { },DispatcherPriority.Render);
+                    var bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
+                    bitmap.Render(content);
+                    var png=new PngBitmapEncoder();
+                    png.Frames.Add(BitmapFrame.Create(bitmap));
+                    string path=page=="dashboard"?first:
+                        Path.Combine(gallery,"UntamedManager-"+page+".png");
+                    using(var output=File.Create(path))png.Save(output);
+                    if(new FileInfo(path).Length<8000)
+                        throw new IOException("WPF page screenshot too small: "+page);
+                }
                 Environment.Exit(0);
             }
             catch(Exception ex) { Log(ex); Environment.Exit(1); }
