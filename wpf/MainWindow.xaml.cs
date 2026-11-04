@@ -161,6 +161,10 @@ public partial class MainWindow : Window
             Dashboard.ScrollToVerticalOffset(0);
         }), System.Windows.Threading.DispatcherPriority.ContextIdle);
         if(_animationsEnabled) try { AnimateBackground(); } catch(Exception ex) { WriteLog("animation",ex); }
+        // Dismiss only after the actual WPF window has loaded and rendered.
+        Dispatcher.BeginInvoke(new Action(() => {
+            if(System.Windows.Application.Current is App app)app.NotifyMainUiReady(this);
+        }), System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
     private void AnimateBackground()
     {
