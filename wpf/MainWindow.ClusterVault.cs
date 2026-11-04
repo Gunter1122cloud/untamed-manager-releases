@@ -31,6 +31,37 @@ public partial class MainWindow
             "\n"+string.Join("\n",result.Findings.Select(f=>f.Code+": "+f.Message))+
             "\nÉLES HASZNÁLAT / ÍRÓJOG: TILTVA. Nem élő állapot, nem karaktertranszfer-bizonyíték.";
     }
+    private void ShowStoreAliasProof()
+    {
+        var first=new TextBox{Height=34,Background=Panel,Foreground=Brushes.White};
+        var second=new TextBox{Height=34,Background=Panel,Foreground=Brushes.White};
+        var status=Label("Két helyi/UNC Store-mappa azonosítására használható; semmit nem ír vagy konvertál.",12,Soft);
+        Button? check=null;
+        check=Btn("UNC mappaazonosság vizsgálata (csak olvasás)",async()=>{
+            if(check!=null)check.IsEnabled=false;
+            try
+            {
+                var decision=await Task.Run(()=>
+                    StorePathIdentity.CompareDirectories(first.Text.Trim(),second.Text.Trim()));
+                status.Text=decision.Reason+
+                    (decision.AliasEvidence?
+                        "\\nWindows fájlrendszer-azonosság igazolt. A Store session/hash és writer ownership még külön bizonyítandó.":
+                        "\\nKétgépes Store-írás ettől nem engedélyezhető.");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("store-path-identity",ex);
+                status.Text="Az UNC-azonosság nem igazolható. Store írás tiltva.";
+            }
+            finally{if(check!=null)check.IsEnabled=true;}
+        });
+        Add(Box(V(Label("HP / Ryzen · Store UNC aliasazonosság",19,Mint,true),
+            Label("A történeti Store-v1 azonosítókat, hash-eket és sessionadatokat nem módosítja.",12,Soft),
+            Label("1. ellenőrizendő Store-mappa",12,Aqua),first,
+            Label("2. ellenőrizendő Store-mappa",12,Aqua),second,
+            check,status)));
+    }
+
     private void ShowClusterVaultArchiveCenter()
     {
         var zip=new TextBox{Height=34,IsReadOnly=true,
