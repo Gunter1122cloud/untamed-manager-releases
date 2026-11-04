@@ -22,10 +22,13 @@ public static class HistoricalLaunchProfileReader
 {
     public static HistoricalLaunchBundle Inspect(string copiedZip)
     {
+        using var snapshot=new VaultReadSnapshot();
+        byte[] bytes=snapshot.Read(copiedZip,50_000_000);
         var verified=UntamedManagerArchiveInspector.Inspect(copiedZip);
         if(verified.VerifiedFiles!=39)
             throw new InvalidDataException("Historical Manager archive is incomplete");
-        using var zip=ZipFile.OpenRead(copiedZip);
+        using var source=new MemoryStream(bytes,false);
+        using var zip=new ZipArchive(source,ZipArchiveMode.Read);
         using var launch=Read(zip,"Kova/launch-profiles-v1.json");
         using var world=Read(zip,"Kova/cluster-store-v1.json");
         using var cluster=Read(zip,"Kova/cluster-v1.json");
@@ -118,3 +121,4 @@ public static class HistoricalLaunchProfileReader
         return result;
     }
 }
+

@@ -176,6 +176,7 @@ public static class ProfessionalOperationsTests
         string ryzenHash=StoreV1Fingerprint.Compute(ryzenConfigDoc.RootElement);
         var selectedHp=hpMembers.Select(x=>x.id).ToArray();
         var selectedRyzen=ryzenMembers.Select(x=>x.id).ToArray();
+        string backupHp=Guid.NewGuid().ToString(),backupRyzen=Guid.NewGuid().ToString();
         File.WriteAllText(Path.Combine(storeShared,"operation.json"),
             JsonSerializer.Serialize(new{
                 schema=1,session=sessionId.ToString(),cluster="KovaCluster",
@@ -184,12 +185,13 @@ public static class ProfessionalOperationsTests
         File.WriteAllText(Path.Combine(storeShared,deviceHp+".json"),
             JsonSerializer.Serialize(new{
                 session=sessionId.ToString(),id=deviceHp.ToString(),phase="done",
-                config=configHp,configHash=hpHash,members=hpMembers,selected=selectedHp}));
+                config=configHp,configHash=hpHash,members=hpMembers,selected=selectedHp,
+                backup=new{id=backupHp}}));
         File.WriteAllText(Path.Combine(storeShared,deviceRyzen+".json"),
             JsonSerializer.Serialize(new{
                 session=sessionId.ToString(),id=deviceRyzen.ToString(),phase="done",
                 config=configRyzen,configHash=ryzenHash,
-                members=ryzenMembers,selected=selectedRyzen}));
+                members=ryzenMembers,selected=selectedRyzen,backup=new{id=backupRyzen}}));
         File.WriteAllText(Path.Combine(storeHp,"shared-store-device-v1.json"),
             JsonSerializer.Serialize(new{schema=1,id=deviceHp.ToString()}));
         File.WriteAllText(Path.Combine(storeRyzen,"shared-store-device-v1.json"),
@@ -200,6 +202,16 @@ public static class ProfessionalOperationsTests
         File.WriteAllText(Path.Combine(storeRyzen,"shared-store-lock-v1.json"),
             JsonSerializer.Serialize(new{schema=1,session=sessionId.ToString(),
                 config=configRyzen,configHash=ryzenHash,selected=selectedRyzen}));
+        File.WriteAllText(Path.Combine(storeShared,"attempted.json"),
+            JsonSerializer.Serialize(new{session=sessionId.ToString()}));
+        File.WriteAllText(Path.Combine(storeHp,"cluster-v1.json"),JsonSerializer.Serialize(configHp));
+        File.WriteAllText(Path.Combine(storeRyzen,"cluster-v1.json"),JsonSerializer.Serialize(configRyzen));
+        File.WriteAllText(Path.Combine(storeHp,"cluster-store-v1.json"),JsonSerializer.Serialize(new{
+            schema=1,maps=hpMembers.ToDictionary(m=>m.id,m=>new{
+                m.root,m.map,phase="active",backupId=backupHp,sharedSession=sessionId.ToString()})}));
+        File.WriteAllText(Path.Combine(storeRyzen,"cluster-store-v1.json"),JsonSerializer.Serialize(new{
+            schema=1,maps=ryzenMembers.ToDictionary(m=>m.id,m=>new{
+                m.root,m.map,phase="active",backupId=backupRyzen,sharedSession=sessionId.ToString()})}));
         string opBefore=File.ReadAllText(Path.Combine(storeShared,"operation.json"));
         var liveContractCopy=KovaStoreV1CopyReader.Inspect(
             storeShared,storeHp,storeRyzen);
@@ -209,7 +221,7 @@ public static class ProfessionalOperationsTests
             File.ReadAllText(Path.Combine(storeShared,"operation.json"))==opBefore,
             "authentic shared-store-v1 copied operation+2 peers+local locks pass read-only checks");
         Check(liveContractCopy.Warning.Contains("NOT proven") &&
-            liveContractCopy.InspectedSha256.Length==7,
+            liveContractCopy.InspectedSha256.Length==12,
             "real Kova contract copied file checksums never certify production compatibility");
         Directory.CreateDirectory(Path.Combine(storeShared,"mutation.lock"));
         Check(!KovaStoreV1CopyReader.Inspect(
@@ -284,3 +296,4 @@ public static class ProfessionalOperationsTests
         Check(forgedAssetBlocked,"ASA API release parser rejects third-party asset URLs");
     }
 }
+

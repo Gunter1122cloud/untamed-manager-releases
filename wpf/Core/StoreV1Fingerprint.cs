@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -39,7 +40,11 @@ public static class StoreV1Fingerprint
                 sb.Append('{');
                 bool first=true;
                 var seen=new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
-                foreach(var property in value.EnumerateObject())
+                // ECMAScript enumerates array-index object keys numerically
+                // before other keys. Ordinary string keys retain insertion order.
+                foreach(var property in value.EnumerateObject()
+                    .OrderBy(p=>IndexKey(p.Name)?0:1)
+                    .ThenBy(p=>IndexKey(p.Name)?uint.Parse(p.Name,CultureInfo.InvariantCulture):0))
                 {
                     if(!seen.Add(property.Name))
                         throw new InvalidDataException("Duplicate Store config property");
@@ -76,6 +81,10 @@ public static class StoreV1Fingerprint
         }
     }
 
+    private static bool IndexKey(string key)=>uint.TryParse(key,NumberStyles.None,
+        CultureInfo.InvariantCulture,out uint index)&&index<uint.MaxValue&&
+        index.ToString(CultureInfo.InvariantCulture)==key;
+
     private static void Quote(string text,StringBuilder sb)
     {
         sb.Append('"');
@@ -99,3 +108,4 @@ public static class StoreV1Fingerprint
         sb.Append('"');
     }
 }
+

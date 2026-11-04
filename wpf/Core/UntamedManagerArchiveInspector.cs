@@ -32,67 +32,14 @@ public static class UntamedManagerArchiveInspector
 
     public static UntamedManagerArchiveReport Inspect(string filename)
     {
-        if(string.IsNullOrWhiteSpace(filename)||
-           !Path.IsPathFullyQualified(filename) ||filename.StartsWith(@"\\")||
-           !filename.EndsWith(".zip",StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Untamed Manager: helyi, másolt ZIP szükséges");
-        string full=Path.GetFullPath(filename);
-        if(new DriveInfo(Path.GetPathRoot(full)!).DriveType!=DriveType.Fixed)
-            throw new InvalidDataException("Csak helyi meghajtó használható");
-        for(var node=new DirectoryInfo(Path.GetDirectoryName(full)!);node!=null;node=node.Parent)
-            if(node.Exists&&(node.Attributes&FileAttributes.ReparsePoint)!=0)
-                throw new InvalidDataException("Hivatkozott könyvtárból nem olvasunk");
-        var file=new FileInfo(full);
-        if(!file.Exists||file.Length is < 100 or > 50_000_000||
-           (file.Attributes&FileAttributes.ReparsePoint)!=0)
-            throw new InvalidDataException("Hiányzó vagy túl nagy archívum");
-        byte[] bytes=File.ReadAllBytes(full);
-        string sourceSha=Convert.ToHexString(SHA256.HashData(bytes));
-        using var source=new MemoryStream(bytes,writable:false);
-        using var archive=new ZipArchive(source,ZipArchiveMode.Read);
-        if(archive.Entries.Count is < 12 or > 128)
-            throw new InvalidDataException("Ismeretlen vagy túl sok archívumbejegyzés");
-        var entries=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
-        long total=0;
-        foreach(var entry in archive.Entries)
-        {
-            string key=entry.FullName.Replace('\\','/');
-            if(key.StartsWith('/') ||key.EndsWith('/')||key.Contains(':')||
-               key.Contains("//",StringComparison.Ordinal) ||
-               key.Split('/').Any(x=>x is "" or "." or "..")||
-               entry.Length is < 1 or > 10_000_000 ||
-               entry.CompressedLength==0 ||
-               entry.Length>entry.CompressedLength*1000||
-               ((entry.ExternalAttributes>>16)&0xF000)==0xA000)
-                throw new InvalidDataException("Hibás vagy nem biztonságos ZIP-bejegyzés");
-            total=checked(total+entry.Length);
-            if(total>35_000_000)
-                throw new InvalidDataException("Archívum kitömörített mérete túl nagy");
-            using var stream=entry.Open();
-            using var buffer=new MemoryStream();
-            stream.CopyTo(buffer);
-            if(buffer.Length!=entry.Length||!entries.TryAdd(key,buffer.ToArray()))
-                throw new InvalidDataException("Ismétlődő vagy csonka archívumbejegyzés");
-        }
-        using var manifest=Json(entries,"manifest.json");
-        if(manifest.RootElement.ValueKind!=JsonValueKind.Array)
-            throw new InvalidDataException("Hiányzó ellenőrző manifest");
-        var records=manifest.RootElement.EnumerateArray().ToArray();
-        if(records.Length!=entries.Count-2 ||
-           !entries.ContainsKey("README.txt"))
-            throw new InvalidDataException("Nem teljes ellenőrzési fájlleltár");
-        var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach(var row in records)
-        {
-            string name=Str(row,"Path").Replace('\\','/');
-            string digest=Str(row,"SHA256");
-            if(name.Length==0 ||name is "manifest.json" or "README.txt"||
-               !seen.Add(name)||!entries.TryGetValue(name,out var data)||
-               Int64(row,"Bytes")!=data.Length||
-               digest.Length!=64||digest.Any(x=>!Uri.IsHexDigit(x))||
-               !digest.Equals(Sha(data),StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Manifest SHA-256 vagy fájlméret eltérés");
-        }
+        using var snapshot=new VaultReadSnapshot();
+        if(string.IsNullOrWhiteSpace(filename)||!filename.EndsWith(".zip",StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("VAULT_INPUT: helyi ZIP-másolat szükséges");
+        byte[] bytes=snapshot.Read(filename,50_000_000);
+        string sourceSha=Sha(bytes);
+        var entries=VaultReadSnapshot.Archive(bytes,"README.txt");
+        int verifiedFiles=entries.Count(x=>x.Value.Length>0)-2;
+        var vault=ClusterVaultArchiveInspector.InspectFiles(entries);
 
         using var config=Json(entries,Legacy+"cluster-v1.json");
         using var current=Json(entries,Legacy+"cluster-store-v1.json");
@@ -285,17 +232,16 @@ public static class UntamedManagerArchiveInspector
             StringComparison.OrdinalIgnoreCase)))
             failures.Add("A futó alkalmazásból másolt LevelDB nem konzisztens restore-csomag");
         failures.Add("Nincsenek világ-, karakter-, tribe-, plugin- vagy SQL-mentések a csomagban");
-        if(!Sha(File.ReadAllBytes(full)).Equals(sourceSha,StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Az eredeti archívum megváltozott ellenőrzés közben");
         // Only map labels go into the WPF report; original roots, IDs, PIDs,
         // Discord secrets, schedules' messages and DB settings stay private.
         var safeMaps=names.Select(x=>x.Length>48||
              x.Any(c=>!(char.IsAsciiLetterOrDigit(c)||c==' '||c=='_'||c=='-'||c=='.'))?
              "Ismeretlen map":x).ToArray();
-        return new(records.Length,localMembers.Length,names.Count,peerIds.Length,
+        return new(verifiedFiles,localMembers.Length,names.Count,peerIds.Length,
             taskCount,skipped,syncError,auto,watchdog,pending,missingServer,
             backups.Length,botDisabled,controlsConfigured,sensitive,
-            sessions&&phases,hashes,safeMaps,failures.ToArray(),
+            vault.SessionConsistent&&sessions&&phases,vault.ConfigHashesVerified&&hashes,safeMaps,
+            failures.Concat(vault.Findings.Select(f=>f.Code+": "+f.Message)).Distinct().ToArray(),
             sourceSha,false);
     }
 
@@ -330,3 +276,4 @@ public static class UntamedManagerArchiveInspector
         obj.ValueKind==JsonValueKind.Object&&obj.TryGetProperty(name,out var value)&&
         value.ValueKind==JsonValueKind.Number&&value.TryGetInt64(out var n)&&n>0;
 }
+

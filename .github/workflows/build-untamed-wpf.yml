@@ -1,11 +1,16 @@
 name: Untamed Manager WPF Windows Build
 on:
   push:
-    branches: [main, 'feature/store-lifecycle-evidence-parity-20261103']
+    branches: [main, 'feature/store-lifecycle-evidence-parity-20261103', 'codex/**']
     paths:
       - 'wpf/**'
       - '.github/workflows/build-untamed-wpf.yml'
   workflow_dispatch:
+  pull_request:
+    branches: ['feature/store-lifecycle-evidence-parity-20261103']
+    paths:
+      - 'wpf/**'
+      - '.github/workflows/build-untamed-wpf.yml'
 concurrency:
   group: untamed-wpf-${{ github.ref }}
   cancel-in-progress: true
@@ -58,6 +63,11 @@ jobs:
           if (!(Test-Path "dist/UntamedManager.exe")) { throw "EXE not produced" }
           Get-Item "dist/UntamedManager.exe" | Select-Object Name,Length
           Get-FileHash "dist/UntamedManager.exe" -Algorithm SHA256
+      - name: Read-only Store-v1 metadata regressions (synthetic inputs only)
+        shell: pwsh
+        run: |
+          dotnet run --project wpf/Testing/StoreV1/StoreV1.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Store-v1 read-only regressions failed" }
       - name: Build independent Windows updater
         shell: pwsh
         run: |
@@ -188,3 +198,4 @@ jobs:
             gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1.exe" "dist/UntamedManager-1.6.1-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-SETUP.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager v1.6.1 - Professional Operations TEST preview" --prerelease --notes-file wpf/RELEASE-1.6.1.md --repo "$env:GITHUB_REPOSITORY"
           }
           if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
+

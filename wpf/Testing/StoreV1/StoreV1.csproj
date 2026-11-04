@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Core/StoreV1Fingerprint.cs" Link="Core/StoreV1Fingerprint.cs" />
+    <Compile Include="../../Core/VaultReadSnapshot.cs" Link="Core/VaultReadSnapshot.cs" />
+    <Compile Include="../../Core/ClusterVaultArchiveInspector.cs" Link="Core/ClusterVaultArchiveInspector.cs" />
+    <Compile Include="../../Core/KovaStoreV1CopyReader.cs" Link="Core/KovaStoreV1CopyReader.cs" />
+    <Compile Include="../../Core/UntamedManagerArchiveInspector.cs" Link="Core/UntamedManagerArchiveInspector.cs" />
+    <Compile Include="../../Core/HistoricalLaunchProfileReader.cs" Link="Core/HistoricalLaunchProfileReader.cs" />
+    <Compile Include="../Integration/ClusterVaultTests.cs" Link="Existing/ClusterVaultTests.cs" />
+    <Compile Include="../Integration/ManagerMigrationArchiveTests.cs" Link="Existing/ManagerMigrationArchiveTests.cs" />
+  </ItemGroup>
+</Project>

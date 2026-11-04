@@ -39,21 +39,13 @@ public partial class MainWindow
                 {
                     var x=KovaStoreV1CopyReader.Inspect(
                         share.Text.Trim(),hp.Text.Trim(),ryzen.Text.Trim());
-                    result.Text=(x.HistoricalConsistent?
-                        "KIMÁSOLT STORE-V1 METAADATAI EGYEZNEK":
-                        "KOORDINÁCIÓS ELLENTMONDÁS – ÁTVÉTEL TILTVA")+
-                        "\nSession: "+x.Session+
-                        "\nMapok: "+string.Join(", ",x.MapNames)+
-                        "\nPeer azonosítók: "+string.Join(" / ",x.DeviceIds)+
-                        "\n"+string.Join("\n",x.Problems)+
-                        "\n"+x.Warning+
-                        "\nÉles ASA Start/Stop, migráció, Store-írás továbbra is TILTVA.";
+                    result.Text=x.Report==null?"Hiányzó ellenőrzési jelentés.":FormatVaultReport(x.Report);
                 }
-                catch(Exception ex)
+                catch(Exception)
                 {
-                    result.Text="Store-v1 olvasó elutasítva: "+ex.Message;
-                    WriteLog("vault-coordination-copy",ex);
+                    result.Text="VAULT_INPUT: a másolat hiányos, hibás, változó vagy nem biztonságos. Éles használat tiltva.";
                 }
             }),result)));
     }
 }
+

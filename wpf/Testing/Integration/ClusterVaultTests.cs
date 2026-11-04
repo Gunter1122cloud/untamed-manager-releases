@@ -114,7 +114,7 @@ public static class ClusterVaultTests
         missing.Remove("SHARED/.kova-store-v1/attempted.json");
         string missingZip=CreateArchive("missing.json.zip",missing);
         bool missingRefused=false;
-        try{ClusterVaultArchiveInspector.Inspect(missingZip);}
+        try{missingRefused=!ClusterVaultArchiveInspector.Inspect(missingZip).SessionConsistent;}
         catch(InvalidDataException){missingRefused=true;}
         Assert(missingRefused,"Incomplete Vault ZIP is rejected");
         var malicious=new Dictionary<string,string>(items);
@@ -136,3 +136,4 @@ public static class ClusterVaultTests
             "Peer hash mismatch is reported and not considered transfer-compatible");
     }
 }
+
