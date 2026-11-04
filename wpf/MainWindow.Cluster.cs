@@ -15,6 +15,8 @@ using WinMessageBox = System.Windows.MessageBox;
 
 namespace UntamedManager;
 
+internal sealed record PremiumLocalServerRow(LocalMap Map,string Name,string State,string Detail);
+
 public partial class MainWindow
 {
     private readonly ClusterService _cluster = new(App.ProfileName,App.ProfileRootOverride);
@@ -260,38 +262,84 @@ public partial class MainWindow
 
     private void ShowLocalServerPage()
     {
-        Header("Szerverek · csak ez a Windows gép",
-            "A távoli szerverek itt nem kezelhetők. A felvett mapok a helyi profilban tárolódnak; "+
-            "nincs automatikus mapkeresés vagy importálás.");
-        Add(Box(V(Label($"Gép: {_cluster.Config.LocalHostName} · Profil: {App.ProfileName}",18,Mint,true),
-            Label($"{_cluster.Config.LocalMaps.Count} helyi map · A Manager bezárása/frissítése soha nem állítja le a futó szervereket.",12,Soft),
-            Btn("+ Map manuális hozzáadása",()=>ShowMapEditor(null)))));
-        if(_cluster.Config.LocalMaps.Count==0)
+        Header("Szerverek","Helyi ASA mapok · aktuálisan megfigyelt folyamatazonosság és maponkénti kezelés.");
+        var rows=new List<PremiumLocalServerRow>();
+        foreach(var map in _cluster.Config.LocalMaps)
         {
-            Add(Box(Label("Nincs helyi map hozzáadva. Az első mapot a fenti gombbal regisztrálhatod.",15,Soft)));
+            string state;
+            try
+            {
+                var check=_cluster.Check(map);
+                state=check.Running&&check.Identity!=null?
+                    "Igazolt futó":check.ConfirmedStopped?"Leállítva":"Nem igazolt";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("server-list-observation",ex);
+                state="Állapot ismeretlen";
+            }
+            rows.Add(new PremiumLocalServerRow(map,map.Name,state,
+                "Helyi konfiguráció · "+_cluster.Config.LocalHostName));
+        }
+        var count=Label(rows.Count+" helyi map · "+_cluster.Config.LocalHostName+
+            " · "+App.ProfileName+" profil",12,Soft);
+        var toolbar=new WrapPanel{Margin=new Thickness(0,2,0,4)};
+        toolbar.Children.Add(Btn("+ Map hozzáadása",()=>ShowMapEditor(null)));
+        toolbar.Children.Add(Btn("Cluster nézet",()=>Navigate("cluster")));
+        var header=Box(V(Label("Helyi szerverek",19,Mint,true),
+            count,
+            Label("A távoli mapok itt csak megfigyelhetők a Cluster nézetben. Az ismeretlen állapot nem számít leállítottnak.",12,Soft),
+            toolbar));
+        Add(header);
+        if(rows.Count==0)
+        {
+            Add(Box(V(Label("Még nincs regisztrált map",17,Mint,true),
+                Label("Az első mapot manuálisan add hozzá. A program nem importál vagy indít automatikusan szervereket.",12,Soft))));
             return;
         }
-        var layout=new Grid();
-        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(245)});
-        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
-        var list=new ListBox { ItemsSource=_cluster.Config.LocalMaps, DisplayMemberPath="Name",
-            Foreground=Brushes.White, Background=Panel, BorderBrush=Aqua,
-            FontSize=15,Padding=new Thickness(8),MinHeight=425,Margin=new Thickness(0,0,15,0)};
+        var search=new TextBox {Width=208,Height=36,
+            ToolTip="Keresés a regisztrált mapok nevére"};
+        var list=new ListBox {
+            MinHeight=430,MaxHeight=700,Margin=new Thickness(0,8,0,0),
+            ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumServerRow")
+        };
+        var sidebar=Box(V(Label("Maplista",17,Mint,true),search,list));
         var details=new StackPanel();
-        Grid.SetColumn(details,1);
-        layout.Children.Add(list);layout.Children.Add(details);
+        var detailSurface=Box(details);
+        var layout=new Grid {Margin=new Thickness(0,1,0,8)};
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(265)});
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        Grid.SetColumn(sidebar,0);Grid.SetColumn(detailSurface,1);
+        layout.Children.Add(sidebar);layout.Children.Add(detailSurface);
+        void Filter()
+        {
+            string id=(list.SelectedItem as PremiumLocalServerRow)?.Map.Id.ToString("N")
+                ??_selected?.Id.ToString("N")??"";
+            var term=search.Text.Trim();
+            var visible=rows.Where(x=>term.Length==0||
+                x.Name.Contains(term,StringComparison.OrdinalIgnoreCase)).ToArray();
+            list.ItemsSource=visible;
+            list.SelectedItem=visible.FirstOrDefault(x=>x.Map.Id.ToString("N")==id)
+                ??visible.FirstOrDefault();
+        }
         list.SelectionChanged+=(_,_)=>{
             details.Children.Clear();
-            if(list.SelectedItem is LocalMap map) DisplayLocalMapDetails(details,map);
+            if(list.SelectedItem is PremiumLocalServerRow selected)
+            {
+                _selected=_maps.FirstOrDefault(x=>x.Name.Equals(selected.Name,StringComparison.OrdinalIgnoreCase))
+                    ??new MapInfo{Id=selected.Map.Id,Name=selected.Name};
+                DisplayLocalMapDetails(details,selected.Map);
+            }
+            else details.Children.Add(Label("A maplista szűrője nem adott találatot.",13,Soft));
         };
-        list.SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(x=>x.Id==_selected?.Id)
-                         ?? _cluster.Config.LocalMaps.First();
+        search.TextChanged+=(_,_)=>Filter();
         Add(layout);
+        Filter();
     }
     private void DisplayLocalMapDetails(StackPanel parent,LocalMap map)
     {
         var result=_cluster.Check(map);
-        parent.Children.Add(Label(map.Name,25,Brushes.White,true));
+        parent.Children.Add(Label(map.Name,22,Mint,true));
         parent.Children.Add(Label(result.Status,14,result.Running?Mint:Soft));
         // Wrap long actions instead of clipping them on 1366px / high-DPI desktops.
         var controls=new WrapPanel{Margin=new Thickness(0,0,0,10)};
@@ -301,8 +349,19 @@ public partial class MainWindow
                 "Map eltávolítása",MessageBoxButton.YesNo,MessageBoxImage.Question)==MessageBoxResult.Yes)
             { _cluster.RemoveMap(map.Id);RefreshDashboardMapCards();ShowLocalServerPage(); }
         }));
+        var quick=new WrapPanel{Margin=new Thickness(0,1,0,9)};
+        quick.Children.Add(Btn("Mod Center",()=>{
+            _preferredModMapId=map.Id;Navigate("mods");
+        }));
+        quick.Children.Add(Btn("Plugin Center",()=>{
+            _preferredPluginMapId=map.Id;Navigate("plugins");
+        }));
+        quick.Children.Add(Btn("Mentések",()=>{
+            Navigate("backups");
+        }));
+        parent.Children.Add(quick);
         parent.Children.Add(controls);
-        var tabs=new TabControl { Margin=new Thickness(0,14,0,0),MinHeight=380,
+        var tabs=new TabControl { Margin=new Thickness(0,8,0,0),MinHeight=380,
             Background=Panel,Foreground=Brushes.White,BorderBrush=Aqua };
         void Tab(string title,UIElement body)
         {
