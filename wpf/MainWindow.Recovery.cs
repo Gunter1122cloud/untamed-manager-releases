@@ -68,6 +68,30 @@ public partial class MainWindow
             Label("Helyi mapok – felügyelet csak olvasásra",18,Mint,true),
             maps,Btn("Állapot újraellenőrzése (Supervisor)",()=>{
                 Refresh();
+            }),
+            Btn("Watchdog bizonyíték tartós rögzítése (csak megfigyelés)",()=>{
+                var selected=SelectedLocal();
+                if(selected==null){state.Text="Előbb válassz helyi, regisztrált mapot.";return;}
+                try
+                {
+                    var observation=_cluster.Check(selected);
+                    var watchdog=new DurableWatchdogTracker(_cluster.Store.Root);
+                    var result=watchdog.Observe(selected.Id,observation,
+                        RconSignal.NotConfigured,selected.Maintenance,
+                        DateTimeOffset.UtcNow);
+                    state.Text=selected.Name+" · Watchdog napló rögzítve\n"+
+                        "Folyamatellenőrzési hibák: "+result.ConsecutiveProcessFailures+
+                        "\nFigyelmeztetés: "+(result.Attention?
+                            "OPERÁTORI VIZSGÁLAT SZÜKSÉGES":"nem igazolt ismétlődő probléma")+
+                        "\nÁllapot: "+result.Reason+
+                        "\nRCON külön nem vizsgált; SaveWorld, Kill, Start és Restart nem történt.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("recovery-durable-watchdog",ex);
+                    state.Text="UM-WATCHDOG: a tartós állapot rögzítése nem ellenőrizhető. "+
+                        "Szerverművelet nem történt.";
+                }
             }),state,
             Btn("Helyreállítási előnézet (művelet nélkül)",()=>{
                 Refresh();
