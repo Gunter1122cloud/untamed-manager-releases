@@ -25,6 +25,22 @@ public static class OperationSafetyTests
         Check(a.Observe(resource)!.Phase==UntamedOperationPhase.Completed,"lease spans await/thread transition");
         using(a.Acquire(resource,UntamedOperationKind.Configuration)){}
         Check(a.Observe(resource)!.Phase==UntamedOperationPhase.CancelledBeforeMutation,"unused prepared lease cancels without mutation");
+        string batchRoot=Path.Combine(root,"batch-journals");
+        var batchCoordinator=new UntamedOperationCoordinator(batchRoot);
+        string batchOne=Path.Combine(root,"batch-one"),batchTwo=Path.Combine(root,"batch-two");
+        Directory.CreateDirectory(batchOne);Directory.CreateDirectory(batchTwo);
+        var batch=batchCoordinator.AcquireMany(new[]{batchOne,batchTwo,batchOne},UntamedOperationKind.Configuration);
+        Directory.Move(batchRoot,batchRoot+"-preserved");
+        File.WriteAllText(batchRoot,"synthetic journal write failure");
+        bool cleanupFailed=false;try{batch.Dispose();}catch(IOException){cleanupFailed=true;}
+        Check(cleanupFailed,"batch reports journal cleanup failure");
+        var freshState=new UntamedOperationCoordinator(Path.Combine(root,"batch-release-proof"));
+        using(var released=freshState.AcquireMany(new[]{batchOne,batchTwo},UntamedOperationKind.Configuration))
+            released.Complete();
+        Check(true,"all batch OS leases released even when each journal write fails");
+        File.Delete(batchRoot);Directory.Move(batchRoot+"-preserved",batchRoot);
+        Refused(()=>{using var pending=batchCoordinator.Acquire(batchOne,UntamedOperationKind.Configuration);},
+            "failed cleanup retains original pending journal; no implicit recovery");
         using(var interrupted=a.Acquire(resource,UntamedOperationKind.Update)){interrupted.MarkMutationStarted();}
         Check(a.Observe(resource)!.Phase==UntamedOperationPhase.NeedsOperator,"failed mutation leaves persistent operator state");
         Refused(()=>{using var again=a.Acquire(resource,UntamedOperationKind.Update);},"no timeout or automatic journal recovery");
@@ -63,6 +79,7 @@ public static class OperationSafetyTests
         Check(ledger.Records.Length==228&&ledger.SourceDocuments.Length==7&&!ledger.FinalReleaseReady,"all audit requirements tracked without false final acceptance");
         bool invalid=false;try{DevelopmentLedger.Validate(ledger with {Records=ledger.Records.Skip(1).ToArray()});}catch(InvalidDataException){invalid=true;}
         Check(invalid,"missing audit requirement fails ledger validation");
+        VerifyConfigJson(root);
         string redacted=UntamedPresentation.Redact("KovaCluster password=SECRET token='SECRET WITH SPACE' https://discord.com/api/webhooks/1/SECRET");
         Check(!redacted.Contains("SECRET")&&!redacted.Contains("Kova",StringComparison.OrdinalIgnoreCase),"user-facing branding and credential redaction");
         Check(!typeof(ClusterService).Assembly.GetTypes().Any(t=>t.Name.StartsWith("Kova",StringComparison.Ordinal)),"own wrapper types use neutral names");
@@ -72,6 +89,33 @@ public static class OperationSafetyTests
         var hanging=new Session{Hang=true};var watch=Stopwatch.StartNew();bool timedOut=false;
         try{await SafeLifecycle.Stop(hanging,true,TimeSpan.FromMilliseconds(100));}catch(OperationCanceledException){timedOut=true;}
         Check(timedOut&&watch.Elapsed<TimeSpan.FromSeconds(3)&&hanging.Starts==0,"deadline enforced even when adapter ignores cancellation");
+    }
+    static void VerifyConfigJson(string root)
+    {
+        string install=Path.Combine(root,"json-config-install");
+        string plugins=Path.Combine(install,"ShooterGame","Binaries","Win64","ArkApi","Plugins","Synthetic");
+        Directory.CreateDirectory(plugins);
+        string path=Path.Combine(plugins,"config.json");
+        var stopped=new ProcessCheck(false,"synthetic stopped",null,true);
+        string original="{\r\n  // retained comment\r\n  \"limits\": {\"a\": 1},\r\n}\r\n";
+        File.WriteAllText(path,original,new System.Text.UTF8Encoding(true));
+        var snapshot=SafeConfigEditor.Read(path,install,ConfigKind.PluginJson,stopped);
+        foreach(var duplicate in new[]{"{\"a\":1,\"a\":2}","{\"items\":[{\"x\":1,\"x\":2}]}","{\"a\":1,\"\\u0061\":2}"})
+        {
+            bool denied=false;try{SafeConfigEditor.Preview(snapshot,duplicate);}catch(InvalidDataException){denied=true;}
+            Check(denied,"duplicate JSON property rejected including nested arrays and escaped names");
+        }
+        Check(SafeConfigEditor.Preview(snapshot,"{\"a\":1,\"A\":2,\"other\":{\"a\":3}}").Valid,
+            "JSON case and separate object scopes follow ordinal property identity");
+        bool unknown=false;try{SafeConfigEditor.Read(path,install,(ConfigKind)99,stopped);}catch(InvalidDataException){unknown=true;}
+        Check(unknown,"unknown config kind cannot bypass schema validation");
+        string edited=original.Replace("\"a\": 1","\"a\": 2");
+        string backup=SafeConfigEditor.Save(snapshot,edited,install,stopped);
+        Check(File.ReadAllText(path)==edited&&File.ReadAllText(backup)==original&&File.ReadAllBytes(path).Take(3).SequenceEqual(new byte[]{239,187,191}),
+            "valid JSON save preserves comments CRLF BOM and exact protective backup");
+        bool readDenied=false;File.WriteAllText(path,"{\"nested\":{\"a\":1,\"a\":2}}");
+        try{SafeConfigEditor.Read(path,install,ConfigKind.PluginJson,stopped);}catch(InvalidDataException){readDenied=true;}
+        Check(readDenied,"ambiguous existing JSON is refused before editing");
     }
     sealed class Session : ILocalServerSession
     {

@@ -4,12 +4,16 @@ on:
     branches: [main, 'feature/store-lifecycle-evidence-parity-20261103', 'codex/**']
     paths:
       - 'wpf/**'
+      - 'tools/lab/**'
+      - 'docs/development/WORK-LEDGER.json'
       - '.github/workflows/build-untamed-wpf.yml'
   workflow_dispatch:
   pull_request:
     branches: ['feature/store-lifecycle-evidence-parity-20261103']
     paths:
       - 'wpf/**'
+      - 'tools/lab/**'
+      - 'docs/development/WORK-LEDGER.json'
       - '.github/workflows/build-untamed-wpf.yml'
 concurrency:
   group: untamed-wpf-${{ github.ref }}
@@ -55,6 +59,10 @@ jobs:
           if (!(Test-Path 'wpf/UntamedManager.csproj')) { throw "Missing WPF project" }
           if (!(Test-Path 'wpf/MainWindow.xaml')) { throw "Missing window" }
           if (!(Test-Path 'wpf/MainWindow.xaml.cs')) { throw "Missing codebehind" }
+      - name: Isolated lab path policy and native resource caps (no guest boot)
+        shell: pwsh
+        run: |
+          ./tools/lab/Test-IsolatedLab.ps1
       - name: Compile WPF for Windows x64
         shell: pwsh
         run: |

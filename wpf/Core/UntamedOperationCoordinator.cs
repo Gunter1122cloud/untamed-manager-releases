@@ -89,7 +89,15 @@ public sealed class UntamedOperationCoordinator
                 leases.Add(Acquire(root,kind));
             return new Batch(leases);
         }
-        catch{foreach(var lease in leases.AsEnumerable().Reverse())lease.Dispose();throw;}
+        catch(Exception acquisitionFailure)
+        {
+            // A failed journal write during cleanup must not strand the other
+            // OS leases or hide why the batch could not be acquired.
+            try{new Batch(leases).Dispose();}
+            catch(Exception cleanupFailure)
+            {throw new AggregateException("UNTAMED_BATCH_ACQUIRE_AND_CLEANUP_FAILED",acquisitionFailure,cleanupFailure);}
+            throw;
+        }
     }
     public sealed class Batch : IDisposable
     {

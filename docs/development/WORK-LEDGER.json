@@ -3,8 +3,8 @@
   "Product": "Untamed Manager",
   "AuditCommit": "6b72444ee082409cbfae66d04a3ad3fd693b5a72",
   "Branch": "codex/untamed-operation-safety-foundation",
-  "ImplementationCommit": "CURRENT_STAGE",
-  "ImplementationPr": "CURRENT_STAGE",
+  "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+  "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
   "FinalReleaseReady": false,
   "DatabaseBaseline": "10.11.19",
   "SourceDocuments": [
@@ -30,9 +30,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -65,9 +65,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés. Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -82,9 +82,9 @@
       "Status": "BLOCKED",
       "Changes": "Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -115,9 +115,9 @@
       "Status": "BLOCKED",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -164,9 +164,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -180,9 +180,9 @@
       "Status": "PARTIAL",
       "Changes": "MariaDB 10.11.19 deployment baseline és háromadatbázisos kompatibilitási policy; bináris verzió nem minősül SQL-verziólekérdezésnek.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -325,9 +325,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs CAS megakadályozza a másik Manager beállításainak néma felülírását; modbatch közös lease.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -358,9 +358,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs fájlmentés közös műveleti lease alá került; külső szerkesztővel szembeni teljes CAS továbbra is elfogadási feladat.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -375,9 +375,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs fájlmentés közös műveleti lease alá került; külső szerkesztővel szembeni teljes CAS továbbra is elfogadási feladat. Untamed UI-/napló-prezentáció, jelszó/token/webhook redakció; saját wrapperosztályok semleges nevei; régi protokoll változatlan.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -475,9 +475,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet. Untamed UI-/napló-prezentáció, jelszó/token/webhook redakció; saját wrapperosztályok semleges nevei; régi protokoll változatlan.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -523,9 +523,9 @@
       "Status": "PARTIAL",
       "Changes": "Beágyazott teljes követelmény-nyilvántartás és olvasó műveleti állapotpanel a meglévő WPF-ben.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -539,9 +539,9 @@
       "Status": "PARTIAL",
       "Changes": "Stabil ObservableCollection, kiválasztott modazonosság megőrzése; sorválasztás frissíti az ID/mód mezőt; nincs fókuszrablás.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -588,9 +588,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -687,9 +687,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -752,9 +752,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet. Untamed UI-/napló-prezentáció, jelszó/token/webhook redakció; saját wrapperosztályok semleges nevei; régi protokoll változatlan.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -833,9 +833,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs fájlmentés közös műveleti lease alá került; külső szerkesztővel szembeni teljes CAS továbbra is elfogadási feladat. Untamed UI-/napló-prezentáció, jelszó/token/webhook redakció; saját wrapperosztályok semleges nevei; régi protokoll változatlan.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -850,9 +850,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs fájlmentés közös műveleti lease alá került; külső szerkesztővel szembeni teljes CAS továbbra is elfogadási feladat. Untamed UI-/napló-prezentáció, jelszó/token/webhook redakció; saját wrapperosztályok semleges nevei; régi protokoll változatlan.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -884,9 +884,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -902,9 +902,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1177,9 +1177,9 @@
       "Status": "BLOCKED",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1194,9 +1194,9 @@
       "Status": "BLOCKED",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1227,9 +1227,9 @@
       "Status": "BLOCKED",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1244,9 +1244,9 @@
       "Status": "BLOCKED",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1261,9 +1261,9 @@
       "Status": "BLOCKED",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1294,9 +1294,9 @@
       "Status": "BLOCKED",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1311,9 +1311,9 @@
       "Status": "BLOCKED",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1360,9 +1360,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1396,9 +1396,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1429,9 +1429,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs fájlmentés közös műveleti lease alá került; külső szerkesztővel szembeni teljes CAS továbbra is elfogadási feladat.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -1446,9 +1446,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs fájlmentés közös műveleti lease alá került; külső szerkesztővel szembeni teljes CAS továbbra is elfogadási feladat.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -1481,9 +1481,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés. Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1500,9 +1500,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés. Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1519,9 +1519,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés. Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1538,9 +1538,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés. Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1699,9 +1699,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -1718,9 +1718,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés. Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2031,9 +2031,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés. Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2161,9 +2161,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2229,9 +2229,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2245,9 +2245,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs CAS megakadályozza a másik Manager beállításainak néma felülírását; modbatch közös lease.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2279,9 +2279,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2295,9 +2295,9 @@
       "Status": "PARTIAL",
       "Changes": "Beágyazott teljes követelmény-nyilvántartás és olvasó műveleti állapotpanel a meglévő WPF-ben.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2311,9 +2311,9 @@
       "Status": "PARTIAL",
       "Changes": "Beágyazott teljes követelmény-nyilvántartás és olvasó műveleti állapotpanel a meglévő WPF-ben.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2327,9 +2327,9 @@
       "Status": "PARTIAL",
       "Changes": "Beágyazott teljes követelmény-nyilvántartás és olvasó műveleti állapotpanel a meglévő WPF-ben.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2343,9 +2343,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs CAS megakadályozza a másik Manager beállításainak néma felülírását; modbatch közös lease.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2441,9 +2441,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2474,9 +2474,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2523,9 +2523,9 @@
       "Status": "PARTIAL",
       "Changes": "Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2540,9 +2540,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés. Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2557,9 +2557,9 @@
       "Status": "PARTIAL",
       "Changes": "MariaDB 10.11.19 deployment baseline és háromadatbázisos kompatibilitási policy; bináris verzió nem minősül SQL-verziólekérdezésnek.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2574,9 +2574,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2590,9 +2590,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2608,9 +2608,9 @@
       "Status": "PARTIAL",
       "Changes": "Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2672,9 +2672,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs CAS megakadályozza a másik Manager beállításainak néma felülírását; modbatch közös lease.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2689,9 +2689,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs CAS megakadályozza a másik Manager beállításainak néma felülírását; modbatch közös lease.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2705,9 +2705,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs fájlmentés közös műveleti lease alá került; külső szerkesztővel szembeni teljes CAS továbbra is elfogadási feladat.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2722,9 +2722,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs fájlmentés közös műveleti lease alá került; külső szerkesztővel szembeni teljes CAS továbbra is elfogadási feladat. Untamed UI-/napló-prezentáció, jelszó/token/webhook redakció; saját wrapperosztályok semleges nevei; régi protokoll változatlan.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2903,9 +2903,9 @@
       "Status": "PARTIAL",
       "Changes": "Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -2951,9 +2951,9 @@
       "Status": "PARTIAL",
       "Changes": "Beágyazott teljes követelmény-nyilvántartás és olvasó műveleti állapotpanel a meglévő WPF-ben.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2967,9 +2967,9 @@
       "Status": "PARTIAL",
       "Changes": "Beágyazott teljes követelmény-nyilvántartás és olvasó műveleti állapotpanel a meglévő WPF-ben.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -2983,9 +2983,9 @@
       "Status": "PARTIAL",
       "Changes": "Stabil ObservableCollection, kiválasztott modazonosság megőrzése; sorválasztás frissíti az ID/mód mezőt; nincs fókuszrablás.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3000,9 +3000,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -3018,9 +3018,9 @@
       "Status": "PARTIAL",
       "Changes": "Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -3035,9 +3035,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -3069,9 +3069,9 @@
       "Status": "PARTIAL",
       "Changes": "Untamed UI-/napló-prezentáció, jelszó/token/webhook redakció; saját wrapperosztályok semleges nevei; régi protokoll változatlan.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3133,9 +3133,9 @@
       "Status": "PARTIAL",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3181,9 +3181,9 @@
       "Status": "PARTIAL",
       "Changes": "Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -3245,9 +3245,9 @@
       "Status": "BLOCKED",
       "Changes": "MariaDB 10.11.19 deployment baseline és háromadatbázisos kompatibilitási policy; bináris verzió nem minősül SQL-verziólekérdezésnek.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -3277,9 +3277,9 @@
       "Status": "PARTIAL",
       "Changes": "Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3341,9 +3341,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs CAS megakadályozza a másik Manager beállításainak néma felülírását; modbatch közös lease.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3405,9 +3405,9 @@
       "Status": "PARTIAL",
       "Changes": "Konfigurációs fájlmentés közös műveleti lease alá került; külső szerkesztővel szembeni teljes CAS továbbra is elfogadási feladat.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3421,9 +3421,9 @@
       "Status": "PARTIAL",
       "Changes": "Stabil ObservableCollection, kiválasztott modazonosság megőrzése; sorválasztás frissíti az ID/mód mezőt; nincs fókuszrablás.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3533,9 +3533,9 @@
       "Status": "PARTIAL",
       "Changes": "Untamed UI-/napló-prezentáció, jelszó/token/webhook redakció; saját wrapperosztályok semleges nevei; régi protokoll változatlan.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3597,9 +3597,9 @@
       "Status": "PARTIAL",
       "Changes": "Beágyazott teljes követelmény-nyilvántartás és olvasó műveleti állapotpanel a meglévő WPF-ben.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3659,12 +3659,12 @@
         "T01",
         "T10"
       ],
-      "Status": "IMPLEMENTED",
+      "Status": "TESTED",
       "Changes": "Közös gépszintű műveleti lease; Prepared/Mutating/Completed/NeedsOperator napló; LaunchLocal, konfiguráció, modbatch, plugin és backup bekötés. Félbeszakadt műveleti journal nem törlődik idő vagy process-kilépés alapján; UI állapotnézet.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3675,12 +3675,12 @@
       "BacklogTasks": [
         "T14"
       ],
-      "Status": "IMPLEMENTED",
+      "Status": "TESTED",
       "Changes": "Konfigurációs CAS megakadályozza a másik Manager beállításainak néma felülírását; modbatch közös lease.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3691,12 +3691,12 @@
       "BacklogTasks": [
         "T04"
       ],
-      "Status": "IMPLEMENTED",
+      "Status": "TESTED",
       "Changes": "Stop szigorú processazonosságot és ellentmondásmentes exitet követel; timeout akkor is érvényes, ha az adapter nem figyeli a cancellation tokent.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -3707,12 +3707,12 @@
       "BacklogTasks": [
         "T08"
       ],
-      "Status": "IMPLEMENTED",
+      "Status": "TESTED",
       "Changes": "MariaDB 10.11.19 deployment baseline és háromadatbázisos kompatibilitási policy; bináris verzió nem minősül SQL-verziólekérdezésnek.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {
@@ -3724,12 +3724,12 @@
         "T26",
         "T30"
       ],
-      "Status": "IMPLEMENTED",
+      "Status": "TESTED",
       "Changes": "Untamed UI-/napló-prezentáció, jelszó/token/webhook redakció; saját wrapperosztályok semleges nevei; régi protokoll változatlan. Beágyazott teljes követelmény-nyilvántartás és olvasó műveleti állapotpanel a meglévő WPF-ben.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3740,12 +3740,12 @@
       "BacklogTasks": [
         "T19"
       ],
-      "Status": "IMPLEMENTED",
+      "Status": "TESTED",
       "Changes": "Stabil ObservableCollection, kiválasztott modazonosság megőrzése; sorválasztás frissíti az ID/mód mezőt; nincs fókuszrablás.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     },
     {
@@ -3756,12 +3756,12 @@
       "BacklogTasks": [
         "T30"
       ],
-      "Status": "IMPLEMENTED",
+      "Status": "TESTED",
       "Changes": "Beágyazott teljes követelmény-nyilvántartás és olvasó műveleti állapotpanel a meglévő WPF-ben.",
       "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PENDING_WINDOWS_CI",
-      "ImplementationCommit": "CURRENT_STAGE",
-      "ImplementationPr": "CURRENT_STAGE",
+      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
+      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A hivatkozott backlog teljes elfogadása még nincs lezárva."
     }
   ]

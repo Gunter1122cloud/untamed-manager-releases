@@ -134,6 +134,7 @@ public static class SafeConfigEditor
     private static void ValidatePath(string path,string root,ConfigKind kind,
         ProcessCheck state,bool maintenance)
     {
+        if(!Enum.IsDefined(kind))throw new InvalidDataException("Unsupported configuration kind");
         if(state==null || !state.ConfirmedStopped || state.Running || maintenance)
             throw new InvalidOperationException("Config editing requires confirmed stopped local map");
         if(string.IsNullOrWhiteSpace(path)||string.IsNullOrWhiteSpace(root) ||
@@ -164,6 +165,7 @@ public static class SafeConfigEditor
 
     private static void ValidateContent(string value,ConfigKind kind)
     {
+        if(!Enum.IsDefined(kind))throw new InvalidDataException("Unsupported configuration kind");
         if(value==null || value.Length>2_000_000 || value.Contains('\0'))
             throw new InvalidDataException("Invalid text length or NUL");
         if(kind==ConfigKind.PluginJson)
@@ -172,7 +174,25 @@ public static class SafeConfigEditor
                 AllowTrailingCommas=true,CommentHandling=JsonCommentHandling.Skip});
             if(parsed.RootElement.ValueKind!=JsonValueKind.Object)
                 throw new InvalidDataException("Plugin JSON root must be object");
+            RejectDuplicateProperties(parsed.RootElement);
         }
+    }
+    private static void RejectDuplicateProperties(JsonElement element)
+    {
+        if(element.ValueKind==JsonValueKind.Object)
+        {
+            var names=new HashSet<string>(StringComparer.Ordinal);
+            foreach(var property in element.EnumerateObject())
+            {
+                // JsonElement decodes escaped property names. A second
+                // \u0061 therefore conflicts with a literal a as well.
+                if(!names.Add(property.Name))
+                    throw new InvalidDataException("Duplicate plugin JSON property");
+                RejectDuplicateProperties(property.Value);
+            }
+        }
+        else if(element.ValueKind==JsonValueKind.Array)
+            foreach(var value in element.EnumerateArray())RejectDuplicateProperties(value);
     }
     private static string Normalize(string content,string newline)
     {
