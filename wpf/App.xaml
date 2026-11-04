@@ -6,6 +6,24 @@
   <Application.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Styles/PremiumTheme.xaml" /></ResourceDictionary.MergedDictionaries>
+    <DataTemplate x:Key="PremiumServerRow">
+      <Grid Height="61" Margin="5,4">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="22"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Text="▤" FontSize="15" VerticalAlignment="Center"
+          Foreground="{StaticResource AccentLight}"/>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+            Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Text="{Binding State}" FontSize="11" Margin="0,5,0,0"
+            Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Text="{Binding Detail}" FontSize="10"
+            Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+      </Grid>
+    </DataTemplate>
     <DataTemplate x:Key="PremiumPluginRow">
       <Grid Height="54" Margin="5,4">
         <Grid.ColumnDefinitions>
