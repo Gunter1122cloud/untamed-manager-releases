@@ -83,7 +83,8 @@ public partial class MainWindow
                         "Konfiguráció mentése",MessageBoxButton.YesNo,
                         MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
                     string backup=SafeConfigEditor.Save(snapshot,editor.Text,
-                        map.InstallationPath,_cluster.Check(map),map.Maintenance);
+                        map.InstallationPath,_cluster.Check(map),map.Maintenance,
+                        ()=>_cluster.Check(map));
                     snapshot=SafeConfigEditor.Read(snapshot.Path,map.InstallationPath,
                         kind,_cluster.Check(map),map.Maintenance);
                     status.Text=backup.Length==0?"Nem volt változás.":
