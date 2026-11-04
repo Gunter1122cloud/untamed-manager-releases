@@ -46,6 +46,13 @@ public static class LocalContentSnapshotTests
             !partial.PluginInventoryComplete,
             "Unreadable mod and plugin data remain explicitly partial, not zero or healthy");
 
+        b.Arguments="FutureMap?listen -mods=928548";
+        b.InstallationPath=Path.Combine(root,"unmounted-map");
+        var absent=LocalContentSnapshotReader.Inspect(new[]{a,b});
+        Check(absent.Mods.Complete && !absent.PluginInventoryComplete &&
+            absent.UnreadablePluginMaps.SequenceEqual(new[]{"Future Map"}),
+            "Absent or disconnected local installation never appears as an empty healthy plugin directory");
+
         var empty=LocalContentSnapshotReader.Inspect(Array.Empty<LocalMap>());
         Check(empty.LocalMapCount==0 && empty.Plugins.Count==0 &&
             empty.ReadablePluginMaps==0 && empty.PluginInventoryComplete,
