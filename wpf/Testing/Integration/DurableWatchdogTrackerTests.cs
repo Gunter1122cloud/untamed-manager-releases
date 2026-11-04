@@ -98,3 +98,72 @@ public static class DurableWatchdogTrackerTests
         Check(inputRejected,"null process evidence rejected before journal read or mutation");
     }
 }
+
+
+public static class RecurringReadOnlyRecoveryTests
+{
+    private static void Check(bool ok,string why)
+    {
+        if(!ok)throw new Exception("T17 recurring scheduler regression: "+why);
+        Console.WriteLine("PASS T17 recurring "+why);
+    }
+    public static void Run(string temp)
+    {
+        string root=Path.Combine(temp,"t17-recurring-no-catchup");
+        var clock=DateTimeOffset.UtcNow.AddHours(-2);
+        Guid ownedMap=Guid.NewGuid();
+        var job=new RecurringSchedule{
+            Map=ownedMap,Kind=OperationalTaskKind.ModCheck,
+            Frequency=ScheduleFrequency.IntervalMinutes,
+            IntervalMinutes=5,LastDueUtc=clock,Enabled=true
+        };
+        var permissions=new HashSet<Guid>{ownedMap};
+        int checks=0;
+        var first=new RecurringReadOnlyRunner(root);
+        Check(first.Tick(new[]{job},permissions,clock,
+            _=>false,_=>checks++).Length==0&&checks==0,
+            "first scheduling never executes a slot retroactively");
+        var afterOutage=clock.AddMinutes(60).AddSeconds(1);
+        var overdue=first.Tick(new[]{job},permissions,afterOutage,
+            _=>false,_=>checks++);
+        Check(overdue.Length==1&&
+            overdue[0].Status=="missed-no-catchup"&&checks==0,
+            "one missed slot recorded after hour-long outage; no process callback");
+        var relaunched=new RecurringReadOnlyRunner(root);
+        Check(relaunched.Tick(new[]{job},permissions,afterOutage.AddSeconds(1),
+            _=>false,_=>checks++).Length==0,
+            "restarted scheduler skips all other historical slots");
+        var next=OperationalScheduler.Next(job,afterOutage).DueUtc;
+        var executed=relaunched.Tick(new[]{job},permissions,next.AddSeconds(1),
+            _=>false,_=>checks++);
+        Check(checks==1&&executed.Any(x=>x.Status=="succeeded"),
+            "only the first fresh future read-only slot is executed");
+        Check(new RecurringReadOnlyRunner(root).Tick(new[]{job},permissions,
+            next.AddSeconds(2),_=>false,_=>checks++).Length==0&&checks==1,
+            "same completed due slot cannot be replayed after UI restart");
+        var second=OperationalScheduler.Next(job,next.AddSeconds(1)).DueUtc;
+        int bad=0;
+        var failing=new RecurringReadOnlyRunner(root).Tick(new[]{job},
+            permissions,second.AddSeconds(1),_=>false,
+            _=>{bad++;throw new IOException("CI injected read-only failure");});
+        Check(bad==1&&failing.Any(x=>x.Status=="failed-not-retried"),
+            "a failed read-only callback is durable and not automatically retried");
+        Check(new RecurringReadOnlyRunner(root).Tick(new[]{job},permissions,
+            second.AddSeconds(2),_=>false,_=>bad++).Length==0 && bad==1,
+            "failed read-only callback cannot replay");
+        var unsafeSchedule=new RecurringSchedule{
+            Map=ownedMap,Kind=OperationalTaskKind.ServerRestart,
+            Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=5,
+            Enabled=true,LastDueUtc=clock
+        };
+        int mutations=0;
+        var safetyRunner=new RecurringReadOnlyRunner(Path.Combine(temp,
+            "t17-recurring-no-writes"));
+        safetyRunner.Tick(new[]{unsafeSchedule},permissions,clock,
+            _=>false,_=>mutations++);
+        var blocked=safetyRunner.Tick(new[]{unsafeSchedule},permissions,
+            clock.AddMinutes(5).AddSeconds(1),_=>false,_=>mutations++);
+        Check(mutations==0 && blocked.Any(x=>x.Status=="live-operation-disabled"),
+            "scheduled server restart is never executed by the read-only dispatcher");
+    }
+}
