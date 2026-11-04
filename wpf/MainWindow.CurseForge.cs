@@ -100,6 +100,14 @@ public partial class MainWindow
         });
         previous.IsEnabled=false;
         next.IsEnabled=false;
+        var addFromCatalog=Btn("Kiválasztott mod hozzáadása a kijelölt maphoz",()=>{
+            if(results.SelectedItem is not CurseForgeMod chosen)
+            { status.Text="Előbb válassz egy találatot.";return; }
+            if(_catalogSelectForMod==null)
+            { status.Text="Nincs kiválasztott helyi map.";return; }
+            _catalogSelectForMod(chosen.Id.ToString());
+        });
+        addFromCatalog.Visibility=_catalogSelectForMod==null?Visibility.Collapsed:Visibility.Visible;
         Add(Box(V(
             Label("CurseForge online modkereső – csak olvasás",20,Mint,true),
             Label("Hivatalos CurseForge Core API; saját jóváhagyott API-kulcs szükséges. "+
@@ -130,6 +138,8 @@ public partial class MainWindow
                 status.Text="Helyi CurseForge API-kulcs törölve.";
             }),
             Label("Modkeresés név alapján",12,Aqua),
-            query,search,previous,next,paging,results,detail,status)));
+            query,search,previous,next,paging,results,
+            addFromCatalog,
+            detail,status)));
     }
 }
