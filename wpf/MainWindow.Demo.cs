@@ -31,7 +31,7 @@ public partial class MainWindow
         _beforeDemoSupervisor=SupervisorStatus.Text;
         _beforeDemoBadge=SupervisorBadge.Text;
         _updateTimer.Stop();
-        DemoToggle.Content="✕  KILÉPÉS A DEMO-BÓL";
+        DemoToggle.Content="✕ Kilépés DEMO-ból";
         DemoModeIndicator.Visibility=Visibility.Visible;
         ModeFooterText.Text="◆  OFFLINE DEMO · SZIMULÁCIÓ";
         PageEyebrow.Text="OFFLINE DEMO / NINCS VALÓDI MŰVELET";
@@ -43,7 +43,7 @@ public partial class MainWindow
         if(_demo==null)return;
         _demo=null;
         _demoSelectedId=null;
-        DemoToggle.Content="▶  OFFLINE DEMO";
+        DemoToggle.Content="▶ DEMO";
         DemoModeIndicator.Visibility=Visibility.Collapsed;
         ModeFooterText.Text="◆  HELYI MANAGER";
         PageEyebrow.Text="UNTAMED KINGDOM  /  MANAGEMENT";

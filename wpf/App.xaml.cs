@@ -154,7 +154,12 @@ public partial class App : System.Windows.Application
                     content.Arrange(new Rect(0,0,width,height));
                     content.UpdateLayout();
                     window.Dispatcher.Invoke(() => { },DispatcherPriority.Render);
-                    var bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
+                    // The CI virtual desktop can be smaller than the requested
+                    // window. Capture only the actually arranged WPF client area:
+                    // no black, invented padding outside the rendered app.
+                    int actualWidth=Math.Max(1,(int)Math.Ceiling(content.RenderSize.Width));
+                    int actualHeight=Math.Max(1,(int)Math.Ceiling(content.RenderSize.Height));
+                    var bitmap=new RenderTargetBitmap(actualWidth,actualHeight,96,96,PixelFormats.Pbgra32);
                     bitmap.Render(content);
                     var png=new PngBitmapEncoder();
                     png.Frames.Add(BitmapFrame.Create(bitmap));

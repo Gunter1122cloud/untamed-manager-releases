@@ -115,18 +115,19 @@
   <Grid Grid.Column="1" Background="#061819">
    <Grid.RowDefinitions><RowDefinition Height="59"/><RowDefinition Height="*"/><RowDefinition Height="32"/></Grid.RowDefinitions>
    <Border Grid.Row="0" Background="#092223" BorderBrush="#3B8072" BorderThickness="0,0,0,1">
-    <DockPanel Margin="24,0,24,0">
-     <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-      <TextBlock Text="UNTAMED KINGDOM  /  SZERVERÜZEMELTETÉS" FontSize="13" Foreground="#DDF2E7" FontWeight="SemiBold"/>
-      <TextBlock Text="Windows WPF alkalmazás · helyi felügyelet · hitelesített LAN-státusz" FontSize="11" Foreground="#8BBAB3" Margin="0,5,0,0"/>
+    <Grid Margin="20,0,20,0">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
+      <TextBlock Text="UNTAMED KINGDOM / CONTROL CENTER" TextTrimming="CharacterEllipsis" FontSize="13" Foreground="#DDF2E7" FontWeight="SemiBold"/>
+      <TextBlock Text="Windows WPF · ASA és LAN-kezelés" TextTrimming="CharacterEllipsis" FontSize="11" Foreground="#8BBAB3" Margin="0,5,0,0"/>
      </StackPanel>
-     <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
-      <TextBlock x:Name="DemoModeIndicator" Text="CSAK DEMO · NINCS VALÓDI MŰVELET" FontSize="11" FontWeight="Bold" Foreground="#FFD28C" Margin="0,0,12,0" VerticalAlignment="Center" Visibility="Collapsed"/>
-      <Button x:Name="DemoToggle" Content="▶  OFFLINE DEMO" Style="{StaticResource GoldAction}" Padding="12,8" Margin="0,0,10,0" Click="DemoMode_Click" AutomationProperties.Name="Offline DEMO mód be- és kikapcsolása"/>
-      <Border Background="#203F3B" CornerRadius="8" Padding="13,8" Margin="0,0,10,0"><TextBlock x:Name="VersionBadge" Text="WPF" Foreground="#73DDC8" FontSize="11"/></Border>
-      <Border Background="#433122" CornerRadius="8" Padding="13,8"><TextBlock x:Name="SupervisorBadge" Text="Supervisor: ellenőrzés" Foreground="#F4BB78" FontSize="11"/></Border>
+     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
+      <TextBlock x:Name="DemoModeIndicator" Text="DEMO" FontSize="11" FontWeight="Bold" Foreground="#FFD28C" Margin="0,0,8,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+      <Button x:Name="DemoToggle" Content="▶ DEMO" Style="{StaticResource GoldAction}" Padding="12,8" Margin="0,0,8,0" Click="DemoMode_Click" AutomationProperties.Name="Offline DEMO mód be- és kikapcsolása"/>
+      <Border Background="#203F3B" CornerRadius="8" Padding="10,8" Margin="0,0,8,0"><TextBlock x:Name="VersionBadge" Text="WPF" Foreground="#73DDC8" FontSize="11"/></Border>
+      <Border Background="#433122" CornerRadius="8" Padding="10,8"><TextBlock x:Name="SupervisorBadge" Text="Supervisor: ellenőrzés" Foreground="#F4BB78" FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="146"/></Border>
      </StackPanel>
-    </DockPanel>
+    </Grid>
    </Border>
    <Grid Grid.Row="1">
     <ScrollViewer x:Name="Dashboard" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="#061819">

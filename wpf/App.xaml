@@ -34,6 +34,39 @@
       <Setter Property="FontSize" Value="14"/>
       <Setter Property="Cursor" Value="Hand"/>
     </Style>
+    <Style TargetType="ComboBox">
+      <Setter Property="Background" Value="#E5F3ED"/>
+      <Setter Property="Foreground" Value="#16342C"/>
+      <Setter Property="BorderBrush" Value="#418F7D"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="8,6"/>
+      <Setter Property="FontFamily" Value="Segoe UI"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="MinHeight" Value="34"/>
+    </Style>
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="Foreground" Value="#17372F"/>
+      <Setter Property="Background" Value="#E4F7EE"/>
+      <Setter Property="Padding" Value="8,5"/>
+      <Style.Triggers>
+       <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#8BD6BC"/></Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style TargetType="TabItem">
+      <Setter Property="Foreground" Value="#183B34"/>
+      <Setter Property="Background" Value="#DCEFE6"/>
+      <Setter Property="Padding" Value="11,7"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Style.Triggers>
+       <Trigger Property="IsSelected" Value="True">
+        <Setter Property="Background" Value="#116B53"/>
+        <Setter Property="Foreground" Value="White"/>
+       </Trigger>
+       <Trigger Property="IsMouseOver" Value="True">
+        <Setter Property="BorderBrush" Value="#6FE2BA"/>
+       </Trigger>
+      </Style.Triggers>
+    </Style>
     <Style TargetType="ListBoxItem">
       <Setter Property="Foreground" Value="#E8FFF8"/><Setter Property="Padding" Value="10,7"/>
       <Style.Triggers>
