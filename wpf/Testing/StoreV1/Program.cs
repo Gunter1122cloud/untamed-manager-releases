@@ -64,6 +64,18 @@ string Archive(Dictionary<string,string> items,bool directoryLock=false,bool bad
         writer.Write(Serialize(manifest));
     return file;
 }
+string LocalArchive(Dictionary<string,string> items,bool symlink=false)
+{
+    string file=Path.Combine(root,Guid.NewGuid()+"-local.zip");
+    using var zip=ZipFile.Open(file,ZipArchiveMode.Create);
+    foreach(var item in items)
+    {
+        var entry=zip.CreateEntry(item.Key,CompressionLevel.Optimal);
+        if(symlink)entry.ExternalAttributes=unchecked((int)0xA0000000);
+        using var stream=entry.Open();stream.Write(Encoding.UTF8.GetBytes(item.Value));
+    }
+    return file;
+}
 void Edit(Dictionary<string,string> items,string key,Action<JsonNode> change)
 {
     var node=JsonNode.Parse(items[key])!;change(node);items[key]=node.ToJsonString(options);
@@ -97,6 +109,40 @@ try
         full.Hosts.Length==2&&full.Hosts.All(h=>h.LockMatches&&h.ActiveMaps),"complete 5+5 historical metadata");
     Check(!full.ProductionUseAllowed,"historical success never grants production or writer rights");
     Check(before==Sha(File.ReadAllBytes(good)),"full inspection preserves original ZIP");
+    var coordinationOnly=original.Where(e=>!e.Key.StartsWith("HOST0/",StringComparison.Ordinal))
+        .ToDictionary(e=>e.Key,e=>e.Value,StringComparer.OrdinalIgnoreCase);
+    var localOnly=original.Where(e=>e.Key.StartsWith("HOST0/",StringComparison.Ordinal))
+        .ToDictionary(e=>e.Key[6..],e=>e.Value,StringComparer.Ordinal);
+    string coordinationZip=Archive(coordinationOnly),localZip=LocalArchive(localOnly);
+    string coordinationBefore=Sha(File.ReadAllBytes(coordinationZip)),localBefore=Sha(File.ReadAllBytes(localZip));
+    var paired=ClusterVaultArchiveInspector.InspectPairedCopies(coordinationZip,localZip);
+    Check(paired.HistoricalConsistent&&paired.CompleteTwoHostEvidence&&paired.VerifiedFiles==12&&paired.Maps==10&&
+        !paired.ProductionUseAllowed,"manifested coordination plus original four-file local ZIP completes historical two-host evidence");
+    Check(coordinationBefore==Sha(File.ReadAllBytes(coordinationZip))&&localBefore==Sha(File.ReadAllBytes(localZip)),
+        "paired inspection preserves both original ZIP archives");
+    void NegativeLocal(string label,Action<Dictionary<string,string>> change,bool symlink=false)
+    {
+        var copy=new Dictionary<string,string>(localOnly,StringComparer.Ordinal);change(copy);
+        string invalidZip=LocalArchive(copy,symlink),hashBefore=Sha(File.ReadAllBytes(invalidZip));bool denied=false;
+        try{denied=!ClusterVaultArchiveInspector.InspectPairedCopies(coordinationZip,invalidZip).HistoricalConsistent;}
+        catch(InvalidDataException){denied=true;}
+        Check(denied,label);Check(hashBefore==Sha(File.ReadAllBytes(invalidZip)),label+" preserves local copy");
+    }
+    NegativeLocal("paired local ZIP missing file",c=>c.Remove("cluster-v1.json"));
+    NegativeLocal("paired local ZIP extra entry",c=>c["readme.txt"]="unlisted");
+    NegativeLocal("paired local ZIP traversal",c=>{c["../cluster-v1.json"]=c["cluster-v1.json"];c.Remove("cluster-v1.json");});
+    NegativeLocal("paired local ZIP case duplicate",c=>{c.Remove("cluster-v1.json");c["SHARED-STORE-DEVICE-V1.JSON"]=c["shared-store-device-v1.json"];});
+    NegativeLocal("paired local ZIP symlink",_=>{},true);
+    NegativeLocal("paired local ZIP duplicate peer identity",c=>Edit(c,"shared-store-device-v1.json",n=>n["id"]=peers[1]));
+    NegativeLocal("paired local ZIP stale session",c=>Edit(c,"shared-store-lock-v1.json",n=>n["session"]=Guid.NewGuid().ToString()));
+    NegativeLocal("self-consistent local UNC spelling differs from historical coordination",c=>{
+        Edit(c,"cluster-v1.json",n=>n["path"]=@"\\other-test-peer\test-only");
+        Edit(c,"shared-store-lock-v1.json",n=>{
+            n["config"]!["path"]=@"\\other-test-peer\test-only";
+            n["configHash"]=Fingerprint(n["config"]!.ToJsonString(options));
+        });
+    });
+    NegativeLocal("paired local ZIP oversize metadata",c=>c["cluster-v1.json"]=new string('x',1_048_577));
     string first=shared+peers[0]+".json",second=shared+peers[1]+".json";
     var samePaths=new Dictionary<string,string>(original,StringComparer.OrdinalIgnoreCase);
     var firstPeer=JsonNode.Parse(samePaths[first])!;

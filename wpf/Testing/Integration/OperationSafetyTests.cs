@@ -92,6 +92,18 @@ public static class OperationSafetyTests
         var conflicting=new Session{ContradictoryExit=true};
         bool stopped=false;try{await SafeLifecycle.Stop(conflicting,true,TimeSpan.FromSeconds(1));}catch(InvalidOperationException){stopped=true;}
         Check(stopped&&conflicting.Starts==0,"contradictory Running/ConfirmedStopped never restarts");
+        var initiallyConflicting=new Session{InitialContradiction=true};bool initialDenied=false;
+        try{await SafeLifecycle.Stop(initiallyConflicting,true,TimeSpan.FromSeconds(1));}catch(InvalidOperationException){initialDenied=true;}
+        Check(initialDenied&&initiallyConflicting.Commands==0,"contradictory initial state sends no RCON command");
+        var changedLoader=new Session{SwapLoaderAfterSave=true};bool familyDenied=false;
+        try{await SafeLifecycle.Stop(changedLoader,true,TimeSpan.FromSeconds(1));}catch(InvalidOperationException){familyDenied=true;}
+        Check(familyDenied&&changedLoader.Commands==2&&changedLoader.Starts==0,"changed loader after SaveComplete blocks DoExit and restart");
+        var cancelledSession=new Session();using(var cancelled=new CancellationTokenSource())
+        {
+            cancelled.Cancel();bool cancelledBeforeCommand=false;
+            try{await SafeLifecycle.Stop(cancelledSession,true,TimeSpan.FromSeconds(1),cancelled.Token);}catch(OperationCanceledException){cancelledBeforeCommand=true;}
+            Check(cancelledBeforeCommand&&cancelledSession.Commands==0,"pre-cancelled lifecycle never invokes an adapter that could ignore cancellation");
+        }
         var hanging=new Session{Hang=true};var watch=Stopwatch.StartNew();bool timedOut=false;
         try{await SafeLifecycle.Stop(hanging,true,TimeSpan.FromMilliseconds(100));}catch(OperationCanceledException){timedOut=true;}
         Check(timedOut&&watch.Elapsed<TimeSpan.FromSeconds(3)&&hanging.Starts==0,"deadline enforced even when adapter ignores cancellation");
@@ -152,12 +164,15 @@ public static class OperationSafetyTests
     }
     sealed class Session : ILocalServerSession
     {
-        public bool ContradictoryExit,Hang;bool exiting;public int Starts;
+        public bool ContradictoryExit,Hang,InitialContradiction,SwapLoaderAfterSave;
+        bool exiting,saved;public int Starts,Commands;
         readonly ProcessIdentity identity=new(){Pid=1,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath=@"C:\synthetic\server.exe",Arguments="synthetic"};
-        public ProcessCheck Check()=>new(true,"synthetic",identity,exiting&&ContradictoryExit);
+        readonly ProcessIdentity loader=new(){Pid=2,StartedUtc=DateTimeOffset.UtcNow,ExecutablePath=@"C:\synthetic\loader.exe",Arguments="synthetic loader"};
+        public ProcessCheck Check()=>new(true,"synthetic",identity,InitialContradiction||(exiting&&ContradictoryExit),
+            SwapLoaderAfterSave?(saved?new ProcessIdentity{Pid=3,StartedUtc=loader.StartedUtc.AddSeconds(1),ExecutablePath=loader.ExecutablePath,Arguments=loader.Arguments}:loader):null);
         public Task Command(string command,CancellationToken ct)
-        {if(Hang)return new TaskCompletionSource().Task;if(command=="DoExit")exiting=true;return Task.CompletedTask;}
-        public Task<bool> SaveCompleted(CancellationToken ct)=>Task.FromResult(true);
+        {Commands++;if(Hang)return new TaskCompletionSource().Task;if(command=="DoExit")exiting=true;return Task.CompletedTask;}
+        public Task<bool> SaveCompleted(CancellationToken ct){saved=true;return Task.FromResult(true);}
         public void Start()=>Starts++;
     }
 }

@@ -75,6 +75,35 @@ internal sealed class VaultReadSnapshot : IDisposable
             throw new InvalidDataException("VAULT_PATH: nem biztonságos archívumútvonal");
         return key;
     }
+    public static Dictionary<string,byte[]> LocalMetadataArchive(byte[] bytes)
+    {
+        string[] names={"cluster-v1.json","cluster-store-v1.json",
+            "shared-store-device-v1.json","shared-store-lock-v1.json"};
+        using var input=new MemoryStream(bytes,false);
+        using var zip=new ZipArchive(input,ZipArchiveMode.Read);
+        if(zip.Entries.Count!=names.Length)
+            throw new InvalidDataException("VAULT_LOCAL_ARCHIVE: pontosan négy helyi metadatafájl szükséges");
+        var files=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
+        foreach(var entry in zip.Entries)
+        {
+            string key=EntryName(entry.FullName);
+            int kind=(entry.ExternalAttributes>>16)&0xF000;
+            if(!names.Contains(key,StringComparer.OrdinalIgnoreCase)||kind==0xA000||
+               (entry.ExternalAttributes&0x410)!=0||entry.Length<1||entry.Length>1_048_576||
+               entry.CompressedLength==0||entry.Length>entry.CompressedLength*200)
+                throw new InvalidDataException("VAULT_LOCAL_ARCHIVE: tiltott helyi metadata-bejegyzés");
+            using var source=entry.Open();
+            var data=new byte[checked((int)entry.Length)];source.ReadExactly(data);
+            if(source.ReadByte()!=-1||!files.TryAdd(key,data))
+                throw new InvalidDataException("VAULT_LOCAL_ARCHIVE: ismételt vagy csonka metadata");
+        }
+        if(names.Any(n=>!files.ContainsKey(n)))
+            throw new InvalidDataException("VAULT_LOCAL_ARCHIVE: hiányzó helyi metadata");
+        // These original local copies have no producer manifest. Their bytes
+        // are read under the snapshot handle and their schema/session/config
+        // hashes are checked against the manifested coordination archive.
+        return files;
+    }
     public static Dictionary<string,byte[]> Archive(byte[] bytes,string? unlistedReadme=null)
     {
         using var input=new MemoryStream(bytes,false);

@@ -13,7 +13,7 @@ if(-not [IO.Path]::IsPathRooted($QemuExecutable) -or [IO.Path]::GetFileName($Qem
 if((Get-FileHash -LiteralPath $QemuExecutable -Algorithm SHA256).Hash -ne $QemuSha256){throw 'QEMU runtime hash mismatch'}
 Add-Type -Path (Join-Path $PSScriptRoot 'WindowsLabJob.cs')
 $machine=Split-Path -Parent $plan.GuestDisk
-$guard=[IO.File]::Open((Join-Path $machine '.untamed-lab-owner'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+$guard=[IO.File]::Open((Join-Path $plan.LabRoot '.untamed-host-lab-owner'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 $owned=$null
 function Assert-Headroom {
     $os=Get-CimInstance Win32_OperatingSystem

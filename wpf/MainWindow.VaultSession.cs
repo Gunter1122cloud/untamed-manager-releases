@@ -10,6 +10,16 @@ public partial class MainWindow
 {
     private void ShowVaultSessionCopyReader()
     {
+        var zipResult=Label("A koordinációs archívum és a hiányzó host négyfájlos ZIP-másolata együtt is ellenőrizhető.",12,Soft);
+        Add(Box(V(Label("Untamed Cluster Vault · Két archívum ellenőrzése",19,Mint,true),
+            Btn("Koordinációs ZIP + helyi metadata ZIP kiválasztása",()=>{
+                var coordination=new Microsoft.Win32.OpenFileDialog{Filter="ZIP másolat (*.zip)|*.zip",Title="Koordinációs Store-archívum helyi másolata"};
+                if(coordination.ShowDialog()!=true)return;
+                var local=new Microsoft.Win32.OpenFileDialog{Filter="ZIP másolat (*.zip)|*.zip",Title="A hiányzó host négy helyi metadatafájljának ZIP-másolata"};
+                if(local.ShowDialog()!=true)return;
+                try{zipResult.Text=FormatVaultReport(ClusterVaultArchiveInspector.InspectPairedCopies(coordination.FileName,local.FileName));}
+                catch(Exception){zipResult.Text="VAULT_INPUT: hiányos, eltérő vagy nem biztonságos másolatok. Az archívumok változatlanok.";}
+            }),zipResult)));
         TextBox Field()=>new(){Height=34,IsReadOnly=true,
             Foreground=Brushes.White,Background=Panel};
         var share=Field();var hp=Field();var ryzen=Field();

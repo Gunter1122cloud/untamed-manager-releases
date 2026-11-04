@@ -50,6 +50,10 @@ Ez saját Windows-kód és szintetikus lifecycle ellenőrzése, nem valódi ASA-
   a JSON kis-/nagybetű-megkülönböztetése és az eredeti megjegyzések megmaradnak.
 - Új negatív teszt: journalírási hiba után is minden OS-foglalás elengedve;
   a régi pending állapot visszaállítása után új művelet megtagadva.
+- Lifecycle-kiegészítés: kezdetben ellentmondásos állapot vagy már megszakított
+  token esetén az adapter egyetlen parancsot sem kap. Mentés után megváltozott
+  Loader-identitás DoExit/restart helyett hibához vezet. Az új session-tesztek
+  szintetikusak; valódi ASA mentési bizonyítékot nem helyettesítenek.
 - Új JSON-tesztek: nested/escaped duplikáció, érvénytelen kind, BOM/CRLF/komment
   és védőmentés megőrzése valódi ideiglenes Windows-fájlokon.
 - A helyi fájlmentés publikálás előtt újra leltározza a teljes kijelölt forráskört.
@@ -84,6 +88,21 @@ teljes egészében sikeres a `d5374e15dcedcb7a80b1e68154ff1cad722e71d8` commiton
 laborpolicy és natív resource job, WPF, Store-v1, Supervisor/service, integráció,
 WPF fókusz/hit-test, EXE/Portable/Setup és installer/updater recovery.
 A forrásleltár-változást felismerő új backup-regresszió ebben még nem szerepelt.
+
+A következő [Windows CI 41820756670](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/41820756670)
+szintén teljes egészében sikeres a `d6736e762d61936176f200dd6cdcdf8ea58c916d` commiton,
+beleértve a mentés közben hozzáadott world/pluginfájlok visszautasítását és a
+NeedsOperator állapot megőrzését. A további lifecycle/páros ZIP-változások külön
+CI-ben ellenőrizendők.
+
+## Új HP-referencia
+
+A HP négy privát metadatafájljának ZIP-másolata megérkezett. A független, csak
+olvasó összevetés session/map/backup egyezést, de eltérő UNC-gépnév miatt eltérő
+helyi/peer konfigurációs hash-t talált. A részletes, titokmentes megállapítás:
+[HP-STORE-REFERENCE-2026-11-04-HU.md](HP-STORE-REFERENCE-2026-11-04-HU.md).
+A másolatokat nem módosítjuk és az eltérést nem alakítjuk automatikusan egyezéssé.
+Az új páros ZIP-ellenőrző a meglévő WPF-be került; eredeti metadata nem kerül GitHubra.
 
 ## Helyi izolált labor
 

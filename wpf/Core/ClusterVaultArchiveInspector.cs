@@ -42,6 +42,23 @@ public static class ClusterVaultArchiveInspector
         return InspectFiles(VaultReadSnapshot.Archive(bytes));
     }
 
+    public static ClusterVaultArchiveReport InspectPairedCopies(string coordinationArchive,string localMetadataArchive)
+    {
+        if(string.IsNullOrWhiteSpace(coordinationArchive)||string.IsNullOrWhiteSpace(localMetadataArchive)||
+           !coordinationArchive.EndsWith(".zip",StringComparison.OrdinalIgnoreCase)||
+           !localMetadataArchive.EndsWith(".zip",StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("VAULT_INPUT: két helyi ZIP-másolat szükséges");
+        using var snapshot=new VaultReadSnapshot();
+        var files=VaultReadSnapshot.Archive(snapshot.Read(coordinationArchive,32_000_000));
+        var local=VaultReadSnapshot.LocalMetadataArchive(snapshot.Read(localMetadataArchive,4_500_000));
+        foreach(var entry in local)
+            if(!files.TryAdd("SUPPLIED-LOCAL/"+entry.Key,entry.Value))
+                throw new InvalidDataException("VAULT_LOCAL_ARCHIVE: ütköző helyi metadata");
+        // Never writes/re-packs either original ZIP. Device identity, not this
+        // internal prefix, determines the peer association in the one validator.
+        return InspectFiles(files);
+    }
+
     // One validator for ZIP snapshots and explicitly copied local folders.
     // Metadata paths remain strings: never open an embedded root or share.
     internal static ClusterVaultArchiveReport InspectFiles(

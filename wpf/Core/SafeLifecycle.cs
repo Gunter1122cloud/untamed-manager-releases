@@ -25,20 +25,25 @@ public static class SafeLifecycle
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
         var ct=deadline.Token;
+        ct.ThrowIfCancellationRequested();
         var original=session.Check();
-        if(!original.Running || original.Identity==null)
+        if(!original.Running || original.ConfirmedStopped || original.Identity==null)
             throw new InvalidOperationException("Server identity is not verified");
-        bool Same(ProcessIdentity? current)=>current!=null&&
-            current.Pid==original.Identity.Pid&&current.StartedUtc==original.Identity.StartedUtc&&
-            string.Equals(current.ExecutablePath,original.Identity.ExecutablePath,StringComparison.OrdinalIgnoreCase)&&
-            current.Arguments==original.Identity.Arguments;
+        bool SameIdentity(ProcessIdentity? current,ProcessIdentity? expected)=>
+            current==null?expected==null:expected!=null&&
+            current.Pid==expected.Pid&&current.StartedUtc==expected.StartedUtc&&
+            string.Equals(current.ExecutablePath,expected.ExecutablePath,StringComparison.OrdinalIgnoreCase)&&
+            current.Arguments==expected.Arguments;
+        bool SameFamily(ProcessCheck current)=>SameIdentity(current.Identity,original.Identity)&&
+            SameIdentity(current.LoaderIdentity,original.LoaderIdentity);
         void VerifyIdentity()
         {
             ct.ThrowIfCancellationRequested();
             var current=session.Check();
-            if(!current.Running || current.ConfirmedStopped||!Same(current.Identity))
+            if(!current.Running || current.ConfirmedStopped||!SameFamily(current))
                 throw new InvalidOperationException("Server identity changed during stop");
         }
+        ct.ThrowIfCancellationRequested();
         await session.Command("ServerChat Server maintenance: saving world before shutdown",ct).WaitAsync(ct);
         VerifyIdentity();
         await session.Command("SaveWorld",ct).WaitAsync(ct);
@@ -51,7 +56,7 @@ public static class SafeLifecycle
             ct.ThrowIfCancellationRequested();
             var current=session.Check();
             if(current.ConfirmedStopped&&!current.Running&&current.Identity==null&&current.LoaderIdentity==null)break;
-            if(!current.Running||current.ConfirmedStopped||!Same(current.Identity))
+            if(!current.Running||current.ConfirmedStopped||!SameFamily(current))
                 throw new InvalidOperationException("Exit cannot be verified");
             await Task.Delay(100,ct);
         }
