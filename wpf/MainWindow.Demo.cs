@@ -392,20 +392,85 @@ public partial class MainWindow
     private UIElement DemoPluginsPane(DemoMap map)
     {
         var demo=_demo!;
-        var list=new ListBox{Height=155,Foreground=Brushes.White,Background=Panel};
-        var status=Label("Fiktív ASA API verzió: "+map.ApiVersion,12,Soft);
-        void Update()=>list.ItemsSource=map.Plugins.Select(p=>
-            (p.Enabled?"AKTÍV":"TILTVA")+" · "+p.Name).ToArray();
-        Update();
-        return V(Label("ASA API / pluginok",17,Mint,true),
-            Label("A plugin állapotváltása csak a DEMO objektumon történik.",12,Soft),
-            list,Btn("Kijelölt plugin átkapcsolása (DEMO)",()=>{
-                if(list.SelectedItem is not string selected)
-                {status.Text="Válassz ki egy pluginrekordot.";return;}
-                string name=selected.Split(" · ",2,StringSplitOptions.None).Last();
-                RunDemo(()=>demo.TogglePlugin(map.Id,name),status,
-                    name+" szimulált állapota módosult",Update);
-            }),status);
+        var search=new TextBox{Width=205,Height=36,
+            ToolTip="DEMO plugin keresése név alapján"};
+        var filter=new ComboBox{ItemsSource=new[]{"Összes","Engedélyezett","Letiltott"},
+            SelectedIndex=0,MinWidth=135,Margin=new Thickness(8,0,0,0)};
+        var list=new ListBox{
+            MinHeight=230,MaxHeight=385,
+            ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumPluginRow")
+        };
+        var summary=Label("",12,Soft);
+        var title=Label("Válassz mintaplugint",18,Mint,true);
+        var detail=Label("A DEMO csak memóriában módosít adatokat. Nincs pluginfájl vagy ASA-folyamat.",12,Soft);
+        var status=Label("DEMO · Fiktív ASA API-verzió: "+map.ApiVersion,12,Soft);
+        PremiumPluginRow? chosen=null;
+        Button enable=null!,disable=null!;
+        void Render()
+        {
+            string selected=chosen?.Name??(list.SelectedItem as PremiumPluginRow)?.Name??"";
+            string term=search.Text.Trim();
+            string state=filter.SelectedItem as string??"Összes";
+            var all=map.Plugins.Select(p=>new PremiumPluginRow(
+                p.Name,p.Enabled?"Engedélyezett":"Letiltott",
+                "DEMO · csak szimulált pluginállapot",p.Enabled)).ToArray();
+            var visible=all.Where(x=>
+                (term.Length==0||x.Name.Contains(term,StringComparison.OrdinalIgnoreCase)) &&
+                (state=="Összes"||(state=="Engedélyezett"&&x.Enabled)||
+                 (state=="Letiltott"&&!x.Enabled))).ToArray();
+            list.ItemsSource=visible;
+            list.SelectedItem=visible.FirstOrDefault(x=>x.Name==selected)
+                ??visible.FirstOrDefault();
+            summary.Text=map.Name+" · "+all.Length+" mintaplugin · "+
+                all.Count(x=>x.Enabled)+" engedélyezett · "+
+                all.Count(x=>!x.Enabled)+" letiltott";
+            ShowSelection();
+        }
+        void ShowSelection()
+        {
+            chosen=list.SelectedItem as PremiumPluginRow;
+            title.Text=chosen?.Name??"Válassz mintaplugint";
+            detail.Text=chosen==null?
+                "Válassz plugint a DEMO állapotváltáshoz.":
+                chosen.State+" · kizárólag a szimulált adat változik.\n"+
+                "DLL, licenc, SQL, valódi ASA API és fájlrendszer NEM érintett.";
+            enable.IsEnabled=chosen!=null&&!chosen.Enabled;
+            disable.IsEnabled=chosen!=null&&chosen.Enabled;
+        }
+        void Toggle(bool enabling)
+        {
+            if(chosen==null){status.Text="DEMO · Előbb válassz plugint.";return;}
+            var name=chosen.Name;
+            var current=map.Plugins.FirstOrDefault(p=>p.Name==name);
+            if(current==null){status.Text="DEMO · A mintaplugin már nem található.";return;}
+            if(current.Enabled==enabling){Render();return;}
+            RunDemo(()=>demo.TogglePlugin(map.Id,name),status,
+                name+(enabling?" bekapcsolva (DEMO)":" kikapcsolva (DEMO)"),Render);
+        }
+        enable=Btn("Bekapcsolás (DEMO)",()=>Toggle(true));
+        disable=Btn("Kikapcsolás (DEMO)",()=>Toggle(false));
+        list.SelectionChanged+=(_,_)=>ShowSelection();
+        search.TextChanged+=(_,_)=>Render();
+        filter.SelectionChanged+=(_,_)=>Render();
+        var toolbar=new WrapPanel{Margin=new Thickness(0,4,0,10)};
+        toolbar.Children.Add(search);
+        toolbar.Children.Add(filter);
+        var left=Box(V(Label("DEMO pluginlista",18,Mint,true),
+            Label("Keresés · szűrés · állapot",12,Soft),
+            toolbar,summary,list));
+        var commands=new WrapPanel{Margin=new Thickness(0,3,0,8)};
+        commands.Children.Add(enable);
+        commands.Children.Add(disable);
+        var right=Box(V(Label("Plugin részletei",18,Mint,true),
+            title,detail,commands,
+            Label("DEMO-ban nincs tényleges DLL- vagy fájlművelet.",11,Soft)));
+        var layout=new Grid {Margin=new Thickness(0,0,0,5)};
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(2,GridUnitType.Star)});
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star),MinWidth=200});
+        Grid.SetColumn(right,1);
+        layout.Children.Add(left);layout.Children.Add(right);
+        Render();
+        return V(layout,Box(V(Label("Visszajelzés",14,Mint,true),status)));
     }
 
     private UIElement DemoIniPane(DemoMap map)
