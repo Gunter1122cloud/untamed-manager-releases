@@ -47,6 +47,7 @@ try
     await VerifiedRestartTests.Run();
     ClusterTransferConsistencyTests.Run();
     ClusterBackupInventoryTests.Run();
+    ClusterBatchArchiveTests.Run(root);
     ClusterVaultTests.Run(root);
     ManagerMigrationArchiveTests.Run(root);
     SafeSupportBundleTests.Run(root);
