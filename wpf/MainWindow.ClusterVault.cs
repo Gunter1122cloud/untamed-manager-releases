@@ -41,12 +41,13 @@ public partial class MainWindow
             if(check!=null)check.IsEnabled=false;
             try
             {
+                string pathA=first.Text.Trim(),pathB=second.Text.Trim();
                 var decision=await Task.Run(()=>
-                    StorePathIdentity.CompareDirectories(first.Text.Trim(),second.Text.Trim()));
+                    StorePathIdentity.CompareDirectories(pathA,pathB));
                 status.Text=decision.Reason+
                     (decision.AliasEvidence?
-                        "\\nWindows fájlrendszer-azonosság igazolt. A Store session/hash és writer ownership még külön bizonyítandó.":
-                        "\\nKétgépes Store-írás ettől nem engedélyezhető.");
+                        "\nWindows fájlrendszer-azonosság igazolt. A Store session/hash és writer ownership még külön bizonyítandó.":
+                        "\nKétgépes Store-írás ettől nem engedélyezhető.");
             }
             catch(Exception ex)
             {
