@@ -63,6 +63,7 @@ try
     CheckFutureMapNames();
     LocalContentSnapshotTests.Run(root);
     DashboardSummaryTests.Run();
+    DemoWorkspaceTests.Run();
     await ModArgumentSafetyTests.Run(root);
     await GuardedPluginUpdateTests.Run(root);
     await IsolatedRconAdminQueueTests.Run(fake);
