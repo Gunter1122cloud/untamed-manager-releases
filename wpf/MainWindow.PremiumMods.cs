@@ -93,9 +93,9 @@ public partial class MainWindow
             var all=state.Active.Select((id,i)=>new PremiumModRow(id,"Aktív",i+1,
                     draft.TouchedModIds.Contains(id)?"Függőben lévő módosítás":"Konfigurált indítás"))
                 .Concat(state.Passive.Select((id,i)=>new PremiumModRow(id,"Passzív",i+1,
-                    pending.ContainsKey(id)?"Függőben lévő módosítás":"Konfigurált passzív indítás")))
+                    draft.TouchedModIds.Contains(id)?"Függőben lévő módosítás":"Konfigurált passzív indítás")))
                 .Concat(state.Disabled.Select((id,i)=>new PremiumModRow(id,"Letiltva",i+1,
-                    pending.ContainsKey(id)?"Függőben lévő módosítás":"Csak Manager-profil")))
+                    draft.TouchedModIds.Contains(id)?"Függőben lévő módosítás":"Csak Manager-profil")))
                 .ToArray();
             string term=search.Text.Trim();
             var visible=term.Length==0?all:all.Where(x=>
