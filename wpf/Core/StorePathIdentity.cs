@@ -90,7 +90,7 @@ public static class StorePathIdentity
                 bothUnc?"UNC paths resolve to the same Windows filesystem directory ID":
                         "Same directory in local test only; cross-host UNC ownership unverified");
         }
-        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidDataException or
                 ArgumentException or NotSupportedException or System.ComponentModel.Win32Exception)
         {
             return new(false,false,false,"Filesystem identity could not be established safely");
