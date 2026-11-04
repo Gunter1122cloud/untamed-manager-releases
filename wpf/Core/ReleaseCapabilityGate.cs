@@ -58,9 +58,8 @@ public static class ReleaseCapabilityGate
         if(!Path.GetFileName(executable).Equals("FakeAsa.exe",StringComparison.OrdinalIgnoreCase) ||
             !File.Exists(executable) || executable.StartsWith(@"\\"))
             throw new InvalidOperationException("Only a local FakeAsa.exe test process can be started");
-        if(!string.IsNullOrWhiteSpace(map.ApiLoaderPath) &&
-           !Path.GetFileName(map.ApiLoaderPath).Equals("FakeAsa.exe",StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("API loader is not the test binary");
+        if(map.StartWithAsaApi)
+            throw new InvalidOperationException("ASA API mode cannot be executed through the FakeAsa test gate");
         var check=cluster.Check(map);
         if(!ReleaseCapabilityGate.Check(ManagerOperation.FakeAsaStart,true,
             map.Maintenance,check.ConfirmedStopped,check.Running).Allowed)

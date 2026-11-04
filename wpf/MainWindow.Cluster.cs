@@ -254,6 +254,7 @@ public partial class MainWindow
         Tab("Áttekintés",V(
             Label("Végrehajtható fájl: "+map.ExecutablePath,12,Soft),
             Label("Indítási argumentumok: "+map.Arguments,12,Soft),
+            Label("Indítás ASA API-val: "+(map.StartWithAsaApi?"BE (előfeltételek ellenőrzendők)":"KI"),12,Aqua),
             Label($"Game {map.GamePort} / Query {map.QueryPort} / RCON {map.RconPort}",12,Aqua),
             Label(result.Running?"Futó szerver visszacsatlakoztatva":result.ConfirmedStopped?
                 "Leállítva; automatikus indítás nincs":"Ismeretlen folyamatállapot; indítás tiltva",13,result.Running?Mint:Soft),
@@ -263,7 +264,12 @@ public partial class MainWindow
             Label("A globális Mod Center megmarad; csak a helyi map indítási beállításai módosíthatók.",12,Soft),
             List(_modNames,230)));
         Tab("Pluginok / ASA API",V(Label("Helyi ASA API pluginok",17,Mint,true),
-            Label("A telepítési mappát manuálisan állíthatod be. Távoli DLL-eket nem szerkesztünk.",12,Soft),
+            Label("Indítási mód: "+(map.StartWithAsaApi?"ASA API loader (BEKAPCSOLVA)":
+                "Normál ASA szerver (KIKAPCSOLVA)"),14,Aqua,true),
+            Label("API-loader: "+(string.IsNullOrEmpty(map.ApiLoaderPath)?"nincs beállítva":map.ApiLoaderPath),12,Soft),
+            Label("A kapcsoló maponként mentett, de a valódi ASA-indítás nincs engedélyezve. "+
+                "A lemezen lévő API DLL önmagában nem bizonyítja a modul futásidejű betöltését.",12,Soft),
+            Btn("Indítás ASA API-val – beállítás szerkesztése",()=>ShowMapEditor(map)),
             List(_plugins,240)));
         Tab("INI",MapIniPane(map));
         Tab("RCON / Konzol",MapRconPane(map));
@@ -372,6 +378,14 @@ public partial class MainWindow
         Field("Indítási paraméterek (pontos egyezés)",map.Arguments);
         Field("API-loader EXE (opcionális)",map.ApiLoaderPath);
         Field("API-loader argumentumok",map.ApiLoaderArguments);
+        var apiStart=new CheckBox{
+            Content="Indítás ASA API-val (maponként külön; kikapcsolva normál ArkAscendedServer.exe)",
+            IsChecked=map.StartWithAsaApi,Foreground=Brushes.White,
+            Margin=new Thickness(0,0,0,9)};
+        form.Children.Add(apiStart);
+        form.Children.Add(Label("Bekapcsolva a hivatalos AsaApiLoader.exe indul, pontosan a szerver eredeti "+
+            "paramétereivel. A teljes helyi API-telepítés és a leállított állapot kötelező. "+
+            "Éles ASA indítás továbbra is tiltva.",12,Soft));
         var maintenance=new CheckBox{Content="Maintenance – helyi indítás tiltva",IsChecked=map.Maintenance,Foreground=Brushes.White};
         form.Children.Add(maintenance);
         var monitorRcon=new CheckBox{Content="Hitelesített RCON-monitoring (ListPlayers)",IsChecked=map.MonitorRcon,Foreground=Brushes.White};
@@ -402,14 +416,35 @@ public partial class MainWindow
                 if(!int.TryParse(fields["RCON TCP port"].Text,out var rcon)||rcon is < 1 or > 65535)
                     throw new InvalidDataException("Érvénytelen RCON port");
                 string loader=fields["API-loader EXE (opcionális)"].Text.Trim();
+                bool enableApi=apiStart.IsChecked==true;
+                string serverArguments=fields["Indítási paraméterek (pontos egyezés)"].Text.Trim();
+                string loaderArguments=fields["API-loader argumentumok"].Text.Trim();
+                if(enableApi && loader.Length==0)
+                    loader=Path.Combine(root,"ShooterGame","Binaries","Win64","AsaApiLoader.exe");
                 if(loader.Length>0 && (!File.Exists(loader)||!IsUnderRoot(loader,root)))
                     throw new InvalidDataException("A loader EXE-nek a helyi mapgyökérben kell lennie");
+                if(existing!=null && existing.StartWithAsaApi!=enableApi &&
+                   !_cluster.Check(existing).ConfirmedStopped)
+                    throw new InvalidOperationException("Az API-indítási módot csak igazoltan leállított mapon változtathatod meg");
+                if(enableApi)
+                {
+                    if(loaderArguments.Length>0 && loaderArguments!=serverArguments)
+                        throw new InvalidDataException("API módban a loader paraméterei nem térhetnek el a szerver paramétereitől");
+                    // Validate before mutating the registered map.
+                    _=AsaApiLaunchPolicy.Resolve(new LocalMap{
+                        InstallationPath=root,ExecutablePath=exe,Arguments=serverArguments,
+                        ApiLoaderPath=loader,ApiLoaderArguments=serverArguments,
+                        StartWithAsaApi=true
+                    });
+                    loaderArguments=serverArguments;
+                }
                 if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,out var interval)||interval<5||interval>3600)throw new InvalidDataException("Érvénytelen watchdog-időköz");
                 var target=existing??new LocalMap();
                 target.Name=name;target.InstallationPath=root;target.ExecutablePath=exe;
-                target.Arguments=fields["Indítási paraméterek (pontos egyezés)"].Text.Trim();
+                target.Arguments=serverArguments;
                 target.ApiLoaderPath=loader.Length==0?"":Path.GetFullPath(loader);
-                target.ApiLoaderArguments=fields["API-loader argumentumok"].Text.Trim();
+                target.ApiLoaderArguments=loaderArguments;
+                target.StartWithAsaApi=enableApi;
                 target.Maintenance=maintenance.IsChecked==true;
                 target.MonitorRcon=monitorRcon.IsChecked==true;
                 target.WatchdogIntervalSeconds=interval;

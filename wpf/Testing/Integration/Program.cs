@@ -47,6 +47,7 @@ try
     await CurseForgeDependencyResolverTests.Run();
     await AsaApiReleaseStagingTests.Run();
     await AsaApiIsolatedInstallerTests.Run();
+    AsaApiLaunchPolicyTests.Run(root,fake);
     await ModArgumentSafetyTests.Run(root);
     await GuardedPluginUpdateTests.Run(root);
     await IsolatedRconAdminQueueTests.Run(fake);

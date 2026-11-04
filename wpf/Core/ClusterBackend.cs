@@ -27,6 +27,9 @@ public sealed class LocalMap
     public string LogFilePath { get; set; } = "";
     public string ApiLoaderPath { get; set; } = "";
     public string ApiLoaderArguments { get; set; } = "";
+    // Explicit per-map opt-in. Existing profiles default to direct server mode.
+    // Loader path alone is historical observation metadata, not permission to launch it.
+    public bool StartWithAsaApi { get; set; } = false;
     public ProcessIdentity? LastLoader { get; set; }
     public string StoreTestRoot { get; set; } = "";
     public int GamePort { get; set; }
@@ -280,12 +283,13 @@ public sealed partial class WindowsProcessInspector
     public ProcessIdentity Launch(LocalMap map)
     {
         if (string.IsNullOrWhiteSpace(map.ExecutablePath)) throw new InvalidOperationException("Missing executable path");
-        var exe = Path.GetFullPath(string.IsNullOrWhiteSpace(map.ApiLoaderPath)?map.ExecutablePath:map.ApiLoaderPath);
-        string arguments=string.IsNullOrWhiteSpace(map.ApiLoaderPath)?map.Arguments:map.ApiLoaderArguments;
+        var launch=AsaApiLaunchPolicy.Resolve(map);
+        string exe=launch.ExecutablePath,arguments=launch.Arguments;
         if (!File.Exists(exe)) throw new FileNotFoundException("ASA server executable not found",exe);
         // No Windows job object, no kill-on-dispose. Server survives Manager UI exit/update.
         var psi = new ProcessStartInfo(exe,arguments) {
-            WorkingDirectory=string.IsNullOrWhiteSpace(map.InstallationPath) ?
+            WorkingDirectory=launch.UseApi ? Path.GetDirectoryName(exe)! :
+                string.IsNullOrWhiteSpace(map.InstallationPath) ?
                 Path.GetDirectoryName(exe)! : Path.GetFullPath(map.InstallationPath),
             UseShellExecute=false, CreateNoWindow=true
         };
@@ -465,7 +469,22 @@ public sealed class ClusterService : IAsyncDisposable
             return new(false,"Configure loader and child executable separately",null);
         // Observation is strictly read-only: a dashboard refresh, LAN status query
         // or watchdog poll must never modify cluster-config.json.
-        return string.IsNullOrWhiteSpace(map.ApiLoaderPath)?_inspect(map):_inspector.InspectFamily(map);
+        if(map.StartWithAsaApi)
+        {
+            // A saved preference is not proof that loader binaries are usable.
+            try { AsaApiLaunchPolicy.Resolve(map); }
+            catch(Exception ex) when(ex is InvalidDataException or InvalidOperationException or IOException or UnauthorizedAccessException)
+            { return new(false,"ASA API indítási előfeltétel hiányzik: "+ex.Message,null); }
+        }
+        if(!string.IsNullOrWhiteSpace(map.ApiLoaderPath))
+        {
+            // Even after opting out, a previous loader child may still be alive.
+            // A direct start must not bypass the old family observation.
+            var family=_inspector.InspectFamily(map);
+            if(map.StartWithAsaApi || family.Running || !family.ConfirmedStopped)
+                return family;
+        }
+        return _inspect(map);
     }
     private static bool SameIdentity(ProcessIdentity? left,ProcessIdentity? right)
     {
@@ -524,7 +543,7 @@ public sealed class ClusterService : IAsyncDisposable
                 throw new InvalidOperationException("Server is running or its stopped state cannot be verified");
             operation.MarkMutationStarted();
             var identity=_inspector.Launch(map);
-            if(string.IsNullOrWhiteSpace(map.ApiLoaderPath))map.LastProcess=identity;else map.LastLoader=identity;
+            if(map.StartWithAsaApi)map.LastLoader=identity;else map.LastProcess=identity;
             Save();operation.Complete();return identity;
     }
     public HostStatus LocalStatus()
