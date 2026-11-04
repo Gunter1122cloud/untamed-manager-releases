@@ -98,9 +98,9 @@ public partial class App : System.Windows.Application
                 window.Show();
                 if (window.Content is not FrameworkElement content)
                     throw new InvalidOperationException("WPF root missing");
-                string first=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_PATH") ??
+                string dashboardShotPath=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_PATH") ??
                     Path.Combine(LogDir,"preview.png");
-                string gallery=Path.Combine(Path.GetDirectoryName(first)??LogDir,"UI-Screenshots");
+                string gallery=Path.Combine(Path.GetDirectoryName(dashboardShotPath)??LogDir,"UI-Screenshots");
                 bool galleryEnabled=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_GALLERY")=="1";
                 var pages=galleryEnabled
                     ? new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","ini"}
@@ -118,7 +118,7 @@ public partial class App : System.Windows.Application
                     bitmap.Render(content);
                     var png=new PngBitmapEncoder();
                     png.Frames.Add(BitmapFrame.Create(bitmap));
-                    string path=page=="dashboard"?first:
+                    string path=page=="dashboard"?dashboardShotPath:
                         Path.Combine(gallery,"UntamedManager-"+page+".png");
                     using(var output=File.Create(path))png.Save(output);
                     if(new FileInfo(path).Length<8000)
