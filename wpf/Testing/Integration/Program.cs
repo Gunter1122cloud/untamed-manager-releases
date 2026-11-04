@@ -554,7 +554,10 @@ try
     var familyService=new ClusterService("family-test",familyRoot);
     var familyMap=new LocalMap{Name="Family",InstallationPath=Path.GetDirectoryName(fake)!,ExecutablePath=fake,Arguments="--child-fixture",ApiLoaderPath=fake,ApiLoaderArguments="--loader-fixture"};
     familyService.AddMap(familyMap);
-    Assert(familyService.Check(familyMap).Running,"Manager integrates WMI family validation");
+    var familyObservation=familyService.Check(familyMap);
+    Assert(familyObservation.Running,"Manager integrates WMI family validation");
+    Assert(familyService.RecordObservedIdentity(familyMap.Id,familyObservation),
+        "Operator-confirmed family identity persists without poll-time writes");
     bool familyDuplicate=false;
     try{familyService.LaunchLocal(familyMap.Id);}catch(InvalidOperationException){familyDuplicate=true;}
     Assert(familyDuplicate,"Family launch gate rejects duplicate start");
