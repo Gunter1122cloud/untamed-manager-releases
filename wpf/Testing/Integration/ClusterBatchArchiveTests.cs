@@ -64,6 +64,18 @@ public static class ClusterBatchArchiveTests
             "interrupted copy preserves incomplete forensic staging, not a published restore point");
         Check(Refused(()=>ClusterBatchArchive.Verify(interrupted+".incomplete")),
             "incomplete staging cannot masquerade as valid cluster backup");
+        var interruptedProgress=ClusterBatchArchive.InspectInterrupted(interrupted);
+        Check(interruptedProgress.NeedsOperator &&
+              interruptedProgress.BatchId==batch &&
+              interruptedProgress.VerifiedFiles==3 &&
+              !interruptedProgress.AutoReplayAllowed,
+            "durable checkpoint identifies exactly three copied objects without auto-resume");
+        string journaledObject=Path.Combine(interrupted+".incomplete","objects","01.bin");
+        File.AppendAllText(journaledObject,"tampering with interrupted copy");
+        var damagedProgress=ClusterBatchArchive.InspectInterrupted(interrupted);
+        Check(damagedProgress.NeedsOperator && damagedProgress.VerifiedFiles==0 &&
+              damagedProgress.BatchId==null,
+            "damaged interrupted copy cannot claim verified progress or release operation");
 
         string destination=Path.Combine(root,"complete-offline-batch");
         var manifest=ClusterBatchArchive.BuildOffline(batch,maps,inputs,destination);
@@ -72,6 +84,8 @@ public static class ClusterBatchArchiveTests
               !manifest.StoreWriterOwnershipConfirmed&&!manifest.SqlTransactionBoundaryConfirmed,
             "37 distinct disk files published with explicit absence of live-server consistency proof");
         var validated=ClusterBatchArchive.Verify(destination);
+        Check(!ClusterBatchArchive.InspectInterrupted(destination).NeedsOperator,
+            "successful publication retires transient crash checkpoint");
         Check(validated.BatchId==batch && validated.Components.Length==37,
             "fresh disk read validates all published component hashes and ownership");
         Check(Refused(()=>ClusterBatchArchive.BuildOffline(batch,maps,inputs,destination)),
