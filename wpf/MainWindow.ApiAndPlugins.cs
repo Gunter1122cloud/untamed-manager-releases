@@ -17,6 +17,9 @@ public partial class MainWindow
         var plugin=new ComboBox{IsEditable=true,Height=34,Background=Panel,
             Foreground=Brushes.White};
         var status=Label("Válassz helyi mapot. PE64 fájlok és pluginállapotok csak lemezről igazolhatók.",12,Soft);
+        AsaApiReleaseInfo? approvedRelease=null;
+        var releaseAsset=new ComboBox{Background=Panel,Foreground=Brushes.White,
+            DisplayMemberPath="Name",SelectedIndex=-1};
         LocalMap Selected()
         {
             if(mapList.SelectedItem is not LocalMap m ||
@@ -46,7 +49,7 @@ public partial class MainWindow
             }
             catch(Exception ex){status.Text="API/Plugin leltár sikertelen: "+ex.Message;}
         }
-        Add(Box(V(Label("v1.5 · ASA API és pluginállapot",20,Mint,true),
+        Add(Box(V(Label("v"+UiVersion+" · ASA API és pluginállapot",20,Mint,true),
             Label("PE64 loader/DLL-ellenőrzés, config validálás, lemezen lévő pluginok. "+
                 "Kikapcsoláskor teljes pluginmappa kerül külön gyökérbe; SHA-256 "+
                 "védőmásolat szükséges. Betöltött futásidejű modul nem következtethető a lemezről.",12,Soft),
@@ -57,6 +60,11 @@ public partial class MainWindow
                 {
                     status.Text="Hivatalos ArkServerApi GitHub-verzió lekérdezése...";
                     var release=await AsaApiReleaseCatalog.FetchLatestAsync(_http);
+                    approvedRelease=release;
+                    var verified=release.Assets.Where(a=>a.OfficialSha256!=null &&
+                        a.Name.EndsWith(".zip",StringComparison.OrdinalIgnoreCase)).ToArray();
+                    releaseAsset.ItemsSource=verified;
+                    releaseAsset.SelectedIndex=verified.Length>0?0:-1;
                     status.Text="ASA API hivatalos upstream: "+release.Tag+
                         "\nKiadás (UTC): "+(release.PublishedUtc?.ToString("O")??"ismeretlen")+
                         "\nFájlok: "+string.Join(", ",release.Assets.Select(x=>x.Name+
@@ -66,8 +74,41 @@ public partial class MainWindow
                 }
                 catch(Exception ex)
                 {
-                    status.Text="ASA API verzió lekérdezése sikertelen: "+ex.Message;
                     WriteLog("asa-api-release",ex);
+                    status.Text="UM-API-UPSTREAM: a hivatalos verzióadatok nem ellenőrizhetők.";
+                }
+            }),
+            Label("Hivatalos ASA API ZIP-fájl – csak kiadói SHA-256-tal",12,Aqua),
+            releaseAsset,
+            Btn("Hivatalos ASA API ZIP letöltése és integritásellenőrzése (TEMP)",async ()=>{
+                if(approvedRelease==null||releaseAsset.SelectedItem is not AsaApiReleaseAsset asset)
+                {status.Text="Előbb válassz SHA-256-tal igazolható hivatalos kiadási ZIP-et.";return;}
+                string output=Path.Combine(Path.GetTempPath(),
+                    "Untamed-ApiLab-"+Guid.NewGuid().ToString("N"));
+                if(WinMessageBox.Show(
+                    "A hivatalos ASA API release ZIP-et letölti az izolált TEMP-mappába "+
+                    "és ellenőrzi a kiadói SHA-256-ot.\n"+
+                    "Nem csomagolja ki ASA-ba, nem módosít loadert/DLL-t, nem "+
+                    "indít újra mapot.\nCél: "+output+"\nFolytatod?",
+                    "Untamed ASA API – elkülönített ZIP",
+                    MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                status.Text="ASA API: hivatalos ZIP letöltése és hash-ellenőrzése...";
+                try
+                {
+                    var result=await AsaApiReleaseStaging.StageAsync(
+                        _http,approvedRelease,asset,output);
+                    status.Text="HIVATALOS ZIP INTEGRITÁSA IGAZOLT"+
+                        "\nKiadás: "+result.Tag+" · ZIP: "+result.AssetName+
+                        "\nSHA-256: "+result.OfficialSha256+
+                        "\nMéret: "+result.Bytes+" bájt"+
+                        "\nCsomag: "+output+
+                        "\nLoader/plugin telepítés és éles restart NEM történt.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("asa-api-release-download",ex);
+                    status.Text="UM-API-PACKAGE: a ZIP hitelesítése sikertelen. "+
+                        "Az esetleges .incomplete mappa operátori vizsgálatot igényel.";
                 }
             }),
             Label("Plugin mappaneve",12,Aqua),plugin,
