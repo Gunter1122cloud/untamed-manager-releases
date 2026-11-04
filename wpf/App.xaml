@@ -4,70 +4,8 @@
  xmlns:local="clr-namespace:UntamedManager"
  StartupUri="MainWindow.xaml">
   <Application.Resources>
-    <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#F0F9F5"/><Setter Property="FontFamily" Value="Segoe UI"/></Style>
-    <Style TargetType="TextBox">
-      <Setter Property="Background" Value="#102F30"/>
-      <Setter Property="Foreground" Value="#ECFFF8"/>
-      <Setter Property="BorderBrush" Value="#2F8176"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="12,10"/>
-      <Setter Property="CaretBrush" Value="#9AFFDC"/>
-      <Setter Property="FontFamily" Value="Segoe UI"/>
-      <Setter Property="FontSize" Value="14"/>
-      <Setter Property="SelectionBrush" Value="#267D6F"/>
-      <Style.Triggers>
-       <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter Property="BorderBrush" Value="#8AFFD1"/>
-       </Trigger>
-      </Style.Triggers>
-    </Style>
-    <Style TargetType="ListBox">
-      <Setter Property="Background" Value="#0B282A"/>
-      <Setter Property="Foreground" Value="#ECFFF8"/>
-      <Setter Property="BorderBrush" Value="#2A7770"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="7"/>
-      <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
-    </Style>
-    <Style TargetType="CheckBox">
-      <Setter Property="Foreground" Value="#E3FFF5"/>
-      <Setter Property="FontFamily" Value="Segoe UI"/>
-      <Setter Property="FontSize" Value="14"/>
-      <Setter Property="Cursor" Value="Hand"/>
-    </Style>
-    <Style TargetType="ComboBox">
-      <Setter Property="Background" Value="#E5F3ED"/>
-      <Setter Property="Foreground" Value="#16342C"/>
-      <Setter Property="BorderBrush" Value="#418F7D"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="8,6"/>
-      <Setter Property="FontFamily" Value="Segoe UI"/>
-      <Setter Property="FontSize" Value="13"/>
-      <Setter Property="MinHeight" Value="34"/>
-    </Style>
-    <Style TargetType="ComboBoxItem">
-      <Setter Property="Foreground" Value="#17372F"/>
-      <Setter Property="Background" Value="#E4F7EE"/>
-      <Setter Property="Padding" Value="8,5"/>
-      <Style.Triggers>
-       <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#8BD6BC"/></Trigger>
-      </Style.Triggers>
-    </Style>
-    <Style TargetType="TabItem">
-      <Setter Property="Foreground" Value="#183B34"/>
-      <Setter Property="Background" Value="#DCEFE6"/>
-      <Setter Property="Padding" Value="11,7"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Style.Triggers>
-       <Trigger Property="IsSelected" Value="True">
-        <Setter Property="Background" Value="#116B53"/>
-        <Setter Property="Foreground" Value="White"/>
-       </Trigger>
-       <Trigger Property="IsMouseOver" Value="True">
-        <Setter Property="BorderBrush" Value="#6FE2BA"/>
-       </Trigger>
-      </Style.Triggers>
-    </Style>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Styles/PremiumTheme.xaml" /></ResourceDictionary.MergedDictionaries>
     <DataTemplate x:Key="PremiumModInventoryCard">
       <Border Background="#192B30" BorderBrush="#35525A" BorderThickness="0,0,0,1"
               Padding="12,9" Margin="0,0,0,3" CornerRadius="6">
@@ -94,13 +32,6 @@
         </Grid>
       </Border>
     </DataTemplate>
-    <Style TargetType="ListBoxItem">
-      <Setter Property="Foreground" Value="#E8FFF8"/><Setter Property="Padding" Value="10,7"/>
-      <Style.Triggers>
-        <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#205746"/></Trigger>
-        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#21443E"/></Trigger>
-      </Style.Triggers>
-    </Style>
         <LinearGradientBrush x:Key="MetalTitleBrush" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FFFFFF" Offset="0"/>
       <GradientStop Color="#E8F7F4" Offset="0.35"/>
@@ -273,5 +204,6 @@
         <Setter.Value><DropShadowEffect Color="#FFB33C" BlurRadius="16" ShadowDepth="0" Opacity="0.16"/></Setter.Value>
       </Setter>
     </Style>
+      </ResourceDictionary>
   </Application.Resources>
 </Application>
