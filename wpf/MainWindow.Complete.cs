@@ -40,13 +40,16 @@ public partial class MainWindow
     {
         var navigation=NavigationMenu.Children.OfType<System.Windows.Controls.Button>()
             .Where(x=>x.Tag is string).ToArray();
-        if(navigation.Length<12)
-            throw new InvalidOperationException("Premium navigation lost page entries");
-        foreach(string page in new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","rcon"})
+        var primary=new[]{"dashboard","servers","cluster","mods","plugins","backups","operations","settings"};
+        if(navigation.Length!=primary.Length ||
+           !primary.All(p=>navigation.Count(b=>(string)b.Tag==p)==1))
+            throw new InvalidOperationException("Premium navigation must have exactly eight usable primary entries");
+        foreach(string page in primary.Concat(new[]{"rcon","ini","steam","monitoring","recovery","data","license","lan"}))
         {
             Navigate(page);
+            string expected=primary.Contains(page)?page:"operations";
             if(navigation.Count(NavSelection.GetIsCurrent)!=1 ||
-               !NavSelection.GetIsCurrent(navigation.Single(x=>(string)x.Tag==page)))
+               !NavSelection.GetIsCurrent(navigation.Single(x=>(string)x.Tag==expected)))
                 throw new InvalidOperationException("Navigation contains a stale or duplicate selected state: "+page);
         }
         Navigate("dashboard");
