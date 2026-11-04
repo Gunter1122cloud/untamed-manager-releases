@@ -15,6 +15,9 @@ public static class LocalHostResourceTests
         var message=valid.Display("LOCAL-TEST");
         Check(message.Contains("CPU: 25%")&&message.Contains("RAM: 2.0/8.0 GiB"),
             "grounded CPU and RAM figures use actual observation values");
+        var disk=new LocalHostResourceSnapshot(25,2048*1024UL,8192*1024UL,moment,6.5,16.0);
+        Check(disk.Display("LOCAL-TEST").Contains("Manager-lemez: 6.5/16.0 GiB"),
+            "disk measurement explicitly names the Manager profile drive");
         var missing=new LocalHostResourceSnapshot(null,null,null,moment);
         Check(missing.Display("LOCAL-TEST").Contains("CPU: nem mérhető") &&
             missing.Display("LOCAL-TEST").Contains("RAM: nem mérhető"),
