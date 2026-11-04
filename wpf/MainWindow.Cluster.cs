@@ -407,32 +407,107 @@ public partial class MainWindow
 
     private UIElement MapIniPane(LocalMap map)
     {
-        string iniRoot=Path.Combine(map.InstallationPath,"ShooterGame","Saved","Config","WindowsServer");
-        var options=new[]{Path.Combine(iniRoot,"Game.ini"),Path.Combine(iniRoot,"GameUserSettings.ini")};
-        var choice=new ComboBox{ItemsSource=options,SelectedIndex=0,Margin=new Thickness(0,6,0,9),
-            Foreground=Brushes.White,Background=Panel};
-        var editor=new TextBox {Height=240,AcceptsReturn=true,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
-            FontFamily=new FontFamily("Consolas"),TextWrapping=TextWrapping.NoWrap,IsReadOnly=true};
-        string? current=null;
-        var load=Btn("Helyi INI beolvasása",()=>{
-            var path=choice.SelectedItem as string;
-            if(path==null||!File.Exists(path)){Notice("A kiválasztott INI nem található.");return;}
-            if(!IsUnderRoot(path,map.InstallationPath)){Notice("INI elérési út kívül esik a helyi mapon.");return;}
-            editor.Text=File.ReadAllText(path);current=path;editor.IsReadOnly=false;
+        var choice=new ComboBox {
+            ItemsSource=new[]{"Game.ini","GameUserSettings.ini"},SelectedIndex=0,
+            Margin=new Thickness(0,6,0,9),Foreground=Brushes.White,Background=Panel
+        };
+        var editor=new TextBox {
+            Height=260,AcceptsReturn=true,AcceptsTab=true,
+            VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,
+            FontFamily=new FontFamily("Consolas"),TextWrapping=TextWrapping.NoWrap,
+            Foreground=Brushes.White,Background=Panel,IsEnabled=false
+        };
+        var status=Label("Az INI szerkesztéshez igazoltan leállított helyi map kell. "+
+            "Kötelező az eredeti fájl hash-ellenőrzése és védőmentése.",12,Soft);
+        ConfigSnapshot? baseline=null;
+        void Reset()
+        {
+            baseline=null;editor.Text="";editor.IsEnabled=false;
+            status.Text="Új fájl kiválasztva: nyisd meg a biztonságos szerkesztőben.";
+        }
+        choice.SelectionChanged+=(_,_)=>Reset();
+        void EnsureLocal()
+        {
+            if(!_cluster.Config.LocalMaps.Contains(map))
+                throw new UnauthorizedAccessException("Only the owned local map can be edited");
+        }
+        string SelectedFile()
+        {
+            if(choice.SelectedItem is not string name ||
+               name is not ("Game.ini" or "GameUserSettings.ini"))
+                throw new InvalidDataException("Válassz támogatott helyi INI fájlt");
+            return Path.Combine(map.InstallationPath??"",
+                "ShooterGame","Saved","Config","WindowsServer",name);
+        }
+        var load=Btn("INI biztonságos megnyitása",()=>{
+            try
+            {
+                EnsureLocal();
+                baseline=SafeConfigEditor.Read(SelectedFile(),map.InstallationPath,
+                    ConfigKind.GameIni,_cluster.Check(map),map.Maintenance);
+                editor.Text=baseline.Text;editor.IsEnabled=true;
+                status.Text="Fájl: "+Path.GetFileName(baseline.Path)+
+                    " · SHA-256: "+baseline.Sha256+
+                    " · Kódolás: "+baseline.EncodingId+
+                    " · BOM: "+baseline.HasBom+
+                    "\nCsak a szerkesztőben módosult; lemezen még változatlan.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-ini-read",ex);
+                baseline=null;editor.Text="";editor.IsEnabled=false;
+                status.Text="INI megnyitás megtagadva: "+ex.Message;
+            }
         });
-        var save=Btn("Biztonsági mentés + mentés",()=>{
-            if(current==null || !IsUnderRoot(current,map.InstallationPath))return;
-            try{
-                if(WinMessageBox.Show($"Helyi INI mentése? A futó szerver csak újraindításkor olvashatja be.\n{current}",
-                    "INI mentése",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
-                var backup=current+".untamed."+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".bak";
-                File.Copy(current,backup,false);
-                var temp=current+".untamed.tmp";File.WriteAllText(temp,editor.Text,Encoding.UTF8);File.Move(temp,current,true);
-                Notice("INI mentve; az eredeti fájlról másolat készült.");
-            }catch(Exception ex){WriteLog("ini",ex);Notice(ex.Message);}
+        var preview=Btn("INI változásainak ellenőrzése",()=>{
+            try
+            {
+                EnsureLocal();
+                if(baseline==null)throw new InvalidOperationException("Előbb nyisd meg a helyi INI fájlt");
+                var check=SafeConfigEditor.Preview(baseline,editor.Text);
+                status.Text=(check.Changed?"MÓDOSULT":"VÁLTOZATLAN")+
+                    " · "+check.OldLines+" → "+check.NewLines+" sor"+
+                    "\nEredeti SHA-256: "+check.OldSha256+
+                    "\nTervezett SHA-256: "+check.NewSha256+
+                    "\nA fájl még nincs mentve.";
+            }
+            catch(Exception ex){status.Text="INI előnézet sikertelen: "+ex.Message;}
         });
-        return V(Label("Csak a helyi map WindowsServer/Game.ini vagy GameUserSettings.ini fájlja.",12,Soft),
-            choice,load,save,editor);
+        var save=Btn("Ellenőrzött INI mentése és .bak védőmásolat",()=>{
+            try
+            {
+                EnsureLocal();
+                if(baseline==null || !string.Equals(
+                    baseline.Path,Path.GetFullPath(SelectedFile()),StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Újra meg kell nyitnod a kiválasztott INI fájlt");
+                var check=SafeConfigEditor.Preview(baseline,editor.Text);
+                if(!check.Changed){status.Text="Az INI változatlan; mentés nem szükséges.";return;}
+                if(WinMessageBox.Show(map.Name+" / "+Path.GetFileName(baseline.Path)+
+                    "\nA fájl csak igazoltan leállított mapon módosítható. "+
+                    "Ellenőrzött védőmásolat készül, a restart külön művelet. Folytatod?",
+                    "INI mentése",MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                string backup=SafeConfigEditor.Save(baseline,editor.Text,
+                    map.InstallationPath,_cluster.Check(map),map.Maintenance,
+                    ()=>_cluster.Check(map));
+                baseline=SafeConfigEditor.Read(baseline.Path,map.InstallationPath,
+                    ConfigKind.GameIni,_cluster.Check(map),map.Maintenance);
+                editor.Text=baseline.Text;
+                status.Text="INI ellenőrzötten mentve. Védőmásolat: "+backup+
+                    "\nÚj SHA-256: "+baseline.Sha256+
+                    "\nNem történt automatikus szerver-újraindítás.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-ini-save",ex);
+                status.Text="INI mentés megtagadva: "+ex.Message;
+            }
+        });
+        return V(Label("Helyi map INI · SHA-256 / ETag / atomikus csere / .bak",16,Mint,true),
+            Label("A megszakított vagy kívülről módosított fájlt a rendszer nem írja felül. "+
+                "A Manager a karakter- és Store-fájlokat nem szerkeszti.",12,Soft),
+            choice,load,preview,save,status,editor);
     }
     private static bool IsUnderRoot(string path,string root)
     {
