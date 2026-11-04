@@ -95,8 +95,8 @@ public partial class MainWindow
                 status.Text="ASA API: hivatalos ZIP letöltése és hash-ellenőrzése...";
                 try
                 {
-                    var result=await AsaApiReleaseStaging.StageAsync(
-                        _http,approvedRelease,asset,output);
+                    var result=await AsaApiReleaseStaging.StageLatestAsync(
+                        _http,asset.Name,output);
                     status.Text="HIVATALOS ZIP INTEGRITÁSA IGAZOLT"+
                         "\nKiadás: "+result.Tag+" · ZIP: "+result.AssetName+
                         "\nSHA-256: "+result.OfficialSha256+
