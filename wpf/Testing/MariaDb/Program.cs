@@ -50,6 +50,11 @@ async Task<(int Port,string Data)> Engine(string name,bool source)
     bool ready=false;for(int attempt=0;attempt<60&&!process.HasExited;attempt++)
     {try{await Admin(port,"SELECT 1;");ready=true;break;}catch(IOException){await Task.Delay(500);}}
     Check(ready,"owned standalone engine starts without Windows service installation");
+    // Fresh disposable CI engine only: the installer grants PUBLIC access to
+    // test/test_% by default. Remove inherited fixture database privileges
+    // before constructing the narrowly scoped test accounts; never weaken
+    // the production adapter's rejection of unrelated database privileges.
+    await Admin(port,"DELETE FROM mysql.db; FLUSH PRIVILEGES;");
     string grants="CREATE USER 'sqlactor'@'127.0.0.1' IDENTIFIED BY "+SqlString(password)+";\n";
     foreach(string db in MariaDbCompatibility.Databases)
     {
