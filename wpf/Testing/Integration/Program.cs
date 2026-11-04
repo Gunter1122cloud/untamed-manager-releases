@@ -48,6 +48,7 @@ try
     await ProfessionalOperationsTests.Run(root,fake);
     await OperationSafetyTests.Run(root);
     DurableWatchdogTrackerTests.Run(root);
+    SafeConfigRecheckTests.Run(root);
     RecurringReadOnlyRecoveryTests.Run(root);
     await AsaReadyProbeTests.Run(root);
     StorePathIdentityTests.Run(root);

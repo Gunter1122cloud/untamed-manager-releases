@@ -16,5 +16,6 @@ await AsaApiReleaseStagingTests.Run();
 await AsaApiIsolatedInstallerTests.Run();
 await RconTransportTests.Run();
 DurableWatchdogTrackerTests.Run(root);
+SafeConfigRecheckTests.Run(root);
 RecurringReadOnlyRecoveryTests.Run(root);
 Console.WriteLine("PASS T11-T13/T16 isolated Windows targeted regression suite");
