@@ -375,17 +375,7 @@ public partial class MainWindow
             ResetHistory();preview.Text="[DEMO] Módosítások elvetve.";Render();
         }));
         var apply=Btn("Módosítások alkalmazása (DEMO)",()=>RunDemo(()=>{
-            foreach(var existing in map.Mods.ToArray())
-                if(!staged.Any(m=>m.ProjectId==existing.ProjectId))
-                    demo.SetMod(map.Id,existing.ProjectId,null);
-            foreach(var wanted in staged)
-                if(!map.Mods.Any(x=>x.ProjectId==wanted.ProjectId && x.Mode==wanted.Mode))
-                    demo.SetMod(map.Id,wanted.ProjectId,wanted.Mode);
-            for(int i=0;i<staged.Count;i++)
-            {
-                int from=map.Mods.FindIndex(m=>m.ProjectId==staged[i].ProjectId);
-                while(from>i){demo.MoveMod(map.Id,staged[i].ProjectId,-1);from--;}
-            }
+            demo.ApplyModList(map.Id,staged.ToArray());
             ResetHistory();
         },result,"Modlista alkalmazva a DEMO memóriában",()=>{
             preview.Text="[DEMO] Alkalmazva – az éles konfiguráció érintetlen.";
