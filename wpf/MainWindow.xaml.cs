@@ -41,6 +41,7 @@ public sealed class MapInfo
 
 public partial class MainWindow : Window
 {
+    private static string UiVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     private readonly ObservableCollection<MapInfo> _maps = new();
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(12) };
     private readonly Forms.NotifyIcon _tray = new();

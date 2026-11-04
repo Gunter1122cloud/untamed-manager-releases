@@ -129,7 +129,7 @@ public partial class MainWindow
     {
         Header("SteamCMD Update Center – szimuláció",
             "Közös telepítési gyökér, tárhely és folyamatállapot vizsgálata; SteamCMD futtatása tiltva.");
-        Add(Box(V(Label("SteamCMD Update Center – v1.4.0 RC",20,Mint,true),
+        Add(Box(V(Label("SteamCMD Update Center – v"+UiVersion",20,Mint,true),
             Label("Éles ASA frissítés és automatikus map-restart nem engedélyezett "+
                 "igazolt SaveWorld/Stop és valódi ASA kompatibilitási teszt nélkül.",12,Soft))));
         var path=new TextBox{IsReadOnly=true,Height=34,Background=Panel,Foreground=Brushes.White};

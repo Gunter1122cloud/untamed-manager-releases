@@ -20,14 +20,14 @@ public partial class MainWindow
     {
         Navigate("recovery");
         UpdateLayout();
-        if(PageTitle.Text!="Recovery Center – v1.3.7 TEST")
+        if(PageTitle.Text!="Recovery Center – v"+UiVersion+" (Read-only)")
             throw new InvalidOperationException("Recovery Center navigation failed");
         Navigate("dashboard");
     }
 
     private void ShowRecoveryCenter()
     {
-        Header("Recovery Center – v1.3.7 TEST",
+        Header("Recovery Center – v"+UiVersion+" (Read-only)",
             "Watchdog 2.0, szimulált SaveWorld/Restart, WAN/DDNS megfigyelés. Éles szerverműveletek tiltva.");
         Add(Box(V(
             Label("RECOVERY ENGINE: KIZÁRÓLAG SZIMULÁCIÓ",21,Mint,true),

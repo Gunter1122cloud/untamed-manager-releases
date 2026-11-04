@@ -59,7 +59,7 @@ public partial class MainWindow
             finally{if(build!=null)build.IsEnabled=true;}
         });
         Add(Box(V(
-            Label("v1.6 · Kétgépes OFFLINE archívum / 10 map + 3 SQL",20,Mint,true),
+            Label("v"+UiVersion+" · Kétgépes OFFLINE archívum / 10 map + 3 SQL",20,Mint,true),
             Label("Másolt backup-csomagok: HP mappában 5 mapcsomag, Ryzen mappában 5; "+
                 "SQL mappában arkshop / arkpermissions / lethalquests almappák. "+
                 "Minden mappának korábban elkészített Untamed manifest.json + data + complete "+
