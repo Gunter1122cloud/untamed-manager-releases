@@ -119,6 +119,14 @@ csak a vendég virtuális 0-s lemezének telepítési válaszfájlja, a hoston s
 setup/particionálás nem fut. Az új CI külön 7-Zip FAT-olvasóval is ellenőrzi
 a médiát. A médiateszt nem igazol Windows- vagy ASA-települést; a vendég nem indult.
 
+A FAT12/VFAT és XML/7-Zip médiatesztek, valamint a teljes korábbi csomag a
+[Windows CI 41824654625](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/41824654625)
+futásban sikeres az `a36afd9f3247e8376ac3695ef256ba1700fd28a0` commiton.
+A következő változás a tartós, egyszer használatos telepítési claim: egy megszakadt
+unattended setup nem indul újra automatikusan a virtuális lemez törlésével.
+További CI-próba a teljes médiagenerátor DPAPI-jelszórekordja és az ismételt
+generálás visszautasítása, az eredeti kép megőrzésével. Ezek is vendégindítás nélküli próbák.
+
 ## Helyi izolált labor
 
 A felhasználó engedélyezte a munkamappán belüli elkülönített labort, de az élő

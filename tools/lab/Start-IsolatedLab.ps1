@@ -27,6 +27,7 @@ function Assert-Headroom {
 try {
     Assert-Headroom
     $plan|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 -LiteralPath (Join-Path $machine 'last-launch-plan.json')
+    if($GuestAnswerMedia){Write-LabSetupClaim -LabRoot $LabRoot -GuestDisk $GuestDisk -MediaSha256 $GuestAnswerMediaSha256}
     $owned=[UntamedLab.WindowsLabJob]::Start($QemuExecutable,[string[]]$plan.Arguments,$machine,10,[UInt64]10GB)
     $until=[DateTime]::UtcNow.AddMinutes($MaximumMinutes)
     Write-Output "Isolated QEMU PID $($owned.ProcessId); CPU cap verified $($owned.CpuRate)/10000; job memory $($owned.MemoryLimit) bytes"

@@ -78,5 +78,11 @@ külső entitás tiltott. A CI egy külön 7-Zip FAT-olvasóval is ellenőrzi a 
 fájlnevet és az eredeti XML byte-jait. Ez médiakészítési próba; a valódi Windows
 települését és az ASA integrációt külön kell igazolni.
 
+A telepítési média indítása tartós, egyszer használható setup-claimet hoz létre.
+Az előző folyamat kilépése vagy időtúllépése nem oldja fel ezt a claimet; a
+vendéglemez törlését tartalmazó unattended setup nem ismétlődik automatikusan.
+Média nélküli későbbi boot elsőként a meglévő vendéglemezt próbálja, a telepítési
+állapotot külön kell ellenőrizni.
+
 Microsoft források: [Setup automatizálás](https://learn.microsoft.com/windows-hardware/manufacture/desktop/windows-setup-automation-overview),
 [Windows Setup válaszfájl](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/automate-windows-setup).

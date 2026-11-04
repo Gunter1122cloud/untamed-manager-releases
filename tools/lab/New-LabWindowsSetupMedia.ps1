@@ -4,7 +4,7 @@ param([Parameter(Mandatory=$true)][string]$LabRoot,
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'IsolatedLab.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'LabWindowsSetup.psm1') -Force
-Add-Type -Path (Join-Path $PSScriptRoot 'LabAnswerMedia.cs')
+if(-not ('UntamedLab.LabAnswerMedia' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'LabAnswerMedia.cs')}
 $machine=Assert-LabPath $LabRoot $MachineDirectory
 if(-not (Test-Path -LiteralPath $machine -PathType Container)){throw 'Prepared lab machine directory required'}
 $disk=Join-Path $machine 'system.qcow2';Assert-LabPath $LabRoot $disk|Out-Null;Assert-LabDisk $disk

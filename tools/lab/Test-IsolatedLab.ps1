@@ -38,6 +38,11 @@ Assert ($document.SelectSingleNode('//u:InstallTo/u:DiskID',$ns).InnerText -eq '
 $answerPath=Join-Path $root 'answer.img';[IO.File]::WriteAllBytes($answerPath,$media)
 $withAnswer=New-IsolatedLabPlan -LabRoot $root -GuestIso $iso -GuestDisk $disk -GuestAnswerMedia $answerPath
 Assert ($withAnswer.GuestAnswerMediaSha256 -eq (Get-FileHash -LiteralPath $answerPath -Algorithm SHA256).Hash -and $withAnswer.Arguments -contains 'floppy,drive=labanswer,drive-type=144') 'read-only guest answer medium is explicit and hashed'
+Assert ($withAnswer.Arguments -contains 'order=c,once=d,menu=off' -and $plan.Arguments -contains 'order=cd,menu=off') 'setup boots DVD once while later boots prefer existing guest disk'
+Write-LabSetupClaim -LabRoot $root -GuestDisk $disk -MediaSha256 $withAnswer.GuestAnswerMediaSha256
+$claim=Get-Content -Raw -LiteralPath (Join-Path $root 'guest-setup-claim.json')|ConvertFrom-Json
+Assert (-not $claim.GuestInstallationVerified -and $claim.Phase -eq 'GUEST_SETUP_REQUESTED_NEEDS_VERIFICATION') 'setup claim never certifies installation success'
+Refused {Write-LabSetupClaim -LabRoot $root -GuestDisk $disk -MediaSha256 $withAnswer.GuestAnswerMediaSha256} 'uncertain unattended setup cannot replay disk wipe on restart'
 $media[100]=1;[IO.File]::WriteAllBytes($answerPath,$media)
 Refused {New-IsolatedLabPlan -LabRoot $root -GuestIso $iso -GuestDisk $disk -GuestAnswerMedia $answerPath} 'unrecognized answer-media header refused'
 Refused {Read-LabAnswerXml ([Text.Encoding]::UTF8.GetBytes('<!DOCTYPE x [<!ENTITY secret SYSTEM "file:///C:/Windows/win.ini">]><unattend xmlns="urn:schemas-microsoft-com:unattend">&secret;</unattend>'))} 'external XML entity cannot read host files'
@@ -48,6 +53,21 @@ $extracted=Join-Path $root 'answer-extracted'
 & $sevenZip x $answerPath ('-o'+$extracted) '-y' '-bso0' '-bsp0'
 if($LASTEXITCODE -ne 0){throw 'Independent FAT12 extraction failed'}
 Assert ([IO.File]::ReadAllText((Join-Path $extracted 'Autounattend.xml')) -ceq $xml) 'independent 7-Zip reader recognizes FAT12 and exact long filename'
+$generatedDirectory=Join-Path $root 'generated';[IO.Directory]::CreateDirectory($generatedDirectory)|Out-Null
+[IO.File]::WriteAllBytes((Join-Path $generatedDirectory 'system.qcow2'),$header)
+$generated=& (Join-Path $PSScriptRoot 'New-LabWindowsSetupMedia.ps1') -LabRoot $root -MachineDirectory $generatedDirectory -VerifiedImageIndex 2
+$generatedHash=$generated.Sha256
+$guestDocument=Read-LabAnswerXml ([UntamedLab.LabAnswerMedia]::ExtractVerified([IO.File]::ReadAllBytes($generated.AnswerMedia)))
+$guestNs=[Xml.XmlNamespaceManager]::new($guestDocument.NameTable);$guestNs.AddNamespace('u','urn:schemas-microsoft-com:unattend')
+$protected=Get-Content -Raw -LiteralPath (Join-Path $generatedDirectory 'guest-admin.credential.dpapi')
+$secure=ConvertTo-SecureString $protected;$pointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+try{
+    $recovered=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+    Assert ($recovered.Length -ge 40 -and $guestDocument.SelectSingleNode('//u:AdministratorPassword/u:Value',$guestNs).InnerText -ceq $recovered) 'generated guest password has a matching DPAPI-protected host record'
+}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer);$secure.Dispose();$recovered=$null}
+Assert ($generated.Bytes -eq 1474560 -and -not $generated.GuestBooted -and -not $generated.HostInstallExecuted) 'media generator writes a real floppy without executing guest or host setup'
+Refused {& (Join-Path $PSScriptRoot 'New-LabWindowsSetupMedia.ps1') -LabRoot $root -MachineDirectory $generatedDirectory -VerifiedImageIndex 2} 'existing guest setup media and credential are never overwritten'
+Assert ((Get-FileHash -LiteralPath $generated.AnswerMedia -Algorithm SHA256).Hash -eq $generatedHash) 'refused media regeneration preserves original image bytes'
 $linked=Join-Path $root 'linked';$target=Join-Path $root 'real';[IO.Directory]::CreateDirectory($target)|Out-Null
 New-Item -ItemType Junction -Path $linked -Target $target|Out-Null
 Refused {Assert-LabPath $root (Join-Path $linked 'disk.qcow2')} 'junction refused'
