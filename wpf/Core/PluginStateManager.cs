@@ -89,11 +89,17 @@ public static class PluginStateManager
         var map=cluster.Config.LocalMaps.Single(x=>x.Id==mapId);
         // Final check belongs to the actual file operation too; the underlying
         // Toggle reacquires a configuration lock and protects the whole folder.
-        return Toggle(map,cluster.Check(map),permit.Plugin,enabled,cluster.Store.Root);
+        return Toggle(map,cluster.Check(map),permit.Plugin,enabled,cluster.Store.Root,
+            () => {
+                // Re-evaluate every registered map under the same installation
+                // operation lease, immediately before creating backups/moving files.
+                var latest=InspectLocalToggle(cluster,mapId,permit.Plugin,enabled);
+                if(!latest.Allowed)throw new InvalidOperationException(latest.Reason);
+            });
     }
 
     public static PluginToggleResult Toggle(LocalMap map,ProcessCheck state,
-        string plugin,bool enabled,string profileRoot)
+        string plugin,bool enabled,string profileRoot,Action? verifyWhileLocked=null)
     {
         if(map==null || map.Id==Guid.Empty || state==null ||
            !state.ConfirmedStopped || state.Running || map.Maintenance)
@@ -121,6 +127,10 @@ public static class PluginStateManager
             throw new InvalidDataException("Plugin backup profile must be outside ASA installation");
         string backup=Path.Combine(profile,"plugin-toggle-backups",
             map.Id.ToString("N"),plugin,Guid.NewGuid().ToString("N"));
+        // Validate shared-map process state under the directory mutation lease.
+        // This is intentionally optional for legacy callers and synthetic
+        // fixture tests; all new UI actions use ToggleLocalChecked.
+        verifyWhileLocked?.Invoke();
         // A complete SHA-verified source protection survives every toggle.
         operation.MarkMutationStarted();
         TestBackupPackage.Create(source,backup,map.Id,
