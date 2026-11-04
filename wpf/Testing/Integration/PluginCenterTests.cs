@@ -28,11 +28,18 @@ public static class PluginCenterTests
         var first=new LocalMap{Name="Disposable map A",InstallationPath=install};
         var second=new LocalMap{Name="Disposable map B",InstallationPath=install};
         bool otherRunning=true;
+        bool raceAfterInitialRead=false;
+        int peerObservations=0;
         await using var cluster=new ClusterService("plugin-center-test",
             Path.Combine(testRoot,"profile"),
-            map=>map.Id==second.Id && otherRunning
-                ?new ProcessCheck(true,"simulated running peer in shared install",null)
-                :new ProcessCheck(false,"synthetic confirmed stopped",null,true));
+            map=>{
+                if(map.Id==second.Id)peerObservations++;
+                bool started=map.Id==second.Id &&
+                    (otherRunning||(raceAfterInitialRead&&peerObservations>=2));
+                return started
+                    ?new ProcessCheck(true,"simulated running peer in shared install",null)
+                    :new ProcessCheck(false,"synthetic confirmed stopped",null,true);
+            });
         cluster.Config.LocalMaps.Add(first);
         cluster.Config.LocalMaps.Add(second);
         cluster.Save();
@@ -53,6 +60,18 @@ public static class PluginCenterTests
         var readiness=PluginStateManager.InspectLocalToggle(cluster,first.Id,name,false);
         Check(readiness.Allowed&&readiness.CheckedLocalMaps==2,
             "both local shared-install maps must be confirmed stopped");
+        // A peer process starts after the initial snapshot but before the
+        // plugin mutation lease would begin moving the directory. The second
+        // check must still reject before creating backups or moving any file.
+        peerObservations=0;
+        raceAfterInitialRead=true;
+        bool raceRejected=false;
+        try{PluginStateManager.ToggleLocalChecked(cluster,first.Id,name,false);}
+        catch(InvalidOperationException){raceRejected=true;}
+        Check(raceRejected&&File.Exists(dll)&&!Directory.Exists(Path.Combine(disabled,name)),
+            "peer starting during confirmation is rejected by second check under mutation lease");
+        raceAfterInitialRead=false;
+        peerObservations=0;
         var result=PluginStateManager.ToggleLocalChecked(cluster,first.Id,name,false);
         string destination=Path.Combine(disabled,name);
         Check(!Directory.Exists(dir)&&Directory.Exists(destination) &&
