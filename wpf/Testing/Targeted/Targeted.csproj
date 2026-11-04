@@ -22,5 +22,6 @@
     <Compile Include="../Integration/IsolatedRconAdminQueueTests.cs" Link="IsolatedRconAdminQueueTests.cs" />
     <Compile Include="../Integration/SchedulerConcurrencyTests.cs" Link="SchedulerConcurrencyTests.cs" />
     <Compile Include="../Integration/UpdateOwnershipTests.cs" Link="UpdateOwnershipTests.cs" />
+    <Compile Include="../Integration/ManagedBackupRetentionTests.cs" Link="ManagedBackupRetentionTests.cs" />
   </ItemGroup>
 </Project>

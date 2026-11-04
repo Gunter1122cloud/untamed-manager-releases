@@ -32,12 +32,17 @@ public static class BackupRetention
         var result=new List<RetentionChoice>();
         foreach(var job in records.GroupBy(x=>(x.Job,x.Map)))
         {
-            var ordered=job.OrderByDescending(x=>x.CreatedUtc).ToArray();
+            var ordered=job.OrderByDescending(x=>x.CreatedUtc)
+                .ThenByDescending(x=>x.Package,StringComparer.OrdinalIgnoreCase).ToArray();
+            // Corrupt/newer points must never push the last known-good restore
+            // point out of KeepLatest. KeepLatest counts VERIFIED points too.
+            var verifiedToKeep=ordered.Where(x=>x.Verified).Take(rule.KeepLatest)
+                .Select(x=>x.Package).ToHashSet(StringComparer.OrdinalIgnoreCase);
             long size=ordered.Sum(x=>x.Bytes);
             for(int i=0;i<ordered.Length;i++)
             {
                 var backup=ordered[i];
-                bool retained=i<rule.KeepLatest || i==0 || backup.Protected ||
+                bool retained=i<rule.KeepLatest || i==0 || verifiedToKeep.Contains(backup.Package)||backup.Protected ||
                     !backup.Verified;
                 bool old=now-backup.CreatedUtc>rule.MaxAge;
                 bool overSize=rule.MaxBytes>0 && size>rule.MaxBytes;
@@ -52,7 +57,7 @@ public static class BackupRetention
             result.Count(x=>x.Eligible));
     }
 
-    public static string Quarantine(RetentionChoice choice,string managedRoot,
+    internal static string Quarantine(RetentionChoice choice,string managedRoot,
         string quarantineRoot,Guid ownedJob,Guid ownedMap)
     {
         if(choice==null||!choice.Eligible ||

@@ -21,6 +21,7 @@ await GuardedPluginUpdateTests.Run(root);
 await IsolatedRconAdminQueueTests.Run(args[1]);
 await SchedulerConcurrencyTests.Run(root);
 UpdateOwnershipTests.Run(root);
+await ManagedBackupRetentionTests.Run(root);
 await RconTransportTests.Run();
 DurableWatchdogTrackerTests.Run(root);
 SafeConfigRecheckTests.Run(root);
