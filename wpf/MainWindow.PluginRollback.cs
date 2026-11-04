@@ -71,7 +71,7 @@ public partial class MainWindow
                         "A mapnak igazoltan leállítottnak kell lennie. Folytatod?",
                         "Plugin rollback – helyi map",MessageBoxButton.YesNo,
                         MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-                    var result=SafePluginZip.Rollback(map,_cluster.Check(map),
+                    var result=SafePluginZip.RollbackGuarded(_cluster,map.Id,
                         preview.PluginName,preview.BackupFolder,BackupRoot());
                     status.Text="HELYI DLL-ROLLBACK kész: "+result.PluginName+
                         "\nVisszaállított bináris fájlok: "+result.RestoredBinaryCount+

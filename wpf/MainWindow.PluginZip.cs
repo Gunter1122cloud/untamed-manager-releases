@@ -84,8 +84,7 @@ public partial class MainWindow
                         try
                         {
                             if(!_cluster.Config.LocalMaps.Contains(map))throw new UnauthorizedAccessException("Not a local map");
-                            var check=_cluster.Check(map);
-                            var installed=SafePluginZip.Install(map,check,path.Text.Trim(),protectedRoot);
+                            var installed=SafePluginZip.InstallGuarded(_cluster,map.Id,path.Text.Trim(),protectedRoot);
                             successes.Add(map.Name+" → "+installed.Target+
                                 (installed.PreviousBackup==null?" (új plugin)":" (védőmentés: "+installed.PreviousBackup+")"));
                         }

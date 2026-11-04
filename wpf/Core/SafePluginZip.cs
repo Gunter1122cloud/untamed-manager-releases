@@ -64,12 +64,47 @@ public static class SafePluginZip
         return new(info.PluginName,info.BinaryCount,info.SkippedNonBinaryCount,
             previous,ready,ready?"Confirmed stopped; preview only":"Server is running or uncertain; update blocked");
     }
-    public static PluginInstallResult Install(LocalMap map,ProcessCheck check,string zipPath,string backupRoot)
+    internal static PluginInstallResult Install(LocalMap map,ProcessCheck check,string zipPath,string backupRoot)
+        =>InstallCore(map,check,zipPath,backupRoot,null);
+
+    public static PluginInstallResult InstallGuarded(ClusterService cluster,Guid mapId,string zipPath,string backupRoot)
+    {
+        var (map,observe)=GuardedObserver(cluster,mapId);
+        return InstallCore(map,observe(),zipPath,backupRoot,observe);
+    }
+
+    private static (LocalMap Map,Func<ProcessCheck> Observe) GuardedObserver(ClusterService cluster,Guid mapId)
+    {
+        var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId&&mapId!=Guid.Empty)??
+            throw new UnauthorizedAccessException("Only a registered local plugin target is allowed");
+        string install=FixedLocal(map.InstallationPath);
+        ProcessCheck InspectGroup()
+        {
+            if(!cluster.Config.LocalMaps.Contains(map)||FixedLocal(map.InstallationPath)!=install)
+                throw new UnauthorizedAccessException("Plugin map ownership changed");
+            ProcessCheck? selected=null;
+            foreach(var local in cluster.Config.LocalMaps.Where(x=>string.Equals(
+                FixedLocal(x.InstallationPath),install,StringComparison.OrdinalIgnoreCase)))
+            {
+                var state=cluster.Check(local);
+                if(local.Maintenance||state.Running||!state.ConfirmedStopped||
+                   state.Identity!=null||state.LoaderIdentity!=null)
+                    throw new InvalidOperationException("All maps sharing this plugin installation must remain stopped");
+                if(local.Id==mapId)selected=state;
+            }
+            return selected??throw new UnauthorizedAccessException("Plugin map no longer registered");
+        }
+        return(map,InspectGroup);
+    }
+
+    private static PluginInstallResult InstallCore(LocalMap map,ProcessCheck check,string zipPath,
+        string backupRoot,Func<ProcessCheck>? observe)
     {
         if(map==null||map.Id==Guid.Empty)throw new InvalidDataException("Map identity required");
         if(!check.ConfirmedStopped||check.Running)
             throw new InvalidOperationException("Plugin update requires confirmed stopped local server");
         using var operation=new UntamedOperationCoordinator().Acquire(map.InstallationPath,UntamedOperationKind.PluginChange);
+        observe?.Invoke();
         string install=FixedLocal(map.InstallationPath);
         if(!Directory.Exists(install))throw new DirectoryNotFoundException(install);
         string archives=FixedLocal(backupRoot);
@@ -85,6 +120,7 @@ public static class SafePluginZip
         string staging=Path.Combine(plugins,".untamed-stage-"+token);
         string displaced=Path.Combine(plugins,".untamed-old-"+token);
         string? backup=null;
+        DirectoryUpdateTransaction? snapshot=null;
         bool moved=false, installed=false;
         operation.MarkMutationStarted();
         Directory.CreateDirectory(plugins);
@@ -101,6 +137,8 @@ public static class SafePluginZip
                 // A separate manifest binds the full pre-update plugin tree to
                 // the local map identity for a later explicit rollback.
                 File.WriteAllText(backup+".untamed-manifest.json",BackupIntegrity.Serialize(copyManifest));
+                var preparedSnapshot=new DirectoryUpdateTransaction(backup+".transaction");
+                preparedSnapshot.Prepare(target);snapshot=preparedSnapshot;
                 CopyTree(target,staging);
             }
             else Directory.CreateDirectory(staging);
@@ -118,15 +156,26 @@ public static class SafePluginZip
                 if(output.Length!=entry.Length)throw new InvalidDataException("ZIP extraction size mismatch");
             }
             CheckTree(staging);
+            observe?.Invoke();
             if(Directory.Exists(target)){Directory.Move(target,displaced);moved=true;}
             Directory.Move(staging,target);installed=true;
+            observe?.Invoke();
             if(moved&&Directory.Exists(displaced))Directory.Delete(displaced,true);
+            snapshot?.Commit();
             operation.Complete();
             return new(info.PluginName,target,backup,info.BinaryCount);
         }
         catch
         {
-            if(moved&&Directory.Exists(displaced))
+            // A process starting after preflight must not have its loaded tree
+            // replaced by rollback. Preserve all snapshots and journal instead.
+            observe?.Invoke();
+            if(snapshot!=null)
+            {
+                snapshot.Rollback();
+                if(moved&&Directory.Exists(displaced))Directory.Delete(displaced,true);
+            }
+            else if(moved&&Directory.Exists(displaced))
             {
                 if(Directory.Exists(target))Directory.Delete(target,true);
                 Directory.Move(displaced,target);
@@ -184,12 +233,24 @@ public static class SafePluginZip
                 "Server is running, uncertain or in maintenance");
     }
 
-    public static PluginRollbackResult Rollback(LocalMap map,ProcessCheck check,
+    public static PluginRollbackResult RollbackGuarded(ClusterService cluster,Guid mapId,
         string pluginName,string previousBackup,string backupRoot)
+    {
+        var (map,observe)=GuardedObserver(cluster,mapId);
+        return RollbackCore(map,observe(),pluginName,previousBackup,backupRoot,observe);
+    }
+
+    internal static PluginRollbackResult Rollback(LocalMap map,ProcessCheck check,
+        string pluginName,string previousBackup,string backupRoot)
+        =>RollbackCore(map,check,pluginName,previousBackup,backupRoot,null);
+
+    private static PluginRollbackResult RollbackCore(LocalMap map,ProcessCheck check,
+        string pluginName,string previousBackup,string backupRoot,Func<ProcessCheck>? observe)
     {
         var preview=PreviewRollback(map,check,pluginName,previousBackup,backupRoot);
         if(!preview.Allowed)throw new InvalidOperationException(preview.Reason);
         using var operation=new UntamedOperationCoordinator().Acquire(map.InstallationPath,UntamedOperationKind.Restore);
+        observe?.Invoke();
         string install=FixedLocal(map.InstallationPath);
         string backupRootChecked=FixedLocal(backupRoot);
         string plugins=Path.Combine(install,"ShooterGame","Binaries","Win64","ArkApi","Plugins");
@@ -200,6 +261,7 @@ public static class SafePluginZip
         string preimage=Path.Combine(backupRootChecked,map.Id.ToString("N"),
             pluginName,"prerollback-"+token);
         bool moved=false;
+        DirectoryUpdateTransaction? snapshot=null;
         operation.MarkMutationStarted();
         try
         {
@@ -210,6 +272,8 @@ public static class SafePluginZip
             BackupIntegrity.Verify(preimage,premanifest,map.Id);
             File.WriteAllText(preimage+".untamed-manifest.json",
                 BackupIntegrity.Serialize(premanifest));
+            var preparedSnapshot=new DirectoryUpdateTransaction(preimage+".transaction");
+            preparedSnapshot.Prepare(target);snapshot=preparedSnapshot;
             CopyTree(target,staging);
             foreach(var file in Directory.EnumerateFiles(staging,"*",SearchOption.AllDirectories))
                 if(file.EndsWith(".dll",StringComparison.OrdinalIgnoreCase) ||
@@ -232,17 +296,26 @@ public static class SafePluginZip
                     binary.Sha256)throw new InvalidDataException("Restored plugin hash mismatch");
             }
             CheckTree(staging);
+            observe?.Invoke();
             Directory.Move(target,displaced);
             moved=true;
             Directory.Move(staging,target);
+            observe?.Invoke();
             // If cleanup fails, the displaced directory remains safely recoverable.
             try{Directory.Delete(displaced,true);}catch{}
+            snapshot.Commit();
             operation.Complete();
             return new(pluginName,target,preimage,preview.PreviousBinaryCount);
         }
         catch
         {
-            if(moved && Directory.Exists(displaced))
+            observe?.Invoke();
+            if(snapshot!=null)
+            {
+                snapshot.Rollback();
+                if(moved&&Directory.Exists(displaced))Directory.Delete(displaced,true);
+            }
+            else if(moved && Directory.Exists(displaced))
             {
                 if(Directory.Exists(target))
                     Directory.Move(target,target+".failed-"+Guid.NewGuid().ToString("N"));

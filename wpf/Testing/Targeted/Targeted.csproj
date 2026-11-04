@@ -17,5 +17,7 @@
     <Compile Include="../Integration/RconTransportTests.cs" Link="RconTransportTests.cs" />
     <Compile Include="../Integration/DurableWatchdogTrackerTests.cs" Link="DurableWatchdogTrackerTests.cs" />
     <Compile Include="../Integration/SafeConfigRecheckTests.cs" Link="SafeConfigRecheckTests.cs" />
+    <Compile Include="../Integration/ModArgumentSafetyTests.cs" Link="ModArgumentSafetyTests.cs" />
+    <Compile Include="../Integration/GuardedPluginUpdateTests.cs" Link="GuardedPluginUpdateTests.cs" />
   </ItemGroup>
 </Project>

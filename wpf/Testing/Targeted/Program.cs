@@ -14,6 +14,8 @@ await ModDependencyPlannerTests.Run();
 await CurseForgeDependencyResolverTests.Run();
 await AsaApiReleaseStagingTests.Run();
 await AsaApiIsolatedInstallerTests.Run();
+await ModArgumentSafetyTests.Run(root);
+await GuardedPluginUpdateTests.Run(root);
 await RconTransportTests.Run();
 DurableWatchdogTrackerTests.Run(root);
 SafeConfigRecheckTests.Run(root);

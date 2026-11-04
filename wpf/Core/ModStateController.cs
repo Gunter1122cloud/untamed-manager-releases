@@ -24,13 +24,52 @@ public static class ModStateController
         @"(?<!\S)-(?:mods|passivemods)=",
         RegexOptions.IgnoreCase|RegexOptions.Compiled|RegexOptions.CultureInvariant);
 
+    // Locate complete command-line tokens, not substrings inside a quoted
+    // SessionName/password/unknown argument. Preserve all original text outside
+    // the two owned switches, including spaces and escaped quotation marks.
+    private static IReadOnlyList<(int Start,int Length,Match Value)> Switches(string args)
+    {
+        if(args.Length>32767||args.Contains('\0')||args.Contains('\r')||args.Contains('\n'))
+            throw new InvalidDataException("Invalid mod launch argument frame");
+        var result=new List<(int,int,Match)>();int cursor=0;
+        while(cursor<args.Length)
+        {
+            if(char.IsWhiteSpace(args[cursor])){cursor++;continue;}
+            int start=cursor;bool quoted=false;
+            while(cursor<args.Length)
+            {
+                char c=args[cursor];
+                if(c=='"')
+                {
+                    int slashes=0;
+                    for(int at=cursor-1;at>=start&&args[at]=='\\';at--)slashes++;
+                    if(slashes%2==0)quoted=!quoted;
+                }
+                if(char.IsWhiteSpace(c)&&!quoted)break;
+                cursor++;
+            }
+            if(quoted)throw new InvalidDataException("Unterminated quoted launch argument");
+            string token=args[start..cursor];
+            if(token.Length>1&&token[0]=='"'&&token[^1]=='"')token=token[1..^1];
+            if(token.Equals("-mods",StringComparison.OrdinalIgnoreCase)||
+               token.Equals("-passivemods",StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Mod launch switch requires an explicit list");
+            var looks=LooksLikeParam.Match(token);
+            if(!looks.Success||looks.Index!=0)continue;
+            var match=Param.Match(token);
+            if(!match.Success||match.Index!=0||match.Length!=token.Length)
+                throw new InvalidDataException("Malformed mod launch switch");
+            result.Add((start,cursor-start,match));
+        }
+        return result;
+    }
+
     public static ModSet Read(LocalMap map)
     {
         if(map==null || map.Id==Guid.Empty)throw new InvalidDataException("Local map identity missing");
         var args=map.Arguments??"";
-        var matches=Param.Matches(args).Cast<Match>().ToArray();
-        if(matches.Length!=LooksLikeParam.Matches(args).Count ||
-           matches.GroupBy(m=>m.Groups["kind"].Value,StringComparer.OrdinalIgnoreCase)
+        var matches=Switches(args).Select(x=>x.Value).ToArray();
+        if(matches.GroupBy(m=>m.Groups["kind"].Value,StringComparer.OrdinalIgnoreCase)
                .Any(g=>g.Count()!=1))
             throw new InvalidDataException("Malformed or repeated -mods/-passivemods argument");
         string[] ReadSwitch(string kind)
@@ -92,8 +131,10 @@ public static class ModStateController
         var arg=(map.Arguments??"").Trim();
         // Remove only the two canonical switches, keep cluster, port, loader
         // and every other unknown argument in original order and form.
-        var remaining=Param.Replace(arg,"").Trim();
-        remaining=Regex.Replace(remaining,@"[ \t]{2,}"," ");
+        string remaining=arg;
+        foreach(var token in Switches(arg).Reverse())
+            remaining=remaining.Remove(token.Start,token.Length);
+        remaining=remaining.Trim();
         // A passive project stays in the normal load list and is also tagged
         // passive. Passive projects are first, preserving each state's order.
         var enabled=passive.Concat(active).ToArray();
