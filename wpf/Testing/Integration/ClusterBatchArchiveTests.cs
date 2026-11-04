@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text.Json;
 using UntamedManager.Core;
 
 public static class ClusterBatchArchiveTests
@@ -47,6 +48,33 @@ public static class ClusterBatchArchiveTests
         foreach(string db in new[]{"arkshop","arkpermissions","lethalquests"})
             Add(ryzen,null,BackupComponentKind.SqlDatabase,db);
         Check(inputs.Count==37,"full ten-map, transfer, vault and SQL inventory prepared");
+
+        var catalog=new ClusterBatchCatalog(1,batch,maps,
+            inputs.Select(x=>new ClusterBatchCatalogItem(x.Component,
+                Path.GetFileName(x.SourceFile))).ToArray(),
+            false,ClusterBatchCatalogImport.CatalogScope);
+        string catalogPath=Path.Combine(inputsDir,"cluster-batch-inputs.json");
+        File.WriteAllText(catalogPath,JsonSerializer.Serialize(catalog));
+        string fromCatalog=Path.Combine(root,"catalog-published");
+        var imported=ClusterBatchCatalogImport.BuildFromCatalog(catalogPath,fromCatalog);
+        Check(imported.Components.Length==37 &&
+              ClusterBatchArchive.Verify(fromCatalog).BatchId==batch,
+            "operator-provided local catalog drives the real 37-file copier");
+        var traversed=catalog with { Items=catalog.Items.Select((x,i)=>
+            i==0?x with {RelativeSource=@"..\outside-data"}:x).ToArray() };
+        string badCatalog=Path.Combine(inputsDir,"bad-inputs.json");
+        File.WriteAllText(badCatalog,JsonSerializer.Serialize(traversed));
+        string deniedDestination=Path.Combine(root,"bad-catalog-target");
+        Check(Refused(()=>ClusterBatchCatalogImport.BuildFromCatalog(
+                badCatalog,deniedDestination)) &&
+              !Directory.Exists(deniedDestination)&&
+              !Directory.Exists(deniedDestination+".incomplete"),
+            "catalog path traversal refused before any destination staging");
+        File.WriteAllText(badCatalog,JsonSerializer.Serialize(catalog with{
+            LiveConsistencyProven=true}));
+        Check(Refused(()=>ClusterBatchCatalogImport.BuildFromCatalog(
+                badCatalog,deniedDestination)),
+            "offline catalog cannot claim live ASA/Store/SQL consistency");
 
         string invalid=Path.Combine(root,"wrong-source");
         var wrong=inputs.ToArray();
