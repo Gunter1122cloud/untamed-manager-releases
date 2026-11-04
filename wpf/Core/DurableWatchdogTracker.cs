@@ -87,8 +87,9 @@ public sealed class DurableWatchdogTracker
         bool maintenance,DateTimeOffset observedUtc,int threshold=3)
     {
         if(map==Guid.Empty||check==null||!Enum.IsDefined(rcon)||
-           observedUtc==default||threshold is <1 or >20)
-            throw new ArgumentException("Validated map/process/RCON evidence required");
+           observedUtc==default||threshold is <1 or >20||
+           observedUtc> DateTimeOffset.UtcNow.AddSeconds(5))
+            throw new ArgumentException("Validated, nonfuture local map observation required");
         return Guard(()=>{
             var store=Read();
             var prior=store.Maps.SingleOrDefault(x=>x.Map==map);
