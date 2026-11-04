@@ -37,6 +37,10 @@ public static class LocalContentSnapshotReader
         {
             try
             {
+                // Missing/offline installations are unknown, never reported as empty.
+                if(string.IsNullOrWhiteSpace(map.InstallationPath) ||
+                   !Directory.Exists(map.InstallationPath))
+                    throw new DirectoryNotFoundException("Local installation unavailable");
                 var rows=PluginStateManager.Inventory(map);
                 plugins.AddRange(rows.Select(item=>new LocalPluginAssignment(
                     map.Id,map.Name,item.Name,item.Enabled)));
