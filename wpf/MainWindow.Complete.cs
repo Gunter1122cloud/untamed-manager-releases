@@ -118,6 +118,7 @@ public partial class MainWindow
                 catch(Exception ex){sqlStatus.Text="Restore-szimuláció elutasítva: "+UntamedPresentation.Redact(ex.Message);}
             }),sqlStatus)));
         ShowClusterVaultArchiveCenter();
+        ShowStoreAliasProof();
         ShowUntamedManagerArchiveAudit();
         ShowHistoricalVaultAudit();
         ShowVaultSessionCopyReader();
