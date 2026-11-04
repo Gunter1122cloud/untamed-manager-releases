@@ -48,6 +48,7 @@ try
     ClusterTransferConsistencyTests.Run();
     ClusterBackupInventoryTests.Run();
     ClusterBatchArchiveTests.Run(root);
+    ClusterRestoreCoordinatorTests.Run(root);
     ClusterVaultTests.Run(root);
     ManagerMigrationArchiveTests.Run(root);
     SafeSupportBundleTests.Run(root);
