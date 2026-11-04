@@ -18,8 +18,21 @@ public sealed record CurseForgeMod(int Id,string Name,string Summary,string? Web
     string? LatestFile,DateTimeOffset? ModifiedUtc);
 public sealed record CurseForgeSearchResult(int GameId,IReadOnlyList<CurseForgeMod> Mods,
     int TotalCount,int Index,bool HasMore);
+public enum CurseForgeRelationType
+{
+    None=0,EmbeddedLibrary=1,OptionalDependency=2,RequiredDependency=3,
+    Tool=4,Incompatible=5,Include=6
+}
+public sealed record CurseForgeRelation(int ModId,CurseForgeRelationType Type);
 public sealed record CurseForgeFile(int FileId,int ModId,string Name,DateTimeOffset? Published,
-    bool Available,IReadOnlyList<int> Dependencies);
+    bool Available,IReadOnlyList<int> Dependencies)
+{
+    // Exact CurseForge relation categories are preserved independently.
+    // 'Dependencies' retains only required/embedded entries, never optional,
+    // incompatible, included content or a standalone tool.
+    public IReadOnlyList<CurseForgeRelation> Relations {get;init;}=
+        Array.Empty<CurseForgeRelation>();
+}
 public sealed record CurseForgeFilesResult(int ModId,IReadOnlyList<CurseForgeFile> Files,
     int Index,int Total,bool HasMore);
 
@@ -105,16 +118,35 @@ public sealed class CurseForgeCatalog
             if(DateTimeOffset.TryParse(Str(item,"fileDate"),out var when))
                 published=when;
             var deps=new List<int>();
+            var relations=new List<CurseForgeRelation>();
             if(item.TryGetProperty("dependencies",out var dependencies) &&
                dependencies.ValueKind==JsonValueKind.Array)
+            {
+                if(dependencies.GetArrayLength()>100)
+                    throw new InvalidDataException("CurseForge file relation list exceeds limit");
                 foreach(var dependency in dependencies.EnumerateArray())
                 {
-                    var id=Int(dependency,"modId");
-                    if(id>0 && !deps.Contains(id) && deps.Count<100)deps.Add(id);
+                    int id=Int(dependency,"modId");
+                    if(id<=0)continue;
+                    int kind=Int(dependency,"relationType");
+                    // Unknown relation types are represented as None, never
+                    // silently converted into RequiredDependency.
+                    var type=Enum.IsDefined(typeof(CurseForgeRelationType),kind)?
+                        (CurseForgeRelationType)kind:CurseForgeRelationType.None;
+                    if(relations.Any(x=>x.ModId==id&&x.Type!=type))
+                        throw new InvalidDataException("Conflicting CurseForge relations for one mod");
+                    if(relations.Any(x=>x.ModId==id))continue;
+                    relations.Add(new(id,type));
+                    if(type is CurseForgeRelationType.EmbeddedLibrary or
+                               CurseForgeRelationType.RequiredDependency)
+                        deps.Add(id);
                 }
+            }
             bool available=item.TryGetProperty("isAvailable",out var availability) &&
                 availability.ValueKind==JsonValueKind.True;
-            files.Add(new(fileId,modId,display,published,available,deps));
+            files.Add(new CurseForgeFile(fileId,modId,display,published,available,deps){
+                Relations=relations
+            });
         }
         int total=files.Count;
         if(root.TryGetProperty("pagination",out var page)&&page.ValueKind==JsonValueKind.Object)
