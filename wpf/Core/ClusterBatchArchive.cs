@@ -11,6 +11,13 @@ namespace UntamedManager.Core;
 // Inputs are independently prepared test/cold-copy components, never live ASA
 // saves, shared Store writers or production database connections.
 public sealed record ClusterBatchSource(ClusterBackupComponent Component,string SourceFile);
+public sealed record OfflineBatchCopyJournal(int Schema,Guid BatchId,int VerifiedFiles,
+    DateTimeOffset UpdatedUtc,string[] VerifiedSha256);
+public sealed record OfflineBatchRecoveryStatus(bool NeedsOperator,Guid? BatchId,
+    int VerifiedFiles,string Reason)
+{
+    public bool AutoReplayAllowed=>false;
+}
 public sealed record ClusterBatchArchiveManifest(int Schema,Guid BatchId,DateTimeOffset CreatedUtc,
     TransferMapOwner[] Maps,ClusterBackupComponent[] Components,
     bool LiveAsaSaveConfirmed,bool StoreWriterOwnershipConfirmed,
@@ -68,8 +75,63 @@ public static class ClusterBatchArchive
     private static void WriteDurable(string path,string contents)
     {
         using var stream=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None);
-        using var writer=new StreamWriter(stream,new System.Text.UTF8Encoding(false),leaveOpen:true);
+        using var writer=new StreamWriter(stream,new System.Text.UTF8Encoding(false),1024,leaveOpen:true);
         writer.Write(contents);writer.Flush();stream.Flush(true);
+    }
+
+    private static void Checkpoint(string staging,Guid batchId,
+        IReadOnlyList<string> completed)
+    {
+        string journal=Path.Combine(staging,"copy-journal-v1.json");
+        string pending=journal+".next";
+        if(File.Exists(pending))
+            throw new IOException("Interrupted journal update requires operator review");
+        var record=new OfflineBatchCopyJournal(1,batchId,completed.Count,
+            DateTimeOffset.UtcNow,completed.ToArray());
+        WriteDurable(pending,JsonSerializer.Serialize(record));
+        File.Move(pending,journal,true);
+    }
+
+    // Read-only crash inspection: no lock removal, copy resume, delete or
+    // promotion is performed, even if the first N objects are intact.
+    public static OfflineBatchRecoveryStatus InspectInterrupted(string destination)
+    {
+        string target=FixedLocal(destination),staging=FixedLocal(target+".incomplete");
+        if(!Directory.Exists(staging))
+            return new(false,null,0,"No incomplete copy directory");
+        string journal=Path.Combine(staging,"copy-journal-v1.json");
+        if(!File.Exists(journal))
+            return new(true,null,0,"Incomplete copy has no trusted progress marker");
+        try
+        {
+            if((File.GetAttributes(journal)&FileAttributes.ReparsePoint)!=0 ||
+               new FileInfo(journal).Length is < 30 or > 8192)
+                throw new InvalidDataException("Invalid journal file");
+            var data=JsonSerializer.Deserialize<OfflineBatchCopyJournal>(File.ReadAllText(journal));
+            if(data==null||data.Schema!=1||data.BatchId==Guid.Empty||
+               data.VerifiedFiles is <0 or > MemberCount||
+               data.VerifiedSha256==null||
+               data.VerifiedSha256.Length!=data.VerifiedFiles)
+                throw new InvalidDataException("Invalid journal metadata");
+            for(int i=0;i<data.VerifiedFiles;i++)
+            {
+                string expected=data.VerifiedSha256[i];
+                string file=FixedLocal(Path.Combine(staging,ObjectsName,
+                    i.ToString("D2")+".bin"));
+                if(expected==null||expected.Length!=64||
+                   !expected.All(Uri.IsHexDigit)||!File.Exists(file)||
+                   Digest(file)!=expected.ToUpperInvariant())
+                    throw new InvalidDataException("Journaled file digest differs from copied data");
+            }
+            return new(true,data.BatchId,data.VerifiedFiles,
+                "Verified copied-file checkpoint only; explicit operator recovery required");
+        }
+        catch(Exception ex) when(ex is InvalidDataException or JsonException or IOException
+            or ArgumentException or UnauthorizedAccessException)
+        {
+            return new(true,null,0,
+                "Damaged or inaccessible journal; automatic continuation refused");
+        }
     }
 
     public static ClusterBatchArchiveManifest BuildOffline(Guid batchId,
@@ -106,6 +168,8 @@ public static class ClusterBatchArchive
         Directory.CreateDirectory(incomplete);
         string objects=Path.Combine(incomplete,ObjectsName);
         Directory.CreateDirectory(objects);
+        var completedDigests=new List<string>(MemberCount);
+        Checkpoint(incomplete,batchId,completedDigests);
         // A failure retains .incomplete for operator inspection. No source is
         // modified and no marker or final publication is created on failure.
         for(int i=0;i<paths.Length;i++)
@@ -118,8 +182,13 @@ public static class ClusterBatchArchive
                Digest(output)!=components[i].Sha256.ToUpperInvariant() ||
                Digest(paths[i])!=components[i].Sha256.ToUpperInvariant())
                 throw new InvalidDataException("Backup source changed during copy or output failed verification");
+            completedDigests.Add(components[i].Sha256.ToUpperInvariant());
+            Checkpoint(incomplete,batchId,completedDigests);
             afterCopiedForTesting?.Invoke(i);
         }
+        // A complete copy no longer needs a transient journal. If the process
+        // crashes during publication, the .incomplete folder stays blocked.
+        File.Delete(Path.Combine(incomplete,"copy-journal-v1.json"));
 
         var manifest=new ClusterBatchArchiveManifest(1,batchId,DateTimeOffset.UtcNow,
             maps.ToArray(),components,false,false,false,OfflineScope);
