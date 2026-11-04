@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UntamedManager.Core;
 
@@ -25,6 +26,21 @@ public static class DemoWorkspaceTests
         demo.SetMod(map.Id,"123456",DemoModMode.Passive);
         Check(map.Mods.Single(x=>x.ProjectId=="123456").Mode==DemoModMode.Passive,
             "mod mode changes only in-memory data");
+        var desired=map.Mods.AsEnumerable().Reverse().ToArray();
+        demo.ApplyModList(map.Id,desired);
+        Check(map.Mods.SequenceEqual(desired),
+            "whole mod order is applied atomically in offline DEMO");
+        var existing=map.Mods.ToArray();
+        bool duplicateDenied=false;
+        try{demo.ApplyModList(map.Id,new[]{existing[0],existing[0]});}
+        catch(InvalidDataException){duplicateDenied=true;}
+        Check(duplicateDenied && map.Mods.SequenceEqual(existing),
+            "duplicate project cannot partially mutate DEMO mod list");
+        bool invalidModeDenied=false;
+        try{demo.ApplyModList(map.Id,new[]{new DemoMod("912815",(DemoModMode)999)});}
+        catch(InvalidDataException){invalidModeDenied=true;}
+        Check(invalidModeDenied && map.Mods.SequenceEqual(existing),
+            "unknown future DEMO mod mode fails closed before any mutation");
         demo.TogglePlugin(map.Id,"ArkShop");
         Check(!map.Plugins.Single(x=>x.Name=="ArkShop").Enabled,
             "plugin toggle is a simulation");
