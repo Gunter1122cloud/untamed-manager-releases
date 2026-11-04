@@ -81,10 +81,10 @@ public partial class MainWindow : Window
         "CousinCustomRates 1.5", "ImplantFix",
         "Unicode RCON ASA", "Lethal Quests Ascended"
     };
-    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(21,32,36));
-    private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(159,234,193));
-    private static readonly Brush Aqua = new SolidColorBrush(Color.FromRgb(118,213,206));
-    private static readonly Brush Soft = new SolidColorBrush(Color.FromRgb(175,193,196));
+    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(27,37,43));
+    private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(237,243,241));
+    private static readonly Brush Aqua = new SolidColorBrush(Color.FromRgb(91,196,183));
+    private static readonly Brush Soft = new SolidColorBrush(Color.FromRgb(169,187,189));
 
     public MainWindow()
     {
@@ -323,7 +323,8 @@ public partial class MainWindow : Window
     }
     private void ShowOperationsHub()
     {
-        Header("Műveletek","Az üzemeltetési eszközök egy helyen. A biztonsági korlátozások változatlanok.");
+        Header(_demo==null?"Műveletek":"Műveletek · OFFLINE DEMO",
+            "Az üzemeltetési eszközök egy helyen. A biztonsági korlátozások változatlanok.");
         var monitoring=new WrapPanel { Margin=new Thickness(0,8,0,0) };
         foreach(var (title,page) in new[]{
             ("Monitoring és események","monitoring"),("Watchdog / helyreállítás","recovery"),
@@ -357,9 +358,9 @@ public partial class MainWindow : Window
            TextWrapping=TextWrapping.Wrap,FontWeight=bold?FontWeights.Bold:FontWeights.Normal,
            Margin=new Thickness(0,0,0,10) };
     private static Border Box(UIElement child) =>
-       new() { Background=Panel,BorderBrush=new SolidColorBrush(Color.FromRgb(52,75,80)),
-           BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(13),
-           Padding=new Thickness(16),Margin=new Thickness(0,0,0,12),Child=child };
+       new() { Background=Panel,BorderBrush=new SolidColorBrush(Color.FromRgb(51,66,73)),
+           BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(9),
+           Padding=new Thickness(14),Margin=new Thickness(0,0,0,10),Child=child };
     private static StackPanel V(params UIElement[] elements)
     {
         var p=new StackPanel();
