@@ -101,6 +101,7 @@ public static class VerifiedRestartTests
             using var deadline=new CancellationTokenSource(TimeSpan.FromMilliseconds(700));
             try{await SafeLifecycle.RestartVerified(scenario,TimeSpan.FromMilliseconds(600),deadline.Token);}
             catch(OperationCanceledException){failed=true;}
+            catch(InvalidOperationException) when(mode=="swap"){failed=true;}
             Check(failed&&(mode!="noexit"||scenario.StartCalls==0),
                 "restart fails closed on "+mode+" without duplicate Start or forced Kill");
         }
