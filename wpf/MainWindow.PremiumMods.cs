@@ -31,9 +31,9 @@ public partial class MainWindow
                 Label("Adj hozzá egy helyi mapot, vagy próbáld ki a DEMO módot. A program nem talál ki modtelepítési adatokat.",12,Soft),
                 options)));
             var extras=new StackPanel();
-            var before=PageBody.Children.Count;
+            var beforeEmpty=PageBody.Children.Count;
             ShowCurseForgeSearchControls();
-            foreach(var child in PageBody.Children.Cast<UIElement>().Skip(before).ToArray())
+            foreach(var child in PageBody.Children.Cast<UIElement>().Skip(beforeEmpty).ToArray())
             {
                 PageBody.Children.Remove(child);extras.Children.Add(child);
             }
