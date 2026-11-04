@@ -46,7 +46,7 @@ public static class SafeConfigEditor
     }
 
     public static string Save(ConfigSnapshot baseline,string edited,string mapInstallation,
-        ProcessCheck current,bool maintenance=false)
+        ProcessCheck current,bool maintenance=false,Func<ProcessCheck>? recheck=null)
     {
         using var operation=new UntamedOperationCoordinator().Acquire(mapInstallation,UntamedOperationKind.Configuration);
         ValidatePath(baseline.Path,mapInstallation,baseline.Kind,current,maintenance);
@@ -68,6 +68,11 @@ public static class SafeConfigEditor
                 throw new IOException("Staged config checksum mismatch");
             if(!Hex(File.ReadAllBytes(target)).Equals(baseline.Sha256,StringComparison.Ordinal))
                 throw new IOException("Config changed during staging");
+            // The UI passes a fresh OS process inspection here, immediately
+            // before the atomic replacement. An externally started map must
+            // not inherit the earlier 'stopped' decision from editor opening.
+            if(recheck!=null)
+                ValidatePath(target,mapInstallation,baseline.Kind,recheck(),maintenance);
             File.Replace(tmp,target,backup,true);
             if(!Hex(File.ReadAllBytes(target)).Equals(preview.NewSha256,StringComparison.Ordinal))
                 throw new IOException("Applied config checksum mismatch; manual recovery required: "+backup);
