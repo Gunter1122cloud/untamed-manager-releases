@@ -80,10 +80,10 @@ public partial class MainWindow : Window
         "CousinCustomRates 1.5", "ImplantFix",
         "Unicode RCON ASA", "Lethal Quests Ascended"
     };
-    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(17,45,44));
-    private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(166,248,115));
-    private static readonly Brush Aqua = new SolidColorBrush(Color.FromRgb(108,225,203));
-    private static readonly Brush Soft = new SolidColorBrush(Color.FromRgb(159,190,183));
+    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(21,32,36));
+    private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(159,234,193));
+    private static readonly Brush Aqua = new SolidColorBrush(Color.FromRgb(118,213,206));
+    private static readonly Brush Soft = new SolidColorBrush(Color.FromRgb(175,193,196));
 
     public MainWindow()
     {
@@ -310,9 +310,9 @@ public partial class MainWindow : Window
            TextWrapping=TextWrapping.Wrap,FontWeight=bold?FontWeights.Bold:FontWeights.Normal,
            Margin=new Thickness(0,0,0,10) };
     private static Border Box(UIElement child) =>
-       new() { Background=Panel,BorderBrush=new SolidColorBrush(Color.FromRgb(55,97,85)),
-           BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(12),
-           Padding=new Thickness(18),Margin=new Thickness(0,0,0,12),Child=child };
+       new() { Background=Panel,BorderBrush=new SolidColorBrush(Color.FromRgb(52,75,80)),
+           BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(13),
+           Padding=new Thickness(16),Margin=new Thickness(0,0,0,12),Child=child };
     private static StackPanel V(params UIElement[] elements)
     {
         var p=new StackPanel();
@@ -366,7 +366,7 @@ public partial class MainWindow : Window
         var search=new TextBox{Height=40,Background=Panel,Foreground=Brushes.White,
             BorderBrush=Aqua,FontSize=15,Padding=new Thickness(10),
             ToolTip="Keresés a helyi mapnevek és konfigurált modazonosítók között"};
-        var results=List(Array.Empty<string>(),250);
+        var results=List(Array.Empty<string>(),155);
         string[] rows=Array.Empty<string>();
         void Filter() => results.ItemsSource=rows
             .Where(s=>s.Contains(search.Text,StringComparison.OrdinalIgnoreCase))
@@ -383,8 +383,8 @@ public partial class MainWindow : Window
                         ?new[]{m.Name+" · nincs konfigurált mod"}
                         :m.OrderedIds.Select((id,i)=>m.Name+" · "+(i+1)+". · "+id))
                     .ToArray();
-                if(rows.Length==0)rows=new[]{
-                    "Nincs helyi map. A Szerverek oldalon manuálisan regisztrálhatsz mapokat."};
+                        // A missing profile is a guided empty state, not a fake mod row.
+                if(rows.Length==0)rows=Array.Empty<string>();
                 summary.Text=mods.Maps.Count+" helyi map · "+
                     snapshot.KnownModAssignments+" igazolt konfigurációs modhozzárendelés · "+
                     mods.UniqueIdCount+" különböző ID · "+
@@ -402,18 +402,37 @@ public partial class MainWindow : Window
             }
         }
         search.TextChanged+=(_,_)=>Filter();
-        Add(Box(V(Label("Helyi mapok konfigurált modjai",20,Mint,true),
-            summary,Btn("Helyi modleltár frissítése",Refresh),
-            Label("Mapnév vagy mod ID keresése a helyi konfigurációban",12,Aqua),
-            search,results)));
+        var quickActions=new WrapPanel{Margin=new Thickness(0,8,0,5)};
+        quickActions.Children.Add(Btn("Frissítés",Refresh));
+        quickActions.Children.Add(Btn("Szerverek",()=>Navigate("servers")));
+        quickActions.Children.Add(Btn("Offline DEMO",EnterDemoMode));
+        search.Margin=new Thickness(0,8,0,9);
+        search.ToolTip="Mapnév vagy mod ID keresése a tényleges helyi indítási paraméterekben";
+        var inventory=V(Label("Telepített mapok modbeállításai",19,Mint,true),
+            summary,search,quickActions);
+        if(_cluster.Config.LocalMaps.Count==0)
+        {
+            Add(Box(V(Label("Nincs még hozzáadott szerver",21,Mint,true),
+                Label("Adj hozzá egy mapot a Szerverek oldalon, vagy próbáld ki "+
+                    "az interaktív OFFLINE DEMO módot. Valós modállapotot csak regisztrált helyi mapon tudok ellenőrizni.",13,Soft),
+                quickActions)));
+            Add(Box(V(Label("CurseForge katalógus",18,Aqua,true),
+                Label("A katalógus külön, engedélyezett API-kulccsal működik; "+
+                    "nem indít szervert és nem módosít modlistát.",12,Soft))));
+            ShowCurseForgeSearchControls();
+            return;
+        }
+        Add(Box(V(inventory,
+            Label("Konfigurált modok · eredeti indítási sorrend",12,Aqua),
+            results)));
         Refresh();
-        ShowLocalModAssignmentInventory();
         ShowModStateEditor();
         ShowBulkModsControls();
-        ShowSteamCmdPreflightControls();
-        ShowAsaInstallationPreflightControls();
+        ShowLocalModAssignmentInventory();
         ShowCurseForgeSearchControls();
         ShowModUpdateCenter();
+        ShowSteamCmdPreflightControls();
+        ShowAsaInstallationPreflightControls();
     }
     private void Plugins()
     {

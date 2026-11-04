@@ -130,7 +130,7 @@
    <Grid Grid.Row="1">
     <ScrollViewer x:Name="Dashboard" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="#061819">
      <StackPanel Margin="18,0,18,14">
-      <Border Height="225" BorderBrush="#356C65" BorderThickness="0,0,0,1" CornerRadius="0" ClipToBounds="True" Background="{StaticResource HeroBack}">
+      <Border Height="205" BorderBrush="#35484C" BorderThickness="0,0,0,1" CornerRadius="0" ClipToBounds="True" Background="{StaticResource HeroBack}">
        <Grid>
         <Canvas ClipToBounds="True">
          <Path Fill="#163E35" Opacity="0.75" Data="M0 209 L95 157 170 190 280 103 380 160 525 113 676 170 811 102 940 187 1140 135 1340 207 1340 290 0 290Z"/>
@@ -146,25 +146,31 @@
         <Image x:Name="HeroImage" Source="/Assets/kingdom-hero.jpg" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality" Opacity="0.98" RenderTransformOrigin="0.5,0.5"><Image.RenderTransform><ScaleTransform ScaleX="1.015" ScaleY="1.015"/></Image.RenderTransform></Image><Rectangle Fill="{StaticResource Night}"/>
         <Ellipse x:Name="AmbientGlow" HorizontalAlignment="Right" VerticalAlignment="Top" Width="430" Height="300" Margin="0,-64,-85,0" Fill="#1066FFE0" Opacity="0.12" IsHitTestVisible="False"/>
         <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center" Margin="34,0,300,0">
-         <TextBlock Text="ARK: SURVIVAL ASCENDED" FontWeight="SemiBold" FontSize="12" Foreground="#A6F873"/>
-         <TextBlock Text="UNTAMED KINGDOM" FontSize="38" FontWeight="Black" Foreground="White" Margin="0,11,0,0" TextTrimming="CharacterEllipsis"><TextBlock.Effect><DropShadowEffect Color="#A6F2F1" BlurRadius="9" ShadowDepth="0" Opacity="0.37"/></TextBlock.Effect></TextBlock>
+         <TextBlock Text="UNTAMED  /  INFRASTRUCTURE" FontWeight="SemiBold" FontSize="11" Foreground="#90E2D3"/>
+         <TextBlock Text="UNTAMED KINGDOM" FontSize="34" FontWeight="Black" Foreground="White" Margin="0,11,0,0" TextTrimming="CharacterEllipsis"><TextBlock.Effect><DropShadowEffect Color="#A6F2F1" BlurRadius="9" ShadowDepth="0" Opacity="0.37"/></TextBlock.Effect></TextBlock>
          <TextBlock Text="CONTROL CENTER  /  HELYI ÉS LAN MAPOK" FontSize="15" Foreground="#73E3CD" Margin="0,4,0,0"/>
          <TextBlock Text="Helyi mapok · hitelesített LAN-peer · offline működés" FontSize="13" Foreground="#E7F5EF" Margin="0,13,0,0"/>
-         <StackPanel Orientation="Horizontal" Margin="0,19,0,0">
+         <WrapPanel Orientation="Horizontal" Margin="0,16,0,0">
           <Button Style="{StaticResource PrimaryAction}" Content="▤  Szerverek kezelése  ❯" Tag="servers" Click="Navigate_Click"/>
           <Button Style="{StaticResource ActionButton}" Content="✣  Mod Center" Tag="mods" Click="Navigate_Click"/>
           <Button Style="{StaticResource ActionButton}" Content="▥  Mentések" Tag="backups" Click="Navigate_Click"/>
           <Button Style="{StaticResource GoldAction}" Content="↻  Frissítések" Tag="license" Click="Navigate_Click"/>
-         </StackPanel>
+         </WrapPanel>
         </StackPanel>
        </Grid>
       </Border>
-      <Border Style="{StaticResource NeonStatPanel}" Margin="0,10,0,0">
-       <TextBlock x:Name="LocalHostResourceStatus" Text="Helyi CPU / RAM: még nincs mért Windows-adat" Foreground="#DCEEE8" TextWrapping="Wrap" FontSize="12"/>
-      </Border>
-      <Border Style="{StaticResource NeonStatPanel}" Margin="0,10,0,0">
-       <TextBlock x:Name="SupervisorStatus" Text="Supervisor: Ismeretlen – nincs friss, hitelesített mérés" TextWrapping="Wrap" Foreground="#9DB7B2" FontSize="12"/>
-      </Border>
+      <Grid Margin="0,11,0,4">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+       <Border Grid.Column="0" Style="{StaticResource NeonStatPanel}" Margin="0,0,7,0">
+        <StackPanel><TextBlock Text="LOCAL SYSTEM / CPU + MEMORY" FontSize="11" Foreground="#8BAAAE" Margin="0,0,0,6"/>
+         <TextBlock x:Name="LocalHostResourceStatus" Text="Helyi CPU / RAM: még nincs mért Windows-adat" Foreground="#DCEEE8" TextWrapping="Wrap" FontSize="12"/></StackPanel>
+       </Border>
+       <Border Grid.Column="1" Style="{StaticResource NeonStatPanel}" Margin="7,0,0,0">
+        <StackPanel><TextBlock Text="SUPERVISOR / PROCESS OBSERVATION" FontSize="11" Foreground="#8BAAAE" Margin="0,0,0,6"/>
+         <TextBlock x:Name="SupervisorStatus" Text="Supervisor: Ismeretlen – nincs friss, hitelesített mérés" TextWrapping="Wrap" Foreground="#C5D9D9" FontSize="12"/></StackPanel>
+       </Border>
+      </Grid>
+
       <UniformGrid Columns="4" Margin="0,10,0,0">
        <Border Style="{StaticResource NeonStatPanel}"><StackPanel><TextBlock Text="◇  TÉRKÉPEK" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterMapCount" Text="0" Foreground="#A6F873" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Regisztrált / utoljára látott" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
        <Border Style="{StaticResource NeonStatPanel}"><StackPanel><TextBlock Text="▤  GAZDAGÉPEK" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterHostCount" Text="1" Foreground="White" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Külön Windows gépek" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
@@ -193,7 +199,18 @@
        <Button DockPanel.Dock="Right" Content="⟳  Mérések frissítése" Style="{StaticResource ActionButton}" Padding="13,8" Click="DashboardRefresh_Click" AutomationProperties.Name="Dashboard állapotok frissítése"/>
        <TextBlock Text="Regisztrált cluster szerverek" Foreground="White" FontWeight="Bold" FontSize="21" VerticalAlignment="Center"/>
       </DockPanel>
-      <TextBlock x:Name="MapListEmpty" Text="Még nincs regisztrált helyi map, és nincs hitelesített távoli maplista. A Szerverek oldalon adhatsz hozzá helyi mapot." FontSize="13" Foreground="#C9DCD4" TextWrapping="Wrap" Margin="0,0,0,12" Visibility="Collapsed"/>
+      <Border x:Name="MapListEmpty" Background="#152629" BorderBrush="#3D6467" BorderThickness="1"
+              CornerRadius="14" Padding="25,22" Margin="0,0,10,14" Visibility="Collapsed">
+        <StackPanel>
+          <TextBlock Text="Készen áll az első szervered" FontSize="22" FontWeight="SemiBold" Foreground="#ECFFF8"/>
+          <TextBlock Text="Még nincs regisztrált map. Választhatsz egy helyi telepítést, vagy egyből felfedezheted a kezelőfelületet offline mintaclusterrel."
+                     FontSize="13" Foreground="#B3CAC7" TextWrapping="Wrap" Margin="0,7,0,15"/>
+          <WrapPanel>
+            <Button Style="{StaticResource PrimaryAction}" Content="＋  Map hozzáadása" Click="Navigate_Click" Tag="servers"/>
+            <Button Style="{StaticResource GoldAction}" Content="▶  DEMO kipróbálása" Click="DemoMode_Click"/>
+          </WrapPanel>
+        </StackPanel>
+      </Border>
       <ItemsControl x:Name="ServerCards">
        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
        <ItemsControl.ItemTemplate>

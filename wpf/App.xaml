@@ -208,8 +208,8 @@
       <Setter Property="Background" Value="#503C18"/><Setter Property="BorderBrush" Value="#EFC26C"/>
     </Style>
     <Style TargetType="Border" x:Key="Panel">
-      <Setter Property="Background" Value="#0C302D"/>
-      <Setter Property="BorderBrush" Value="#357970"/>
+      <Setter Property="Background" Value="#152025"/>
+      <Setter Property="BorderBrush" Value="#354C51"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="CornerRadius" Value="14"/>
       <Setter Property="Padding" Value="17"/>
@@ -220,14 +220,14 @@
       <Setter Property="Background">
         <Setter.Value>
           <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#0D3431" Offset="0"/>
-            <GradientStop Color="#062521" Offset="1"/>
+            <GradientStop Color="#1A2B2F" Offset="0"/>
+            <GradientStop Color="#101B20" Offset="1"/>
           </LinearGradientBrush>
         </Setter.Value>
       </Setter>
-      <Setter Property="BorderBrush" Value="#249D82"/>
+      <Setter Property="BorderBrush" Value="#355F61"/>
       <Setter Property="Effect">
-        <Setter.Value><DropShadowEffect Color="#00E8C2" BlurRadius="16" ShadowDepth="0" Opacity="0.17"/></Setter.Value>
+        <Setter.Value><DropShadowEffect Color="#00E8C2" BlurRadius="12" ShadowDepth="0" Opacity="0.08"/></Setter.Value>
       </Setter>
     </Style>
     <Style TargetType="Border" x:Key="AmberStatPanel" BasedOn="{StaticResource NeonStatPanel}">
