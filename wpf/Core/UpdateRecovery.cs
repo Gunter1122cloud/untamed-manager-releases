@@ -15,7 +15,7 @@ public static class UpdateRecovery
             if((File.GetAttributes(root)&FileAttributes.ReparsePoint)!=0)throw new IOException("Linked recovery directory rejected");
             string file=Path.Combine(root,"update-transaction.json");
             if(!File.Exists(file))return false;
-            var state=JsonSerializer.Deserialize<DirectoryUpdateTransaction.State>(File.ReadAllText(file))??throw new IOException("Invalid recovery journal");
+            var state=new DirectoryUpdateTransaction(root).InspectState();
             return (state.Phase=="prepared"||state.Phase=="rollingback")&&
                 string.Equals(Path.GetFullPath(state.Application).TrimEnd(Path.DirectorySeparatorChar),application,StringComparison.OrdinalIgnoreCase);
         }).ToArray();

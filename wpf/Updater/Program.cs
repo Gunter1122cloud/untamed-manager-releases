@@ -94,7 +94,7 @@ public sealed class UpdateForm : Form
             if(_arguments.Contains("--recover"))
             {
                 appExe=Path.GetFullPath(Required("--app"));profile=Required("--profile");
-                transaction=new DirectoryUpdateTransaction(Required("--backup"));
+                transaction=new DirectoryUpdateTransaction(Required("--backup"),Path.GetDirectoryName(appExe)!);
                 int index=Array.IndexOf(_arguments,"--pid");
                 if(index>=0)
                 {
@@ -115,7 +115,7 @@ public sealed class UpdateForm : Form
                 throw new DirectoryNotFoundException("Manager install folder missing");
             // Never access cluster config, save games, backups or ASA installation paths.
             Directory.CreateDirectory(snapshotRoot);
-            transaction=new DirectoryUpdateTransaction(snapshotRoot);
+            transaction=new DirectoryUpdateTransaction(snapshotRoot,Path.GetDirectoryName(appExe)!);
             Update("Manager felületének bezárása…",10);
             try
             {

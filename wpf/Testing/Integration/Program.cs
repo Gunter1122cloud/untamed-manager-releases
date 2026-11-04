@@ -51,6 +51,9 @@ try
     await GuardedPluginUpdateTests.Run(root);
     await IsolatedRconAdminQueueTests.Run(fake);
     await SchedulerConcurrencyTests.Run(root);
+    UpdateOwnershipTests.Run(root);
+    if(args.Length<3)throw new ArgumentException("Shipped Supervisor and Manager paths required for version validation");
+    UpdateOwnershipTests.VerifyToolVersions(args[1],Path.Combine(Path.GetDirectoryName(args[2])!,"UntamedUpdater.exe"));
     await ProfessionalOperationsTests.Run(root,fake);
     await OperationSafetyTests.Run(root);
     DurableWatchdogTrackerTests.Run(root);
