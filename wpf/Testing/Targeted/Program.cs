@@ -13,6 +13,7 @@ await SteamCmdIsolatedUpdaterTests.Run(root,args[0]);
 await ModDependencyPlannerTests.Run();
 await CurseForgeDependencyResolverTests.Run();
 await AsaApiReleaseStagingTests.Run();
+await AsaApiIsolatedInstallerTests.Run();
 await RconTransportTests.Run();
 DurableWatchdogTrackerTests.Run(root);
 RecurringReadOnlyRecoveryTests.Run(root);

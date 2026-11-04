@@ -18,6 +18,9 @@ public partial class MainWindow
             Foreground=Brushes.White};
         var status=Label("Válassz helyi mapot. PE64 fájlok és pluginállapotok csak lemezről igazolhatók.",12,Soft);
         AsaApiReleaseInfo? approvedRelease=null;
+        string? stagedPackage=null;
+        string? lastApiTransaction=null;
+        bool apiInstallBusy=false;
         var releaseAsset=new ComboBox{Background=Panel,Foreground=Brushes.White,
             DisplayMemberPath="Name",SelectedIndex=-1};
         LocalMap Selected()
@@ -97,6 +100,7 @@ public partial class MainWindow
                 {
                     var result=await AsaApiReleaseStaging.StageLatestAsync(
                         _http,asset.Name,output);
+                    stagedPackage=output;
                     status.Text="HIVATALOS ZIP INTEGRITÁSA IGAZOLT"+
                         "\nKiadás: "+result.Tag+" · ZIP: "+result.AssetName+
                         "\nSHA-256: "+result.OfficialSha256+
@@ -110,6 +114,48 @@ public partial class MainWindow
                     status.Text="UM-API-PACKAGE: a ZIP hitelesítése sikertelen. "+
                         "Az esetleges .incomplete mappa operátori vizsgálatot igényel.";
                 }
+            }),
+            Btn("Ellenőrzött API ZIP telepítése – kizárólag elkülönített tesztmap",async ()=>{
+                if(apiInstallBusy)return;
+                apiInstallBusy=true;
+                try
+                {
+                    var map=Selected();
+                    if(stagedPackage==null)throw new InvalidOperationException("Előbb tölts le ellenőrzött API-csomagot.");
+                    string package=stagedPackage;
+                    if(WinMessageBox.Show("A kiválasztott elkülönített tesztmap API-binárisait cseréli. "+
+                        "Előtte teljes visszaállítási másolat készül; a konfiguráció, pluginadatok és licenc megmarad. "+
+                        "Minden közös telepítésű mapnak leállítva kell lennie. Éles telepítési útvonalat nem fogad el.\nFolytatod?",
+                        "Untamed API – teszttelepítés",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                    var fresh=await AsaApiReleaseCatalog.FetchLatestAsync(_http);
+                    var manifest=AsaApiReleaseStaging.Verify(package);
+                    var asset=fresh.Assets.SingleOrDefault(x=>x.Name==manifest.AssetName)??
+                        throw new InvalidOperationException("A kiadási csomag már nem ellenőrizhető az aktuális kiadóval.");
+                    status.Text="API-teszttelepítés: snapshot, bináriscsere és integritásellenőrzés...";
+                    var result=await System.Threading.Tasks.Task.Run(()=>AsaApiIsolatedInstaller.Install(
+                        _cluster,map.Id,package,fresh,asset));
+                    lastApiTransaction=result.Transaction;
+                    status.Text="Az API-fájlok telepítve és ellenőrizve. Futásidejű betöltés még nem igazolt.\nTranzakció: "+result.Transaction;
+                }
+                catch(Exception ex){WriteLog("api-isolated-install",ex);status.Text="UM-API-INSTALL: a teszttelepítés nem fejeződött be. A tranzakció megőrzött állapota ellenőrizendő.";}
+                finally{apiInstallBusy=false;}
+            }),
+            Btn("Félbeszakadt API-teszttelepítés védett helyreállítása",()=>{
+                if(apiInstallBusy)return;
+                try
+                {
+                    var map=Selected();
+                    using var picker=new System.Windows.Forms.FolderBrowserDialog{
+                        Description="A teszttelepítés transactions mappájából válassz félbeszakadt tranzakciót",
+                        SelectedPath=lastApiTransaction??""};
+                    if(picker.ShowDialog()!=System.Windows.Forms.DialogResult.OK)return;
+                    if(WinMessageBox.Show("A kiválasztott félbeszakadt teszttelepítés teljes API-könyvtárát állítja vissza a hiteles snapshotból. "+
+                        "Csak igazoltan leállított tesztmapon folytatható.\nFolytatod?","API-teszt helyreállítás",
+                        MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                    AsaApiIsolatedInstaller.RecoverSnapshot(_cluster,map.Id,picker.SelectedPath);
+                    status.Text="A snapshot visszaállítva. Az eredeti félbeszakadt művelet naplója megmaradt operátori ellenőrzésre.";
+                }
+                catch(Exception ex){WriteLog("api-isolated-recovery",ex);status.Text="UM-API-RECOVERY: a helyreállítás megtagadva vagy sikertelen; a naplót megőriztük.";}
             }),
             Label("Plugin mappaneve",12,Aqua),plugin,
             Btn("Kijelölt plugin KIKAPCSOLÁSA – csak igazoltan leállított map",()=>{

@@ -44,6 +44,7 @@ try
     await ModDependencyPlannerTests.Run();
     await CurseForgeDependencyResolverTests.Run();
     await AsaApiReleaseStagingTests.Run();
+    await AsaApiIsolatedInstallerTests.Run();
     await ProfessionalOperationsTests.Run(root,fake);
     await OperationSafetyTests.Run(root);
     DurableWatchdogTrackerTests.Run(root);
