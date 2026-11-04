@@ -11,7 +11,7 @@ public partial class MainWindow
     private void ShowLocalPluginInventoryControls()
     {
         var maps=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
-            DisplayMemberPath="Name",SelectedIndex=_cluster.Config.LocalMaps.Count>0?0:-1,
+            DisplayMemberPath="Name",SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==_preferredPluginMapId)??_cluster.Config.LocalMaps.FirstOrDefault(),
             Background=Panel,Foreground=Brushes.White};
         var entries=new ListBox{Height=230,Background=Panel,Foreground=Brushes.White,
             BorderBrush=Aqua};
