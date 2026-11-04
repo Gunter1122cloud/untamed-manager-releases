@@ -236,7 +236,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-premium-test.2"
+          $tag = "v1.6.1-premium-test.3"
           $repo = "$env:GITHUB_REPOSITORY"
           $files = @(
             "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-premium-test.exe",
@@ -252,8 +252,8 @@ jobs:
             gh release upload $tag @files --repo $repo --clobber
           } else {
             gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 2" --prerelease `
-              --notes "Graphite Windows WPF UI: unified native dark ComboBox, eight-item navigation, compact dashboard, staged Mod Center and in-memory ten-map DEMO. Store-v1/backend safety retained. Live ASA write operations are not certified for production. Install on a separate Windows test PC only."
+              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 3" --prerelease `
+              --notes "Graphite TEST 3: native Windows WPF Mod Center has ordered multi-step drafts, persistent per-map in-memory draft navigation, Undo/Redo, explicit before-after mode/order differences, optimistic stale-write rejection under config lease and duplicate-safe CurseForge adding. Offline DEMO has Undo/Redo and an atomic simulated mod-list apply. Isolated Store-v1/SQL/FakeAsa tests and existing production safety gates are retained. Use only on a separate Windows test PC; no live ASA or Store writer certification."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
           # A cancelled prior CI can leave an unpublished draft with the same tag.
