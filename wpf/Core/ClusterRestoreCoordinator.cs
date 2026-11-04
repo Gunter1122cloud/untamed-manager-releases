@@ -138,19 +138,26 @@ public static class ClusterRestoreCoordinator
         string index=Path.Combine(incomplete,Index);
         WriteDurable(index,JsonSerializer.Serialize(staged));
         WriteDurable(Path.Combine(incomplete,Marker),verified.Batch.ToString("N"));
-        VerifyLab(incomplete);
+        VerifyInternal(incomplete,true);
         Directory.Move(incomplete,target);
         return VerifyLab(target);
     }
 
     public static OfflineRestoreStagingManifest VerifyLab(string destination)
+        => VerifyInternal(destination,false);
+
+    private static OfflineRestoreStagingManifest VerifyInternal(string destination,bool internalStage)
     {
-        // Allow .incomplete only for internal pre-promotion verification.
-        string path=destination.EndsWith(".incomplete",StringComparison.Ordinal)?
+        string path=internalStage && destination.EndsWith(".incomplete",StringComparison.Ordinal)?
             destination[..^".incomplete".Length]:destination;
         string root=VerifyLabTarget(path);
-        bool internalStage=!string.Equals(root,destination,StringComparison.OrdinalIgnoreCase);
-        if(internalStage)root=destination;
+        if(internalStage)
+            root=destination;
+        else if(destination.EndsWith(".incomplete",StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Incomplete restore staging cannot be accepted");
+        for(var dir=new DirectoryInfo(root);dir!=null;dir=dir.Parent)
+            if(dir.Exists&&(dir.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("Linked restore workspace rejected");
         string index=Path.Combine(root,Index),marker=Path.Combine(root,Marker);
         if(!Directory.Exists(root)||!File.Exists(index)||!File.Exists(marker)||
            (File.GetAttributes(index)&FileAttributes.ReparsePoint)!=0||
@@ -169,8 +176,21 @@ public static class ClusterRestoreCoordinator
                 .SetEquals(OfflineSqlArchive.SupportedDatabases)==false||
            File.ReadAllText(marker).Trim()!=report.SourceBatch.ToString("N"))
             throw new InvalidDataException("Offline restore inventory identity or scope mismatch");
+        if(Directory.GetFiles(root).Length!=2||Directory.GetDirectories(root).Length!=3)
+            throw new InvalidDataException("Extra or missing isolated restore root content");
+        foreach(string host in new[]{"HP","RYZEN"})
+            if(!Directory.Exists(Path.Combine(root,host))||
+               Directory.GetFiles(Path.Combine(root,host)).Length!=0||
+               Directory.GetDirectories(Path.Combine(root,host)).Length!=5)
+                throw new InvalidDataException("Unexpected host restore membership");
+        string sqlRoot=Path.Combine(root,"SQL");
+        if(!Directory.Exists(sqlRoot)||Directory.GetDirectories(sqlRoot).Length!=0||
+           Directory.GetFiles(sqlRoot).Length!=3)
+            throw new InvalidDataException("Unexpected SQL restore membership");
         foreach(var member in report.Maps)
         {
+            if(member.Manifest==null||member.Owner==Guid.Empty)
+                throw new InvalidDataException("Missing map restore manifest");
             string folder=Path.Combine(root,member.Host,member.Owner.ToString("N"));
             BackupIntegrity.Verify(folder,member.Manifest,member.Owner);
         }
