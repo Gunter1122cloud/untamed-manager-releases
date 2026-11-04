@@ -18,6 +18,7 @@ await AsaApiReleaseStagingTests.Run();
 await AsaApiIsolatedInstallerTests.Run();
 await ModArgumentSafetyTests.Run(root);
 await ModDraftSessionTests.Run(root);
+DemoWorkspaceTests.Run();
 await GuardedPluginUpdateTests.Run(root);
 await IsolatedRconAdminQueueTests.Run(args[1]);
 await SchedulerConcurrencyTests.Run(root);
