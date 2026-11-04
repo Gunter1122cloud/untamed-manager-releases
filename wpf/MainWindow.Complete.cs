@@ -16,6 +16,8 @@ public partial class MainWindow
 {
     public void VerifyCompleteManagerCiSmoke()
     {
+        if(VersionBadge.Text!="WPF "+UiVersion)
+            throw new InvalidOperationException("Stale WPF version badge or assembly mismatch");
         foreach(string page in new[]{"setup","data","steam","settings","readiness"})
         {
             Navigate(page);
