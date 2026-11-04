@@ -98,6 +98,7 @@ public static class SafeLifecycle
         ct.ThrowIfCancellationRequested();
         DateTimeOffset startedRequest=DateTimeOffset.UtcNow;
         session.Start();
+        ProcessIdentity? initialReplacement=null;
 
         static bool Same(ProcessIdentity? x,ProcessIdentity? y)=>
             x==null?y==null:y!=null&&x.Pid==y.Pid&&x.StartedUtc==y.StartedUtc&&
@@ -114,6 +115,9 @@ public static class SafeLifecycle
                string.Equals(child.ExecutablePath,before.Identity.ExecutablePath,StringComparison.OrdinalIgnoreCase)&&
                string.Equals(child.Arguments,before.Identity.Arguments,StringComparison.Ordinal))
             {
+                if(initialReplacement!=null && !Same(initialReplacement,child))
+                    throw new InvalidOperationException("Restart replacement process changed during readiness");
+                initialReplacement ??= child;
                 var proof=await session.ProbeReadiness(ct).WaitAsync(ct);
                 var after=session.Check();
                 if(after.Running&&!after.ConfirmedStopped&&
