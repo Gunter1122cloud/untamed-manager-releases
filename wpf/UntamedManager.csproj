@@ -9,6 +9,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AssemblyName>UntamedManager</AssemblyName>
     <ApplicationIcon>Assets/UntamedManager.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup><Resource Include="Assets/kingdom-hero.jpg" /><Resource Include="Assets/reference-atlas.jpg" /><Resource Include="Assets/UntamedManager.ico" /></ItemGroup>
