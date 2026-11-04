@@ -14,7 +14,8 @@ public partial class MainWindow
     private void ShowPluginRollbackControls()
     {
         var mapBox=new ComboBox{
-            ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",SelectedIndex=0,
+            ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",
+            SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==_preferredPluginMapId)??_cluster.Config.LocalMaps.FirstOrDefault(),
             Foreground=Brushes.White,Background=Panel};
         var pluginName=new TextBox{Height=34,Foreground=Brushes.White,Background=Panel,
             ToolTip="Exact installed plugin directory name (Untamed Cluster Vault plugins forbidden)"};
