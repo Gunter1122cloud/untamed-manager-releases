@@ -63,7 +63,7 @@ public partial class MainWindow : Window
     private Guid? _preferredModMapId;
     private Guid? _preferredPluginMapId;
     private string _page = "dashboard";
-    private bool _animationsEnabled = true;
+    private bool _animationsEnabled = false;
     private string SettingsFile => Path.Combine(App.LogDir,"visual-settings.json");
     private readonly string[] _modNames = {
         "S-Dino Variants (912815)", "Shiny! Dinos (928548)",
@@ -252,7 +252,12 @@ public partial class MainWindow : Window
         foreach(var element in NavigationMenu.Children)
         {
             if (element is not Button button || button.Tag is not string tag) continue;
-            NavSelection.SetIsCurrent(button,tag==page);
+            NavSelection.SetIsCurrent(button,tag==(page switch {
+                "ini" or "rcon" or "data" or "steam" or "monitoring" or "network"
+                or "discord" or "recovery" or "schedules" or "license" or "readiness"
+                or "extensions" or "setup" or "lan" => "operations",
+                _ => page
+            }));
         }
     }
     private void SetAnimations(bool enabled)
@@ -294,6 +299,7 @@ public partial class MainWindow : Window
         switch(page)
         {
             case "servers": ShowLocalServerPage(); break;
+            case "operations": ShowOperationsHub(); break;
             case "cluster": ShowClusterPage(); break;
             case "lan": ShowLanSettings(); break;
             case "mods": Mods(); break;
@@ -315,6 +321,33 @@ public partial class MainWindow : Window
             case "setup": ShowSetupWizard(); break;
         }
     }
+    private void ShowOperationsHub()
+    {
+        Header("Műveletek","Az üzemeltetési eszközök egy helyen. A biztonsági korlátozások változatlanok.");
+        var monitoring=new WrapPanel { Margin=new Thickness(0,8,0,0) };
+        foreach(var (title,page) in new[]{
+            ("Monitoring és események","monitoring"),("Watchdog / helyreállítás","recovery"),
+            ("Ütemezések","schedules"),("Hálózat és LAN","network"),("Discord státusz","discord")})
+            monitoring.Children.Add(Btn(title,()=>Navigate(page)));
+        var maintenance=new WrapPanel { Margin=new Thickness(0,8,0,0) };
+        foreach(var (title,page) in new[]{
+            ("SteamCMD","steam"),("INI szerkesztő","ini"),("RCON konzol","rcon"),
+            ("Frissítések","license")})
+            maintenance.Children.Add(Btn(title,()=>Navigate(page)));
+        var storage=new WrapPanel { Margin=new Thickness(0,8,0,0) };
+        foreach(var (title,page) in new[]{
+            ("Cluster Vault / SQL","data"),("LAN párosítás","lan"),
+            ("Biztonsági ellenőrzések","readiness"),("Manager-panelek","extensions"),
+            ("Beállítóvarázsló","setup")})
+            storage.Children.Add(Btn(title,()=>Navigate(page)));
+        Add(Box(V(Label("Üzemeltetés",17,Mint,true),
+            Label("Állapotvizsgálat, automatizálás és hálózat.",12,Soft),monitoring)));
+        Add(Box(V(Label("Karbantartás",17,Mint,true),
+            Label("Szerverkonfiguráció és vezérlőeszközök.",12,Soft),maintenance)));
+        Add(Box(V(Label("Adatok és rendszer",17,Mint,true),
+            Label("Biztonságos adattár, helyi profil és ellenőrzések.",12,Soft),storage)));
+    }
+
     private void Header(string title,string description)
     {
         PageTitle.Text=title;PageDescription.Text=description;
