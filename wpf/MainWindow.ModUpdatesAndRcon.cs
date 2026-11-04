@@ -88,7 +88,49 @@ public partial class MainWindow
                             map=map.Id,modId=id,utc=DateTimeOffset.UtcNow,
                             state=state.State.ToString(),latestFileId=state.LatestFileId})+"\n");
                 }
-                catch(Exception ex){status.Text="CurseForge-verzióellenőrzés sikertelen: "+ex.Message;}
+                catch(Exception ex){
+                    WriteLog("mod-file-preview",ex);
+                    status.Text="UM-CURSEFORGE-META: nem sikerült ellenőrizni a modfájlokat.";
+                }
+            }),
+            Btn("Teljes kötelező modfüggőségi lánc ellenőrzése (csak API)",async ()=>{
+                if(maps.SelectedItem is not LocalMap localMap ||
+                   !_cluster.Config.LocalMaps.Contains(localMap))
+                {status.Text="Válassz helyi mapot.";return;}
+                if(!int.TryParse(project.Text.Trim(),out int selectedId) || selectedId<10000)
+                {status.Text="Érvénytelen projektazonosító.";return;}
+                string keyEncrypted=_cluster.Config.CurseForgeApiKeyProtected;
+                if(string.IsNullOrWhiteSpace(keyEncrypted))
+                {status.Text="Előbb állíts be jóváhagyott CurseForge API-kulcsot.";return;}
+                status.Text="CurseForge API: kötelező fájlok és kapcsolatok bejárása...";
+                try
+                {
+                    var local=ModStateController.Read(localMap);
+                    var result=await new CurseForgeDependencyResolver(
+                        new CurseForgeCatalog(_http)).ResolveAsync(
+                            SecureStore.Unprotect(keyEncrypted),selectedId,
+                            local.Active.Concat(local.Passive));
+                    status.Text="CurseForge függőségi ellenőrzés: "+
+                        (result.FullMetadataRetrieved?"TELJES METAADAT":"HIÁNYOS / BLOKKOLVA")+
+                        "\nLekérdezett API-oldalak: "+result.HttpPagesRead+
+                        "\nKötelező betöltési sorrend: "+
+                        (result.Preview==null?"nem igazolható":
+                            string.Join(" → ",result.Preview.DependencyFirstOrder))+
+                        "\nHiányzó kötelező projektek: "+
+                        (result.Preview==null?"ismeretlen":
+                            string.Join(", ",result.Preview.MissingRequired))+
+                        "\nOpcionális modok: "+
+                        (result.Preview==null?"ismeretlen":
+                            string.Join(", ",result.Preview.OptionalMods))+
+                        "\n"+result.Reason+
+                        "\nAutomatikus telepítés/éles restart: NINCS.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("mod-dependency-chain",ex);
+                    status.Text="UM-CURSEFORGE-CHAIN: a függőségi lánc nem igazolható. "+
+                        "Nem történt módosítás.";
+                }
             }),status)));
     }
 
