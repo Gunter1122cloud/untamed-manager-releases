@@ -65,6 +65,8 @@ public static class AsaReadyProbe
         {
             var expected=Path.GetFullPath(Path.Combine(map.InstallationPath,
                 "ShooterGame","Binaries","Win64","ArkAscendedServer.exe"));
+            for(DirectoryInfo? dir=new(Path.GetDirectoryName(expected)!);dir!=null;dir=dir.Parent)
+                if(dir.Exists && (dir.Attributes&FileAttributes.ReparsePoint)!=0)return false;
             if(!Path.GetFullPath(map.ExecutablePath).Equals(expected,StringComparison.OrdinalIgnoreCase)||
                !File.Exists(expected)||(File.GetAttributes(expected)&FileAttributes.ReparsePoint)!=0)
                 return false;
@@ -78,6 +80,8 @@ public static class AsaReadyProbe
                     StringComparison.OrdinalIgnoreCase)||
                    !File.Exists(loader)||(File.GetAttributes(loader)&FileAttributes.ReparsePoint)!=0)
                     return false;
+                for(DirectoryInfo? dir=new(Path.GetDirectoryName(loader)!);dir!=null;dir=dir.Parent)
+                    if(dir.Exists && (dir.Attributes&FileAttributes.ReparsePoint)!=0)return false;
             }
             return true;
         }
@@ -113,11 +117,22 @@ public static class AsaReadyProbe
             return Result(map,AsaRuntimeStage.ExecutableVerified,
                 "Maintenance mode: RCON readiness probe not performed");
         var before=inspect();
+        static bool Matches(string observed,string configured)
+        {
+            try{return Path.GetFullPath(observed).Equals(Path.GetFullPath(configured),
+                StringComparison.OrdinalIgnoreCase);}
+            catch(Exception ex) when(ex is IOException or ArgumentException or NotSupportedException)
+            {return false;}
+        }
         if(!before.Running||before.ConfirmedStopped||before.Identity is null||
-           !Path.GetFullPath(before.Identity.ExecutablePath).Equals(
-               Path.GetFullPath(map.ExecutablePath),StringComparison.OrdinalIgnoreCase)||
+           before.Identity.Pid<=0||
+           !Matches(before.Identity.ExecutablePath,map.ExecutablePath)||
            !string.Equals(before.Identity.Arguments,map.Arguments,StringComparison.Ordinal)||
-           (string.IsNullOrWhiteSpace(map.ApiLoaderPath)!= (before.LoaderIdentity is null)))
+           (string.IsNullOrWhiteSpace(map.ApiLoaderPath)!=(before.LoaderIdentity is null))||
+           (before.LoaderIdentity!=null &&
+            (before.LoaderIdentity.Pid<=0 ||
+             !Matches(before.LoaderIdentity.ExecutablePath,map.ApiLoaderPath)||
+             !string.Equals(before.LoaderIdentity.Arguments,map.ApiLoaderArguments,StringComparison.Ordinal))))
             return Result(map,AsaRuntimeStage.ExecutableVerified,
                 "ASA process or loader family is not unambiguously identified");
         bool hasLoader=before.LoaderIdentity!=null;
