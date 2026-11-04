@@ -16,6 +16,7 @@ internal sealed record PremiumModRow(string Id, string State, int Position, stri
 public partial class MainWindow
 {
     private Action<string>? _catalogSelectForMod;
+    private readonly Dictionary<Guid,ModDraftSession> _modDraftSessions=new();
 
     private void ShowPremiumMods()
     {
@@ -58,32 +59,22 @@ public partial class MainWindow
             SelectedIndex=0,MinWidth=180,Margin=new Thickness(0,7,0,8)};
         var status=Label("",12,Soft);
         var preview=Label("",12,Soft);
-        var pending=new Dictionary<string,ModEdit>(StringComparer.Ordinal);
         PremiumModRow? chosen=null;
 
         LocalMap CurrentMap()=>selector.SelectedItem as LocalMap
             ??throw new InvalidOperationException("Előbb válassz helyi mapot.");
-        LocalMap TemporaryCopy()
+        ModDraftSession GetDraft(LocalMap map)
         {
-            var map=CurrentMap();
-            return new LocalMap {
-                Id=map.Id,Name=map.Name,Arguments=map.Arguments,
-                DisabledModIds=(map.DisabledModIds??new()).ToList(),
-                ModChangesPending=map.ModChangesPending
-            };
+            // Preserve unsaved edits across tab and map navigation. Nothing
+            // leaves memory before explicit, confirmed Save.
+            if(_modDraftSessions.TryGetValue(map.Id,out var existing) &&
+               (existing.Steps>0 || existing.MatchesLive(map)))return existing;
+            var fresh=new ModDraftSession(map);
+            _modDraftSessions[map.Id]=fresh;
+            return fresh;
         }
-        LocalMap PreviewCopy()
-        {
-            var copy=TemporaryCopy();
-            foreach(var edit in pending.Values)
-            {
-                var change=ModStateController.Preview(copy,edit);
-                copy.Arguments=change.NewArguments;
-                copy.DisabledModIds=change.Updated.Disabled.ToList();
-                copy.ModChangesPending=change.Updated.Pending;
-            }
-            return copy;
-        }
+        ModDraftSession draft=GetDraft(CurrentMap());
+        LocalMap PreviewCopy()=>draft.Projected();
         void ShowDetails()
         {
             chosen=rows.SelectedItem as PremiumModRow;
@@ -100,7 +91,7 @@ public partial class MainWindow
             var map=PreviewCopy();
             var state=ModStateController.Read(map);
             var all=state.Active.Select((id,i)=>new PremiumModRow(id,"Aktív",i+1,
-                    pending.ContainsKey(id)?"Függőben lévő módosítás":"Konfigurált indítás"))
+                    draft.TouchedModIds.Contains(id)?"Függőben lévő módosítás":"Konfigurált indítás"))
                 .Concat(state.Passive.Select((id,i)=>new PremiumModRow(id,"Passzív",i+1,
                     pending.ContainsKey(id)?"Függőben lévő módosítás":"Konfigurált passzív indítás")))
                 .Concat(state.Disabled.Select((id,i)=>new PremiumModRow(id,"Letiltva",i+1,
@@ -115,28 +106,19 @@ public partial class MainWindow
             summary.Text=CurrentMap().Name+" · "+all.Length+" konfigurált mod · "+
                 state.Active.Count+" aktív · "+state.Passive.Count+" passzív · "+
                 state.Disabled.Count+" tiltott · "+visible.Length+" megjelenítve";
-            status.Text=pending.Count==0?
-                "Nincs függőben lévő módosítás. Nem történt fájlírás vagy szerverújraindítás.":
-                pending.Count+" függőben lévő modmódosítás – mentés előtt ellenőrizd az előnézetet.";
+            status.Text=!draft.IsDirty?
+                "Nincs mentendő eltérés. Nem történt fájlírás vagy szerverújraindítás.":
+                draft.Steps+" előkészített lépés · "+
+                (draft.MatchesLive(CurrentMap())?
+                    "mentés előtt ellenőrizd az előnézetet.":
+                    "A helyi konfiguráció időközben megváltozott! Töltsd újra a modlistát.");
             ShowDetails();
         }
         void Stage(string id,ModMode? target,int? position=null)
         {
-            id=id.Trim();
-            bool had=pending.TryGetValue(id,out var original);
-            pending[id]=new ModEdit(CurrentMap().Id,id,target,position);
-            try
-            {
-                PreviewCopy(); // validates the entire staged sequence before touching persistent config
-                Render();
-                preview.Text="Az új beállítások még nincsenek elmentve.";
-            }
-            catch(Exception)
-            {
-                if(had)pending[id]=original!;
-                else pending.Remove(id);
-                throw;
-            }
+            draft.Stage(id,target,position); // atomic in-memory validation, ordered history
+            Render();
+            preview.Text="Előkészítve · visszavonás/újra elérhető · még nem mentettük.";
         }
         void Safely(Action action)
         {
@@ -155,6 +137,13 @@ public partial class MainWindow
                 "Letiltva" => ModMode.Disabled,"Eltávolítás" => (ModMode?)null,
                 _ => throw new InvalidOperationException("Ismeretlen mód")
             };
+            if((target==ModMode.Active && chosen.State=="Aktív") ||
+               (target==ModMode.Passive && chosen.State=="Passzív") ||
+               (target==ModMode.Disabled && chosen.State=="Letiltva"))
+            {
+                status.Text="A mod már ebben az állapotban van. Sorrendhez használd a fel/le gombokat.";
+                return;
+            }
             Stage(chosen.Id,target);
         }
         void Move(int amount)
@@ -175,8 +164,10 @@ public partial class MainWindow
             Stage(chosen.Id,target,wanted);
         }
         selector.SelectionChanged+=(_,_)=>{
-            pending.Clear();chosen=null;preview.Text="";
-            _preferredModMapId=(selector.SelectedItem as LocalMap)?.Id;
+            if(selector.SelectedItem is not LocalMap selectedMap)return;
+            draft=GetDraft(selectedMap);
+            chosen=null;preview.Text="";
+            _preferredModMapId=selectedMap.Id;
             Safely(Render);
         };
         rows.SelectionChanged+=(_,_)=>ShowDetails();
@@ -184,7 +175,16 @@ public partial class MainWindow
         var toolbar=new WrapPanel {Margin=new Thickness(0,3,0,8)};
         toolbar.Children.Add(selector);
         toolbar.Children.Add(search);
-        toolbar.Children.Add(Btn("Modlista frissítése",()=>Safely(Render)));
+        toolbar.Children.Add(Btn("Konfiguráció újraolvasása",()=>Safely(()=>{
+            if(draft.IsDirty && System.Windows.MessageBox.Show(
+                "A még nem mentett modmódosítások elvesznek. Újraolvasod a helyi profilt?",
+                "Modlista újraolvasása",MessageBoxButton.YesNo,
+                MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+            draft=new ModDraftSession(CurrentMap());
+            _modDraftSessions[draft.MapId]=draft;
+            chosen=null;preview.Text="A helyi konfiguráció újraolvasva.";
+            Render();
+        })));
         var addBar=new WrapPanel {Margin=new Thickness(0,5,0,8)};
         addBar.Children.Add(addId);
         addBar.Children.Add(Btn("Mod hozzáadása",()=>Safely(()=>Stage(addId.Text,ModMode.Active))));
@@ -215,23 +215,34 @@ public partial class MainWindow
                 " passzív / "+oldState.Disabled.Count+" tiltott"+
                 "\nUtána: "+newState.Active.Count+" aktív / "+newState.Passive.Count+
                 " passzív / "+newState.Disabled.Count+" tiltott"+
-                "\nFüggőben: "+string.Join(", ",pending.Keys)+
+                "\nElőkészített lépések: "+draft.Steps+
+                "\nÉrintett modok: "+string.Join(", ",draft.TouchedModIds)+
                 "\nA tényleges ASA-betöltés nincs igazolva. Újraindítás nem történik.";
         })));
-        actionBar.Children.Add(Btn("Függőben lévő módosítások elvetése",()=>{
-            pending.Clear();preview.Text="Módosítások elvetve.";Safely(Render);
-        }));
+        actionBar.Children.Add(Btn("↶  Visszavonás",()=>Safely(()=>{
+            draft.Undo();Render();preview.Text="Az utolsó lépés visszavonva.";
+        })));
+        actionBar.Children.Add(Btn("↷  Újra",()=>Safely(()=>{
+            draft.Redo();Render();preview.Text="Lépés újra alkalmazva a piszkozatban.";
+        })));
+        actionBar.Children.Add(Btn("Függőben lévő módosítások elvetése",()=>Safely(()=>{
+            draft.Clear();preview.Text="Módosítások elvetve.";Render();
+        })));
         var apply=Btn("Módosítások mentése",()=>Safely(()=>{
-            if(pending.Count==0)throw new InvalidOperationException("Nincs mentendő módosítás.");
+            if(!draft.IsDirty)throw new InvalidOperationException("Nincs mentendő eltérés.");
             var map=CurrentMap();var planned=PreviewCopy();
+            if(!draft.MatchesLive(map))
+                throw new InvalidOperationException("A modlista időközben megváltozott. Előbb olvasd újra!");
             var confirmation="Map: "+map.Name+"\n"+
-                pending.Count+" helyi modmódosítás kerül az indítási konfigurációba.\n"+
+                draft.Steps+" előkészített modmódosítás kerül az indítási konfigurációba.\n"+
                 "Nincs szerverleállítás vagy -újraindítás.\n\nÚj modkapcsolók:\n"+
                 UntamedPresentation.Redact(planned.Arguments);
             if(System.Windows.MessageBox.Show(confirmation,"Modmódosítások mentése",
                 MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)return;
-            ModStateController.ApplyLocalBatch(_cluster,pending.Values.ToArray());
-            pending.Clear();chosen=null;
+            draft.Save(_cluster); // optimistic check repeated under configuration lease
+            draft=new ModDraftSession(CurrentMap());
+            _modDraftSessions[draft.MapId]=draft;
+            chosen=null;
             preview.Text="Módosítások elmentve a helyi Manager-profilba. ASA újraindítás NEM történt.";
             Render();
         }));
