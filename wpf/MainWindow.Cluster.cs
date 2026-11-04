@@ -67,9 +67,21 @@ public partial class MainWindow
         foreach(var m in _cluster.Config.LocalMaps)
         {
             images.TryGetValue(m.Name,out var art);
+            int? configuredMods=null;
+            string status="Állapot ismeretlen";
+            try
+            {
+                var mods=ModStateController.Read(m);
+                configuredMods=mods.Active.Count+mods.Passive.Count;
+            }
+            catch(Exception ex){WriteLog("dashboard-mod-observation",ex);}
+            try { status=_cluster.Check(m).Status; }
+            catch(Exception ex){WriteLog("dashboard-process-observation",ex);}
             active.Add(new MapInfo {
                 Id=m.Id,Name=m.Name,Host=_cluster.Config.LocalHostName,
-                ModCount=0,GamePort=m.GamePort,
+                ModCount=configuredMods,GamePort=m.GamePort>0?m.GamePort:null,
+                QueryPort=m.QueryPort>0?m.QueryPort:null,RconPort=m.RconPort>0?m.RconPort:null,
+                Status=status,
                 CoverImage=art?.CoverImage, CoverBrush=art?.CoverBrush ?? Panel,
                 IsRemote=false
             });
@@ -80,8 +92,10 @@ public partial class MainWindow
             {
                 images.TryGetValue(m.Name,out var art);
                 active.Add(new MapInfo {
-                    Name=m.Name,Host=_cluster.RemoteSnapshot.HostName,ModCount=0,
-                    GamePort=m.GamePort,CoverImage=art?.CoverImage,
+                    Name=m.Name,Host=_cluster.RemoteSnapshot.HostName,
+                    ModCount=null,GamePort=m.GamePort>0?m.GamePort:null,
+                    Status=_cluster.RemoteIsFresh?m.Status:"ELAVULT / NEM HITELESÍTHETŐ",
+                    CoverImage=art?.CoverImage,
                     CoverBrush=art?.CoverBrush ?? Panel,IsRemote=true
                 });
             }
