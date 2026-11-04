@@ -19,7 +19,8 @@ public static class ModArgumentSafetyTests
         Check(ModStateController.Read(wholeQuoted).Active.Single()=="928548",
             "whole quoted Windows switch is interpreted as the actual mod argument");
         foreach(string invalid in new[]{"-mods=928548 -mods=930170","\"-mods=928548\" -mods=930170",
-            "-mods=\"928548 930170\"","-mods=928548 -Custom=\"unterminated","-mods"})
+            "-mods=\"928548 930170\"","-mods=928548 -Custom=\"unterminated","-mods",
+            "-mo\"\"ds=928548","\"-passive\"\"mods=930170\""})
         {
             bool blocked=false;try{ModStateController.Read(new LocalMap{Arguments=invalid});}
             catch(InvalidDataException){blocked=true;}

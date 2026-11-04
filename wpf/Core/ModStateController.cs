@@ -55,7 +55,16 @@ public static class ModStateController
                token.Equals("-passivemods",StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Mod launch switch requires an explicit list");
             var looks=LooksLikeParam.Match(token);
-            if(!looks.Success||looks.Index!=0)continue;
+            if(!looks.Success||looks.Index!=0)
+            {
+                string joined=token.Replace("\"","");
+                if(joined.StartsWith("-mods=",StringComparison.OrdinalIgnoreCase)||
+                   joined.StartsWith("-passivemods=",StringComparison.OrdinalIgnoreCase)||
+                   joined.Equals("-mods",StringComparison.OrdinalIgnoreCase)||
+                   joined.Equals("-passivemods",StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Fragmented quoted mod switch is ambiguous");
+                continue;
+            }
             var match=Param.Match(token);
             if(!match.Success||match.Index!=0||match.Length!=token.Length)
                 throw new InvalidDataException("Malformed mod launch switch");

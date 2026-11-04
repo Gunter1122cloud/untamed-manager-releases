@@ -9,6 +9,52 @@ using UntamedManager.Core;
 namespace UntamedManager;
 public partial class MainWindow
 {
+    private void VerifySignedPanelsCiSmoke()
+    {
+        if(!App.IsSmokeTest||Environment.GetEnvironmentVariable("GITHUB_ACTIONS")!="true")return;
+        string fixture=Path.Combine(Path.GetTempPath(),"Untamed-PanelUi-"+Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fixture);
+        using var signer=System.Security.Cryptography.RSA.Create(2048);
+        var model=new ManagerPanelDefinition(1,Guid.NewGuid(),"1.0.0","CI aláírt panel",new[]{
+            new ManagerPanelItem("metric","Helyi mapok","local.maps"),
+            new ManagerPanelItem("navigate","CI: mentések","backups"),
+            new ManagerPanelItem("text","Literális szöveg","<ObjectDataProvider />")});
+        byte[] payload=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(model);
+        byte[] signature=signer.SignData(payload,System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.RSASignaturePadding.Pss);
+        string source=Path.Combine(fixture,"panel.json"),key=Path.Combine(fixture,"publisher.pem");
+        File.WriteAllBytes(source,System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new ManagerPanelPackage(
+            Convert.ToBase64String(payload),Convert.ToBase64String(signature))));
+        File.WriteAllText(key,signer.ExportSubjectPublicKeyInfoPem());
+        var proof=SignedManagerPanelRegistry.Inspect(source,key);
+        var registry=new SignedManagerPanelRegistry(_cluster.Store.Root,Guid.Parse(_cluster.Config.LocalHostId));
+        registry.Install(source,key,proof.PublisherFingerprint,proof.PayloadSha256);
+        static System.Collections.Generic.IEnumerable<T> Descendants<T>(DependencyObject root) where T:DependencyObject
+        {
+            if(root is T item)yield return item;
+            foreach(var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+                foreach(var nested in Descendants<T>(child))yield return nested;
+        }
+        try
+        {
+            Navigate("extensions");UpdateLayout();
+            if(!Descendants<TextBlock>(PageBody).Any(x=>x.Text.Contains("CI aláírt panel"))||
+               !Descendants<TextBlock>(PageBody).Any(x=>x.Text.Contains("<ObjectDataProvider />")))
+                throw new InvalidOperationException("Signed panel WPF text/metric rendering failed");
+            var navigation=Descendants<Button>(PageBody).Single(x=>Equals(x.Content,"CI: mentések"));
+            navigation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if(_page!="backups")throw new InvalidOperationException("Signed panel allowlisted navigation did not execute");
+            File.WriteAllText(Path.Combine(_cluster.Store.Root,"ui-panels",proof.PayloadSha256+".panel.json"),"corrupted CI artifact");
+            Navigate("extensions");UpdateLayout();
+            if(!Descendants<TextBlock>(PageBody).Any(x=>x.Text.Contains("UM-PANEL-REJECTED")))
+                throw new InvalidOperationException("Faulty panel must render isolated rejection state");
+            Navigate("servers");UpdateLayout();
+            if(_page!="servers"||string.IsNullOrWhiteSpace(PageTitle.Text))
+                throw new InvalidOperationException("Panel failure blocked native Manager navigation");
+        }
+        finally{registry.Revoke(model.Id);}
+    }
+
     private void ShowManagerExtensions()
     {
         Header("Aláírt Manager-panelek","Külön jóváhagyott, adatleíró panelek helyi mutatókkal és korlátozott navigációval.");

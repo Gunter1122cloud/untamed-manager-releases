@@ -11,7 +11,25 @@ function Invoke-Checked {
     $child = [Diagnostics.Process]::Start($start)
     try {
         if (!$child.WaitForExit(240000)) { $child.Kill(); $child.WaitForExit(); throw "Isolated test process timed out" }
-        if ($child.ExitCode -ne $Expected) { throw "Unexpected test process exit $($child.ExitCode), expected $Expected" }
+        if ($child.ExitCode -ne $Expected) {
+            if($script:activeTestRoot) {
+                $reportFile=Join-Path $script:activeTestRoot 'updater-result.json'
+                if(Test-Path -LiteralPath $reportFile) {
+                    $diagnostic=Get-Content -LiteralPath $reportFile -Raw|ConvertFrom-Json
+                    Write-Output ('Updater diagnostic: result={0}; phase={1}; type={2}; hresult={3}; code={4}; method={5}' -f
+                        $diagnostic.result,$diagnostic.phase,$diagnostic.error,$diagnostic.hresult,$diagnostic.code,$diagnostic.method)
+                }
+            }
+            $crashCode=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'UntamedManager/WPF/crash-code.json'
+            if((Test-Path -LiteralPath $crashCode) -and (Get-Item -LiteralPath $crashCode).Length -lt 8192) {
+                $appFailure=Get-Content -LiteralPath $crashCode -Raw|ConvertFrom-Json
+                if([DateTimeOffset]$appFailure.utc -ge $script:activeStartedUtc) {
+                    Write-Output ('Manager diagnostic: type={0}; hresult={1}; method={2}; innerType={3}; innerHresult={4}' -f
+                        $appFailure.type,$appFailure.hresult,$appFailure.method,$appFailure.innerType,$appFailure.innerHresult)
+                }
+            }
+            throw "Unexpected test process exit $($child.ExitCode), expected $Expected"
+        }
     } finally { $child.Dispose() }
 }
 $serverStart = [Diagnostics.ProcessStartInfo]::new($FakeServer)
@@ -27,6 +45,8 @@ try {
         $appExe = Join-Path $application 'UntamedManager.exe'
         $testProfile = 'update-ci-' + [Guid]::NewGuid().ToString('N').Substring(0,12)
         New-Item -ItemType Directory -Path $testRoot | Out-Null
+        $script:activeTestRoot=$testRoot
+        $script:activeStartedUtc=[DateTimeOffset]::UtcNow
         Invoke-Checked -Program $installer -Parameters @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOCLOSEAPPLICATIONS',"/DIR=$application")
         if (!(Test-Path $appExe)) { throw 'Isolated initial installation missing' }
         New-Item -ItemType Directory -Path (Join-Path $application 'dependencies') | Out-Null

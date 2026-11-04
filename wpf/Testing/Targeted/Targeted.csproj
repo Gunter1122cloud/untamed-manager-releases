@@ -24,5 +24,7 @@
     <Compile Include="../Integration/UpdateOwnershipTests.cs" Link="UpdateOwnershipTests.cs" />
     <Compile Include="../Integration/ManagedBackupRetentionTests.cs" Link="ManagedBackupRetentionTests.cs" />
     <Compile Include="../Integration/SignedManagerPanelTests.cs" Link="SignedManagerPanelTests.cs" />
+    <Compile Include="../Integration/TelemetrySafetyTests.cs" Link="TelemetrySafetyTests.cs" />
+    <Compile Include="../Integration/ProfileInitializationTests.cs" Link="ProfileInitializationTests.cs" />
   </ItemGroup>
 </Project>

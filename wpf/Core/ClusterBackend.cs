@@ -62,6 +62,7 @@ public sealed class ManagerConfig
     public string GitHubRepository { get; set; } = "Gunter1122cloud/untamed-manager-releases";
     public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public string PublisherCertificateThumbprint { get; set; } = "";
+    public bool TelemetryHistoryEnabled { get; set; } = false;
     public List<ScheduledTask> ScheduledTasks { get; set; } = new();
     public List<RecurringSchedule> RecurringSchedules { get; set; } = new();
     public List<LocalMap> LocalMaps { get; set; } = new();
@@ -130,6 +131,34 @@ public sealed class ConfigStore
         return JsonSerializer.Deserialize<ManagerConfig>(Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF')) ??
                throw new InvalidDataException("Config JSON invalid");
     }
+    // Explicit first-use creation precedes IPC/ownership initialization.
+    // Existing profiles and subsequent status reads are never rewritten here.
+    public ManagerConfig EnsureInitialized()
+    {
+        string key=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(FilePath).ToUpperInvariant())));
+        using var gate=new Mutex(false,"Global\\Untamed-Config-"+key);bool entered=false;
+        try
+        {
+            try{entered=gate.WaitOne(TimeSpan.FromSeconds(5));}catch(AbandonedMutexException){entered=true;}
+            if(!entered)throw new IOException("Profile initialization busy");
+            UntamedOperationCoordinator.ResourceKey(Root);
+            if(!File.Exists(FilePath))
+            {
+                var initial=new ManagerConfig();
+                string temporary=FilePath+"."+Guid.NewGuid().ToString("N")+".initial";
+                try
+                {
+                    using(var file=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+                    {JsonSerializer.Serialize(file,initial);file.Flush(true);}
+                    File.Move(temporary,FilePath,false);
+                }
+                finally{if(File.Exists(temporary))File.Delete(temporary);}
+            }
+            return Read();
+        }
+        finally{if(entered)gate.ReleaseMutex();}
+    }
+
     public void Save(ManagerConfig cfg)
     {
         string key=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(FilePath).ToUpperInvariant())));
@@ -405,7 +434,7 @@ public sealed class ClusterService : IAsyncDisposable
     {
         Store=new ConfigStore(profile,rootOverride);
         Operations=new UntamedOperationCoordinator();
-        Config=Store.Read();
+        Config=Store.EnsureInitialized();
         _inspect=inspect ?? _inspector.Inspect;
     }
     public void Save() => Store.Save(Config);

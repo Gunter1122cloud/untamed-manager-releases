@@ -25,9 +25,22 @@ public sealed class UpdateForm : Form
     private readonly string[] _arguments;
     private bool _ciTest;
     private string? _ciRoot;
-    private void Report(string result)
+    private string _phase="initialize";
+    private static string FailureCode(Exception error)=>error.Message switch{
+        "Restored Manager did not initialize"=>"RESTORED_SMOKE_FAILED",
+        "Restored Manager smoke check timed out"=>"RESTORED_SMOKE_TIMEOUT",
+        "Application health check failed"=>"NEW_HEALTH_FAILED",
+        "Health check timed out"=>"NEW_HEALTH_TIMEOUT",
+        "Update recovery ownership or phase differs"=>"RECOVERY_OWNER_MISMATCH",
+        "Update snapshot inventory differs from protected owner binding"=>"SNAPSHOT_OWNER_HASH_MISMATCH",
+        _=>error.GetType().Name
+    };
+    private void Report(string result,Exception? error=null)
     {
-        if(_ciTest)File.WriteAllText(Path.Combine(_ciRoot!,"updater-result.json"),JsonSerializer.Serialize(new{result,utc=DateTimeOffset.UtcNow}));
+        if(_ciTest)File.WriteAllText(Path.Combine(_ciRoot!,"updater-result.json"),JsonSerializer.Serialize(new{
+            result,utc=DateTimeOffset.UtcNow,phase=_phase,error=error?.GetType().Name,
+            hresult=error?.HResult,code=error==null?null:FailureCode(error),
+            method=error==null?null:new StackTrace(error,false).GetFrame(0)?.GetMethod()?.Name}));
     }
     private readonly Label _status=new(){Dock=DockStyle.Top,Height=64,
         Font=new Font("Segoe UI",12,FontStyle.Bold),ForeColor=Color.FromArgb(218,248,238),
@@ -101,7 +114,8 @@ public sealed class UpdateForm : Form
                     try{using var old=Process.GetProcessById(int.Parse(Required("--pid")));if(!await Task.Run(()=>old.WaitForExit(90000)))throw new TimeoutException("Manager has not exited");}
                     catch(ArgumentException){}
                 }
-                snapshotPrepared=true;transaction.Rollback();UpdateHistory.Append("startup-rollback-verified","");Restart(appExe,profile,_ciTest);Report("recovered");Close();return;
+                snapshotPrepared=true;_phase="recover-directory";transaction.Rollback();UpdateHistory.Append("startup-rollback-verified","");
+                _phase="restart-recovered";Restart(appExe,profile,_ciTest);Report("recovered");Close();return;
             }
             int managerPid=int.Parse(Required("--pid"));
             string installer=Path.GetFullPath(Required("--installer"));
@@ -125,11 +139,12 @@ public sealed class UpdateForm : Form
             }
             catch(ArgumentException){} // Already exited.
             Update("Korábbi alkalmazás mentése…",25);
-            transaction.Prepare(Path.GetDirectoryName(appExe)!);snapshotPrepared=true;
+            _phase="snapshot";transaction.Prepare(Path.GetDirectoryName(appExe)!);snapshotPrepared=true;
             UpdateHistory.Append("snapshot-prepared",expected);
             if(_ciTest&&_arguments.Contains("--ci-interrupt-after-snapshot"))Environment.Exit(17);
             var log=Path.Combine(snapshotRoot,"setup.log");
             Update("Új Windows-verzió telepítése…",45);
+            _phase="installer";
             var start=new ProcessStartInfo(installer){UseShellExecute=false,
                 CreateNoWindow=true,WorkingDirectory=Path.GetDirectoryName(installer)!};
             foreach(var arg in new[]{"/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART",
@@ -148,6 +163,7 @@ public sealed class UpdateForm : Form
                !version.Equals(expected,StringComparison.Ordinal))
                 throw new InvalidDataException($"Installed version mismatch: expected {expected}, got {version}");
             Update("Új verzió elindítása…",95);
+            _phase="new-health";
             var healthStart=new ProcessStartInfo(appExe){UseShellExecute=false,CreateNoWindow=true};
             healthStart.ArgumentList.Add("--smoke-test");
             healthStart.ArgumentList.Add("--profile");healthStart.ArgumentList.Add(profile);
@@ -156,7 +172,8 @@ public sealed class UpdateForm : Form
             { health.Kill();await health.WaitForExitAsync();throw new IOException("Health check timed out"); }
             if(health.ExitCode!=0||(_ciTest&&_arguments.Contains("--ci-fail-health")))throw new IOException("Application health check failed");
             File.WriteAllText(Path.Combine(Path.GetDirectoryName(appExe)!,"installed-release.txt"),Required("--tag"));
-            Restart(appExe,profile,_ciTest);
+            _phase="new-restart";Restart(appExe,profile,_ciTest);
+            _phase="commit";
             transaction.Commit();
             UpdateHistory.Append("installation-committed",expected);
             Report("committed");
@@ -166,20 +183,21 @@ public sealed class UpdateForm : Form
         }
         catch(Exception ex)
         {
-            string message=ex.ToString();
+            string message="UM-UPDATE: "+_phase+" / "+FailureCode(ex)+" / "+ex.HResult.ToString("X8");
             try
             {
                 if(snapshotPrepared&&transaction!=null&&appExe!=null)
                 {
                     Update("Korábbi verzió visszaállítása…",70);
-                    transaction.Rollback();
+                    _phase="rollback-directory";transaction.Rollback();
                     UpdateHistory.Append("rollback-verified","");
-                    if(profile!=null)Restart(appExe,profile,_ciTest);
+                    _phase="restart-previous";if(profile!=null)Restart(appExe,profile,_ciTest);
                     Report("rolledback");
                     message+="\nA teljes korábbi alkalmazáskönyvtár hash-ellenőrzéssel visszaállítva.";
                 }
             }
-            catch(Exception rollback){Report("rollback-failed");Environment.ExitCode=1;message+="\nA visszaállítás is hibára futott: "+rollback;}
+            catch(Exception rollback){Report("rollback-failed",rollback);Environment.ExitCode=1;
+                message+="\nUM-UPDATE-RECOVERY: "+_phase+" / "+FailureCode(rollback)+" / "+rollback.HResult.ToString("X8");}
             try{
                 var logDir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "UntamedManager","Updates");
@@ -187,7 +205,7 @@ public sealed class UpdateForm : Form
                 File.AppendAllText(Path.Combine(logDir,"updater-errors.log"),DateTimeOffset.Now+"\n"+message+"\n");
             }catch{}
             if(!_ciTest)MessageBox.Show(message,"Untamed Manager – Frissítési hiba",MessageBoxButtons.OK,MessageBoxIcon.Error);
-            else if(!File.Exists(Path.Combine(_ciRoot!,"updater-result.json"))){Report("failed");Environment.ExitCode=1;}
+            else if(!File.Exists(Path.Combine(_ciRoot!,"updater-result.json"))){Report("failed",ex);Environment.ExitCode=1;}
             Close();
         }
     }

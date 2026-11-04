@@ -8,7 +8,7 @@ public static class SupervisorWorker
     {
         string Value(string key,string fallback){int i=Array.IndexOf(args,key);return i<0?fallback:i+1<args.Length?args[i+1]:throw new ArgumentException(key);}
         string profile=Value("--profile","default"),overrideRoot=Value("--root","");
-        var store=new ConfigStore(profile,overrideRoot.Length==0?null:overrideRoot);
+        var store=new ConfigStore(profile,overrideRoot.Length==0?null:overrideRoot);store.EnsureInitialized();
         using var gate=new Semaphore(1,1,"Global\\UntamedSupervisor-"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(store.Root).ToUpperInvariant()))));
         bool entered=false;
         try
@@ -139,7 +139,7 @@ public static class SupervisorWorker
                             if(!previous.TryGetValue(map.Id,out var oldObservation)||oldObservation.Running!=observation.Running||oldObservation.Loader!=observation.Loader)
                                 events.Append(config.LocalHostName,map.Id,state.Running?"Information":"Warning","process-observation-changed");
                             if(oldObservation==null||oldObservation.Rcon!=rcon)events.Append(config.LocalHostName,map.Id,"Information","rcon-observation-changed");
-                            try{telemetry.Observe(observation,now);}catch{events.Append(config.LocalHostName,map.Id,"Warning","telemetry-write-rejected");}
+                            try{if(config.TelemetryHistoryEnabled)telemetry.Observe(observation,now);}catch{events.Append(config.LocalHostName,map.Id,"Warning","telemetry-write-rejected");}
                             previous[map.Id]=observation;observations.Add(observation);
                         }
                         int receiptCount=scheduler.Receipts.Length;

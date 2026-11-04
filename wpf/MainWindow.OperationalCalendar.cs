@@ -152,11 +152,21 @@ public partial class MainWindow
 
     private void ShowTelemetryHistoryControls()
     {
+        var enabled=new CheckBox{Content="CPU/RAM előzmények gyűjtése a helyi Supervisorral",IsChecked=_cluster.Config.TelemetryHistoryEnabled,Foreground=Brushes.White};
+        enabled.Click+=(_,_)=>{
+            bool previous=_cluster.Config.TelemetryHistoryEnabled;
+            try{
+                using var operation=_cluster.Operations.Acquire(_cluster.Store.Root,UntamedOperationKind.Configuration);
+                _cluster.Config.TelemetryHistoryEnabled=enabled.IsChecked==true;operation.MarkMutationStarted();
+                _cluster.Save();operation.Complete();
+            }catch(Exception e){_cluster.Config.TelemetryHistoryEnabled=previous;enabled.IsChecked=previous;WriteLog("telemetry-optin",e);}
+        };
         var maps=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
             DisplayMemberPath="Name",SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
         var status=Label("Nincs kiválasztott történeti adat.",12,Soft);
         var canvas=new Canvas{Height=130,Background=Panel};
-        Add(Box(V(Label("v1.5 · CPU/RAM/játékos történet (7 nap)",19,Mint,true),
+        Add(Box(V(Label("CPU/RAM/játékos történet – legfeljebb 7 nap / 2000 minta",19,Mint,true),
+            enabled,
             Label("A Supervisor a mért értékeket tárolja, nem talál ki "+
                 "játékosszámot/RCON-latenciát/hálózati terhelést. "+
                 "Az elavult minták nem valós idejű adatok.",12,Soft),

@@ -54,6 +54,8 @@ try
     UpdateOwnershipTests.Run(root);
     await ManagedBackupRetentionTests.Run(root);
     SignedManagerPanelTests.Run(root);
+    await TelemetrySafetyTests.Run(root);
+    await ProfileInitializationTests.Run(root);
     if(args.Length<3)throw new ArgumentException("Shipped Supervisor and Manager paths required for version validation");
     UpdateOwnershipTests.VerifyToolVersions(args[1],Path.Combine(Path.GetDirectoryName(args[2])!,"UntamedUpdater.exe"));
     await ProfessionalOperationsTests.Run(root,fake);

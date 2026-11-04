@@ -23,6 +23,8 @@ await SchedulerConcurrencyTests.Run(root);
 UpdateOwnershipTests.Run(root);
 await ManagedBackupRetentionTests.Run(root);
 SignedManagerPanelTests.Run(root);
+await TelemetrySafetyTests.Run(root);
+await ProfileInitializationTests.Run(root);
 await RconTransportTests.Run();
 DurableWatchdogTrackerTests.Run(root);
 SafeConfigRecheckTests.Run(root);

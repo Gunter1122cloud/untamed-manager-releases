@@ -173,6 +173,17 @@ public partial class App : System.Windows.Application
         }
         base.OnStartup(e);
     }
-    private static void Log(Exception e) {try {File.AppendAllText(Path.Combine(LogDir,"crash.log"),DateTimeOffset.Now+"\n"+UntamedManager.Core.UntamedPresentation.Redact(e.ToString())+"\n");}catch{}}
+    private static void Log(Exception e)
+    {
+        try
+        {
+            File.AppendAllText(Path.Combine(LogDir,"crash.log"),DateTimeOffset.Now+"\n"+UntamedManager.Core.UntamedPresentation.Redact(e.ToString())+"\n");
+            File.WriteAllText(Path.Combine(LogDir,"crash-code.json"),System.Text.Json.JsonSerializer.Serialize(new{
+                utc=DateTimeOffset.UtcNow,type=e.GetType().Name,hresult=e.HResult,
+                method=new StackTrace(e,false).GetFrame(0)?.GetMethod()?.Name,
+                innerType=e.InnerException?.GetType().Name,innerHresult=e.InnerException?.HResult}));
+        }
+        catch{}
+    }
     protected override void OnExit(ExitEventArgs e) { try{mutex?.ReleaseMutex();}catch{} mutex?.Dispose();base.OnExit(e); }
 }

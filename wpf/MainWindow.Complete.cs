@@ -25,6 +25,7 @@ public partial class MainWindow
             if(string.IsNullOrWhiteSpace(PageTitle.Text))
                 throw new InvalidOperationException("Empty Release Candidate page: "+page);
         }
+        VerifySignedPanelsCiSmoke();
         Navigate("dashboard");
     }
 
