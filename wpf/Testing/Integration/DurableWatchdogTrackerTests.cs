@@ -14,7 +14,7 @@ public static class DurableWatchdogTrackerTests
         string root=Path.Combine(testRoot,"t17-persistent-watchdog");
         Guid map=Guid.NewGuid();
         var monitor=new DurableWatchdogTracker(root);
-        var time=DateTimeOffset.UtcNow.AddMinutes(-2);
+        var time=DateTimeOffset.UtcNow.AddMinutes(-20);
         var identity=new ProcessIdentity{Pid=59000,
             StartedUtc=time.AddMinutes(-20),
             ExecutablePath=@"C:\isolated\ArkAscendedServer.exe",
@@ -86,6 +86,11 @@ public static class DurableWatchdogTrackerTests
         Check(original.Length>50,"durable JSON was genuinely written to disk");
 
         Guid foreign=Guid.NewGuid();
+        bool futureRejected=false;
+        try{new DurableWatchdogTracker(root).Observe(foreign,uncertain,
+            RconSignal.NotConfigured,false,DateTimeOffset.UtcNow.AddDays(1));}
+        catch(ArgumentException){futureRejected=true;}
+        Check(futureRejected,"future-dated events cannot poison persisted observation cursor");
         bool inputRejected=false;
         try{new DurableWatchdogTracker(root).Observe(foreign,null!,
             RconSignal.Responding,false,time.AddMinutes(14));}
