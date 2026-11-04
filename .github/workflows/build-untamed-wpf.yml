@@ -245,6 +245,8 @@ jobs:
             "dist/SHA256SUMS.txt#SHA256SUMS.txt",
             "dist/UntamedManager-preview.png#UntamedManager-premium-dashboard.png",
             "dist/UI-Screenshots/UntamedManager-demo-mods.png#UntamedManager-premium-demo-mods.png",
+            "dist/UI-Screenshots/UntamedManager-demo-plugins.png#UntamedManager-premium-demo-plugins.png",
+            "dist/UI-Screenshots/UntamedManager-demo-servers.png#UntamedManager-premium-demo-servers.png",
             "dist/UI-Screenshots/UntamedManager-cluster.png#UntamedManager-premium-cluster.png"
           )
           gh release view $tag --repo $repo --json tagName 2>$null | Out-Null
