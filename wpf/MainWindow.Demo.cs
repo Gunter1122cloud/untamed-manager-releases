@@ -132,6 +132,7 @@ public partial class MainWindow
             "schedules"=>"Ütemező · OFFLINE DEMO",
             "settings"=>"Beállítások · OFFLINE DEMO",
             "monitoring"=>"Műveleti központ · OFFLINE DEMO",
+            "operations"=>"Műveletek · OFFLINE DEMO",
             "recovery"=>"Recovery Center · OFFLINE DEMO",
             _=>"Untamed Manager · OFFLINE DEMO"
         },"Az alábbi adatok és gombok teljes egészében szimuláltak. Nincs ASA-, LAN-, Store- vagy adatbázismódosítás.");
@@ -140,6 +141,7 @@ public partial class MainWindow
         switch(page)
         {
             case "servers": DemoServers();break;
+            case "operations": ShowOperationsHub();break;
             case "cluster": DemoCluster();break;
             case "mods": DemoSelectedMapPanel("Modlista / CurseForge – kipróbálás",DemoModsPane);break;
             case "plugins": DemoSelectedMapPanel("ASA API / pluginok – kipróbálás",DemoPluginsPane);break;
