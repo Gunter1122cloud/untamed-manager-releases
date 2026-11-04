@@ -264,7 +264,8 @@ public partial class MainWindow
         var result=_cluster.Check(map);
         parent.Children.Add(Label(map.Name,25,Brushes.White,true));
         parent.Children.Add(Label(result.Status,14,result.Running?Mint:Soft));
-        var controls=new StackPanel{Orientation=Orientation.Horizontal};
+        // Wrap long actions instead of clipping them on 1366px / high-DPI desktops.
+        var controls=new WrapPanel{Margin=new Thickness(0,0,0,10)};
         controls.Children.Add(Btn("Beállítások szerkesztése",()=>ShowMapEditor(map)));
         controls.Children.Add(Btn("Eltávolítás a Managerből",()=>{
             if(WinMessageBox.Show($"Eltávolítod ezt a mapot a listából? A játékfájlok és a futó szerver változatlan marad.\n{map.Name}",
@@ -280,7 +281,7 @@ public partial class MainWindow
                 VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Content=body,
                 Padding=new Thickness(12)}});
         }
-        var startStop=new StackPanel{Orientation=Orientation.Horizontal};
+        var startStop=new WrapPanel{Margin=new Thickness(0,4,0,8)};
         var readiness=Label("ASA / Loader / RCON Ready: még nincs ellenőrizve. API és csatlakozás külön igazolandó.",12,Soft);
         startStop.Children.Add(Btn("Indítás (csak FakeAsa teszt)",()=>{
             try{

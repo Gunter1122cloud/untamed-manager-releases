@@ -320,7 +320,7 @@ public partial class MainWindow
         void Refresh()=>list.ItemsSource=map.Backups.ToArray();
         Refresh();
         return V(Label("Backup / Restore – szimuláció",17,Mint,true),
-            Label("A mintamentés csak új sor a memóriában, a visszaállítás nem ír állományt.",12,Soft),
+            Label("A mintamentés mod-, plugin-, INI- és állapotpillanatképet tárol a memóriában. A DEMO restore nem ír valódi állományt.",12,Soft),
             list,
             Btn("Mintamentés létrehozása",()=>{
                 RunDemo(()=>demo.Backup(map.Id),status,"DEMO mentésrekord létrejött",Refresh);

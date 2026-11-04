@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(12) };
     private readonly Forms.NotifyIcon _tray = new();
     private bool _exit;
+    private bool _trayReady;
     private MapInfo? _selected;
     private Guid? _preferredModMapId;
     private Guid? _preferredPluginMapId;
@@ -157,8 +158,9 @@ public partial class MainWindow : Window
             _tray.ContextMenuStrip = menu;
             _tray.DoubleClick += (_,_)=>Dispatcher.Invoke(Restore);
             _tray.Visible = true;
+            _trayReady = true;
         }
-        catch(Exception ex) { WriteLog("tray",ex); }
+        catch(Exception ex) { _trayReady = false; WriteLog("tray",ex); }
     }
     private void Restore() { Show(); WindowState=WindowState.Normal; Activate(); }
     private void Exit()
@@ -170,7 +172,19 @@ public partial class MainWindow : Window
     }
     private void Window_Closing(object? sender,CancelEventArgs e)
     {
-        if (!_exit) {e.Cancel=true;Hide();}
+        if(_exit)return;
+        if(_trayReady)
+        {
+            e.Cancel=true;
+            Hide();
+            return;
+        }
+        // Never hide the last visible window if the tray icon could not
+        // initialize (or in isolated CI smoke mode without a tray icon).
+        _exit=true;
+        EndClusterUi();
+        _http.Dispose();
+        _tray.Dispose();
     }
     private void Window_Loaded(object sender,RoutedEventArgs e)
     {
