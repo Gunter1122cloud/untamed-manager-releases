@@ -350,15 +350,52 @@ public partial class MainWindow : Window
     }
     private void Mods()
     {
-        Header("Mod Center","CurseForge-tartalom és maponkénti modhozzárendelések. A jelenlegi nézet történeti auditot mutat.");
-        Add(Box(V(Label("10 map  ·  294 modhozzárendelés",21,Mint,true),
-            Label("A szervereken megfigyelt modok egy része; a teljes élő telepítés még nincs engedélyezve.",12,Soft))));
-        var input=new TextBox{Height=40,Background=Panel,Foreground=Brushes.White,
-            BorderBrush=Aqua,FontSize=15,Padding=new Thickness(10),ToolTip="Modkeresés"};
-        var results=List(_modNames,340);
-        input.TextChanged+=(_,_)=>results.ItemsSource=_modNames.Where(m=>m.Contains(input.Text,StringComparison.OrdinalIgnoreCase)).ToArray();
-        Add(Label("Keresés a leltárban",13,Soft));Add(input);Add(results);
-        Add(Label("CurseForge online telepítés: az ügynök és a telepítő tesztelése után kapcsolható be.",12,Soft));
+        Header("Mod Center","Helyi mapok tényleges indítási modlistája és a beépített CurseForge kereső.");
+        var summary=Label("Modlista beolvasása...",13,Soft);
+        var search=new TextBox{Height=40,Background=Panel,Foreground=Brushes.White,
+            BorderBrush=Aqua,FontSize=15,Padding=new Thickness(10),
+            ToolTip="Keresés a helyi mapnevek és konfigurált modazonosítók között"};
+        var results=List(Array.Empty<string>(),250);
+        string[] rows=Array.Empty<string>();
+        void Filter() => results.ItemsSource=rows
+            .Where(s=>s.Contains(search.Text,StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        void Refresh()
+        {
+            try
+            {
+                var snapshot=LocalContentSnapshotReader.Inspect(_cluster.Config.LocalMaps);
+                var mods=snapshot.Mods;
+                rows=mods.Maps.SelectMany(m=>m.Error!=null
+                    ?new[]{m.Name+" · HIBÁS MODPARAMÉTER · kézi ellenőrzést igényel"}
+                    :m.OrderedIds.Count==0
+                        ?new[]{m.Name+" · nincs konfigurált mod"}
+                        :m.OrderedIds.Select((id,i)=>m.Name+" · "+(i+1)+". · "+id))
+                    .ToArray();
+                if(rows.Length==0)rows=new[]{
+                    "Nincs helyi map. A Szerverek oldalon manuálisan regisztrálhatsz mapokat."};
+                summary.Text=mods.Maps.Count+" helyi map · "+
+                    snapshot.KnownModAssignments+" igazolt konfigurációs modhozzárendelés · "+
+                    mods.UniqueIdCount+" különböző ID · "+
+                    (mods.Complete?"a helyi konfigurációk olvashatók":
+                    "HIÁNYOS LELTÁR – legalább egy map modparaméterei hibásak")+
+                    "\nEz az indítási lista; nem bizonyít telepítést vagy futásidejű modbetöltést.";
+                Filter();
+            }
+            catch(Exception ex)
+            {
+                WriteLog("mod-center-inventory",ex);
+                rows=new[]{"A helyi modleltár nem ellenőrizhető; az adatok ismeretlenek."};
+                summary.Text="MODLELTÁR NEM ELLENŐRIZHETŐ – a szerverállapot nem módosult.";
+                Filter();
+            }
+        }
+        search.TextChanged+=(_,_)=>Filter();
+        Add(Box(V(Label("Helyi mapok konfigurált modjai",20,Mint,true),
+            summary,Btn("Helyi modleltár frissítése",Refresh),
+            Label("Mapnév vagy mod ID keresése a helyi konfigurációban",12,Aqua),
+            search,results)));
+        Refresh();
         ShowLocalModAssignmentInventory();
         ShowModStateEditor();
         ShowBulkModsControls();
@@ -369,11 +406,40 @@ public partial class MainWindow : Window
     }
     private void Plugins()
     {
-        Header("ASA API / pluginok","A két gazdagépen összegyűjtött pluginnevek. A fájl jelenléte nem bizonyítja a futás közbeni betöltést.");
-        Add(Box(V(Label("ASA API pluginleltár",20,Mint,true),
-            Label("Az auditált pluginrekordok száma 100. Itt a közös pluginfajták láthatók.",12,Soft))));
-        Add(List(_plugins,380));
-        Add(Label("A maponkénti DLL-állapotok végleges kezelése külön agentintegrációt igényel.",12,Soft));
+        Header("ASA API / pluginok","Maponként ellenőrzött helyi pluginmappák és a hivatalos ASA API kezelése.");
+        var summary=Label("Helyi pluginleltár beolvasása...",13,Soft);
+        var list=List(Array.Empty<string>(),250);
+        void Refresh()
+        {
+            try
+            {
+                var snapshot=LocalContentSnapshotReader.Inspect(_cluster.Config.LocalMaps);
+                var rows=snapshot.Plugins.Select(p=>p.MapName+" · "+
+                    (p.Enabled?"ENGEDÉLYEZETT":"LETILTOTT")+" · "+p.PluginName)
+                    .Concat(snapshot.UnreadablePluginMaps.Select(name=>
+                        name+" · PLUGINLELTÁR NEM OLVASHATÓ"))
+                    .ToArray();
+                list.ItemsSource=rows.Length==0
+                    ?new[]{snapshot.LocalMapCount==0
+                        ?"Nincs helyi map – előbb regisztrálj egyet a Szerverek oldalon."
+                        :"A vizsgált helyi telepítéseken nincs pluginmappa."}
+                    :rows;
+                summary.Text=snapshot.LocalMapCount+" helyi map · "+
+                    snapshot.Plugins.Count+" megfigyelt map-plugin hozzárendelés · "+
+                    snapshot.ReadablePluginMaps+" / "+snapshot.LocalMapCount+" map leltározva"+
+                    (snapshot.PluginInventoryComplete?"":" · HIÁNYOS/ISMERETLEN")+
+                    "\nA lemezen lévő plugin nem bizonyítja az ASA API futásidejű betöltését.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("plugin-center-inventory",ex);
+                summary.Text="PLUGINLELTÁR NEM ELLENŐRIZHETŐ – a szerverállapot nem módosult.";
+                list.ItemsSource=new[]{"A mapok telepítési állapotát ellenőrizni kell."};
+            }
+        }
+        Add(Box(V(Label("Helyi telepítések és pluginmappák",20,Mint,true),
+            summary,Btn("Helyi pluginleltár frissítése",Refresh),list)));
+        Refresh();
         ShowLocalPluginInventoryControls();
         ShowBulkPluginsControls();
         ShowPluginRollbackControls();
