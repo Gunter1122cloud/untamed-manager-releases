@@ -41,6 +41,7 @@ try
     File.WriteAllText(steamFixture,"offline synthetic steamcmd file");
     await OperationalFeaturesTests.Run(root,fake,args.Length>3?args[3]:null);
     await SteamCmdIsolatedUpdaterTests.Run(root,args.Length>3?args[3]:null);
+    await ModDependencyPlannerTests.Run();
     await ProfessionalOperationsTests.Run(root,fake);
     await OperationSafetyTests.Run(root);
     await AsaReadyProbeTests.Run(root);
