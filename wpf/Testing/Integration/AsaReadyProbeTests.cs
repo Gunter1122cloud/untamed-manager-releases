@@ -139,9 +139,33 @@ public static class AsaReadyProbeTests
         Check(!AsaReadyProbe.IsRegisteredServerBinary(fakeMap),
             "arbitrary loader/FakeAsa paths cannot impersonate registered ASA EXE");
 
+        var otherMap=new LocalMap {
+            Name="Other local map",InstallationPath=installation,
+            GamePort=7777,RconPort=map.RconPort
+        };
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "duplicate local RCON port cannot claim one map's readiness");
+        otherMap.RconPort=27998;otherMap.GamePort=7777;map.GamePort=7777;
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "duplicate local game port is detected across owned maps");
+        map.GamePort=0;otherMap.RconPort=map.RconPort;
+        string originalArguments=map.Arguments;
+        map.Arguments+=" ?RCONPort=27998";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "RCON endpoint disagreement with launch arguments fails preflight");
+        map.Arguments=originalArguments+" ?RCONPort="+map.RconPort;
+        Check(!AsaReadyProbe.DeclaredPortMismatch(map),
+            "correctly matching explicit RCON port is accepted");
+        map.Arguments=originalArguments;
+
         await using(var owner=new ClusterService("ready-fixture",
             Path.Combine(testRoot,"readiness-owner")))
         {
+            owner.AddMap(map);
+            owner.AddMap(otherMap);
+            var collision=await AsaReadyProbe.ProbeAsync(owner,map.Id);
+            Check(collision.Stage==AsaRuntimeStage.Unconfigured && !collision.ProductionReady,
+                "owned profile port collision blocks readiness before contacting RCON");
             bool foreignRefused=false;
             try{await AsaReadyProbe.ProbeAsync(owner,Guid.NewGuid());}
             catch(UnauthorizedAccessException){foreignRefused=true;}
