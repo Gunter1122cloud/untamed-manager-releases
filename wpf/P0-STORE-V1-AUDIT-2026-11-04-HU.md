@@ -81,6 +81,8 @@ A workflow codex ágakon is fut; release továbbra is csak a korábbi szigorú m
 - Az írójog kizárása jelenleg teljes tiltás; nincs új éles, két Manageres writer lease implementáció.
 - Mentésazonosító-egyezés nem egyenlő a világ/SQL/karaktermentés tartalmának ellenőrzésével.
 - Nincs Store-írás, konverzió, automatikus session vagy karakteradat-helyreállítás.
+- A teszt a saját szintetikus ZIP metadatafájljait friss ideiglenes mappákba visszamásolja,
+  majd ugyanazzal a validatorral ellenőrzi. Ez nem termékbeli restore-funkció és nem világ/karakter restore.
 - Következő elkülönített szakasz: teljes kétoldali privát referencia, metadata restore-próba,
   majd harmadik gépes valódi ASA SaveComplete/transfer és konzisztens backup/restore tesztterv.
 

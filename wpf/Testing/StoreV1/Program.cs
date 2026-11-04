@@ -166,14 +166,17 @@ try
     // restart; no original paths or production data are consulted.
     string coord=Path.Combine(root,"shared"),h0=Path.Combine(root,"host0"),h1=Path.Combine(root,"host1");
     foreach(string dir in new[]{coord,h0,h1})Directory.CreateDirectory(dir);
-    foreach(var item in original)
+    // Restore only synthetic metadata from the already verified ZIP into
+    // freshly created test folders. No embedded destination is followed.
+    var restoreFiles=VaultReadSnapshot.Archive(File.ReadAllBytes(good));
+    foreach(var item in restoreFiles.Where(x=>x.Key!="manifest.json"))
     {
         string folder=item.Key.StartsWith(shared)?coord:item.Key.StartsWith("HOST0/")?h0:h1;
-        File.WriteAllText(Path.Combine(folder,item.Key.Split('/').Last()),item.Value,new UTF8Encoding(false));
+        File.WriteAllBytes(Path.Combine(folder,item.Key.Split('/').Last()),item.Value);
     }
     var hashes=Directory.GetFiles(root,"*.json",SearchOption.AllDirectories).ToDictionary(p=>p,p=>Sha(File.ReadAllBytes(p)));
     var copy=KovaStoreV1CopyReader.Inspect(coord,h0,h1);
-    Check(copy.HistoricalConsistent&&copy.Report!.CompleteTwoHostEvidence,"copied folders use same full validator");
+    Check(copy.HistoricalConsistent&&copy.Report!.CompleteTwoHostEvidence,"synthetic ZIP metadata test-copy restore uses same full validator");
     Check(KovaStoreV1CopyReader.Inspect(coord,h1,h0).HistoricalConsistent,"folder order does not override device identity");
     Check(KovaStoreV1CopyReader.Inspect(coord,h0,h1).HistoricalConsistent,"read after restart preserves recognition");
     Check(hashes.All(x=>Sha(File.ReadAllBytes(x.Key))==x.Value),"all copied metadata source bytes preserved");
