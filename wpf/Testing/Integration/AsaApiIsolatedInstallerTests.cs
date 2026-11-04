@@ -14,7 +14,7 @@ public static class AsaApiIsolatedInstallerTests
     static void Check(bool value,string label)
     {if(!value)throw new Exception("API install failed: "+label);Console.WriteLine("PASS api-install "+label);}
     static bool Refused(Action action)
-    {try{action();return false;}catch(Exception e) when(e is IOException or InvalidOperationException or UnauthorizedAccessException or OperationCanceledException){return true;}}
+    {try{action();return false;}catch(Exception e) when(e is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException or OperationCanceledException){return true;}}
     public static async Task Run()
     {
         byte[] pe=new byte[256];using(var ms=new MemoryStream(pe))using(var w=new BinaryWriter(ms))
