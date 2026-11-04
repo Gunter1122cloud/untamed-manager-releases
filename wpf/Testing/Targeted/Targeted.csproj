@@ -14,5 +14,6 @@
     <Compile Include="../Integration/CurseForgeDependencyResolverTests.cs" Link="CurseForgeDependencyResolverTests.cs" />
     <Compile Include="../Integration/AsaApiReleaseStagingTests.cs" Link="AsaApiReleaseStagingTests.cs" />
     <Compile Include="../Integration/RconTransportTests.cs" Link="RconTransportTests.cs" />
+    <Compile Include="../Integration/DurableWatchdogTrackerTests.cs" Link="DurableWatchdogTrackerTests.cs" />
   </ItemGroup>
 </Project>
