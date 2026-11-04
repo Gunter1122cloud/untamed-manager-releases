@@ -162,6 +162,9 @@
        </Grid>
       </Border>
       <Border Style="{StaticResource NeonStatPanel}" Margin="0,10,0,0">
+       <TextBlock x:Name="LocalHostResourceStatus" Text="Helyi CPU / RAM: még nincs mért Windows-adat" Foreground="#DCEEE8" TextWrapping="Wrap" FontSize="12"/>
+      </Border>
+      <Border Style="{StaticResource NeonStatPanel}" Margin="0,10,0,0">
        <TextBlock x:Name="SupervisorStatus" Text="Supervisor: Ismeretlen – nincs friss, hitelesített mérés" TextWrapping="Wrap" Foreground="#9DB7B2" FontSize="12"/>
       </Border>
       <UniformGrid Columns="4" Margin="0,10,0,0">

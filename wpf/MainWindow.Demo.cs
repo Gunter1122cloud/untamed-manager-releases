@@ -31,6 +31,7 @@ public partial class MainWindow
         _beforeDemoSupervisor=SupervisorStatus.Text;
         _beforeDemoBadge=SupervisorBadge.Text;
         _updateTimer.Stop();
+        _hostResourceTimer.Stop();
         DemoToggle.Content="✕ Kilépés DEMO-ból";
         DemoModeIndicator.Visibility=Visibility.Visible;
         ModeFooterText.Text="◆  OFFLINE DEMO · SZIMULÁCIÓ";
@@ -49,7 +50,12 @@ public partial class MainWindow
         PageEyebrow.Text="UNTAMED KINGDOM  /  MANAGEMENT";
         SupervisorStatus.Text=_beforeDemoSupervisor??"Supervisor: nem ellenőrzött";
         SupervisorBadge.Text=_beforeDemoBadge??"Supervisor: ellenőrzés";
-        if(!App.IsDemoStart && !App.IsSmokeTest && !App.IsSupervisionTest)_updateTimer.Start();
+        if(!App.IsDemoStart && !App.IsSmokeTest && !App.IsSupervisionTest)
+        {
+            _updateTimer.Start();
+            _hostResourceTimer.Start();
+            _=RefreshLocalResourcesAsync();
+        }
         RefreshDashboardMapCards();
         Navigate("dashboard");
     }
@@ -69,7 +75,8 @@ public partial class MainWindow
         }).ToArray();
         HostCards.ItemsSource=demo.Hosts.Select(host=>new HostCardInfo{
             Name=host.Name+" · DEMO",
-            Description=demo.Maps.Count(m=>m.Host==host.Name)+" fiktív map",
+            Description=demo.Maps.Count(m=>m.Host==host.Name)+" fiktív map · CPU "+
+                host.CpuPercent+"% · RAM "+host.UsedRamGiB+"/"+host.TotalRamGiB+" GiB",
             TrustState=host.Online?"SZIMULÁLT ONLINE":"SZIMULÁLT OFFLINE",
             Accent=host.Online?Aqua:Brushes.Orange
         }).ToArray();
@@ -78,6 +85,9 @@ public partial class MainWindow
         ClusterOnlineCount.Text=demo.Hosts.Count(h=>h.Online).ToString()+
             " DEMO";
         ConfiguredModCount.Text=demo.Maps.Sum(m=>m.Mods.Count(x=>x.Mode!=DemoModMode.Disabled)).ToString();
+        LocalHostResourceStatus.Text="DEMO · fiktív CPU / RAM: "+
+            string.Join("  |  ",demo.Hosts.Select(h=>h.Name+": CPU "+h.CpuPercent+
+                "% · RAM "+h.UsedRamGiB+"/"+h.TotalRamGiB+" GiB"));
         ModReadingCoverage.Text="Csak mintamodok, nincs fájlolvasás";
         MapListEmpty.Visibility=Visibility.Collapsed;
         SupervisorStatus.Text="OFFLINE DEMO – szimulált folyamatok, játékosok és hostállapotok; nem élő felügyelet.";

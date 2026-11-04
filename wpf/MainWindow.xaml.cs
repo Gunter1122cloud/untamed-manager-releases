@@ -91,6 +91,7 @@ public partial class MainWindow : Window
         VersionBadge.Text="WPF "+UiVersion;
         InitializeAutomaticUpdates();
         InitializeSupervision();
+        InitializeLocalResourceTelemetry();
         // Only artwork mapping is static; actual map/port/host/mod data comes from
         // registered local profiles and authenticated, fresh LAN peer snapshots.
         var rows = new (string name, string a, string b)[] {

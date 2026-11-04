@@ -14,6 +14,9 @@ public sealed class DemoHost
 {
     public string Name { get; init; } = "";
     public bool Online { get; set; }
+    public int CpuPercent { get; init; }
+    public int UsedRamGiB { get; init; }
+    public int TotalRamGiB { get; init; }
 }
 public sealed class DemoMap
 {
@@ -49,9 +52,9 @@ public sealed class DemoWorkspace
     public DemoWorkspace()
     {
         hosts.AddRange(new[]{
-            new DemoHost{Name="DEMO-HOST-01",Online=true},
-            new DemoHost{Name="DEMO-HOST-02",Online=true},
-            new DemoHost{Name="DEMO-HOST-03",Online=false}
+            new DemoHost{Name="DEMO-HOST-01",Online=true,CpuPercent=34,UsedRamGiB=52,TotalRamGiB=80},
+            new DemoHost{Name="DEMO-HOST-02",Online=true,CpuPercent=21,UsedRamGiB=39,TotalRamGiB=64},
+            new DemoHost{Name="DEMO-HOST-03",Online=false,CpuPercent=0,UsedRamGiB=0,TotalRamGiB=80}
         });
         var templates=new (string Name,int Host,int Players,bool Running)[]{
             ("The Island",0,5,true),("Astraeos",0,3,true),
