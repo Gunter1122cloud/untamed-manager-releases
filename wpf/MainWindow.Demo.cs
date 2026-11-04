@@ -14,6 +14,8 @@ public partial class MainWindow
     // SteamCMD, MariaDB, SaveWorld, filesystem or authenticated LAN operations.
     private DemoWorkspace? _demo;
     private Guid? _demoSelectedId;
+    private readonly Dictionary<Guid,List<DemoMod[]>> _demoModTimeline=new();
+    private readonly Dictionary<Guid,int> _demoModCursor=new();
     private string? _beforeDemoSupervisor;
     private string? _beforeDemoBadge;
     private bool IsDemoMode=>_demo!=null;
@@ -27,6 +29,7 @@ public partial class MainWindow
     {
         if(_demo!=null)return;
         _demo=new DemoWorkspace();
+        _demoModTimeline.Clear();_demoModCursor.Clear();
         _demoSelectedId=_demo.Maps[0].Id;
         _beforeDemoSupervisor=SupervisorStatus.Text;
         _beforeDemoBadge=SupervisorBadge.Text;
@@ -43,6 +46,7 @@ public partial class MainWindow
     {
         if(_demo==null)return;
         _demo=null;
+        _demoModTimeline.Clear();_demoModCursor.Clear();
         _demoSelectedId=null;
         DemoToggle.Content="▶ DEMO";
         DemoModeIndicator.Visibility=Visibility.Collapsed;
@@ -215,7 +219,14 @@ public partial class MainWindow
         // Exactly the same native input controls and visual tokens as the local
         // editor. Only the operation executor is different: DemoWorkspace memory.
         var demo=_demo!;
-        var staged=map.Mods.ToList();
+        if(!_demoModTimeline.TryGetValue(map.Id,out var timeline))
+        {
+            timeline=new List<DemoMod[]> {map.Mods.ToArray()};
+            _demoModTimeline[map.Id]=timeline;
+            _demoModCursor[map.Id]=0;
+        }
+        int cursor=_demoModCursor[map.Id];
+        var staged=timeline[cursor].ToList();
         var list=new ListBox {
             MinHeight=235,MaxHeight=380,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModRow")
@@ -231,6 +242,21 @@ public partial class MainWindow
         var result=Label("DEMO · Nincs függőben lévő módosítás.",12,Soft);
         var preview=Label("",12,Soft);
         PremiumModRow? chosen=null;
+        Button? undoButton=null,redoButton=null,applyButton=null;
+        void Checkpoint()
+        {
+            if(timeline[cursor].SequenceEqual(staged))return;
+            if(cursor<timeline.Count-1)timeline.RemoveRange(cursor+1,timeline.Count-cursor-1);
+            timeline.Add(staged.ToArray());
+            cursor=timeline.Count-1;
+            _demoModCursor[map.Id]=cursor;
+        }
+        void ResetHistory()
+        {
+            staged=map.Mods.ToList();
+            timeline.Clear();timeline.Add(staged.ToArray());
+            cursor=0;_demoModCursor[map.Id]=0;
+        }
         string ModeName(DemoModMode value)=>value switch{
             DemoModMode.Active=>"Aktív",DemoModMode.Passive=>"Passzív",
             DemoModMode.Disabled=>"Letiltva",_=>"Ismeretlen"
@@ -262,7 +288,10 @@ public partial class MainWindow
             summary.Text=map.Name+" · "+all.Length+" mintamod · "+visible.Length+" megjelenítve";
             result.Text=map.Mods.SequenceEqual(staged)?
                 "[DEMO] Nincs függőben lévő változás.":
-                "[DEMO] Módosítások előkészítve – még csak a képernyőn láthatók.";
+                "[DEMO] "+cursor+" előkészített lépés – még csak a képernyőn látható.";
+            if(undoButton!=null)undoButton.IsEnabled=cursor>0;
+            if(redoButton!=null)redoButton.IsEnabled=cursor<timeline.Count-1;
+            if(applyButton!=null)applyButton.IsEnabled=!map.Mods.SequenceEqual(staged);
             ShowSelection();
         }
         void Stage(string id,DemoModMode? target)
@@ -270,8 +299,14 @@ public partial class MainWindow
             if(!System.Text.RegularExpressions.Regex.IsMatch(id??"",
                 @"\A[0-9]{5,12}\z"))
                 throw new InvalidOperationException("5–12 számjegyű modazonosító szükséges.");
+            if(target.HasValue&&staged.Any(m=>m.ProjectId==id&&m.Mode==target.Value))
+            {
+                preview.Text="[DEMO] Ez a mod már a kiválasztott állapotban van.";
+                return;
+            }
             staged.RemoveAll(m=>m.ProjectId==id);
             if(target.HasValue)staged.Add(new DemoMod(id,target.Value));
+            Checkpoint();
             preview.Text="[DEMO] Előnézet mentés nélkül. Eltűnik a DEMO elhagyásakor.";
             Render();
         }
@@ -282,6 +317,7 @@ public partial class MainWindow
             var to=at+delta;
             if(at<0||to<0||to>=staged.Count)return;
             (staged[at],staged[to])=(staged[to],staged[at]);
+            Checkpoint();
             Render();
         }
         void Attempt(Action action)
@@ -323,8 +359,20 @@ public partial class MainWindow
                 string.Join(" · ",staged.Select(m=>m.ProjectId+" ("+ModeName(m.Mode)+")"))+
                 "\nAz ASA, Store és SQL nincs csatlakoztatva.";
         }));
+        undoButton=Btn("↶  Visszavonás (DEMO)",()=>Attempt(()=>{
+            if(cursor==0)throw new InvalidOperationException("Nincs visszavonható lépés.");
+            cursor--;_demoModCursor[map.Id]=cursor;
+            staged=timeline[cursor].ToList();Render();
+        }));
+        redoButton=Btn("↷  Újra (DEMO)",()=>Attempt(()=>{
+            if(cursor>=timeline.Count-1)throw new InvalidOperationException("Nincs újraalkalmazható lépés.");
+            cursor++;_demoModCursor[map.Id]=cursor;
+            staged=timeline[cursor].ToList();Render();
+        }));
+        actions.Children.Add(undoButton);
+        actions.Children.Add(redoButton);
         actions.Children.Add(Btn("Módosítások elvetése",()=>{
-            staged=map.Mods.ToList();preview.Text="[DEMO] Módosítások elvetve.";Render();
+            ResetHistory();preview.Text="[DEMO] Módosítások elvetve.";Render();
         }));
         var apply=Btn("Módosítások alkalmazása (DEMO)",()=>RunDemo(()=>{
             foreach(var existing in map.Mods.ToArray())
@@ -338,12 +386,13 @@ public partial class MainWindow
                 int from=map.Mods.FindIndex(m=>m.ProjectId==staged[i].ProjectId);
                 while(from>i){demo.MoveMod(map.Id,staged[i].ProjectId,-1);from--;}
             }
-            staged=map.Mods.ToList();
+            ResetHistory();
         },result,"Modlista alkalmazva a DEMO memóriában",()=>{
             preview.Text="[DEMO] Alkalmazva – az éles konfiguráció érintetlen.";
             Render();
         }));
         apply.Style=(Style)System.Windows.Application.Current.FindResource("PrimaryAction");
+        applyButton=apply;
         actions.Children.Add(apply);
         Render();
         return V(grid,Box(V(Label("Függőben lévő változások",16,Mint,true),
