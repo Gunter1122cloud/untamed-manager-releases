@@ -14,11 +14,28 @@ namespace UntamedManager.Core;
 
 // Source RCON wire format. Runs against a locally configured ASA server only.
 // Remote peer messages never reach this protocol.
+internal sealed record RconSaveWorldDispatch(DateTimeOffset DispatchedUtc,bool SaveCompleteProven);
+
 public static class RconProtocol
 {
     private static readonly Encoding StrictUtf8=new UTF8Encoding(false,true);
-    public static async Task<string> Execute(string host,int port,string password,string command,
-        CancellationToken cancellationToken=default)
+    public static Task<string> Execute(string host,int port,string password,string command,
+        CancellationToken cancellationToken=default) =>
+        ExecuteCore(host,port,password,command,false,cancellationToken);
+
+    // Does not authorize server shutdown. This performs an actual RCON write
+    // after authentication, and returns only dispatch status, NEVER SaveComplete.
+    // No production lifecycle path calls it until a trusted completion witness
+    // is wired to the operation journal and validated against real ASA.
+    internal static async Task<RconSaveWorldDispatch> DispatchSaveWorldAsync(
+        string host,int port,string password,CancellationToken cancellationToken=default)
+    {
+        await ExecuteCore(host,port,password,"SaveWorld",true,cancellationToken);
+        return new(DateTimeOffset.UtcNow,false);
+    }
+
+    private static async Task<string> ExecuteCore(string host,int port,string password,
+        string command,bool allowSaveWorld,CancellationToken cancellationToken)
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         if (string.IsNullOrEmpty(password)) throw new InvalidOperationException("Missing RCON password");
@@ -26,9 +43,9 @@ public static class RconProtocol
             throw new InvalidDataException("Invalid RCON credential framing");
         if(string.IsNullOrWhiteSpace(host)||host.Length>253)
             throw new InvalidDataException("Invalid RCON host");
-        if (command!="ListPlayers")
+        if (allowSaveWorld ? command!="SaveWorld" : command!="ListPlayers")
             throw new InvalidOperationException(
-                "Live RCON is restricted to the read-only ListPlayers probe");
+                "RCON operation not authorized by its explicit call path");
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(8));
         timeout.Token.ThrowIfCancellationRequested();
@@ -51,6 +68,9 @@ public static class RconProtocol
         int commandId=challenge+4;
         int barrierId=commandId+1;
         await WritePacket(stream,commandId,2,command,timeout.Token);
+        // TCP flush proves only dispatch to the local socket; the server may not
+        // have executed SaveWorld. Never use this result to authorize DoExit.
+        if(allowSaveWorld)return "SAVEWORLD_DISPATCHED_NOT_COMPLETED";
         var responses=new List<string>();
         bool barrierSent=false;
         int totalBytes=0;
