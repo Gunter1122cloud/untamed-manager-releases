@@ -14,6 +14,17 @@ namespace UntamedManager;
 public partial class App : System.Windows.Application
 {
     private Mutex? mutex;
+    private ManagerSplashWindow? _splash;
+    public void NotifyMainUiReady(Window readyWindow)
+    {
+        if(_splash==null)return;
+        // Loaded is the actual WPF lifecycle event, not an elapsed-time guess.
+        MainWindow=readyWindow;
+        _splash.SetStage(ManagerStartupStage.Ready);
+        _splash.Close();
+        _splash=null;
+        ShutdownMode=ShutdownMode.OnMainWindowClose;
+    }
     public static string ProfileName { get; private set; } = "default";
     public static bool IsSmokeTest { get; private set; }
     public static bool IsSupervisionTest { get; private set; }
@@ -70,6 +81,11 @@ public partial class App : System.Windows.Application
             Log(a.Exception);
             a.Handled=true;
             System.Windows.MessageBox.Show(UntamedPresentation.UnexpectedFailure(a.Exception),"Untamed Manager",MessageBoxButton.OK,MessageBoxImage.Warning);
+            if(_splash!=null)
+            {
+                _splash.Close();_splash=null;
+                Shutdown(2);
+            }
         };
         AppDomain.CurrentDomain.UnhandledException += (_,a) => { if(a.ExceptionObject is Exception x) Log(x); };
         TaskScheduler.UnobservedTaskException += (_,a) => { Log(a.Exception); a.SetObserved(); };
@@ -102,6 +118,11 @@ public partial class App : System.Windows.Application
             try
             {
                 File.WriteAllText(Path.Combine(LogDir,"smoke.log"),"starting\n");
+                var splashCheck=new ManagerSplashWindow();
+                splashCheck.SetStage(ManagerStartupStage.InitializingInterface);
+                if(splashCheck.CurrentStage!=ManagerStartupStage.InitializingInterface)
+                    throw new InvalidOperationException("Splash stage cannot reflect actual startup");
+                File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"splash-stage-passed\n");
                 var window = new MainWindow();
                 File.AppendAllText(Path.Combine(LogDir,"smoke.log"),"constructed\n");
                 window.VerifyRecoveryCenterCiSmoke();
@@ -132,6 +153,23 @@ public partial class App : System.Windows.Application
                 if(++tries>=30){timer.Stop();Environment.Exit(3);}
             };
             timer.Start();
+        }
+        if(!IsSmokeTest&&!IsSupervisionTest)
+        {
+            try
+            {
+                // The splash is transient; it must never become the primary
+                // application window or close the Manager when it dismisses.
+                ShutdownMode=ShutdownMode.OnExplicitShutdown;
+                _splash=new ManagerSplashWindow();
+                _splash.SetStage(ManagerStartupStage.InitializingInterface);
+                _splash.Show();
+            }
+            catch(Exception ex)
+            {
+                Log(ex);_splash=null;
+                ShutdownMode=ShutdownMode.OnMainWindowClose;
+            }
         }
         base.OnStartup(e);
     }
