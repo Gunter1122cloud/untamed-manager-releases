@@ -1,0 +1,802 @@
+{
+  "Schema": 1,
+  "Audit": "UK-HOME-02 live read-only comparison",
+  "Date": "2026-11-04",
+  "TimeZone": "Europe/Budapest",
+  "Sources": {
+    "Issue": 4,
+    "Main": "df7da47221369274c170d0930bb06f6e9e317c1f",
+    "Pr1Head": "62dea92ce52e8270e57833fc976356ce199026d5",
+    "Pr3Head": "3b8b448fb906a02d45615a466ef2900ca40200f0",
+    "PriorApplicationCI": "41795392001",
+    "AuditBranch": "codex/read-only-kova-gap-audit"
+  },
+  "Scope": {
+    "FunctionGroups": 41,
+    "Operations": 61,
+    "OwnKovaModules": 44,
+    "OwnIdeas": 42,
+    "BacklogTasks": 33,
+    "SourceTextFiles": 139,
+    "CoreFiles": 64
+  },
+  "ObservationUtc": {
+    "ConfigurationAndModulesStart": "2026-11-04T08:15:40.4772478Z",
+    "ConfigurationAndModulesEnd": "2026-11-04T08:15:41.2400588Z",
+    "IntegrityBefore": "2026-11-04T08:24:08.1220916Z",
+    "IntegrityAfter": "2026-11-04T08:47:30.2043990Z"
+  },
+  "Safety": {
+    "Mode": "READ_ONLY",
+    "ProductionRconCommands": 0,
+    "ProductionSqlQueries": 0,
+    "ProductionShareConnections": 0,
+    "LiveServerActions": 0,
+    "OwnManagerOrTestExecutions": 0,
+    "OriginalFilesWrittenByObserver": 0,
+    "DocumentationAndLocalEvidenceWritesOnly": true,
+    "SmallFileReadSharing": "ReadWrite|Delete",
+    "NoExclusiveSnapshotOnLiveFiles": true
+  },
+  "InstalledKova": {
+    "Version": "1.8.3",
+    "OwnModulesByteIdenticalToHistoricalReference": 44,
+    "Modules": [
+      {
+        "Module": "agent/agent.mjs",
+        "Lines": 248,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/api-console.mjs",
+        "Lines": 40,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/api-packages.mjs",
+        "Lines": 70,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/asa-api.mjs",
+        "Lines": 127,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/backups.mjs",
+        "Lines": 130,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/chat-colors.mjs",
+        "Lines": 16,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/chat-controller.mjs",
+        "Lines": 38,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/chat-relay.mjs",
+        "Lines": 53,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/chat-text.mjs",
+        "Lines": 8,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/cluster.mjs",
+        "Lines": 142,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/discord-animation.mjs",
+        "Lines": 49,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/discord-bot.mjs",
+        "Lines": 180,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/discord-card-worker.mjs",
+        "Lines": 65,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/discord-card.mjs",
+        "Lines": 40,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/discord-chat.mjs",
+        "Lines": 63,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/discord-controls.mjs",
+        "Lines": 72,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/discord-members.mjs",
+        "Lines": 135,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/discord-roles.mjs",
+        "Lines": 12,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/discord-welcome.mjs",
+        "Lines": 18,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/lifecycle.mjs",
+        "Lines": 25,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/minecraft-download.mjs",
+        "Lines": 34,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/minecraft-host.mjs",
+        "Lines": 45,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/minecraft-manager.mjs",
+        "Lines": 112,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/minecraft-model.mjs",
+        "Lines": 27,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/owned-process.mjs",
+        "Lines": 34,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/rcon-query.mjs",
+        "Lines": 14,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/server-health.mjs",
+        "Lines": 16,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/shared-store.mjs",
+        "Lines": 180,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/steam-install.mjs",
+        "Lines": 35,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/telemetry.mjs",
+        "Lines": 40,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "agent/versions.mjs",
+        "Lines": 28,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "device-identity.cjs",
+        "Lines": 22,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "launch-store.cjs",
+        "Lines": 23,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "license-session.cjs",
+        "Lines": 19,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "local-manager.cjs",
+        "Lines": 111,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "main.cjs",
+        "Lines": 114,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "policy.cjs",
+        "Lines": 8,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "preload.cjs",
+        "Lines": 8,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "profile-launch.cjs",
+        "Lines": 28,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "release-key.cjs",
+        "Lines": 2,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "scheduler.cjs",
+        "Lines": 43,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "supervisor.cjs",
+        "Lines": 35,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "ui/atmosphere.js",
+        "Lines": 216,
+        "ReferenceMatch": true
+      },
+      {
+        "Module": "updater.cjs",
+        "Lines": 42,
+        "ReferenceMatch": true
+      }
+    ]
+  },
+  "Processes": [
+    {
+      "Map": "Ragnarok_WP",
+      "LoaderParentIsKova": true,
+      "AsaParentIsLoader": true,
+      "RootMatchesProfile": true,
+      "UseStore": true,
+      "ConversionSwitch": false,
+      "ModsCount": 28,
+      "ModsOrderMatchesProfile": true,
+      "PassiveSwitchPresent": false,
+      "UdpEndpointCount": 1,
+      "TcpListenerCount": 2,
+      "RconAuthenticated": "NOT_QUERIED"
+    },
+    {
+      "Map": "LostColony_WP",
+      "LoaderParentIsKova": true,
+      "AsaParentIsLoader": true,
+      "RootMatchesProfile": true,
+      "UseStore": true,
+      "ConversionSwitch": false,
+      "ModsCount": 29,
+      "ModsOrderMatchesProfile": true,
+      "PassiveSwitchPresent": false,
+      "UdpEndpointCount": 1,
+      "TcpListenerCount": 1,
+      "RconAuthenticated": "NOT_QUERIED"
+    },
+    {
+      "Map": "ScorchedEarth_WP",
+      "LoaderParentIsKova": true,
+      "AsaParentIsLoader": true,
+      "RootMatchesProfile": true,
+      "UseStore": true,
+      "ConversionSwitch": false,
+      "ModsCount": 28,
+      "ModsOrderMatchesProfile": true,
+      "PassiveSwitchPresent": false,
+      "UdpEndpointCount": 1,
+      "TcpListenerCount": 1,
+      "RconAuthenticated": "NOT_QUERIED"
+    },
+    {
+      "Map": "TheCenter_WP",
+      "LoaderParentIsKova": true,
+      "AsaParentIsLoader": true,
+      "RootMatchesProfile": true,
+      "UseStore": true,
+      "ConversionSwitch": false,
+      "ModsCount": 28,
+      "ModsOrderMatchesProfile": true,
+      "PassiveSwitchPresent": false,
+      "UdpEndpointCount": 1,
+      "TcpListenerCount": 1,
+      "RconAuthenticated": "NOT_QUERIED"
+    },
+    {
+      "Map": "Aberration_WP",
+      "LoaderParentIsKova": true,
+      "AsaParentIsLoader": true,
+      "RootMatchesProfile": true,
+      "UseStore": true,
+      "ConversionSwitch": false,
+      "ModsCount": 29,
+      "ModsOrderMatchesProfile": true,
+      "PassiveSwitchPresent": false,
+      "UdpEndpointCount": 1,
+      "TcpListenerCount": 1,
+      "RconAuthenticated": "NOT_QUERIED"
+    }
+  ],
+  "Store": {
+    "ClusterCompatible": true,
+    "SharedMode": true,
+    "EmbeddedSharedPathIsUnc": true,
+    "LocalMembers": 5,
+    "LocalRecords": 5,
+    "ActiveRecords": 5,
+    "LockSelected": 5,
+    "LockSessionMatchesAllLocalMaps": true,
+    "SelectedMatchesLocalIds": true,
+    "SharedCoordinationNotContacted": true,
+    "LiveTwoHostAgreement": "UNVERIFIED"
+  },
+  "Profiles": [
+    {
+      "Map": "Ragnarok_WP",
+      "EnabledMods": 28,
+      "PassiveMods": 0,
+      "MemberRootMatches": true,
+      "HasLaunchStructure": true
+    },
+    {
+      "Map": "LostColony_WP",
+      "EnabledMods": 29,
+      "PassiveMods": 0,
+      "MemberRootMatches": true,
+      "HasLaunchStructure": true
+    },
+    {
+      "Map": "ScorchedEarth_WP",
+      "EnabledMods": 28,
+      "PassiveMods": 0,
+      "MemberRootMatches": true,
+      "HasLaunchStructure": true
+    },
+    {
+      "Map": "TheCenter_WP",
+      "EnabledMods": 28,
+      "PassiveMods": 0,
+      "MemberRootMatches": true,
+      "HasLaunchStructure": true
+    },
+    {
+      "Map": "Aberration_WP",
+      "EnabledMods": 29,
+      "PassiveMods": 0,
+      "MemberRootMatches": true,
+      "HasLaunchStructure": true
+    }
+  ],
+  "Scheduler": {
+    "Profiles": 5,
+    "Tasks": 10,
+    "Paused": 0,
+    "TaskTypes": [
+      {
+        "Type": "restart",
+        "Count": 1
+      },
+      {
+        "Type": "wipe",
+        "Count": 5
+      },
+      {
+        "Type": "backup",
+        "Count": 4
+      }
+    ],
+    "LastResults": [
+      {
+        "Result": "success",
+        "Count": 8
+      },
+      {
+        "Result": "failed",
+        "Count": 2
+      }
+    ],
+    "ProfilesWithSyncError": 5,
+    "RuntimeIsHistoricalNotExecutionProof": true
+  },
+  "SchedulerHistory": [
+    {
+      "Map": "Aberration_WP",
+      "LastSyncErrorUtc": "2026-11-03T06:46:06.8690000Z",
+      "Results": [
+        {
+          "Result": "success",
+          "AtUtc": "2026-11-04T06:26:34.9330000Z"
+        },
+        {
+          "Result": "failed",
+          "AtUtc": "2026-11-04T06:30:00.2540000Z"
+        }
+      ]
+    },
+    {
+      "Map": "TheCenter_WP",
+      "LastSyncErrorUtc": "2026-11-03T06:46:06.8720000Z",
+      "Results": [
+        {
+          "Result": "success",
+          "AtUtc": "2026-11-04T06:22:54.2720000Z"
+        },
+        {
+          "Result": "failed",
+          "AtUtc": "2026-11-04T06:30:00.2530000Z"
+        }
+      ]
+    },
+    {
+      "Map": "ScorchedEarth_WP",
+      "LastSyncErrorUtc": "2026-11-03T06:46:06.8740000Z",
+      "Results": [
+        {
+          "Result": "success",
+          "AtUtc": "2026-11-04T06:16:26.2950000Z"
+        },
+        {
+          "Result": "success",
+          "AtUtc": "2026-11-04T06:30:02.3100000Z"
+        }
+      ]
+    },
+    {
+      "Map": "LostColony_WP",
+      "LastSyncErrorUtc": "2026-11-03T06:46:06.8760000Z",
+      "Results": [
+        {
+          "Result": "success",
+          "AtUtc": "2026-11-04T06:07:15.6850000Z"
+        },
+        {
+          "Result": "success",
+          "AtUtc": "2026-11-04T06:30:01.2510000Z"
+        }
+      ]
+    },
+    {
+      "Map": "Ragnarok_WP",
+      "LastSyncErrorUtc": "2026-11-03T06:46:06.8770000Z",
+      "Results": [
+        {
+          "Result": "success",
+          "AtUtc": "2026-11-04T06:02:40.5710000Z"
+        },
+        {
+          "Result": "success",
+          "AtUtc": "2026-11-04T06:30:03.6520000Z"
+        }
+      ]
+    }
+  ],
+  "Supervisor": {
+    "Profiles": 5,
+    "AutoStart": 5,
+    "Watchdog": 5,
+    "Blocked": false,
+    "RuntimePhases": 0,
+    "Maintenance": 0
+  },
+  "Discord": {
+    "Enabled": false,
+    "ControlsConfigured": true,
+    "ControlRoleCount": 1,
+    "SecretsNotExported": true,
+    "EffectiveBotActivity": "UNVERIFIED"
+  },
+  "BackupPolicySummary": [
+    {
+      "Map": "Ragnarok_WP",
+      "Configured": false,
+      "HasDestination": false,
+      "HasLastSuccess": true
+    },
+    {
+      "Map": "LostColony_WP",
+      "Configured": false,
+      "HasDestination": false,
+      "HasLastSuccess": true
+    },
+    {
+      "Map": "ScorchedEarth_WP",
+      "Configured": false,
+      "HasDestination": false,
+      "HasLastSuccess": true
+    },
+    {
+      "Map": "TheCenter_WP",
+      "Configured": false,
+      "HasDestination": false,
+      "HasLastSuccess": true
+    },
+    {
+      "Map": "Aberration_WP",
+      "Configured": false,
+      "PolicyMissing": true
+    }
+  ],
+  "Plugins": [
+    {
+      "Map": "Ragnarok_WP",
+      "FolderCount": 10,
+      "Names": [
+        "AdvancedMessagesAscended",
+        "AntiPVEGriefing",
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UnicodeRCONASA",
+        "UntamedLink"
+      ],
+      "PresenceIsNotRuntimeLoad": true
+    },
+    {
+      "Map": "LostColony_WP",
+      "FolderCount": 10,
+      "Names": [
+        "AdvancedMessagesAscended",
+        "AntiPVEGriefing",
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UnicodeRCONASA",
+        "UntamedLink"
+      ],
+      "PresenceIsNotRuntimeLoad": true
+    },
+    {
+      "Map": "Aberration_WP",
+      "FolderCount": 10,
+      "Names": [
+        "AdvancedMessagesAscended",
+        "AntiPVEGriefing",
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UnicodeRCONASA",
+        "UntamedLink"
+      ],
+      "PresenceIsNotRuntimeLoad": true
+    },
+    {
+      "Map": "TheCenter_WP",
+      "FolderCount": 10,
+      "Names": [
+        "AdvancedMessagesAscended",
+        "AntiPVEGriefing",
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UnicodeRCONASA",
+        "UntamedLink"
+      ],
+      "PresenceIsNotRuntimeLoad": true
+    },
+    {
+      "Map": "ScorchedEarth_WP",
+      "FolderCount": 10,
+      "Names": [
+        "AdvancedMessagesAscended",
+        "AntiPVEGriefing",
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UnicodeRCONASA",
+        "UntamedLink"
+      ],
+      "PresenceIsNotRuntimeLoad": true
+    }
+  ],
+  "ApiLogs": [
+    {
+      "Map": "Ragnarok_WP",
+      "CurrentPidApiLogFound": true,
+      "ApiLogBytes": 7071,
+      "CurrentSessionPlausible": true,
+      "ApiInitializedText": true,
+      "PluginNamesMentioned": [
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UntamedLink"
+      ],
+      "PluginErrorMentions": 0,
+      "SqlConfigurationKeyCount": 10,
+      "ReferencedExpectedSchemas": [
+        "arkpermissions",
+        "lethalquests"
+      ],
+      "SqlSchemaQueried": false
+    },
+    {
+      "Map": "LostColony_WP",
+      "CurrentPidApiLogFound": true,
+      "ApiLogBytes": 6792,
+      "CurrentSessionPlausible": true,
+      "ApiInitializedText": true,
+      "PluginNamesMentioned": [
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UntamedLink"
+      ],
+      "PluginErrorMentions": 0,
+      "SqlConfigurationKeyCount": 10,
+      "ReferencedExpectedSchemas": [
+        "arkpermissions",
+        "lethalquests"
+      ],
+      "SqlSchemaQueried": false
+    },
+    {
+      "Map": "Aberration_WP",
+      "CurrentPidApiLogFound": true,
+      "ApiLogBytes": 6869,
+      "CurrentSessionPlausible": true,
+      "ApiInitializedText": true,
+      "PluginNamesMentioned": [
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UntamedLink"
+      ],
+      "PluginErrorMentions": 0,
+      "SqlConfigurationKeyCount": 10,
+      "ReferencedExpectedSchemas": [
+        "arkpermissions",
+        "lethalquests"
+      ],
+      "SqlSchemaQueried": false
+    },
+    {
+      "Map": "TheCenter_WP",
+      "CurrentPidApiLogFound": true,
+      "ApiLogBytes": 7725,
+      "CurrentSessionPlausible": true,
+      "ApiInitializedText": true,
+      "PluginNamesMentioned": [
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UntamedLink"
+      ],
+      "PluginErrorMentions": 0,
+      "SqlConfigurationKeyCount": 10,
+      "ReferencedExpectedSchemas": [
+        "arkpermissions",
+        "lethalquests"
+      ],
+      "SqlSchemaQueried": false
+    },
+    {
+      "Map": "ScorchedEarth_WP",
+      "CurrentPidApiLogFound": true,
+      "ApiLogBytes": 6800,
+      "CurrentSessionPlausible": true,
+      "ApiInitializedText": true,
+      "PluginNamesMentioned": [
+        "ArkShop",
+        "ArkShopUI",
+        "CousinCustomRates",
+        "LethalQuestsAscended",
+        "LevelUpEvents",
+        "Permissions",
+        "UntamedLink"
+      ],
+      "PluginErrorMentions": 0,
+      "SqlConfigurationKeyCount": 10,
+      "ReferencedExpectedSchemas": [
+        "arkpermissions",
+        "lethalquests"
+      ],
+      "SqlSchemaQueried": false
+    }
+  ],
+  "MariaDbServices": [
+    {
+      "Category": "MariaDB",
+      "State": "Stopped",
+      "StartMode": "Disabled",
+      "ProductVersion": "11.4.13.0",
+      "SchemaQueried": false
+    },
+    {
+      "Category": "MariaDB",
+      "State": "Running",
+      "StartMode": "Auto",
+      "ProductVersion": "10.11.19.0",
+      "SchemaQueried": false
+    }
+  ],
+  "Gui": {
+    "VisibleChromiumWindow": true,
+    "TrayHostWindow": true,
+    "UiaDescendants": 9,
+    "UsableAllowlistedMenuLabels": 0,
+    "CompleteMenuObserved": false,
+    "ClickBugReproduced": false,
+    "NoClicksOrWindowActivation": true,
+    "PrivateImagesNotCommitted": true
+  },
+  "Reconciliation": {
+    "HasGitMetadata": false,
+    "NestedDuplicate": false,
+    "SourceFiles": 139,
+    "BuildOutputFiles": 24,
+    "ExactBlobMatches": 14,
+    "FinalNewlineOnly": 125,
+    "FunctionalDifferencesFound": 0,
+    "RemotePreviewAssetFilesNotDownloaded": 23,
+    "Pr3ChangedFiles": 14,
+    "Original141CounterExplanation": "UNVERIFIED_WITHOUT_ORIGINAL_PATH_LIST"
+  },
+  "Integrity": {
+    "BeforeUtc": "2026-11-04T08:24:08.1220916Z",
+    "AfterUtc": "2026-11-04T08:47:30.2043990Z",
+    "TrackedSmallFiles": 9,
+    "UnchangedSmallFiles": 9,
+    "ChangedSmallFiles": [],
+    "TrackedProcesses": 15,
+    "UnchangedProcessIdentities": 15,
+    "CurrentAsaCount": 5,
+    "CurrentLoaderCount": 5,
+    "RunningMariaDbServiceMatchesObservedProcess": true,
+    "WorldOrSqlContentUnchanged": "NOT_CLAIMED",
+    "MutatingCallsIssued": 0
+  },
+  "Limitations": [
+    "No full GUI or live click/focus reproduction",
+    "No SQL tables/engines queried; service binary version differs from planned 11.4",
+    "No HP local metadata or live shared coordination",
+    "No character/tribe/transfer/restore validation",
+    "Code route presence is INFERRED, not execution success",
+    "Prior 89 assertions are historical/synthetic/copy proof, not production acceptance"
+  ]
+}
