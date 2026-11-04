@@ -127,8 +127,8 @@ public partial class MainWindow
 
     private void ShowSteamUpdateCenter()
     {
-        Header("SteamCMD Update Center – szimuláció",
-            "Közös telepítési gyökér, tárhely és folyamatállapot vizsgálata; SteamCMD futtatása tiltva.");
+        Header("SteamCMD Update Center – tesztgép",
+            "Előnézet és elkülönített TEMP teszttelepítés. Éles ASA frissítés továbbra is tiltva.");
         Add(Box(V(Label("SteamCMD Update Center – v"+UiVersion,20,Mint,true),
             Label("Éles ASA frissítés és automatikus map-restart nem engedélyezett "+
                 "igazolt SaveWorld/Stop és valódi ASA kompatibilitási teszt nélkül.",12,Soft))));
@@ -164,6 +164,53 @@ public partial class MainWindow
                         "\n"+plan.Reason;
                 }
                 catch(Exception ex){status.Text="Frissítési előnézet elutasítva: "+ex.Message;}
+            }),
+            Btn("Valódi SteamCMD futtatása – csak izolált TEMP telepítés",async ()=>{
+                if(map.SelectedItem is not LocalMap selected ||
+                   !_cluster.Config.LocalMaps.Contains(selected))
+                {status.Text="Válassz helyi, regisztrált tesztmapot.";return;}
+                if(!long.TryParse(size.Text,out long mb) ||mb is <1 or >500000)
+                {status.Text="Adj meg érvényes MiB-frissítési méretbecslést.";return;}
+                string executable=path.Text.Trim();
+                string installation=selected.InstallationPath;
+                var selectedMaps=_cluster.Config.LocalMaps.Where(m=>string.Equals(
+                    m.InstallationPath,installation,StringComparison.OrdinalIgnoreCase)).ToArray();
+                string profile=Path.Combine(Path.GetTempPath(),
+                    "Untamed-SteamLab-"+Guid.NewGuid().ToString("N"),"Manager");
+                if(MessageBox.Show(
+                    "Ez NEM szimuláció: a valódi steamcmd.exe elindulhat és "+
+                    "letölthet vagy módosíthat fájlokat, kizárólag egy külön "+
+                    "TEMP/Untamed-SteamLab-* telepítésben.\n"+
+                    "A két éles szervergép, az éles ASA és a Store nem érinthető.\n"+
+                    "Telepítés: "+installation+"\n"+
+                    "Érintett helyi mapok: "+selectedMaps.Length+
+                    "\nElindítod a tesztfrissítést?",
+                    "Valódi SteamCMD – csak elkülönített tesztgép",
+                    MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                status.Text="SteamCMD tesztművelet: helyi folyamat- és mentési ellenőrzések...";
+                try
+                {
+                    Directory.CreateDirectory(profile);
+                    var receipt=await SteamCmdIsolatedUpdater.RunAsync(
+                        executable,installation,profile,selectedMaps,
+                        local=>_cluster.Check(local),checked(mb*1024*1024),
+                        TimeSpan.FromMinutes(45));
+                    status.Text="STEAMCMD TESZTFUTTATÁS VÉGET ÉRT"+
+                        "\nSteamCMD-válasz: "+(receipt.SteamAcknowledged?"elfogadva":"nem igazolt")+
+                        "\nMentési és pluginfájlok: "+
+                        (receipt.ProtectedFilesPreserved?"SHA-256 szerint változatlanok":"HIBA")+
+                        "\nBuild: "+(receipt.BuildBefore??"ismeretlen")+" → "+
+                        (receipt.BuildAfter??"ismeretlen")+
+                        "\nNapló: "+receipt.Operation+
+                        "\nÉles ASA-frissítés nem történt.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("steam-lab-update",ex);
+                    status.Text="UM-STEAM-LAB: a frissítés nem igazolható. "+
+                        "Sikertelen módosítás után a napló operátori vizsgálatot igényel; "+
+                        "a Manager nem indítja újra a műveletet.";
+                }
             }),
             Btn("Teljesen offline SteamCMD-update szimuláció",()=>{
                 string? fixture=null;
