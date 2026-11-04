@@ -71,6 +71,7 @@ public partial class MainWindow
         var images=_maps.ToDictionary(x=>x.Name,StringComparer.OrdinalIgnoreCase);
         var active = new List<MapInfo>();
         int knownModAssignments=0, readableModMaps=0;
+        int runningProcesses=0, stoppedProcesses=0, unverifiedProcesses=0;
         foreach(var m in _cluster.Config.LocalMaps)
         {
             images.TryGetValue(m.Name,out var art);
@@ -84,8 +85,19 @@ public partial class MainWindow
                 readableModMaps++;
             }
             catch(Exception ex){WriteLog("dashboard-mod-observation",ex);}
-            try { status=_cluster.Check(m).Status; }
-            catch(Exception ex){WriteLog("dashboard-process-observation",ex);}
+            try
+            {
+                var check=_cluster.Check(m);
+                status=check.Status;
+                if(check.Running && check.Identity!=null)runningProcesses++;
+                else if(check.ConfirmedStopped)stoppedProcesses++;
+                else unverifiedProcesses++;
+            }
+            catch(Exception ex)
+            {
+                unverifiedProcesses++;
+                WriteLog("dashboard-process-observation",ex);
+            }
             active.Add(new MapInfo {
                 Id=m.Id,Name=m.Name,Host=_cluster.Config.LocalHostName,
                 ModCount=configuredMods,GamePort=m.GamePort>0?m.GamePort:null,
@@ -118,6 +130,9 @@ public partial class MainWindow
         ClusterMapCount.Text=summary.MapCount.ToString();
         ClusterHostCount.Text=summary.HostCount.ToString();
         ClusterOnlineCount.Text=summary.FreshLanPeers.ToString();
+        DashboardOperationsLine.Text="Helyi folyamatok: "+runningProcesses+" igazolt futó · "+
+            stoppedProcesses+" igazolt leállított · "+unverifiedProcesses+" bizonytalan. "+
+            "Játékosok/RCON: nincs hitelesített aktuális adat · Mentések: ellenőrizd a Mentések oldalon.";
         ConfiguredModCount.Text=summary.ModCountDisplay;
         ModReadingCoverage.Text=summary.ModCoverageDisplay;
         var hosts=new List<HostCardInfo>{

@@ -163,6 +163,19 @@
        <Border Style="{StaticResource NeonStatPanel}"><StackPanel><TextBlock Text="⬡  HELYI MODOK" Foreground="#9DB7B2"/><TextBlock x:Name="ConfiguredModCount" Text="—" Foreground="#73DDC8" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock x:Name="ModReadingCoverage" Text="Nincs még mérés" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
        <Border Style="{StaticResource AmberStatPanel}"><StackPanel><TextBlock Text="◉  FRISS LAN-PEER" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterOnlineCount" Text="0" Foreground="#F4BB78" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="0, ha nincs hiteles peer-mérés" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
       </UniformGrid>
+      <Border Background="#14272B" BorderBrush="#354E51" BorderThickness="1"
+              CornerRadius="11" Padding="13,11" Margin="0,6,12,10">
+        <DockPanel LastChildFill="True">
+          <Button DockPanel.Dock="Right" Content="◉  Monitoring" Tag="monitoring"
+                  Click="Navigate_Click" Style="{StaticResource ActionButton}" Padding="11,6"/>
+          <StackPanel>
+            <TextBlock Text="OPERATIONAL SNAPSHOT" Foreground="#79BBAF" FontSize="10"
+                       FontWeight="SemiBold" Margin="0,0,0,5"/>
+            <TextBlock x:Name="DashboardOperationsLine" Text="Folyamatok, játékosok és RCON állapota még nincs hitelesítve."
+                       Foreground="#CCDCDD" FontSize="12" TextWrapping="Wrap"/>
+          </StackPanel>
+        </DockPanel>
+      </Border>
       <DockPanel LastChildFill="False" Margin="0,6,12,9">
        <TextBlock Text="Gazdagépek / infrastruktúra" Foreground="White" DockPanel.Dock="Left" FontSize="21" FontWeight="Bold"/>
        <TextBlock Text="◈  Store: csak olvasó adapter · veszélyes műveletek tiltva" DockPanel.Dock="Right" Foreground="#7DE6C8" FontSize="11" VerticalAlignment="Center"/>

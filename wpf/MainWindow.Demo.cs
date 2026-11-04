@@ -85,6 +85,11 @@ public partial class MainWindow
         ClusterOnlineCount.Text=demo.Hosts.Count(h=>h.Online).ToString()+
             " DEMO";
         ConfiguredModCount.Text=demo.Maps.Sum(m=>m.Mods.Count(x=>x.Mode!=DemoModMode.Disabled)).ToString();
+        DashboardOperationsLine.Text="DEMO · "+
+            demo.Maps.Count(m=>m.Running&&demo.FindHost(m.Host).Online)+" szimulált futó map · "+
+            demo.Maps.Where(m=>m.Running&&demo.FindHost(m.Host).Online).Sum(m=>m.Players)+
+            " mintajátékos · "+demo.Maps.Sum(m=>m.Backups.Count)+
+            " mintamentés · RCON csak szimuláció.";
         LocalHostResourceStatus.Text="DEMO · fiktív CPU / RAM: "+
             string.Join("  |  ",demo.Hosts.Select(h=>h.Name+": CPU "+h.CpuPercent+
                 "% · RAM "+h.UsedRamGiB+"/"+h.TotalRamGiB+" GiB"));
