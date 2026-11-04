@@ -109,6 +109,38 @@ public static class AsaApiReleaseStaging
     public static AsaApiStagedRelease Verify(string destination)=>
         VerifyInternal(destination,false);
 
+    public static AsaApiStagedRelease VerifyAgainstPublisher(string destination,
+        AsaApiReleaseInfo trustedRelease,AsaApiReleaseAsset trustedAsset)
+    {
+        ArgumentNullException.ThrowIfNull(trustedRelease);
+        ArgumentNullException.ThrowIfNull(trustedAsset);
+        if(!trustedRelease.Assets.Contains(trustedAsset)||trustedAsset.OfficialSha256==null)
+            throw new InvalidDataException("Trusted ASA API asset identity unavailable");
+        var actual=Verify(destination);
+        if(actual.Tag!=trustedRelease.Tag||actual.AssetName!=trustedAsset.Name||
+           actual.Bytes!=trustedAsset.Bytes||
+           !string.Equals(actual.OfficialSha256,trustedAsset.OfficialSha256,
+               StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Staged API package does not match independently supplied publisher evidence");
+        return actual;
+    }
+
+    // Runtime UI path re-fetches the signed-upstream metadata at the moment of
+    // selection instead of trusting a stale or user-crafted release record.
+    public static async Task<AsaApiStagedRelease> StageLatestAsync(HttpClient http,
+        string assetName,string destination,CancellationToken ct=default)
+    {
+        if(http==null)throw new ArgumentNullException(nameof(http));
+        if(string.IsNullOrWhiteSpace(assetName) ||
+           assetName.Length>180 ||assetName.Contains('/')||assetName.Contains('\\'))
+            throw new InvalidDataException("Explicit official ZIP asset name required");
+        var fresh=await AsaApiReleaseCatalog.FetchLatestAsync(http,ct);
+        var asset=fresh.Assets.SingleOrDefault(a=>
+            a.Name==assetName && a.OfficialSha256!=null) ??
+            throw new InvalidDataException("Selected API ZIP is no longer an authenticated latest release asset");
+        return await StageAsync(http,fresh,asset,destination,ct);
+    }
+
     public static async Task<AsaApiStagedRelease> StageAsync(
         HttpClient http,AsaApiReleaseInfo release,AsaApiReleaseAsset selected,
         string destination,CancellationToken ct=default)
@@ -169,6 +201,6 @@ public static class AsaApiReleaseStaging
         Write(Path.Combine(stage,CompleteName),state.OfficialSha256);
         VerifyInternal(stage,true);
         Directory.Move(stage,target);
-        return Verify(target);
+        return VerifyAgainstPublisher(target,release,selected);
     }
 }
