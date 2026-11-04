@@ -3238,17 +3238,17 @@
       "Id": "T08",
       "Title": "MariaDB verzióeltérés tisztázása, valódi dump és elkülönített restore",
       "SourceDocument": "docs/audits/UNTAMED-P0-P3-IMPLEMENTATION-BACKLOG-HU.md",
-      "CodeReferences": "Core/OfflineSqlArchive.cs::ImportFixture/SimulateRestore; új MariaDbDumpAdapter",
+      "CodeReferences": "Core/MariaDbDumpAdapter.cs::DumpAsync/RestoreToEmptyAsync/Verify; MainWindow.Sql.cs; Testing/MariaDb",
       "BacklogTasks": [
         "T08"
       ],
-      "Status": "BLOCKED",
-      "Changes": "MariaDB 10.11.19 deployment baseline és háromadatbázisos kompatibilitási policy; bináris verzió nem minősül SQL-verziólekérdezésnek.",
-      "TestType": "Windows regression / synthetic fixtures; real OS lease and WPF routing",
-      "TestResult": "PASS Windows CI 41808264246 on 016a43b556afc5d29781513fadf049c0dee8b383; own code and synthetic lifecycle, not real ASA acceptance",
-      "ImplementationCommit": "016a43b556afc5d29781513fadf049c0dee8b383",
+      "Status": "PARTIAL",
+      "Changes": "Valódi, háromadatbázisos InnoDB dump és üres célra visszatöltés a WPF felületről; privát klienskonfiguráció, verzió/port/adatkönyvtár/jogosultság és SHA-256 ellenőrzés.",
+      "TestType": "Two real MariaDB 10.11.19 engines on a separate disposable Windows CI runner",
+      "TestResult": "PASS real-sql job 126614542769, run 41841590051: real rows, Unicode/blob, views, routines, triggers/events; existing-target, privilege and corruption rejection.",
+      "ImplementationCommit": "1704e4f186345bef92692a762d7c9ed63c8b2f4b",
       "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
-      "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
+      "Remaining": "Coordinated ASA/Store/SQL recovery and production validation remain unverified. Previous ASA test phase closed administratively; unrun cases were not marked PASS."
     },
     {
       "Id": "T09",
