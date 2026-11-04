@@ -149,6 +149,56 @@ public static class OperationSafetyTests
             sensitiveException.Contains("UM-UNHANDLED"),
             "unhandled WPF error messages never reveal raw exception content");
         Check(!typeof(ClusterService).Assembly.GetTypes().Any(t=>t.Name.StartsWith("Kova",StringComparison.Ordinal)),"own wrapper types use neutral names");
+        // T03 attestation protocol fixture: signed receipts establish correlation,
+        // not real ASA disk flush and never unlock the production DoExit gate.
+        byte[] witnessKey=System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        Guid witnessMap=Guid.NewGuid(),witnessOperation=Guid.NewGuid();
+        var witnessProcess=new ProcessIdentity {
+            Pid=62430,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-3),
+            ExecutablePath=@"C:\isolated\ArkAscendedServer.exe",Arguments="TheIsland_WP -log"
+        };
+        DateTimeOffset requestUtc=DateTimeOffset.UtcNow.AddSeconds(-15);
+        var started=SaveWorldValidator.SignWitnessForFixture(
+            new SaveWorldValidator.SaveWitness(witnessMap,witnessOperation,
+                SaveWorldValidator.WitnessKind.SaveStarted,witnessProcess,
+                requestUtc.AddSeconds(1),"",""),witnessKey);
+        var completed=SaveWorldValidator.SignWitnessForFixture(
+            new SaveWorldValidator.SaveWitness(witnessMap,witnessOperation,
+                SaveWorldValidator.WitnessKind.SaveCompleted,witnessProcess,
+                requestUtc.AddSeconds(3),new string('A',64),""),witnessKey);
+        var valid=SaveWorldValidator.VerifyAttestedPair(
+            witnessMap,witnessOperation,witnessProcess,requestUtc,
+            DateTimeOffset.UtcNow,new[]{started,completed},witnessKey);
+        Check(valid.Correlated && valid.CompletedUtc==completed.Utc,
+            "HMAC-authenticated save begin/end receipts correlate to exact operation and process");
+        Check(!SaveWorldValidator.VerifyAttestedPair(witnessMap,Guid.NewGuid(),
+            witnessProcess,requestUtc,DateTimeOffset.UtcNow,
+            new[]{started,completed},witnessKey).Correlated,
+            "saved witness cannot be replayed for a different operation");
+        Check(!SaveWorldValidator.VerifyAttestedPair(Guid.NewGuid(),witnessOperation,
+            witnessProcess,requestUtc,DateTimeOffset.UtcNow,
+            new[]{started,completed},witnessKey).Correlated,
+            "saved witness cannot be replayed to another map");
+        Check(!SaveWorldValidator.VerifyAttestedPair(witnessMap,witnessOperation,
+            witnessProcess,requestUtc,DateTimeOffset.UtcNow,
+            new[]{started,completed with { WorldDigest=new string('B',64)}},witnessKey).Correlated,
+            "world digest substitution invalidates authenticated completion");
+        Check(!SaveWorldValidator.VerifyAttestedPair(witnessMap,witnessOperation,
+            witnessProcess,requestUtc,DateTimeOffset.UtcNow,
+            new[]{started,started},witnessKey).Correlated,
+            "duplicate start event cannot masquerade as completion");
+        Check(!SaveWorldValidator.VerifyAttestedPair(witnessMap,witnessOperation,
+            witnessProcess,requestUtc,DateTimeOffset.UtcNow,
+            new[]{started,completed with { Utc=started.Utc.AddSeconds(-1)}},witnessKey).Correlated,
+            "backdated or reordered completion cannot pass");
+        Check(!SaveWorldValidator.VerifyAttestedPair(witnessMap,witnessOperation,
+            new ProcessIdentity {
+                Pid=witnessProcess.Pid,StartedUtc=witnessProcess.StartedUtc.AddSeconds(-1),
+                ExecutablePath=witnessProcess.ExecutablePath,Arguments=witnessProcess.Arguments
+            },requestUtc,DateTimeOffset.UtcNow,new[]{started,completed},witnessKey).Correlated,
+            "same PID with different start time cannot reuse save proof");
+        Check(!SaveWorldValidator.VerifyLiveUnavailable("OK",DateTimeOffset.UtcNow).Proven,
+            "synthetic HMAC fixture does not unlock real ASA save completion");
         var conflicting=new Session{ContradictoryExit=true};
         bool stopped=false;try{await SafeLifecycle.Stop(conflicting,true,TimeSpan.FromSeconds(1));}catch(InvalidOperationException){stopped=true;}
         Check(stopped&&conflicting.Starts==0,"contradictory Running/ConfirmedStopped never restarts");
