@@ -1,7 +1,7 @@
 name: Untamed Manager WPF Windows Build
 on:
   push:
-    branches: [main, 'feature/store-lifecycle-evidence-parity-20261103', 'codex/**']
+    branches: [main, 'feature/store-lifecycle-evidence-parity-20261103', 'codex/**', 'chatgpt/**']
     paths:
       - 'wpf/**'
       - 'tools/lab/**'
