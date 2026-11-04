@@ -74,6 +74,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        VersionBadge.Text="WPF "+UiVersion;
         InitializeAutomaticUpdates();
         InitializeSupervision();
         // Only artwork mapping is static; actual map/port/host/mod data comes from
