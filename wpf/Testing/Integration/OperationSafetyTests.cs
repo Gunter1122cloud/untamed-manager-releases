@@ -75,6 +75,50 @@ public static class OperationSafetyTests
         Check(first.Read().LocalHostName=="A","CAS refusal preserves current configuration");
         var reloaded=second.Read();reloaded.LocalHostName="B";second.Save(reloaded);
         Check(first.Read().LocalHostName=="B","explicit reload permits next configuration revision");
+        // Reading a running process must NEVER persist LastProcess/LastLoader.
+        string observationRoot=Path.Combine(root,"observation-only");
+        string observationInstall=Path.Combine(root,"observation-install");
+        Directory.CreateDirectory(observationInstall);
+        var observationMap=new LocalMap {
+            Name="read-only map", InstallationPath=observationInstall,
+            ExecutablePath=Path.Combine(observationInstall,"FakeAsa.exe")
+        };
+        var observationStore=new ConfigStore("observation",observationRoot);
+        observationStore.Save(new ManagerConfig{LocalMaps=new List<LocalMap>{observationMap}});
+        var observedProcess=new ProcessIdentity {
+            Pid=23456,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-1),
+            ExecutablePath=observationMap.ExecutablePath,Arguments="SyntheticFixture"
+        };
+        int probeCalls=0;
+        await using(var monitor=new ClusterService("observation",observationRoot,_=>{
+            probeCalls++;
+            return new ProcessCheck(true,"running",observedProcess);
+        }))
+        {
+            var local=monitor.Config.LocalMaps.Single();
+            string configurationPath=monitor.Store.FilePath;
+            byte[] beforeObservation=File.ReadAllBytes(configurationPath);
+            var snapshot=monitor.Check(local);
+            monitor.LocalStatus();
+            Check(probeCalls>=2&&local.LastProcess==null&&
+                beforeObservation.SequenceEqual(File.ReadAllBytes(configurationPath)),
+                "process and LAN observations do not write or change identity metadata");
+            bool rejected=false;
+            try{monitor.RecordObservedIdentity(local.Id,new ProcessCheck(true,"running",
+                new ProcessIdentity {Pid=999,StartedUtc=observedProcess.StartedUtc,
+                    ExecutablePath=observedProcess.ExecutablePath,Arguments=observedProcess.Arguments}));}
+            catch(InvalidOperationException){rejected=true;}
+            Check(rejected&&local.LastProcess==null&&
+                beforeObservation.SequenceEqual(File.ReadAllBytes(configurationPath)),
+                "explicit capture rejects a stale or substituted process PID");
+            Check(monitor.RecordObservedIdentity(local.Id,snapshot) &&
+                local.LastProcess?.Pid==observedProcess.Pid,
+                "explicit ownership capture persists the rechecked process identity");
+            byte[] afterCapture=File.ReadAllBytes(configurationPath);
+            Check(!monitor.RecordObservedIdentity(local.Id,monitor.Check(local)) &&
+                afterCapture.SequenceEqual(File.ReadAllBytes(configurationPath)),
+                "repeated capture is idempotent and read-only when identity is unchanged");
+        }
         string[] dbs={"arkshop","arkpermissions","lethalquests"};
         Check(MariaDbCompatibility.Evaluate("10.11.19-MariaDB","Distrib 10.11.19-MariaDB","10.11.19-MariaDB",true,dbs).Compatible,"actual deployment series accepted by metadata policy");
         Check(!MariaDbCompatibility.Evaluate("10.11.19-MariaDB","11.4.13-MariaDB","10.11.19-MariaDB",true,dbs).Compatible,"11.4 tool is not assumed compatible");
