@@ -51,8 +51,10 @@ jobs:
         run: |
           dotnet publish wpf/Testing/FakeSteamCMD/FakeSteamCMD.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP/FakeSteamCMD" --nologo
           if ($LASTEXITCODE -ne 0) { throw 'FakeSteamCMD fixture build failed' }
+          dotnet publish wpf/Testing/FakeAsa/FakeAsa.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP/FakeAsa" --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'FakeAsa fixture build failed' }
       - name: Run T11/T12/T13 actual Windows regression suite
         shell: pwsh
         run: |
-          dotnet run --project wpf/Testing/Targeted/Targeted.csproj -c Release --no-build -- "$env:RUNNER_TEMP/FakeSteamCMD/FakeSteamCMD.exe"
+          dotnet run --project wpf/Testing/Targeted/Targeted.csproj -c Release --no-build -- "$env:RUNNER_TEMP/FakeSteamCMD/FakeSteamCMD.exe" "$env:RUNNER_TEMP/FakeAsa/FakeAsa.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Untamed T11-T13 targeted regressions failed' }

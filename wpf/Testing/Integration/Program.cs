@@ -47,6 +47,7 @@ try
     await AsaApiIsolatedInstallerTests.Run();
     await ModArgumentSafetyTests.Run(root);
     await GuardedPluginUpdateTests.Run(root);
+    await IsolatedRconAdminQueueTests.Run(fake);
     await ProfessionalOperationsTests.Run(root,fake);
     await OperationSafetyTests.Run(root);
     DurableWatchdogTrackerTests.Run(root);

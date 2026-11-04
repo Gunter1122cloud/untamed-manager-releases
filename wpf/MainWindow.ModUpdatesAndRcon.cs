@@ -136,6 +136,8 @@ public partial class MainWindow
 
     private void ShowRconActionPreviews()
     {
+        bool adminBusy=false;
+        System.Threading.CancellationTokenSource? adminCancellation=null;
         var mapBox=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
             DisplayMemberPath="Name",SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
         var actions=new ComboBox{ItemsSource=new[]{
@@ -155,8 +157,8 @@ public partial class MainWindow
         }
         Add(Box(V(Label("v"+UiVersion+" · RCON Adminpanel – ellenőrzött előnézet",19,Mint,true),
             Label("ListPlayers, Broadcast, ServerChat, SaveWorld, Wild Dino Wipe. "+
-                "A tesztek a valódi parancsszöveget állítják elő, de csak FakeRcon-adapterrel "+
-                "küldik el. SaveWorld válasza NEM mentésigazolás.",12,Soft),
+                "Az egyszeri TCP-adminművelet csak külön teszttelepítést és igazolt porttulajdonost fogad el. "+
+                "Éles módosító küldés tiltott. SaveWorld válasza NEM mentésigazolás.",12,Soft),
             mapBox,actions,message,
             Btn("Parancs előnézete",()=>{
                 try
@@ -187,6 +189,30 @@ public partial class MainWindow
                 catch(Exception ex){status.Text="FakeRcon művelet megtagadva: "+
                     UntamedPresentation.Redact(ex.Message);}
             }),
+            Btn("Egyszeri hitelesített RCON adminparancs – csak elkülönített tesztmap",async ()=>{
+                if(adminBusy)return;adminBusy=true;
+                try
+                {
+                    var draft=Draft();
+                    if(System.Windows.MessageBox.Show("Kijelölt helyi tesztmap: "+
+                        ((LocalMap)mapBox.SelectedItem).Name+"\nParancs: "+draft.Command+
+                        "\nA jóváhagyás 60 másodpercig, egyetlen küldésre érvényes. "+
+                        "Bizonytalan válasznál nincs automatikus ismétlés.\nFolytatod?",
+                        draft.Destructive?"Veszélyes RCON tesztművelet":"Egyszeri RCON-jóváhagyás",
+                        MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                    var permit=IsolatedRconAdminQueue.Approve(_cluster,draft.Map,draft.Action,
+                        draft.Action is RconAction.Broadcast or RconAction.ServerChat?message.Text:null);
+                    adminCancellation=new System.Threading.CancellationTokenSource();
+                    status.Text="Teszt-RCON: hitelesítés, folyamat- és portazonosság, egyszeri küldés...";
+                    var receipt=await IsolatedRconAdminQueue.ExecuteOnceAsync(_cluster,permit,adminCancellation.Token);
+                    status.Text="RCON-válasz igazolva: "+receipt.Action+"\nMűvelet: "+receipt.Operation+
+                        "\nEz nem igazol mentésbefejezést vagy éles ASA-kompatibilitást.";
+                }
+                catch(Exception ex){WriteLog("rcon-isolated-admin",ex);status.Text="UM-RCON-ADMIN: a küldés nem igazolható. "+
+                    "A művelet nem ismétlődik automatikusan; bizonytalan küldésnél operátori ellenőrzés szükséges.";}
+                finally{adminCancellation?.Dispose();adminCancellation=null;adminBusy=false;}
+            }),
+            Btn("Folyamatban lévő RCON-teszt megszakítása",()=>adminCancellation?.Cancel()),
             Btn("Valódi GetGameLog (csak olvasás, saját helyi map)",async ()=>{
                 await ReadOnly("GetGameLog");
             }),

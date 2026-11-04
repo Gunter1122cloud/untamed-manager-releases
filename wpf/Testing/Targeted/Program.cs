@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 
-if(args.Length!=1||!File.Exists(args[0])||
+if(args.Length!=2||!File.Exists(args[0])||!File.Exists(args[1])||
    !Path.GetFileName(args[0]).Equals("FakeSteamCMD.exe",StringComparison.OrdinalIgnoreCase))
     throw new ArgumentException("Explicit isolated FakeSteamCMD.exe required");
 string root=Path.Combine(Path.GetTempPath(),
@@ -16,6 +16,7 @@ await AsaApiReleaseStagingTests.Run();
 await AsaApiIsolatedInstallerTests.Run();
 await ModArgumentSafetyTests.Run(root);
 await GuardedPluginUpdateTests.Run(root);
+await IsolatedRconAdminQueueTests.Run(args[1]);
 await RconTransportTests.Run();
 DurableWatchdogTrackerTests.Run(root);
 SafeConfigRecheckTests.Run(root);

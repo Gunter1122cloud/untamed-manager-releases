@@ -23,6 +23,23 @@ public static class RconProtocol
         CancellationToken cancellationToken=default) =>
         ExecuteCore(host,port,password,command,false,cancellationToken);
 
+    // Only the isolated, permission/identity-bound one-shot queue calls this.
+    // The second authorization happens AFTER RCON authentication and BEFORE
+    // the first mutating command byte. Never expose arbitrary command sending.
+    internal static async Task DispatchAdminAsync(int port,string password,RconDraft draft,
+        Action authorizeAfterAuthentication,CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        ArgumentNullException.ThrowIfNull(authorizeAfterAuthentication);
+        var compiled=RconCommandPolicy.Preview(draft.Map,draft.Action,
+            draft.Action is RconAction.Broadcast or RconAction.ServerChat?
+                draft.Command[(draft.Command.IndexOf(' ')+1)..]:null,true,false,true);
+        if(compiled.Command!=draft.Command||draft.Action is RconAction.ListPlayers or RconAction.Custom)
+            throw new UnauthorizedAccessException("Admin command differs from approved action");
+        await ExecuteCore("127.0.0.1",port,password,draft.Command,false,ct,
+            true,authorizeAfterAuthentication);
+    }
+
     // Does not authorize server shutdown. This performs an actual RCON write
     // after authentication, and returns only dispatch status, NEVER SaveComplete.
     // No production lifecycle path calls it until a trusted completion witness
@@ -35,7 +52,8 @@ public static class RconProtocol
     }
 
     private static async Task<string> ExecuteCore(string host,int port,string password,
-        string command,bool allowSaveWorld,CancellationToken cancellationToken)
+        string command,bool allowSaveWorld,CancellationToken cancellationToken,
+        bool adminDispatch=false,Action? authorizeAfterAuthentication=null)
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         if (string.IsNullOrEmpty(password)) throw new InvalidOperationException("Missing RCON password");
@@ -43,8 +61,9 @@ public static class RconProtocol
             throw new InvalidDataException("Invalid RCON credential framing");
         if(string.IsNullOrWhiteSpace(host)||host.Length>253)
             throw new InvalidDataException("Invalid RCON host");
-        if(allowSaveWorld ? command!="SaveWorld" :
+        if(!adminDispatch&&(allowSaveWorld ? command!="SaveWorld" :
            command is not ("ListPlayers" or "GetGameLog" or "GetChat"))
+          )
             throw new InvalidOperationException(
                 "RCON operation not authorized by its explicit call path");
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -66,6 +85,9 @@ public static class RconProtocol
             if(packet.Id==challenge && packet.Type==2){authenticated=true;break;}
         }
         if(!authenticated)throw new IOException("RCON login response invalid");
+        timeout.Token.ThrowIfCancellationRequested();
+        if(adminDispatch)(authorizeAfterAuthentication??throw new UnauthorizedAccessException(
+            "Missing per-dispatch authorization"))();
         int commandId=challenge+4;
         int barrierId=commandId+1;
         await WritePacket(stream,commandId,2,command,timeout.Token);
@@ -103,8 +125,8 @@ public static class RconProtocol
             }
             else if(packet.Id==barrierId && barrierSent)
             {
-                if(responses.Count==0 || string.IsNullOrWhiteSpace(
-                    string.Concat(responses)))
+                if(responses.Count==0 || (!adminDispatch&&string.IsNullOrWhiteSpace(
+                    string.Concat(responses))))
                     throw new InvalidDataException("Incomplete read-only RCON response");
                 return string.Concat(responses);
             }
