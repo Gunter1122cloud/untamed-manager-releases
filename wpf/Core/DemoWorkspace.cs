@@ -139,6 +139,27 @@ public sealed class DemoWorkspace
         if(mode.HasValue)map.Mods.Add(new DemoMod(projectId,mode.Value));
         Record(map.Name+" mod "+projectId+": "+(mode?.ToString()??"removed"));
     }
+    // One atomic, completely in-memory transaction for the simulated editor.
+    // Validation precedes every mutation, so a bad project ID or duplicate
+    // cannot partially apply a visible mod list.
+    public void ApplyModList(Guid mapId,IReadOnlyList<DemoMod> ordered)
+    {
+        ArgumentNullException.ThrowIfNull(ordered);
+        var next=ordered.ToArray();
+        if(next.Length>500 ||
+           next.Any(m=>m==null ||
+               !Regex.IsMatch(m.ProjectId??"", @"\A[0-9]{5,12}\z") ||
+               !Enum.IsDefined(typeof(DemoModMode),m.Mode)) ||
+           next.Select(m=>m.ProjectId).Distinct(StringComparer.Ordinal).Count()!=next.Length)
+            throw new InvalidDataException("Invalid or duplicate DEMO project assignment");
+        var map=Find(mapId);
+        if(map.Mods.SequenceEqual(next))return;
+        map.Mods.Clear();
+        map.Mods.AddRange(next);
+        Record(map.Name+": "+next.Length+
+            " mod mentve (egy művelet, csak offline DEMO memória).");
+    }
+
     public bool MoveMod(Guid mapId,string projectId,int direction)
     {
         if(direction is not (-1 or 1))
