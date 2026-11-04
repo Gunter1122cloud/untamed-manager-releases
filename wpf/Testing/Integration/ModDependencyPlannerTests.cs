@@ -86,11 +86,11 @@ public static class ModDependencyPlannerTests
             incompatible.IncompatibleEnabled.Single()==930200,
             "installed incompatible project blocks plan");
         var cyclic=ModDependencyPlanner.Review(928548,
-            new[]{root,File(201,930170,new(928548,CurseForgeRelationType.RequiredDependency)),depB},
+            new[]{root,File(201,930170,new CurseForgeRelation(928548,CurseForgeRelationType.RequiredDependency)),depB},
             Array.Empty<string>());
         Check(!cyclic.Consistent&&cyclic.Cyclic.Contains(928548),
             "circular required dependency cannot pass review");
-        var unknown=File(102,928548,new(928549,CurseForgeRelationType.None));
+        var unknown=File(102,928548,new CurseForgeRelation(928549,CurseForgeRelationType.None));
         var unknownPreview=ModDependencyPlanner.Review(928548,new[]{unknown},
             Array.Empty<string>());
         Check(!unknownPreview.Consistent && unknownPreview.Unclassified.Single()==928549,
