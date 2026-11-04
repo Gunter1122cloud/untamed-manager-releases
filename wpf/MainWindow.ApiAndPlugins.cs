@@ -135,7 +135,10 @@ public partial class MainWindow
                     var result=await System.Threading.Tasks.Task.Run(()=>AsaApiIsolatedInstaller.Install(
                         _cluster,map.Id,package,fresh,asset));
                     lastApiTransaction=result.Transaction;
-                    status.Text="Az API-fájlok telepítve és ellenőrizve. Futásidejű betöltés még nem igazolt.\nTranzakció: "+result.Transaction;
+                    status.Text="Az API-fájlok telepítve és ellenőrizve. Futásidejű betöltés még nem igazolt.\nTranzakció: "+result.Transaction+
+                        "\nCsomagban talált, változatlanul hagyott beépített pluginok: "+
+                        (result.BundledPluginsUntouched is {Length:>0}
+                            ?string.Join(", ",result.BundledPluginsUntouched):"nincs");
                 }
                 catch(Exception ex){WriteLog("api-isolated-install",ex);status.Text="UM-API-INSTALL: a teszttelepítés nem fejeződött be. A tranzakció megőrzött állapota ellenőrizendő.";}
                 finally{apiInstallBusy=false;}

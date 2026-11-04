@@ -21,7 +21,11 @@ public static class AsaApiIsolatedInstallerTests
         {w.Write((ushort)0x5A4D);ms.Position=0x3c;w.Write(0x40);ms.Position=0x40;w.Write(0x4550);w.Write((ushort)0x8664);ms.Position=0x58;w.Write((ushort)0x20b);}
         using var bytes=new MemoryStream();
         using(var zip=new ZipArchive(bytes,ZipArchiveMode.Create,true))
-            foreach(string name in new[]{"AsaApiLoader.exe","ArkApi/AsaApi.dll","config.json","ArkApi/Plugins/Protected/data.db"})
+            foreach(string name in new[]{
+                "AsaApiLoader.exe","ArkApi/AsaApi.dll",
+                "libcrypto-3-x64.dll","libssl-3-x64.dll",
+                "ArkApi/Plugins/Protected/Protected.dll",
+                "config.json","ArkApi/Plugins/Protected/data.db"})
             {using var output=zip.CreateEntry(name).Open();output.Write(name.EndsWith(".exe")||name.EndsWith(".dll")?pe:new byte[]{77});}
         byte[] package=bytes.ToArray();string sha=Convert.ToHexString(SHA256.HashData(package));
         var asset=new AsaApiReleaseAsset("AsaApi-2.03.zip",package.Length,
@@ -39,6 +43,7 @@ public static class AsaApiIsolatedInstallerTests
             File.WriteAllText(Path.Combine(bin,"config.json"),"{\"private\":true}");
             File.WriteAllText(Path.Combine(plugin,"data.db"),"protected database");
             File.WriteAllText(Path.Combine(plugin,"license.key"),"protected license");
+            File.WriteAllText(Path.Combine(plugin,"Protected.dll"),"existing protected plugin");
             File.WriteAllText(Path.Combine(bin,"AsaApiLoader.exe"),"old loader");
             File.WriteAllText(Path.Combine(bin,"ArkApi","AsaApi.dll"),"old API");
             var map=new LocalMap{Id=Guid.NewGuid(),InstallationPath=install,Name="isolated API map",
@@ -52,8 +57,12 @@ public static class AsaApiIsolatedInstallerTests
                 var result=AsaApiIsolatedInstaller.Install(cluster,map.Id,archive,release,asset);
                 Check(result.FilesVerified&&!result.RuntimeVerified&&
                     File.ReadAllBytes(Path.Combine(bin,"AsaApiLoader.exe")).SequenceEqual(pe)&&
-                    File.ReadAllBytes(Path.Combine(bin,"ArkApi","AsaApi.dll")).SequenceEqual(pe),
-                    "actual PE64 file replacement with durable receipt, without claiming runtime load");
+                    File.ReadAllBytes(Path.Combine(bin,"ArkApi","AsaApi.dll")).SequenceEqual(pe)&&
+                    File.ReadAllBytes(Path.Combine(bin,"libcrypto-3-x64.dll")).SequenceEqual(pe)&&
+                    File.ReadAllBytes(Path.Combine(bin,"libssl-3-x64.dll")).SequenceEqual(pe),
+                    "core loader, API and known crypto dependencies installed with verified hashes");
+                Check(result.BundledPluginsUntouched?.SequenceEqual(new[]{"Protected"})==true,
+                    "bundled plugin recognized but excluded from automatic data overwrite");
                 var state=JsonSerializer.Deserialize<DirectoryUpdateTransaction.State>(File.ReadAllText(
                     Path.Combine(result.Transaction,"rollback","update-transaction.json")))!;
                 Check(state.Phase=="committed","full-tree rollback snapshot durably committed");
@@ -91,7 +100,8 @@ public static class AsaApiIsolatedInstallerTests
             }
             Check(File.ReadAllText(Path.Combine(bin,"config.json"))=="{\"private\":true}"&&
                 File.ReadAllText(Path.Combine(plugin,"data.db"))=="protected database"&&
-                File.ReadAllText(Path.Combine(plugin,"license.key"))=="protected license",
+                File.ReadAllText(Path.Combine(plugin,"license.key"))=="protected license"&&
+                File.ReadAllText(Path.Combine(plugin,"Protected.dll"))=="existing protected plugin",
                 "configuration, plugin database and license remain byte-identical in "+mode);
         }
         foreach(string mode in new[]{"ok","cancel","race","running","proxy","peer"})await Case(mode);

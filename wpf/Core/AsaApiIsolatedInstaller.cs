@@ -10,13 +10,20 @@ using System.Threading;
 namespace UntamedManager.Core;
 
 public sealed record ApiInstallReceipt(Guid Map,string Installation,string Transaction,
-    string ReleaseSha256,string Tag,bool FilesVerified,bool RuntimeVerified=false);
+    string ReleaseSha256,string Tag,bool FilesVerified,bool RuntimeVerified=false,
+    string[]? BundledPluginsUntouched=null);
 
 // Real file replacement and recoverable full-tree snapshot, restricted to an
 // independently created TEMP installation. Never launches a loader or server.
 public static class AsaApiIsolatedInstaller
 {
     private static readonly string[] Required={"AsaApiLoader.exe","ArkApi/AsaApi.dll"};
+    // Only recognized loader dependencies are eligible for binary replacement.
+    // An unknown release layout fails closed instead of dropping required DLLs.
+    private static readonly string[] Dependencies={
+        "libcrypto-3-x64.dll","libssl-3-x64.dll",
+        "libcrypto-1_1-x64.dll","libssl-1_1-x64.dll"
+    };
     private sealed record Binding(int Schema,Guid Map,string Installation,string BinaryRoot);
     private static string Local(string path)
     {
@@ -87,15 +94,27 @@ public static class AsaApiIsolatedInstaller
         var entries=zip.Entries.Where(x=>!x.FullName.EndsWith('/')&&
             (x.FullName.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||
              x.FullName.EndsWith(".exe",StringComparison.OrdinalIgnoreCase))).ToArray();
-        if(entries.Length!=Required.Length||Required.Any(name=>entries.Count(e=>e.FullName==name)!=1))
-            throw new InvalidDataException("Unsupported API binary layout or dependency; no partial install allowed");
+        var accepted=Required.Concat(Dependencies).ToArray();
+        if(Required.Any(name=>entries.Count(e=>e.FullName==name)!=1) ||
+           entries.Any(e=>!accepted.Contains(e.FullName,StringComparer.Ordinal) &&
+               !e.FullName.StartsWith("ArkApi/Plugins/",StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("Unsupported API core binary layout or dependency; no partial install allowed");
+        var selected=entries.Where(e=>accepted.Contains(e.FullName,StringComparer.Ordinal)).ToArray();
+        // Bundled plugins are detected but never overwritten: an existing
+        // plugin may contain player data, credentials, or custom settings.
+        string[] untouchedPlugins=zip.Entries
+            .Where(e=>e.FullName.StartsWith("ArkApi/Plugins/",StringComparison.OrdinalIgnoreCase))
+            .Select(e=>e.FullName["ArkApi/Plugins/".Length..].Split('/')[0])
+            .Where(n=>!string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n=>n,StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         string transaction=Local(Path.Combine(Path.GetDirectoryName(install)!,
             "transactions",Guid.NewGuid().ToString("N")));
         Directory.CreateDirectory(transaction);
         Write(Path.Combine(transaction,"binding.json"),new Binding(1,map.Id,install,binary));
         string payload=Path.Combine(transaction,"payload");Directory.CreateDirectory(payload);
         var expected=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
-        foreach(var entry in entries)
+        foreach(var entry in selected)
         {
             ct.ThrowIfCancellationRequested();string to=Local(Path.Combine(payload,entry.FullName));
             Directory.CreateDirectory(Path.GetDirectoryName(to)!);
@@ -113,7 +132,7 @@ public static class AsaApiIsolatedInstaller
         try
         {
             int replaced=0;
-            foreach(string name in Required)
+            foreach(string name in Required.Concat(Dependencies.Where(d=>expected.ContainsKey(d))))
             {
                 ct.ThrowIfCancellationRequested();Stopped(cluster,install);
                 string target=Local(Path.Combine(binary,name));Directory.CreateDirectory(Path.GetDirectoryName(target)!);
@@ -129,10 +148,11 @@ public static class AsaApiIsolatedInstaller
                 afterReplace?.Invoke(++replaced);
             }
             Stopped(cluster,install);
-            foreach(string name in Required)
+            foreach(string name in expected.Keys)
             {using var file=File.OpenRead(Local(Path.Combine(binary,name)));
                 if(Hash(file)!=expected[name])throw new InvalidDataException("Installed API binary differs");}
-            var receipt=new ApiInstallReceipt(map.Id,install,transaction,proof.OfficialSha256,proof.Tag,true);
+            var receipt=new ApiInstallReceipt(map.Id,install,transaction,proof.OfficialSha256,
+                proof.Tag,true,BundledPluginsUntouched:untouchedPlugins);
             Write(Path.Combine(transaction,"receipt.json"),receipt);
             snapshot.Commit();operation.Complete();return receipt;
         }
