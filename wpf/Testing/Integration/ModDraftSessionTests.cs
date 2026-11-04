@@ -49,6 +49,11 @@ public static class ModDraftSessionTests
             new[]{"942024","950914","928548"})&&draft.Steps==2,
             "redo reapplies the exact second move");
 
+        var moveDiff=draft.Differences();
+        Check(moveDiff.Any(x=>x.ProjectId=="928548" &&
+              x.BeforeMode==ModMode.Active&&x.BeforePosition==1 &&
+              x.AfterMode==ModMode.Active&&x.AfterPosition==3),
+            "preview reports exact before/after load positions for repeated moves");
         draft.Stage("942024",ModMode.Passive);
         draft.Stage("930170",ModMode.Active);
         projected=ModStateController.Read(draft.Projected());
@@ -65,6 +70,13 @@ public static class ModDraftSessionTests
         Check(!ModStateController.Read(draft.Projected()).Active.Contains("950914"),
             "removal is in-memory until explicitly saved");
 
+        var finalDiff=draft.Differences();
+        Check(finalDiff.Any(x=>x.ProjectId=="942024" &&
+              x.BeforeMode==ModMode.Active&&x.AfterMode==ModMode.Passive) &&
+            finalDiff.Any(x=>x.ProjectId=="950914" && x.AfterMode==null) &&
+            finalDiff.Any(x=>x.ProjectId=="912815" && x.BeforeMode==null) &&
+            !finalDiff.Any(x=>x.ProjectId=="930170"),
+            "change review distinguishes added, removed, mode changed and untouched mods");
         byte[] originalBytes=File.ReadAllBytes(cluster.Store.FilePath);
         Check(File.ReadAllBytes(cluster.Store.FilePath).SequenceEqual(originalBytes) &&
             map.Arguments=="-log -mods=928548,942024,950914 -port=7777" &&
