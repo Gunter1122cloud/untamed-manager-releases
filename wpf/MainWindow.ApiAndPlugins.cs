@@ -14,6 +14,9 @@ public partial class MainWindow
     {
         var mapList=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
             DisplayMemberPath="Name",SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
+        if(_preferredPluginMapId is Guid selectedPluginMap)
+            mapList.SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(x=>x.Id==selectedPluginMap)
+                ??mapList.SelectedItem;
         var plugin=new ComboBox{IsEditable=true,Height=34,Background=Panel,
             Foreground=Brushes.White};
         var status=Label("Válassz helyi mapot. PE64 fájlok és pluginállapotok csak lemezről igazolhatók.",12,Soft);

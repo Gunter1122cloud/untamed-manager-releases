@@ -58,6 +58,8 @@ public partial class MainWindow : Window
     private readonly Forms.NotifyIcon _tray = new();
     private bool _exit;
     private MapInfo? _selected;
+    private Guid? _preferredModMapId;
+    private Guid? _preferredPluginMapId;
     private string _page = "dashboard";
     private bool _animationsEnabled = true;
     private string SettingsFile => Path.Combine(App.LogDir,"visual-settings.json");

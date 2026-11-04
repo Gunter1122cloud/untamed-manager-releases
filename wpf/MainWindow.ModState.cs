@@ -26,6 +26,9 @@ public partial class MainWindow
     {
         var mapBox=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
             DisplayMemberPath="Name",SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
+        if(_preferredModMapId is Guid selectedModMap)
+            mapBox.SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(x=>x.Id==selectedModMap)
+                ??mapBox.SelectedItem;
         var modId=new TextBox{Height=34,Text="928548",Background=Panel,Foreground=Brushes.White};
         var mode=new ComboBox{ItemsSource=new[]{"ACTIVE","PASSIVE","DISABLED","REMOVE"},
             SelectedIndex=0,Background=Panel,Foreground=Brushes.White};

@@ -323,24 +323,88 @@ public partial class MainWindow
             Label(result.Running?"Futó szerver visszacsatlakoztatva":result.ConfirmedStopped?
                 "Leállítva; automatikus indítás nincs":"Ismeretlen folyamatállapot; indítás tiltva",13,result.Running?Mint:Soft),
             startStop,readiness));
-        Tab("Modok / CurseForge",V(
-            Label("Helyi map modok",17,Mint,true),
-            Label("A globális Mod Center megmarad; csak a helyi map indítási beállításai módosíthatók.",12,Soft),
-            List(_modNames,230)));
-        Tab("Pluginok / ASA API",V(Label("Helyi ASA API pluginok",17,Mint,true),
-            Label("Indítási mód: "+(map.StartWithAsaApi?"ASA API loader (BEKAPCSOLVA)":
-                "Normál ASA szerver (KIKAPCSOLVA)"),14,Aqua,true),
-            Label("API-loader: "+(string.IsNullOrEmpty(map.ApiLoaderPath)?"nincs beállítva":map.ApiLoaderPath),12,Soft),
-            Label("A kapcsoló maponként mentett, de a valódi ASA-indítás nincs engedélyezve. "+
-                "A lemezen lévő API DLL önmagában nem bizonyítja a modul futásidejű betöltését.",12,Soft),
-            Btn("Indítás ASA API-val – beállítás szerkesztése",()=>ShowMapEditor(map)),
-            List(_plugins,240)));
+        Tab("Modok / CurseForge",MapModPane(map));
+        Tab("Pluginok / ASA API",MapPluginPane(map));
         Tab("INI",MapIniPane(map));
         Tab("RCON / Konzol",MapRconPane(map));
         Tab("Mentések",MapBackupPane(map));
         Tab("Naplók",MapLogPane(map));
         parent.Children.Add(tabs);
     }
+    private UIElement MapModPane(LocalMap map)
+    {
+        var list=new ListBox{Height=225,Background=Panel,Foreground=Brushes.White};
+        var status=Label("Helyi modparaméterek ellenőrzése...",12,Soft);
+        void Refresh()
+        {
+            try
+            {
+                var set=ModStateController.Read(map);
+                var rows=set.Active.Select((id,i)=>"ACTIVE  "+(i+1)+".  "+id)
+                    .Concat(set.Passive.Select((id,i)=>"PASSIVE  "+(i+1)+".  "+id))
+                    .Concat(set.Disabled.Select((id,i)=>"DISABLED  "+(i+1)+".  "+id))
+                    .ToArray();
+                RefreshModList(list,rows.Length==0?new[]{"Nincs konfigurált mod ezen a mapon."}:rows);
+                status.Text=map.Name+" · "+set.Active.Count+" aktív · "+
+                    set.Passive.Count+" passzív · "+set.Disabled.Count+" letiltott"+
+                    (set.Pending?" · INDÍTÁSKOR ÉRVÉNYESÜLŐ VÁLTOZÁS":"");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-mod-list",ex);
+                list.ItemsSource=Array.Empty<string>();
+                status.Text="A modlista nem olvasható. Ellenőrizd a helyi indítási paramétereket.";
+            }
+        }
+        var view=V(
+            Label("Helyi map · valódi -mods és -passivemods paraméterek",17,Mint,true),
+            Label("Ez nem történeti auditlista. Csak a kiválasztott helyi map konfigurációja látszik; nincs automatikus restart.",12,Soft),
+            Btn("Modlista újraolvasása",Refresh),
+            Btn("Mod Center – ennek a mapnak a szerkesztése",()=>{
+                _preferredModMapId=map.Id;
+                Navigate("mods");
+            }),list,status);
+        Refresh();return view;
+    }
+
+    private UIElement MapPluginPane(LocalMap map)
+    {
+        var list=new ListBox{Height=215,Background=Panel,Foreground=Brushes.White};
+        var status=Label("Helyi ASA API és pluginok ellenőrzése...",12,Soft);
+        void Refresh()
+        {
+            try
+            {
+                var observed=_cluster.Check(map);
+                var api=AsaApiInspector.Inspect(map.InstallationPath,observed);
+                var items=PluginStateManager.Inventory(map);
+                list.ItemsSource=items.Count==0
+                    ?new[]{"Nincs megfigyelhető pluginmappa ezen a telepítésen."}
+                    :items.Select(x=>(x.Enabled?"AKTÍV  ":"LETILTVA  ")+x.Name+
+                        " · lemezállapot, futásidejű betöltés nem igazolt").ToArray();
+                status.Text="ASA API fájlok: "+(api.Complete?"ellenőrizhetők":"hiányosak")+
+                    " · loader beállítás: "+(map.StartWithAsaApi?"BE":"KI")+
+                    " · "+items.Count+" helyi plugin könyvtár";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-plugin-list",ex);
+                list.ItemsSource=Array.Empty<string>();
+                status.Text="A helyi ASA API/pluginleltár nem olvasható; a szerver futása nem következtethető a fájlokból.";
+            }
+        }
+        var view=V(
+            Label("Helyi map · ASA API és pluginleltár",17,Mint,true),
+            Label("A lista tényleges telepítési könyvtárakból készül. A DLL jelenléte nem igazolja az ASA API runtime-betöltését.",12,Soft),
+            Btn("Indítás ASA API-val – beállítás szerkesztése",()=>ShowMapEditor(map)),
+            Btn("API és pluginleltár újraolvasása",Refresh),
+            Btn("Plugin Center – ennek a mapnak a kezelése",()=>{
+                _preferredPluginMapId=map.Id;
+                Navigate("plugins");
+            }),list,status);
+        Refresh();return view;
+    }
+
     private UIElement MapIniPane(LocalMap map)
     {
         string iniRoot=Path.Combine(map.InstallationPath,"ShooterGame","Saved","Config","WindowsServer");
