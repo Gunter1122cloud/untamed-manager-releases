@@ -366,13 +366,13 @@ public partial class MainWindow : Window
         var maps=_cluster.Config.LocalMaps.ToArray();
         if(maps.Length==0)
         {
-            var actions=new WrapPanel{Margin=new Thickness(0,11,0,0)};
-            actions.Children.Add(Btn("＋  Map hozzáadása",()=>Navigate("servers")));
-            actions.Children.Add(Btn("▶  DEMO mód kipróbálása",EnterDemoMode));
+            var emptyActions=new WrapPanel{Margin=new Thickness(0,11,0,0)};
+            emptyActions.Children.Add(Btn("＋  Map hozzáadása",()=>Navigate("servers")));
+            emptyActions.Children.Add(Btn("▶  DEMO mód kipróbálása",EnterDemoMode));
             Add(Box(V(Label("Még nincs hozzáadott szerver",23,Mint,true),
                 Label("Adj hozzá egy mapot, vagy próbáld ki a DEMO módot. "+
                     "Valós modadatot csak regisztrált helyi telepítésről jelenítünk meg.",13,Soft),
-                actions)));
+                emptyActions)));
             Add(Box(V(Label("CurseForge katalógus",18,Aqua,true),
                 Label("Online kereső külön API-kulccsal; a keresés nem írja át az ASA modlistát.",12,Soft))));
             ShowCurseForgeSearchControls();
