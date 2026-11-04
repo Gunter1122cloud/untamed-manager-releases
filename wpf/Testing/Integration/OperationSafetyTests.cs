@@ -85,6 +85,7 @@ public static class OperationSafetyTests
         bool invalid=false;try{DevelopmentLedger.Validate(ledger with {Records=ledger.Records.Skip(1).ToArray()});}catch(InvalidDataException){invalid=true;}
         Check(invalid,"missing audit requirement fails ledger validation");
         VerifyConfigJson(root);
+        VerifyBackupMembership(root);
         string redacted=UntamedPresentation.Redact("KovaCluster password=SECRET token='SECRET WITH SPACE' https://discord.com/api/webhooks/1/SECRET");
         Check(!redacted.Contains("SECRET")&&!redacted.Contains("Kova",StringComparison.OrdinalIgnoreCase),"user-facing branding and credential redaction");
         Check(!typeof(ClusterService).Assembly.GetTypes().Any(t=>t.Name.StartsWith("Kova",StringComparison.Ordinal)),"own wrapper types use neutral names");
@@ -94,6 +95,33 @@ public static class OperationSafetyTests
         var hanging=new Session{Hang=true};var watch=Stopwatch.StartNew();bool timedOut=false;
         try{await SafeLifecycle.Stop(hanging,true,TimeSpan.FromMilliseconds(100));}catch(OperationCanceledException){timedOut=true;}
         Check(timedOut&&watch.Elapsed<TimeSpan.FromSeconds(3)&&hanging.Starts==0,"deadline enforced even when adapter ignores cancellation");
+    }
+    static void VerifyBackupMembership(string root)
+    {
+        foreach(string selected in new[]{"world","plugins"})
+        {
+            string install=Path.Combine(root,"backup-membership-"+selected);
+            string source=selected=="world"?Path.Combine(install,"ShooterGame","Saved","SavedArks"):
+                Path.Combine(install,"ShooterGame","Binaries","Win64","ArkApi","Plugins","Synthetic");
+            Directory.CreateDirectory(source);File.WriteAllText(Path.Combine(source,"existing.dat"),"original");
+            string late=Path.Combine(source,"late-profile.dat"),target=Path.Combine(root,"backup-membership-result-"+selected);
+            var map=new LocalMap{Name="Synthetic inventory",InstallationPath=install};
+            bool refused=false;
+            try
+            {
+                LocalBackupWorkflow.Create(map,new ProcessCheck(false,"synthetic stopped",null,true),target,
+                    selected=="world"?LocalBackupScope.WorldAndProfiles:LocalBackupScope.Plugins,
+                    _=>File.WriteAllText(late,"added while copying"));
+            }
+            catch(InvalidDataException){refused=true;}
+            Check(refused&&!Directory.Exists(target)&&Directory.Exists(target+".incomplete")&&
+                !File.Exists(Path.Combine(target+".incomplete","complete")),
+                "new "+selected+" file during copy prevents publishing incomplete backup scope");
+            Check(File.ReadAllText(late)=="added while copying"&&File.ReadAllText(Path.Combine(source,"existing.dat"))=="original",
+                "refused backup preserves all original and newly added source data");
+            Check(new UntamedOperationCoordinator().Observe(install)!.Phase==UntamedOperationPhase.NeedsOperator,
+                "changed backup source leaves durable operator state without replay");
+        }
     }
     static void VerifyConfigJson(string root)
     {

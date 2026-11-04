@@ -64,10 +64,10 @@ function New-IsolatedLabPlan {
         Arguments=@('-no-user-config','-nodefaults','-machine','q35,dump-guest-core=off',
             '-accel','tcg,thread=multi','-cpu','max','-smp','2','-m','8192',
             '-nic','none','-display','none','-monitor','none','-serial','none','-parallel','none',
-            '-no-reboot','-object','throttle-group,id=labio,x-bps-total=8388608,x-iops-total=200',
+            '-object','throttle-group,id=labio,x-bps-total=8388608,x-iops-total=200',
             '-blockdev',$throttle,'-device','ide-hd,drive=labdisk,bus=ide.0',
             '-blockdev',$cd,'-device','ide-cd,drive=labiso,bus=ide.1','-device','VGA',
-            '-boot','order=d,menu=off')
+            '-boot','order=c,once=d,menu=off')
     }
 }
 Export-ModuleMember -Function Assert-LabPath,Assert-LabDisk,New-IsolatedLabPlan

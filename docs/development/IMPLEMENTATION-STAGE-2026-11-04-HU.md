@@ -52,6 +52,10 @@ Ez saját Windows-kód és szintetikus lifecycle ellenőrzése, nem valódi ASA-
   a régi pending állapot visszaállítása után új művelet megtagadva.
 - Új JSON-tesztek: nested/escaped duplikáció, érvénytelen kind, BOM/CRLF/komment
   és védőmentés megőrzése valódi ideiglenes Windows-fájlokon.
+- A helyi fájlmentés publikálás előtt újra leltározza a teljes kijelölt forráskört.
+  Másolás közben hozzáadott profil/world/pluginfájl esetén nincs complete marker
+  vagy kész restore point; az eredeti forrás és az incomplete staging megmarad,
+  a művelet NeedsOperator. Ez továbbra sem ASA/SQL/transfer konzisztenciabizonyíték.
 - `tools/lab`: önálló qcow2/ISO és helyi útvonalak ellenőrzése; backing file,
   external data, junction, UNC, alternatív adatfolyam, pont/space alias tiltása.
   Nincs vendég-NIC, megosztás vagy port forward. Közös 8 MiB/s és 200 IOPS
@@ -68,6 +72,19 @@ CI-próbája saját rövid Windows-gyermekfolyamatot indít, VM-et és ASA-t nem
 Az első szakasz TESTED nyilvántartása az első igazolt commitra vonatkozik;
 nem minősíti késznek a teljes T01–T33 elfogadási feltételeit.
 
+Az első új labor-CI (`41819600599`) hibát talált: a .NET a záró pontot még a
+vizsgálat előtt normalizálta. A javított kód a nyers inputot vizsgálja, és a
+koordinátorhoz is ugyanilyen negatív teszt készült. A következő CI (`41819775361`)
+az eredeti cmd.exe fixture idézési hibáján állt meg; az ellenőrzés most encoded
+PowerShell-gyermeket használ, és hiba esetén a tényleges exit code-ot is kiírja.
+A hibás futásokat nem minősítjük sikeresnek, és miattuk éles kaput nem oldunk fel.
+
+A javítás utáni [Windows CI 41819901695](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/41819901695)
+teljes egészében sikeres a `d5374e15dcedcb7a80b1e68154ff1cad722e71d8` commiton:
+laborpolicy és natív resource job, WPF, Store-v1, Supervisor/service, integráció,
+WPF fókusz/hit-test, EXE/Portable/Setup és installer/updater recovery.
+A forrásleltár-változást felismerő új backup-regresszió ebben még nem szerepelt.
+
 ## Helyi izolált labor
 
 A felhasználó engedélyezte a munkamappán belüli elkülönített labort, de az élő
@@ -79,6 +96,15 @@ A .isolated-lab könyvtárak és izolációs terv elkészültek; ez nem működ�
 Azóta a hivatalos Windows QEMU-csomag SHA-512 ellenőrzése és telepítés nélküli
 kibontása megtörtént; a `--version` sikeresen QEMU 11.1.0-t jelzett. MSI/NSIS
 telepítő, Windows-szolgáltatás vagy rendszerfunkció nem indult. A vendégkép még hiányzik.
+A felhasználó hivatalos Microsoft értékelőképet választott. A Microsoft Evaluation
+Center Windows Server 2025 angol x64 ISO-jának letöltése 2 MiB/s korláttal elindult,
+`.partial` néven, a repón kívüli `.isolated-lab/images` mappába. Elvárt HTTP-hossz:
+8 152 356 864 bájt. Amíg nincs kész letöltés, méret/hash/forrásellenőrzés és
+elkülönített vendégtelepítés, ez nem tesztkörnyezet vagy igazolt integrációs eredmény.
+A hoston a QEMU kizárólag `--version` módban futott a natív CPU/memóriakorlát alatt,
+sikeres visszaolvasással. Külön `qemu-img create` létrehozott egy új, üres, backing
+nélküli 160 GiB qcow2-t; fizikai mérete 199 168 bájt. A vendég egyszer sem indult.
+A vendég saját telepítési újraindulását a terv megengedi; host rebootot nem végez.
 Tervezett határ: 8 GiB vendég-RAM, 2 vCPU, 10% host CPU hard cap, külön virtuális lemez,
 nincs hostmappa-megosztás/LAN-hozzáférés. Új rendszerfunkció vagy újraindítás nincs engedélyezve.
 A valódi izolált teszt előtt önálló vendég Windows-kép, működő virtualizáció/emuláció,
