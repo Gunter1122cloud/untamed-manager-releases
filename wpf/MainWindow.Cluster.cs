@@ -197,38 +197,67 @@ public partial class MainWindow
 
     private void ShowClusterPage()
     {
-        Header("Cluster · két Manager, két gép",
-            "A helyi gépen teljes kezelés; a LAN-peer gép állapota kizárólag olvasható. "+
-            "Internet és külső vezérlőszerver nélkül.");
-        PageBody.Children.Clear();
-        Add(Box(Label("Alapértelmezett kiosztás (nem automatikus import): UK-HOME-01 / HP: Astraeos, Genesis 1, Valguero, Island, Extinction. UK-HOME-02 / Ryzen: Scorched, Lost Colony, Ragnarok, Center, Aberration.",12,Soft)));
-        var local = _cluster.LocalStatus();
-        Add(Box(V(Label($"◉  HELYI · {local.HostName}",20,Mint,true),
-            Label($"{local.Maps.Count} manuálisan regisztrált map · írási jog kizárólag ezen a gépen",12,Soft))));
+        Header("Cluster","Helyi mapok kezelése és a párosított LAN-gazdagép megfigyelése. A távoli konfiguráció nem szerkeszthető.");
+        var local=_cluster.LocalStatus();
+        var hosts=new Grid { Margin=new Thickness(0,0,0,10) };
+        hosts.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
+        hosts.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
+        var localList=new StackPanel { Margin=new Thickness(0,8,0,0) };
+        if(local.Maps.Count==0)
+            localList.Children.Add(Label("Nincs regisztrált helyi map. A Szerverek oldalon tudsz hozzáadni.",12,Soft));
         foreach(var map in local.Maps)
         {
-            var b=Btn($"{(map.Running?"●":"○")}  {map.Name} · {map.Status} · UDP {map.GamePort} · KEZELÉS",()=>{
+            var entry=Btn(map.Name+"  ·  "+map.Status,()=>{
                 _selected=_maps.FirstOrDefault(x=>x.Name==map.Name);
                 Navigate("servers");
             });
-            Add(Box(b));
+            entry.HorizontalAlignment=HorizontalAlignment.Stretch;
+            entry.HorizontalContentAlignment=HorizontalAlignment.Left;
+            entry.ToolTip="Helyi szerver – részletek megnyitása";
+            localList.Children.Add(entry);
         }
-        Add(Box(V(Label("◉  TÁVOLI MANAGER",20,Aqua,true),
-            Label(_cluster.RemoteSnapshot==null?_cluster.RemoteMessage:
-                $"{_cluster.RemoteSnapshot.HostName} · {_cluster.RemoteSnapshot.Maps.Count} map · "+
-                $"adatok: {_cluster.RemoteSnapshot.ObservedUtc.LocalDateTime:HH:mm:ss} · "+(_cluster.RemoteIsFresh?"FRISS":"ELAVULT / OFFLINE"),12,Soft))));
-        if(_cluster.RemoteSnapshot is { } remote)
-        {
-            foreach(var m in remote.Maps)
-                Add(Box(V(Label($"{(_cluster.RemoteIsFresh && m.Running?"●":"○")}  {m.Name}",16,Brushes.White,true),
-                    Label($"{(_cluster.RemoteIsFresh?m.Status:"ELAVULT MÉRÉS · "+m.Status)} · UDP {m.GamePort} · CSAK MEGFIGYELÉS",12,Aqua))));
-        }
-        Add(Btn("Peer állapot frissítése",async()=>{
+        var localInfo=V(Label(local.HostName+" · HELYI",18,Mint,true),
+            Label(local.Maps.Count+" regisztrált map · ezen a gépen szerkeszthető",12,Soft),
+            localList);
+        var left=Box(localInfo);
+        Grid.SetColumn(left,0);
+        hosts.Children.Add(left);
+
+        var remoteList=new StackPanel { Margin=new Thickness(0,8,0,0) };
+        var remote=_cluster.RemoteSnapshot;
+        string remoteTitle=remote?.HostName??"LAN-peer nincs csatlakoztatva";
+        string remoteStatus=remote==null ? _cluster.RemoteMessage :
+            remote.Maps.Count+" ismert távoli map · "+
+            ( _cluster.RemoteIsFresh ? "friss, hitelesített mérés" : "elavult / nem hitelesíthető mérés" );
+        if(remote?.Maps is { } peerMaps)
+            foreach(var map in peerMaps)
+            {
+                remoteList.Children.Add(Label(map.Name+"  ·  "+
+                    (_cluster.RemoteIsFresh?map.Status:"ELAVULT · "+map.Status),
+                    12,_cluster.RemoteIsFresh?Aqua:Soft));
+            }
+        else remoteList.Children.Add(Label(
+            "A távoli szerverek adatai csak hitelesített peer-kapcsolatból származhatnak.",12,Soft));
+        var remoteInfo=V(Label(remoteTitle+" · CSAK OLVASÁS",18,Aqua,true),
+            Label(remoteStatus,12,Soft),remoteList);
+        var right=Box(remoteInfo);
+        Grid.SetColumn(right,1);
+        hosts.Children.Add(right);
+        Add(hosts);
+
+        var actions=new WrapPanel { Margin=new Thickness(0,4,0,0) };
+        actions.Children.Add(Btn("Peer állapot frissítése",async()=>{
             await _cluster.PollPeerAsync();
             RefreshDashboardMapCards();
-            if(_page=="cluster") ShowClusterPage();
+            if(_page=="cluster")ShowClusterPage();
         }));
+        actions.Children.Add(Btn("Helyi szerverek",()=>Navigate("servers")));
+        actions.Children.Add(Btn("LAN beállítások",()=>Navigate("lan")));
+        Add(Box(V(Label("Cluster kapcsolat",16,Mint,true),
+            Label("A LAN-peer soha nem kap helyi íróműveletet ezen a nézeten.",12,Soft),
+            actions)));
     }
+
     private void ShowLocalServerPage()
     {
         Header("Szerverek · csak ez a Windows gép",
