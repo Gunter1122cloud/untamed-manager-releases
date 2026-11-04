@@ -410,48 +410,8 @@ public partial class MainWindow : Window
     }
     private void Mods()=>ShowPremiumMods();
 
-    private void Plugins()
-    {
-        Header("ASA API / pluginok","Maponként ellenőrzött helyi pluginmappák és a hivatalos ASA API kezelése.");
-        var summary=Label("Helyi pluginleltár beolvasása...",13,Soft);
-        var list=List(Array.Empty<string>(),250);
-        void Refresh()
-        {
-            try
-            {
-                var snapshot=LocalContentSnapshotReader.Inspect(_cluster.Config.LocalMaps);
-                var rows=snapshot.Plugins.Select(p=>p.MapName+" · "+
-                    (p.Enabled?"ENGEDÉLYEZETT":"LETILTOTT")+" · "+p.PluginName)
-                    .Concat(snapshot.UnreadablePluginMaps.Select(name=>
-                        name+" · PLUGINLELTÁR NEM OLVASHATÓ"))
-                    .ToArray();
-                list.ItemsSource=rows.Length==0
-                    ?new[]{snapshot.LocalMapCount==0
-                        ?"Nincs helyi map – előbb regisztrálj egyet a Szerverek oldalon."
-                        :"A vizsgált helyi telepítéseken nincs pluginmappa."}
-                    :rows;
-                summary.Text=snapshot.LocalMapCount+" helyi map · "+
-                    snapshot.Plugins.Count+" megfigyelt map-plugin hozzárendelés · "+
-                    snapshot.ReadablePluginMaps+" / "+snapshot.LocalMapCount+" map leltározva"+
-                    (snapshot.PluginInventoryComplete?"":" · HIÁNYOS/ISMERETLEN")+
-                    "\nA lemezen lévő plugin nem bizonyítja az ASA API futásidejű betöltését.";
-            }
-            catch(Exception ex)
-            {
-                WriteLog("plugin-center-inventory",ex);
-                summary.Text="PLUGINLELTÁR NEM ELLENŐRIZHETŐ – a szerverállapot nem módosult.";
-                list.ItemsSource=new[]{"A mapok telepítési állapotát ellenőrizni kell."};
-            }
-        }
-        Add(Box(V(Label("Helyi telepítések és pluginmappák",20,Mint,true),
-            summary,Btn("Helyi pluginleltár frissítése",Refresh),list)));
-        Refresh();
-        ShowLocalPluginInventoryControls();
-        ShowBulkPluginsControls();
-        ShowPluginRollbackControls();
-        ShowAsaApiAndPluginStates();
-        ShowSafeTextEditor(ConfigKind.PluginJson);
-    }
+    private void Plugins()=>ShowPremiumPlugins();
+
     private void Ini()
     {
         Header("INI Editor 2.0","SHA-256 ellenőrzés, BOM/sorvégek megőrzése, atomikus mentés és .bak védőmásolat.");
