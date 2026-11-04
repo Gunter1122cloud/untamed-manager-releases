@@ -36,6 +36,37 @@ public partial class MainWindow
             throw new InvalidOperationException("Page did not render a title: "+page);
     }
 
+    public void VerifyPremiumComboBoxUiCiSmoke()
+    {
+        // A native WPF instance must actually instantiate the custom dark
+        // template, not merely inherit a Foreground/Background setter.
+        var chooser=new ComboBox {
+            ItemsSource=new[]{"The Island","Genesis Part 1","Scorched Earth"},
+            SelectedIndex=1,Width=220,MaxDropDownHeight=320
+        };
+        chooser.ApplyTemplate();
+        if(chooser.Template.FindName("PART_Popup",chooser)
+            is not System.Windows.Controls.Primitives.Popup popup)
+            throw new InvalidOperationException("Premium ComboBox has no native dropdown popup");
+        if(popup.Child is not Border surface ||
+           surface.Background is not SolidColorBrush brush ||
+           brush.Color != (Color)ColorConverter.ConvertFromString("#1B252B"))
+            throw new InvalidOperationException("Premium ComboBox dropdown is not matte dark");
+        if(chooser.Template.FindName("PART_EditableTextBox",chooser)
+            is not TextBox || chooser.FocusVisualStyle==null)
+            throw new InvalidOperationException("Premium ComboBox lacks editable text or keyboard focus");
+        var item=new ComboBoxItem {Content="Genesis Part 1",IsSelected=true};
+        item.ApplyTemplate();
+        if(item.Template==null || item.FocusVisualStyle==null ||
+           item.Foreground is not SolidColorBrush ink ||
+           ink.Color != (Color)ColorConverter.ConvertFromString("#EDF3F1"))
+            throw new InvalidOperationException("Premium ComboBoxItem is missing contrast or keyboard focus");
+        chooser.IsEnabled=false;
+        chooser.ApplyTemplate();
+        if(chooser.IsEnabled)
+            throw new InvalidOperationException("Premium ComboBox disabled state did not apply");
+    }
+
     public void VerifyNavigationUiCiSmoke()
     {
         var navigation=NavigationMenu.Children.OfType<System.Windows.Controls.Button>()
@@ -66,6 +97,7 @@ public partial class MainWindow
             if(string.IsNullOrWhiteSpace(PageTitle.Text))
                 throw new InvalidOperationException("Empty Release Candidate page: "+page);
         }
+        VerifyPremiumComboBoxUiCiSmoke();
         VerifySignedPanelsCiSmoke();
         VerifyNavigationUiCiSmoke();
         VerifyDemoUiCiSmoke();
