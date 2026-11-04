@@ -118,6 +118,18 @@ public partial class MainWindow
             if(applyButton!=null)applyButton.IsEnabled=draft.IsDirty && draft.MatchesLive(CurrentMap());
             ShowDetails();
         }
+        static string ModStateLabel(ModMode? mode)=>mode switch {
+            ModMode.Active=>"aktív",ModMode.Passive=>"passzív",
+            ModMode.Disabled=>"letiltva",_=>"nincs"
+        };
+        static string ChangeLine(ModDraftDifference change)
+        {
+            var before=change.BeforeMode.HasValue?
+                ModStateLabel(change.BeforeMode)+" #"+change.BeforePosition:"nincs";
+            var after=change.AfterMode.HasValue?
+                ModStateLabel(change.AfterMode)+" #"+change.AfterPosition:"eltávolítva";
+            return change.ProjectId+"   "+before+" → "+after;
+        }
         void Stage(string id,ModMode? target,int? position=null)
         {
             draft.Stage(id,target,position); // atomic in-memory validation, ordered history
@@ -227,13 +239,15 @@ public partial class MainWindow
         actionBar.Children.Add(Btn("Változások előnézete",()=>Safely(()=>{
             var map=CurrentMap();var temp=PreviewCopy();
             var oldState=ModStateController.Read(map);var newState=ModStateController.Read(temp);
+            var differences=draft.Differences();
             preview.Text="ELŐNÉZET · "+map.Name+
                 "\nElőtte: "+oldState.Active.Count+" aktív / "+oldState.Passive.Count+
                 " passzív / "+oldState.Disabled.Count+" tiltott"+
                 "\nUtána: "+newState.Active.Count+" aktív / "+newState.Passive.Count+
                 " passzív / "+newState.Disabled.Count+" tiltott"+
-                "\nElőkészített lépések: "+draft.Steps+
-                "\nÉrintett modok: "+string.Join(", ",draft.TouchedModIds)+
+                "\nLépések: "+draft.Steps+" · tényleges állapot/sorrend eltérések: "+differences.Count+
+                (differences.Count>0?"\n"+string.Join("\n",differences.Take(25).Select(ChangeLine)):"")+
+                (differences.Count>25?"\n... további "+(differences.Count-25)+" eltérés":"")+
                 "\nA tényleges ASA-betöltés nincs igazolva. Újraindítás nem történik.";
         })));
         undoButton=Btn("↶  Visszavonás",()=>Safely(()=>{
@@ -252,9 +266,13 @@ public partial class MainWindow
             var map=CurrentMap();var planned=PreviewCopy();
             if(!draft.MatchesLive(map))
                 throw new InvalidOperationException("A modlista időközben megváltozott. Előbb olvasd újra!");
+            var differences=draft.Differences();
             var confirmation="Map: "+map.Name+"\n"+
-                draft.Steps+" előkészített modmódosítás kerül az indítási konfigurációba.\n"+
-                "Nincs szerverleállítás vagy -újraindítás.\n\nÚj modkapcsolók:\n"+
+                draft.Steps+" előkészített modlépés, "+differences.Count+
+                " tényleges állapot- vagy sorrendeltérés.\n"+
+                string.Join("\n",differences.Take(15).Select(ChangeLine))+
+                (differences.Count>15?"\n... további "+(differences.Count-15)+" eltérés":"")+
+                "\nNincs szerverleállítás vagy -újraindítás.\n\nÚj modkapcsolók:\n"+
                 UntamedPresentation.Redact(planned.Arguments);
             if(System.Windows.MessageBox.Show(confirmation,"Modmódosítások mentése",
                 MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)return;
