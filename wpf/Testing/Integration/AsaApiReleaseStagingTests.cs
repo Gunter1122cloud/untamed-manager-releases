@@ -26,6 +26,44 @@ public static class AsaApiReleaseStagingTests
             });
         }
     }
+    private sealed class OfficialHandler(byte[] content):HttpMessageHandler
+    {
+        public int MetaQueries,Downloads;
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,CancellationToken ct)
+        {
+            string url=request.RequestUri?.AbsoluteUri??"";
+            if(url==AsaApiReleaseCatalog.ApiUri)
+            {
+                MetaQueries++;
+                string sha=Convert.ToHexString(SHA256.HashData(content));
+                string json=System.Text.Json.JsonSerializer.Serialize(new{
+                    tag_name="2.03",
+                    html_url="https://github.com/ArkServerApi/AsaApi/releases/tag/2.03",
+                    draft=false,prerelease=false,
+                    published_at="2026-11-01T10:00:00Z",
+                    assets=new[]{new{
+                        name="AsaApi-2.03.zip",size=content.Length,
+                        browser_download_url=
+                        "https://github.com/ArkServerApi/AsaApi/releases/download/2.03/AsaApi-2.03.zip",
+                        digest="sha256:"+sha
+                    }}
+                });
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK){
+                    Content=new StringContent(json)
+                });
+            }
+            if(url=="https://github.com/ArkServerApi/AsaApi/releases/download/2.03/AsaApi-2.03.zip")
+            {
+                Downloads++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK){
+                    Content=new ByteArrayContent(content)
+                });
+            }
+            throw new IOException("Unexpected URI in official ASA API test route");
+        }
+    }
+
     private static byte[] Package(bool traversal=false)
     {
         using var ms=new MemoryStream();
@@ -83,6 +121,22 @@ public static class AsaApiReleaseStagingTests
         Check(!Directory.Exists(Path.Combine(output,"ArkApi"))&&
             !Directory.Exists(Path.Combine(output,"ShooterGame")),
             "verified ZIP was never extracted into any ASA API/plugin directory");
+        Check(AsaApiReleaseStaging.VerifyAgainstPublisher(output,release,asset).Bytes==
+            binary.Length,"archive remains tied to separately supplied official release metadata");
+        var originalAsset=asset with {OfficialSha256=new string('0',64)};
+        var alteredRelease=release with {Assets=new[]{originalAsset}};
+        Check(await Refused(()=>Task.Run(()=>
+            AsaApiReleaseStaging.VerifyAgainstPublisher(output,alteredRelease,originalAsset))),
+            "forged publisher digest cannot re-certify an existing archive");
+        var officialHandler=new OfficialHandler(binary);
+        using(var officialHttp=new HttpClient(officialHandler))
+        {
+            var latest=await AsaApiReleaseStaging.StageLatestAsync(
+                officialHttp,"AsaApi-2.03.zip",Target());
+            Check(latest.OfficialSha256==asset.OfficialSha256 &&
+                officialHandler.MetaQueries==1&&officialHandler.Downloads==1,
+                "actual staging path obtains fresh official GitHub release SHA before downloading bytes");
+        }
         Check(await Refused(()=>AsaApiReleaseStaging.StageAsync(
             http,release,asset,output)),
             "existing isolated output is never silently replaced");
