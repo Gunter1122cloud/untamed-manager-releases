@@ -18,6 +18,7 @@
     <Compile Include="../Integration/DurableWatchdogTrackerTests.cs" Link="DurableWatchdogTrackerTests.cs" />
     <Compile Include="../Integration/SafeConfigRecheckTests.cs" Link="SafeConfigRecheckTests.cs" />
     <Compile Include="../Integration/ModArgumentSafetyTests.cs" Link="ModArgumentSafetyTests.cs" />
+    <Compile Include="../Integration/ModDraftSessionTests.cs" Link="ModDraftSessionTests.cs" />
     <Compile Include="../Integration/GuardedPluginUpdateTests.cs" Link="GuardedPluginUpdateTests.cs" />
     <Compile Include="../Integration/IsolatedRconAdminQueueTests.cs" Link="IsolatedRconAdminQueueTests.cs" />
     <Compile Include="../Integration/SchedulerConcurrencyTests.cs" Link="SchedulerConcurrencyTests.cs" />
