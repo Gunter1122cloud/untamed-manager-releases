@@ -44,6 +44,7 @@ try
     await OperationSafetyTests.Run(root);
     await AsaReadyProbeTests.Run(root);
     StorePathIdentityTests.Run(root);
+    await VerifiedRestartTests.Run();
     ClusterVaultTests.Run(root);
     ManagerMigrationArchiveTests.Run(root);
     SafeSupportBundleTests.Run(root);
