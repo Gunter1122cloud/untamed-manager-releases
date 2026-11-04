@@ -64,6 +64,7 @@ public partial class MainWindow
         // Preserve the existing visual template, replacing only the data source and status.
         var images=_maps.ToDictionary(x=>x.Name,StringComparer.OrdinalIgnoreCase);
         var active = new List<MapInfo>();
+        int knownModAssignments=0, readableModMaps=0;
         foreach(var m in _cluster.Config.LocalMaps)
         {
             images.TryGetValue(m.Name,out var art);
@@ -73,6 +74,8 @@ public partial class MainWindow
             {
                 var mods=ModStateController.Read(m);
                 configuredMods=mods.Active.Count+mods.Passive.Count;
+                knownModAssignments+=configuredMods.Value;
+                readableModMaps++;
             }
             catch(Exception ex){WriteLog("dashboard-mod-observation",ex);}
             try { status=_cluster.Check(m).Status; }
@@ -96,19 +99,80 @@ public partial class MainWindow
                     ModCount=null,GamePort=m.GamePort>0?m.GamePort:null,
                     Status=_cluster.RemoteIsFresh?m.Status:"ELAVULT / NEM HITELESÍTHETŐ",
                     CoverImage=art?.CoverImage,
-                    CoverBrush=art?.CoverBrush ?? Panel,IsRemote=true
+                    CoverBrush=art?.CoverBrush ?? Panel,IsRemote=true,IsFresh=_cluster.RemoteIsFresh
                 });
             }
         }
+        var remote=_cluster.RemoteSnapshot;
+        var summary=new DashboardSummary(_cluster.Config.LocalMaps.Count,
+            remote?.Maps.Count,knownModAssignments,readableModMaps,
+            remote!=null && _cluster.RemoteIsFresh);
         ServerCards.ItemsSource=active;
-        if(ClusterMapCount!=null) ClusterMapCount.Text=active.Count.ToString();
-        if(ClusterHostCount!=null) ClusterHostCount.Text=_cluster.RemoteSnapshot==null?"1":"2";
-        if(ClusterOnlineCount!=null) ClusterOnlineCount.Text=_cluster.RemoteIsFresh?"2 / 2":"1 / 2";
+        MapListEmpty.Visibility=active.Count==0?Visibility.Visible:Visibility.Collapsed;
+        ClusterMapCount.Text=summary.MapCount.ToString();
+        ClusterHostCount.Text=summary.HostCount.ToString();
+        ClusterOnlineCount.Text=summary.FreshLanPeers.ToString();
+        ConfiguredModCount.Text=summary.ModCountDisplay;
+        ModReadingCoverage.Text=summary.ModCoverageDisplay;
+        var hosts=new List<HostCardInfo>{
+            new() {
+                Name=_cluster.Config.LocalHostName,
+                Description=summary.LocalMaps+" helyi map · "+App.ProfileName+" profil",
+                TrustState="HELYI PROFIL · nincs feltételezett LAN-kapcsolat",
+                Accent=Aqua
+            }
+        };
+        if(remote!=null)hosts.Add(new HostCardInfo {
+            Name=remote.HostName,
+            Description=remote.Maps.Count+" utoljára megfigyelt távoli map",
+            TrustState=_cluster.RemoteIsFresh
+                ?"HITelesített LAN · friss, csak olvasás"
+                :"ELAVULT LAN-ADAT · nincs élő állapotbizonyíték",
+            Accent=_cluster.RemoteIsFresh?Mint:Brushes.Orange
+        });
+        HostCards.ItemsSource=hosts;
         if(ClusterStatusText!=null) ClusterStatusText.Text=
             $"{_cluster.Config.LocalHostName}: {_cluster.Config.LocalMaps.Count} helyi map · "+
             (_cluster.RemoteSnapshot==null?_cluster.RemoteMessage:
              $"{_cluster.RemoteSnapshot.HostName}: {_cluster.RemoteSnapshot.Maps.Count} távoli map · "+(_cluster.RemoteIsFresh?"friss, csak olvasás":"ELAVULT / OFFLINE"));
     }
+    private async void DashboardRefresh_Click(object sender,RoutedEventArgs e)
+    {
+        if(sender is not Button button || !button.IsEnabled)return;
+        button.IsEnabled=false;
+        try
+        {
+            // Read-only: no remote lifecycle, Store, SQL, plugin or configuration mutation.
+            await _cluster.PollPeerAsync();
+        }
+        catch(Exception ex)
+        {
+            WriteLog("dashboard-refresh",ex);
+        }
+        finally
+        {
+            RefreshDashboardMapCards();
+            button.IsEnabled=true;
+        }
+    }
+
+    public void VerifyDashboardUiCiSmoke()
+    {
+        RefreshDashboardMapCards();
+        var remote=_cluster.RemoteSnapshot;
+        var registered=_cluster.Config.LocalMaps.Count+(remote?.Maps.Count??0);
+        if(ServerCards.ItemsSource is not IEnumerable<MapInfo> cards ||
+           cards.Count()!=registered ||
+           ClusterMapCount.Text!=registered.ToString() ||
+           (MapListEmpty.Visibility==Visibility.Visible)!=(registered==0))
+            throw new InvalidOperationException("Dashboard map cards do not reflect the registered map inventory");
+        int knownHosts=remote==null?1:2;
+        if(HostCards.ItemsSource is not IEnumerable<HostCardInfo> hosts ||
+           hosts.Count()!=knownHosts || ClusterHostCount.Text!=knownHosts.ToString() ||
+           ClusterOnlineCount.Text!=(_cluster.RemoteIsFresh && remote!=null?"1":"0"))
+            throw new InvalidOperationException("Dashboard host and LAN counters imply unobserved hosts");
+    }
+
     private void ShowClusterPage()
     {
         Header("Cluster · két Manager, két gép",

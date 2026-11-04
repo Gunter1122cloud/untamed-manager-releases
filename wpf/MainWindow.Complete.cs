@@ -26,6 +26,7 @@ public partial class MainWindow
                 throw new InvalidOperationException("Empty Release Candidate page: "+page);
         }
         VerifySignedPanelsCiSmoke();
+        VerifyDashboardUiCiSmoke();
         Navigate("dashboard");
     }
 

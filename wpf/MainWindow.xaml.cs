@@ -26,6 +26,9 @@ public sealed class MapInfo
 {
     public Guid Id { get; init; }
     public bool IsRemote { get; init; }
+    public bool IsFresh { get; init; }
+    public string SourceBadge => !IsRemote ? "HELYI" : IsFresh ? "LAN · FRISS" : "LAN · ELAVULT";
+    public Brush BadgeForeground => IsRemote && !IsFresh ? Brushes.Orange : Brushes.Aquamarine;
     public string Name { get; init; } = "";
     public string Host { get; init; } = "";
     public int? ModCount { get; init; }
@@ -37,6 +40,14 @@ public sealed class MapInfo
         " · "+(GamePort.HasValue&&GamePort>0?$"UDP {GamePort}":"port ismeretlen")+" · "+Status;
     public Brush CoverBrush { get; init; } = Brushes.DarkSlateGray;
     public ImageSource? CoverImage { get; init; }
+}
+
+public sealed class HostCardInfo
+{
+    public string Name { get; init; } = "";
+    public string Description { get; init; } = "";
+    public string TrustState { get; init; } = "";
+    public Brush Accent { get; init; } = Brushes.Aquamarine;
 }
 
 public partial class MainWindow : Window
