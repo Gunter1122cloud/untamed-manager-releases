@@ -28,11 +28,13 @@ public sealed class MapInfo
     public bool IsRemote { get; init; }
     public string Name { get; init; } = "";
     public string Host { get; init; } = "";
-    public int ModCount { get; init; }
-    public int GamePort { get; init; }
-    public int QueryPort { get; init; }
-    public int RconPort { get; init; }
-    public string Caption => $"{Host} · {ModCount} mod · UDP {GamePort}";
+    public int? ModCount { get; init; }
+    public int? GamePort { get; init; }
+    public int? QueryPort { get; init; }
+    public int? RconPort { get; init; }
+    public string Status { get; init; } = "Állapot ismeretlen";
+    public string Caption => $"{Host} · "+(ModCount.HasValue?$"{ModCount} konfigurált mod":"modszám ismeretlen")+
+        " · "+(GamePort.HasValue&&GamePort>0?$"UDP {GamePort}":"port ismeretlen")+" · "+Status;
     public Brush CoverBrush { get; init; } = Brushes.DarkSlateGray;
     public ImageSource? CoverImage { get; init; }
 }
@@ -73,17 +75,19 @@ public partial class MainWindow : Window
         InitializeComponent();
         InitializeAutomaticUpdates();
         InitializeSupervision();
-        var rows = new (string name, string host, int mods, int game, int query, int rcon, string a, string b)[] {
-            ("Astraeos","HP",30,7847,27016,27021,"#244A57","#4B8C72"),
-            ("Genesis Part 1","HP",29,7867,27018,27023,"#2B255E","#7053A9"),
-            ("The Island","HP",29,7777,27015,27020,"#28606B","#4F9274"),
-            ("Extinction","HP",30,7817,27017,27022,"#4A464C","#7C7D62"),
-            ("Valguero","HP",29,7837,27019,27024,"#165579","#559AB7"),
-            ("Ragnarok","Ryzen",29,7827,27025,27030,"#554046","#A16A43"),
-            ("Lost Colony","Ryzen",30,7857,27028,27033,"#4C2858","#8A5A96"),
-            ("Scorched Earth","Ryzen",29,7787,27026,27031,"#6A4826","#B47D3D"),
-            ("The Center","Ryzen",29,7797,27027,27032,"#245E58","#4D9B72"),
-            ("Aberration","Ryzen",30,7807,27029,27034,"#2F295E","#8B4FA2")
+        // Only artwork mapping is static; actual map/port/host/mod data comes from
+        // registered local profiles and authenticated, fresh LAN peer snapshots.
+        var rows = new (string name, string a, string b)[] {
+            ("Astraeos","#244A57","#4B8C72"),
+            ("Genesis Part 1","#2B255E","#7053A9"),
+            ("The Island","#28606B","#4F9274"),
+            ("Extinction","#4A464C","#7C7D62"),
+            ("Valguero","#165579","#559AB7"),
+            ("Ragnarok","#554046","#A16A43"),
+            ("Lost Colony","#4C2858","#8A5A96"),
+            ("Scorched Earth","#6A4826","#B47D3D"),
+            ("The Center","#245E58","#4D9B72"),
+            ("Aberration","#2F295E","#8B4FA2")
         };
         var referenceAtlas = new BitmapImage(new Uri("pack://application:,,,/Assets/reference-atlas.jpg",UriKind.Absolute));
         referenceAtlas.Freeze();
@@ -98,7 +102,7 @@ public partial class MainWindow : Window
         heroCrop.Freeze();
         HeroImage.Source = heroCrop;
         int mapIndex = 0;
-        foreach (var (name,host,mods,game,query,rcon,a,b) in rows)
+        foreach (var (name,a,b) in rows)
         {
             var gradient = new LinearGradientBrush(
                 (Color)ColorConverter.ConvertFromString(a),
@@ -107,8 +111,7 @@ public partial class MainWindow : Window
             var photo = new CroppedBitmap(referenceAtlas,new Int32Rect((mapIndex % 5)*200,260+(mapIndex/5)*104,200,96));
             photo.Freeze();
             mapIndex++;
-            _maps.Add(new MapInfo { Name=name, Host=host, ModCount=mods, GamePort=game,
-                QueryPort=query, RconPort=rcon, CoverBrush=gradient, CoverImage=photo });
+            _maps.Add(new MapInfo { Name=name, CoverBrush=gradient, CoverImage=photo });
         }
         ServerCards.ItemsSource = _maps;
         try {
