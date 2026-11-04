@@ -19,6 +19,8 @@ public static class SupervisorWorker
             var scheduler=new PersistentScheduler(channel.Root);var inspector=new WindowsProcessInspector();var policy=new SupervisorPolicy();
             var telemetry=new TelemetryHistory(channel.Root);
             var recurring=new RecurringReadOnlyRunner(channel.Root);
+            var durableWatchdog=new DurableWatchdogTracker(channel.Root);
+            var durableStates=new Dictionary<Guid,DurableWatchdogState>();
             using var self=Process.GetCurrentProcess();var started=new DateTimeOffset(self.StartTime.ToUniversalTime());
             var watchdogStates=new Dictionary<Guid,SupervisionState>();
             var advancedWatchdog=new WatchdogDiagnostics();
@@ -76,6 +78,28 @@ public static class SupervisorWorker
                                 RconSignal.Unreachable:
                                 rcon.StartsWith("Hitelesített válasz",StringComparison.Ordinal)?
                                 RconSignal.Responding:RconSignal.NotConfigured;
+                            // This durable per-map threshold survives a Supervisor/
+                            // WPF restart, and never dispatches any lifecycle action.
+                            if(!durableStates.TryGetValue(map.Id,out var lastDurable) ||
+                               now-lastDurable.LastObservationUtc>=TimeSpan.FromSeconds(
+                                   Math.Clamp(map.WatchdogIntervalSeconds,5,3600)) ||
+                               lastDurable.Maintenance!=maintenance)
+                            {
+                                try
+                                {
+                                    var current=durableWatchdog.Observe(
+                                        map.Id,state,rconSignal,maintenance,now);
+                                    if(current.Attention && lastDurable?.Attention!=true)
+                                        events.Append(config.LocalHostName,map.Id,"Warning",
+                                            "watchdog-persistent-operator-review");
+                                    durableStates[map.Id]=current;
+                                }
+                                catch(Exception)
+                                {
+                                    events.Append(config.LocalHostName,map.Id,"Warning",
+                                        "watchdog-persistent-state-unavailable");
+                                }
+                            }
                             bool previouslyRunning=previous.TryGetValue(map.Id,out var previousMap)&&
                                 previousMap.Running==true;
                             var diagnosis=advancedWatchdog.Observe(new WatchdogEvidence(
@@ -96,7 +120,12 @@ public static class SupervisorWorker
                             string advancedStatus=diagnosis.Recommendation+
                                 (diagnosis.FailureCounts.Count==0?"":
                                     " · "+string.Join(", ",diagnosis.FailureCounts
-                                        .Select(x=>x.Key+":"+x.Value)));
+                                        .Select(x=>x.Key+":"+x.Value)))+
+                                (durableStates.TryGetValue(map.Id,out var retained)?
+                                    " · Tartós Watchdog: "+
+                                    retained.ConsecutiveProcessFailures+" folyamat / "+
+                                    retained.ConsecutiveRconFailures+" RCON"+
+                                    (retained.Attention?" · KÉZI VIZSGÁLAT":""):"");
                             string log="Nem elérhető";
                             try
                             {
