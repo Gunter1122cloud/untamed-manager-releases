@@ -2,7 +2,7 @@
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  Title="Untamed Manager · Untamed Kingdom" Icon="/Assets/UntamedManager.ico"
- Width="1672" Height="941" MinWidth="1200" MinHeight="760"
+ Width="1500" Height="880" MinWidth="1050" MinHeight="670"
  WindowStartupLocation="CenterScreen" Background="#07191B"
  Loaded="Window_Loaded" Closing="Window_Closing">
  <Window.Resources>
@@ -17,9 +17,7 @@
    <GradientStop Color="#B0082021" Offset="0.42"/>
    <GradientStop Color="#00082021" Offset="0.83"/>
   </LinearGradientBrush>
-  <Style x:Key="NavItem" TargetType="Button" BasedOn="{StaticResource NavButton}">
-   <Setter Property="Margin" Value="12,2"/>
-  </Style>
+  <Style x:Key="NavItem" TargetType="Button" BasedOn="{StaticResource NavButton}"/>
   <Style x:Key="MapCardButton" TargetType="Button">
    <Setter Property="Padding" Value="0"/>
    <Setter Property="Margin" Value="0,0,13,14"/>
@@ -65,17 +63,17 @@
   </Style>
  </Window.Resources>
  <Grid>
-  <Grid.ColumnDefinitions><ColumnDefinition Width="235"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <Grid.ColumnDefinitions><ColumnDefinition Width="250"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Grid Grid.Column="0" Background="#06191A">
-   <Grid.RowDefinitions><RowDefinition Height="188"/><RowDefinition Height="*"/><RowDefinition Height="162"/></Grid.RowDefinitions>
+   <Grid.RowDefinitions><RowDefinition Height="142"/><RowDefinition Height="*"/><RowDefinition Height="78"/></Grid.RowDefinitions>
    <Grid Grid.Row="0" ClipToBounds="True">
      <Rectangle Fill="#051A1A"/>
      <Image x:Name="BrandArtwork" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
    </Grid>
-   <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
-    <StackPanel x:Name="NavigationMenu" Margin="0,12,0,12">
+   <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel x:Name="NavigationMenu" Margin="0,9,0,12">
      <TextBlock Text="IRÁNYÍTÓKÖZPONT" Foreground="#91AFAA" FontSize="11" Margin="24,3,0,4"/>
-     <Button Content="⌂    Áttekintés" Style="{StaticResource NavItem}" Tag="dashboard" Click="Navigate_Click" Background="#22513C"/>
+     <Button Content="⌂   Áttekintés" Style="{StaticResource NavItem}" Tag="dashboard" Click="Navigate_Click"/>
      <Button Content="▤    Szerverek" Style="{StaticResource NavItem}" Tag="servers" Click="Navigate_Click"/>
      <Button Content="◈    Cluster nézet" Style="{StaticResource NavItem}" Tag="cluster" Click="Navigate_Click"/>
      <TextBlock Text="TARTALOM ÉS KONFIGURÁCIÓ" Foreground="#91AFAA" FontSize="11" Margin="24,12,0,5"/>
@@ -84,18 +82,18 @@
      <Button Content="▤    INI szerkesztő" Style="{StaticResource NavItem}" Tag="ini" Click="Navigate_Click"/>
      <TextBlock Text="ÜZEMELTETÉS" Foreground="#91AFAA" FontSize="11" Margin="24,12,0,5"/>
      <Button Content="▣    Mentések" Style="{StaticResource NavItem}" Tag="backups" Click="Navigate_Click"/>
-     <Button Content="▦    Cluster Vault / SQL adatok" Style="{StaticResource NavItem}" Tag="data" Click="Navigate_Click"/>
-     <Button Content="⟳    SteamCMD Update Center" Style="{StaticResource NavItem}" Tag="steam" Click="Navigate_Click"/>
+     <Button Content="▦   Cluster Vault / SQL" Style="{StaticResource NavItem}" Tag="data" Click="Navigate_Click"/>
+     <Button Content="⟳   SteamCMD frissítések" Style="{StaticResource NavItem}" Tag="steam" Click="Navigate_Click"/>
      <Button Content="⌘    RCON konzol" Style="{StaticResource NavItem}" Tag="rcon" Click="Navigate_Click"/>
-     <Button Content="◉    Monitoring / Események" Style="{StaticResource NavItem}" Tag="monitoring" Click="Navigate_Click"/>
-     <Button Content="⌁    Hálózat / jitter mérés" Style="{StaticResource NavItem}" Tag="network" Click="Navigate_Click"/>
+     <Button Content="◉   Monitoring / események" Style="{StaticResource NavItem}" Tag="monitoring" Click="Navigate_Click"/>
+     <Button Content="⌁   Hálózat / jitter" Style="{StaticResource NavItem}" Tag="network" Click="Navigate_Click"/>
      <Button Content="✉    Discord szerverstátusz" Style="{StaticResource NavItem}" Tag="discord" Click="Navigate_Click"/>
      <Button Content="⛨    Recovery Center (TEST)" Style="{StaticResource NavItem}" Tag="recovery" Click="Navigate_Click"/>
      <Button Content="◷    Ütemezések" Style="{StaticResource NavItem}" Tag="schedules" Click="Navigate_Click"/>
      <TextBlock Text="ALKALMAZÁS" Foreground="#91AFAA" FontSize="11" Margin="24,12,0,5"/>
      <Button Content="✧    Licenc / Frissítés" Style="{StaticResource NavItem}" Tag="license" Click="Navigate_Click"/>
-     <Button Content="☑    Fejlesztési állapot / funkciók" Style="{StaticResource NavItem}" Tag="readiness" Click="Navigate_Click"/>
-     <Button Content="▧    Aláírt Manager-panelek" Style="{StaticResource NavItem}" Tag="extensions" Click="Navigate_Click"/>
+     <Button Content="☑   Funkciók / ellenőrzés" Style="{StaticResource NavItem}" Tag="readiness" Click="Navigate_Click"/>
+     <Button Content="▧   Manager-panelek" Style="{StaticResource NavItem}" Tag="extensions" Click="Navigate_Click"/>
      <Button Content="⚙    Beállítások" Style="{StaticResource NavItem}" Tag="settings" Click="Navigate_Click"/>
      <Button Content="✧    Beállítóvarázsló" Style="{StaticResource NavItem}" Tag="setup" Click="Navigate_Click"/>
      <Button Content="◉    LAN párosítás" Style="{StaticResource NavItem}" Tag="lan" Click="Navigate_Click"/>

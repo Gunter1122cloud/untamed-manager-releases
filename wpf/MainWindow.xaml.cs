@@ -238,11 +238,7 @@ public partial class MainWindow : Window
         foreach(var element in NavigationMenu.Children)
         {
             if (element is not Button button || button.Tag is not string tag) continue;
-            bool active=tag==page;
-            button.Background=active?new SolidColorBrush(Color.FromRgb(13,91,68)):Brushes.Transparent;
-            button.BorderBrush=active?new SolidColorBrush(Color.FromRgb(108,243,174)):Brushes.Transparent;
-            button.Foreground=active?new SolidColorBrush(Color.FromRgb(208,255,223)):new SolidColorBrush(Color.FromRgb(224,246,238));
-            button.Effect=active?new DropShadowEffect { Color=Color.FromRgb(12,242,158), BlurRadius=13, Opacity=.43, ShadowDepth=0 }:null;
+            NavSelection.SetIsCurrent(button,tag==page);
         }
     }
     private void SetAnimations(bool enabled)
