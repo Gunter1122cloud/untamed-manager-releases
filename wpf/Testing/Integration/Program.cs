@@ -43,6 +43,7 @@ try
     await ProfessionalOperationsTests.Run(root,fake);
     await OperationSafetyTests.Run(root);
     await AsaReadyProbeTests.Run(root);
+    StorePathIdentityTests.Run(root);
     ClusterVaultTests.Run(root);
     ManagerMigrationArchiveTests.Run(root);
     SafeSupportBundleTests.Run(root);
