@@ -236,22 +236,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-premium-test.1"
+          $tag = "v1.6.1-premium-test.2"
           $repo = "$env:GITHUB_REPOSITORY"
           $files = @(
             "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-premium-test.exe",
             "dist/UntamedManager-1.6.1-win-x64.zip#UntamedManager-1.6.1-premium-portable.zip",
             "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-premium-SETUP.exe",
             "dist/SHA256SUMS.txt#SHA256SUMS.txt",
-            "dist/UntamedManager-preview.png#UntamedManager-premium-dashboard.png"
+            "dist/UntamedManager-preview.png#UntamedManager-premium-dashboard.png",
+            "dist/UI-Screenshots/UntamedManager-demo-mods.png#UntamedManager-premium-demo-mods.png",
+            "dist/UI-Screenshots/UntamedManager-cluster.png#UntamedManager-premium-cluster.png"
           )
           gh release view $tag --repo $repo --json tagName 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @files --repo $repo --clobber
           } else {
             gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager Premium UI v1.6.1 · Offline TEST" --prerelease `
-              --notes "Windows WPF Premium preview, ten-map offline demo, compact native controls and verified installer. The live ASA/Store/SQL write operations are not certified for production. Install on a separate Windows test PC only."
+              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 2" --prerelease `
+              --notes "Graphite Windows WPF UI: unified native dark ComboBox, eight-item navigation, compact dashboard, staged Mod Center and in-memory ten-map DEMO. Store-v1/backend safety retained. Live ASA write operations are not certified for production. Install on a separate Windows test PC only."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
           # A cancelled prior CI can leave an unpublished draft with the same tag.
