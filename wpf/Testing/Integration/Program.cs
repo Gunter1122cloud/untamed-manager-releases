@@ -61,6 +61,7 @@ try
     await AsaApiIsolatedInstallerTests.Run();
     AsaApiLaunchPolicyTests.Run(root,fake);
     CheckFutureMapNames();
+    LocalContentSnapshotTests.Run(root);
     DashboardSummaryTests.Run();
     await ModArgumentSafetyTests.Run(root);
     await GuardedPluginUpdateTests.Run(root);
