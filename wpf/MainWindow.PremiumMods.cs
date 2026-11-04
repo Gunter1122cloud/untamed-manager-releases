@@ -74,6 +74,7 @@ public partial class MainWindow
             return fresh;
         }
         ModDraftSession draft=GetDraft(CurrentMap());
+        Button? undoButton=null,redoButton=null,applyButton=null;
         LocalMap PreviewCopy()=>draft.Projected();
         void ShowDetails()
         {
@@ -112,6 +113,9 @@ public partial class MainWindow
                 (draft.MatchesLive(CurrentMap())?
                     "mentés előtt ellenőrizd az előnézetet.":
                     "A helyi konfiguráció időközben megváltozott! Töltsd újra a modlistát.");
+            if(undoButton!=null)undoButton.IsEnabled=draft.CanUndo;
+            if(redoButton!=null)redoButton.IsEnabled=draft.CanRedo;
+            if(applyButton!=null)applyButton.IsEnabled=draft.IsDirty && draft.MatchesLive(CurrentMap());
             ShowDetails();
         }
         void Stage(string id,ModMode? target,int? position=null)
@@ -219,12 +223,14 @@ public partial class MainWindow
                 "\nÉrintett modok: "+string.Join(", ",draft.TouchedModIds)+
                 "\nA tényleges ASA-betöltés nincs igazolva. Újraindítás nem történik.";
         })));
-        actionBar.Children.Add(Btn("↶  Visszavonás",()=>Safely(()=>{
+        undoButton=Btn("↶  Visszavonás",()=>Safely(()=>{
             draft.Undo();Render();preview.Text="Az utolsó lépés visszavonva.";
-        })));
-        actionBar.Children.Add(Btn("↷  Újra",()=>Safely(()=>{
+        }));
+        redoButton=Btn("↷  Újra",()=>Safely(()=>{
             draft.Redo();Render();preview.Text="Lépés újra alkalmazva a piszkozatban.";
-        })));
+        }));
+        actionBar.Children.Add(undoButton);
+        actionBar.Children.Add(redoButton);
         actionBar.Children.Add(Btn("Függőben lévő módosítások elvetése",()=>Safely(()=>{
             draft.Clear();preview.Text="Módosítások elvetve.";Render();
         })));
@@ -247,6 +253,7 @@ public partial class MainWindow
             Render();
         }));
         apply.Style=(Style)System.Windows.Application.Current.FindResource("PrimaryAction");
+        applyButton=apply;
         actionBar.Children.Add(apply);
         Add(Box(V(Label("Függőben lévő változások",16,Mint,true),
             status,actionBar,preview)));
