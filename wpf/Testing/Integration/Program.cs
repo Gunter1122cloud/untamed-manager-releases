@@ -42,6 +42,7 @@ try
     await OperationalFeaturesTests.Run(root,fake,args.Length>3?args[3]:null);
     await ProfessionalOperationsTests.Run(root,fake);
     await OperationSafetyTests.Run(root);
+    await AsaReadyProbeTests.Run(root);
     ClusterVaultTests.Run(root);
     ManagerMigrationArchiveTests.Run(root);
     SafeSupportBundleTests.Run(root);
