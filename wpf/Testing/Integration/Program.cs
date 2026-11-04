@@ -1051,6 +1051,11 @@ try
     var authenticatedWorker=new SupervisorChannel(aRoot).Read(hp.Config.LocalHostId);
     Assert(authenticatedWorker.Maps.Single().Map==mapA.Id&&authenticatedWorker.Maps.Single().MemoryBytes>0&&authenticatedWorker.Maps.Single().Players==null,
         "Real supervisor publishes measured RAM and unknown player count through authenticated IPC");
+    var persistedWatchdog=new DurableWatchdogTracker(
+        Path.Combine(aRoot,"supervision")).ReadLocal(mapA.Id);
+    Assert(persistedWatchdog!=null && persistedWatchdog.PreviouslyRunning &&
+        !persistedWatchdog.Attention && !persistedWatchdog.AutoRecoveryAuthorized,
+        "actual independent Windows Supervisor persists read-only map Watchdog identity without intervening");
     Assert(!p.HasExited,"Independent supervisor observation leaves FakeAsa alive");
     if(args.Length<3||!File.Exists(args[2]))throw new ArgumentException("Actual Manager EXE required for GUI lifetime test");
     async Task RunManagerLifetime()
