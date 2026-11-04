@@ -153,7 +153,7 @@ public partial class MainWindow
             return RconCommandPolicy.Preview(map.Id,(RconAction)actions.SelectedItem,
                 message.Text,true,map.Maintenance,state.Running);
         }
-        Add(Box(V(Label("v1.5 · RCON Adminpanel – ellenőrzött előnézet",19,Mint,true),
+        Add(Box(V(Label("v"+UiVersion+" · RCON Adminpanel – ellenőrzött előnézet",19,Mint,true),
             Label("ListPlayers, Broadcast, ServerChat, SaveWorld, Wild Dino Wipe. "+
                 "A tesztek a valódi parancsszöveget állítják elő, de csak FakeRcon-adapterrel "+
                 "küldik el. SaveWorld válasza NEM mentésigazolás.",12,Soft),
@@ -184,7 +184,50 @@ public partial class MainWindow
                         "\n"+draft.Command+"\nMűvelet: "+receipt.Operation+
                         "\nHálózati RCON-kapcsolat nem történt.";
                 }
-                catch(Exception ex){status.Text="FakeRcon művelet megtagadva: "+ex.Message;}
+                catch(Exception ex){status.Text="FakeRcon művelet megtagadva: "+
+                    UntamedPresentation.Redact(ex.Message);}
+            }),
+            Btn("Valódi GetGameLog (csak olvasás, saját helyi map)",async ()=>{
+                await ReadOnly("GetGameLog");
+            }),
+            Btn("Valódi GetChat (csak olvasás, saját helyi map)",async ()=>{
+                await ReadOnly("GetChat");
             }),status)));
+        async Task ReadOnly(string command)
+        {
+            if(mapBox.SelectedItem is not LocalMap local ||
+               !_cluster.Config.LocalMaps.Contains(local))
+            {status.Text="Nincs regisztrált helyi map kiválasztva.";return;}
+            try
+            {
+                var before=_cluster.Check(local);
+                if(before.Identity==null||!before.Running||local.Maintenance||
+                   !ReleaseCapabilityGate.Check(ManagerOperation.LocalReadOnlyRcon,
+                       true,local.Maintenance,before.ConfirmedStopped,before.Running).Allowed)
+                    throw new InvalidOperationException("RCON process identity unverified");
+                var response=await RconProtocol.Execute(local.RconHost,local.RconPort,
+                    SecureStore.Unprotect(local.RconPasswordProtected),command);
+                var after=_cluster.Check(local);
+                bool same=after.Running&&after.Identity!=null&&
+                    after.Identity.Pid==before.Identity.Pid&&
+                    after.Identity.StartedUtc==before.Identity.StartedUtc&&
+                    string.Equals(after.Identity.ExecutablePath,before.Identity.ExecutablePath,
+                        StringComparison.OrdinalIgnoreCase)&&
+                    string.Equals(after.Identity.Arguments,before.Identity.Arguments,
+                        StringComparison.Ordinal);
+                if(!same)throw new InvalidOperationException(
+                    "Local RCON process replaced during read-only request");
+                status.Text=command+" · "+local.Name+"\n"+
+                    UntamedPresentation.Redact(response.Length>6000?
+                        response[..6000]+"\n[megjelenítés korlátozva]":response)+
+                    "\nA RCON-lekérdezés nem küldött módosító adminparancsot.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("rcon-readonly-history",ex);
+                status.Text="UM-RCON-READ: nem sikerült igazolni a helyi "+
+                    command+" válaszát. Módosító parancs nem történt.";
+            }
+        }
     }
 }
