@@ -66,6 +66,7 @@ try
     LocalHostResourceTests.Run();
     DemoWorkspaceTests.Run();
     await ModArgumentSafetyTests.Run(root);
+    await ModDraftSessionTests.Run(root);
     await GuardedPluginUpdateTests.Run(root);
     await IsolatedRconAdminQueueTests.Run(fake);
     await SchedulerConcurrencyTests.Run(root);
