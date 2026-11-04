@@ -147,6 +147,25 @@ teljes futásában sikeres a `20cf6ef7d4298acd109036d518040e684c9599b4` commiton
 Az új RCON/QMP-változások még külön CI-futásban igazolandók. A QMP-fixture saját
 Windows pipe-szerver, nem valódi QEMU/Windows-vendég vagy ASA-próba.
 
+Az RCON/QMP változások teljes [Windows CI 41829416246](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/41829416246)
+ellenőrzése sikeres az `accaf44c5d8699a50c748e18a97f81c70af3cf7b` commiton.
+A helyi QEMU-indítás Windows platformhibát talált: a `dump-guest-core=off`
+kapcsolót ez a build nem támogatja. A terv most a támogatott `q35` beállítást
+használja. A következő indítás saját, erőforráskorlátos QEMU-val és csak a vendég
+VGA-járól származó képpel igazolta a firmware indulását. Windows/ASA települési
+elfogadás ebből még nem következik. A régi tesztlemezek és claim-ek megmaradtak.
+A Windows named-pipe diagnosztika ugyanazt a kapcsolatot őrzi meg a következő
+képkéréshez; ezzel a tényleges runtime-ban talált újracsatlakozási hiba javított.
+
+A Microsoft ISO letöltése befejeződött, a teljes 8 152 356 864 bájt 16 MiB/s
+korláttal végigolvasva. Helyi SHA-256: `7B052573BA7894C9924E3E87BA732CCD354D18CB75A883EFA9B900EA125BFD51`.
+Ez rögzített helyi hash, nem ellenőrzött kiadói checksum. A tényleges WIM-katalógus
+2-es indexe ServerStandardEval / Server, ezért a vendég ezt a kiadást kapja.
+
+A MariaDB policy a felhasználó által rögzített pontos 10.11.19 baseline-hoz köti
+a dump/restore eszközmetaadatot; más patch sem tekinthető teszteltnek. A három
+engedett adatbázis publikus listája immutábilis. Ez továbbra sem valódi SQL-adapter.
+
 ## Helyi izolált labor
 
 A felhasználó engedélyezte a munkamappán belüli elkülönített labort, de az élő

@@ -3354,12 +3354,12 @@
       "BacklogTasks": [
         "T15"
       ],
-      "Status": "BLOCKED",
-      "Changes": "Ebben a szakaszban nincs új megvalósítás; korábbi kód és elfogadási feltételek nyomon követve.",
-      "TestType": "Prior audit / prior CI evidence only",
-      "TestResult": "NOT_REVALIDATED_IN_THIS_STAGE",
-      "ImplementationCommit": "3b8b448fb906a02d45615a466ef2900ca40200f0",
-      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/3",
+      "Status": "PARTIAL",
+      "Changes": "A read-only RCON ellenőrzött helyi IP-re pinel, DNS-re is kiterjedő határidővel. Auth/query ID különböző, hibás UTF-8 és NUL elutasítva; localhost és IPv4-mapped loopback tesztelve. A jogosultságolt módosító adminparancs-sor még nincs elfogadva.",
+      "TestType": "Real Windows loopback TCP RCON protocol fixtures; no live ASA commands",
+      "TestResult": "PASS Windows CI 41829416246 on accaf44c5d8699a50c748e18a97f81c70af3cf7b",
+      "ImplementationCommit": "accaf44c5d8699a50c748e18a97f81c70af3cf7b",
+      "ImplementationPr": "https://github.com/Gunter1122cloud/untamed-manager-releases/pull/6",
       "Remaining": "A teljes végleges kiadás nincs kész. Valódi ASA/SaveComplete/transfer/SQL restore: elkülönített Windows vendég és valós elfogadási bizonyíték hiányzik; éles gép és reboot tiltott."
     },
     {

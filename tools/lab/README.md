@@ -98,6 +98,8 @@ A kép a vendég virtuális videokártyájából származik. A host asztalát é
 alkalmazás ablakát nem rögzíti. Az indító percenként legfeljebb egy képet kér,
 és nem nyit a hoston interaktív ablakot. A vendég továbbra sem kap hálózati
 adaptert vagy hostmegosztást. A képek privát laboradatok, a repóba nem kerülnek.
+A Windows pipe ugyanazt a kapcsolatot használja minden képhez; a kapcsolatot
+csak a labor végén zárjuk. Külön teszt ellenőrzi a második képkérést is.
 
 Microsoft források: [Setup automatizálás](https://learn.microsoft.com/windows-hardware/manufacture/desktop/windows-setup-automation-overview),
 [Windows Setup válaszfájl](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/automate-windows-setup).

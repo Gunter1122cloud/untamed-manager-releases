@@ -1,5 +1,6 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+$script:Connections=@{}
 function Save-LabGuestScreen {
     param([Parameter(Mandatory=$true)][string]$LabRoot,
           [Parameter(Mandatory=$true)][string]$OutputFile,
@@ -10,10 +11,14 @@ function Save-LabGuestScreen {
     if([IO.Path]::GetExtension($target) -ne '.png' -or (Test-Path -LiteralPath $target)){throw 'Fresh lab PNG target required'}
     if(-not (Test-Path -LiteralPath (Split-Path -Parent $target) -PathType Container)){throw 'Prepared lab artifact directory required'}
     if(-not ('UntamedLab.LabPipeChannel' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'LabPipeChannel.cs')}
-    $channel=[UntamedLab.LabPipeChannel]::Connect($PipeName,$ExpectedQemuPid)
+    $key=[string]$ExpectedQemuPid+'/'+$PipeName
+    $fresh=-not $script:Connections.ContainsKey($key)
+    $channel=if($fresh){[UntamedLab.LabPipeChannel]::Connect($PipeName,$ExpectedQemuPid)}else{$script:Connections[$key]}
     try{
-        $greeting=$channel.ReadLine()|ConvertFrom-Json
-        if($null -eq $greeting.PSObject.Properties['QMP']){throw 'Lab QMP greeting missing'}
+        if($fresh){
+            $greeting=$channel.ReadLine()|ConvertFrom-Json
+            if($null -eq $greeting.PSObject.Properties['QMP']){throw 'Lab QMP greeting missing'}
+        }
         function Request([string]$Command,[string]$Id,$Arguments=$null){
             if($Command -notin @('qmp_capabilities','query-status','screendump')){throw 'Lab diagnostic command is not allowed'}
             $request=@{execute=$Command;id=$Id};if($null -ne $Arguments){$request.arguments=$Arguments}
@@ -28,7 +33,7 @@ function Save-LabGuestScreen {
             }
             throw 'Lab QMP response count limit'
         }
-        Request 'qmp_capabilities' 'capabilities'|Out-Null
+        if($fresh){Request 'qmp_capabilities' 'capabilities'|Out-Null;$script:Connections[$key]=$channel}
         $status=Request 'query-status' 'status'
         if($null -eq $status.'return' -or $null -eq $status.'return'.PSObject.Properties['status'] -or [string]$status.'return'.status -cnotmatch '^[a-z-]{1,32}$'){throw 'Invalid lab guest status'}
         Request 'screendump' 'screen' @{filename=$target;format='png'}|Out-Null
@@ -37,6 +42,10 @@ function Save-LabGuestScreen {
         $stream=[IO.File]::OpenRead($target)
         try{$signature=[byte[]]::new(8);if($stream.Read($signature,0,8) -ne 8 -or [Convert]::ToBase64String($signature) -ne 'iVBORw0KGgo='){throw 'Lab screenshot is not PNG'}}finally{$stream.Dispose()}
         return [pscustomobject]@{QemuPid=$ExpectedQemuPid;GuestStatus=$status.'return'.status;Path=$target;Bytes=$file.Length;HostScreenCaptured=$false}
-    }finally{$channel.Dispose()}
+    }catch{$script:Connections.Remove($key);$channel.Dispose();throw}
 }
-Export-ModuleMember -Function Save-LabGuestScreen
+function Close-LabGuestScreenConnections {
+    foreach($connection in $script:Connections.Values){$connection.Dispose()}
+    $script:Connections.Clear()
+}
+Export-ModuleMember -Function Save-LabGuestScreen,Close-LabGuestScreenConnections

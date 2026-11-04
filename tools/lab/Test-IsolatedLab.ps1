@@ -17,6 +17,7 @@ $size=[BitConverter]::GetBytes([UInt64]80GB);[Array]::Reverse($size);[Array]::Co
 $plan=New-IsolatedLabPlan -LabRoot $root -GuestIso $iso -GuestDisk $disk
 Assert ($plan.NetworkAdapters -eq 0 -and $plan.HostShares.Count -eq 0 -and $plan.HostPortForwards.Count -eq 0) 'no guest NIC, shares or forwards'
 Assert ($plan.Arguments -contains '-no-user-config' -and $plan.Arguments -contains '-nodefaults' -and $plan.Arguments -contains 'none') 'explicit QEMU default-device suppression'
+Assert ($plan.Arguments -contains 'q35' -and $plan.Arguments -notcontains 'q35,dump-guest-core=off') 'Windows QEMU machine options exclude unsupported guest-core dump override'
 Assert ($plan.Arguments -contains 'throttle-group,id=labio,x-bps-total=8388608,x-iops-total=200') 'shared disk and ISO I/O throttle'
 Refused {New-IsolatedLabPlan $root $iso (Join-Path (Split-Path -Parent $root) 'outside.qcow2')} 'disk outside lab refused'
 Refused {Assert-LabPath $root ($root+'\..\outside.qcow2')} 'dot traversal refused'
@@ -77,7 +78,15 @@ try{
     $screen=Save-LabGuestScreen -LabRoot $root -OutputFile $screenPath -PipeName $pipeName -ExpectedQemuPid ([UInt32]$PID)
     Assert ($screen.GuestStatus -eq 'running' -and -not $screen.HostScreenCaptured -and (Test-Path -LiteralPath $screen.Path)) 'owned named-pipe diagnostics saves only the synthetic guest PNG'
     Assert ($fixture.Finished(5000) -and ($fixture.Commands -join ',') -eq 'qmp_capabilities,query-status,screendump' -and $null -eq $fixture.Failure) 'QMP diagnostics sends only capability/status/screenshot requests and handles events'
-}finally{$fixture.Dispose()}
+}finally{Close-LabGuestScreenConnections;$fixture.Dispose()}
+$pipeName='UntamedLab-Qmp-'+[Guid]::NewGuid().ToString('N')
+$persistent=Join-Path $root 'persistent.png';$persistentSecond=Join-Path $root 'persistent-2.png'
+$fixture=[UntamedLab.Testing.NamedPipeFixture]::new($pipeName,$persistent,0,2)
+try{
+    Save-LabGuestScreen -LabRoot $root -OutputFile $persistent -PipeName $pipeName -ExpectedQemuPid ([UInt32]$PID)|Out-Null
+    Save-LabGuestScreen -LabRoot $root -OutputFile $persistentSecond -PipeName $pipeName -ExpectedQemuPid ([UInt32]$PID)|Out-Null
+    Assert ($fixture.Finished(5000) -and (Test-Path -LiteralPath $persistentSecond) -and ($fixture.Commands -join ',') -eq 'qmp_capabilities,query-status,screendump,query-status,screendump') 'successive guest screenshots reuse one negotiated pipe connection'
+}finally{Close-LabGuestScreenConnections;$fixture.Dispose()}
 foreach($case in @('wrong-pid','bad-greeting','oversize-greeting')){
     $pipeName='UntamedLab-Qmp-'+[Guid]::NewGuid().ToString('N')
     $kind=if($case -eq 'bad-greeting'){1}elseif($case -eq 'oversize-greeting'){2}else{0}

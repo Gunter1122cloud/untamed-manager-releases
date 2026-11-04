@@ -84,7 +84,7 @@ function New-IsolatedLabPlan {
         GuestDisk=$disk; ProductionAcceptance=$false
         GuestAnswerMedia=$answer;GuestAnswerMediaSha256=$answerHash
         MonitorPipe=$MonitorPipe
-        Arguments=@('-no-user-config','-nodefaults','-machine','q35,dump-guest-core=off',
+        Arguments=@('-no-user-config','-nodefaults','-machine','q35',
             '-accel','tcg,thread=multi','-cpu','max','-smp','2','-m','8192',
             '-nic','none','-display','none','-monitor','none','-serial','none','-parallel','none',
             '-object','throttle-group,id=labio,x-bps-total=8388608,x-iops-total=200',

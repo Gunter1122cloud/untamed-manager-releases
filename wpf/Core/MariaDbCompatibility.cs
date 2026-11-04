@@ -13,7 +13,8 @@ public sealed record MariaDbCompatibilityResult(bool Compatible,bool LiveVersion
 public static class MariaDbCompatibility
 {
     public static readonly Version DeploymentBaseline=new(10,11,19);
-    public static readonly string[] Databases={"arkshop","arkpermissions","lethalquests"};
+    public static readonly IReadOnlyList<string> Databases=Array.AsReadOnly(
+        new[]{"arkshop","arkpermissions","lethalquests"});
     public static MariaDbCompatibilityResult Evaluate(string serverText,string dumpText,
         string restoreText,bool serverQueriedReadOnly,IEnumerable<string> databases)
     {
@@ -29,7 +30,9 @@ public static class MariaDbCompatibility
         if(server!=DeploymentBaseline)issues.Add("SERVER_BASELINE_MISMATCH");
         bool SameSeries(Version? v)=>v!=null&&v.Major==10&&v.Minor==11;
         if(!SameSeries(dump))issues.Add("DUMP_TOOL_SERIES_MISMATCH");
+        else if(dump!=DeploymentBaseline)issues.Add("DUMP_TOOL_BASELINE_MISMATCH");
         if(!SameSeries(target))issues.Add("RESTORE_TARGET_SERIES_MISMATCH");
+        else if(target!=DeploymentBaseline)issues.Add("RESTORE_TARGET_BASELINE_MISMATCH");
         var selected=databases?.ToArray()??Array.Empty<string>();
         if(selected.Length!=3||selected.Distinct(StringComparer.Ordinal).Count()!=3||
            !selected.ToHashSet(StringComparer.Ordinal).SetEquals(Databases))

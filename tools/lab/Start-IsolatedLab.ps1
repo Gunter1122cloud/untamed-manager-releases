@@ -44,12 +44,13 @@ try {
                 $png=Join-Path $artifacts ('screen-'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N')+'.png')
                 $screen=Save-LabGuestScreen -LabRoot $LabRoot -OutputFile $png -PipeName $monitorPipe -ExpectedQemuPid $owned.ProcessId
                 Write-Output ('Owned guest display: '+$screen.GuestStatus+'; '+$screen.Path)
-            }catch{Write-Output 'Owned guest display diagnostics unavailable; no host screen captured'}
+            }catch{Write-Output ('Owned guest display diagnostics unavailable: '+$_.Exception.GetBaseException().Message)}
             $nextScreen=[DateTime]::UtcNow.AddSeconds(60)
         }
     }
     if($owned.ExitCode -ne 0){throw "QEMU exited with code $($owned.ExitCode)"}
 } finally {
+    Close-LabGuestScreenConnections
     if($null -ne $owned){$owned.Dispose()}
     $guard.Dispose()
 }
