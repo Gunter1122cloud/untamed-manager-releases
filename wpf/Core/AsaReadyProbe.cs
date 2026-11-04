@@ -89,12 +89,50 @@ public static class AsaReadyProbe
                                  or NotSupportedException){return false;}
     }
 
+    // Never trust a successful RCON authentication at a port that multiple
+    // locally owned profiles claim. The response could belong to another map.
+    internal static bool HasPortConflict(LocalMap map,
+        System.Collections.Generic.IEnumerable<LocalMap> localMaps)
+    {
+        if(map==null||localMaps==null)throw new ArgumentNullException(nameof(map));
+        return localMaps.Any(other=>other.Id!=map.Id &&
+            ((map.RconPort>0 && other.RconPort==map.RconPort) ||
+             (map.GamePort>0 && other.GamePort==map.GamePort)));
+    }
+
+    // A declared command-line port cannot silently disagree with the GUI
+    // endpoint. A missing flag is not proof of a default; it stays unverified.
+    internal static bool DeclaredPortMismatch(LocalMap map)
+    {
+        if(map==null)throw new ArgumentNullException(nameof(map));
+        static bool Mismatched(string arguments,string expression,int configured)
+        {
+            var matches=System.Text.RegularExpressions.Regex.Matches(arguments??"",
+                expression,System.Text.RegularExpressions.RegexOptions.IgnoreCase|
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            if(matches.Count>1)return true;
+            if(matches.Count==0)return false;
+            return !int.TryParse(matches[0].Groups["port"].Value,out int value) ||
+                value is <1 or >65535 || value!=configured;
+        }
+        return Mismatched(map.Arguments,
+                   @"(?:^|[\s?])(?:-)?RCONPort\s*=\s*(?<port>\d+)(?=$|[\s?])",map.RconPort) ||
+               Mismatched(map.Arguments,
+                   @"(?:^|\s)-Port\s*=\s*(?<port>\d+)(?=$|\s)",map.GamePort);
+    }
+
     public static async Task<AsaReadinessSnapshot> ProbeAsync(ClusterService cluster,
         Guid mapId,CancellationToken cancellationToken=default)
     {
         if(cluster==null)throw new ArgumentNullException(nameof(cluster));
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId) ??
             throw new UnauthorizedAccessException("Only a registered local map can be probed");
+        if(HasPortConflict(map,cluster.Config.LocalMaps))
+            return Result(map,AsaRuntimeStage.Unconfigured,
+                "Conflicting local map/RCON port ownership; readiness probe refused");
+        if(DeclaredPortMismatch(map))
+            return Result(map,AsaRuntimeStage.Unconfigured,
+                "Launch arguments disagree with configured game or RCON port");
         return await ObserveAsync(map,()=>cluster.Check(map),
             async ct=>await RconProtocol.Execute(map.RconHost,map.RconPort,
                 SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",ct),
