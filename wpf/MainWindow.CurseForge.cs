@@ -17,7 +17,7 @@ public partial class MainWindow
             BorderBrush=Aqua };
         var query=new TextBox { Height=38,Foreground=Brushes.White,Background=Panel,
             BorderBrush=Aqua,Text="Shiny" };
-        var results=new ListBox { Height=260,Foreground=Brushes.White,Background=Panel,
+        var results=new ListBox { MaxHeight=250,MinHeight=72,Foreground=Brushes.White,Background=Panel,
             BorderBrush=Aqua,DisplayMemberPath="Name" };
         var detail=Label("Válassz modot a találati listából a részletekhez.",12,Soft);
         var paging=Label("Nincs lekérdezés.",12,Soft);

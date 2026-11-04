@@ -33,7 +33,7 @@ public partial class MainWindow
         var mode=new ComboBox{ItemsSource=new[]{"ACTIVE","PASSIVE","DISABLED","REMOVE"},
             SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
         var order=new TextBox{Text="",Height=30,Background=Panel,Foreground=Brushes.White};
-        var list=new ListBox{Height=180,Background=Panel,Foreground=Brushes.White};
+        var list=new ListBox{MaxHeight=180,MinHeight=52,Background=Panel,Foreground=Brushes.White};
         var status=Label("A módosítás kizárólag a helyi indítási konfigurációt érinti; nincs restart.",12,Soft);
         LocalMap Selected()
         {

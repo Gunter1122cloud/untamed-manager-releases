@@ -171,41 +171,52 @@
         </Setter.Value>
       </Setter>
     </Style>
+    <!-- Premium low-motion buttons: no focus jumps or scaling. -->
     <Style TargetType="Button" x:Key="ActionButton">
-  <Setter Property="Background" Value="#123B3D"/><Setter Property="Foreground" Value="White"/>
-  <Setter Property="FontFamily" Value="Segoe UI"/><Setter Property="FontSize" Value="14"/>
-  <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="BorderThickness" Value="1"/>
-  <Setter Property="BorderBrush" Value="#3CDACB"/><Setter Property="Padding" Value="21,13"/>
-  <Setter Property="Cursor" Value="Hand"/><Setter Property="Margin" Value="0,0,12,0"/>
-  <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#00D6C1" BlurRadius="10" Opacity="0.27" ShadowDepth="0"/></Setter.Value></Setter>
-  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-    <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10" RenderTransformOrigin="0.5,0.5">
-      <Border.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Border.RenderTransform>
-      <Grid><Border x:Name="Glow" Background="#39A0FFE9" CornerRadius="9" Opacity="0"/>
-      <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/></Grid>
-    </Border>
-    <ControlTemplate.Triggers>
-      <Trigger Property="IsMouseOver" Value="True">
-        <Trigger.EnterActions><BeginStoryboard><Storyboard>
-          <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity" To="0.43" Duration="0:0:0.17"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.04" Duration="0:0:0.18"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.04" Duration="0:0:0.18"/>
-        </Storyboard></BeginStoryboard></Trigger.EnterActions>
-        <Trigger.ExitActions><BeginStoryboard><Storyboard>
-          <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.2"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.2"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.2"/>
-        </Storyboard></BeginStoryboard></Trigger.ExitActions>
-      </Trigger>
-      <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.72"/></Trigger>
-    </ControlTemplate.Triggers>
-  </ControlTemplate></Setter.Value></Setter>
-</Style>
+      <Setter Property="Background" Value="#24393C"/>
+      <Setter Property="Foreground" Value="#E7F7F3"/>
+      <Setter Property="FontFamily" Value="Segoe UI"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="BorderBrush" Value="#43676A"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="14,10"/>
+      <Setter Property="MinHeight" Value="35"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0,0,9,5"/>
+      <Setter Property="FocusVisualStyle" Value="{StaticResource NavKeyboardFocus}"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Surface" Background="{TemplateBinding Background}"
+             BorderBrush="{TemplateBinding BorderBrush}"
+             BorderThickness="{TemplateBinding BorderThickness}"
+             CornerRadius="8" SnapsToDevicePixels="True">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+               RecognizesAccessKey="True" Margin="{TemplateBinding Padding}"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Surface" Property="BorderBrush" Value="#66C6B2"/>
+              <Setter TargetName="Surface" Property="Background" Value="#2B4B4A"/>
+              <Setter Property="Foreground" Value="White"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Surface" Property="Background" Value="#34675B"/>
+              <Setter TargetName="Surface" Property="BorderBrush" Value="#A0E8D2"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="Surface" Property="Opacity" Value="0.4"/>
+              <Setter Property="Cursor" Value="Arrow"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
     <Style TargetType="Button" x:Key="PrimaryAction" BasedOn="{StaticResource ActionButton}">
-      <Setter Property="Background" Value="#087848"/><Setter Property="BorderBrush" Value="#7AFFB7"/>
+      <Setter Property="Background" Value="#176A55"/><Setter Property="BorderBrush" Value="#6DD8B8"/>
     </Style>
     <Style TargetType="Button" x:Key="GoldAction" BasedOn="{StaticResource ActionButton}">
-      <Setter Property="Background" Value="#503C18"/><Setter Property="BorderBrush" Value="#EFC26C"/>
+      <Setter Property="Background" Value="#514229"/><Setter Property="BorderBrush" Value="#BDA16B"/>
     </Style>
     <Style TargetType="Border" x:Key="Panel">
       <Setter Property="Background" Value="#152025"/>

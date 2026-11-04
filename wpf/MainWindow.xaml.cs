@@ -326,8 +326,9 @@ public partial class MainWindow : Window
     }
     private void Add(UIElement e) => PageBody.Children.Add(e);
     private static ListBox List(IEnumerable<string> entries,int height=310) =>
-       new(){ ItemsSource=entries.ToArray(),Height=height,Foreground=Brushes.White,
-             Background=Panel,BorderThickness=new Thickness(0),FontSize=13,
+       new(){ ItemsSource=entries.ToArray(),MaxHeight=height,MinHeight=42,
+             Foreground=Brushes.White,Background=Panel,
+             BorderThickness=new Thickness(0),FontSize=12,
              Padding=new Thickness(8)};
 
     private void Servers()

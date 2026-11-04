@@ -20,45 +20,31 @@
   <Style x:Key="NavItem" TargetType="Button" BasedOn="{StaticResource NavButton}"/>
   <Style x:Key="MapCardButton" TargetType="Button">
    <Setter Property="Padding" Value="0"/>
-   <Setter Property="Margin" Value="0,0,13,14"/>
+   <Setter Property="Margin" Value="0,0,12,12"/>
    <Setter Property="BorderThickness" Value="0"/>
    <Setter Property="Background" Value="Transparent"/>
    <Setter Property="Cursor" Value="Hand"/>
-   <Setter Property="Effect">
-    <Setter.Value><DropShadowEffect Color="#00E6C0" BlurRadius="13" Opacity="0.19" ShadowDepth="0"/></Setter.Value>
-   </Setter>
+   <Setter Property="FocusVisualStyle" Value="{StaticResource NavKeyboardFocus}"/>
    <Setter Property="Template">
-    <Setter.Value>
-     <ControlTemplate TargetType="Button">
-      <Border x:Name="Card" Background="#0B2829" BorderBrush="#498F84" BorderThickness="1" CornerRadius="13" ClipToBounds="True" RenderTransformOrigin="0.5,0.5">
-       <Border.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Border.RenderTransform>
-       <Grid>
+    <Setter.Value><ControlTemplate TargetType="Button">
+      <Border x:Name="Card" Background="#18292D" BorderBrush="#3D6267"
+        BorderThickness="1" CornerRadius="12" ClipToBounds="True" SnapsToDevicePixels="True">
         <ContentPresenter/>
-        <Border x:Name="HoverGlow" BorderBrush="#7BF9D4" BorderThickness="2" CornerRadius="12" Opacity="0" IsHitTestVisible="False"/>
-       </Grid>
       </Border>
       <ControlTemplate.Triggers>
        <Trigger Property="IsMouseOver" Value="True">
-        <Setter TargetName="Card" Property="BorderBrush" Value="#90FFCF"/>
-        <Trigger.EnterActions>
-         <BeginStoryboard><Storyboard>
-          <DoubleAnimation Storyboard.TargetName="Card" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.032" Duration="0:0:0.18"/>
-          <DoubleAnimation Storyboard.TargetName="Card" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.032" Duration="0:0:0.18"/>
-          <DoubleAnimation Storyboard.TargetName="HoverGlow" Storyboard.TargetProperty="Opacity" To="0.75" Duration="0:0:0.18"/>
-         </Storyboard></BeginStoryboard>
-        </Trigger.EnterActions>
-        <Trigger.ExitActions>
-         <BeginStoryboard><Storyboard>
-          <DoubleAnimation Storyboard.TargetName="Card" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.20"/>
-          <DoubleAnimation Storyboard.TargetName="Card" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.20"/>
-          <DoubleAnimation Storyboard.TargetName="HoverGlow" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.20"/>
-         </Storyboard></BeginStoryboard>
-        </Trigger.ExitActions>
+        <Setter TargetName="Card" Property="BorderBrush" Value="#6DCCB7"/>
+        <Setter TargetName="Card" Property="Background" Value="#213B3D"/>
        </Trigger>
-       <Trigger Property="IsPressed" Value="True"><Setter TargetName="Card" Property="Opacity" Value="0.78"/></Trigger>
+       <Trigger Property="IsPressed" Value="True">
+        <Setter TargetName="Card" Property="BorderBrush" Value="#AFE8D4"/>
+        <Setter TargetName="Card" Property="Opacity" Value="0.88"/>
+       </Trigger>
+       <Trigger Property="IsEnabled" Value="False">
+        <Setter TargetName="Card" Property="Opacity" Value="0.4"/>
+       </Trigger>
       </ControlTemplate.Triggers>
-     </ControlTemplate>
-    </Setter.Value>
+    </ControlTemplate></Setter.Value>
    </Setter>
   </Style>
  </Window.Resources>

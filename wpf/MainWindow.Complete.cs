@@ -36,6 +36,22 @@ public partial class MainWindow
             throw new InvalidOperationException("Page did not render a title: "+page);
     }
 
+    public void VerifyNavigationUiCiSmoke()
+    {
+        var navigation=NavigationMenu.Children.OfType<System.Windows.Controls.Button>()
+            .Where(x=>x.Tag is string).ToArray();
+        if(navigation.Length<12)
+            throw new InvalidOperationException("Premium navigation lost page entries");
+        foreach(string page in new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","rcon"})
+        {
+            Navigate(page);
+            if(navigation.Count(NavSelection.GetIsCurrent)!=1 ||
+               !NavSelection.GetIsCurrent(navigation.Single(x=>(string)x.Tag==page)))
+                throw new InvalidOperationException("Navigation contains a stale or duplicate selected state: "+page);
+        }
+        Navigate("dashboard");
+    }
+
     public void VerifyCompleteManagerCiSmoke()
     {
         if(VersionBadge.Text!="WPF "+UiVersion)
@@ -48,6 +64,7 @@ public partial class MainWindow
                 throw new InvalidOperationException("Empty Release Candidate page: "+page);
         }
         VerifySignedPanelsCiSmoke();
+        VerifyNavigationUiCiSmoke();
         VerifyDemoUiCiSmoke();
         VerifyDashboardUiCiSmoke();
         Navigate("dashboard");
