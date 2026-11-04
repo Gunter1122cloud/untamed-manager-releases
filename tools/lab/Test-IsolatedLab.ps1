@@ -27,17 +27,18 @@ foreach($offset in @(8,16,32,72,79)){
 $linked=Join-Path $root 'linked';$target=Join-Path $root 'real';[IO.Directory]::CreateDirectory($target)|Out-Null
 New-Item -ItemType Junction -Path $linked -Target $target|Out-Null
 Refused {Assert-LabPath $root (Join-Path $linked 'disk.qcow2')} 'junction refused'
-$cmd=Join-Path $env:SystemRoot 'System32/cmd.exe'
-$short=[UntamedLab.WindowsLabJob]::Start($cmd,[string[]]@('/d','/c','exit 7'),$root,10,[UInt64]512MB)
+$powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+$exitSeven=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('exit 7'))
+$short=[UntamedLab.WindowsLabJob]::Start($powershell,[string[]]@('-NoProfile','-NonInteractive','-EncodedCommand',$exitSeven),$root,10,[UInt64]512MB)
 try{
     Assert ($short.CpuRate -eq 1000 -and $short.MemoryLimit -eq 512MB) 'native CPU and memory caps queried before resume'
-    Assert ($short.Wait(15000) -and $short.ExitCode -eq 7) 'suspended child assigned to job then exits with original code'
+    $finished=$short.Wait(20000)
+    Assert ($finished -and $short.ExitCode -eq 7) "suspended child assigned to job then exits with original code (actual $($short.ExitCode))"
 }finally{$short.Dispose()}
 $ready=Join-Path $root 'owned-ready'
 $escaped=$ready.Replace("'","''")
 $script="[IO.File]::WriteAllText('$escaped','ready');[Threading.Thread]::Sleep(60000)"
 $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
-$powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
 $long=[UntamedLab.WindowsLabJob]::Start($powershell,[string[]]@('-NoProfile','-NonInteractive','-EncodedCommand',$encoded),$root,10,[UInt64]512MB)
 $child=[Diagnostics.Process]::GetProcessById($long.ProcessId)
 try{
@@ -48,7 +49,7 @@ try{
     $long.Dispose()
     Assert ($child.WaitForExit(10000)) 'closing owned job terminates its child'
 }finally{$long.Dispose();$child.Dispose()}
-Refused {[UntamedLab.WindowsLabJob]::Start($cmd,[string[]]@('/d','/c','exit 0'),$root,11,[UInt64]512MB)} 'excessive CPU allocation rejected before creation'
+Refused {[UntamedLab.WindowsLabJob]::Start($powershell,[string[]]@('-NoProfile','-NonInteractive','-EncodedCommand',$exitSeven),$root,11,[UInt64]512MB)} 'excessive CPU allocation rejected before creation'
 Assert ([UntamedLab.WindowsLabJob]::Quote('a\') -eq '"a\\"') 'trailing slash quoted safely'
 Assert ([UntamedLab.WindowsLabJob]::Quote('a"b') -eq '"a\"b"') 'embedded quote escaped safely'
 Write-Output 'PASS lab policy and native resource helper; no VM or ASA was started'
