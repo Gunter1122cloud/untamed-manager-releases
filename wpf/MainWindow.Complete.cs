@@ -10,8 +10,8 @@ using Forms = System.Windows.Forms;
 
 namespace UntamedManager;
 
-// v1.4.0 release candidate: real local-only offline config and archives;
-// any real ASA, SQL, Kova Store or SteamCMD mutations are still gated.
+// The isolated MariaDB dump and empty-target restore live in the Backup page.
+// Full cluster SQL/ASA/Store recovery remains deliberately uncertified.
 public partial class MainWindow
 {
     public void VerifyCompleteManagerCiSmoke()
@@ -43,8 +43,9 @@ public partial class MainWindow
             Label("Ez nem automatikus import; az éles gépekhez nem kapcsolódunk.",12,Soft))));
         Add(Box(V(
             Label("3. Üzemeltetés előfeltételei",19,Mint,true),
-            Label("Éles ASA SaveWorld-igazolás: hiányzik. Store/SQL 1:1 adatkompatibilitás: nem bizonyított. "+
-                "A frissítés, Stop/Restart/Kill és adatbázis-restore továbbra is tiltva.",12,Soft),
+            Label("Éles ASA SaveWorld-igazolás és kétgépes Store-kompatibilitás még nem bizonyított. "+
+                "Valódi MariaDB-mentés és új, üres célra restore a Mentések oldalon elérhető; "+
+                "teljes clusterrestore, éles ASA Stop/Restart/Kill és SteamCMD-frissítés még nem engedélyezett.",12,Soft),
             Btn("Recovery Center megnyitása",()=>Navigate("recovery")),
             Btn("Mentésellenőrzés megnyitása",()=>Navigate("backups")),
             Btn("Cluster Vault / SQL központ",()=>Navigate("data")))));
@@ -54,14 +55,16 @@ public partial class MainWindow
     private void ShowDataSafetyCenter()
     {
         Header("Untamed Cluster Vault és SQL",
-            "Helyi exportok, Vault-archívumok és ellenőrzött mentésmásolatok. Nincs élő adatbázis-kapcsolat.");
+            "Offline Vault/SQL archívumok; valódi MariaDB-mentés és üres célra restore a Mentések oldalon.");
         Add(Label("MariaDB referencia: "+MariaDbCompatibility.DeploymentBaseline+
             ". A 11.4-es ág nem automatikus frissítési cél; dump/restore előtt a szerver és az eszközök verzióját külön igazolni kell.",12,Aqua));
         Add(Box(V(
             Label("Adatbiztonsági kapuk – Release Candidate",19,Mint,true),
-            Label("MariaDB SQL restore: TILTVA. Cluster Vault módosítás/konverzió: TILTVA. "+
-                "Karakter- és tribe-állományok módosítása: TILTVA. "+
-                "A csomagintegritás nem bizonyít éles ASA- vagy karaktertranszfer-kompatibilitást.",12,Soft))));
+            Label("Valódi MariaDB-dump és ellenőrzött új, üres célra történő SQL-restore: a Mentések oldalon. "+
+                "Meglévő SQL-adatbázis felülírása, teljes clusterrestore, Cluster Vault-konverzió "+
+                "és karakter/tribe módosítás továbbra sem engedélyezett. "+
+                "Az SQL-csomag épsége önmagában nem bizonyít karaktertranszfer-kompatibilitást.",12,Soft),
+            Btn("Valódi SQL-mentés és üres célra visszatöltés",()=>Navigate("backups")))));
         var database=new ComboBox{ItemsSource=OfflineSqlArchive.SupportedDatabases,
             SelectedIndex=0,Foreground=Brushes.White,Background=Panel};
         var selected=new TextBox{Height=34,IsReadOnly=true,
@@ -89,7 +92,7 @@ public partial class MainWindow
                     sqlStatus.Text=result.Database+": "+result.Bytes+" bájt; SHA-256 "+
                         result.Sha256+"\n"+result.Scope+"\nHelyi mentés: "+result.Package;
                 }
-                catch(Exception ex){sqlStatus.Text="SQL csomag megtagadva: "+ex.Message;
+                catch(Exception ex){sqlStatus.Text="SQL csomag megtagadva: "+UntamedPresentation.Redact(ex.Message);
                     WriteLog("offline-sql",ex);}
             }),
             Btn("Csomag integritásának újraellenőrzése",()=>{
@@ -99,9 +102,9 @@ public partial class MainWindow
                     var item=OfflineSqlArchive.Verify(recent,(string)database.SelectedItem,
                         Guid.Parse(_cluster.Config.LocalHostId));
                     sqlStatus.Text="SHA-256 OK: "+item.Sha256+
-                        "\nÉlő SQL mentés/restore továbbra sincs igazolva.";
+                        "\nEz csak offline csomag. A valódi MariaDB-műveletek a Mentések oldalon találhatók.";
                 }
-                catch(Exception ex){sqlStatus.Text="Csomag ellenőrzése sikertelen: "+ex.Message;}
+                catch(Exception ex){sqlStatus.Text="Csomag ellenőrzése sikertelen: "+UntamedPresentation.Redact(ex.Message);}
             }),
             Btn("SQL visszaállítás szimulálása (csak TEMP mappába)",()=>{
                 try
@@ -112,7 +115,7 @@ public partial class MainWindow
                     sqlStatus.Text="KIZÁRÓLAG OFFLINE SZIMULÁCIÓ: SHA-256 szerint ép fájl:\n"+
                         path+"\nValódi MariaDB import NEM történt.";
                 }
-                catch(Exception ex){sqlStatus.Text="Restore-szimuláció elutasítva: "+ex.Message;}
+                catch(Exception ex){sqlStatus.Text="Restore-szimuláció elutasítva: "+UntamedPresentation.Redact(ex.Message);}
             }),sqlStatus)));
         ShowClusterVaultArchiveCenter();
         ShowUntamedManagerArchiveAudit();
