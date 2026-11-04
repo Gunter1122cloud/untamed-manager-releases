@@ -14,6 +14,11 @@ public static class OperationSafetyTests
     public static async Task Run(string root)
     {
         string resource=Path.Combine(root,"coordinator-install");Directory.CreateDirectory(resource);
+        foreach(string alias in new[]{resource+".\\child",resource+" \\child",resource+":stream"})
+        {
+            bool denied=false;try{UntamedOperationCoordinator.ResourceKey(alias);}catch(InvalidDataException){denied=true;}
+            Check(denied,"operation path alias rejected before Windows normalization");
+        }
         var a=new UntamedOperationCoordinator(Path.Combine(root,"operations-a"));
         var b=new UntamedOperationCoordinator(Path.Combine(root,"operations-b"));
         using(var lease=a.Acquire(resource,UntamedOperationKind.Update))

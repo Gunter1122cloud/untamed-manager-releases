@@ -4,6 +4,14 @@ $ErrorActionPreference='Stop'
 function Assert-LabPath {
     param([string]$Root,[string]$Path)
     if(-not [IO.Path]::IsPathRooted($Root) -or -not [IO.Path]::IsPathRooted($Path) -or $Root.StartsWith('\\') -or $Path.StartsWith('\\')){throw 'Absolute local lab paths required'}
+    # Modern .NET can erase trailing dots during GetFullPath. Validate the
+    # supplied spelling before canonicalization, including the root itself.
+    foreach($inputPath in @($Root,$Path)){
+        if($inputPath -notmatch '^[A-Za-z]:[\\/]' -or $inputPath.Substring(3).Contains(':')){throw 'Drive-qualified local lab path required'}
+        foreach($part in ($inputPath.Substring(3) -split '[\\/]')){
+            if($part.EndsWith('.') -or $part.EndsWith(' ')){throw 'Lab path alias rejected'}
+        }
+    }
     $boundary=[IO.Path]::GetFullPath($Root).TrimEnd('\')
     $candidate=[IO.Path]::GetFullPath($Path)
     if(-not $candidate.StartsWith($boundary+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Path escapes dedicated lab root'}

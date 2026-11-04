@@ -39,6 +39,13 @@ public sealed class UntamedOperationCoordinator
         if(string.IsNullOrWhiteSpace(path)||!Path.IsPathFullyQualified(path)||
            path.StartsWith(@"\\")||path.StartsWith("//",StringComparison.Ordinal))
             throw new InvalidDataException("UNTAMED_LOCAL_PATH_REQUIRED");
+        if(path.Length<3||!char.IsAsciiLetter(path[0])||path[1]!=':'||
+           path[2] is not ('\\' or '/')||path[3..].Contains(':'))
+            throw new InvalidDataException("UNTAMED_LOCAL_PATH_REQUIRED");
+        // Windows GetFullPath may normalize away a trailing-dot component.
+        // Reject its original spelling before deriving the shared resource key.
+        foreach(string part in path[3..].Split(new[]{'\\','/'},StringSplitOptions.RemoveEmptyEntries))
+            if(part.EndsWith('.')||part.EndsWith(' '))throw new InvalidDataException("UNTAMED_PATH_ALIAS");
         string full=Path.GetFullPath(path);
         if(new DriveInfo(Path.GetPathRoot(full)!).DriveType!=DriveType.Fixed)
             throw new InvalidDataException("UNTAMED_FIXED_DISK_REQUIRED");
