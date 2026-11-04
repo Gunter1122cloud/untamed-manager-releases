@@ -136,7 +136,7 @@ public partial class MainWindow
             _=>"Untamed Manager · OFFLINE DEMO"
         },"Az alábbi adatok és gombok teljes egészében szimuláltak. Nincs ASA-, LAN-, Store- vagy adatbázismódosítás.");
         Add(Box(V(Label("◆  SZIMULÁCIÓ – NEM ÉLES ÁLLAPOT",17,Brushes.Gold,true),
-            Label("Három fiktív gép és hat map; minden adat és művelet kizárólag a memóriában él. A DEMO elhagyásával a módosítások eltűnnek.",12,Soft))));
+            Label("Három fiktív gép és tíz map; minden adat és művelet kizárólag a memóriában él. A DEMO elhagyásával a módosítások eltűnnek.",12,Soft))));
         switch(page)
         {
             case "servers": DemoServers();break;
@@ -238,6 +238,18 @@ public partial class MainWindow
                 demo.SetMod(map.Id,project.Text.Trim(),chosen);
             },result,"Modlista módosult",Update);
         }));
+        void MoveSelected(int direction)
+        {
+            if(mods.SelectedItem is not string selected)
+            { result.Text="[DEMO] Előbb válassz modot a listából.";return; }
+            var id=selected.Split(" · ",StringSplitOptions.None).Last();
+            RunDemo(()=>{
+                if(!demo.MoveMod(map.Id,id,direction))
+                    throw new InvalidOperationException("A mod már a sorrend szélén van.");
+            },result,"Modok sorrendje módosult",Update);
+        }
+        buttons.Children.Add(Btn("↑  Feljebb (DEMO)",()=>MoveSelected(-1)));
+        buttons.Children.Add(Btn("↓  Lejjebb (DEMO)",()=>MoveSelected(1)));
         Update();
         return V(Label("Modok / betöltési mód",17,Mint,true),
             Label("Aktív, passzív, tiltott és eltávolított módok; csak mintarekordok.",12,Soft),
@@ -317,7 +329,13 @@ public partial class MainWindow
                 status.Text=list.SelectedItem is string selected
                     ?"[DEMO] Restore-terv: "+selected+" · nem történik lemez-, SQL- vagy karakterírás."
                     :"Válassz minta-mentésrekordot.";
-            }),status);
+            }),
+             Btn("Kijelölt pillanatkép visszaállítása (DEMO)",()=>{
+                 if(list.SelectedItem is not string selected)
+                 { status.Text="[DEMO] Előbb válassz mentést a listából.";return; }
+                 RunDemo(()=>demo.Restore(map.Id,selected),status,
+                     "Szimulált map visszaállítva (csak memória)",Refresh);
+             }),status);
     }
     private UIElement DemoLogsPane(DemoMap map)=>V(
         Label("DEMO naplók",17,Mint,true),

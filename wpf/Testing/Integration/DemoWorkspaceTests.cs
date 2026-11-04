@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using UntamedManager.Core;
 
@@ -32,6 +33,25 @@ public static class DemoWorkspaceTests
         var saved=demo.Backup(map.Id);
         Check(saved.StartsWith("DEMO-") && map.Backups.Contains(saved),
             "backup entries cannot be confused with genuine files");
+        var savedCount=map.Mods.Count;
+        demo.SetMod(map.Id,"234567",DemoModMode.Active);
+        demo.TogglePlugin(map.Id,"ArkShop");
+        demo.SetIni(map.Id,"XPMultiplier","7.0");
+        Check(map.Mods.Count==savedCount+1 && map.Ini["XPMultiplier"]=="7.0",
+            "synthetic changes are visible before restore");
+        demo.Restore(map.Id,saved);
+        Check(map.Mods.Count==savedCount &&
+              map.Mods.All(x=>x.ProjectId!="234567") &&
+              !map.Plugins.Single(x=>x.Name=="ArkShop").Enabled &&
+              map.Ini["XPMultiplier"]=="4.0",
+            "restore rolls back mod, plugin and INI state in memory");
+        var firstMod=map.Mods[0].ProjectId;
+        Check(demo.MoveMod(map.Id,firstMod,1) && map.Mods[1].ProjectId==firstMod,
+            "simulated mod load order changes");
+        bool unknownBackupRejected=false;
+        try{demo.Restore(map.Id,"UNKNOWN-PRODUCTION-FILE");}
+        catch(KeyNotFoundException){unknownBackupRejected=true;}
+        Check(unknownBackupRejected,"restore rejects unknown backup names");
         demo.Restart(map.Id);
         Check(demo.Events.Any(x=>x.Contains("SaveWorld")),"restart is recorded as synthetic operation");
         demo.SetHostOnline(map.Host,false);

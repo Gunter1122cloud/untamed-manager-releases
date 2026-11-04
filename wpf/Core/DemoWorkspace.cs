@@ -37,6 +37,10 @@ public sealed class DemoWorkspace
     private readonly List<DemoHost> hosts=new();
     private readonly List<DemoMap> maps=new();
     private readonly List<string> events=new();
+    // All snapshots are private, in-memory DEMO data; never touch files or ASA.
+    private sealed record DemoSnapshot(bool Running,int Players,DemoMod[] Mods,
+        DemoPlugin[] Plugins,Dictionary<string,string> Ini);
+    private readonly Dictionary<Guid,Dictionary<string,DemoSnapshot>> snapshots=new();
     private readonly Dictionary<string,bool> schedules=new(StringComparer.OrdinalIgnoreCase)
     {
         ["Napi világmentés (DEMO)"]=true,
@@ -83,6 +87,7 @@ public sealed class DemoWorkspace
             map.Ini["TamingSpeedMultiplier"]="5.0";
             map.Ini["HarvestAmountMultiplier"]="3.0";
             map.Backups.Add("MINTA-2026-11-03-22-00 · csak DEMO");
+            Capture(map,map.Backups[0]);
             map.Logs.Add("[DEMO] Elkülönített mintanapló, valós ASA-napló nincs.");
             maps.Add(map);
         }
@@ -134,6 +139,19 @@ public sealed class DemoWorkspace
         if(mode.HasValue)map.Mods.Add(new DemoMod(projectId,mode.Value));
         Record(map.Name+" mod "+projectId+": "+(mode?.ToString()??"removed"));
     }
+    public bool MoveMod(Guid mapId,string projectId,int direction)
+    {
+        if(direction is not (-1 or 1))
+            throw new ArgumentOutOfRangeException(nameof(direction));
+        var map=Find(mapId);
+        int from=map.Mods.FindIndex(x=>x.ProjectId==projectId);
+        if(from<0)throw new KeyNotFoundException("Unknown DEMO mod");
+        int to=from+direction;
+        if(to<0||to>=map.Mods.Count)return false;
+        (map.Mods[from],map.Mods[to])=(map.Mods[to],map.Mods[from]);
+        Record(map.Name+": mod "+projectId+" betöltési sorrendje módosult (DEMO).");
+        return true;
+    }
     public void TogglePlugin(Guid mapId,string name)
     {
         var map=Find(mapId);
@@ -167,14 +185,41 @@ public sealed class DemoWorkspace
             return "[DEMO] Explorer-01: Üdv az Untamed Kingdom mintaclusterben!";
         return "[DEMO] SaveWorld visszaigazolás (NEM történt valódi mentés).";
     }
+    private void Capture(DemoMap map,string name)
+    {
+        if(!snapshots.TryGetValue(map.Id,out var perMap))
+            snapshots[map.Id]=perMap=new Dictionary<string,DemoSnapshot>(StringComparer.Ordinal);
+        perMap[name]=new DemoSnapshot(map.Running,map.Players,
+            map.Mods.ToArray(),map.Plugins.ToArray(),
+            new Dictionary<string,string>(map.Ini,StringComparer.OrdinalIgnoreCase));
+    }
     public string Backup(Guid mapId)
     {
         var map=Find(mapId);
         string name="DEMO-"+DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")+
-            " · memóriabeli minta";
+            "-"+Guid.NewGuid().ToString("N")[..6]+" · memóriabeli minta";
+        Capture(map,name);
         map.Backups.Insert(0,name);
-        Record(map.Name+": mentési rekord létrehozva (nincs lemez- vagy SQL-írás).");
+        Record(map.Name+": konfigurációs és állapotpillanatkép létrehozva (csak memória).");
         return name;
+    }
+    public void Restore(Guid mapId,string backupName)
+    {
+        var map=Find(mapId);
+        if(backupName==null||!map.Backups.Contains(backupName)||
+           !snapshots.TryGetValue(mapId,out var perMap)||
+           !perMap.TryGetValue(backupName,out var saved))
+            throw new KeyNotFoundException("Unknown DEMO backup snapshot");
+        // DEMO-only: no real files, processes, RCON, Store-v1 or SQL accessed.
+        map.Running=saved.Running;
+        map.Players=saved.Players;
+        map.Mods.Clear();map.Mods.AddRange(saved.Mods);
+        map.Plugins.Clear();map.Plugins.AddRange(saved.Plugins);
+        map.Ini.Clear();
+        foreach(var pair in saved.Ini)map.Ini[pair.Key]=pair.Value;
+        map.Logs.Add("[DEMO] Restore from "+backupName+" (memory only)");
+        Record(map.Name+": mintapillanatkép visszaállítva: "+backupName+
+            " (nincs lemez-, folyamat- vagy SQL-művelet).");
     }
     public void ToggleSchedule(string name)
     {
