@@ -52,7 +52,7 @@ public partial class MainWindow
             }
             catch(Exception ex)
             {
-                status.Text="Offline archívum nem készült el: "+ex.Message+
+                status.Text="UM-OFFLINE-BACKUP: a másolás nem fejeződött be."+
                     "\nFélbemaradt .incomplete könyvtárat kézzel kell megvizsgálni.";
                 WriteLog("offline-cluster-archive",ex);
             }
@@ -86,6 +86,33 @@ public partial class MainWindow
                 }
                 catch(Exception ex){status.Text="Archívum nem ellenőrizhető: "+
                     UntamedPresentation.Redact(ex.Message);}
+            }),
+            Btn("Félbeszakadt 37-elemes backupnapló ellenőrzése",async ()=>{
+                using var picker=new Forms.FolderBrowserDialog{
+                    Description="Válaszd ki a félbeszakadt .incomplete offline batch mappát"};
+                if(picker.ShowDialog()!=Forms.DialogResult.OK)return;
+                string selected=picker.SelectedPath;
+                string original=selected.EndsWith(".incomplete",
+                    StringComparison.OrdinalIgnoreCase)?
+                    selected[..^".incomplete".Length]:selected;
+                try
+                {
+                    var progress=await Task.Run(()=>
+                        ClusterBatchArchive.InspectInterrupted(original));
+                    status.Text=(progress.NeedsOperator?
+                        "T07 BACKUP – OPERÁTORI VIZSGÁLAT SZÜKSÉGES":
+                        "Nincs befejezetlen másolás")+
+                        "\nEllenőrzött fájlok: "+progress.VerifiedFiles+
+                        "\nBatch: "+(progress.BatchId?.ToString("N")??"nem igazolt")+
+                        "\n"+progress.Reason+
+                        "\nAutomatikus újraindítás vagy törlés: NINCS.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("offline-batch-progress",ex);
+                    status.Text="UM-BACKUP-JOURNAL: a másolás naplója nem ellenőrizhető. "+
+                        "Automatikus folytatás nincs.";
+                }
             }),
             Btn("10 map + 3 SQL visszaállítási PRÓBA – kizárólag izolált TEMP",async ()=>{
                 using var dialog=new Forms.FolderBrowserDialog{
