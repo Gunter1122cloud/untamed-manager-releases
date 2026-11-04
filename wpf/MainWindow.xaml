@@ -106,7 +106,7 @@
     <Rectangle Fill="#3B001D1B"/>
     <StackPanel VerticalAlignment="Bottom" Margin="10,0,10,10">
       <Border BorderBrush="#35D0A5" BorderThickness="1" Background="#D3052520" CornerRadius="8" Padding="8">
-       <TextBlock Text="◆  HELYI MANAGER" Foreground="#B8FFCE" FontWeight="SemiBold" FontSize="10" TextAlignment="Center"/>
+       <TextBlock x:Name="ModeFooterText" Text="◆  HELYI MANAGER" Foreground="#B8FFCE" FontWeight="SemiBold" FontSize="10" TextAlignment="Center"/>
       </Border>
       <TextBlock Text="Store-írás tiltva   •   helyi Supervisor" Foreground="#D8F5ED" FontSize="10" Margin="3,8,0,0"/>
     </StackPanel>
@@ -121,6 +121,8 @@
       <TextBlock Text="Windows WPF alkalmazás · helyi felügyelet · hitelesített LAN-státusz" FontSize="11" Foreground="#8BBAB3" Margin="0,5,0,0"/>
      </StackPanel>
      <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
+      <TextBlock x:Name="DemoModeIndicator" Text="CSAK DEMO · NINCS VALÓDI MŰVELET" FontSize="11" FontWeight="Bold" Foreground="#FFD28C" Margin="0,0,12,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+      <Button x:Name="DemoToggle" Content="▶  OFFLINE DEMO" Style="{StaticResource GoldAction}" Padding="12,8" Margin="0,0,10,0" Click="DemoMode_Click" AutomationProperties.Name="Offline DEMO mód be- és kikapcsolása"/>
       <Border Background="#203F3B" CornerRadius="8" Padding="13,8" Margin="0,0,10,0"><TextBlock x:Name="VersionBadge" Text="WPF" Foreground="#73DDC8" FontSize="11"/></Border>
       <Border Background="#433122" CornerRadius="8" Padding="13,8"><TextBlock x:Name="SupervisorBadge" Text="Supervisor: ellenőrzés" Foreground="#F4BB78" FontSize="11"/></Border>
      </StackPanel>

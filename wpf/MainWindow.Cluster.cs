@@ -28,7 +28,7 @@ public partial class MainWindow
     {
         // No automatic map discovery or import. Only local maps explicitly saved by the user.
         RefreshDashboardMapCards();
-        if (!App.IsSmokeTest && !App.IsSupervisionTest) _ = BeginClusterNetworkingAsync();
+        if (!App.IsSmokeTest && !App.IsSupervisionTest && !App.IsDemoStart) _ = BeginClusterNetworkingAsync();
     }
     private async Task BeginClusterNetworkingAsync()
     {
@@ -38,6 +38,11 @@ public partial class MainWindow
             while(!_peerCts.IsCancellationRequested)
             {
                 try {
+                    if(_demo!=null)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(12),_peerCts.Token);
+                        continue;
+                    }
                     bool wasFresh=_cluster.RemoteIsFresh;
                     await _cluster.PollPeerAsync(_peerCts.Token);
                     if(wasFresh!=_cluster.RemoteIsFresh)try{_events?.Append(_cluster.Config.LocalHostName,null,_cluster.RemoteIsFresh?"Information":"Warning",_cluster.RemoteIsFresh?"lan-peer-connected":"lan-peer-stale");}catch{}
@@ -61,6 +66,7 @@ public partial class MainWindow
     }
     private void RefreshDashboardMapCards()
     {
+        if(_demo!=null)return; // keep production observations off the DEMO dashboard
         // Preserve the existing visual template, replacing only the data source and status.
         var images=_maps.ToDictionary(x=>x.Name,StringComparer.OrdinalIgnoreCase);
         var active = new List<MapInfo>();
@@ -139,6 +145,7 @@ public partial class MainWindow
     private async void DashboardRefresh_Click(object sender,RoutedEventArgs e)
     {
         if(sender is not Button button || !button.IsEnabled)return;
+        if(_demo!=null){RenderDemoDashboard();return;}
         button.IsEnabled=false;
         try
         {

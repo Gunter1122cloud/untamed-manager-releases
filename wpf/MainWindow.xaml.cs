@@ -26,9 +26,10 @@ public sealed class MapInfo
 {
     public Guid Id { get; init; }
     public bool IsRemote { get; init; }
+    public bool IsDemo { get; init; }
     public bool IsFresh { get; init; }
-    public string SourceBadge => !IsRemote ? "HELYI" : IsFresh ? "LAN · FRISS" : "LAN · ELAVULT";
-    public Brush BadgeForeground => IsRemote && !IsFresh ? Brushes.Orange : Brushes.Aquamarine;
+    public string SourceBadge => IsDemo ? "DEMO" : !IsRemote ? "HELYI" : IsFresh ? "LAN · FRISS" : "LAN · ELAVULT";
+    public Brush BadgeForeground => IsDemo ? Brushes.Gold : IsRemote && !IsFresh ? Brushes.Orange : Brushes.Aquamarine;
     public string Name { get; init; } = "";
     public string Host { get; init; } = "";
     public int? ModCount { get; init; }
@@ -138,6 +139,7 @@ public partial class MainWindow : Window
         UpdateNavSelection("dashboard");
         if (!App.IsSmokeTest) SetupTray();
         StartClusterUi();
+        if(App.IsDemoStart)EnterDemoMode();
     }
 
     private void SetupTray()
@@ -220,6 +222,12 @@ public partial class MainWindow : Window
     {
         if (sender is Button button && button.Tag is MapInfo map)
         {
+            if(_demo!=null)
+            {
+                _demoSelectedId=map.Id;
+                Navigate("servers");
+                return;
+            }
             _selected = map;
             Navigate(map.IsRemote ? "cluster" : "servers");
         }
@@ -263,9 +271,15 @@ public partial class MainWindow : Window
         UpdateNavSelection(page);
         Dashboard.Visibility=page=="dashboard" ? Visibility.Visible : Visibility.Collapsed;
         OtherPage.Visibility=page=="dashboard" ? Visibility.Collapsed : Visibility.Visible;
-        if (page=="dashboard") { Dashboard.ScrollToTop(); return; }
+        if (page=="dashboard")
+        {
+            if(_demo!=null)RenderDemoDashboard();
+            Dashboard.ScrollToTop();
+            return;
+        }
         PageBody.Children.Clear();
         OtherPage.ScrollToTop();
+        if(_demo!=null){ShowDemoPage(page);return;}
         switch(page)
         {
             case "servers": ShowLocalServerPage(); break;

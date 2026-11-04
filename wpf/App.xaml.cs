@@ -27,6 +27,7 @@ public partial class App : System.Windows.Application
     }
     public static string ProfileName { get; private set; } = "default";
     public static bool IsSmokeTest { get; private set; }
+    public static bool IsDemoStart { get; private set; }
     public static bool IsSupervisionTest { get; private set; }
     public static string? ProfileRootOverride { get; private set; }
     public static readonly string LogDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"UntamedManager","WPF");
@@ -52,7 +53,12 @@ public partial class App : System.Windows.Application
             ProfileRootOverride=root;
         }
         IsSmokeTest = Array.Exists(e.Args, a => a == "--smoke-test" || a == "--screenshot-test");
-        if(!IsSmokeTest && !IsSupervisionTest && !e.Args.Contains("--update-verified"))
+        IsDemoStart = e.Args.Contains("--demo") && !IsSmokeTest && !IsSupervisionTest;
+        if(IsDemoStart)
+            ProfileRootOverride=Path.Combine(Path.GetTempPath(),
+                "Untamed-Manager-Demo-"+Environment.ProcessId+"-"+Guid.NewGuid().ToString("N"));
+
+        if(!IsSmokeTest && !IsSupervisionTest && !IsDemoStart && !e.Args.Contains("--update-verified"))
         {
             try
             {

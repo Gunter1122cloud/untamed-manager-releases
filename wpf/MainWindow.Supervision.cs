@@ -24,7 +24,7 @@ public partial class MainWindow
         _supervisorTimer.Tick+=(_,_)=>RefreshSupervision();
         Loaded+=(_,_)=>
         {
-            if(App.IsSmokeTest)return;
+            if(App.IsSmokeTest || App.IsDemoStart || _demo!=null)return;
             try
             {
                 if(!File.Exists(_cluster.Store.FilePath))_cluster.Save();
@@ -43,7 +43,7 @@ public partial class MainWindow
     }
     private void RefreshSupervision()
     {
-        if(_supervisorChannel==null)return;
+        if(_demo!=null || _supervisorChannel==null)return;
         try
         {
             var snapshot=_supervisorChannel.Read(_cluster.Config.LocalHostId);

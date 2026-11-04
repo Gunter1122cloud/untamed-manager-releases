@@ -17,12 +17,12 @@ public partial class MainWindow
     private void InitializeAutomaticUpdates()
     {
         _updateTimer.Tick+=async(_,_)=>await AutomaticUpdateCheck();
-        Loaded+=async(_,_)=>{if(!App.IsSmokeTest&&!App.IsSupervisionTest){_updateTimer.Start();await AutomaticUpdateCheck();}};
+        Loaded+=async(_,_)=>{if(!App.IsSmokeTest&&!App.IsSupervisionTest&&!App.IsDemoStart&&_demo==null){_updateTimer.Start();await AutomaticUpdateCheck();}};
         Closed+=(_,_)=>_updateTimer.Stop();
     }
     private async Task AutomaticUpdateCheck()
     {
-        if(_checkingUpdates)return;
+        if(_checkingUpdates || _demo!=null || App.IsDemoStart)return;
         _checkingUpdates=true;
         try
         {
