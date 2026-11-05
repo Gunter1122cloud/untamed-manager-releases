@@ -152,18 +152,39 @@ public partial class App : System.Windows.Application
                 foreach(string page in pages)
                 {
                     window.PrepareScreenshotPage(page);
-                    content.Width=width;content.Height=height;
-                    content.Measure(new Size(width,height));
-                    content.Arrange(new Rect(0,0,width,height));
-                    content.UpdateLayout();
-                    window.Dispatcher.Invoke(() => { },DispatcherPriority.Render);
-                    // The CI virtual desktop can be smaller than the requested
-                    // window. Capture only the actually arranged WPF client area:
-                    // no black, invented padding outside the rendered app.
-                    int actualWidth=Math.Max(1,(int)Math.Ceiling(content.RenderSize.Width));
-                    int actualHeight=Math.Max(1,(int)Math.Ceiling(content.RenderSize.Height));
-                    var bitmap=new RenderTargetBitmap(actualWidth,actualHeight,96,96,PixelFormats.Pbgra32);
-                    bitmap.Render(content);
+                    // The GitHub runner's virtual screen can be smaller than the
+                    // requested viewport (e.g. 1024x768). Rendering the attached
+                    // Window content captures the HWND viewport clip and produces
+                    // a misleading black 600px strip on 1600px screenshots.
+                    // Temporarily detach the already-initialized view from its
+                    // native HWND, lay it out at the exact target size and render
+                    // the real WPF visual tree offscreen. Reattach after capture.
+                    RenderTargetBitmap bitmap;
+                    window.Content=null;
+                    try
+                    {
+                        content.Width=width;content.Height=height;
+                        content.Measure(new Size(width,height));
+                        content.Arrange(new Rect(0,0,width,height));
+                        content.UpdateLayout();
+                        window.Dispatcher.Invoke(() => { },DispatcherPriority.Render);
+                        bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
+                        bitmap.Render(content);
+                        // The matte root must fill the entire bitmap. Never
+                        // accept a screenshot with a black virtual-screen crop.
+                        byte[] pixel=new byte[4];
+                        bitmap.CopyPixels(new Int32Rect(width-3,height-3,1,1),pixel,4,0);
+                        if(pixel[3]<200 || (pixel[0]<6&&pixel[1]<6&&pixel[2]<6))
+                            throw new InvalidOperationException(
+                                "WPF screenshot captured an incomplete viewport at "+width+"x"+height);
+                    }
+                    finally
+                    {
+                        content.Width=double.NaN;
+                        content.Height=double.NaN;
+                        window.Content=content;
+                        window.UpdateLayout();
+                    }
                     var png=new PngBitmapEncoder();
                     png.Frames.Add(BitmapFrame.Create(bitmap));
                     string path=page=="dashboard"?dashboardShotPath:
