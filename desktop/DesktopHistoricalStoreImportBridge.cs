@@ -79,9 +79,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     var selected=historical.Maps.SingleOrDefault(x=>x.Id==launchMapId);
                     if(selected==null || !selected.ExistingStoreActive)
                         return Fail(id,"UM-HISTORICAL-MAP-NOT-FOUND");
-                    var (_,active,passive)=ReadVerifiedLaunchRow(launchArchive,launchMapId);
+                    var (_,launchActive,launchPassive)=ReadVerifiedLaunchRow(launchArchive,launchMapId);
                     var evidence=HistoricalLaunchEvidenceInspector.Inspect(
-                        command,selected.MapId,selected.GamePort,selected.QueryPort,active,passive);
+                        command,selected.MapId,selected.GamePort,selected.QueryPort,launchActive,launchPassive);
                     if(Digest(launchArchive)!=archiveHash)
                         return Fail(id,"UM-HISTORICAL-ARCHIVE-CHANGED");
                     return Ok(id,evidence);
