@@ -120,8 +120,7 @@ export function PremiumDashboard({snapshot,onServers,onCluster,onSelect}:Props){
     <section className="hero premium-dashboard-banner">
       <div className="premium-banner-content">
         <span className="premium-kicker">UNTAMED KINGDOM / CLUSTER OVERVIEW</span>
-        <h1>Áttekintés</h1>
-        <p>Szerverüzemeltetés · {snapshot.local.hostName} ·
+        <p className="premium-overview-subtitle">Szerverüzemeltetés · {snapshot.local.hostName} ·
           {snapshot.remote?" kétgépes LAN-megfigyelés":" helyi Manager"}</p>
       </div>
       <span className="premium-banner-mark" aria-hidden="true">UNTAMED <b>MANAGER</b></span>
