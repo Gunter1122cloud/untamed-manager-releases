@@ -41,3 +41,13 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 .log-warning .log-level{color:#f1d185}.log-error .log-level{color:#ffaaa8}
 .log-message{white-space:pre-wrap;overflow-wrap:anywhere;color:#d3e7dd;font-family:Consolas,"Cascadia Code",monospace;line-height:1.55}
 @media(max-width:830px){.log-toolbar{align-items:stretch}.log-select-label{flex:1}.log-list{max-height:380px}.installation-row{flex-wrap:wrap}.port-strip strong{font-size:20px}}
+
+.settings-state{display:flex;align-items:flex-start;gap:13px;padding:15px;border:1px solid #345653;background:#173330;border-radius:9px;margin:3px 0 18px}
+.settings-state svg{color:#8bebc6;flex-shrink:0}.settings-state strong{font-size:15px}
+.settings-state p{margin:8px 0 0;line-height:1.5}
+.settings-form{display:flex;flex-direction:column;gap:12px;max-width:720px;margin-bottom:18px}
+.settings-form label{font-size:12px;color:#acd7c9;font-weight:650}.settings-form input{width:100%;padding:13px;border:1px solid #3b655a;color:#e4f7ef;background:#10282b;border-radius:9px}
+.settings-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.secondary{background:#2a3f43;color:#d4e8e2;padding:10px 15px;border:1px solid #52726c;border-radius:9px;font-size:12px}
+.secondary:hover{background:#355450}
+.success-inline{display:flex;align-items:center;gap:9px;padding:12px;border-radius:8px;background:#174134;border:1px solid #43856b;color:#9cf4be;font-size:12px}

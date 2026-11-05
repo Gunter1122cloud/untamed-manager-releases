@@ -29,9 +29,15 @@ test.beforeEach(async ({ page }) => {
       },
       peerMessage: ""
     };
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number }) => {
+    let keySaved = false;
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string }) => {
       switch (m.method) {
         case "dashboard.snapshot": return state;
+        case "curseforge.credentialStatus": return {configured:keySaved};
+        case "curseforge.credentialSave":
+          if(!m.credential || m.credential.length<3) throw new Error("invalid");
+          keySaved = true; return {configured:true,verifiedNow:true};
+        case "curseforge.credentialClear": keySaved=false;return {configured:false,verifiedNow:false};
         case "mods.configured": return {mapId: m.mapId, mapName: "The Island", pending: false, active: ["123456"], passive: ["789012"], disabled: [], evidence:"CONFIGURED_ONLY"};
         case "plugins.inventory": return {mapId:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
@@ -124,4 +130,22 @@ test("Steam installation preflight and redacted log center are read-only and fil
   await page.getByRole("textbox", {name:"Keresés a naplóban"}).fill("no match");
   await expect(page.getByText("Nincs a szűrőnek megfelelő naplósor.")).toBeVisible();
   await page.screenshot({path:"test-results/log-center-filter-1366.png",fullPage:true});
+});
+
+test("credential settings keeps API secret hidden and only saves on explicit submission", async ({page}) => {
+  await page.goto("/");
+  await page.getByRole("button",{name:"Beállítások"}).click();
+  await expect(page.getByRole("heading",{name:"Beállítások"})).toBeVisible();
+  await expect(page.getByText("Nincs beállított API-kulcs")).toBeVisible();
+  const secret = page.getByLabel("CurseForge API-kulcs (nem kerül megjelenítésre)");
+  await expect(secret).toHaveAttribute("type","password");
+  await secret.fill("synthetic-credential-for-ui-test");
+  await page.getByRole("button",{name:"Kulcs ellenőrzése és mentése"}).click();
+  await expect(page.getByText("API-kulcs helyileg beállítva")).toBeVisible();
+  await expect(secret).toHaveValue("");
+  await expect(page.getByText("synthetic-credential-for-ui-test")).toHaveCount(0);
+  await page.getByRole("button",{name:"Mentett kulcs törlése"}).click();
+  await expect(page.getByRole("button",{name:"Megerősítés: kulcs törlése"})).toBeVisible();
+  await page.getByRole("button",{name:"Megerősítés: kulcs törlése"}).click();
+  await expect(page.getByText("Nincs beállított API-kulcs")).toBeVisible();
 });

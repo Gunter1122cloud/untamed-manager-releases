@@ -78,6 +78,8 @@ export type SuggestedPorts = {
   evidence: "PROFILE_ONLY_NO_NETWORK_PROBE";
 };
 
+export type CurseForgeCredentialStatus = { configured: boolean; verifiedNow?: boolean };
+
 export type ConfiguredMods = {
   mapId: string;
   mapName: string;
@@ -88,7 +90,9 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search" | "plugins.inventory" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts"; mapId?: string; term?: string; page?: number };
+type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search" | "plugins.inventory" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
+  "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear";
+  mapId?: string; term?: string; page?: number; credential?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -132,4 +136,7 @@ export const managerBridge = {
   logTail: (mapId: string) => request<LogTail>("logs.read", { mapId }),
   steamInstallations: () => request<SteamInstallations>("steam.installations"),
   suggestedPorts: () => request<SuggestedPorts>("servers.suggestPorts"),
+  curseForgeKeyStatus: () => request<CurseForgeCredentialStatus>("curseforge.credentialStatus"),
+  saveCurseForgeKey: (credential: string) => request<CurseForgeCredentialStatus>("curseforge.credentialSave", { credential }),
+  clearCurseForgeKey: () => request<CurseForgeCredentialStatus>("curseforge.credentialClear"),
 };
