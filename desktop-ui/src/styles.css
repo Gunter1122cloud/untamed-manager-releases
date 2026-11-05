@@ -131,3 +131,54 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 .import-preview svg{flex-shrink:0}.import-preview b{font-size:13px}
 .import-preview p{color:#c0dbd1;font-size:12px;margin:6px 0 0;line-height:1.5}
 @media(max-width:880px){.import-form{grid-template-columns:1fr}}
+
+/* Obsidian Mod Galaxy: intentional high-contrast project reading surface.
+   Both columns scroll naturally at low desktop heights; text never clipped. */
+.cf-filters{display:grid;grid-template-columns:minmax(235px,2fr) minmax(150px,1fr) minmax(152px,1fr) auto auto;
+  align-items:end;gap:11px;margin:0 0 18px}
+.cf-filters label{display:flex;flex-direction:column;gap:7px;min-width:0;font-size:11px;color:#a9cbbf;font-weight:600}
+.cf-filters select{height:44px;width:100%;min-width:0;border:1px solid #426b63;border-radius:8px;background:#142f34;color:#e8fff6;padding:8px 11px}
+.cf-input{height:44px;width:100%;display:flex;align-items:center;gap:10px;background:#132f32;border:1px solid #427166;border-radius:8px;padding:0 12px;color:#85c9ad}
+.cf-input input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:#eafff4;font-size:13px}
+.cf-filters>button{min-height:44px;white-space:nowrap}
+.cf-order{background:#1d3f3e;color:#a5eccc;border:1px solid #447769;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:700}
+.cf-feed-tabs{display:flex;gap:8px;overflow-x:auto;scrollbar-width:thin;border-bottom:1px solid #335c53;padding:0 0 12px;margin-bottom:12px}
+.cf-feed-tabs button{padding:11px 15px;white-space:nowrap;background:#1a3237;border:1px solid #335552;border-radius:8px;color:#bdddd1;font-size:12px;font-weight:650}
+.cf-feed-tabs button.active{background:#174a3c;border-color:#65ae82;color:#aef6cd}
+.cf-results-head{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid #395c55;padding:6px 1px 12px;margin-bottom:12px;font-size:12px;color:#a8cfc0}
+.cf-galaxy{display:grid;grid-template-columns:minmax(265px,.92fr) minmax(0,1.28fr);gap:17px;align-items:start}
+.cf-catalog-pane{min-width:0;max-height:660px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#4e786e #183037;border:1px solid #345951;background:#0f262b;border-radius:12px;padding:8px}
+.cf-result{display:flex;align-items:center;gap:12px;width:100%;min-height:79px;padding:11px 12px;text-align:left;color:#e7fbf2;background:transparent;border:1px solid transparent;border-bottom:1px solid #294c48;border-radius:8px;transition:background .15s,border-color .15s}
+.cf-result:hover{background:#1c3e39;border-color:#4a796a}.cf-result.selected{background:#194837;border-color:#62af82}
+.cf-result img,.cf-mod-fallback{flex-shrink:0;width:55px;height:55px;object-fit:cover;border-radius:9px;border:1px solid #426e60;background:#1a3b3f}
+.cf-mod-fallback{display:grid;place-items:center;color:#82d2ae}
+.cf-result-copy{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1}
+.cf-result-copy strong{font-size:12px;line-height:1.3;white-space:normal;overflow-wrap:anywhere}
+.cf-result-copy small{font-size:10px;color:#afc8c0;overflow-wrap:anywhere}
+.cf-chevron{flex-shrink:0;opacity:.45}.cf-result.selected .cf-chevron{opacity:1;color:#89efbe}
+.cf-project-pane{min-width:0;border:1px solid #345950;background:linear-gradient(130deg,#143636,#0d2229);
+  border-radius:12px;padding:20px 21px;max-height:760px;overflow-y:auto;overscroll-behavior:contain}
+.cf-project-pane h3{font-size:23px;line-height:1.2;overflow-wrap:anywhere;margin:12px 0;color:#f0fff8}
+.cf-tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.cf-tags span{background:#215143;border:1px solid #3d8969;color:#b3f1d0;border-radius:20px;padding:5px 9px;font-size:10px}
+.cf-summary{color:#c6e1d7;font-size:12px;line-height:1.65}
+.cf-description{background:#0f2529;border-left:3px solid #62b88e;color:#cae1d8;font-size:12px;
+  line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;max-height:165px;overflow-y:auto;padding:12px;margin:11px 0 17px}
+.cf-screenshots{display:flex;gap:9px;overflow-x:auto;margin:14px 0;scrollbar-width:thin}
+.cf-screenshots img{max-width:200px;width:38%;height:100px;min-width:100px;object-fit:cover;border-radius:8px;border:1px solid #4b7964}
+.cf-file-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0 8px;border-bottom:1px solid #34594e;padding-bottom:9px}
+.cf-file-header h4{font-size:13px;margin:0;color:#ecfff4}.cf-file-header span{font-size:11px;color:#9bc5b2}
+.cf-files{display:flex;flex-direction:column;gap:7px;max-height:290px;overflow-y:auto}
+.cf-file{padding:10px;border:1px solid #315a4e;background:#102f30;border-radius:8px;
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 12px}
+.cf-file>div{display:flex;flex-direction:column;gap:6px;min-width:0}
+.cf-file b{font-size:11px;overflow-wrap:anywhere}.cf-file small{font-size:10px;color:#afc9c0;line-height:1.5}
+.cf-file .mod-tag{align-self:start;white-space:nowrap;font-size:10px}
+.cf-versions,.cf-deps{grid-column:1/-1;overflow-wrap:anywhere}
+.cf-more{width:100%;margin:10px 0}.cf-project-actions{margin:15px 0}
+.cf-project-actions button{display:inline-flex;align-items:center;gap:8px}
+@media(max-width:1550px){.cf-filters{grid-template-columns:minmax(240px,2fr) minmax(155px,1fr) minmax(155px,1fr)}
+.cf-filters>.cf-order{justify-self:stretch}.cf-filters>.primary{justify-self:stretch}}
+@media(max-width:1080px){.cf-galaxy{grid-template-columns:1fr}.cf-catalog-pane{max-height:360px}.cf-project-pane{max-height:none}}
+@media(max-width:830px){.cf-filters{grid-template-columns:1fr 1fr}.cf-search{grid-column:1/-1}
+.cf-filters>.cf-order,.cf-filters>.primary{width:100%}}

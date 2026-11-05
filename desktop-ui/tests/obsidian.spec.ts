@@ -40,7 +40,7 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; modId?: number }) => {
       switch (m.method) {
         case "servers.inspectLocal": return {importToken:"00000000-0000-4000-8000-000000009999",name:m.name||"The Island",folderName:"ASA-LAB",exeFound:true,apiLoaderDetected:false,portsConfigured:false,evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"};
         case "servers.importLocal":
@@ -68,9 +68,39 @@ test.beforeEach(async ({ page }) => {
         case "steam.installations": return {evidence:"READ_ONLY_STEAM_INSTALLATION_PREFLIGHT",installations:[{id:0,maps:["The Island","Astraeos"],executablePresent:true,installedSteamBuild:"123456",updateBlocked:true,reason:"Read-only test fixture: upgrade blocked"}]};
         case "servers.suggestPorts": return {game:7797,query:27035,rcon:37035,evidence:"PROFILE_ONLY_NO_NETWORK_PROBE"};
         case "logs.read": return {mapId:m.mapId,mapName:"The Island",lastModifiedUtc:"2026-11-05T12:00:00Z",totalBytes:1900,truncated:false,evidence:"SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH",lines:[{number:1,level:"info",content:"Synthetic ASA startup line"},{number:2,level:"error",content:"Synthetic failure detected"}]};
-        case "curseforge.search": return {
+        case "curseforge.categories": return {
+          evidence:"OFFICIAL_ASA_CATEGORY_METADATA",
+          categories:[{id:101,name:"Structures",isClass:false,parentCategoryId:0},{id:102,name:"Creatures",isClass:false,parentCategoryId:0}]
+        };
+        case "curseforge.featured": return {
+          evidence:"OFFICIAL_ASA_FEATURED_METADATA",gameId:1234,
+          featured:[{id:123456,name:"Featured Mod",summary:"Synthetic featured mod",website:null,
+            thumbnailUrl:null,authors:["Lab"],categories:["Structures"],screenshots:[],isAvailable:true,
+            latestFile:"v1.0",modifiedUtc:null,downloadCount:650}],
+          popular:[],recentlyUpdated:[]
+        };
+        case "curseforge.project": return {
+          evidence:"OFFICIAL_ASA_PROJECT_METADATA_ONLY",
+          mod:{id:m.modId||123456,name:(m.modId===123456?"Example Search Result":"Featured Mod"),
+            summary:"Synthetic detailed description",website:null,thumbnailUrl:null,authors:["Lab"],
+            categories:["Structures"],screenshots:[],isAvailable:true,latestFile:"v2.0",
+            modifiedUtc:null,downloadCount:1000},
+          description:"Synthetic provider description, inert plain text",
+          files:[{fileId:11111,name:"Example provider file",published:"2026-11-01T10:00:00Z",
+            available:true,sizeBytes:125000,gameVersions:["ASA"],
+            dependencies:[{modId:456789,type:"RequiredDependency"}],
+            distributionState:"File available"}],
+          filesTotal:30,filesHasMore:true
+        };
+        case "curseforge.files": return {
+          evidence:"OFFICIAL_ASA_FILE_METADATA_ONLY",modId:m.modId||123456,
+          page:m.page||0,hasMore:false,totalCount:30,
+          files:[{fileId:22222,name:"Example older version",published:null,
+            available:true,sizeBytes:200000,gameVersions:["ASA"],dependencies:[],distributionState:"File available"}]
+        };
+        case "curseforge.browse": return {
           gameId: 1234,totalCount: 25,page:m.page||0,hasMore:false,evidence:"OFFICIAL_CATALOG_METADATA_ONLY",
-          mods:[{id:123456,name:"Example Search Result",summary:"Synthetic catalog response for UI test",website:null,thumbnailUrl:null,authors:["Lab"],latestFile:null,modifiedUtc:null,downloadCount:15}]
+          mods:[{id:123456,name:"Example Search Result",summary:"Synthetic catalog response for UI test",website:null,thumbnailUrl:null,authors:["Lab"],categories:["Structures"],screenshots:[],isAvailable:true,latestFile:null,modifiedUtc:null,downloadCount:15}]
         };
       }
       throw new Error("Denied");
@@ -255,4 +285,26 @@ test("local ASA import wizard requires preview and confirmation, then refreshes 
   await expect(page.getByText(/bekerült a helyi Manager profiljába/)).toBeVisible();
   await expect(page.getByRole("row",{name:/Genesis Part 1/})).toBeVisible();
   await page.screenshot({path:"test-results/map-import-1600.png",fullPage:true});
+});
+
+test("CurseForge official Galaxy browses categories, projects, versions, and pre-fills guarded mod editor", async ({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await expect(page.getByText("CurseForge ASA Mod Galaxy")).toBeVisible();
+  await expect(page.getByRole("tab",{name:"Kiemelt modok"})).toBeVisible();
+  await expect(page.getByText("Featured Mod").first()).toBeVisible();
+  await page.getByRole("combobox",{name:"CurseForge kategória"}).selectOption("101");
+  await page.getByRole("combobox",{name:"CurseForge rendezés"}).selectOption("2");
+  await page.getByRole("textbox",{name:"CurseForge mod keresése"}).fill("Shiny");
+  await page.getByRole("button",{name:"Keresés",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Example Search Result"})).toBeVisible();
+  await expect(page.getByText("Synthetic provider description, inert plain text")).toBeVisible();
+  await expect(page.getByText("Example provider file")).toBeVisible();
+  await expect(page.getByText(/456789 \(RequiredDependency\)/)).toBeVisible();
+  await page.getByRole("button",{name:"További fájlverziók"}).click();
+  await expect(page.getByText("Example older version")).toBeVisible();
+  await page.getByRole("button",{name:/Projekt ID előkészítése/}).click();
+  await expect(page.getByRole("textbox",{name:"Modprojekt ID"})).toHaveValue("123456");
+  await page.screenshot({path:"test-results/curseforge-galaxy-1600.png",fullPage:true});
 });
