@@ -319,7 +319,7 @@ public sealed class CurseForgeCatalog
     private static IReadOnlyList<string> Names(JsonElement root,string name,int cap)
     {
         if(!root.TryGetProperty(name,out var values) ||
-           values.ValueKind!=JsonValueKind.Array)return Array.Empty<string>();
+           values.ValueKind!=JsonValueKind.Array)return System.Array.Empty<string>();
         return values.EnumerateArray().Take(cap).Select(x=>Str(x,"name"))
             .Where(x=>!string.IsNullOrWhiteSpace(x) && x!.Length<=120 &&
                 !x.Any(char.IsControl)).Select(x=>x!).Distinct(StringComparer.Ordinal)
@@ -328,7 +328,7 @@ public sealed class CurseForgeCatalog
     private static IReadOnlyList<string> Strings(JsonElement root,string name,int cap)
     {
         if(!root.TryGetProperty(name,out var values) ||
-           values.ValueKind!=JsonValueKind.Array)return Array.Empty<string>();
+           values.ValueKind!=JsonValueKind.Array)return System.Array.Empty<string>();
         return values.EnumerateArray().Take(cap)
             .Where(x=>x.ValueKind==JsonValueKind.String)
             .Select(x=>x.GetString())
