@@ -269,7 +269,13 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Áttekintés" })).toBeVisible();
   await expect(page.locator(".premium-metrics .premium-metric")).toHaveCount(4);
+  await expect(page.getByRole("region",{name:"Szervergaléria"})).toBeVisible();
+  await expect(page.getByRole("button",{name:/The Island szerver megnyitása/})).toBeVisible();
+  await expect(page.getByLabel(/Ragnarok távoli megfigyelés/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Kártyák"})).toHaveAttribute("aria-pressed","true");
+  await page.getByRole("button",{name:"Lista"}).click();
   await expect(page.getByRole("table",{name:"Cluster szerverlista"})).toBeVisible();
+  await page.getByRole("button",{name:"Kártyák"}).click();
   await expect(page.locator(".premium-dashboard-grid")).toBeVisible();
   const mapArt=page.locator(".premium-map-cover.premium-map-island").first();
   await expect(mapArt).toBeVisible();
