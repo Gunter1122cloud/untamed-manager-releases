@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -17,9 +18,12 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopReadOnlyBridge _bridge = new();
     private readonly DesktopCredentialBridge _credentials = new();
     private bool _reallyExit;
+    private readonly bool _smokeTest;
+    private bool _smokeCompleted;
 
-    public ObsidianWindow()
+    public ObsidianWindow(bool smokeTest = false)
     {
+        _smokeTest = smokeTest;
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
@@ -130,14 +134,60 @@ public sealed class ObsidianWindow : Form
                 if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
                     _browser.CoreWebView2.PostWebMessageAsJson(response);
             };
+            if (_smokeTest)
+                core.NavigationCompleted += async (_, args) =>
+                    await CompleteNativeSmokeAsync(args.IsSuccess);
             core.Navigate(AppOrigin + "/index.html");
         }
         catch (Exception)
         {
+            if (_smokeTest) { FailNativeSmoke(); return; }
             MessageBox.Show(this,
                 "A helyi felület nem indítható. Ellenőrizd a WebView2 Runtime-ot és a csomagolt ui könyvtárat. A szerverekhez nem nyúltunk.",
                 "Untamed Desktop — UM-WEBVIEW-START", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+
+    private async Task CompleteNativeSmokeAsync(bool navigationSucceeded)
+    {
+        if (_smokeCompleted) return;
+        _smokeCompleted = true;
+        try
+        {
+            if (!navigationSucceeded) throw new InvalidOperationException("Offline WebView2 navigation failed");
+            // Isolated Windows CI only: prove that the actual packaged native
+            // WebView2 rendered React, rather than relying on a Vite build.
+            await Task.Delay(1200);
+            string loaded = await _browser.CoreWebView2.ExecuteScriptAsync(
+                "Boolean(document.querySelector('.app-layout'))");
+            if (loaded.Trim() != "true")
+                throw new InvalidOperationException("Packaged React root was not mounted");
+            string? shot = Environment.GetEnvironmentVariable("UNTAMED_OBSIDIAN_CAPTURE_PATH");
+            if (!string.IsNullOrWhiteSpace(shot))
+            {
+                var path = Path.GetFullPath(shot);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                await using (var output = new FileStream(path, FileMode.Create, FileAccess.Write))
+                {
+                    await _browser.CoreWebView2.CapturePreviewAsync(
+                        CoreWebView2CapturePreviewImageFormat.Png, output);
+                }
+                if (new FileInfo(path).Length < 8000)
+                    throw new InvalidOperationException("WebView2 screenshot was empty");
+            }
+            Environment.ExitCode = 0;
+            _reallyExit = true;
+            Close();
+        }
+        catch (Exception) { FailNativeSmoke(); }
+    }
+
+    private void FailNativeSmoke()
+    {
+        Environment.ExitCode = 1;
+        _reallyExit = true;
+        if (!IsDisposed) Close();
     }
 
     private static bool IsAppUrl(string? raw)
