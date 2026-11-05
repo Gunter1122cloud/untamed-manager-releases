@@ -796,7 +796,7 @@ public partial class MainWindow
         {
             using var picker=new System.Windows.Forms.FolderBrowserDialog{
                 Description="Válaszd ki a helyi ASA telepítési gyökérkönyvtárát",
-                ShowNewFolderButton=false
+                ShowNewFolderButton=true
             };
             if(Directory.Exists(input.Text))picker.SelectedPath=input.Text;
             if(picker.ShowDialog()==System.Windows.Forms.DialogResult.OK)
@@ -845,7 +845,7 @@ public partial class MainWindow
         var installMode=new ComboBox {
             ItemsSource=new[]{"Meglévő ASA-szerver felvétele (adatmegőrző)",
                 "Új ASA-szerver automatikus telepítése SteamCMD-vel"},
-            SelectedIndex=0,IsEnabled=existing==null,
+            SelectedIndex=existing==null?1:0,IsEnabled=existing==null,
             Margin=new Thickness(0,7,0,14),MinHeight=38
         };
         location.Children.Add(Label("Telepítési mód",13,Aqua,true));
@@ -864,7 +864,7 @@ public partial class MainWindow
                 _cluster.Config.SteamCmdExecutable,"exe");
         var downloadSteam=new CheckBox{
             Content="Ha hiányzik, hivatalos Valve SteamCMD ZIP letöltése (HTTPS)",
-            Margin=new Thickness(0,1,0,12),IsChecked=false
+            Margin=new Thickness(0,1,0,12),IsChecked=existing==null
         };
         location.Children.Add(downloadSteam);
         var retryFresh=new CheckBox{
@@ -1048,6 +1048,7 @@ public partial class MainWindow
         var cancel=Btn("Mégse",()=>dialog.DialogResult=false);
         Button saveButton=null!;
         bool installInProgress=false;
+        SteamFreshInstallReceipt? downloadedInstall=null;
         dialog.Closing+=(_,e)=>{
             // A multi-GB SteamCMD child must not keep writing after the
             // operator closes the WPF dialog without a recoverable journal.
@@ -1062,7 +1063,9 @@ public partial class MainWindow
                         var exeText=fields["Szerver EXE teljes elérési útja"].Text.Trim();
                         if(Fresh())
                         {
-                            // Check local ports BEFORE starting a multi-GB download.
+                            // Registering a downloaded ASA profile requires ports; downloading itself does not.
+                            if(downloadedInstall==null)
+                                throw new InvalidOperationException("Előbb az 1. lépésben töltsd le a szervert SteamCMD-vel.");
                             if(!int.TryParse(fields["Game UDP port"].Text,out int preGame) ||
                                !int.TryParse(fields["Query UDP port"].Text,out int preQuery) ||
                                !int.TryParse(fields["RCON TCP port"].Text,out int preRcon) ||
@@ -1082,24 +1085,12 @@ public partial class MainWindow
                                     "Új szerveren az RCON-monitoringhoz admin jelszó szükséges.");
                             var args=AsaSteamMapCatalog.LaunchArguments(
                                 name,sessionBox.Text.Trim(),preGame,preQuery);
-                            var request=new SteamFreshInstallRequest(
-                                map.Id,name,sessionBox.Text.Trim(),root,
-                                steamCmdExe.Text.Trim(),
-                                downloadSteam.IsChecked==true,retryFresh.IsChecked==true);
-                            var progress=new Progress<SteamInstallProgress>(info=>{
-                                installStatus.Text=info.Stage+" · "+info.Detail;
-                                validationHints.Foreground=Aqua;
-                                validationHints.Text="SteamCMD: "+info.Stage+" · "+info.Detail;
-                                steamProgress.IsIndeterminate=info.Percent is null;
-                                if(info.Percent is double pct)
-                                    steamProgress.Value=Math.Clamp(pct,0,100);
-                            });
-                            installInProgress=true;
-                            previous.IsEnabled=false;next.IsEnabled=false;
-                            cancel.IsEnabled=false;
-                            steamProgress.Visibility=Visibility.Visible;
-                            var receipt=await SteamFreshInstall.InstallAsync(
-                                request,_cluster.Config.LocalMaps.ToArray(),progress);
+                            var receipt=downloadedInstall!;
+                            if(receipt.MapId!=map.Id ||
+                               !string.Equals(receipt.InstallationRoot,root,StringComparison.OrdinalIgnoreCase) ||
+                               !string.Equals(receipt.SteamCmdExecutable,Path.GetFullPath(steamCmdExe.Text.Trim()),StringComparison.OrdinalIgnoreCase) ||
+                               !string.Equals(receipt.MapLevel,AsaSteamMapCatalog.LevelFor(name),StringComparison.Ordinal))
+                                throw new InvalidDataException("A letöltés óta megváltozott a map, a SteamCMD vagy a telepítési mappa. Importáld a már letöltött szervert.");
                             // SteamCMD has exited and all install receipts are
                             // verified; no further background filesystem writer exists.
                             installInProgress=false;
@@ -1196,6 +1187,82 @@ public partial class MainWindow
                         steamProgress.Visibility=Visibility.Collapsed;
                     }
                 });
+        // Download from step 1, without the EXE or any Game/Query/RCON ports.
+        // Registration remains a separate operator action on step 5.
+        var downloadProgress=new ProgressBar{
+            Height=12,Minimum=0,Maximum=100,IsIndeterminate=true,
+            Visibility=Visibility.Collapsed,Margin=new Thickness(0,6,0,9),
+            Foreground=Aqua,Background=Panel};
+        Button downloadButton=null!;
+        downloadButton=Btn("ASA szerverfájlok letöltése SteamCMD-vel",async()=>{
+            if(!Fresh() || installInProgress || downloadedInstall!=null)return;
+            string name,root,steamExe;
+            try
+            {
+                name=LocalMapNameRules.Normalize(names.Text);
+                _=AsaSteamMapCatalog.LaunchArguments(name,sessionBox.Text.Trim(),7777,27015);
+                root=Path.GetFullPath(installRoot.Text.Trim());
+                steamExe=Path.GetFullPath(steamCmdExe.Text.Trim());
+                if(WinMessageBox.Show(
+                    "Valódi ASA 2430930 letöltés indulhat (több GB).\\nMap: "+name+
+                    "\\nMappa: "+root+"\\nSteamCMD: "+steamExe+
+                    "\\nA szerver nem indul el. A portokat később kell megadni.",
+                    "ASA telepítés",MessageBoxButton.YesNo,
+                    MessageBoxImage.Question)!=MessageBoxResult.Yes)return;
+            }
+            catch(Exception ex)
+            {
+                installStatus.Text="Nem indítható a letöltés: "+
+                    UntamedPresentation.Redact(ex.Message);
+                return;
+            }
+            installInProgress=true;
+            downloadButton.IsEnabled=false;
+            previous.IsEnabled=false;next.IsEnabled=false;
+            cancel.IsEnabled=false;saveButton.IsEnabled=false;
+            downloadProgress.Visibility=Visibility.Visible;
+            try
+            {
+                var request=new SteamFreshInstallRequest(
+                    map.Id,name,sessionBox.Text.Trim(),root,steamExe,
+                    downloadSteam.IsChecked==true,retryFresh.IsChecked==true);
+                var progress=new Progress<SteamInstallProgress>(info=>{
+                    installStatus.Text=info.Stage+" · "+info.Detail;
+                    downloadProgress.IsIndeterminate=info.Percent==null;
+                    if(info.Percent is double pct)
+                        downloadProgress.Value=Math.Clamp(pct,0,100);
+                });
+                var receipt=await SteamFreshInstall.InstallAsync(
+                    request,_cluster.Config.LocalMaps.ToArray(),progress);
+                downloadedInstall=receipt;
+                serverExe.Text=receipt.ServerExecutable;
+                installStatus.Text="ASA letöltve; Steam Build: "+
+                    (receipt.BuildId??"ismeretlen")+
+                    ". A szerver még nem indult el. Folytasd a portbeállításokkal.";
+                showStep?.Invoke(1);
+            }
+            catch(Exception ex)
+            {
+                WriteLog("steam-fresh-download",ex);
+                installStatus.Text="A telepítés nem igazolható: "+
+                    UntamedPresentation.Redact(ex.Message)+
+                    ". Félbeszakadt telepítésnél kézi újrapróbálás szükséges.";
+            }
+            finally
+            {
+                installInProgress=false;
+                previous.IsEnabled=stepIndex>0;
+                next.IsEnabled=true;cancel.IsEnabled=true;
+                downloadButton.IsEnabled=downloadedInstall==null;
+                downloadProgress.Visibility=Visibility.Collapsed;
+            }
+        });
+        location.Children.Add(downloadProgress);
+        location.Children.Add(downloadButton);
+        downloadButton.Visibility=Fresh()?Visibility.Visible:Visibility.Collapsed;
+        installMode.SelectionChanged+=(_,_)=>{
+            downloadButton.Visibility=Fresh()?Visibility.Visible:Visibility.Collapsed;
+        };
         saveButton.Style=(Style)System.Windows.Application.Current.Resources["PrimaryAction"];
         saveButton.MinWidth=112;
         buttons.Children.Add(previous);
@@ -1250,8 +1317,10 @@ public partial class MainWindow
                 bool goodGame=int.TryParse(fields["Game UDP port"].Text,out int gp) && gp>0 && gp<=65535;
                 bool goodQuery=int.TryParse(fields["Query UDP port"].Text,out int qp) && qp>0 && qp<=65535;
                 bool goodRcon=int.TryParse(fields["RCON TCP port"].Text,out int rp) && rp>0 && rp<=65535;
+                if(Fresh() && downloadedInstall==null)
+                    problems.Add("Előbb az 1. lépésben töltsd le az ASA szerverfájlokat.");
                 if(!goodGame || !goodQuery || !goodRcon)
-                    problems.Add("Game, Query és RCON: 1–65535 közötti port szükséges.");
+                    problems.Add("A regisztrációhoz 1–65535 közötti Game, Query és RCON port kell; letöltéshez nem.");
                 else
                 {
                     var previewMap=new LocalMap{Id=map.Id,Name=names.Text,
@@ -1272,13 +1341,13 @@ public partial class MainWindow
                             sessionBox.Text.Trim(),gp,qp);
                         if(chosenRoot.Length==0 || !Path.IsPathFullyQualified(chosenRoot))
                             problems.Add("Új ASA gyökér: teljes helyi elérési út szükséges.");
-                        else if(Directory.Exists(chosenRoot) &&
+                        else if(downloadedInstall==null && Directory.Exists(chosenRoot) &&
                                 Directory.EnumerateFileSystemEntries(chosenRoot).Any() &&
                                 retryFresh.IsChecked!=true)
                             problems.Add("Új szerver könyvtára nem üres; importáld meglévőként, vagy ellenőrizd a félbeszakadt telepítést.");
                         if(steamCmdExe.Text.Length==0)
                             problems.Add("SteamCMD teljes elérési útja szükséges.");
-                        else if(!File.Exists(steamCmdExe.Text) && downloadSteam.IsChecked!=true)
+                        else if(downloadedInstall==null && !File.Exists(steamCmdExe.Text) && downloadSteam.IsChecked!=true)
                             problems.Add("SteamCMD hiányzik; pipáld be a hivatalos letöltést vagy válassz meglévőt.");
                         if(apiStart.IsChecked==true)
                             problems.Add("Friss telepítésnél az ASA API loader csak utólag, ellenőrzés után engedélyezhető.");
