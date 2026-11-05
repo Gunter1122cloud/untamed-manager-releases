@@ -183,13 +183,18 @@ public sealed class ObsidianWindow : Form
         try
         {
             if (!navigationSucceeded) throw new InvalidOperationException("Offline WebView2 navigation failed");
-            // Isolated Windows CI only: prove that the actual packaged native
-            // WebView2 rendered React, rather than relying on a Vite build.
-            await Task.Delay(1200);
-            string loaded = await _browser.CoreWebView2.ExecuteScriptAsync(
-                "Boolean(document.querySelector('.app-layout'))");
-            if (loaded.Trim() != "true")
-                throw new InvalidOperationException("Packaged React root was not mounted");
+            // A mounted React root alone is not proof that the native host
+            // answered its first dashboard request. Wait for real, displayed
+            // local data; do not accept a spinner/empty shell screenshot.
+            string loaded = "\"loading\"";
+            for (int attempt = 0; attempt < 70; attempt++)
+            {
+                loaded = await _browser.CoreWebView2.ExecuteScriptAsync(
+                    "document.querySelector('.hero') ? 'ready' : " +
+                    "(document.querySelector('.error-banner') ? 'error' : 'loading')");
+                if (loaded is "\"ready\"" or "\"error\"") break;
+                await Task.Delay(350);
+            }
             string? shot = Environment.GetEnvironmentVariable("UNTAMED_OBSIDIAN_CAPTURE_PATH");
             if (!string.IsNullOrWhiteSpace(shot))
             {
@@ -203,6 +208,12 @@ public sealed class ObsidianWindow : Form
                 if (new FileInfo(path).Length < 8000)
                     throw new InvalidOperationException("WebView2 screenshot was empty");
             }
+            // Native screenshot may exist even when the bridge failed. Mark
+            // the CI red unless the user-visible, data-driven hero appeared.
+            if (loaded != "\"ready\"")
+                throw new InvalidOperationException(
+                    loaded == "\"error\"" ? "Native dashboard reports bridge error"
+                                            : "Native dashboard never completed loading");
             Environment.ExitCode = 0;
             _reallyExit = true;
             Close();
