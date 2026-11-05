@@ -18,6 +18,8 @@ namespace UntamedDesktop;
 public sealed class DesktopSteamFreshInstallBridge : IDisposable
 {
     private readonly ClusterService cluster;
+    private readonly Func<SteamFreshInstallRequest,LocalMap[],
+        IProgress<SteamInstallProgress>?,CancellationToken,Task<SteamFreshInstallReceipt>> runner;
     private readonly SemaphoreSlim serial = new(1,1);
     private readonly object stateGate = new();
     private readonly Dictionary<Guid,Prepared> prepared = new();
@@ -48,8 +50,14 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
         public void Report(SteamInstallProgress update)=>onReport(update);
     }
 
-    public DesktopSteamFreshInstallBridge(ClusterService source) =>
+    public DesktopSteamFreshInstallBridge(ClusterService source,
+        Func<SteamFreshInstallRequest,LocalMap[],IProgress<SteamInstallProgress>?,
+            CancellationToken,Task<SteamFreshInstallReceipt>>? runner=null)
+    {
         cluster=source ?? throw new ArgumentNullException(nameof(source));
+        this.runner=runner ?? ((request,maps,progress,ct) =>
+            SteamFreshInstall.InstallAsync(request,maps,progress,ct));
+    }
 
     public async Task<string> HandleAsync(string raw)
     {
@@ -292,7 +300,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     job.Percent=item.Percent is >=0 and <=100?item.Percent:null;
                 }
             });
-            var receipt=await SteamFreshInstall.InstallAsync(
+            var receipt=await runner(
                 request,cluster.Config.LocalMaps.ToArray(),progress,job.Cancellation.Token);
             lock(stateGate)
             {
