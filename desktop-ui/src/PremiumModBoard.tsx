@@ -3,7 +3,9 @@ import {
   AlertTriangle, ArrowDownUp, CheckCircle2, ChevronDown, Filter, GripVertical,
   Layers3, Package, Plus, Search, Shield, SlidersHorizontal
 } from "lucide-react";
-import {managerBridge,type ConfiguredMods,type CurseForgeProject,type ModDraftMode} from "./bridge";
+import {managerBridge,type ConfiguredMods,type CurseForgeMod,type CurseForgeProject,type ModDraftMode} from "./bridge";
+
+const officialSummaryCache=new Map<string,CurseForgeMod>();
 
 export type ConfiguredRow={
   id:string;position:number;mode:"active"|"passive"|"disabled";
@@ -23,6 +25,7 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
   const [details,setDetails]=useState<CurseForgeProject|null>(null);
   const [loadingDetail,setLoadingDetail]=useState(false);
   const [detailMessage,setDetailMessage]=useState("");
+  const [summaries,setSummaries]=useState<Record<string,CurseForgeMod>>({});
   const [orderDesc,setOrderDesc]=useState(false);
   const rows=useMemo<ConfiguredRow[]>(()=>{
     if(!info)return [];
@@ -35,13 +38,43 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
   const visible=useMemo(()=>{
     const needle=term.trim().toLocaleLowerCase("hu-HU");
     const filtered=rows.filter(r=>(filter==="all"||r.mode===filter)&&
-      (!needle||r.id.includes(needle)||details?.mod?.id===Number(r.id)&&
-        details.mod.name.toLocaleLowerCase("hu-HU").includes(needle)));
+      (!needle||r.id.includes(needle)||
+         summaries[r.id]?.name.toLocaleLowerCase("hu-HU").includes(needle)||
+         (details?.mod?.id===Number(r.id)&&details.mod.name.toLocaleLowerCase("hu-HU").includes(needle))));
     return orderDesc?[...filtered].reverse():filtered;
-  },[term,filter,rows,orderDesc,details]);
+  },[term,filter,rows,orderDesc,details,summaries]);
   useEffect(()=>{
     setSelected(null);setTerm("");setFilter("all");setDetails(null);setDetailMessage("");
   },[mapName]);
+  useEffect(()=>{
+    // Bounded best-effort metadata enrichment. The local configuration is
+    // authoritative; absence of a CurseForge API key or network does not
+    // cause a blank Mod Center or introduce invented titles.
+    let active=true;
+    const ids=[...new Set(rows.map(r=>r.id))].slice(0,8);
+    const present:Record<string,CurseForgeMod>={};
+    for(const id of ids){const found=officialSummaryCache.get(id);if(found)present[id]=found;}
+    setSummaries(present);
+    const load=async()=>{
+      if(!ids.some(id=>!officialSummaryCache.has(id)))return;
+      try{
+        const key=await managerBridge.curseForgeKeyStatus();
+        if(!key.configured||!active)return;
+      }catch{return;}
+      for(const id of ids){
+        if(!active)return;
+        if(officialSummaryCache.has(id))continue;
+        try{
+          const response=await managerBridge.catalogSummary(Number(id));
+          if(!active)return;
+          officialSummaryCache.set(id,response.mod);
+          setSummaries(old=>({...old,[id]:response.mod}));
+        }catch{return;}
+      }
+    };
+    void load();
+    return()=>{active=false;};
+  },[rows]);
   useEffect(()=>{
     if(rows.length && (!selected||!rows.some(r=>r.id===selected)))setSelected(rows[0].id);
     if(!rows.length)setSelected(null);
@@ -59,6 +92,7 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
     return()=>{active=false;};
   },[selected]);
   const focus=rows.find(r=>r.id===selected)??null;
+  const selectedMeta=(selected?summaries[selected]:null)||details?.mod;
   const status=(mode:ConfiguredRow["mode"])=>mode==="active"?"Aktív":mode==="passive"?"Passzív":"Letiltva";
   return <>
     <div className="premium-mod-toolbar">
@@ -111,12 +145,12 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
               onClick={()=>setSelected(row.id)} aria-label={row.id+" mod részletei"}>
               <span className="premium-mod-drag" aria-hidden="true"><GripVertical size={15}/></span>
               <span className="premium-mod-ordinal">{i+1}</span>
-              {selected===row.id&&details?.mod.thumbnailUrl?
-                <img className="premium-mod-thumb" src={details.mod.thumbnailUrl}
+              {(selected===row.id?details?.mod.thumbnailUrl:null)||summaries[row.id]?.thumbnailUrl?
+                <img className="premium-mod-thumb" src={summaries[row.id]?.thumbnailUrl||details!.mod.thumbnailUrl!}
                   alt="" loading="lazy" referrerPolicy="no-referrer"/>:
                 <span className="premium-mod-thumb placeholder"><Package size={23}/></span>}
               <span className="premium-mod-identity">
-                <b>{selected===row.id&&details?.mod.name?details.mod.name:"Projekt · "+row.id}</b>
+                <b>{summaries[row.id]?.name||(selected===row.id?details?.mod.name:null)||"Projekt · "+row.id}</b>
                 <small>CurseForge ID: {row.id} · helyi konfiguráció</small>
               </span>
             </button>
@@ -138,20 +172,20 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
       </section>
       <aside className="premium-panel premium-mod-details">
         <header className="premium-panel-heading"><h2><SlidersHorizontal size={19}/>
-          {details?.mod.name|| (selected?"Mod részletei":"Válassz modot")}
+          {selectedMeta?.name|| (selected?"Mod részletei":"Válassz modot")}
         </h2></header>
         {focus?<div className="premium-mod-details-body">
           <div className="premium-mod-feature">
-            {details?.mod.thumbnailUrl?<img src={details.mod.thumbnailUrl}
+            {selectedMeta?.thumbnailUrl?<img src={selectedMeta.thumbnailUrl}
               alt="" loading="lazy" referrerPolicy="no-referrer"/>:
               <span className="premium-mod-feature-icon"><Package size={34}/></span>}
-            <div><h3>{details?.mod.name||"Projekt · "+focus.id}</h3>
-              <small>{details?.mod.authors?.join(", ")||"CurseForge projekt"} · ID: {focus.id}</small>
+            <div><h3>{selectedMeta?.name||"Projekt · "+focus.id}</h3>
+              <small>{selectedMeta?.authors?.join(", ")||"CurseForge projekt"} · ID: {focus.id}</small>
             </div>
           </div>
           {loadingDetail&&<p className="premium-small-muted">Hivatalos modadatok betöltése...</p>}
           {detailMessage&&<div className="premium-mod-advisory"><AlertTriangle size={14}/>{detailMessage}</div>}
-          <p className="premium-mod-description">{details?.mod.summary||
+          <p className="premium-mod-description">{selectedMeta?.summary||
             "A mod a helyi indítási konfigurációban szerepel. A részletes leírás az érvényes CurseForge API-kapcsolaton keresztül érhető el."}</p>
           <div className="premium-mod-mode-heading">Célállapot · piszkozat előkészítése</div>
           <div className="premium-mod-mode-pills">
@@ -163,7 +197,7 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
           <div className="premium-mod-facts">
             <div><span>Helyi állapot</span><b>{status(focus.mode)}</b></div>
             <div><span>Modpozíció</span><b>{focus.mode==="disabled"?"—":focus.position+1}</b></div>
-            <div><span>CurseForge verzió</span><b>{details?.mod.latestFile||"Nem ismert"}</b></div>
+            <div><span>CurseForge verzió</span><b>{selectedMeta?.latestFile||"Nem ismert"}</b></div>
             <div><span>Függőségek</span><b>{details?.files?.[0]?.dependencies.length ?? "Nem ellenőrzött"}</b></div>
             <div><span>Telepített fájlok</span><b>Nem ellenőrzött</b></div>
           </div>
