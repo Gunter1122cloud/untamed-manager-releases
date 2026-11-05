@@ -1,5 +1,3 @@
-import type {CSSProperties} from "react";
-
 /** Original offline 10-map visual atlas; no telemetry is inferred from imagery. */
 const mapThemes:Record<string,string>={
   "the island":"island","the center":"center","scorched earth":"desert",
