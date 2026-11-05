@@ -263,9 +263,9 @@ public partial class MainWindow
             Label("Állapot",12,Aqua),actions,inventory,
             Label("DLL / fájlverzió / SHA-256",12,Aqua),binaries,advancedInfo));
         var layout=new Grid {Margin=new Thickness(0,0,0,3)};
-        layout.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(7,GridUnitType.Star),MinWidth=390});
+        layout.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(7,GridUnitType.Star),MinWidth=340});
         layout.ColumnDefinitions.Add(new ColumnDefinition {
-            Width=new GridLength(3,GridUnitType.Star),MinWidth=245});
+            Width=new GridLength(3,GridUnitType.Star),MinWidth=225});
         Grid.SetColumn(left,0);
         Grid.SetColumn(right,1);
         layout.Children.Add(left);

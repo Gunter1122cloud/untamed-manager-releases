@@ -277,8 +277,8 @@ public partial class MainWindow
             }),
             Label("Mentés előtt minden eltérést az alsó műveleti sávban kell jóváhagyni. Szerver újraindítás nem történik.",11,Soft));
         var main=new Grid {Margin=new Thickness(0,2,0,10)};
-        main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=390});
-        main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=245});
+        main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=340});
+        main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=225});
         var leftSurface=Box(left);
         var rightSurface=Box(right);
         Grid.SetColumn(leftSurface,0);Grid.SetColumn(rightSurface,1);

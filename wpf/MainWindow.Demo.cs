@@ -376,8 +376,8 @@ public partial class MainWindow
             Btn("↑  Előrébb a sorrendben",()=>Attempt(()=>Move(-1))),
             Btn("↓  Hátrébb a sorrendben",()=>Attempt(()=>Move(1))));
         var grid=new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=390});
-        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=245});
+        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=340});
+        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=225});
         var leftBox=Box(left);var rightBox=Box(right);
         Grid.SetColumn(rightBox,1);
         grid.Children.Add(leftBox);grid.Children.Add(rightBox);
@@ -501,8 +501,8 @@ public partial class MainWindow
             title,detail,commands,
             Label("DEMO-ban nincs tényleges DLL- vagy fájlművelet.",11,Soft)));
         var layout=new Grid {Margin=new Thickness(0,0,0,5)};
-        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=390});
-        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=245});
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=340});
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=225});
         Grid.SetColumn(right,1);
         layout.Children.Add(left);layout.Children.Add(right);
         Render();
