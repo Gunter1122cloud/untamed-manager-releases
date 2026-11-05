@@ -11,7 +11,9 @@
 }
 .premium-dashboard .premium-dashboard-banner.hero::before {
   content:"";display:block;position:absolute;inset:-5px -13px;
-  background:url("/uk-reference-map-atlas.jpg") 50% top/cover no-repeat;
+  /* Crop only the pristine artwork: source atlas x=200..1000,
+     y=40..170. Excludes embedded WPF badges and old button labels. */
+  background:url("/uk-reference-map-atlas.jpg") 50% 10%/150% 407% no-repeat;
   filter:saturate(.96) contrast(1.11);
   transform:scale(1.012);transform-origin:65% 20%;
   animation:uk-rex-breath 29s ease-in-out infinite alternate;
