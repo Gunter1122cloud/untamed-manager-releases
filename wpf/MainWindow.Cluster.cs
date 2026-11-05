@@ -836,8 +836,40 @@ public partial class MainWindow
             Margin=new Thickness(0,0,0,18),MinHeight=39};
         location.Children.Add(Label("ASA map neve",13,Aqua,true));
         location.Children.Add(names);
-        Field(location,"Map telepítési gyökérkönyvtára",map.InstallationPath,"folder");
-        Field(location,"Szerver EXE teljes elérési útja",map.ExecutablePath,"exe");
+        var installRoot=Field(location,"Map telepítési gyökérkönyvtára",map.InstallationPath,"folder");
+        var serverExe=Field(location,"Szerver EXE teljes elérési útja",map.ExecutablePath,"exe");
+        var locateResult=Label("Válaszd ki a telepítési mappát az ASA-fájlok felismeréséhez.",12,Soft);
+        var detect=Btn("ASA szerver EXE + API loader felismerése",()=>{
+            try
+            {
+                // Exact local folder probe only. No SteamCMD, file writes,
+                // server start, disk traversal or remote Manager operations.
+                var probe=LocalAsaInstallLocator.Probe(installRoot.Text);
+                if(!probe.HasServerExecutable)
+                {
+                    locateResult.Text="Az ArkAscendedServer.exe nem található a szabványos "+
+                        "ShooterGame\\Binaries\\Win64 mappában. Válassz másik gyökérmappát, "+
+                        "vagy add meg az EXE teljes helyi útvonalát.";
+                    return;
+                }
+                serverExe.Text=probe.ServerExecutable!;
+                if(probe.ApiLoaderExecutable!=null &&
+                   fields.TryGetValue("API-loader EXE (opcionális)",out var loaderBox) &&
+                   string.IsNullOrWhiteSpace(loaderBox.Text))
+                    loaderBox.Text=probe.ApiLoaderExecutable;
+                locateResult.Text="Helyi ASA EXE megtalálva. "+
+                    (probe.HasApiLoader?"API loader is található.":"API loader nem található.")+
+                    " Az indítási mód és az argumentumok változatlanok.";
+            }
+            catch(Exception ex)
+            {
+                locateResult.Text="Az ASA-fájlok nem ellenőrizhetők: "+
+                    UntamedPresentation.Display(ex.Message);
+            }
+        });
+        detect.ToolTip="A kijelölt helyi gyökérkönyvtárból csak a szabványos EXE-útvonalakat ellenőrzi.";
+        location.Children.Add(detect);
+        location.Children.Add(locateResult);
 
         var launch=MakeStep("02  /  Indítás és portok",
             "Az indítási argumentumok és a portok a meglévő szerverrel pontosan egyezzenek meg.");
@@ -968,6 +1000,10 @@ public partial class MainWindow
                         target.RconHost=fields["RCON host (helyi IP)"].Text.Trim();
                         target.LogFilePath=fields["Helyi naplófájl"].Text.Trim();
                         if(password.Password.Length>0)target.RconPasswordProtected=SecureStore.Protect(password.Password);
+                        // UDP Game+Query collisions and TCP RCON collisions are
+                        // checked against local, registered maps only; never
+                        // treat a remote LAN snapshot as a locally owned map.
+                        LocalMapPortPolicy.RequireNoConflicts(target,_cluster.Config.LocalMaps);
                         if(existing==null)_cluster.AddMap(target);
                         else _cluster.ReplaceMap(existing,target);
                         RefreshDashboardMapCards();dialog.DialogResult=true;
