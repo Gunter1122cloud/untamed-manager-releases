@@ -118,3 +118,41 @@
   .premium-mod-bottom-bar {bottom:0;border-radius:0;}
   .premium-draft-buttons{width:100%;}
 }
+
+/* The same two-pane hierarchy extends to Plugin Center; all native safety
+   gates and protected profile behavior are unchanged. */
+.premium-plugin-page>.page-intro {margin-bottom:14px;}
+.premium-plugin-page>.premium-mod-map-picker {margin-bottom:16px;}
+.premium-plugin-grid {display:grid;grid-template-columns:minmax(0,1.22fr) minmax(320px,1fr);gap:16px;align-items:start;}
+.premium-plugin-grid .panel {height:auto;min-width:0;}
+.premium-plugin-grid .panel-inner {padding:14px 16px;}
+.premium-plugin-inventory .plugin-row {min-height:76px;border-bottom-color:#354d50;}
+.premium-plugin-inventory .plugin-copy b {font-size:13px;color:#f3fff8;}
+.premium-plugin-actions .plugin-row {padding:11px 2px;gap:9px;flex-wrap:wrap;}
+.premium-plugin-actions .plugin-row button {margin-left:auto;min-width:118px;padding:8px 9px;font-size:11px;}
+.premium-plugin-actions .historical-preview {border:1px solid #5f8a70;background:#1a3934;
+  padding:14px;border-radius:10px;margin-top:18px;}
+.premium-plugin-actions .historical-preview h3 {font-size:16px;color:#e2faf0;margin:0 0 10px;}
+.premium-plugin-actions .historical-approval {display:flex;align-items:center;gap:10px;margin:16px 0;padding:12px;
+  border:1px solid #5a786e;border-radius:8px;color:#d4f2e6;font-size:12px;line-height:1.4;}
+.premium-plugin-actions .historical-approval input {width:18px;height:18px;flex:none;}
+.premium-plugin-actions .historical-preview .primary {width:100%;justify-content:center;}
+.map-detail-hero {background:linear-gradient(104deg,#0d2129eb,#11343da8 65%,#09272f69),
+  url('/kingdom-hero.jpg') right 38%/cover no-repeat;box-shadow:0 5px 17px #0003;}
+.map-detail-hero h1 {font-size:33px;letter-spacing:-.035em;}
+.map-detail-tabs {background:#15262b;border:1px solid #344d50;border-radius:10px;
+  padding:4px;margin-bottom:18px;overflow-x:auto;}
+.map-detail-tab {border-radius:7px;font-size:12px;min-height:43px;padding:9px 13px;}
+.map-detail-tab.selected {background:linear-gradient(120deg,#246e57,#1a523f);color:#eafff4;border-color:#4da980;}
+.server-toolbar {align-items:stretch;margin-bottom:18px;}
+.server-toolbar .toolbar {border-radius:8px;background:#1c3138;}
+.server-import-buttons {display:flex;align-items:stretch;gap:9px;flex-wrap:wrap;}
+.server-import-buttons button {min-height:45px;}
+@media(max-width:1180px){
+  .premium-plugin-grid{grid-template-columns:1fr;}
+  .premium-plugin-actions .plugin-row{flex-wrap:nowrap;}
+}
+@media(max-width:750px){
+  .premium-plugin-actions .plugin-row{flex-wrap:wrap;}
+  .premium-plugin-actions .plugin-row button{width:100%;}
+}
