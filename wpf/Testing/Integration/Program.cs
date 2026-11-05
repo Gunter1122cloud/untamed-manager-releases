@@ -60,6 +60,7 @@ try
     AsaSteamBuildCatalogTests.Run(root);
     SteamBuildStatusStoreTests.Run(root);
     await SteamSerialQueueTests.Run(root);
+    await IndependentManagerSteamTests.Run(root);
     await SteamVerifiedMaintenancePipelineTests.Run(root);
     await ModDependencyPlannerTests.Run();
     await CurseForgeDependencyResolverTests.Run();
