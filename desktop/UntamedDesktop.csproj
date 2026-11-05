@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>UntamedDesktop</AssemblyName>
+    <ApplicationIcon>../wpf/Assets/UntamedManager.ico</ApplicationIcon>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+  <!-- Identical Core sources and package baseline as the working Supervisor.
+       This migration does not move or modify production Core or the WPF build. -->
+  <ItemGroup>
+    <Compile Include="../wpf/Core/*.cs" Link="Core/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../docs/development/WORK-LEDGER.json" LogicalName="UntamedManager.WorkLedger.json" />
+    <PackageReference Include="System.Management" Version="10.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('../desktop-ui/dist/index.html')">
+    <Content Include="../desktop-ui/dist/**/*" Link="ui/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
