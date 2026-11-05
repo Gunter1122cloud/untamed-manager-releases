@@ -10,6 +10,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [preview,setPreview]=useState<HistoricalStorePreview | null>(null);
   const [approved,setApproved]=useState(false);
   const [busy,setBusy]=useState(false);
+  const [registering,setRegistering]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [coordZip,setCoordZip]=useState("");
@@ -51,19 +52,20 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }finally{if(epoch===importEpoch.current)setBusy(false);}
   };
   const register=async()=>{
-    if(!preview || !approved)return;
+    if(!preview || !approved || busy || registering)return;
     const epoch=++importEpoch.current;
-    setBusy(true);setError("");setNotice("");
+    setRegistering(true);setBusy(true);setError("");setNotice("");
     try{
       const receipt=await managerBridge.historicalRegister(preview.token);
       if(epoch!==importEpoch.current)return;
       setPreview(null);setApproved(false);
       setNotice(receipt.mapName+" felvéve az eredeti mapazonosítóval. A Store-v1 zárolt: a szerver nem indulhat, amíg a teljes régi indítási profil és a két host állapota nincs igazolva.");
-      await onImported();
+      try { await onImported(); }
+      catch { setError("A zárolt regisztráció megtörtént, de a szerverlista frissítése sikertelen. A nézet újranyitásával ellenőrizhető."); }
     }catch(e){
       if(epoch!==importEpoch.current)return;
       setError("A Store-v1 regisztráció meghiúsult ("+(e instanceof Error?e.message:"UM-HISTORICAL-VERIFICATION-FAILED")+"). Az eredeti világ- és karakterfájlokhoz nem nyúltunk.");
-    }finally{if(epoch===importEpoch.current)setBusy(false);}
+    }finally{setRegistering(false);if(epoch===importEpoch.current)setBusy(false);}
   };
 
   const comparePeers=async(e:FormEvent)=>{
@@ -91,15 +93,15 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       <form className="historical-import-form" onSubmit={e=>{void inspectArchive(e);}}>
         <label>Korábban mentett Manager ZIP (helyi, olvasási célú másolat)
           <input aria-label="Korábbi Manager archívum" placeholder="D:\Kova-Backups\KovaManager-Fontos.zip"
-            value={archive} maxLength={520} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");invalidateImport();}} required/>
+            value={archive} maxLength={520} disabled={registering} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");invalidateImport();}} required/>
         </label>
-        <button type="submit" className="secondary" disabled={busy||!archive.trim()}>
+        <button type="submit" className="secondary" disabled={busy||registering||!archive.trim()}>
           <Shield size={16}/> Archívum ellenőrzése
         </button>
       </form>
       {known && <form className="historical-import-form" onSubmit={e=>{void previewImport(e);}}>
         <label>Archivált Store-v1 map
-          <select aria-label="Archivált Store-v1 map" value={mapId} onChange={e=>{setMapId(e.target.value);invalidateImport();}}>
+          <select aria-label="Archivált Store-v1 map" value={mapId} disabled={registering} onChange={e=>{setMapId(e.target.value);invalidateImport();}}>
             {known.maps.map(m=><option key={m.mapId} value={m.mapId}>
               {m.mapKey} · Game {m.gamePort} / Query {m.queryPort} · {m.enabledMods} mod
             </option>)}
@@ -107,9 +109,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         </label>
         <label>Eredeti, változatlan helyi ASA telepítési mappa
           <input aria-label="Korábbi ASA map mappája" placeholder="C:\ASA\ExistingMap"
-            value={root} maxLength={520} onChange={e=>{setRoot(e.target.value);invalidateImport();}} required/>
+            value={root} maxLength={520} disabled={registering} onChange={e=>{setRoot(e.target.value);invalidateImport();}} required/>
         </label>
-        <button className="secondary" type="submit" disabled={busy||!mapId||!root.trim()}>
+        <button className="secondary" type="submit" disabled={busy||registering||!mapId||!root.trim()}>
           <Shield size={16}/> Map és Store-adatok előellenőrzése
         </button>
       </form>}
@@ -131,7 +133,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           Jóváhagyom a kizárólag Manager-profilba történő, zárolt regisztrációt.
           Az eredeti Store- és ASA-állományok nem változhatnak.
         </label>
-        <button className="primary" disabled={busy||!approved}
+        <button className="primary" disabled={busy||registering||!approved}
           onClick={()=>{void register();}}><LockKeyhole size={16}/> Zárolt Store-v1 map regisztrálása</button>
       </div>}
       <section className="historical-peer-check" aria-label="Store-v1 peer bizonyítékok">
