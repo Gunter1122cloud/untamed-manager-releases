@@ -772,7 +772,7 @@ function PluginCenter({ snapshot, selected, setSelected }: {
         <div className="plugin-copy"><b>{plugin.name}</b>
           <small>{plugin.enabled?"Engedélyezett mappa":"Letiltott mappa"} · ASA futásidőben nem igazolt</small>
         </div>
-        <button type="button" className="secondary" disabled={working||pluginStates.historicalProtected}
+        <button type="button" className="secondary" disabled={working||Boolean(pluginStates?.historicalProtected)}
           onClick={()=>{void inspectToggle(plugin.name,!plugin.enabled);}}>
           {plugin.enabled?"Letiltás előnézete":"Engedélyezés előnézete"}
         </button>
