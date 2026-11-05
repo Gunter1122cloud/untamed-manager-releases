@@ -25,6 +25,13 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - name: Retain original approved visual reference for fidelity QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Obsidian-Approved-Reference-Atlas
+          path: wpf/Assets/reference-atlas.jpg
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
