@@ -72,13 +72,8 @@ public static class PairedSteamQueueTests
         var brokenRoot=Path.Combine(sandbox,"paired-queue-partition-"+Guid.NewGuid().ToString("N"));
         var lostLocal=new ClusterSteamLeaseStore(A,Path.Combine(brokenRoot,"first"));
         var lostRemote=new ClusterSteamLeaseStore(B,Path.Combine(brokenRoot,"second"));
-        var lostListener=new PeerStatusListener(Port(),Key,
-            ()=>new HostStatus{HostId=B},lostRemote);
-        // The client must use the exact port that the listener was opened on.
-        // Reserve a stable port and recreate before starting.
-        await lostListener.DisposeAsync();
         int brokenPort=Port();
-        lostListener=new PeerStatusListener(brokenPort,Key,
+        var lostListener=new PeerStatusListener(brokenPort,Key,
             ()=>new HostStatus{HostId=B},lostRemote);
         lostListener.Start();
         bool listenerDisposed=false;
