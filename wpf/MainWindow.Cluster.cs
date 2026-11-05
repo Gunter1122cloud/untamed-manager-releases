@@ -749,7 +749,20 @@ public partial class MainWindow
     /// Keep the original API-launch, root-path and port validations in Save.
     /// Fixed footer + per-step ScrollViewer support 1366x768 and 150% DPI.
     /// </summary>
-    private void ShowMapEditor(LocalMap? existing)
+    private Window? _editorScreenshotWindow;
+
+    // Screenshot-only hook: opens the real, unmodified WPF editor with empty
+    // local test inputs. No configuration writes or server operations.
+    internal Window PrepareMapEditorScreenshot()
+    {
+        if (!App.IsSmokeTest)
+            throw new InvalidOperationException("Editor screenshots require the isolated smoke mode");
+        ShowMapEditor(null,true);
+        return _editorScreenshotWindow ??
+            throw new InvalidOperationException("Map editor did not open");
+    }
+
+    private void ShowMapEditor(LocalMap? existing,bool screenshotOnly=false)
     {
         var map=existing ?? new LocalMap();
         var desktop=SystemParameters.WorkArea;
@@ -991,7 +1004,12 @@ public partial class MainWindow
         };
         dialog.Content=wizardGrid;
         showStep(0);
-        dialog.ShowDialog();
+        if (screenshotOnly)
+        {
+            _editorScreenshotWindow=dialog;
+            dialog.Show();
+        }
+        else dialog.ShowDialog();
     }
     private void ShowLanSettings()
     {
