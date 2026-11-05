@@ -75,6 +75,23 @@ export type CurseForgeResult = {
   mods: CurseForgeMod[];
 };
 
+export type PluginState = {
+  mapId:string; mapName:string;historicalProtected:boolean;
+  plugins:Array<{name:string;enabled:boolean;runtimeLoadedVerified:false}>;
+  evidence:"LOCAL_PLUGIN_DISK_STATE_ONLY";
+};
+export type PluginTogglePreview = {
+  allowed:boolean;token:string|null;plugin:string;targetEnabled:boolean;
+  checkedLocalMaps:number;reason:string;requiresRestart:true;
+  productionRuntimeVerified:false;
+  evidence:"LOCAL_PLUGIN_TOGGLE_PREFLIGHT_NO_WRITES";
+};
+export type PluginToggleReceipt = {
+  mapId:string;plugin:string;enabled:boolean;backupCreated:true;
+  requiresRestart:boolean;runtimeLoadedVerified:false;
+  evidence:"VERIFIED_LOCAL_PLUGIN_DIRECTORY_TOGGLE";
+};
+
 export type PluginInventory = {
   mapId: string;
   mapName: string;
@@ -255,7 +272,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
+type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
@@ -279,7 +296,8 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
   confirm?: boolean; jobId?: string; sessionName?: string;
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
-  coordinationArchive?: string; localMetadataArchive?: string };
+  coordinationArchive?: string; localMetadataArchive?: string;
+  plugin?: string; enabled?: boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -320,6 +338,11 @@ export const managerBridge = {
   sharedModInventory: () => request<SharedModInventory>("mods.sharedInventory"),
   catalogSearch: (term: string, page = 0) => request<CurseForgeResult>("curseforge.search", { term, page }),
   pluginInventory: (mapId: string) => request<PluginInventory>("plugins.inventory", { mapId }),
+  pluginStates: (mapId:string) => request<PluginState>("plugins.state",{mapId}),
+  pluginTogglePreview: (mapId:string,plugin:string,enabled:boolean) =>
+    request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
+  pluginToggleApply: (token:string) =>
+    request<PluginToggleReceipt>("plugins.toggleApply",{token,confirm:true}),
   backupOverview: () => request<BackupOverview>("backups.summary"),
   logTail: (mapId: string) => request<LogTail>("logs.read", { mapId }),
   steamInstallations: () => request<SteamInstallations>("steam.installations"),
