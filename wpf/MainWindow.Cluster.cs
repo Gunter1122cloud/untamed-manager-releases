@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -949,7 +950,12 @@ public partial class MainWindow
                             loaderArguments=serverArguments;
                         }
                         if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,out var interval)||interval<5||interval>3600)throw new InvalidDataException("Érvénytelen watchdog-időköz");
-                        var target=existing??new LocalMap();
+                        // Stage a full candidate without mutating the registered map.
+                        // This preserves all process and Store-v1 identity fields.
+                        var target=existing==null?new LocalMap():
+                            JsonSerializer.Deserialize<LocalMap>(
+                                JsonSerializer.Serialize(existing)) ??
+                            throw new InvalidDataException("Map profile cannot be staged");
                         target.Name=name;target.InstallationPath=root;target.ExecutablePath=exe;
                         target.Arguments=serverArguments;
                         target.ApiLoaderPath=loader.Length==0?"":Path.GetFullPath(loader);
@@ -963,7 +969,7 @@ public partial class MainWindow
                         target.LogFilePath=fields["Helyi naplófájl"].Text.Trim();
                         if(password.Password.Length>0)target.RconPasswordProtected=SecureStore.Protect(password.Password);
                         if(existing==null)_cluster.AddMap(target);
-                        else _cluster.Save();
+                        else _cluster.ReplaceMap(existing,target);
                         RefreshDashboardMapCards();dialog.DialogResult=true;
                         ShowLocalServerPage();
                     }catch(Exception e){ errorMessage.Text="Nem menthető: "+UntamedPresentation.Display(e.Message); }
