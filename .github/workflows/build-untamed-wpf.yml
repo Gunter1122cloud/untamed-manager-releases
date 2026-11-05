@@ -243,17 +243,17 @@ jobs:
             dist/SHA256SUMS.txt
           if-no-files-found: error
       - name: Create test-only GitHub release
-        if: ${{ github.ref == 'refs/heads/chatgpt/untamed-manager-p0-fixes-20261104' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release-test premium') }}
+        if: ${{ github.ref == 'refs/heads/chatgpt/untamed-manager-unified-20261105' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release-test premium') }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-premium-test.10"
+          $tag = "v1.6.1-premium-test.11"
           $repo = "$env:GITHUB_REPOSITORY"
           $files = @(
-            "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-local-steam-test10.exe",
-            "dist/UntamedManager-1.6.1-win-x64.zip#UntamedManager-1.6.1-local-steam-test10-portable.zip",
-            "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-local-steam-test10-SETUP.exe",
+            "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-unified-test11.exe",
+            "dist/UntamedManager-1.6.1-win-x64.zip#UntamedManager-1.6.1-unified-test11-portable.zip",
+            "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-unified-test11-SETUP.exe",
             "dist/SHA256SUMS.txt#SHA256SUMS.txt",
             "dist/UntamedManager-preview.png#UntamedManager-premium-dashboard.png",
             "dist/UI-Screenshots/UntamedManager-demo-mods.png#UntamedManager-premium-demo-mods.png",
@@ -277,8 +277,8 @@ jobs:
             gh release upload $tag @files --repo $repo --clobber
           } else {
             gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager v1.6.1 · Local SteamCMD TEST 10" --prerelease `
-              --notes "Neon Kingdom Local SteamCMD TEST 10: UK-HOME-01 and UK-HOME-02 update their own locally registered maps independently; both may update at the same time on their separate Windows hosts. No cluster-wide queue, two-machine lease, remote maintenance approval, or peer availability requirement. Each local Windows Manager retains a single strictly serial map queue, host-local cross-profile semaphore, shared-install running-map safety, interrupted-operation journal, Steam BuildID checks and explicit-retry SteamCMD installation. The existing authenticated LAN GET_STATUS remains read-only; Store-v1, character profiles and SQL data are untouched. Windows CI includes separate-host-failure independence and existing local concurrency regressions. The live ASA SaveComplete / backup / controlled stop / restart adapter still needs real isolated acceptance and remains production-blocked. Windows TEST PC ONLY: never install on UK-HOME-01 or UK-HOME-02."
+              --title "Untamed Manager v1.6.1 · Unified CurseForge TEST 11" --prerelease `
+              --notes "Neon Kingdom Unified TEST 11 - isolated Windows TEST PC ONLY. Integrates PR #7 SteamCMD and ASA server manager with PR #9 CurseForge DPAPI token import, preserving exact opaque credentials locally (never embedded). Enhanced official ASA Mod Center with category and author search, provider sorting, featured-popular-recent lists, detailed metadata, screenshot gallery, safely stripped descriptions, paginated exact-file versions, dependency and incompatibility previews, read-only local Active/Passive/Disabled and shared-project inventory, bounded 429 GET retry and cancellation. Full Windows WPF, fake-CurseForge/SteamCMD/ASA, Store-v1, update rollback and MariaDB regressions gate publication. Manual SteamCMD updates only for VERIFIED STOPPED local maps with backed-up protected files; live SaveComplete, automatic production stop/restart, certified mod delivery, ASA fingerprint matching and character/Store-v1 production changes remain blocked until real isolated acceptance. UK-HOME-01 and UK-HOME-02 have independent strictly serial local update queues, NO cross-host maintenance lock. Never run test builds or CI against production hosts."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
           # A cancelled prior CI can leave an unpublished draft with the same tag.
