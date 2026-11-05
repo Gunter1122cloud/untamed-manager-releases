@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
-  FileText, HardDrive, LayoutDashboard, Layers3, Monitor,
+  FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload,
   Package, Plug, RefreshCw, Search, Server, Settings2, Shield, WifiOff
 } from "lucide-react";
 import {
@@ -19,8 +19,9 @@ import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { PremiumDashboard } from "./PremiumDashboard";
 import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
+import { UpdateCenterPage } from "./UpdateCenterPage";
 
-type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "map";
+type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
   { page: "dashboard", label: "Áttekintés", icon: LayoutDashboard },
   { page: "servers", label: "Szerverek", icon: Server },
@@ -29,6 +30,7 @@ const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> =
   { page: "plugins", label: "Pluginok", icon: Plug },
   { page: "backups", label: "Mentések", icon: Archive },
   { page: "steam", label: "SteamCMD", icon: HardDrive },
+  { page: "updates", label: "Frissítések", icon: CloudDownload },
   { page: "logs", label: "Naplók", icon: FileText },
   { page: "ini", label: "INI szerkesztő", icon: FileText },
   { page: "settings", label: "Beállítások", icon: Settings2 },
@@ -1397,6 +1399,7 @@ export function App() {
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "plugins" && <PluginCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "backups" && <BackupCenter/>}
+          {page === "updates" && <UpdateCenterPage/>}
           {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh}/>}
           {page === "logs" && <LogsCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "settings" && <SettingsCenter/>}
