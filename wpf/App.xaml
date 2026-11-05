@@ -57,7 +57,30 @@
         </DataTrigger>
       </DataTemplate.Triggers>
     </DataTemplate>
-    <DataTemplate x:Key="PremiumServerRow">
+    <DataTemplate x:Key="CurseForgeSearchRow">
+       <Grid Height="72" Margin="4,4">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="68"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <Border Grid.Column="0" Width="60" Height="60" CornerRadius="8"
+                 BorderBrush="#46776D" BorderThickness="1" Background="#1B3F3B"
+                 ClipToBounds="True" VerticalAlignment="Center">
+           <Grid>
+             <TextBlock Text="⬡" Foreground="{StaticResource AccentLight}" FontSize="28"
+                HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+             <Image Source="{Binding ThumbnailUrl}" Stretch="UniformToFill" IsHitTestVisible="False"
+                RenderOptions.BitmapScalingMode="HighQuality"/>
+           </Grid>
+         </Border>
+         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,6,0">
+           <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+             Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+           <TextBlock Text="{Binding Id, StringFormat='CURSEFORGE ID  {0}'}" FontSize="10"
+             Foreground="{StaticResource AccentLight}" Margin="0,5,0,0"/>
+           <TextBlock Text="{Binding Summary}" FontSize="11" Margin="0,5,0,0"
+             Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+         </StackPanel>
+       </Grid>
+     </DataTemplate>
+     <DataTemplate x:Key="PremiumServerRow">
        <Grid Height="78" Margin="4,4">
         <Grid.ColumnDefinitions>
          <ColumnDefinition Width="70"/><ColumnDefinition Width="*"/>
