@@ -96,10 +96,25 @@ export function ClusterMapGallery({snapshot,query,onSelect,onImport,onInstall}:P
       </label>
       <span className="uk-gallery-result-count">{visible.length} MAP</span>
     </div>
-    {visible.length>0?<div className="uk-map-gallery-grid" role="region"
+    {visible.length>0?<div className="uk-host-map-groups" role="region"
       aria-label="Szervergaléria">
-      {visible.map(entry=><MapTile key={entry.host+entry.map.id} entry={entry}
-        onSelect={onSelect}/>)}
+      {([["local","HELYI GAZDAGÉP",visible.filter(entry=>entry.local)],
+        ["remote","LAN / CSAK MEGFIGYELÉS",visible.filter(entry=>!entry.local)]] as const)
+        .filter(group=>group[2].length>0)
+        .map(([kind,label,entries])=><section className={"uk-host-map-group "+kind}
+          key={kind}>
+          <header className="uk-host-map-heading">
+            <span className="uk-host-map-heading-label">
+              {kind==="local"?<Server size={15}/>:<ShieldCheck size={15}/>}
+              {label}</span>
+            <b>{entries[0].host}</b>
+            <span>{entries.filter(entry=>entry.map.running).length}/{entries.length} FUT</span>
+          </header>
+          <div className="uk-map-gallery-grid">
+            {entries.map(entry=><MapTile key={entry.host+entry.map.id}
+              entry={entry} onSelect={onSelect}/>)}
+          </div>
+        </section>)}
     </div>:<div className="uk-gallery-empty">
       <Search size={28}/><b>{all.length?"Nincs ilyen szerver a szűrőben":
           "Nincs regisztrált ASA-szerver ezen a gépen"}</b>
