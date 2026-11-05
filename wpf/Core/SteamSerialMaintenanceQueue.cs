@@ -82,12 +82,11 @@ public sealed class SteamSerialMaintenanceQueue
            selected.Select(x=>x.Id).Distinct().Count()!=selected.Count||
            selected.Any(x=>!registeredLocal.Any(r=>ReferenceEquals(r,x))))
             throw new InvalidDataException("Queue must contain unique registered local map objects");
-        using var semaphore=new Mutex(false,@"Global\Untamed-SteamQueue-Host-v1");
+        using var semaphore=new Semaphore(1,1,@"Global\Untamed-SteamQueue-Host-v1");
         bool acquired=false;
         try
         {
-            try{acquired=semaphore.WaitOne(0);}
-            catch(AbandonedMutexException){acquired=true;}
+            acquired=semaphore.WaitOne(0);
             if(!acquired)throw new IOException("Another Manager already owns the local Steam queue");
             var previous=Read();
             if(previous!=null && previous.Phase is
@@ -148,6 +147,6 @@ public sealed class SteamSerialMaintenanceQueue
                 throw;
             }
         }
-        finally{if(acquired)semaphore.ReleaseMutex();}
+        finally{if(acquired)semaphore.Release();}
     }
 }
