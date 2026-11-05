@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -21,7 +22,7 @@ public sealed class DesktopPluginStateBridge : IDisposable
     private readonly Dictionary<Guid,Pending> approvals=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private sealed record Pending(Guid MapId,string Plugin,bool TargetEnabled,
-        DateTimeOffset ExpiresUtc);
+        string OriginalInstallation,DateTimeOffset ExpiresUtc);
 
     public DesktopPluginStateBridge(ClusterService service)=>
         cluster=service??throw new ArgumentNullException(nameof(service));
@@ -89,7 +90,7 @@ public sealed class DesktopPluginStateBridge : IDisposable
                     if(approvals.Count>=8)approvals.Clear();
                     var token=Guid.NewGuid();
                     approvals[token]=new(mapId,readiness.Plugin,enabled,
-                        DateTimeOffset.UtcNow.AddMinutes(5));
+                        Path.GetFullPath(map.InstallationPath),DateTimeOffset.UtcNow.AddMinutes(5));
                     return Success(id,new{
                         allowed=true,token,plugin=readiness.Plugin,
                         targetEnabled=enabled,checkedLocalMaps=readiness.CheckedLocalMaps,
@@ -113,6 +114,9 @@ public sealed class DesktopPluginStateBridge : IDisposable
                 if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
                 if(owned.HistoricalStoreProtected)
                     return Error(id,"UM-HISTORICAL-STORE-LOCKED");
+                if(!string.Equals(Path.GetFullPath(owned.InstallationPath),
+                    saved.OriginalInstallation,StringComparison.OrdinalIgnoreCase))
+                    return Error(id,"UM-PLUGIN-STATE-CHANGED");
                 if(DateTimeOffset.UtcNow>=saved.ExpiresUtc)
                     return Error(id,"UM-PLUGIN-PREVIEW-EXPIRED");
                 var latest=PluginStateManager.InspectLocalToggle(
@@ -155,7 +159,8 @@ public sealed class DesktopPluginStateBridge : IDisposable
         if(!root.TryGetProperty(key,out var field) ||
            field.ValueKind!=JsonValueKind.String)return false;
         value=field.GetString()?.Trim()??"";
-        return value.Length is >0 and <=80 && value.All(c=>
+        return value.Length is >0 and <=80 && char.IsAsciiLetterOrDigit(value[0]) &&
+            value.All(c=>
             char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.');
     }
     private static bool BoolField(JsonElement root,string key,out bool value)
