@@ -200,12 +200,21 @@ public partial class MainWindow
                 catch(Exception e){status.Text="Kulcs nem menthető: "+e.GetType().Name;}
             }),
             Btn("API-kulcs törlése",()=>{
-                _cluster.UpdateSettings(c=>c.CurseForgeApiKeyProtected="");
-                key.Clear();
-                last=null;
-                previous.IsEnabled=false;
-                next.IsEnabled=false;
-                status.Text="Helyi CurseForge API-kulcs törölve.";
+                try
+                {
+                    _cluster.UpdateSettings(c=>c.CurseForgeApiKeyProtected="");
+                    key.Clear();
+                    last=null;
+                    previous.IsEnabled=false;
+                    next.IsEnabled=false;
+                    status.Text="Helyi CurseForge API-kulcs törölve.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("curseforge-key-remove",ex);
+                    status.Text="A kulcs nem törölhető a profilból: "+
+                        UntamedPresentation.Redact(ex.Message);
+                }
             }),
             Label("Modkeresés név alapján",12,Aqua),
             query,search,
