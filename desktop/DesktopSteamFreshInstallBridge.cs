@@ -91,9 +91,26 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                 {
                     if(!TextField(data,"mapName",100,out var mapName) ||
                        !TextField(data,"installRoot",520,out var installRoot) ||
-                       !TextField(data,"steamExe",520,out var steamExe) ||
                        !BoolField(data,"allowSteamCmdDownload",out var download))
                         return Error(id,"UM-FRESH-INVALID-PATH");
+                    // The operator should not have to know SteamCMD's path.
+                    // Prefer a preconfigured native path, otherwise use this
+                    // Windows user's dedicated tools folder. Explicit override
+                    // remains supported but never sent back to JavaScript.
+                    string steamExe="";
+                    if(data.TryGetProperty("steamExe",out var selectedExe))
+                    {
+                        if(selectedExe.ValueKind!=JsonValueKind.String ||
+                           selectedExe.GetString() is {Length:>520})
+                            return Error(id,"UM-FRESH-INVALID-STEAMCMD");
+                        steamExe=selectedExe.GetString()?.Trim()??"";
+                    }
+                    if(string.IsNullOrWhiteSpace(steamExe))
+                        steamExe=!string.IsNullOrWhiteSpace(cluster.Config.SteamCmdExecutable)
+                            ? cluster.Config.SteamCmdExecutable
+                            : Path.Combine(Environment.GetFolderPath(
+                                Environment.SpecialFolder.LocalApplicationData),
+                                "UntamedManager","Tools","SteamCMD","steamcmd.exe");
                     bool retry=false;
                     if(data.TryGetProperty("explicitRetry",out var retryValue))
                     {
@@ -154,6 +171,10 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     return Ok(id,new{
                         token,mapName,mapLevel=level,folderName=Path.GetFileName(installRoot),
                         steamCmdPresent=validSteam,
+                        usingManagerDefaultSteamCmd=string.IsNullOrWhiteSpace(
+                            data.TryGetProperty("steamExe",out var suppliedExe) &&
+                            suppliedExe.ValueKind==JsonValueKind.String?
+                            suppliedExe.GetString():null),
                         needsOfficialSteamCmdDownload=!validSteam&&download,
                         existingInterruptedInstall=interrupted!=null,
                         minimumFreeGiB=35,
