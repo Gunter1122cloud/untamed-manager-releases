@@ -421,8 +421,8 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
     {snapshot.remote && <Panel title={`Távoli mapok · ${snapshot.remote.hostName}`}><MapTable maps={snapshot.remote.maps} host={snapshot.remote.hostName} filter={search}/></Panel>}
   </>;
 }
-function ModDraftEditor({ mapId, onSaved }: {
-  mapId: string; onSaved: (saved: ModDraftSave) => void
+function ModDraftEditor({ mapId, onSaved, prefillId }: {
+  mapId: string; onSaved: (saved: ModDraftSave) => void; prefillId: string
 }) {
   const [draft, setDraft] = useState<ModDraftState | null>(null);
   const [modId, setModId] = useState("");
@@ -432,6 +432,7 @@ function ModDraftEditor({ mapId, onSaved }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => { setDraft(null); setError(""); setNotice(""); setModId(""); }, [mapId]);
+  useEffect(() => { if (prefillId) setModId(prefillId); }, [prefillId]);
   const start = async () => {
     if (!mapId) return;
     setBusy(true); setError(""); setNotice("");
@@ -528,6 +529,7 @@ function Mods({ snapshot, selected, setSelected }: {
 }) {
   const [info, setInfo] = useState<ConfiguredMods | null>(null);
   const [error, setError] = useState("");
+  const [catalogPicked, setCatalogPicked] = useState("");
   useEffect(() => {
     let active = true;
     setInfo(null); setError("");
@@ -571,11 +573,11 @@ function Mods({ snapshot, selected, setSelected }: {
         <div className="warning-inline"><Shield size={17}/><span>A modokat lent a védett piszkozatkezelőben módosíthatod; a futó ASA betöltése nem igazolt.</span></div>
       </Panel>
     </div>
-    <ModDraftEditor mapId={selected} onSaved={saved => {
+    <ModDraftEditor mapId={selected} prefillId={catalogPicked} onSaved={saved => {
       setInfo(current => current ? { ...current, pending: saved.pending,
         active: saved.active, passive: saved.passive, disabled: saved.disabled } : current);
     }}/>
-    <CurseForgeExplorer/>
+    <CurseForgeExplorer onPrepare={setCatalogPicked}/>
   </>;
 }
 function PluginCenter({ snapshot, selected, setSelected }: {
