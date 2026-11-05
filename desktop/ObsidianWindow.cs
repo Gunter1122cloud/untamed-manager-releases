@@ -18,6 +18,7 @@ public sealed class ObsidianWindow : Form
     private readonly NotifyIcon _tray = new();
     private readonly DesktopReadOnlyBridge _bridge = new();
     private readonly DesktopCredentialBridge _credentials;
+    private readonly DesktopModDraftBridge _modDrafts;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -27,6 +28,7 @@ public sealed class ObsidianWindow : Form
     {
         _smokeTest = smokeTest;
         _credentials = new DesktopCredentialBridge(_bridge.LocalCluster);
+        _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
@@ -64,6 +66,7 @@ public sealed class ObsidianWindow : Form
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
+            _modDrafts.Dispose();
             _credentials.Dispose();
             _ = _bridge.DisposeAsync();
         };
@@ -120,15 +123,23 @@ public sealed class ObsidianWindow : Form
                 if (!IsAppUrl(e.Source)) return;
                 string incoming = e.WebMessageAsJson;
                 bool credentialRoute = false;
+                bool draftRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
                     if (parsed.RootElement.TryGetProperty("method", out var method) &&
                         method.ValueKind == JsonValueKind.String)
-                        credentialRoute = method.GetString() is
+                    {
+                        string? name = method.GetString();
+                        credentialRoute = name is
                             "curseforge.credentialStatus" or
                             "curseforge.credentialSave" or
                             "curseforge.credentialClear";
+                        draftRoute = name is
+                            "mods.draftStart" or "mods.draftStage" or
+                            "mods.draftUndo" or "mods.draftRedo" or
+                            "mods.draftDiscard" or "mods.draftSave";
+                    }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
                 await _bridgeGate.WaitAsync();
@@ -136,7 +147,8 @@ public sealed class ObsidianWindow : Form
                 {
                     string response = credentialRoute
                         ? await _credentials.HandleAsync(incoming)
-                        : await _bridge.HandleAsync(incoming);
+                        : draftRoute ? await _modDrafts.HandleAsync(incoming)
+                            : await _bridge.HandleAsync(incoming);
                     if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
                         _browser.CoreWebView2.PostWebMessageAsJson(response);
                 }
