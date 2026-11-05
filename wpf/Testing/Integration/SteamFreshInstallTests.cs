@@ -16,7 +16,10 @@ public static class SteamFreshInstallTests
     {
         if(string.IsNullOrWhiteSpace(fakeSteam)||!File.Exists(fakeSteam))
             throw new InvalidOperationException("CI FakeSteamCMD.exe must be published");
-        string cmd=Path.Combine(root,"steamcmd.exe");
+        // Keep SteamCMD outside the map installation tree, like the
+        // actual Manager defaults (SteamCMD/ vs ASA-Servers/<map ID>).
+        string cmd=Path.Combine(root,"steam-tools","steamcmd.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(cmd)!);
         if(!File.Exists(cmd))File.WriteAllText(cmd,"synthetic steam command placeholder");
         var mapId=Guid.NewGuid();
         string destination=Path.Combine(root,"steam-new-map-"+Guid.NewGuid().ToString("N"));
