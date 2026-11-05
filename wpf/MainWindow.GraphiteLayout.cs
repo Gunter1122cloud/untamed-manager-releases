@@ -2,11 +2,30 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using UntamedManager.Core;
 
 namespace UntamedManager;
 
 public partial class MainWindow
 {
+    /// <summary>
+    /// The Dashboard has no nested scrolling list; a preview handler guarantees
+    /// that the physical wheel moves its existing ScrollViewer even when a
+    /// painted WPF card/image is under the pointer. Other pages retain normal
+    /// nested-list wheel routing. No global event hijack is used.
+    /// </summary>
+    private void Dashboard_PreviewMouseWheel(object sender,MouseWheelEventArgs e)
+    {
+        if(e.Handled || e.Delta==0 || sender is not ScrollViewer viewer)return;
+        double requested=ScrollBoundaryPolicy.ForwardOffset(
+            viewer.VerticalOffset,viewer.ScrollableHeight,viewer.ViewportHeight,
+            e.Delta,SystemParameters.WheelScrollLines);
+        if(Math.Abs(requested-viewer.VerticalOffset)<0.01)return;
+        viewer.ScrollToVerticalOffset(requested);
+        e.Handled=true;
+    }
+
     private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         // WPF widths here are logical DIPs. Do not hide content off-screen at 150% DPI.
