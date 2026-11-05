@@ -517,6 +517,35 @@ public partial class MainWindow
             _catalogSelectForMod(chosen.Id.ToString());
         });
         addFromCatalog.Visibility=_catalogSelectForMod==null?Visibility.Collapsed:Visibility.Visible;
+        var sharedModReport=Label(
+            "Közös helyi modok: még nem olvastuk be a Manager-konfigurációkat.",12,Soft);
+        var inspectSharedModUsage=Btn("Közös és eltérő modok a helyi mapokon",()=>{
+            try
+            {
+                var report=LocalModInventory.Read(_cluster.Config.LocalMaps);
+                var shared=report.SharedProjects.OrderByDescending(p=>p.EnabledMapCount)
+                    .ThenBy(p=>p.ProjectId,StringComparer.Ordinal)
+                    .Take(60).Select(p=>p.ProjectId+" · "+p.EnabledMapCount+
+                        " map: "+string.Join(", ",
+                            p.Assignments.Where(x=>x.Mode!=ModMode.Disabled)
+                                .Select(x=>x.MapName).Distinct(StringComparer.Ordinal)));
+                sharedModReport.Text="HELYI MODLELTÁR – csak konfiguráció, nem futó modverzió"+
+                    "\nMapok: "+report.MapCount+" · projektek: "+report.Projects.Count+
+                    " · közös modok: "+report.SharedProjects.Count+
+                    "\n"+(report.SharedProjects.Count==0?
+                        "Nincs több helyi mapon engedélyezett közös projekt.":
+                        string.Join("\n",shared))+
+                    (report.UnreadableMaps.Count==0?"":"\nHibás modkonfigurációjú mapok: "+
+                        string.Join(", ",report.UnreadableMaps))+
+                    "\nA sorrend, -mods/-passivemods és minden mentés változatlan.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("curseforge-shared-mod-inventory",ex);
+                sharedModReport.Text="A helyi modleltár nem készíthető el: "+
+                    UntamedPresentation.Redact(ex.Message);
+            }
+        });
         var refreshLocalAssignment=Btn("Maponkénti modállapot újraolvasása",
             RefreshLocalAssignments);
         var inspectFiles=Btn("Kijelölt mod fájlverziói és függőségei",async ()=>{
@@ -630,6 +659,7 @@ public partial class MainWindow
             openProject,addFromCatalog,
             detail,Label("CURSEFORGE GALÉRIA",12,Aqua,true),gallery,
             refreshLocalAssignment,localAssignments,
+            inspectSharedModUsage,sharedModReport,
             inspectDescription,fullDescription,
             Label("FÁJLVERZIÓK / KAPCSOLATOK (HIVATALOS API)",12,Aqua,true),
             inspectFiles,filesPrevious,filesNext,filesStatus,fileList,fileDetail,
