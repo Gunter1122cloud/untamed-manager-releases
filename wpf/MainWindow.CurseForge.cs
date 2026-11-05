@@ -17,6 +17,8 @@ public partial class MainWindow
             BorderBrush=Aqua };
         var query=new TextBox { Height=38,Foreground=Brushes.White,Background=Panel,
             BorderBrush=Aqua,Text="Shiny" };
+        var projectId=new TextBox {Height=38,Width=180,Tag="CurseForge projekt ID",
+            ToolTip="Pontosan az ASA-hoz tartozó CurseForge modazonosító (nem szabad szöveg)"};
         var results=new ListBox { MaxHeight=330,MinHeight=120,Foreground=Brushes.White,Background=Panel,
             BorderBrush=Aqua,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("CurseForgeSearchRow") };
@@ -101,6 +103,62 @@ public partial class MainWindow
                 if(next!=null)next.IsEnabled=last?.HasMore==true;
             }
         }
+        async Task LookupExact(string suppliedId)
+        {
+            if(busy)return;
+            if(!int.TryParse(suppliedId.Trim(),out var id)||id<10000)
+            {
+                status.Text="Érvénytelen projektazonosító – legalább ötjegyű, pozitív szám szükséges.";
+                return;
+            }
+            var protectedKey=_cluster.Config.CurseForgeApiKeyProtected;
+            if(string.IsNullOrWhiteSpace(protectedKey))
+            {
+                status.Text="Előbb állíts be jóváhagyott CurseForge API-kulcsot.";
+                return;
+            }
+            busy=true;
+            if(search!=null)search.IsEnabled=false;
+            if(previous!=null)previous.IsEnabled=false;
+            if(next!=null)next.IsEnabled=false;
+            status.Text="Projekt ellenőrzése az ASA CurseForge-katalógusában...";
+            try
+            {
+                var mod=await catalog.GetAsaModAsync(
+                    SecureStore.Unprotect(protectedKey),id);
+                string identifier=mod.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                _trustedModNames[identifier]=UntamedPresentation.Display(mod.Name);
+                if(mod.ThumbnailUrl is not null)_trustedModArt[identifier]=mod.ThumbnailUrl;
+                _catalogMetadataUpdated?.Invoke();
+                last=null;lastTerm="";
+                results.ItemsSource=new[]{mod};
+                results.SelectedItem=mod;
+                paging.Text="Pontos projekt ID  "+id+"  ·  ASA-katalógusban ellenőrizve";
+                status.Text="Ellenőrzött CurseForge-metaadat. A mod telepítése, betöltése, "+
+                    "crossplay- és prémiumstátusza továbbra sincs bizonyítva.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("curseforge-exact-lookup",ex);
+                last=null;
+                results.ItemsSource=Array.Empty<CurseForgeMod>();
+                paging.Text="Nincs igazolt ASA-projekt ehhez az azonosítóhoz.";
+                status.Text="Projektlekérdezés sikertelen: "+
+                    UntamedPresentation.Redact(ex.Message);
+            }
+            finally
+            {
+                busy=false;
+                if(search!=null)search.IsEnabled=true;
+                if(previous!=null)previous.IsEnabled=false;
+                if(next!=null)next.IsEnabled=false;
+            }
+        }
+        _catalogLookupById=id=>{
+            projectId.Text=id;
+            _=LookupExact(id);
+        };
+        var lookup=Btn("Pontos projekt lekérése",async ()=>await LookupExact(projectId.Text));
         search=Btn("Modkeresés (csak olvasás)",async ()=>{
             last=null;await LoadPage(0,query.Text);
         });
@@ -150,7 +208,10 @@ public partial class MainWindow
                 status.Text="Helyi CurseForge API-kulcs törölve.";
             }),
             Label("Modkeresés név alapján",12,Aqua),
-            query,search,previous,next,paging,results,
+            query,search,
+            Label("Pontos ASA CurseForge projektazonosító",12,Aqua),
+            projectId,lookup,
+            previous,next,paging,results,
             addFromCatalog,
             detail,status)));
     }
