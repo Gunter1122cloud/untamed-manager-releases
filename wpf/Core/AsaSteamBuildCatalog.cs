@@ -135,8 +135,11 @@ public static class AsaSteamBuildCatalog
                     System.Globalization.NumberStyles.None,
                     System.Globalization.CultureInfo.InvariantCulture,out number);
         }
-        bool known=ReadBuild(local,out var installed) &&
-            ReadBuild(available,out var published);
+        // Always evaluate both operands so the variables are initialized even
+        // when the first Steam build is missing.
+        bool localValid=ReadBuild(local,out var installed);
+        bool remoteValid=ReadBuild(available,out var published);
+        bool known=localValid&&remoteValid;
         // The public branch may lag a private / manually supplied install.
         // A different build ID is NOT sufficient to assert an upgrade exists.
         var state=!known||installed>published?AsaSteamBuildState.Unknown:
