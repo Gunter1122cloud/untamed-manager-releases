@@ -1,8 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
-  Cpu, Database, FileText, HardDrive, LayoutDashboard, Layers3, Monitor,
-  Package, Plug, RefreshCw, Search, Server, Settings2, Shield, WifiOff
+  useCallback, useEffect, useMemo, useRef, AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight, FileText, HardDrive, LayoutDashboard, Layers3, Monitor, Package, Plug, RefreshCw, Search, Server, Settings2, Shield, WifiOff
 } from "lucide-react";
 import {
   managerBridge, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
@@ -16,6 +13,7 @@ import {
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
+import { PremiumDashboard, MapCover } from "./PremiumDashboard";
 
 type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -31,20 +29,9 @@ const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> =
   { page: "settings", label: "Beállítások", icon: Settings2 },
 ];
 
-function prettyMemory(kiB: number | null): string {
-  return kiB === null ? "Nem mérhető" : `${(kiB / 1048576).toFixed(1)} GiB`;
-}
 function observedAt(raw: string): string {
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? "Ismeretlen" : d.toLocaleTimeString("hu-HU");
-}
-function Stat({ label, value, note, icon: Icon }: {
-  label: string; value: string | number; note: string; icon: typeof Server
-}) {
-  return <div className="stat glass">
-    <span className="stat-icon"><Icon size={25}/></span>
-    <div><div className="stat-label">{label}</div><strong className="stat-value">{value}</strong><div className="muted tiny">{note}</div></div>
-  </div>;
 }
 function State({ running, status }: { running: boolean; status: string }) {
   return <span className={running ? "state online" : "state stopped"}>
@@ -69,7 +56,7 @@ function MapTable({ maps, host, onPick, filter = "" }: {
     {rows.map(map => <button className="map-row" role="row" key={map.id}
       onClick={onPick ? () => onPick(map.id) : undefined}
       disabled={!onPick} title={onPick ? "Helyi szerver részletei" : "Távoli megfigyelés"}>
-      <span className="map-name"><span className="map-symbol"><Server size={18}/></span><span><b>{map.name}</b><small>ASA · {map.steamBuildId ? "build " + map.steamBuildId : "build ismeretlen"}</small></span></span>
+      <span className="map-name"><MapCover name={map.name}/><span><b>{map.name}</b><small>ASA · {map.steamBuildId ? "build " + map.steamBuildId : "build ismeretlen"}</small></span></span>
       <span className="muted">{host}</span><State running={map.running} status={map.status}/>
       <span className="mono muted">{map.gamePort || "—"}</span>
     </button>)}
@@ -295,46 +282,8 @@ function Dashboard({ snapshot, onPage, onSelect }: {
   snapshot: DashboardSnapshot;
   onPage: (page: Page) => void; onSelect: (id: string) => void
 }) {
-  const local = snapshot.local;
-  const remote = snapshot.remote;
-  const all = local.maps.length + (remote?.maps.length || 0);
-  const running = [...local.maps, ...(remote?.maps || [])].filter(m => m.running).length;
-  const ramUsed = prettyMemory(local.memoryUsedKiB);
-  const ramTotal = prettyMemory(local.memoryTotalKiB);
-  return <>
-    <div className="hero">
-      <div className="obelisks"><span/><span/><span/></div>
-      <div className="hero-copy"><span className="eyebrow">UNTAMED KINGDOM / OBSIDIAN COMMAND</span>
-        <h1>Cluster Command Center</h1>
-        <p>Helyi szerverfelügyelet és hitelesített LAN-megfigyelés</p>
-        <button className="primary hero-button" onClick={() => onPage("servers")}>Szerverek megtekintése <ArrowRight size={16}/></button>
-      </div>
-      <div className="hero-caption">ARK: SURVIVAL ASCENDED</div>
-    </div>
-    <div className="stats">
-      <Stat label="REGISZTRÁLT MAPOK" value={all} note="Helyi és friss LAN" icon={Layers3}/>
-      <Stat label="MEGFIGYELT FUTÓ MAPOK" value={running} note="Igazolt folyamatállapot" icon={Activity}/>
-      <Stat label="HELYI CPU" value={local.cpuPercent === null ? "—" : local.cpuPercent.toFixed(0) + "%"} note="Windows-mérés" icon={Cpu}/>
-      <Stat label="HELYI RAM" value={ramUsed} note={ramTotal === "Nem mérhető" ? "Nincs mérés" : `Összes: ${ramTotal}`} icon={HardDrive}/>
-    </div>
-    <div className="overview-grid">
-      <Panel title={`Szerverek (${all})`} className="servers-panel" action={<button className="quiet" onClick={() => onPage("servers")}>Összes szerver <ChevronRight size={16}/></button>}>
-        <MapTable maps={local.maps} host={local.hostName} onPick={onSelect}/>
-        {remote && <><p className="subhead">TÁVOLI MAPOK · CSAK MEGFIGYELÉS</p><MapTable maps={remote.maps} host={remote.hostName}/></>}
-      </Panel>
-      <div className="overview-side">
-        <Panel title="Gazdagépek">
-          <HostCard host={local} local/>
-          {remote ? <HostCard host={remote}/> : <div className="warning-inline"><WifiOff size={18}/><span>{snapshot.peerMessage || "Nincs friss LAN-peer adat"}</span></div>}
-        </Panel>
-        <Panel title="Biztonsági állapot">
-          <div className="status-line"><Shield size={18}/><span>A szerverek itt csak megfigyelhetők</span></div>
-          <div className="status-line"><Database size={18}/><span>Store és SQL: nincs írási jog a React bridge-ben</span></div>
-          <div className="status-line"><CheckCircle2 size={18}/><span>Éles lifecycle biztonsági kapuk változatlanok</span></div>
-        </Panel>
-      </div>
-    </div>
-  </>;
+  return <PremiumDashboard snapshot={snapshot} onSelect={onSelect}
+    onServers={()=>onPage("servers")} onCluster={()=>onPage("cluster")}/>;
 }
 const asaMapNames = [
   "The Island","The Center","Scorched Earth","Aberration","Extinction",
@@ -1251,7 +1200,7 @@ export function App() {
         </button>)}
       </nav>
       <div className="sidebar-bottom"><div className="sidebar-shield"><Shield size={16}/><span>Biztonságos megfigyelés</span></div>
-        <p>Az éles Start/Stop/Store műveletek nem érhetők el az új UI-bridge-en.</p></div>
+        <p>A történeti Store-v1 átvétel külön védett. A szervervezérlés és a karakterutazás eltérő biztonsági szint.</p></div>
     </aside>
     <div className="main-area">
       <header className="topbar"><div className="topbar-title"><span className="topbar-kicker">UNTAMED KINGDOM</span><b>{title}</b></div>
