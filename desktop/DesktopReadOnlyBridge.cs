@@ -42,7 +42,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 
             id = parsedId.ToString("D");
             string? method = rawMethod.GetString();
-            if (method is not ("dashboard.snapshot" or "mods.configured" or "curseforge.search" or "plugins.inventory" or "backups.summary" or "logs.read" or "steam.installations" or "servers.suggestPorts"))
+            if (method is not ("dashboard.snapshot" or "mods.configured" or "curseforge.search" or "plugins.inventory" or "backups.summary" or "logs.read" or "steam.installations" or "servers.suggestPorts" or "mods.sharedInventory"))
                 return Error(id, "UM-METHOD-DENIED");
 
             string? mapId = null;
@@ -90,6 +90,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                     "logs.read" => await Task.Run<object>(() => GetLogTail(Guid.Parse(mapId!))),
                     "steam.installations" => await Task.Run<object>(() => GetInstallationInventory()),
                     "servers.suggestPorts" => GetSuggestedLocalPorts(),
+                    "mods.sharedInventory" => await Task.Run<object>(() => DesktopSharedModInventory.Read(_cluster.Config.LocalMaps)),
                     _ => throw new InvalidOperationException("Disallowed bridge operation")
                 };
                 return JsonSerializer.Serialize(new { id, ok = true, data = result }, Json);
