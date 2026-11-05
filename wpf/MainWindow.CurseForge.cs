@@ -27,6 +27,8 @@ public partial class MainWindow
         NestedWheelScroll.SetChainToParent(results,true);
         var detail=Label("Válassz modot a találati listából a részletekhez.",12,Soft);
         var paging=Label("Nincs lekérdezés.",12,Soft);
+        var localAssignments=Label(
+            "Helyi map-hozzárendelések: válassz CurseForge projektet.",12,Soft);
         var fullDescription=Label("A projekt részletes leírása külön, csak olvasható API-kéréssel tölthető be.",12,Soft);
         var filesStatus=Label("Válassz egy ASA modot, majd kérd le a hozzá tartozó fájlverziókat.",12,Soft);
         var fileDetail=Label("Nincs kiválasztott fájl.",12,Soft);
@@ -49,6 +51,33 @@ public partial class MainWindow
         string lastTerm="";
         bool busy=false;
         Button? search=null,previous=null,next=null;
+        void RefreshLocalAssignments()
+        {
+            if(results.SelectedItem is not CurseForgeMod chosen)
+            {
+                localAssignments.Text="Válassz projektet a helyi mapok modállapotának megtekintéséhez.";
+                return;
+            }
+            string id=chosen.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var localMaps=_cluster.Config.LocalMaps.ToArray();
+            var assignment=localMaps.Select(map=>{
+                try
+                {
+                    var mod=ModStateController.Read(map);
+                    string mode=mod.Active.Contains(id)?"ACTIVE":
+                        mod.Passive.Contains(id)?"PASSIVE":
+                        mod.Disabled.Contains(id)?"DISABLED":"nincs konfigurálva";
+                    return map.Name+" · "+mode+(mod.Pending?" · újraindításra váró változás":"");
+                }
+                catch(Exception)
+                {
+                    return map.Name+" · modállapot nem ellenőrizhető";
+                }
+            });
+            localAssignments.Text="HELYI MAP HOZZÁRENDELÉS – KONFIGURÁCIÓ, NEM FUTÓ MODLELTÁR"+
+                "\n"+(localMaps.Length==0?"Nincs helyi map.":string.Join("\n",assignment))+
+                "\nTávoli map konfigurációját nem módosítjuk.";
+        }
         results.SelectionChanged+=(_,_)=>{
             loadedFiles=null;
             filesProject=0;
@@ -65,6 +94,7 @@ public partial class MainWindow
             }
             string summary=mod.Summary;
             if(summary.Length>500)summary=summary[..500]+"…";
+            RefreshLocalAssignments();
             detail.Text=mod.Name+" · ID "+mod.Id+"\n"+
                 (string.IsNullOrWhiteSpace(summary)?"Leírás nem elérhető.":summary)+"\n"+
                 "Szerzők: "+(mod.Authors.Count==0?"nem közölt":
@@ -287,6 +317,8 @@ public partial class MainWindow
             _catalogSelectForMod(chosen.Id.ToString());
         });
         addFromCatalog.Visibility=_catalogSelectForMod==null?Visibility.Collapsed:Visibility.Visible;
+        var refreshLocalAssignment=Btn("Maponkénti modállapot újraolvasása",
+            RefreshLocalAssignments);
         var inspectFiles=Btn("Kijelölt mod fájlverziói és függőségei",async ()=>{
             if(results.SelectedItem is not CurseForgeMod selected)
             {filesStatus.Text="Előbb válassz ki egy modot.";return;}
@@ -393,7 +425,7 @@ public partial class MainWindow
             projectId,lookup,
             previous,next,paging,results,
             addFromCatalog,
-            detail,
+            detail,refreshLocalAssignment,localAssignments,
             inspectDescription,fullDescription,
             Label("FÁJLVERZIÓK / KAPCSOLATOK (HIVATALOS API)",12,Aqua,true),
             inspectFiles,filesPrevious,filesNext,filesStatus,fileList,fileDetail,
