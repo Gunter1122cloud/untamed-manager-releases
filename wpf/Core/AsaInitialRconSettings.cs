@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace UntamedManager.Core;
@@ -74,7 +75,7 @@ public static class AsaInitialRconSettings
             "ServerAdminPassword="+adminPassword+"\r\n";
         // Durable create-new: a concurrent creator cannot be overwritten.
         using(var file=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None))
-        using(var writer=new StreamWriter(file,new UTF8Encoding(false),leaveOpen:true))
+        using(var writer=new StreamWriter(file,new UTF8Encoding(false),1024,leaveOpen:true))
         {
             writer.Write(content);
             writer.Flush();
