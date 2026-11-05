@@ -9,6 +9,7 @@ import {
   type LogTail, type ModDraftState, type ModDraftSave, type ModDraftMode,
   type IniFile, type IniDocument, type IniPreview, type LocalImportPreview,
   type SteamInstallations, type SuggestedPorts,
+  type CurseForgeCategory, type CurseForgeFeatured, type CurseForgeProject, type CurseForgeFile,
   type PluginInventory, type DashboardSnapshot,
   type PublicMap, type RemoteHost
 } from "./bridge";
@@ -81,68 +82,212 @@ function HostCard({ host, local = false }: {
     <span className="host-count">{running}/{host.maps.length} fut</span>
   </div>;
 }
-function CurseForgeExplorer() {
+function CurseForgeExplorer({ onPrepare }: { onPrepare?: (id: string) => void }) {
   const [term, setTerm] = useState("");
+  const [categoryId, setCategoryId] = useState(0);
+  const [sort, setSort] = useState(3);
+  const [descending, setDescending] = useState(true);
+  const [feed, setFeed] = useState<"featured" | "popular" | "recentlyUpdated">("featured");
+  const [categories, setCategories] = useState<CurseForgeCategory[]>([]);
+  const [featured, setFeatured] = useState<CurseForgeFeatured | null>(null);
   const [result, setResult] = useState<CurseForgeResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
+  const [details, setDetails] = useState<CurseForgeProject | null>(null);
+  const [files, setFiles] = useState<CurseForgeFile[]>([]);
+  const [filesPage, setFilesPage] = useState(0);
+  const [filesHasMore, setFilesHasMore] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [projectBusy, setProjectBusy] = useState(false);
+  const [filesBusy, setFilesBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [detailNotice, setDetailNotice] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const initialize = async () => {
+      const [categoryResponse, featuredResponse] = await Promise.allSettled([
+        managerBridge.catalogCategories(), managerBridge.catalogFeatured()
+      ]);
+      if (!active) return;
+      if (categoryResponse.status === "fulfilled") setCategories(categoryResponse.value.categories);
+      if (featuredResponse.status === "fulfilled") {
+        setFeatured(featuredResponse.value);
+        setSelected(featuredResponse.value.featured[0]?.id ??
+          featuredResponse.value.popular[0]?.id ?? null);
+      }
+      if (categoryResponse.status === "rejected" && featuredResponse.status === "rejected")
+        setNotice("A CurseForge katalógus nem érhető el. Ellenőrizd a Beállítások menüben az API-kulcsot és az internetkapcsolatot.");
+    };
+    void initialize();
+    return () => { active = false; };
+  }, []);
+
   const runSearch = async (page = 0) => {
     const query = term.trim();
-    if (query.length < 2 || query.length > 80) {
-      setNotice("Adj meg 2–80 karakteres keresőkifejezést.");
+    if (query.length > 80 || (query.length > 0 && query.length < 2)) {
+      setNotice("Adj meg 2–80 karakteres keresőkifejezést, vagy böngéssz üres keresőmezővel.");
       return;
     }
-    setBusy(true);
-    setNotice("");
+    setBusy(true); setNotice("");
     try {
-      const data = await managerBridge.catalogSearch(query, page);
+      const data = await managerBridge.catalogBrowse({term: query, categoryId, sort, descending, page});
       setResult(data);
       setSelected(data.mods[0]?.id ?? null);
     } catch (e) {
-      const code = e instanceof Error ? e.message : "UM-READ-UNAVAILABLE";
+      const code = e instanceof Error ? e.message : "UM-CURSEFORGE-REQUEST-FAILED";
       setNotice(code === "UM-CURSEFORGE-NO-KEY"
-        ? "A helyi Managerben még nincs beállítva CurseForge API-kulcs."
-        : "A CurseForge keresés nem sikerült (" + code + ").");
+        ? "Először add meg a CurseForge API-kulcsot a Beállítások menüben."
+        : "A hivatalos CurseForge keresés sikertelen (" + code + ").");
     } finally { setBusy(false); }
   };
-  const chosen = result?.mods.find(m => m.id === selected);
-  return <Panel title="Hivatalos CurseForge ASA katalógus" action={<span className="muted tiny">Csak metaadat · nincs telepítés</span>}>
-    <form className="catalog-search" onSubmit={e => { e.preventDefault(); void runSearch(0); }}>
-      <Search size={20} aria-hidden="true"/>
-      <input aria-label="CurseForge mod keresése" placeholder="Modkeresés név vagy készítő alapján..." value={term}
-        onChange={e => setTerm(e.target.value)} maxLength={80} minLength={2}/>
-      <button className="primary" disabled={busy} type="submit">{busy ? "Keresés..." : "Keresés"}</button>
+
+  useEffect(() => {
+    let active = true;
+    setDetails(null); setFiles([]); setFilesPage(0); setFilesHasMore(false); setDetailNotice("");
+    if (selected === null) return;
+    setProjectBusy(true);
+    managerBridge.catalogProject(selected).then(info => {
+      if (!active) return;
+      setDetails(info);
+      setFiles(info.files);
+      setFilesHasMore(info.filesHasMore);
+    }).catch(() => {
+      if (active) setDetailNotice("A projekt részletes adatai vagy verziólistája jelenleg nem érhető el.");
+    }).finally(() => { if (active) setProjectBusy(false); });
+    return () => { active = false; };
+  }, [selected]);
+
+  const loadMore = async () => {
+    if (selected === null || filesBusy || !filesHasMore) return;
+    setFilesBusy(true); setDetailNotice("");
+    const nextPage = filesPage + 1;
+    try {
+      const response = await managerBridge.catalogFiles(selected, nextPage);
+      setFiles(current => [...current, ...response.files]);
+      setFilesPage(nextPage); setFilesHasMore(response.hasMore);
+    } catch { setDetailNotice("A további fájlverziók betöltése nem sikerült. A meglévő lista megmaradt."); }
+    finally { setFilesBusy(false); }
+  };
+
+  const displayed = result?.mods ?? featured?.[feed] ?? [];
+  const selectedBasic = displayed.find(m => m.id === selected) ??
+    featured?.featured.find(m => m.id === selected) ??
+    featured?.popular.find(m => m.id === selected) ??
+    featured?.recentlyUpdated.find(m => m.id === selected);
+  const title = details?.mod.name ?? selectedBasic?.name ?? "Mod kiválasztása";
+
+  return <Panel title="CurseForge ASA Mod Galaxy" action={<span className="muted tiny">Hivatalos API · kategóriák · fájlverziók</span>}>
+    <form className="cf-filters" onSubmit={e => { e.preventDefault(); void runSearch(0); }}>
+      <label className="cf-search"><span>Keresés modnév vagy készítő szerint</span>
+        <span className="cf-input"><Search size={18} aria-hidden="true"/>
+          <input aria-label="CurseForge mod keresése" placeholder="Shiny, S-Dino, Arkitect..." value={term}
+            onChange={e => setTerm(e.target.value)} maxLength={80}/></span>
+      </label>
+      <label><span>Kategória</span>
+        <select aria-label="CurseForge kategória" value={categoryId}
+          onChange={e => setCategoryId(Number(e.target.value))}>
+          <option value={0}>Összes kategória</option>
+          {categories.filter(c => !c.isClass).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </label>
+      <label><span>Rendezés</span>
+        <select aria-label="CurseForge rendezés" value={sort}
+          onChange={e => setSort(Number(e.target.value))}>
+          <option value={3}>Legutóbb frissített</option>
+          <option value={2}>Népszerűség</option>
+          <option value={6}>Összes letöltés</option>
+          <option value={4}>Név</option>
+          <option value={0}>Szolgáltatói alapértelmezés</option>
+        </select>
+      </label>
+      <button type="button" className="cf-order" aria-label="Rendezési irány"
+        onClick={() => setDescending(v => !v)} title="A CurseForge által támogatott rendezési irány">
+        {descending ? "Csökkenő" : "Növekvő"}
+      </button>
+      <button className="primary" type="submit" disabled={busy}>{busy ? "Lekérdezés..." : "Keresés"}</button>
     </form>
     {notice && <div role="status" className="warning-inline"><AlertTriangle size={17}/>{notice}</div>}
-    {result && <div className="catalog-layout">
-      <div className="catalog-list">
-        <p className="muted small">{result.totalCount} találat · {result.page+1}. oldal · hivatalos katalógusadat</p>
-        {result.mods.map(mod => <button key={mod.id} className={selected===mod.id?"catalog-item selected":"catalog-item"} onClick={() => setSelected(mod.id)}>
-          {mod.thumbnailUrl ? <img src={mod.thumbnailUrl} alt="" loading="lazy" referrerPolicy="no-referrer"/> : <div className="catalog-fallback"><Package size={22}/></div>}
-          <span><b>{mod.name}</b><small>{mod.authors.join(", ") || "Ismeretlen szerző"} · ID {mod.id}</small></span>
+    {!result && <div className="cf-feed-tabs" role="tablist" aria-label="CurseForge ajánlók">
+      <button role="tab" aria-selected={feed==="featured"} className={feed==="featured"?"active":""}
+        onClick={() => { setFeed("featured"); setSelected(featured?.featured[0]?.id ?? null); }}>Kiemelt modok</button>
+      <button role="tab" aria-selected={feed==="popular"} className={feed==="popular"?"active":""}
+        onClick={() => { setFeed("popular"); setSelected(featured?.popular[0]?.id ?? null); }}>Népszerű modok</button>
+      <button role="tab" aria-selected={feed==="recentlyUpdated"} className={feed==="recentlyUpdated"?"active":""}
+        onClick={() => { setFeed("recentlyUpdated"); setSelected(featured?.recentlyUpdated[0]?.id ?? null); }}>Frissítettek</button>
+    </div>}
+    {result && <div className="cf-results-head">
+      <span>{result.totalCount.toLocaleString("hu-HU")} találat · {result.page+1}. oldal</span>
+      <button className="quiet" onClick={() => {
+        setResult(null); setSelected(featured?.[feed][0]?.id ?? null); setNotice("");
+      }}>Kiemelt katalógus visszaállítása</button>
+    </div>}
+    <div className="cf-galaxy">
+      <div className="cf-catalog-pane">
+        {displayed.length === 0 && <div className="empty">
+          {busy ? "Hivatalos találatok betöltése..." : !result && !featured ?
+            "Kiemelt modok lekérése vagy kategória szerinti keresés..." : "Nincs megjeleníthető mod ebben a listában."}
+        </div>}
+        {displayed.map(mod => <button key={mod.id} className={selected===mod.id?"cf-result selected":"cf-result"}
+          onClick={() => setSelected(mod.id)}>
+          {mod.thumbnailUrl ? <img src={mod.thumbnailUrl} alt="" loading="lazy" referrerPolicy="no-referrer"/> :
+            <span className="cf-mod-fallback"><Package size={22}/></span>}
+          <span className="cf-result-copy"><strong>{mod.name}</strong>
+            <small>{mod.authors.join(", ") || "Ismeretlen készítő"}</small>
+            <small>ID {mod.id} · {mod.downloadCount.toLocaleString("hu-HU")} letöltés</small></span>
+          <ChevronRight size={15} className="cf-chevron"/>
         </button>)}
-        <div className="catalog-pagination">
+        {result && <div className="catalog-pagination">
           <button disabled={busy || result.page===0} onClick={() => { void runSearch(result.page-1); }}>Előző</button>
           <span className="muted tiny">{result.page+1}. oldal</span>
           <button disabled={busy || !result.hasMore} onClick={() => { void runSearch(result.page+1); }}>Következő</button>
-        </div>
+        </div>}
       </div>
-      <div className="catalog-detail">
-        {chosen ? <>
-          <h3>{chosen.name}</h3>
-          <p className="muted small">{chosen.authors.join(", ") || "Szerző: ismeretlen"} · Projekt ID: {chosen.id}</p>
-          <p>{chosen.summary || "Nincs katalógus-összefoglaló."}</p>
-          <div className="details-line"><span>Legújabb fájl</span><b>{chosen.latestFile || "Nincs adat"}</b></div>
-          <div className="details-line"><span>Letöltésszám</span><b>{chosen.downloadCount.toLocaleString("hu-HU")}</b></div>
-          <div className="warning-inline"><Shield size={17}/> A katalógus nem igazolja a mod telepítését vagy ASA-betöltését.</div>
-          {chosen.website && <span className="muted tiny">CurseForge-adatlap: {chosen.website}</span>}
-        </> : <p className="muted">Nincs kiválasztott mod.</p>}
+      <div className="cf-project-pane">
+        {selected === null ? <div className="empty">Válassz egy modot a részletekhez.</div> : <>
+          <span className="eyebrow">MODPROJEKT / {selected}</span>
+          <h3>{title}</h3>
+          {selectedBasic && <div className="cf-tags">
+            {(details?.mod.categories ?? selectedBasic.categories ?? []).slice(0,5).map((c,i)=>
+              <span key={i}>{c}</span>)}
+          </div>}
+          {projectBusy && <div className="muted small">Részletes leírás és hivatalos fájlverziók lekérése...</div>}
+          {detailNotice && <div role="status" className="warning-inline"><AlertTriangle size={16}/>{detailNotice}</div>}
+          {details ? <>
+            <p className="cf-summary">{details.mod.summary || "Nincs nyilvános összefoglaló."}</p>
+            {details.description && <div className="cf-description" aria-label="CurseForge mod leírás">
+              {details.description}</div>}
+            {details.mod.screenshots.length > 0 && <div className="cf-screenshots">
+              {details.mod.screenshots.slice(0,3).map((src,i)=><img key={i} alt={details.mod.name+" · illusztráció "+(i+1)}
+                src={src} loading="lazy" referrerPolicy="no-referrer"/>)}
+            </div>}
+            <div className="details-line"><span>Legutóbbi verzió</span><b>{details.mod.latestFile || "Nem ismert"}</b></div>
+            <div className="details-line"><span>Letöltések</span><b>{details.mod.downloadCount.toLocaleString("hu-HU")}</b></div>
+            <div className="cf-file-header"><h4>Hivatalos fájlverziók</h4><span>{details.filesTotal} fájl</span></div>
+            {files.length===0 && <div className="empty">Nem érhető el publikus fájlmetaadat.</div>}
+            <div className="cf-files">
+              {files.map(file=><div className="cf-file" key={file.fileId}>
+                <div><b>{file.name}</b><small>{file.published ? new Date(file.published).toLocaleDateString("hu-HU") : "Dátum nélkül"} ·
+                  {file.sizeBytes>0 ? " "+(file.sizeBytes/1048576).toFixed(1)+" MiB" : " méret ismeretlen"}</small></div>
+                <span className={file.available?"mod-tag green":"mod-tag amber"}>{file.available?"Elérhető":"Nem igazolt"}</span>
+                {file.gameVersions.length>0 && <small className="cf-versions">{file.gameVersions.join(" · ")}</small>}
+                {file.dependencies.length>0 && <small className="cf-deps">
+                  Függőségek: {file.dependencies.map(d => d.modId+" ("+d.type+")").join(", ")}</small>}
+              </div>)}
+            </div>
+            {filesHasMore && <button className="secondary cf-more" disabled={filesBusy}
+              onClick={() => { void loadMore(); }}>{filesBusy?"Betöltés...":"További fájlverziók"}</button>}
+          </> : selectedBasic && <p className="muted">{selectedBasic.summary}</p>}
+          <div className="cf-project-actions">
+            {onPrepare && <button className="primary" disabled={projectBusy} onClick={()=>onPrepare(String(selected))}>
+              <Layers3 size={16}/> Projekt ID előkészítése a modpiszkozatban</button>}
+          </div>
+          <div className="warning-inline"><Shield size={17}/>
+            A CurseForge-fájlmetaadat nem igazolja a crossplayt, letöltési jogosultságot vagy a mod ASA-betöltését. A piszkozat nem telepít modot.</div>
+        </>}
       </div>
-    </div>}
+    </div>
   </Panel>;
 }
-
 function Dashboard({ snapshot, onPage, onSelect }: {
   snapshot: DashboardSnapshot;
   onPage: (page: Page) => void; onSelect: (id: string) => void
