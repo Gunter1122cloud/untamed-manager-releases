@@ -235,3 +235,28 @@ button,select,input {accent-color:#2cbf91;}
 .premium-onboarding-maps button>span:nth-child(2){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
 .premium-onboarding-maps button>svg{color:#79dcac;}
 @media(max-width:800px){.premium-onboarding-maps{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+/* Reference identity: Rex artwork belongs in the left masthead as well as
+   the scene banner. The existing offline bundled asset is used without
+   loading images from an external network. */
+.sidebar:before {
+  height:235px;opacity:.74;
+  background:linear-gradient(180deg,#0b161b18 5%,#0f191f22 49%,#10191f 97%),
+    url('/kingdom-hero.jpg') right -7px top -6px / auto 250px no-repeat;
+}
+.brand {min-height:205px;padding-top:52px;padding-bottom:10px;justify-content:flex-end;}
+.brand-symbol {width:47px;height:47px;position:absolute;top:13px;left:12px;border:1px solid #5f947b;
+  background:#101b20b8;box-shadow:0 0 14px #0009;border-radius:11px;}
+.brand-symbol img {width:41px;height:41px;}
+.brand strong {font-size:23px;line-height:1.04;text-shadow:0 3px 8px #000,0 1px 2px #000;}
+.brand span {color:#7ce6b5;text-shadow:0 2px 6px #000;font-size:14px;}
+.brand small {color:#d4e9e5;text-shadow:0 2px 5px #000;}
+.brand:after {content:"";width:90%;height:1px;background:linear-gradient(90deg,transparent,#4a997f77,transparent);
+  position:absolute;bottom:0;left:5%;}
+@media(max-width:1049px){
+  .sidebar:before {height:100px;background-position:right center;background-size:auto 115px;}
+  .brand {min-height:100px;padding:13px 0 5px;}
+  .brand-symbol {left:5px;top:12px;width:43px;height:43px;}
+  .brand-symbol img{width:37px;height:37px;}
+  .brand:after{display:none;}
+}
