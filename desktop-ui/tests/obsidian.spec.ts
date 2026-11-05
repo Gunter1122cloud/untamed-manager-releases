@@ -363,7 +363,7 @@ test("native mod draft contract stages in memory and saves only on explicit clic
   await page.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
   await page.getByRole("tab",{name:"Map modjai"}).click();
   await expect(page.getByRole("table",{name:"Konfigurált modlista"}).getByText("CurseForge ID: 567890")).toBeVisible();
-  await expect(page.getByText(/Mentve a helyi indítási konfigurációba/)).toBeVisible();
+  await expect(page.locator(".premium-mod-save-toast")).toContainText("Mentve a helyi indítási konfigurációba");
 });
 
 test("INI editor requires explicit open, preview and save in test contract",async ({page})=>{
