@@ -21,6 +21,10 @@ public sealed record CurseForgeMod(int Id,string Name,string Summary,string? Web
     public string? ThumbnailUrl { get; init; }
     public IReadOnlyList<string> Authors {get;init;}=Array.Empty<string>();
     public IReadOnlyList<string> Categories {get;init;}=Array.Empty<string>();
+    public IReadOnlyList<string> Screenshots {get;init;}=Array.Empty<string>();
+    public long DownloadCount {get;init;}
+    public bool? AllowModDistribution {get;init;}
+    public bool? IsAvailable {get;init;}
 }
 public sealed record CurseForgeSearchResult(int GameId,IReadOnlyList<CurseForgeMod> Mods,
     int TotalCount,int Index,bool HasMore);
@@ -40,9 +44,23 @@ public sealed record CurseForgeFile(int FileId,int ModId,string Name,DateTimeOff
         Array.Empty<CurseForgeRelation>();
     public long SizeBytes {get;init;}
     public IReadOnlyList<string> GameVersions {get;init;}=Array.Empty<string>();
+    public long? FileFingerprint {get;init;}
+    public string DistributionState {get;init;}="Letöltési jogosultság nem igazolt";
 }
 public sealed record CurseForgeFilesResult(int ModId,IReadOnlyList<CurseForgeFile> Files,
     int Index,int Total,bool HasMore);
+public sealed record CurseForgeCategory(int Id,string Name,int GameId,bool IsClass,int ParentCategoryId);
+public sealed record CurseForgeFeaturedResult(int GameId,IReadOnlyList<CurseForgeMod> Featured,
+    IReadOnlyList<CurseForgeMod> Popular,IReadOnlyList<CurseForgeMod> RecentlyUpdated);
+public enum CurseForgeSearchSortField
+{
+    ProviderDefault=0,Featured=1,Popularity=2,LastUpdated=3,Name=4,
+    Author=5,TotalDownloads=6,Category=7,GameVersion=8,
+    EarlyAccess=9,FeaturedReleased=10,ReleasedDate=11,Rating=12
+}
+public sealed record CurseForgeSearchOptions(string Term="",int CategoryId=0,
+    int ClassId=0,int AuthorId=0,CurseForgeSearchSortField Sort=CurseForgeSearchSortField.ProviderDefault,
+    bool Descending=true);
 
 public sealed class CurseForgeCatalog
 {
@@ -76,18 +94,32 @@ public sealed class CurseForgeCatalog
         return await FindAsaGameAsync(key,ct);
     }
 
-    public async Task<CurseForgeSearchResult> SearchAsaAsync(string key,string term,int index=0,
-        CancellationToken ct=default)
+    public Task<CurseForgeSearchResult> SearchAsaAsync(string key,string term,int index=0,
+        CancellationToken ct=default) =>
+        SearchAsaAsync(key,new CurseForgeSearchOptions(term),index,ct);
+
+    /// <summary>Documented ASA search: name OR author free text, category and provider sort.</summary>
+    public async Task<CurseForgeSearchResult> SearchAsaAsync(
+        string key,CurseForgeSearchOptions options,int index=0,CancellationToken ct=default)
     {
         ValidateApiKey(key);
-        term=term?.Trim()??"";
-        if(term.Length<2 || term.Length>80)
-            throw new ArgumentException("Search text must contain 2-80 characters",nameof(term));
-        if(index<0 || index+PageSize>10000 || index%PageSize!=0)
-            throw new ArgumentOutOfRangeException(nameof(index));
+        ArgumentNullException.ThrowIfNull(options);
+        string term=(options.Term??"").Trim();
+        if(term.Length>80 || (term.Length is >0 and <2))
+            throw new ArgumentException("Search text must contain 2-80 characters",nameof(options));
+        if(options.CategoryId<0 || options.ClassId<0 || options.AuthorId<0 ||
+           !Enum.IsDefined(options.Sort) || index<0 || index+PageSize>10000 ||
+           index%PageSize!=0)
+            throw new ArgumentOutOfRangeException(nameof(options));
         int game=await FindAsaGameAsync(key,ct);
-        string path="/v1/mods/search?gameId="+game+"&searchFilter="+
-            Uri.EscapeDataString(term)+"&index="+index+"&pageSize="+PageSize;
+        string path="/v1/mods/search?gameId="+game+"&index="+index+"&pageSize="+PageSize;
+        if(term.Length>0)path+="&searchFilter="+Uri.EscapeDataString(term);
+        if(options.CategoryId>0)path+="&categoryId="+options.CategoryId;
+        if(options.ClassId>0)path+="&classId="+options.ClassId;
+        if(options.AuthorId>0)path+="&authorId="+options.AuthorId;
+        if(options.Sort!=CurseForgeSearchSortField.ProviderDefault)
+            path+="&sortField="+(int)options.Sort+"&sortOrder="+
+                (options.Descending?"desc":"asc");
         using var document=await Request(key,path,ct);
         var root=document.RootElement;
         var data=Array(root,"data");
@@ -102,6 +134,46 @@ public sealed class CurseForgeCatalog
            pagination.ValueKind==JsonValueKind.Object)
             total=Int(pagination,"totalCount");
         return new(game,mods,total,index,index+PageSize<Math.Min(total,10000));
+    }
+
+    public async Task<IReadOnlyList<CurseForgeCategory>> GetAsaCategoriesAsync(
+        string key,CancellationToken ct=default)
+    {
+        ValidateApiKey(key);
+        int game=await FindAsaGameAsync(key,ct);
+        using var document=await Request(key,"/v1/categories?gameId="+game,ct);
+        return Array(document.RootElement,"data").EnumerateArray()
+            .Where(x=>Int(x,"id")>0 && Int(x,"gameId")==game)
+            .Take(250)
+            .Select(x=>new CurseForgeCategory(Int(x,"id"),
+                (Str(x,"name")??"").Trim(),game,
+                Bool(x,"isClass")==true,Int(x,"parentCategoryId")))
+            .Where(x=>x.Name.Length is >0 and <=100)
+            .ToArray();
+    }
+
+    /// <summary>Documented POST /v1/mods/featured: metadata only, never a mod download.</summary>
+    public async Task<CurseForgeFeaturedResult> GetAsaFeaturedAsync(
+        string key,CancellationToken ct=default)
+    {
+        ValidateApiKey(key);
+        int game=await FindAsaGameAsync(key,ct);
+        string payload=JsonSerializer.Serialize(new {
+            gameId=game,excludedModIds=System.Array.Empty<int>(),gameVersionTypeId=0
+        });
+        using var document=await Request(key,"/v1/mods/featured",ct,
+            HttpMethod.Post,payload);
+        if(!document.RootElement.TryGetProperty("data",out var entry) ||
+           entry.ValueKind!=JsonValueKind.Object)
+            throw new InvalidDataException("CurseForge featured response is missing data");
+        IReadOnlyList<CurseForgeMod> Group(string field)
+        {
+            var arr=Array(entry,field);
+            return arr.EnumerateArray().Take(100)
+                .Select(x=>ParseAsaMod(x,game)).Where(x=>x!=null)
+                .Select(x=>x!).ToArray();
+        }
+        return new(game,Group("featured"),Group("popular"),Group("recentlyUpdated"));
     }
 
     /// <summary>
@@ -192,7 +264,11 @@ public sealed class CurseForgeCatalog
         {
             ThumbnailUrl=thumbnail,
             Authors=Names(item,"authors",12),
-            Categories=Names(item,"categories",20)
+            Categories=Names(item,"categories",20),
+            Screenshots=Images(item,"screenshots",12),
+            DownloadCount=Math.Max(0,Long(item,"downloadCount")),
+            AllowModDistribution=Bool(item,"allowModDistribution"),
+            IsAvailable=Bool(item,"isAvailable")
         };
     }
 
@@ -287,12 +363,19 @@ public sealed class CurseForgeCatalog
             "ARK Survival Ascended is not visible to this approved CurseForge API key");
     }
 
-    private async Task<JsonDocument> Request(string key,string relative,CancellationToken ct)
+    private async Task<JsonDocument> Request(string key,string relative,CancellationToken ct,
+        HttpMethod? method=null,string? jsonBody=null)
     {
-        using var request=new HttpRequestMessage(HttpMethod.Get,
+        ct.ThrowIfCancellationRequested();
+        if(jsonBody!=null && ((method??HttpMethod.Get)!=HttpMethod.Post ||
+           jsonBody.Length>8192))
+            throw new InvalidDataException("Invalid CurseForge JSON request payload");
+        using var request=new HttpRequestMessage(method??HttpMethod.Get,
             new Uri("https://api.curseforge.com"+relative,UriKind.Absolute));
         request.Headers.Add("x-api-key",key);
         request.Headers.Accept.ParseAdd("application/json");
+        if(jsonBody!=null)
+            request.Content=new StringContent(jsonBody,Encoding.UTF8,"application/json");
         using var response=await http.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,ct);
         if(response.StatusCode==HttpStatusCode.Unauthorized ||
            response.StatusCode==HttpStatusCode.Forbidden)
@@ -315,6 +398,33 @@ public sealed class CurseForgeCatalog
         }
         memory.Position=0;
         return await JsonDocument.ParseAsync(memory,cancellationToken:ct);
+    }
+    private static bool? Bool(JsonElement root,string name)
+    {
+        if(!root.TryGetProperty(name,out var v))return null;
+        return v.ValueKind switch{
+            JsonValueKind.True=>true,
+            JsonValueKind.False=>false,
+            _=>null
+        };
+    }
+    private static string? TrustedPicture(string? offered)
+    {
+        if(!Uri.TryCreate(offered,UriKind.Absolute,out var uri) ||
+           uri.Scheme!=Uri.UriSchemeHttps || uri.UserInfo.Length>0)return null;
+        if(uri.Host.Equals("media.forgecdn.net",StringComparison.OrdinalIgnoreCase) ||
+           uri.Host.EndsWith(".forgecdn.net",StringComparison.OrdinalIgnoreCase))
+            return uri.ToString();
+        return null;
+    }
+    private static IReadOnlyList<string> Images(JsonElement root,string field,int cap)
+    {
+        if(!root.TryGetProperty(field,out var data) ||
+           data.ValueKind!=JsonValueKind.Array)return System.Array.Empty<string>();
+        return data.EnumerateArray().Take(cap).Select(x=>
+            TrustedPicture(Str(x,"thumbnailUrl")??Str(x,"url")))
+            .Where(x=>x!=null).Select(x=>x!)
+            .Distinct(StringComparer.Ordinal).ToArray();
     }
     private static IReadOnlyList<string> Names(JsonElement root,string name,int cap)
     {
