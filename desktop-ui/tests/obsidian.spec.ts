@@ -269,14 +269,14 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
 
   await page.getByRole("button", { name: "Modok", exact: true }).click();
   await expect(page.getByRole("heading", { name: /^Modok –/ })).toBeVisible();
-  await expect(page.getByText("Projekt · 123456").first()).toBeVisible();
+  await expect(page.getByRole("table",{name:"Konfigurált modlista"}).getByText("CurseForge ID: 123456")).toBeVisible();
   await expect(page.getByRole("table",{name:"Konfigurált modlista"})).toBeVisible();
   await expect(page.locator(".premium-mod-details")).toBeVisible();
   await expect(page.locator(".premium-mod-bottom-bar")).toBeVisible();
 
   await page.getByRole("textbox", { name: "CurseForge mod keresése" }).fill("Shiny");
   await page.getByRole("button", { name: "Keresés", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Example Search Result" })).toBeVisible();
+  await expect(page.locator("#curseforge-catalog").getByRole("heading", { name: "Example Search Result" }).first()).toBeVisible();
   await page.screenshot({ path: "test-results/mod-center-1600.png", fullPage: true });
 
   await page.getByRole("button", { name: "Pluginok" }).click();
@@ -435,7 +435,7 @@ test("CurseForge official Galaxy browses categories, projects, versions, and pre
   await page.getByRole("combobox",{name:"CurseForge rendezés"}).selectOption("2");
   await page.getByRole("textbox",{name:"CurseForge mod keresése"}).fill("Shiny");
   await page.getByRole("button",{name:"Keresés",exact:true}).click();
-  await expect(page.getByRole("heading",{name:"Example Search Result"})).toBeVisible();
+  await expect(page.locator("#curseforge-catalog").getByRole("heading",{name:"Example Search Result"}).first()).toBeVisible();
   await expect(page.getByText("Synthetic provider description, inert plain text")).toBeVisible();
   await expect(page.getByText("Example provider file")).toBeVisible();
   await expect(page.getByText(/456789 \(RequiredDependency\)/)).toBeVisible();
