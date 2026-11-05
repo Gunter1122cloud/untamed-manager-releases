@@ -66,6 +66,17 @@ public sealed class ManagerConfig
     public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public string PublisherCertificateThumbprint { get; set; } = "";
     public bool TelemetryHistoryEnabled { get; set; } = false;
+    // SteamCMD preferences are metadata only; auto-update remains opt-in
+    // and the independent production SaveComplete/Stop capability gate applies.
+    public string SteamCmdExecutable { get; set; } = "";
+    public bool AutoSteamUpdatesEnabled { get; set; } = false;
+    public int SteamCheckIntervalMinutes { get; set; } = 180;
+    public string SteamMaintenanceStart { get; set; } = "03:00";
+    public string SteamMaintenanceEnd { get; set; } = "05:00";
+    public bool SteamWarnPlayers { get; set; } = true;
+    public int SteamWaitPlayersMinutes { get; set; } = 30;
+    public bool SteamRestartAfterUpdate { get; set; } = true;
+    public int SteamPostUpdateProbeMinutes { get; set; } = 10;
     public List<ScheduledTask> ScheduledTasks { get; set; } = new();
     public List<RecurringSchedule> RecurringSchedules { get; set; } = new();
     public List<LocalMap> LocalMaps { get; set; } = new();
@@ -487,6 +498,15 @@ public sealed class ClusterService : IAsyncDisposable
         Config.UpdateChannel=staged.UpdateChannel;
         Config.PublisherCertificateThumbprint=staged.PublisherCertificateThumbprint;
         Config.TelemetryHistoryEnabled=staged.TelemetryHistoryEnabled;
+        Config.SteamCmdExecutable=staged.SteamCmdExecutable;
+        Config.AutoSteamUpdatesEnabled=staged.AutoSteamUpdatesEnabled;
+        Config.SteamCheckIntervalMinutes=staged.SteamCheckIntervalMinutes;
+        Config.SteamMaintenanceStart=staged.SteamMaintenanceStart;
+        Config.SteamMaintenanceEnd=staged.SteamMaintenanceEnd;
+        Config.SteamWarnPlayers=staged.SteamWarnPlayers;
+        Config.SteamWaitPlayersMinutes=staged.SteamWaitPlayersMinutes;
+        Config.SteamRestartAfterUpdate=staged.SteamRestartAfterUpdate;
+        Config.SteamPostUpdateProbeMinutes=staged.SteamPostUpdateProbeMinutes;
     }
     public void AddMap(LocalMap map)
     {
