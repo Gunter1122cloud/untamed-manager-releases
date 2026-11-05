@@ -60,6 +60,8 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                     if(!found.HasServerExecutable)
                         return Failure(id,"UM-ASA-EXE-MISSING");
                     RequireUnique(name,root);
+                    if(ExistingWorld(root))
+                        return Failure(id,"UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT");
                     if(prepared.Count>=5)prepared.Clear();
                     var token=Guid.NewGuid();
                     prepared[token]=new(token,name,root,found.ServerExecutable!,
@@ -80,6 +82,8 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                     StringComparison.OrdinalIgnoreCase))
                     return Failure(id,"UM-IMPORT-CHANGED");
                 RequireUnique(preview.Name,checkedRoot);
+                if(ExistingWorld(checkedRoot))
+                    return Failure(id,"UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT");
                 var map=new LocalMap{
                     Id=Guid.NewGuid(),Name=preview.Name,
                     InstallationPath=checkedRoot,ExecutablePath=checkedExe!,
@@ -100,7 +104,7 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
         catch(Exception){return Failure(id,"UM-IMPORT-VALIDATION-FAILED");}
     }
 
-    private void RequireUnique(string name,string root)
+    internal void RequireUnique(string name,string root)
     {
         if(cluster.Config.LocalMaps.Any(m=>
             string.Equals(m.Name,name,StringComparison.OrdinalIgnoreCase)))
@@ -115,7 +119,7 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
                 throw new InvalidDataException("Existing Manager installation overlaps new import");
         }
     }
-    private static string ValidateFixedLocalRoot(string userPath)
+    internal static string ValidateFixedLocalRoot(string userPath)
     {
         if(string.IsNullOrWhiteSpace(userPath)||userPath.Length>520 ||
            !Path.IsPathFullyQualified(userPath) ||
@@ -145,6 +149,18 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
         if(File.Exists(exe) && (File.GetAttributes(exe)&FileAttributes.ReparsePoint)!=0)
             throw new InvalidDataException("Linked ASA executable refused");
         return root;
+    }
+    internal static bool ExistingWorld(string root)
+    {
+        var saved=Path.Combine(root,"ShooterGame","Saved");
+        foreach(var folder in new[]{"SavedArks","SavedArksLocal"})
+        {
+            var candidate=Path.Combine(saved,folder);
+            if(Directory.Exists(candidate) &&
+               Directory.EnumerateFileSystemEntries(candidate,"*",SearchOption.TopDirectoryOnly).Any())
+                return true;
+        }
+        return false;
     }
     private static bool GuidField(JsonElement root,string key,out Guid value)
     {

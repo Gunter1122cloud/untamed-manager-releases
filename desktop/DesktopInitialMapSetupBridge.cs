@@ -161,7 +161,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
     private LocalMap? Owned(Guid id)=>
         cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id);
     private static bool Initial(LocalMap map)=>
-        map.Arguments.Length==0 && map.GamePort==0 && map.QueryPort==0 &&
+        !map.HistoricalStoreProtected && map.Arguments.Length==0 && map.GamePort==0 && map.QueryPort==0 &&
         map.RconPort==0 && !map.AutoStart && !map.Maintenance;
     private static bool ServerExePresent(LocalMap map)=>
         !string.IsNullOrWhiteSpace(map.ExecutablePath) &&

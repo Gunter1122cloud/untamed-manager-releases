@@ -32,6 +32,13 @@ public sealed class LocalMap
     public bool StartWithAsaApi { get; set; } = false;
     public ProcessIdentity? LastLoader { get; set; }
     public string StoreTestRoot { get; set; } = "";
+    // Existing Kova Store-v1 copies are imported as quarantined metadata,
+    // not as an executable or writable character profile.
+    public bool HistoricalStoreProtected { get; set; } = false;
+    public string HistoricalArchiveSha256 { get; set; } = "";
+    public string HistoricalMapKey { get; set; } = "";
+    public List<string> HistoricalEnabledMods { get; set; } = new();
+    public List<string> HistoricalPassiveMods { get; set; } = new();
     public int GamePort { get; set; }
     public int QueryPort { get; set; }
     public int RconPort { get; set; }
@@ -571,6 +578,8 @@ public sealed class ClusterService : IAsyncDisposable
     public ProcessCheck Check(LocalMap map)
     {
         if(!Config.LocalMaps.Contains(map)) throw new UnauthorizedAccessException("Not a local map");
+        if(map.HistoricalStoreProtected)
+            return new(false,"Történeti Store-v1 map: indítás tiltva a teljes eredeti launch/szinkron validációjáig",null);
         if((map.Arguments+" "+map.ApiLoaderArguments).Contains("converttostore",StringComparison.OrdinalIgnoreCase))
             return new(false,"Store conversion is forbidden",null);
         if(map.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase))
@@ -649,6 +658,8 @@ public sealed class ClusterService : IAsyncDisposable
         // RC safety enforcement belongs to the service, not merely the WPF button:
         // prevent timers, other UI components or direct method callers from
         // launching actual ArkAscendedServer.exe before production validation.
+        if(map.HistoricalStoreProtected)
+            throw new InvalidOperationException("Historical Store-v1 profile is locked until full launch parity validation");
         ReleaseCapabilityGate.DemandFakeAsaStart(this,map);
         using var operation=Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch);
             if(map.Maintenance)throw new InvalidOperationException("Maintenance mode blocks launch");
