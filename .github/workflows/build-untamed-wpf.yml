@@ -248,12 +248,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-premium-test.8"
+          $tag = "v1.6.1-premium-test.9"
           $repo = "$env:GITHUB_REPOSITORY"
           $files = @(
-            "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-premium-test.exe",
-            "dist/UntamedManager-1.6.1-win-x64.zip#UntamedManager-1.6.1-premium-portable.zip",
-            "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-premium-SETUP.exe",
+            "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-steam-test9.exe",
+            "dist/UntamedManager-1.6.1-win-x64.zip#UntamedManager-1.6.1-steam-test9-portable.zip",
+            "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-steam-test9-SETUP.exe",
             "dist/SHA256SUMS.txt#SHA256SUMS.txt",
             "dist/UntamedManager-preview.png#UntamedManager-premium-dashboard.png",
             "dist/UI-Screenshots/UntamedManager-demo-mods.png#UntamedManager-premium-demo-mods.png",
@@ -264,6 +264,7 @@ jobs:
             "dist/UI-Screenshots/UntamedManager-logs.png#UntamedManager-premium-log-center.png",
             "dist/UI-Screenshots/UntamedManager-demo-logs.png#UntamedManager-premium-demo-logs.png",
             "dist/UI-Screenshots/UntamedManager-cluster.png#UntamedManager-premium-cluster.png",
+            "dist/UI-Screenshots/UntamedManager-steam.png#UntamedManager-steamcmd-update-center.png",
             "dist/UI-Screenshots/UntamedManager-map-setup-step1.png#UntamedManager-map-wizard-1.png",
             "dist/UI-Screenshots/UntamedManager-map-setup-step2.png#UntamedManager-map-wizard-2.png",
             "dist/UI-Screenshots/UntamedManager-map-setup-step3.png#UntamedManager-map-wizard-3.png",
@@ -276,8 +277,8 @@ jobs:
             gh release upload $tag @files --repo $repo --clobber
           } else {
             gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager Premium UI v1.6.1 · Neon Kingdom TEST 8" --prerelease `
-              --notes "Neon Kingdom TEST 8: original ARK T-Rex hero, responsive illustrated Dashboard map cards, graphite emerald design tokens, all five real server-add wizard screenshot steps, styled password controls, native dashboard mouse-wheel regression, upgraded Mod and Plugin inventory cards, verified CurseForge HTTPS thumbnails, retained guarded local mod/plugin operations and offline DEMO. Real ASA SaveComplete, production restart, two-node Store-v1 writes, character travel and live SQL restore remain NOT certified; hard safety gates stay enabled. Install only on a separate isolated Windows test PC, never UK-HOME-01 or UK-HOME-02."
+              --title "Untamed Manager v1.6.1 · Neon Kingdom SteamCMD TEST 9" --prerelease `
+              --notes "Neon Kingdom SteamCMD TEST 9 (Windows TEST PC ONLY): the actual WPF server-add wizard offers fresh SteamCMD ASA 2430930 installation into a separately named empty directory, or data-preserving existing-install import; first download requires explicit approval. Read-only official Valve SteamCMD app-info and local manifest BuildID comparison, per-map version tab, status history, serial queue preview and fail-closed interrupted-install recovery are integrated. Offline CI covers actual FakeSteamCMD child process, protected map and Store-v1/SQL preservation checks, ZIP tampering/traversal, false-positive versions, strict serial locking, failed SaveWorld, backup and restart readiness; this is NOT proof of real ASA/Steam CDN live compatibility. Live ASA SaveComplete/Stop/Restart, automatic production updates and authenticated cross-host maintenance leases remain NOT certified and are intentionally blocked. UK-HOME-01/02 must not run this test build."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
           # A cancelled prior CI can leave an unpublished draft with the same tag.
