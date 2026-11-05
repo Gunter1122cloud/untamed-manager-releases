@@ -11,6 +11,8 @@ namespace UntamedManager;
 
 public partial class MainWindow
 {
+    private string? _curseForgeImportNotice;
+
     private void ShowCurseForgeSearchControls()
     {
         var key=new PasswordBox { Height=36,Foreground=Brushes.White,Background=Panel,
@@ -26,9 +28,10 @@ public partial class MainWindow
         var detail=Label("Válassz modot a találati listából a részletekhez.",12,Soft);
         var paging=Label("Nincs lekérdezés.",12,Soft);
         var status=Label(
-            string.IsNullOrEmpty(_cluster.Config.CurseForgeApiKeyProtected)
-                ?"A CurseForge API-kulcs nincs beállítva. Csak jóváhagyott kulccsal lehet keresni."
-                :"Helyileg védett CurseForge API-kulcs beállítva. A keresés csak olvas.",
+            _curseForgeImportNotice ??
+            (string.IsNullOrEmpty(_cluster.Config.CurseForgeApiKeyProtected)
+                ?"Nincs helyi CurseForge token. A kapott érték kézzel vagy egyszeri helyi importtal is beállítható."
+                :"CurseForge token helyileg titkosítva eltárolva. A hitelesítést a kapcsolatteszt igazolja."),
             12,Soft);
         var catalog=new CurseForgeCatalog(_http);
         CurseForgeSearchResult? last=null;
@@ -192,7 +195,7 @@ public partial class MainWindow
                     var stored=_cluster.Config.CurseForgeApiKeyProtected;
                     if(string.IsNullOrWhiteSpace(stored))
                     {
-                        status.Text="Előbb add meg a valódi CurseForge API-kulcsot.";
+                        status.Text="Előbb állítsd be a kapott CurseForge tokent.";
                         return;
                     }
                     try { candidate=SecureStore.Unprotect(stored); }
@@ -212,12 +215,12 @@ public partial class MainWindow
                 }
                 catch(ArgumentException)
                 {
-                    status.Text="A megadott érték nem API-kulcs (például bcrypt-hash vagy JSON). "+
-                        "A CurseForge fejlesztői felületén kiadott valódi kulcs szükséges.";
+                    status.Text="A token hiányzik, túl hosszú vagy teljes JSON-dokumentum. "+
+                        "A kapott tokenértéket önmagában add meg.";
                 }
                 catch(UnauthorizedAccessException)
                 {
-                    status.Text="CurseForge 401/403: a kulcsot a szolgáltató nem fogadta el.";
+                    status.Text="CurseForge 401/403: ezt a tokent az API nem fogadta el. A mentett tokent nem módosítottuk.";
                 }
                 catch(Exception)
                 {
@@ -241,7 +244,7 @@ public partial class MainWindow
                 }
                 catch(ArgumentException)
                 {
-                    status.Text="Nem menthető: bcrypt-hash és JSON válasz nem CurseForge API-kulcs.";
+                    status.Text="Nem menthető: csak a kapott tokent add meg, ne teljes JSON-t.";
                 }
                 catch(Exception e){status.Text="Kulcs nem menthető: "+e.GetType().Name;}
             }),
