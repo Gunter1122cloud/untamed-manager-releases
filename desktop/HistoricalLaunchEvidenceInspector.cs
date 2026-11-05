@@ -43,8 +43,10 @@ public static class HistoricalLaunchEvidenceInspector
         // The mandatory map token follows the optional executable name.
         // A textual match is NOT proof of an original process command line.
         bool mapFound=Matches(source,@"(?:^|\s)"+Regex.Escape(expectedMap)+@"(?=\?|\s|$)").Count==1;
-        var game=Values(source,"port");
-        var query=Values(source,"QueryPort");
+        // ASA installations can place these options in the map query string
+        // or as process switches. Duplicate/conflicting declarations fail closed.
+        var game=Values(source,"port").Concat(Values(source,"port",true)).ToArray();
+        var query=Values(source,"QueryPort").Concat(Values(source,"QueryPort",true)).ToArray();
         var mods=Values(source,"mods");
         var deprecatedMods=Values(source,"GameModIds",true);
         var cluster=Values(source,"clusterid");
@@ -84,6 +86,7 @@ public static class HistoricalLaunchEvidenceInspector
             clusterIdPresent=cluster.Length==1&&!string.IsNullOrWhiteSpace(cluster[0]),
             clusterIdStatus=clusterStatus,
             clusterPathPresent=transfer.Length==1&&!string.IsNullOrWhiteSpace(transfer[0]),
+            clusterPathVerified=false,
             useStorePresent=useStore,conversionFlagPresent=convert,
             findings=codes.ToArray(),sourceAuthenticated=false,
             fullLaunchArgumentsVerified=false,peerWriterVerified=false,
