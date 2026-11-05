@@ -29,6 +29,8 @@ test.beforeEach(async ({ page }) => {
       },
       peerMessage: ""
     };
+    let freshId = "";
+    let freshDone = false;
     let keySaved = false;
     let stagedId = "";
     let redoId = "";
@@ -42,6 +44,31 @@ test.beforeEach(async ({ page }) => {
     const iniToken="00000000-0000-4000-8000-000000003333";
     const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean }) => {
       switch (m.method) {
+        case "steam.freshCurrent": return {current:null};
+        case "steam.freshPreflight": return {
+          token:"00000000-0000-4000-8000-000000008888",
+          mapName:m.mapName||"Valguero",mapLevel:"Valguero_WP",folderName:"ASA-NEW",
+          steamCmdPresent:true,needsOfficialSteamCmdDownload:false,
+          existingInterruptedInstall:false,minimumFreeGiB:35,
+          evidence:"FRESH_INSTALL_PREFLIGHT_NO_FILE_MUTATION"
+        };
+        case "steam.freshStart":
+          freshId="00000000-0000-4000-8000-000000008889";
+          return {jobId:freshId,started:true,evidence:"EXPLICIT_FRESH_INSTALL_STARTED"};
+        case "steam.freshStatus":
+          freshDone=true;
+          return {jobId:freshId,mapName:"Valguero",stage:"verified",
+            detail:"ASA EXE és Steam appmanifest ellenőrizve",percent:100,
+            verified:true,registered:false,errorCode:null,evidence:"NATIVE_STEAMCMD_JOB_STATE"};
+        case "steam.freshRegister":
+          state.local.maps.push({id:"00000000-0000-4000-8000-000000008881",
+            name:"Valguero",running:false,status:"Nincs beállítva",gamePort:0,
+            steamBuildId:"123456",steamUpdateState:"Nem ellenőrizhető"});
+          return {mapId:"00000000-0000-4000-8000-000000008881",
+            mapName:"Valguero",needsConfiguration:true,serverStarted:false,
+            evidence:"VERIFIED_STEAM_FILES_REGISTERED_MANAGER_PROFILE_ONLY"};
+        case "steam.freshCancel": return {cancelRequested:true};
+        case "steam.freshDiscard": return {discarded:true};
         case "servers.inspectLocal": return {importToken:"00000000-0000-4000-8000-000000009999",name:m.name||"The Island",folderName:"ASA-LAB",exeFound:true,apiLoaderDetected:false,portsConfigured:false,evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"};
         case "servers.importLocal":
           state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
@@ -307,4 +334,24 @@ test("CurseForge official Galaxy browses categories, projects, versions, and pre
   await page.getByRole("button",{name:/Projekt ID előkészítése/}).click();
   await expect(page.getByRole("textbox",{name:"Modprojekt ID"})).toHaveValue("123456");
   await page.screenshot({path:"test-results/curseforge-galaxy-1600.png",fullPage:true});
+});
+
+test("SteamCMD new ASA workflow requires approval, follows provider progress, and registers only after verification",async ({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("button",{name:"SteamCMD"}).click();
+  await expect(page.getByText("Új ASA szerver · SteamCMD telepítés")).toBeVisible();
+  await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("Valguero");
+  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-NEW");
+  await page.getByRole("textbox",{name:"SteamCMD EXE"}).fill("D:\\Valve\\steamcmd.exe");
+  await page.getByRole("button",{name:"Letöltés előtti ellenőrzés"}).click();
+  await expect(page.getByText(/Valguero · Valguero_WP/)).toBeVisible();
+  await expect(page.getByRole("button",{name:/ASA 2430930 letöltése/})).toBeDisabled();
+  await page.getByText(/Jóváhagyom a valódi SteamCMD-lemezműveletet/).click();
+  await page.getByRole("button",{name:/ASA 2430930 letöltése/}).click();
+  await expect(page.getByText(/ASA EXE és Steam appmanifest ellenőrizve/)).toBeVisible({timeout:10000});
+  await page.getByRole("button",{name:"Ellenőrzött ASA regisztrálása a Managerbe"}).click();
+  await expect(page.getByText(/Valguero regisztrálva/)).toBeVisible();
+  await expect(page.getByText("Valguero").first()).toBeVisible();
+  await page.screenshot({path:"test-results/steam-fresh-install-1600.png",fullPage:true});
 });

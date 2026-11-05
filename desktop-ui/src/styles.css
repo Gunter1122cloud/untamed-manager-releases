@@ -182,3 +182,34 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 @media(max-width:1080px){.cf-galaxy{grid-template-columns:1fr}.cf-catalog-pane{max-height:360px}.cf-project-pane{max-height:none}}
 @media(max-width:830px){.cf-filters{grid-template-columns:1fr 1fr}.cf-search{grid-column:1/-1}
 .cf-filters>.cf-order,.cf-filters>.primary{width:100%}}
+
+/* Real SteamCMD: visual separation between nonmutating inspection and
+   deliberate disk-writing. Progress is never synthetic. */
+.fresh-wizard{border-color:#437663;background:linear-gradient(145deg,#102f33,#11282f)}
+.fresh-wizard>.panel-head{flex-wrap:wrap;gap:9px}
+.fresh-wizard-form{display:grid;grid-template-columns:minmax(150px,.6fr) minmax(200px,1fr) minmax(200px,1fr);
+  align-items:end;gap:14px;margin:17px 0}
+.fresh-wizard-form>label{display:flex;flex-direction:column;gap:8px;font-weight:650;font-size:11px;color:#b0d4c4}
+.fresh-wizard-form input:not([type=checkbox]),.fresh-wizard-form select{width:100%;min-width:0;min-height:43px;padding:11px;
+  background:#10252a;border:1px solid #486c64;color:#e8fff3;border-radius:9px}
+.fresh-wizard-form .fresh-options{grid-column:1/-1;display:flex;gap:21px;flex-wrap:wrap;padding:8px 2px}
+.fresh-options label,.fresh-preview label{font-size:12px;line-height:1.6;color:#b6dbcb;
+  display:inline-flex;align-items:flex-start;gap:9px}
+.fresh-options input[type=checkbox],.fresh-preview input[type=checkbox]{width:17px;height:17px;accent-color:#68d19d;flex-shrink:0;margin-top:1px}
+.fresh-wizard-form>button{grid-column:1/-1;display:inline-flex;justify-self:start;align-items:center;gap:8px}
+.fresh-preview{border-radius:11px;background:linear-gradient(125deg,#153f32,#1b413b);border:1px solid #4e9b73;
+  padding:17px;margin:13px 0}
+.fresh-preview>b{display:flex;align-items:center;gap:10px;font-size:15px;color:#a6f4c9}
+.fresh-preview p{font-size:12px;color:#bdddcf;line-height:1.5;margin:10px 0}
+.fresh-preview label{display:flex;margin:15px 0}
+.fresh-preview>.primary{display:inline-flex;align-items:center;gap:8px;min-height:42px}
+.fresh-job{border-radius:11px;background:#111f27;border:1px solid #456e67;padding:17px;margin:14px 0}
+.fresh-job-head{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.fresh-job-head h3{font-size:17px;margin:0}
+.fresh-job>p{font-size:12px;color:#d0e8db;line-height:1.65}
+.fresh-progress{display:flex;align-items:center;gap:10px;color:#a6cbbb;font-size:12px;margin:14px 0}
+.fresh-progress progress{flex:1;height:14px;accent-color:#6ce0a8}
+.fresh-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px}
+@media(max-width:1150px){.fresh-wizard-form{grid-template-columns:1fr 1fr}
+.fresh-wizard-form>label:first-child{grid-column:1/-1}}
+@media(max-width:830px){.fresh-wizard-form{grid-template-columns:1fr}.fresh-wizard-form>label:first-child{grid-column:auto}}
