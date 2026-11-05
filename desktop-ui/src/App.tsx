@@ -589,11 +589,12 @@ function Mods({ snapshot, selected, setSelected }: {
   const [draftChanges,setDraftChanges]=useState(0);
   const [inventoryRevision,setInventoryRevision]=useState(0);
   const [workspaceTab,setWorkspaceTab]=useState<"installed"|"draft"|"galaxy"|"shared">("installed");
+  const [savedNotice,setSavedNotice]=useState("");
   const currentName=info?.mapName||
     snapshot.local.maps.find(m=>m.id===selected)?.name||"Helyi map";
   useEffect(()=>{
     setCatalogPicked("");setDraftChanges(0);setPrefillMode("active");
-    setWorkspaceTab("installed");
+    setWorkspaceTab("installed");setSavedNotice("");
   },[selected]);
   useEffect(() => {
     let active = true;
@@ -626,6 +627,11 @@ function Mods({ snapshot, selected, setSelected }: {
       <span className="premium-small-muted">Az eredeti indítási paraméterek megőrzésével</span>
     </div>
     {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
+    {savedNotice&&<div role="status" className="success-inline premium-mod-save-toast">
+      <CheckCircle2 size={17}/>{savedNotice}
+      <button type="button" className="quiet" onClick={()=>setSavedNotice("")}
+        aria-label="Modmentés értesítés bezárása">Bezárás</button>
+    </div>}
     <div id="mod-workspace-tabs" className="premium-workspace-tabs" role="tablist"
       aria-label="Mod Center munkaterületek">
       {([
@@ -655,6 +661,7 @@ function Mods({ snapshot, selected, setSelected }: {
         onDraftProgress={onDraftProgress}
         onSaved={saved => {
           setInventoryRevision(n=>n+1);
+          setSavedNotice("Mentve a helyi indítási konfigurációba. A futó ASA modbetöltéséhez ellenőrzött újraindítás szükséges.");
           setInfo(current=>current?{...current,pending:saved.pending,
             active:saved.active,passive:saved.passive,disabled:saved.disabled}:current);
         }}/>
