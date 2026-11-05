@@ -135,37 +135,49 @@
       </Grid>
     </DataTemplate>
     <DataTemplate x:Key="PremiumModRow">
-      <Grid Height="60" Margin="8,2">
+       <Grid Height="72" Margin="6,3" ToolTip="{Binding Information}">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="34"/><ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="62"/><ColumnDefinition Width="84"/>
-          <ColumnDefinition Width="60"/>
+         <ColumnDefinition Width="64"/><ColumnDefinition Width="*"/>
+         <ColumnDefinition Width="44"/><ColumnDefinition Width="76"/>
+         <ColumnDefinition Width="56"/>
         </Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Width="26" Height="26" Background="{StaticResource SurfaceRaised}"
-                BorderBrush="{StaticResource SurfaceLine}" BorderThickness="1" CornerRadius="7"
-                VerticalAlignment="Center">
-          <TextBlock Text="⬡" FontSize="15" Foreground="{StaticResource AccentLight}"
-                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <Border Grid.Column="0" Width="54" Height="54" Background="#193B3B"
+          BorderBrush="#416961" BorderThickness="1" CornerRadius="9"
+          VerticalAlignment="Center" ClipToBounds="True">
+         <Grid>
+          <TextBlock Text="⬡" FontSize="22" Foreground="{StaticResource AccentLight}"
+            HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+          <Image Source="{Binding ImageUrl}" Stretch="UniformToFill"
+            IsHitTestVisible="False" RenderOptions.BitmapScalingMode="HighQuality"/>
+         </Grid>
         </Border>
-        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,5,0">
-          <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"
-                     Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
-          <TextBlock Text="{Binding ProjectLabel}" FontSize="10"
-                     Foreground="{StaticResource TextSoft}" Margin="0,4,0,0"
-                     TextTrimming="CharacterEllipsis"/>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="3,0,8,0">
+         <TextBlock Text="{Binding DisplayName}" FontSize="14" FontWeight="SemiBold"
+          Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="{Binding ProjectLabel}" FontSize="10"
+          Foreground="{StaticResource TextSoft}" Margin="0,6,0,0"
+          TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="{Binding Information}" FontSize="10"
+          Foreground="{StaticResource TextSoft}" Margin="0,4,0,0"
+          TextTrimming="CharacterEllipsis"/>
         </StackPanel>
         <TextBlock Grid.Column="2" Text="{Binding Position,StringFormat='#{0}'}"
-                   Foreground="{StaticResource TextSoft}" FontSize="12"
-                   TextAlignment="Center" VerticalAlignment="Center"/>
-        <TextBlock Grid.Column="3" Text="{Binding State}" Foreground="{StaticResource TextSoft}"
-                   FontSize="11" TextAlignment="Center" VerticalAlignment="Center"/>
+          Foreground="{StaticResource TextSoft}" FontSize="12"
+          TextAlignment="Center" VerticalAlignment="Center"/>
+        <Border Grid.Column="3" Background="#19342F" BorderBrush="#355850"
+          BorderThickness="1" CornerRadius="6" Margin="0,0,7,0"
+          Padding="4,5" VerticalAlignment="Center">
+         <TextBlock Text="{Binding State}" Foreground="{Binding StateBrush}"
+          FontSize="10" FontWeight="SemiBold" TextAlignment="Center"
+          TextTrimming="CharacterEllipsis"/>
+        </Border>
         <ToggleButton Grid.Column="4" IsChecked="{Binding IsActive,Mode=OneWay}"
-                      Command="{Binding ToggleCommand}" IsEnabled="{Binding CanToggle}"
-                      Style="{StaticResource PremiumSwitch}" HorizontalAlignment="Center"
-                      VerticalAlignment="Center" ToolTip="Aktiválás / letiltás – DEMO vagy függő módosítás"
-                      AutomationProperties.Name="Mod aktiválása vagy letiltása"/>
-      </Grid>
-    </DataTemplate>
+          Command="{Binding ToggleCommand}" IsEnabled="{Binding CanToggle}"
+          Style="{StaticResource PremiumSwitch}" HorizontalAlignment="Center"
+          VerticalAlignment="Center" ToolTip="Állapotváltás csak piszkozatként"
+          AutomationProperties.Name="Mod aktiválása vagy letiltása"/>
+       </Grid>
+      </DataTemplate>
     <DataTemplate x:Key="PremiumModInventoryCard">
       <Border Background="#192B30" BorderBrush="#35525A" BorderThickness="0,0,0,1"
               Padding="12,9" Margin="0,0,0,3" CornerRadius="6">
