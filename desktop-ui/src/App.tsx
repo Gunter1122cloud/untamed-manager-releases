@@ -432,7 +432,23 @@ function ModDraftEditor({ mapId, onSaved, prefillId }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => { setDraft(null); setError(""); setNotice(""); setModId(""); }, [mapId]);
-  useEffect(() => { if (prefillId) setModId(prefillId); }, [prefillId]);
+  useEffect(() => {
+    if (!prefillId) return;
+    setModId(prefillId);
+    // A catalog selection opens only an in-memory draft. No Manager file is
+    // modified until the separate, explicitly confirmed Save operation.
+    if (!draft && mapId) {
+      let active = true;
+      setBusy(true);
+      managerBridge.startModDraft(mapId)
+        .then(data => { if (active) setDraft(data); })
+        .catch(() => {
+          if (active) setError("Nem sikerült biztonságos modpiszkozatot nyitni a kiválasztott maphoz.");
+        })
+        .finally(() => { if (active) setBusy(false); });
+      return () => { active = false; };
+    }
+  }, [prefillId, mapId]);
   const start = async () => {
     if (!mapId) return;
     setBusy(true); setError(""); setNotice("");
