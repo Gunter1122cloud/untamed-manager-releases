@@ -5,13 +5,33 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Input;
 using UntamedManager.Core;
 
 namespace UntamedManager;
 
 // Each visible row describes configured launch arguments, NOT a proven installation.
 // All edits remain local until explicit preview + operator approval.
-internal sealed record PremiumModRow(string Id, string State, int Position, string Information);
+internal sealed record PremiumModRow(string Id, string State, int Position, string Information)
+{
+    // Live profiles identify a mod by configured ID until a trusted catalog resolves its name.
+    public string? DisplayTitle { get; init; }
+    public string DisplayName => string.IsNullOrWhiteSpace(DisplayTitle) ? "Modprojekt · "+Id : DisplayTitle;
+    public string ProjectLabel => "CURSEFORGE ID  "+Id;
+    public bool IsActive => State=="Aktív";
+    public ICommand? ToggleCommand { get; init; }
+    public bool CanToggle => ToggleCommand is not null;
+}
+
+// Used by both live and in-memory DEMO rows; delegates never bypass their existing guards.
+internal sealed class PremiumUiCommand : ICommand
+{
+    private readonly Action _run;
+    public PremiumUiCommand(Action run) => _run=run;
+    public bool CanExecute(object? parameter) => true;
+    public void Execute(object? parameter) => _run();
+    public event EventHandler? CanExecuteChanged { add { } remove { } }
+}
 
 public partial class MainWindow
 {
@@ -50,7 +70,7 @@ public partial class MainWindow
             ToolTip="Modazonosító vagy konfigurált állapot keresése"};
         var addId=new TextBox {Width=135,Height=36,Margin=new Thickness(0,0,9,8),
             ToolTip="Új mod CurseForge projektazonosítója (5–12 számjegy)"};
-        var rows=new ListBox {MinHeight=220,MaxHeight=440,
+        var rows=new ListView {MinHeight=260,MaxHeight=510,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModRow")};
         var summary=Label("",12,Soft);
         var selectedTitle=Label("Válassz modot",19,Mint,true);
@@ -79,10 +99,10 @@ public partial class MainWindow
         void ShowDetails()
         {
             chosen=rows.SelectedItem as PremiumModRow;
-            selectedTitle.Text=chosen==null?"Válassz modot":"Projekt "+chosen.Id;
+            selectedTitle.Text=chosen==null?"Válassz modot":chosen.DisplayName;
             selectedInfo.Text=chosen==null?
                 "Válassz egy sort a módosításhoz.":
-                chosen.State+" · "+chosen.Information+
+                "Azonosító: "+chosen.Id+" · "+chosen.State+" · "+chosen.Information+
                 "\nAz állapot az indítási konfigurációból származik; nem bizonyít telepített fájlokat vagy ASA-betöltést.";
             if(chosen!=null)modeBox.SelectedItem=chosen.State;
         }
@@ -97,13 +117,18 @@ public partial class MainWindow
                     draft.TouchedModIds.Contains(id)?"Függőben lévő módosítás":"Konfigurált passzív indítás")))
                 .Concat(state.Disabled.Select((id,i)=>new PremiumModRow(id,"Letiltva",i+1,
                     draft.TouchedModIds.Contains(id)?"Függőben lévő módosítás":"Csak Manager-profil")))
-                .ToArray();
+                .Select(x=>x with {
+                    ToggleCommand=new PremiumUiCommand(()=>Safely(()=>Stage(x.Id,
+                        x.IsActive?ModMode.Disabled:ModMode.Active)))
+                }).ToArray();
             string term=search.Text.Trim();
             var visible=term.Length==0?all:all.Where(x=>
                 x.Id.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                x.DisplayName.Contains(term,StringComparison.OrdinalIgnoreCase)||
                 x.State.Contains(term,StringComparison.OrdinalIgnoreCase)).ToArray();
             rows.ItemsSource=visible;
-            rows.SelectedItem=visible.FirstOrDefault(x=>x.Id==selectedId);
+            rows.SelectedItem=visible.FirstOrDefault(x=>x.Id==selectedId)
+                ??visible.FirstOrDefault();
             summary.Text=CurrentMap().Name+" · "+all.Length+" konfigurált mod · "+
                 state.Active.Count+" aktív · "+state.Passive.Count+" passzív · "+
                 state.Disabled.Count+" tiltott · "+visible.Length+" megjelenítve";
@@ -214,12 +239,11 @@ public partial class MainWindow
             chosen=null;preview.Text="A helyi konfiguráció újraolvasva.";
             Render();
         })));
-        var addBar=new WrapPanel {Margin=new Thickness(0,5,0,8)};
-        addBar.Children.Add(addId);
-        addBar.Children.Add(Btn("Mod hozzáadása",()=>Safely(()=>AddProject(addId.Text))));
-        var left=V(Label("Modlista",19,Mint,true),
-            Label("Map kiválasztása, keresés és új mod felvétele",12,Soft),
-            toolbar,summary,rows,addBar);
+        toolbar.Children.Add(addId);
+        toolbar.Children.Add(Btn("＋ Mod hozzáadása",()=>Safely(()=>AddProject(addId.Text))));
+        var left=V(Label("MOD CENTER  /  KONFIGURÁLT MODOK",16,Mint,true),
+            Label("Sorrend · státusz · egykattintásos aktiválás · változtatás csak jóváhagyás után",12,Soft),
+            toolbar,summary,rows);
         var right=V(Label("Mod részletei",19,Mint,true),selectedTitle,selectedInfo,
             Label("Betöltési mód",12,Aqua),modeBox,
             Btn("Állapot módosítása",()=>Safely(ChangeMode)),
@@ -227,8 +251,8 @@ public partial class MainWindow
             Btn("↓  Hátrébb a sorrendben",()=>Safely(()=>Move(1))),
             Label("A modállapot módosítása önmagában nem indít újra ASA-folyamatot.",11,Soft));
         var main=new Grid {Margin=new Thickness(0,2,0,10)};
-        main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(2,GridUnitType.Star)});
-        main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star),MinWidth=225});
+        main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=390});
+        main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=245});
         var leftSurface=Box(left);
         var rightSurface=Box(right);
         Grid.SetColumn(leftSurface,0);Grid.SetColumn(rightSurface,1);

@@ -229,8 +229,8 @@ public partial class MainWindow
         }
         int cursor=_demoModCursor[map.Id];
         var staged=timeline[cursor].ToList();
-        var list=new ListBox {
-            MinHeight=235,MaxHeight=380,
+        var list=new ListView {
+            MinHeight=260,MaxHeight=510,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModRow")
         };
         var search=new TextBox {Width=180,Height=36,Margin=new Thickness(0,0,9,7)};
@@ -271,7 +271,7 @@ public partial class MainWindow
         void ShowSelection()
         {
             chosen=list.SelectedItem as PremiumModRow;
-            selected.Text=chosen==null?"Válassz modot":"Projekt "+chosen.Id;
+            selected.Text=chosen==null?"Válassz modot":chosen.DisplayName;
             details.Text=chosen==null?"Jelölj ki egy modot az állapotválasztáshoz.":
                 chosen.State+" · DEMO konfiguráció. Minden változás csak memóriában marad.";
             if(chosen!=null)mode.SelectedItem=chosen.State;
@@ -280,10 +280,20 @@ public partial class MainWindow
         {
             string oldId=chosen?.Id??"";
             var all=staged.Select((m,i)=>new PremiumModRow(m.ProjectId,ModeName(m.Mode),i+1,
-                map.Mods.SequenceEqual(staged)?"DEMO mintamod":"Függőben lévő szimulált módosítás")).ToArray();
+                map.Mods.SequenceEqual(staged)?"DEMO mintamod":"Függőben lévő szimulált módosítás") {
+                    DisplayTitle=m.ProjectId switch {
+                        "928548"=>"Shiny! Dinos · DEMO",
+                        "942024"=>"Dino Depot · DEMO",
+                        "950914"=>"Awesome Teleporters · DEMO",
+                        _=>"Modprojekt "+m.ProjectId+" · DEMO"
+                    },
+                    ToggleCommand=new PremiumUiCommand(()=>Attempt(()=>Stage(m.ProjectId,
+                        m.Mode==DemoModMode.Active?DemoModMode.Disabled:DemoModMode.Active)))
+                }).ToArray();
             string term=search.Text.Trim();
             var visible=all.Where(x=>term.Length==0||
                 x.Id.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                x.DisplayName.Contains(term,StringComparison.OrdinalIgnoreCase)||
                 x.State.Contains(term,StringComparison.OrdinalIgnoreCase)).ToArray();
             list.ItemsSource=visible;
             list.SelectedItem=visible.FirstOrDefault(x=>x.Id==oldId);
@@ -348,8 +358,8 @@ public partial class MainWindow
             Btn("↑  Előrébb a sorrendben",()=>Attempt(()=>Move(-1))),
             Btn("↓  Hátrébb a sorrendben",()=>Attempt(()=>Move(1))));
         var grid=new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(2,GridUnitType.Star)});
-        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star),MinWidth=210});
+        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=390});
+        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=245});
         var leftBox=Box(left);var rightBox=Box(right);
         Grid.SetColumn(rightBox,1);
         grid.Children.Add(leftBox);grid.Children.Add(rightBox);
@@ -398,8 +408,8 @@ public partial class MainWindow
             ToolTip="DEMO plugin keresése név alapján"};
         var filter=new ComboBox{ItemsSource=new[]{"Összes","Engedélyezett","Letiltott"},
             SelectedIndex=0,MinWidth=135,Margin=new Thickness(8,0,0,0)};
-        var list=new ListBox{
-            MinHeight=230,MaxHeight=385,
+        var list=new ListView{
+            MinHeight=260,MaxHeight=510,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumPluginRow")
         };
         var summary=Label("",12,Soft);
@@ -415,7 +425,13 @@ public partial class MainWindow
             string state=filter.SelectedItem as string??"Összes";
             var all=map.Plugins.Select(p=>new PremiumPluginRow(
                 p.Name,p.Enabled?"Engedélyezett":"Letiltott",
-                "DEMO · csak szimulált pluginállapot",p.Enabled)).ToArray();
+                "DEMO · csak szimulált pluginállapot",p.Enabled) {
+                    ToggleCommand=new PremiumUiCommand(()=>{
+                        list.SelectedItem=list.Items.OfType<PremiumPluginRow>()
+                            .FirstOrDefault(x=>x.Name==p.Name);
+                        Toggle(!p.Enabled);
+                    })
+                }).ToArray();
             var visible=all.Where(x=>
                 (term.Length==0||x.Name.Contains(term,StringComparison.OrdinalIgnoreCase)) &&
                 (state=="Összes"||(state=="Engedélyezett"&&x.Enabled)||
@@ -467,8 +483,8 @@ public partial class MainWindow
             title,detail,commands,
             Label("DEMO-ban nincs tényleges DLL- vagy fájlművelet.",11,Soft)));
         var layout=new Grid {Margin=new Thickness(0,0,0,5)};
-        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(2,GridUnitType.Star)});
-        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star),MinWidth=200});
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=390});
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=245});
         Grid.SetColumn(right,1);
         layout.Children.Add(left);layout.Children.Add(right);
         Render();

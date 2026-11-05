@@ -11,7 +11,11 @@ namespace UntamedManager;
 
 // Disk state is not the same as runtime-loaded state. Rows never invent plugin
 // versions, loaded process state, dependencies or update availability.
-internal sealed record PremiumPluginRow(string Name,string State,string Hint,bool Enabled);
+internal sealed record PremiumPluginRow(string Name,string State,string Hint,bool Enabled)
+{
+    public System.Windows.Input.ICommand? ToggleCommand { get; init; }
+    public bool CanToggle => ToggleCommand is not null;
+}
 
 public partial class MainWindow
 {
@@ -38,7 +42,7 @@ public partial class MainWindow
             ToolTip="Keresés a helyi pluginmappák neve alapján" };
         var filter=new ComboBox { ItemsSource=new[]{"Összes","Engedélyezett","Letiltott"},
             SelectedIndex=0,Width=140,Margin=new Thickness(0,0,9,8) };
-        var list=new ListBox {MinHeight=245,MaxHeight=445,
+        var list=new ListView {MinHeight=260,MaxHeight=510,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumPluginRow"),
             Margin=new Thickness(0,10,0,0)};
         var count=Label("",12,Soft);
@@ -144,7 +148,13 @@ public partial class MainWindow
                     p.Enabled?"Engedélyezett":"Letiltott",
                     p.Enabled?"ASA API plugin gyökér · lemezállapot":
                               "Elkülönített letiltott pluginmappa",
-                    p.Enabled)).ToArray();
+                    p.Enabled) {
+                        ToggleCommand=new PremiumUiCommand(()=>{
+                            list.SelectedItem=list.Items.OfType<PremiumPluginRow>()
+                                .FirstOrDefault(x=>x.Name.Equals(p.Name,StringComparison.OrdinalIgnoreCase));
+                            ChangePlugin(!p.Enabled);
+                        })
+                    }).ToArray();
                 RenderList();
                 Report("Lemezleltár frissítve. A runtime betöltés ismeretlen. Nem módosult szerverállapot.");
             }
@@ -242,8 +252,8 @@ public partial class MainWindow
         toolbar.Children.Add(search);
         toolbar.Children.Add(filter);
         toolbar.Children.Add(Btn("Frissítés",Refresh));
-        var left=Box(V(Label("Helyi pluginok",19,Mint,true),
-            Label("Keresés és szűrés · maponként ellenőrzött mappák",12,Soft),
+        var left=Box(V(Label("PLUGIN CENTER  /  ASA API",16,Mint,true),
+            Label("Ellenőrzött helyi mappák · kapcsolás csak biztonsági mentéssel és megerősítéssel",12,Soft),
             toolbar,count,list));
         var actions=new WrapPanel {Margin=new Thickness(0,4,0,7)};
         actions.Children.Add(enable);
@@ -253,9 +263,9 @@ public partial class MainWindow
             Label("Állapot",12,Aqua),actions,inventory,
             Label("DLL / fájlverzió / SHA-256",12,Aqua),binaries,advancedInfo));
         var layout=new Grid {Margin=new Thickness(0,0,0,3)};
-        layout.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(2,GridUnitType.Star)});
+        layout.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(7,GridUnitType.Star),MinWidth=390});
         layout.ColumnDefinitions.Add(new ColumnDefinition {
-            Width=new GridLength(1,GridUnitType.Star),MinWidth=230});
+            Width=new GridLength(3,GridUnitType.Star),MinWidth=245});
         Grid.SetColumn(left,0);
         Grid.SetColumn(right,1);
         layout.Children.Add(left);

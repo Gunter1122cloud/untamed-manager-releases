@@ -72,52 +72,65 @@
       </Grid>
     </DataTemplate>
     <DataTemplate x:Key="PremiumPluginRow">
-      <Grid Height="54" Margin="5,4">
+      <Grid Height="58" Margin="8,2" ToolTip="{Binding Hint}">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="30"/>
-          <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="118"/>
+          <ColumnDefinition Width="34"/><ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="108"/><ColumnDefinition Width="65"/>
         </Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Background="{StaticResource SurfaceRaised}"
-          Width="21" Height="21" VerticalAlignment="Center" CornerRadius="5">
-          <TextBlock Text="✳" Foreground="{StaticResource AccentLight}"
-            FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <Border Grid.Column="0" Width="26" Height="26" Background="{StaticResource SurfaceRaised}"
+                BorderBrush="{StaticResource SurfaceLine}" BorderThickness="1" CornerRadius="7"
+                VerticalAlignment="Center">
+          <TextBlock Text="✳" Foreground="{StaticResource AccentLight}" FontSize="15"
+                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
-        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,5,0">
           <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13"
-            Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
-          <TextBlock Text="{Binding Hint}" FontSize="10"
-            Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"
-            Margin="0,4,0,0"/>
+                     Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Text="{Binding Hint}" FontSize="10" Margin="0,4,0,0"
+                     Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
         </StackPanel>
-        <Border Grid.Column="2" Background="{StaticResource SurfaceRaised}"
-          CornerRadius="6" Padding="6,5" VerticalAlignment="Center"
-          Margin="5,0,0,0">
-          <TextBlock Text="{Binding State}" FontSize="10" FontWeight="SemiBold"
-            HorizontalAlignment="Center" Foreground="{StaticResource TextStrong}"/>
-        </Border>
+        <TextBlock Grid.Column="2" Text="{Binding State}" FontSize="11"
+                   Foreground="{StaticResource TextSoft}" VerticalAlignment="Center"
+                   TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        <ToggleButton Grid.Column="3" Style="{StaticResource PremiumSwitch}"
+                      IsChecked="{Binding Enabled,Mode=OneWay}"
+                      Command="{Binding ToggleCommand}"
+                      IsEnabled="{Binding CanToggle}" HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      AutomationProperties.Name="Plugin engedélyezése vagy letiltása"
+                      ToolTip="Állapotváltás – a biztonsági ellenőrzés és megerősítés kötelező"/>
       </Grid>
     </DataTemplate>
     <DataTemplate x:Key="PremiumModRow">
-      <Grid Margin="6,5" Height="49">
+      <Grid Height="60" Margin="8,2">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="42"/>
-          <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="100"/>
+          <ColumnDefinition Width="34"/><ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="62"/><ColumnDefinition Width="84"/>
+          <ColumnDefinition Width="60"/>
         </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" Text="{Binding Position}" VerticalAlignment="Center"
-          Foreground="{StaticResource TextSoft}" FontSize="12"/>
-        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-          <TextBlock Text="{Binding Id, StringFormat='Projekt {0}'}"
-            Foreground="{StaticResource TextStrong}" FontWeight="SemiBold" FontSize="13"/>
-          <TextBlock Text="{Binding Information}" Foreground="{StaticResource TextSoft}"
-            FontSize="11" TextTrimming="CharacterEllipsis"/>
-        </StackPanel>
-        <Border Grid.Column="2" Background="{StaticResource SurfaceRaised}"
-          CornerRadius="6" Padding="7,4" VerticalAlignment="Center">
-          <TextBlock Text="{Binding State}" Foreground="{StaticResource TextStrong}"
-            FontSize="11" HorizontalAlignment="Center"/>
+        <Border Grid.Column="0" Width="26" Height="26" Background="{StaticResource SurfaceRaised}"
+                BorderBrush="{StaticResource SurfaceLine}" BorderThickness="1" CornerRadius="7"
+                VerticalAlignment="Center">
+          <TextBlock Text="⬡" FontSize="15" Foreground="{StaticResource AccentLight}"
+                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,5,0">
+          <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"
+                     Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Text="{Binding ProjectLabel}" FontSize="10"
+                     Foreground="{StaticResource TextSoft}" Margin="0,4,0,0"
+                     TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+        <TextBlock Grid.Column="2" Text="{Binding Position,StringFormat='#{0}'}"
+                   Foreground="{StaticResource TextSoft}" FontSize="12"
+                   TextAlignment="Center" VerticalAlignment="Center"/>
+        <TextBlock Grid.Column="3" Text="{Binding State}" Foreground="{StaticResource TextSoft}"
+                   FontSize="11" TextAlignment="Center" VerticalAlignment="Center"/>
+        <ToggleButton Grid.Column="4" IsChecked="{Binding IsActive,Mode=OneWay}"
+                      Command="{Binding ToggleCommand}" IsEnabled="{Binding CanToggle}"
+                      Style="{StaticResource PremiumSwitch}" HorizontalAlignment="Center"
+                      VerticalAlignment="Center" ToolTip="Aktiválás / letiltás – DEMO vagy függő módosítás"
+                      AutomationProperties.Name="Mod aktiválása vagy letiltása"/>
       </Grid>
     </DataTemplate>
     <DataTemplate x:Key="PremiumModInventoryCard">

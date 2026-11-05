@@ -88,6 +88,43 @@
     </ControlTemplate.Triggers>
    </ControlTemplate></Setter.Value></Setter>
  </Style>
+ <Style TargetType="{x:Type ListView}">
+  <Setter Property="Background" Value="{StaticResource SurfacePanel}"/>
+  <Setter Property="Foreground" Value="{StaticResource TextStrong}"/>
+  <Setter Property="BorderBrush" Value="{StaticResource SurfaceLine}"/>
+  <Setter Property="BorderThickness" Value="1"/>
+  <Setter Property="Padding" Value="5"/>
+  <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+  <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+  <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+  <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+  <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+ </Style>
+ <Style TargetType="{x:Type ListViewItem}">
+  <Setter Property="Foreground" Value="{StaticResource TextStrong}"/>
+  <Setter Property="Background" Value="Transparent"/>
+  <Setter Property="Padding" Value="3"/>
+  <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+  <Setter Property="FocusVisualStyle" Value="{StaticResource PremiumFocusRing}"/>
+  <Setter Property="Template"><Setter.Value>
+   <ControlTemplate TargetType="{x:Type ListViewItem}">
+    <Border x:Name="Surface" Background="{TemplateBinding Background}"
+      CornerRadius="7" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+     <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+    </Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsMouseOver" Value="True">
+      <Setter TargetName="Surface" Property="Background" Value="{StaticResource SurfaceHover}"/>
+     </Trigger>
+     <Trigger Property="IsSelected" Value="True">
+      <Setter TargetName="Surface" Property="Background" Value="{StaticResource SurfaceSelected}"/>
+     </Trigger>
+     <Trigger Property="IsEnabled" Value="False">
+      <Setter TargetName="Surface" Property="Opacity" Value="0.45"/>
+     </Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+ </Style>
  <Style TargetType="{x:Type ComboBoxItem}">
   <Setter Property="Foreground" Value="{StaticResource TextStrong}"/>
   <Setter Property="Background" Value="Transparent"/>
