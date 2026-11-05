@@ -1251,7 +1251,7 @@ export function App() {
         <p>A történeti Store-v1 átvétel külön védett. A szervervezérlés és a karakterutazás eltérő biztonsági szint.</p></div>
     </aside>
     <div className="main-area">
-      <header className="topbar"><div className="topbar-title"><span className="topbar-kicker">UNTAMED KINGDOM</span><b>{title}</b></div>
+      <header className="topbar"><div className="topbar-title"><span className="topbar-kicker">UNTAMED KINGDOM</span>{page==="dashboard"?<h1>{title}</h1>:<b>{title}</b>}</div>
         <div className="topbar-right">
           <span className="pill subtle"><Monitor size={15}/>{snapshot?.local.hostName || "Gazdagép betöltése"}</span>
           <span className="pill amber"><Shield size={15}/> HELYI / VÉDETT</span>
