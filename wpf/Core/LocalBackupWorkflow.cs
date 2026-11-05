@@ -13,11 +13,52 @@ public enum LocalBackupScope { None=0, WorldAndProfiles=1, Ini=2, Plugins=4 }
 public sealed record LocalBackupResult(string PackageDirectory, BackupManifest Manifest,
     string Consistency="File integrity verified; ASA application consistency NOT established");
 
+// Read-only calculation: "Ready" means the selected stopped-map FILE COPY
+// has valid inputs and enough disk, NOT that ASA save/SQL/Store is consistent.
+public sealed record LocalBackupPreflight(Guid MapId,LocalBackupScope Scope,
+    string Destination,int Files,long SelectedBytes,long FreeBytes,long ReserveBytes,
+    string Notice="Only stopped-map file-copy readiness; no ASA/SQL/Store consistency proof");
+
+
 public static class LocalBackupWorkflow
 {
+    public static LocalBackupPreflight Preview(LocalMap map,ProcessCheck check,
+        string destination,LocalBackupScope scope)
+    {
+        if(map==null||map.Id==Guid.Empty)
+            throw new InvalidDataException("Map identity required");
+        if(check==null||!check.ConfirmedStopped||check.Running)
+            throw new InvalidOperationException("Confirmed stopped map required before backup");
+        if(scope==LocalBackupScope.None ||
+           (scope & ~(LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini|LocalBackupScope.Plugins))!=0)
+            throw new InvalidDataException("Unsupported backup scope");
+        string root=FixedLocalPath(map.InstallationPath);
+        string target=FixedLocalPath(destination);
+        if(!Directory.Exists(root))throw new DirectoryNotFoundException(root);
+        if(IsInside(root,target)||IsInside(target,root)||
+           string.Equals(root,target,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Backup destination and map directory overlap");
+        string staging=FixedLocalPath(target+".incomplete");
+        if(Directory.Exists(target)||Directory.Exists(staging)||
+           File.Exists(target)||File.Exists(staging))
+            throw new IOException("Backup target or interrupted backup already exists");
+        var paths=SelectFiles(root,scope);
+        long bytes=0;
+        foreach(var entry in paths)
+            bytes=checked(bytes+new FileInfo(entry.Value).Length);
+        long reserve=Math.Max(64L*1024*1024,bytes/10);
+        long free=new DriveInfo(Path.GetPathRoot(target)!).AvailableFreeSpace;
+        if(bytes>free||reserve>free-bytes)
+            throw new IOException("Insufficient free disk space for backup and safety reserve");
+        return new(map.Id,scope,target,paths.Count,bytes,free,reserve);
+    }
+
     public static LocalBackupResult Create(LocalMap map,ProcessCheck check,string destination,
         LocalBackupScope scope,Action<string>? progress=null)
     {
+        // The same immutable preflight gates the actual file operation.
+        // The content and membership are verified again during the copy.
+        Preview(map,check,destination,scope);
         if(map==null||map.Id==Guid.Empty)throw new InvalidDataException("Map identity required");
         if(!check.ConfirmedStopped||check.Running)
             throw new InvalidOperationException("Confirmed stopped map required before backup");
