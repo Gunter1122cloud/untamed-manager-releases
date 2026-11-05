@@ -10,7 +10,7 @@ import {
   type IniFile, type IniDocument, type IniPreview, type LocalImportPreview,
   type SteamInstallations, type SuggestedPorts,
   type CurseForgeCategory, type CurseForgeFeatured, type CurseForgeProject, type CurseForgeFile,
-  type PluginInventory, type SharedModInventory, type DashboardSnapshot,
+  type PluginInventory, type PluginState, type PluginTogglePreview, type SharedModInventory, type DashboardSnapshot,
   type PublicMap, type RemoteHost
 } from "./bridge";
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
@@ -687,6 +687,13 @@ function PluginCenter({ snapshot, selected, setSelected }: {
 }) {
   const [info, setInfo] = useState<PluginInventory | null>(null);
   const [error, setError] = useState("");
+  const [pluginStates,setPluginStates]=useState<PluginState|null>(null);
+  const [preview,setPreview]=useState<PluginTogglePreview|null>(null);
+  const [approved,setApproved]=useState(false);
+  const [working,setWorking]=useState(false);
+  const [notice,setNotice]=useState("");
+  const [revision,setRevision]=useState(0);
+  const actionEpoch=useRef(0);
   useEffect(() => {
     let active = true;
     setInfo(null); setError("");
@@ -694,11 +701,49 @@ function PluginCenter({ snapshot, selected, setSelected }: {
     managerBridge.pluginInventory(selected).then(data => { if (active) setInfo(data); })
       .catch(e => { if (active) setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE"); });
     return () => { active = false; };
-  }, [selected]);
+  }, [selected,revision]);
+  useEffect(()=>{
+    let active=true;
+    setPluginStates(null);
+    if(!selected)return;
+    managerBridge.pluginStates(selected)
+      .then(data=>{if(active)setPluginStates(data);})
+      .catch(()=>{if(active)setNotice("A pluginmappák állapota nem ellenőrizhető.");});
+    return ()=>{active=false;};
+  },[selected,revision]);
+  const inspectToggle=async(plugin:string,enabled:boolean)=>{
+    if(!selected || working)return;
+    const epoch=++actionEpoch.current;
+    setWorking(true);setPreview(null);setApproved(false);setNotice("");
+    try{
+      const result=await managerBridge.pluginTogglePreview(selected,plugin,enabled);
+      if(epoch===actionEpoch.current)setPreview(result);
+    }catch{
+      if(epoch===actionEpoch.current)setNotice("A plugin előellenőrzése sikertelen. Nem történt módosítás.");
+    }finally{if(epoch===actionEpoch.current)setWorking(false);}
+  };
+  const applyToggle=async()=>{
+    if(!preview?.allowed || !preview.token || !approved || working)return;
+    setWorking(true);setNotice("");
+    try{
+      const result=await managerBridge.pluginToggleApply(preview.token);
+      setPreview(null);setApproved(false);
+      setNotice(result.plugin+" · "+(result.enabled?"engedélyezve":"letiltva")+
+        ". A teljes könyvtár mentése elkészült; a változás a következő ASA-indításkor lép érvénybe.");
+      setRevision(n=>n+1);
+    }catch{
+      setPreview(null);setApproved(false);
+      setNotice("A pluginművelet nem igazolható. Ellenőrizd a fájlokat és a helyi mapok állapotát, majd készíts új előnézetet.");
+    }finally{setWorking(false);}
+  };
   return <>
     <div className="page-intro"><span className="eyebrow">ASA API / LOCAL INSTALLATION</span><h1>Plugin Center</h1>
-      <p>Helyi DLL-leltár a meglévő C# pluginolvasóval. Nem engedélyez vagy frissít pluginokat.</p></div>
-    <div className="toolbar"><Plug size={19}/><select aria-label="Pluginok mapja" value={selected} onChange={e => setSelected(e.target.value)}>
+      <p>Helyi pluginleltár és ellenőrzött engedélyezés/tiltás. A módosítás csak leállított szervereken, előnézet és jóváhagyás után történik.</p></div>
+    <div className="toolbar"><Plug size={19}/><select aria-label="Pluginok mapja" value={selected}
+      disabled={working} onChange={e=>{
+        actionEpoch.current++;setPreview(null);setApproved(false);
+        setNotice("");setSelected(e.target.value);
+      }}>
       {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
     </div>
     <Panel title={info ? `Helyi pluginok · ${info.mapName}` : "Pluginok"}>
@@ -712,6 +757,42 @@ function PluginCenter({ snapshot, selected, setSelected }: {
         <span className={plugin.protectedData ? "mod-tag amber" : "mod-tag green"}>{plugin.protectedData ? "Védett" : "Helyi leltár"}</span>
       </div>)}
       <div className="warning-inline"><Shield size={17}/> Csak fájlleltár. Nem bizonyítja, hogy a futó ASA betöltötte a plugint.</div>
+    </Panel>
+    <Panel title="Pluginok engedélyezése és tiltása">
+      <p className="muted small">Az eredeti C# PluginStateManager az egész pluginmappát mozgatja; beállítások, licencfájlok és helyi adatállományok ellenőrzött mentésben megmaradnak. Az API futás közbeni betöltöttsége nem következtethető ki a lemezállapotból.</p>
+      {pluginStates?.historicalProtected && <div className="warning-inline">
+        <Shield size={17}/> Ez a Store-v1 map védett. Pluginművelet tiltva.
+      </div>}
+      {!pluginStates && selected && <div className="empty">Pluginmappák állapotának olvasása...</div>}
+      {pluginStates && pluginStates.plugins.length===0 && <div className="empty">
+        Nincs engedélyezett vagy letiltott pluginmappa.
+      </div>}
+      {pluginStates?.plugins.map(plugin=><div className="plugin-row" key={plugin.name}>
+        <span className="plugin-symbol"><Plug size={19}/></span>
+        <div className="plugin-copy"><b>{plugin.name}</b>
+          <small>{plugin.enabled?"Engedélyezett mappa":"Letiltott mappa"} · ASA futásidőben nem igazolt</small>
+        </div>
+        <button type="button" className="secondary" disabled={working||pluginStates.historicalProtected}
+          onClick={()=>{void inspectToggle(plugin.name,!plugin.enabled);}}>
+          {plugin.enabled?"Letiltás előnézete":"Engedélyezés előnézete"}
+        </button>
+      </div>)}
+      {preview && <div className="historical-preview" role="status">
+        <h3>{preview.plugin} · {preview.targetEnabled?"Engedélyezés":"Letiltás"}</h3>
+        <p className="muted small">{preview.reason}</p>
+        <div className="details-line"><span>Megvizsgált helyi mapok</span>
+          <b>{preview.checkedLocalMaps}</b></div>
+        <div className="details-line"><span>Éles API-runtime betöltés</span><b>Nem igazolt</b></div>
+        {preview.allowed && preview.token ? <>
+          <label className="historical-approval"><input type="checkbox" checked={approved}
+            disabled={working} onChange={e=>setApproved(e.target.checked)}/>
+            Jóváhagyom a helyi pluginmappa áthelyezését, teljes ellenőrzött biztonsági mentéssel.
+          </label>
+          <button type="button" className="primary" disabled={!approved||working}
+            onClick={()=>{void applyToggle();}}>Pluginállapot módosításának jóváhagyása</button>
+        </> : <div className="warning-inline"><Shield size={17}/> A módosítás zárolva marad.</div>}
+      </div>}
+      {notice && <div role="status" className="warning-inline"><AlertTriangle size={17}/>{notice}</div>}
     </Panel>
   </>;
 }
