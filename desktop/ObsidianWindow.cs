@@ -19,6 +19,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopReadOnlyBridge _bridge = new();
     private readonly DesktopCredentialBridge _credentials;
     private readonly DesktopModDraftBridge _modDrafts;
+    private readonly DesktopPluginStateBridge _pluginState;
     private readonly DesktopIniBridge _iniEditor;
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
     private readonly DesktopCurseForgeDiscoveryBridge _modCatalog;
@@ -35,6 +36,7 @@ public sealed class ObsidianWindow : Form
         _smokeTest = smokeTest;
         _credentials = new DesktopCredentialBridge(_bridge.LocalCluster);
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
+        _pluginState = new DesktopPluginStateBridge(_bridge.LocalCluster);
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
         _mapRegistry = new DesktopLocalMapRegistryBridge(_bridge.LocalCluster);
         _modCatalog = new DesktopCurseForgeDiscoveryBridge(_bridge.LocalCluster);
@@ -85,6 +87,7 @@ public sealed class ObsidianWindow : Form
             _mapRegistry.Dispose();
             _iniEditor.Dispose();
             _modDrafts.Dispose();
+            _pluginState.Dispose();
             _credentials.Dispose();
             _ = _bridge.DisposeAsync();
         };
@@ -148,6 +151,7 @@ public sealed class ObsidianWindow : Form
                 bool freshRoute = false;
                 bool initialRoute = false;
                 bool historicalRoute = false;
+                bool pluginStateRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -159,6 +163,8 @@ public sealed class ObsidianWindow : Form
                             "curseforge.credentialStatus" or
                             "curseforge.credentialSave" or
                             "curseforge.credentialClear";
+                        pluginStateRoute = name is
+                            "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
@@ -187,6 +193,7 @@ public sealed class ObsidianWindow : Form
                 {
                     string response = credentialRoute
                         ? await _credentials.HandleAsync(incoming)
+                        : pluginStateRoute ? await _pluginState.HandleAsync(incoming)
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
                             : iniRoute ? await _iniEditor.HandleAsync(incoming)
                                 : registryRoute ? await _mapRegistry.HandleAsync(incoming)
