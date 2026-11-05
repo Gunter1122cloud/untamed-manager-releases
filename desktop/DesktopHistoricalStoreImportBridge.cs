@@ -54,13 +54,38 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             id=requestId.ToString("D");
             string? method=methodProp.GetString();
             if(method is not ("historical.list" or "historical.preview" or
-                "historical.register" or "historical.pairedEvidence"))
+                "historical.register" or "historical.pairedEvidence" or
+                "historical.launchEvidence"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
             {
                 foreach(var expired in pending.Where(x=>x.Value.ExpiresUtc<DateTimeOffset.UtcNow)
                     .Select(x=>x.Key).ToArray())pending.Remove(expired);
+
+                if(method=="historical.launchEvidence")
+                {
+                    if(!TextField(data,"archive",520,out var launchArchive) ||
+                       !GuidField(data,"mapId",out var launchMapId) ||
+                       !data.TryGetProperty("command",out var launchProp) ||
+                       launchProp.ValueKind!=JsonValueKind.String)
+                        return Fail(id,"UM-HISTORICAL-LAUNCH-INVALID-REQUEST");
+                    string command=launchProp.GetString()??"";
+                    if(command.Length is < 1 or > 3072)
+                        return Fail(id,"UM-HISTORICAL-LAUNCH-INVALID-REQUEST");
+                    launchArchive=CanonicalArchive(launchArchive);
+                    string archiveHash=Digest(launchArchive);
+                    var historical=HistoricalLaunchProfileReader.Inspect(launchArchive);
+                    var selected=historical.Maps.SingleOrDefault(x=>x.Id==launchMapId);
+                    if(selected==null || !selected.ExistingStoreActive)
+                        return Fail(id,"UM-HISTORICAL-MAP-NOT-FOUND");
+                    var (_,active,_)=ReadVerifiedLaunchRow(launchArchive,launchMapId);
+                    var evidence=HistoricalLaunchEvidenceInspector.Inspect(
+                        command,selected.MapId,selected.GamePort,selected.QueryPort,active);
+                    if(Digest(launchArchive)!=archiveHash)
+                        return Fail(id,"UM-HISTORICAL-ARCHIVE-CHANGED");
+                    return Ok(id,evidence);
+                }
 
                 if(method=="historical.pairedEvidence")
                 {
