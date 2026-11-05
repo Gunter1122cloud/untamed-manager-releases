@@ -43,7 +43,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         string? id=null;
         try
         {
-            if(raw.Length is <2 or >4096)return Fail(null,"UM-INVALID-MESSAGE");
+            // JSON escaping doubles backslashes in legitimate Windows launch paths.
+            if(raw.Length is <2 or >8192)return Fail(null,"UM-INVALID-MESSAGE");
             using var doc=JsonDocument.Parse(raw);
             var data=doc.RootElement;
             if(data.ValueKind!=JsonValueKind.Object ||
