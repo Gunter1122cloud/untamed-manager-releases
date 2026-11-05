@@ -1236,6 +1236,15 @@ public partial class MainWindow
                     request,_cluster.Config.LocalMaps.ToArray(),progress);
                 downloadedInstall=receipt;
                 serverExe.Text=receipt.ServerExecutable;
+                // Port values are only suggested AFTER download. Nothing is
+                // bound or forwarded on the router by this offline operation.
+                var suggested=LocalMapPortPolicy.Suggest(_cluster.Config.LocalMaps);
+                if(string.IsNullOrWhiteSpace(fields["Game UDP port"].Text))
+                    fields["Game UDP port"].Text=suggested.Game.ToString();
+                if(string.IsNullOrWhiteSpace(fields["Query UDP port"].Text))
+                    fields["Query UDP port"].Text=suggested.Query.ToString();
+                if(string.IsNullOrWhiteSpace(fields["RCON TCP port"].Text))
+                    fields["RCON TCP port"].Text=suggested.Rcon.ToString();
                 installStatus.Text="ASA letöltve; Steam Build: "+
                     (receipt.BuildId??"ismeretlen")+
                     ". A szerver még nem indult el. Folytasd a portbeállításokkal.";
