@@ -331,30 +331,55 @@ public partial class MainWindow : Window
     private void ShowOperationsHub()
     {
         Header(_demo==null?"Műveletek":"Műveletek · OFFLINE DEMO",
-            "Az üzemeltetési eszközök egy helyen. A biztonsági korlátozások változatlanok.");
-        var monitoring=new WrapPanel { Margin=new Thickness(0,8,0,0) };
-        foreach(var (title,page) in new[]{
-            ("Monitoring és események","monitoring"),("ASA Naplóközpont","logs"),
-            ("Watchdog / helyreállítás","recovery"),
-            ("Ütemezések","schedules"),("Hálózat és LAN","network"),("Discord státusz","discord")})
-            monitoring.Children.Add(Btn(title,()=>Navigate(page)));
-        var maintenance=new WrapPanel { Margin=new Thickness(0,8,0,0) };
-        foreach(var (title,page) in new[]{
-            ("SteamCMD","steam"),("INI szerkesztő","ini"),("RCON konzol","rcon"),
-            ("Frissítések","license")})
-            maintenance.Children.Add(Btn(title,()=>Navigate(page)));
-        var storage=new WrapPanel { Margin=new Thickness(0,8,0,0) };
-        foreach(var (title,page) in new[]{
-            ("Cluster Vault / SQL","data"),("LAN párosítás","lan"),
-            ("Biztonsági ellenőrzések","readiness"),("Manager-panelek","extensions"),
-            ("Beállítóvarázsló","setup")})
-            storage.Children.Add(Btn(title,()=>Navigate(page)));
-        Add(Box(V(Label("Üzemeltetés",17,Mint,true),
-            Label("Állapotvizsgálat, automatizálás és hálózat.",12,Soft),monitoring)));
-        Add(Box(V(Label("Karbantartás",17,Mint,true),
-            Label("Szerverkonfiguráció és vezérlőeszközök.",12,Soft),maintenance)));
-        Add(Box(V(Label("Adatok és rendszer",17,Mint,true),
-            Label("Biztonságos adattár, helyi profil és ellenőrzések.",12,Soft),storage)));
+            "Üzemeltetés, karbantartás és biztonság egy helyen. Minden művelet a meglévő ellenőrzött backendhez kapcsolódik.");
+
+        // Three true functional workspaces, not one giant list of buttons.
+        Border Area(string title,string eyebrow,string description,(string Name,string Page)[] links)
+        {
+            var linksPanel=new StackPanel {Margin=new Thickness(0,9,0,0)};
+            foreach(var link in links)
+            {
+                var action=Btn(link.Name,()=>Navigate(link.Page));
+                action.HorizontalAlignment=HorizontalAlignment.Stretch;
+                action.HorizontalContentAlignment=HorizontalAlignment.Left;
+                action.Margin=new Thickness(0,0,0,7);
+                linksPanel.Children.Add(action);
+            }
+            return Box(V(
+                Label(eyebrow,10,Aqua,true),
+                Label(title,19,Mint,true),
+                Label(description,12,Soft),
+                linksPanel));
+        }
+        var areas=new Grid {Margin=new Thickness(0,3,0,4)};
+        for(int i=0;i<3;i++)
+            areas.ColumnDefinitions.Add(new ColumnDefinition {
+                Width=new GridLength(1,GridUnitType.Star),MinWidth=245
+            });
+        var monitoring=Area("Üzemeltetés","01 / OBSERVE",
+            "Állapotok, események, watchdog és ütemezett ellenőrzések.",new[]{
+                ("Monitoring és események","monitoring"),("ASA Naplóközpont","logs"),
+                ("Watchdog és helyreállítás","recovery"),("Ütemezések","schedules"),
+                ("Hálózati diagnosztika","network"),("Discord státusz","discord")
+            });
+        var maintenance=Area("Karbantartás","02 / CONTROL",
+            "Csak jogosult, ellenőrzött műveletek; nem automatikus éles szerverindítás.",new[]{
+                ("SteamCMD frissítés","steam"),("INI szerkesztő","ini"),
+                ("RCON konzol","rcon"),("Manager frissítések","license")
+            });
+        var storage=Area("Biztonság és adatok","03 / PROTECT",
+            "Store-v1 kompatibilitás, mentések, LAN és helyi konfiguráció.",new[]{
+                ("Cluster Vault / SQL","data"),("LAN párosítás","lan"),
+                ("Release readiness","readiness"),("Manager-panelek","extensions"),
+                ("Beállítóvarázsló","setup")
+            });
+        Grid.SetColumn(monitoring,0);
+        Grid.SetColumn(maintenance,1);
+        Grid.SetColumn(storage,2);
+        areas.Children.Add(monitoring);
+        areas.Children.Add(maintenance);
+        areas.Children.Add(storage);
+        Add(areas);
     }
 
     private void Header(string title,string description)

@@ -346,7 +346,25 @@ public partial class MainWindow
     {
         var result=_cluster.Check(map);
         parent.Children.Add(Label(map.Name,22,Mint,true));
-        parent.Children.Add(Label(result.Status,14,result.Running?Mint:Soft));
+        parent.Children.Add(Label(_cluster.Config.LocalHostName+"  /  HELYI MAP",11,Aqua,true));
+        parent.Children.Add(Label(result.Status,13,result.Running?Mint:Soft));
+        // Identity, ports and configuration are distinct from live process/API readiness.
+        var indicators=new WrapPanel {Margin=new Thickness(0,3,0,12)};
+        Border Metric(string caption,string value)
+        {
+            return new Border {
+                Background=new SolidColorBrush(Color.FromRgb(36,47,53)),
+                BorderBrush=new SolidColorBrush(Color.FromRgb(53,64,72)),
+                BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),
+                Padding=new Thickness(11,8),Margin=new Thickness(0,0,9,7),
+                Child=V(Label(caption,10,Soft,true),Label(value,14,Mint,true))
+            };
+        }
+        indicators.Children.Add(Metric("GAME / UDP",map.GamePort.ToString()));
+        indicators.Children.Add(Metric("QUERY / UDP",map.QueryPort.ToString()));
+        indicators.Children.Add(Metric("RCON / TCP (KONFIG.)",map.RconPort.ToString()));
+        indicators.Children.Add(Metric("ASA API / KONFIG.",map.StartWithAsaApi?"BE":"KI"));
+        parent.Children.Add(indicators);
         // Wrap long actions instead of clipping them on 1366px / high-DPI desktops.
         var controls=new WrapPanel{Margin=new Thickness(0,0,0,10)};
         controls.Children.Add(Btn("Beállítások szerkesztése",()=>ShowMapEditor(map)));

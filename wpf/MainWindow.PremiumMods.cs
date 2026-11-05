@@ -263,8 +263,8 @@ public partial class MainWindow
             catalogExpander.BringIntoView();
         }));
         var left=V(Label("MOD CENTER  /  KONFIGURÁLT MODOK",16,Mint,true),
-            Label("Sorrend · státusz · egykattintásos aktiválás · változtatás csak jóváhagyás után",12,Soft),
-            toolbar,summary,rows);
+            Label("Sorrend · státusz · kapcsolók · változtatás csak jóváhagyás után",12,Soft),
+            summary,rows);
         var right=V(Label("Mod részletei",19,Mint,true),selectedTitle,selectedInfo,
             Label("Betöltési mód",12,Aqua),modeBox,
             Btn("Állapot módosítása",()=>Safely(ChangeMode)),
@@ -283,6 +283,7 @@ public partial class MainWindow
         var rightSurface=Box(right);
         Grid.SetColumn(leftSurface,0);Grid.SetColumn(rightSurface,1);
         main.Children.Add(leftSurface);main.Children.Add(rightSurface);
+        Add(Box(toolbar));
         Add(main);
 
         var actionBar=new WrapPanel {Margin=new Thickness(0,4,0,7)};

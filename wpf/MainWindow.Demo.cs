@@ -364,7 +364,7 @@ public partial class MainWindow
             Stage(project.Text.Trim(),DemoModMode.Active))));
         var left=V(Label("MOD CENTER  /  KONFIGURÁLT MODOK",16,Mint,true),
             Label("DEMO mintamodok · sorrend · állapot · jóváhagyott szimulált mentés",12,Soft),
-            leftToolbar,summary,list);
+            summary,list);
         var right=V(Label("Mod részletei",17,Mint,true),selected,details,
             Label("Csak DEMO · nincs valós fájl vagy szerverkapcsolat",11,Soft),
             Label("Állapot",12,Aqua),mode,
@@ -414,7 +414,7 @@ public partial class MainWindow
         applyButton=apply;
         actions.Children.Add(apply);
         Render();
-        return V(grid,Box(V(Label("Függőben lévő változások",16,Mint,true),
+        return V(Box(leftToolbar),grid,Box(V(Label("Függőben lévő változások",16,Mint,true),
             result,actions,preview)));
     }
 
@@ -492,7 +492,7 @@ public partial class MainWindow
         toolbar.Children.Add(filter);
         var left=Box(V(Label("PLUGIN CENTER  /  ASA API",16,Mint,true),
             Label("DEMO mintapluginok · a kapcsolók kizárólag memóriát módosítanak",12,Soft),
-            toolbar,summary,list));
+            summary,list));
         var commands=new WrapPanel{Margin=new Thickness(0,3,0,8)};
         commands.Children.Add(enable);
         commands.Children.Add(disable);
@@ -505,7 +505,7 @@ public partial class MainWindow
         Grid.SetColumn(right,1);
         layout.Children.Add(left);layout.Children.Add(right);
         Render();
-        return V(layout,Box(V(Label("Visszajelzés",14,Mint,true),status)));
+        return V(Box(toolbar),layout,Box(V(Label("Visszajelzés",14,Mint,true),status)));
     }
 
     private UIElement DemoIniPane(DemoMap map)

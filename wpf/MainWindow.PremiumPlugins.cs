@@ -253,8 +253,8 @@ public partial class MainWindow
         toolbar.Children.Add(filter);
         toolbar.Children.Add(Btn("Frissítés",Refresh));
         var left=Box(V(Label("PLUGIN CENTER  /  ASA API",16,Mint,true),
-            Label("Ellenőrzött helyi mappák · kapcsolás csak biztonsági mentéssel és megerősítéssel",12,Soft),
-            toolbar,count,list));
+            Label("Helyi pluginmappák · kapcsolás ellenőrzött leállítással és mentéssel",12,Soft),
+            count,list));
         var actions=new WrapPanel {Margin=new Thickness(0,4,0,7)};
         actions.Children.Add(enable);
         actions.Children.Add(disable);
@@ -270,6 +270,7 @@ public partial class MainWindow
         Grid.SetColumn(right,1);
         layout.Children.Add(left);
         layout.Children.Add(right);
+        Add(Box(toolbar));
         Add(layout);
         Add(Box(V(Label("Műveleti visszajelzés",15,Mint,true),activity)));
 
