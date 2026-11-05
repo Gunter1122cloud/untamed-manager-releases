@@ -8,6 +8,7 @@ import type {DashboardSnapshot,PublicMap} from "./bridge";
 type Props={
   snapshot:DashboardSnapshot;
   onServers:()=>void;
+  onInstall:()=>void;
   onCluster:()=>void;
   onSelect:(id:string)=>void;
 };
@@ -103,7 +104,7 @@ function HostPanel({snapshot}:{snapshot:DashboardSnapshot}){
   </section>;
 }
 
-export function PremiumDashboard({snapshot,onServers,onCluster,onSelect}:Props){
+export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelect}:Props){
   const [query,setQuery]=useState("");
   const hosts=1+(snapshot.remote?1:0);
   const local=snapshot.local.maps;
@@ -163,8 +164,12 @@ export function PremiumDashboard({snapshot,onServers,onCluster,onSelect}:Props){
                   <MapCover name={name}/><span>{name}</span><Plus size={15}/>
                 </button>)}
             </div>}
-            {!query&&<button type="button" className="secondary" onClick={onServers}>
-              Szerverimport megnyitása <ArrowRight size={15}/></button>}
+            {!query&&<div className="premium-onboarding-actions">
+              <button type="button" className="secondary" onClick={onServers}>
+                Meglévő ASA importálása <ArrowRight size={15}/></button>
+              <button type="button" className="primary" onClick={onInstall}>
+                Új ASA letöltése · SteamCMD <Plus size={15}/></button>
+            </div>}
           </div>}
         </div>
         <div className="premium-panel-footnote"><Shield size={14}/> A távoli szerverek csak megfigyelhetők; nem jelenítünk meg kitalált játékosadatokat.</div>
