@@ -397,6 +397,124 @@ try
             "first profile setup preserves original ASA executable and saved data");
     }
 
+    // A historical Store-v1 ZIP is an identity/provenance source, NOT a
+    // complete command line. Test imported map remains blocked even with
+    // valid SHA and an actual world file.
+    string oldRoot=Path.Combine(root,"historical-synthetic-map");
+    string oldExeFolder=Path.Combine(oldRoot,"ShooterGame","Binaries","Win64");
+    Directory.CreateDirectory(oldExeFolder);
+    File.WriteAllText(Path.Combine(oldExeFolder,"ArkAscendedServer.exe"),
+        "SYNTHETIC HISTORICAL ASA EXE - NEVER LAUNCH");
+    string oldSaveFolder=Path.Combine(oldRoot,"ShooterGame","Saved","SavedArks");
+    Directory.CreateDirectory(oldSaveFolder);
+    string oldWorld=Path.Combine(oldSaveFolder,"ScorchedEarth_WP.ark");
+    File.WriteAllBytes(oldWorld,new byte[]{3,1,4,1,5,9,2,6,5});
+    byte[] originalWorld=File.ReadAllBytes(oldWorld);
+    ManagerMigrationArchiveTests.Run(root,oldRoot);
+    string oldArchive=Path.Combine(root,"untamed-manager-package-fixtures",
+        "Untamed-Manager-migration-fixture.zip");
+    string originalZipSha=Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(oldArchive)));
+    using(var generic=new DesktopLocalMapRegistryBridge(cluster))
+    {
+        var denied=await Call(generic.HandleAsync,"servers.inspectLocal",
+            new{name="Scorched Earth",root=oldRoot});
+        Check(IsError(denied,"UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT"),
+            "generic blank-profile import refuses an existing historical world");
+    }
+    using(var archiveImport=new DesktopHistoricalStoreImportBridge(cluster,
+        _=>new ProcessCheck(false,"Confirmed stopped synthetic test only",null,true)))
+    {
+        var listing=await Call(archiveImport.HandleAsync,"historical.list",
+            new{archive=oldArchive});
+        IsOk(listing,"historical 39-file Manager ZIP passes verification and lists five maps");
+        var choices=listing.GetProperty("data").GetProperty("maps").EnumerateArray().ToArray();
+        Check(choices.Length==5,"original Manager backup has exactly five local map identities");
+        var chosen=choices.Single(x=>x.GetProperty("mapKey").GetString()=="ScorchedEarth_WP");
+        string historicalId=chosen.GetProperty("mapId").GetString()!;
+        Check(!listing.GetProperty("data").GetProperty("allowServerStart").GetBoolean(),
+            "read-only historical metadata never certifies production launch");
+
+        var preview=await Call(archiveImport.HandleAsync,"historical.preview",
+            new{archive=oldArchive,root=oldRoot,mapId=historicalId});
+        IsOk(preview,"original MapID/root/mods/UDP provenance validated");
+        Check(preview.GetProperty("data").GetProperty("mapId").GetString()==historicalId &&
+            !preview.GetProperty("data").GetProperty("fullLaunchArgumentsVerified").GetBoolean(),
+            "original GUID preserved while missing complete launch arguments remain explicitly unknown");
+        Check(!cluster.Config.LocalMaps.Any(x=>x.Id==Guid.Parse(historicalId)),
+            "preview does not mutate local Manager config");
+        string approval=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var noApproval=await Call(archiveImport.HandleAsync,"historical.register",
+            new{token=approval,confirm=false});
+        Check(IsError(noApproval,"UM-HISTORICAL-EXPLICIT-CONFIRMATION-REQUIRED"),
+            "missing confirmation never consumes historical source token");
+        var receipt=await Call(archiveImport.HandleAsync,"historical.register",
+            new{token=approval,confirm=true});
+        IsOk(receipt,"Manager-only quarantined historical map registration");
+        var imported=cluster.Config.LocalMaps.Single(x=>x.Id==Guid.Parse(historicalId));
+        Check(imported.HistoricalStoreProtected && imported.Arguments=="" &&
+              !imported.AutoStart && !imported.StartWithAsaApi &&
+              imported.GamePort==7777 && imported.QueryPort==27015 &&
+              imported.HistoricalMapKey=="ScorchedEarth_WP" &&
+              imported.HistoricalEnabledMods.SequenceEqual(new[]{"928548"}),
+            "quarantined profile keeps historical GUID/ports/mod IDs, no invented arguments or auto-start");
+        Check(imported.HistoricalArchiveSha256==originalZipSha &&
+            File.ReadAllBytes(oldWorld).SequenceEqual(originalWorld) &&
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                File.ReadAllBytes(oldArchive)))==originalZipSha,
+            "actual copied world and historical ZIP bytes remain exactly unchanged");
+        Check(!cluster.Check(imported).ConfirmedStopped,
+            "Store-v1 map readiness remains locked even when no process is running");
+        bool launchDenied=false;
+        try{cluster.LaunchLocal(imported.Id);}
+        catch(InvalidOperationException){launchDenied=true;}
+        Check(launchDenied,"no direct lifecycle code path can launch a quarantined Store-v1 map");
+
+        using(var blockedSetup=new DesktopInitialMapSetupBridge(cluster))
+        {
+            var initial=await Call(blockedSetup.HandleAsync,"servers.initialStatus",
+                new{mapId=imported.Id});
+            Check(!initial.GetProperty("data").GetProperty("initialSetupAvailable").GetBoolean(),
+                "new-map wizard cannot overwrite historical Store launch configuration");
+        }
+        using(var blockedMods=new DesktopModDraftBridge(cluster))
+        {
+            var blocked=await Call(blockedMods.HandleAsync,"mods.draftStart",
+                new{mapId=imported.Id});
+            Check(IsError(blocked,"UM-HISTORICAL-STORE-LOCKED"),
+                "mod draft cannot change historical protected profile");
+        }
+        using(var blockedIni=new DesktopIniBridge(cluster))
+        {
+            var blocked=await Call(blockedIni.HandleAsync,"ini.open",
+                new{mapId=imported.Id,file="Game.ini"});
+            Check(IsError(blocked,"UM-HISTORICAL-STORE-LOCKED"),
+                "INI writes forbidden before full historical map acceptance");
+        }
+        var replay=await Call(archiveImport.HandleAsync,"historical.register",
+            new{token=approval,confirm=true});
+        Check(IsError(replay,"UM-HISTORICAL-PREVIEW-EXPIRED"),
+            "historical import token is one-time only");
+        var duplicate=await Call(archiveImport.HandleAsync,"historical.preview",
+            new{archive=oldArchive,root=oldRoot,mapId=historicalId});
+        Check(!duplicate.GetProperty("ok").GetBoolean(),
+            "second registration of same original map is refused");
+    }
+    using(var uncertain=new DesktopHistoricalStoreImportBridge(cluster,
+        _=>new ProcessCheck(true,"Synthetic running process",null,false)))
+    {
+        var listed=await Call(uncertain.HandleAsync,"historical.list",
+            new{archive=oldArchive});
+        IsOk(listed,"historical list is read-only even when synthetic ASA is running");
+        var sample=listed.GetProperty("data").GetProperty("maps").EnumerateArray()
+            .First(x=>x.GetProperty("mapKey").GetString()=="ScorchedEarth_WP");
+        var stoppedOnly=await Call(uncertain.HandleAsync,"historical.preview",
+            new{archive=oldArchive,root=oldRoot,
+                mapId=sample.GetProperty("mapId").GetString()});
+        Check(!stoppedOnly.GetProperty("ok").GetBoolean(),
+            "running or already registered Store profile never passes preflight");
+    }
+
     // A new, deliberately untrusted process observer must not write INI.
     await using var running=new ClusterService("obsidian-running",Path.Combine(root,"running-profile"),
         _=>new ProcessCheck(true,"Synthetic running map",null,false));

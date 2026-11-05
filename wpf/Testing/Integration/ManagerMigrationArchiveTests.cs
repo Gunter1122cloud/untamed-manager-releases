@@ -22,7 +22,7 @@ public static class ManagerMigrationArchiveTests
     private static string Hash(byte[] data)=>
         Convert.ToHexString(SHA256.HashData(data));
 
-    public static void Run(string integrationRoot)
+    public static void Run(string integrationRoot,string? firstLocalRoot=null)
     {
         // Entirely fabricated configuration data. No private uploaded ZIP bytes
         // or real tokens, IPs, host paths, player details or credentials here.
@@ -38,7 +38,7 @@ public static class ManagerMigrationArchiveTests
         var localIds=maps.Select(_=>Guid.NewGuid().ToString()).ToArray();
         var foreignIds=foreign.Select(_=>Guid.NewGuid().ToString()).ToArray();
         var members=maps.Select((m,i)=>new{
-            id=localIds[i],map=m,root=@"C:\synthetic\map-"+i}).ToArray();
+            id=localIds[i],map=m,root=i==0 && firstLocalRoot!=null ? firstLocalRoot : @"C:\synthetic\map-"+i}).ToArray();
         var other=foreign.Select((m,i)=>new{
             id=foreignIds[i],map=m,root=@"D:\synthetic\map-"+i}).ToArray();
         var config=new{id="KovaCluster",mode="shared",path=shared,

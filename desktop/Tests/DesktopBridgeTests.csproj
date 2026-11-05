@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../UntamedDesktop.csproj" />
+    <Compile Include="../../wpf/Testing/Integration/ManagerMigrationArchiveTests.cs" Link="SyntheticHistoricalManagerArchive.cs" />
   </ItemGroup>
 </Project>
