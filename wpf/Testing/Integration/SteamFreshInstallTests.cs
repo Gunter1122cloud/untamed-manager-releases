@@ -128,7 +128,7 @@ public static class SteamFreshInstallTests
         var args=AsaSteamMapCatalog.LaunchArguments("Astraeos","Untamed Kingdom",7777,27015);
         Check(args.StartsWith("Astraeos_WP?listen?SessionName=\"Untamed Kingdom\"") &&
             args.Contains("-port=7777")&&args.Contains("-QueryPort=27015") &&
-            args.Contains("RCONEnabled=False")&&!args.Contains("ServerAdminPassword"),
+            !args.Contains("RCONEnabled=False")&&!args.Contains("ServerAdminPassword"),
             "generated launch args use actual map and do not expose RCON admin credentials");
 
         bool rejectedInjection=false;
