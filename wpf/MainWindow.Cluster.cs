@@ -15,7 +15,10 @@ using WinMessageBox = System.Windows.MessageBox;
 
 namespace UntamedManager;
 
-internal sealed record PremiumLocalServerRow(LocalMap Map,string Name,string State,string Detail);
+internal sealed record PremiumLocalServerRow(LocalMap Map,string Name,string State,string Detail)
+{
+    public ImageSource? CoverImage { get; init; }
+}
 
 public partial class MainWindow
 {
@@ -284,8 +287,10 @@ public partial class MainWindow
                 WriteLog("server-list-observation",ex);
                 state="Állapot ismeretlen";
             }
+            var mapArtwork=_maps.FirstOrDefault(x=>
+                x.Name.Equals(map.Name,StringComparison.OrdinalIgnoreCase))?.CoverImage;
             rows.Add(new PremiumLocalServerRow(map,map.Name,state,
-                "Helyi konfiguráció · "+_cluster.Config.LocalHostName));
+                "Helyi konfiguráció · "+_cluster.Config.LocalHostName){CoverImage=mapArtwork});
         }
         var count=Label(rows.Count+" helyi map · "+_cluster.Config.LocalHostName+
             " · "+App.ProfileName+" profil",12,Soft);
@@ -348,9 +353,34 @@ public partial class MainWindow
     private void DisplayLocalMapDetails(StackPanel parent,LocalMap map)
     {
         var result=_cluster.Check(map);
-        parent.Children.Add(Label(map.Name,22,Mint,true));
-        parent.Children.Add(Label(_cluster.Config.LocalHostName+"  /  HELYI MAP",11,Aqua,true));
-        parent.Children.Add(Label(result.Status,13,result.Running?Mint:Soft));
+        // Reuse the dashboard's original map artwork on the LIVE server-detail page.
+        // No invented status or fake process telemetry is drawn over this image.
+        var mapArtwork=_maps.FirstOrDefault(x=>
+            x.Name.Equals(map.Name,StringComparison.OrdinalIgnoreCase))?.CoverImage;
+        var cover=new Grid{Height=168,ClipToBounds=true};
+        if(mapArtwork is not null)
+            cover.Children.Add(new Image{Source=mapArtwork,Stretch=Stretch.UniformToFill,
+                Opacity=0.81,IsHitTestVisible=false});
+        var shade=new LinearGradientBrush{
+            StartPoint=new Point(0,0.5),EndPoint=new Point(1,0.5)
+        };
+        shade.GradientStops.Add(new GradientStop(Color.FromArgb(242,10,25,28),0));
+        shade.GradientStops.Add(new GradientStop(Color.FromArgb(175,12,35,36),0.62));
+        shade.GradientStops.Add(new GradientStop(Color.FromArgb(112,13,28,31),1));
+        cover.Children.Add(new System.Windows.Shapes.Rectangle{
+            Fill=shade,IsHitTestVisible=false});
+        var heading=new StackPanel{Margin=new Thickness(21,17,21,17),
+            VerticalAlignment=VerticalAlignment.Center};
+        heading.Children.Add(Label("ASA  /  LOCAL MAP COMMAND",11,Aqua,true));
+        heading.Children.Add(Label(map.Name,27,Mint,true));
+        heading.Children.Add(Label(_cluster.Config.LocalHostName+"  •  "+
+            result.Status,12,result.Running?Aqua:Soft));
+        cover.Children.Add(heading);
+        parent.Children.Add(new Border{
+            Background=Panel,BorderBrush=Aqua,BorderThickness=new Thickness(1),
+            CornerRadius=new CornerRadius(12),ClipToBounds=true,
+            Child=cover,Margin=new Thickness(0,0,12,17)
+        });
         // Identity, ports and configuration are distinct from live process/API readiness.
         var indicators=new WrapPanel {Margin=new Thickness(0,3,0,12)};
         Border Metric(string caption,string value)
