@@ -33,6 +33,19 @@ export type DashboardSnapshot = {
   peerMessage: string;
 };
 
+export type CurseForgeResult = {
+  gameId: number;
+  totalCount: number;
+  page: number;
+  hasMore: boolean;
+  evidence: "OFFICIAL_CATALOG_METADATA_ONLY";
+  mods: Array<{
+    id: number; name: string; summary: string; website: string | null;
+    thumbnailUrl: string | null; authors: string[]; latestFile: string | null;
+    modifiedUtc: string | null; downloadCount: number;
+  }>;
+};
+
 export type ConfiguredMods = {
   mapId: string;
   mapName: string;
@@ -43,7 +56,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured"; mapId?: string };
+type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search"; mapId?: string; term?: string; page?: number };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -68,17 +81,18 @@ webview?.addEventListener("message", (event) => {
   else waiting.reject(new Error(msg.error || "UM-UNKNOWN"));
 });
 
-function request<T>(method: WireRequest["method"], mapId?: string): Promise<T> {
+function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = {}): Promise<T> {
   if (!webview) return Promise.reject(new Error("UM-NATIVE-UNAVAILABLE"));
   const id = crypto.randomUUID();
   return new Promise<T>((resolve, reject) => {
     pending.set(id, { resolve: (value) => resolve(value as T), reject });
-    try { webview.postMessage({ id, method, ...(mapId ? { mapId } : {}) }); }
+    try { webview.postMessage({ id, method, ...args }); }
     catch { pending.delete(id); reject(new Error("UM-NATIVE-UNAVAILABLE")); }
   });
 }
 
 export const managerBridge = {
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
-  configuredMods: (mapId: string) => request<ConfiguredMods>("mods.configured", mapId),
+  configuredMods: (mapId: string) => request<ConfiguredMods>("mods.configured", { mapId }),
+  catalogSearch: (term: string, page = 0) => request<CurseForgeResult>("curseforge.search", { term, page }),
 };

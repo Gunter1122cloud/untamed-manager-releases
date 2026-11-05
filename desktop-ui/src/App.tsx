@@ -5,7 +5,7 @@ import {
   Package, RefreshCw, Search, Server, Shield, WifiOff
 } from "lucide-react";
 import {
-  managerBridge, type ConfiguredMods, type DashboardSnapshot,
+  managerBridge, type ConfiguredMods, type CurseForgeResult, type DashboardSnapshot,
   type PublicMap, type RemoteHost
 } from "./bridge";
 
@@ -71,6 +71,68 @@ function HostCard({ host, local = false }: {
     <span className="host-count">{running}/{host.maps.length} fut</span>
   </div>;
 }
+function CurseForgeExplorer() {
+  const [term, setTerm] = useState("");
+  const [result, setResult] = useState<CurseForgeResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [selected, setSelected] = useState<number | null>(null);
+  const runSearch = async (page = 0) => {
+    const query = term.trim();
+    if (query.length < 2 || query.length > 80) {
+      setNotice("Adj meg 2–80 karakteres keresőkifejezést.");
+      return;
+    }
+    setBusy(true);
+    setNotice("");
+    try {
+      const data = await managerBridge.catalogSearch(query, page);
+      setResult(data);
+      setSelected(data.mods[0]?.id ?? null);
+    } catch (e) {
+      const code = e instanceof Error ? e.message : "UM-READ-UNAVAILABLE";
+      setNotice(code === "UM-CURSEFORGE-NO-KEY"
+        ? "A helyi Managerben még nincs beállítva CurseForge API-kulcs."
+        : "A CurseForge keresés nem sikerült (" + code + ").");
+    } finally { setBusy(false); }
+  };
+  const chosen = result?.mods.find(m => m.id === selected);
+  return <Panel title="Hivatalos CurseForge ASA katalógus" action={<span className="muted tiny">Csak metaadat · nincs telepítés</span>}>
+    <form className="catalog-search" onSubmit={e => { e.preventDefault(); void runSearch(0); }}>
+      <Search size={20} aria-hidden="true"/>
+      <input aria-label="CurseForge mod keresése" placeholder="Modkeresés név vagy készítő alapján..." value={term}
+        onChange={e => setTerm(e.target.value)} maxLength={80} minLength={2}/>
+      <button className="primary" disabled={busy} type="submit">{busy ? "Keresés..." : "Keresés"}</button>
+    </form>
+    {notice && <div role="status" className="warning-inline"><AlertTriangle size={17}/>{notice}</div>}
+    {result && <div className="catalog-layout">
+      <div className="catalog-list">
+        <p className="muted small">{result.totalCount} találat · {result.page+1}. oldal · hivatalos katalógusadat</p>
+        {result.mods.map(mod => <button key={mod.id} className={selected===mod.id?"catalog-item selected":"catalog-item"} onClick={() => setSelected(mod.id)}>
+          {mod.thumbnailUrl ? <img src={mod.thumbnailUrl} alt="" loading="lazy" referrerPolicy="no-referrer"/> : <div className="catalog-fallback"><Package size={22}/></div>}
+          <span><b>{mod.name}</b><small>{mod.authors.join(", ") || "Ismeretlen szerző"} · ID {mod.id}</small></span>
+        </button>)}
+        <div className="catalog-pagination">
+          <button disabled={busy || result.page===0} onClick={() => { void runSearch(result.page-1); }}>Előző</button>
+          <span className="muted tiny">{result.page+1}. oldal</span>
+          <button disabled={busy || !result.hasMore} onClick={() => { void runSearch(result.page+1); }}>Következő</button>
+        </div>
+      </div>
+      <div className="catalog-detail">
+        {chosen ? <>
+          <h3>{chosen.name}</h3>
+          <p className="muted small">{chosen.authors.join(", ") || "Szerző: ismeretlen"} · Projekt ID: {chosen.id}</p>
+          <p>{chosen.summary || "Nincs katalógus-összefoglaló."}</p>
+          <div className="details-line"><span>Legújabb fájl</span><b>{chosen.latestFile || "Nincs adat"}</b></div>
+          <div className="details-line"><span>Letöltésszám</span><b>{chosen.downloadCount.toLocaleString("hu-HU")}</b></div>
+          <div className="warning-inline"><Shield size={17}/> A katalógus nem igazolja a mod telepítését vagy ASA-betöltését.</div>
+          {chosen.website && <span className="muted tiny">CurseForge-adatlap: {chosen.website}</span>}
+        </> : <p className="muted">Nincs kiválasztott mod.</p>}
+      </div>
+    </div>}
+  </Panel>;
+}
+
 function Dashboard({ snapshot, onPage, onSelect }: {
   snapshot: DashboardSnapshot;
   onPage: (page: Page) => void; onSelect: (id: string) => void
@@ -173,6 +235,7 @@ function Mods({ snapshot, selected, setSelected }: {
         <div className="warning-inline"><Shield size={17}/><span>Modmódosítás az új felületen még nem engedélyezett. A meglévő C# védelem változatlan.</span></div>
       </Panel>
     </div>
+    <CurseForgeExplorer/>
   </>;
 }
 function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
