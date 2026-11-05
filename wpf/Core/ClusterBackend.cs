@@ -329,6 +329,7 @@ public sealed class PeerStatusListener : IAsyncDisposable
     private readonly Dictionary<string,long> _seen = new();
     private readonly object _lock=new();
     private Task? _loop;
+    private int _disposed;
     public PeerStatusListener(int port, string sharedSecret, Func<HostStatus> getStatus,
         ClusterSteamLeaseStore? steamLease=null)
     {
@@ -406,6 +407,7 @@ public sealed class PeerStatusListener : IAsyncDisposable
     }
     public async ValueTask DisposeAsync()
     {
+        if(Interlocked.Exchange(ref _disposed,1)!=0)return;
         _cts.Cancel();_listener.Stop();
         if(_loop!=null)try{await _loop;}catch(OperationCanceledException){}
         _cts.Dispose();
