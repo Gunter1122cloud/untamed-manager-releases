@@ -59,6 +59,7 @@ try
     await CurseForgeDependencyResolverTests.Run();
     await CurseForgeExactLookupTests.Run();
     await MapProfileAtomicityTests.Run(root);
+    LocalAsaWizardTests.Run(root);
     await AsaApiReleaseStagingTests.Run();
     await AsaApiIsolatedInstallerTests.Run();
     AsaApiLaunchPolicyTests.Run(root,fake);
