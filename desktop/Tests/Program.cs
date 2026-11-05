@@ -445,6 +445,32 @@ try
         Check(preview.GetProperty("data").GetProperty("mapId").GetString()==historicalId &&
             !preview.GetProperty("data").GetProperty("fullLaunchArgumentsVerified").GetBoolean(),
             "original GUID preserved while missing complete launch arguments remain explicitly unknown");
+        const string privateLaunch="ArkAscendedServer.exe ScorchedEarth_WP?SessionName=\"PrivateServer\"?ServerAdminPassword=DO_NOT_ECHO -port=7777 -QueryPort=27015 -mods=928548 -clusterid=PRIVATE_CLUSTER -ClusterDirOverride=C:\\private\\cluster -usestore";
+        var launchEvidence=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,command=privateLaunch});
+        IsOk(launchEvidence,"operator-supplied launch text is compared read-only with archived ports and mod order");
+        var assessed=launchEvidence.GetProperty("data");
+        Check(assessed.GetProperty("gamePortStatus").GetString()=="MATCH" &&
+              assessed.GetProperty("modOrderStatus").GetString()=="MATCH" &&
+              assessed.GetProperty("useStorePresent").GetBoolean() &&
+              !assessed.GetProperty("productionUseAllowed").GetBoolean() &&
+              !assessed.GetProperty("serverStartAllowed").GetBoolean(),
+            "matching text is never certified as launch permission");
+        Check(!launchEvidence.GetRawText().Contains("DO_NOT_ECHO",StringComparison.Ordinal) &&
+              !launchEvidence.GetRawText().Contains("PRIVATE_CLUSTER",StringComparison.Ordinal) &&
+              !launchEvidence.GetRawText().Contains("private",StringComparison.OrdinalIgnoreCase),
+            "raw command, secrets and cluster path never return to WebView");
+        var conversion=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,command=privateLaunch+" -converttostore"});
+        Check(conversion.GetProperty("data").GetProperty("conversionFlagPresent").GetBoolean() &&
+              !conversion.GetProperty("data").GetProperty("serverStartAllowed").GetBoolean(),
+            "conversion flag is recognized but never executed");
+        var missing=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,
+                command="ArkAscendedServer.exe ScorchedEarth_WP -port=9999"});
+        Check(missing.GetProperty("data").GetProperty("gamePortStatus").GetString()=="MISMATCH" &&
+              !missing.GetProperty("data").GetProperty("clusterIdPresent").GetBoolean(),
+            "incorrect/incomplete source never guesses a historical launch profile");
         Check(!cluster.Config.LocalMaps.Any(x=>x.Id==Guid.Parse(historicalId)),
             "preview does not mutate local Manager config");
         string approval=preview.GetProperty("data").GetProperty("token").GetString()!;
