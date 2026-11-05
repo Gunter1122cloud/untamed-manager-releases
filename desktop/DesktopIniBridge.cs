@@ -68,6 +68,7 @@ public sealed class DesktopIniBridge : IDisposable
                         return Fail(id,"UM-INI-INVALID-FILE");
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    if(map.HistoricalStoreProtected)return Fail(id,"UM-HISTORICAL-STORE-LOCKED");
                     var check=cluster.Check(map);
                     if(!check.ConfirmedStopped || check.Running || map.Maintenance)
                         return Fail(id,"UM-INI-STOP-REQUIRED");
@@ -95,6 +96,7 @@ public sealed class DesktopIniBridge : IDisposable
                     return Fail(id,"UM-INI-DOCUMENT-EXPIRED");
                 var owned=Owned(openedFile.MapId);
                 if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                if(owned.HistoricalStoreProtected)return Fail(id,"UM-HISTORICAL-STORE-LOCKED");
 
                 if(method=="ini.close")
                 {

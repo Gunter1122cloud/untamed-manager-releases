@@ -24,6 +24,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopCurseForgeDiscoveryBridge _modCatalog;
     private readonly DesktopSteamFreshInstallBridge _freshInstall;
     private readonly DesktopInitialMapSetupBridge _initialMapSetup;
+    private readonly DesktopHistoricalStoreImportBridge _historicalStore;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -39,6 +40,7 @@ public sealed class ObsidianWindow : Form
         _modCatalog = new DesktopCurseForgeDiscoveryBridge(_bridge.LocalCluster);
         _freshInstall = new DesktopSteamFreshInstallBridge(_bridge.LocalCluster);
         _initialMapSetup = new DesktopInitialMapSetupBridge(_bridge.LocalCluster);
+        _historicalStore = new DesktopHistoricalStoreImportBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
@@ -76,6 +78,7 @@ public sealed class ObsidianWindow : Form
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
+            _historicalStore.Dispose();
             _initialMapSetup.Dispose();
             _freshInstall.Dispose();
             _modCatalog.Dispose();
@@ -144,6 +147,7 @@ public sealed class ObsidianWindow : Form
                 bool discoveryRoute = false;
                 bool freshRoute = false;
                 bool initialRoute = false;
+                bool historicalRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -172,6 +176,8 @@ public sealed class ObsidianWindow : Form
                             "steam.freshRegister";
                         initialRoute = name is "servers.initialStatus" or
                             "servers.initialPreview" or "servers.initialApply";
+                        historicalRoute = name is "historical.list" or
+                            "historical.preview" or "historical.register";
                     }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
@@ -186,7 +192,8 @@ public sealed class ObsidianWindow : Form
                                     : discoveryRoute ? await _modCatalog.HandleAsync(incoming)
                                         : freshRoute ? await _freshInstall.HandleAsync(incoming)
                                             : initialRoute ? await _initialMapSetup.HandleAsync(incoming)
-                                                : await _bridge.HandleAsync(incoming);
+                                                : historicalRoute ? await _historicalStore.HandleAsync(incoming)
+                                                    : await _bridge.HandleAsync(incoming);
                     if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
                         _browser.CoreWebView2.PostWebMessageAsJson(response);
                 }
