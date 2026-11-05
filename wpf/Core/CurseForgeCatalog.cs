@@ -296,6 +296,51 @@ public sealed class CurseForgeCatalog
         return new(modId,files,index,total,index+25<Math.Min(total,10000));
     }
 
+    /// <summary>
+    /// Fetch a COMPLETE, bounded official file inventory for explicit version
+    /// comparisons. A single 25-item page is never proof of the newest file.
+    /// This uses metadata only; no downloads or implicit mod installation.
+    /// </summary>
+    public async Task<CurseForgeFilesResult> GetCompleteAsaModFilesAsync(
+        string key,int modId,CancellationToken ct=default)
+    {
+        ValidateApiKey(key);
+        if(modId<10000)throw new ArgumentOutOfRangeException(nameof(modId));
+        // File metadata alone is not sufficient to prove ASA game ownership.
+        await GetAsaModAsync(key,modId,ct);
+        const int maxPages=16;
+        const int maxFiles=maxPages*PageSize;
+        var verified=new List<CurseForgeFile>();
+        var ids=new HashSet<int>();
+        int? expectedTotal=null;
+        for(int index=0;index<maxFiles;index+=PageSize)
+        {
+            ct.ThrowIfCancellationRequested();
+            var page=await GetModFilesAsync(key,modId,index,ct);
+            if(page.ModId!=modId || page.Index!=index || page.Total<0 ||
+               page.Total>maxFiles || (expectedTotal.HasValue &&
+               expectedTotal.Value!=page.Total))
+                throw new InvalidDataException(
+                    "CurseForge file inventory is oversized or changed during pagination");
+            expectedTotal=page.Total;
+            int expectedCount=Math.Min(PageSize,Math.Max(0,page.Total-index));
+            if(page.Files.Count!=expectedCount ||
+               page.Files.Any(x=>x.ModId!=modId || !ids.Add(x.FileId)))
+                throw new InvalidDataException(
+                    "CurseForge file inventory has missing or duplicate metadata");
+            verified.AddRange(page.Files);
+            if(!page.HasMore)
+            {
+                if(verified.Count!=page.Total)
+                    throw new InvalidDataException(
+                        "CurseForge file inventory ended before the expected total");
+                return new(modId,verified,0,verified.Count,false);
+            }
+        }
+        throw new InvalidDataException(
+            "CurseForge file inventory requires more than 16 bounded pages");
+    }
+
     private static CurseForgeFile? ParseFile(JsonElement item,int modId)
     {
             int fileId=Int(item,"id");
