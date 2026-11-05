@@ -122,10 +122,21 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                 local = new {
                     hostName = local.HostName,
                     hostId = local.HostId,
-                    maps = local.Maps.Select(m => new {
-                        id = m.Id, name = m.Name, running = m.Running,
-                        status = m.Status, gamePort = m.GamePort,
-                        steamBuildId = m.SteamBuildId, steamUpdateState = m.SteamUpdateState
+                    maps = local.Maps.Select(m => {
+                        // Return configuration flags only for a locally owned
+                        // map. Never pass encrypted RCON secrets, Store roots,
+                        // launch arguments or internal cluster identifiers
+                        // to the WebView2 renderer.
+                        var config = _cluster.Config.LocalMaps.FirstOrDefault(x => x.Id == m.Id);
+                        return new {
+                            id = m.Id, name = m.Name, running = m.Running,
+                            status = m.Status, gamePort = m.GamePort,
+                            steamBuildId = m.SteamBuildId, steamUpdateState = m.SteamUpdateState,
+                            storeProtected = config?.HistoricalStoreProtected ?? false,
+                            maintenance = config?.Maintenance ?? false,
+                            rconConfigured = config != null && config.RconPort > 0 &&
+                                !string.IsNullOrWhiteSpace(config.RconPasswordProtected)
+                        };
                     }).ToArray(),
                     cpuPercent = resources.CpuPercent,
                     memoryUsedKiB = resources.UsedMemoryKiB,
