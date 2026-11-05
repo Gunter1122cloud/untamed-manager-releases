@@ -27,6 +27,17 @@ public partial class MainWindow
         NestedWheelScroll.SetChainToParent(results,true);
         var detail=Label("Válassz modot a találati listából a részletekhez.",12,Soft);
         var paging=Label("Nincs lekérdezés.",12,Soft);
+        var fullDescription=Label("A projekt részletes leírása külön, csak olvasható API-kéréssel tölthető be.",12,Soft);
+        var filesStatus=Label("Válassz egy ASA modot, majd kérd le a hozzá tartozó fájlverziókat.",12,Soft);
+        var fileDetail=Label("Nincs kiválasztott fájl.",12,Soft);
+        var fileList=new ListBox {
+            MinHeight=100,MaxHeight=235,Foreground=Brushes.White,Background=Panel,
+            BorderBrush=Aqua,DisplayMemberPath="Name"
+        };
+        NestedWheelScroll.SetChainToParent(fileList,true);
+        CurseForgeFilesResult? loadedFiles=null;
+        int filesProject=0;
+        Button? filesPrevious=null,filesNext=null;
         var status=Label(
             _curseForgeImportNotice ??
             (string.IsNullOrEmpty(_cluster.Config.CurseForgeApiKeyProtected)
@@ -39,6 +50,14 @@ public partial class MainWindow
         bool busy=false;
         Button? search=null,previous=null,next=null;
         results.SelectionChanged+=(_,_)=>{
+            loadedFiles=null;
+            filesProject=0;
+            fileList.ItemsSource=Array.Empty<CurseForgeFile>();
+            fileDetail.Text="Nincs kiválasztott fájl.";
+            fullDescription.Text="Részletes leírás: még nincs lekérve.";
+            filesStatus.Text="A fájlok csak a kiválasztott projekthez kérdezhetők le.";
+            if(filesPrevious!=null)filesPrevious.IsEnabled=false;
+            if(filesNext!=null)filesNext.IsEnabled=false;
             if(results.SelectedItem is not CurseForgeMod mod)
             {
                 detail.Text="Válassz modot a találati listából a részletekhez.";
@@ -48,10 +67,97 @@ public partial class MainWindow
             if(summary.Length>500)summary=summary[..500]+"…";
             detail.Text=mod.Name+" · ID "+mod.Id+"\n"+
                 (string.IsNullOrWhiteSpace(summary)?"Leírás nem elérhető.":summary)+"\n"+
+                "Szerzők: "+(mod.Authors.Count==0?"nem közölt":
+                    string.Join(", ",mod.Authors))+"\n"+
+                "Kategóriák: "+(mod.Categories.Count==0?"nem közölt":
+                    string.Join(", ",mod.Categories))+"\n"+
                 "Utolsó ismert fájl: "+(mod.LatestFile??"ismeretlen")+"\n"+
+                "Legutóbbi módosítás: "+(mod.ModifiedUtc?.ToLocalTime().ToString("yyyy-MM-dd")??"ismeretlen")+"\n"+
                 "Forrás: "+(mod.Website??"nincs hiteles CurseForge-link")+
                 "\nCrossplay és prémium státusz: nincs ellenőrizve.";
         };
+        fileList.SelectionChanged+=(_,_)=>{
+            if(fileList.SelectedItem is not CurseForgeFile file)
+            {
+                fileDetail.Text="Nincs kiválasztott fájl.";return;
+            }
+            var relations=file.Relations.Take(35).Select(item=>
+                item.Type+" · projekt "+item.ModId);
+            fileDetail.Text="Fájl ID: "+file.FileId+
+                "\nKözzétéve: "+(file.Published?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")??"ismeretlen")+
+                "\nCurseForge elérhetőség: "+(file.Available?"igen":"nem igazolt")+
+                "\nMéret: "+(file.SizeBytes>0?(file.SizeBytes/1024d/1024d).ToString("F1")+" MiB":"nem közölt")+
+                "\nJátékverziók: "+(file.GameVersions.Count==0?"nem közölt":
+                    string.Join(", ",file.GameVersions))+
+                "\nFüggőségek / ütközések: "+(file.Relations.Count==0?"nincs közölt kapcsolat":
+                    "\n"+string.Join("\n",relations))+
+                "\nMetaadat-ellenőrzés NEM jelent telepítést vagy licencjogosultságot.";
+        };
+        async Task LoadFilesPage(int modId,int index)
+        {
+            if(busy)return;
+            string protectedKey=_cluster.Config.CurseForgeApiKeyProtected;
+            if(string.IsNullOrWhiteSpace(protectedKey))
+            {filesStatus.Text="CurseForge-token szükséges a fájlverziók lekéréséhez.";return;}
+            busy=true;
+            if(filesPrevious!=null)filesPrevious.IsEnabled=false;
+            if(filesNext!=null)filesNext.IsEnabled=false;
+            filesStatus.Text="Hivatalos CurseForge fájlverziók lekérése...";
+            try
+            {
+                var page=await catalog.GetModFilesAsync(
+                    SecureStore.Unprotect(protectedKey),modId,index);
+                // Discard stale HTTP results if a different project was selected.
+                if(results.SelectedItem is not CurseForgeMod chosen || chosen.Id!=modId)
+                {filesStatus.Text="A kijelölt projekt időközben megváltozott.";return;}
+                filesProject=modId;
+                loadedFiles=page;
+                fileList.ItemsSource=page.Files.ToArray();
+                filesStatus.Text="Projekt "+modId+" · fájloldal "+(index/25+1)+
+                    " · ezen az oldalon "+page.Files.Count+
+                    " · összesen "+page.Total+
+                    ". Fájlok és kapcsolatok: csak olvasás.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("curseforge-file-metadata",ex);
+                loadedFiles=null;
+                fileList.ItemsSource=Array.Empty<CurseForgeFile>();
+                filesStatus.Text="CurseForge fájlverziók nem ellenőrizhetők: "+
+                    UntamedPresentation.Redact(ex.Message);
+            }
+            finally
+            {
+                busy=false;
+                if(filesPrevious!=null)filesPrevious.IsEnabled=loadedFiles?.Index>=25;
+                if(filesNext!=null)filesNext.IsEnabled=loadedFiles?.HasMore==true;
+            }
+        }
+        async Task LoadFullDescription()
+        {
+            if(busy || results.SelectedItem is not CurseForgeMod selected)return;
+            int requestedId=selected.Id;
+            string protectedKey=_cluster.Config.CurseForgeApiKeyProtected;
+            if(string.IsNullOrWhiteSpace(protectedKey))
+            {fullDescription.Text="A CurseForge-token nincs beállítva.";return;}
+            busy=true;
+            fullDescription.Text="CurseForge teljes leírás betöltése – szkript nélküli szövegként...";
+            try
+            {
+                string content=await catalog.GetModDescriptionTextAsync(
+                    SecureStore.Unprotect(protectedKey),requestedId);
+                if(results.SelectedItem is CurseForgeMod current && current.Id==requestedId)
+                    fullDescription.Text=string.IsNullOrWhiteSpace(content)?
+                        "A szolgáltató nem közölt részletes leírást.":content;
+            }
+            catch(Exception ex)
+            {
+                WriteLog("curseforge-description",ex);
+                fullDescription.Text="A részletes leírás nem ellenőrizhető: "+
+                    UntamedPresentation.Redact(ex.Message);
+            }
+            finally{busy=false;}
+        }
         async Task LoadPage(int index,string term)
         {
             if(busy)return;
@@ -181,6 +287,22 @@ public partial class MainWindow
             _catalogSelectForMod(chosen.Id.ToString());
         });
         addFromCatalog.Visibility=_catalogSelectForMod==null?Visibility.Collapsed:Visibility.Visible;
+        var inspectFiles=Btn("Kijelölt mod fájlverziói és függőségei",async ()=>{
+            if(results.SelectedItem is not CurseForgeMod selected)
+            {filesStatus.Text="Előbb válassz ki egy modot.";return;}
+            await LoadFilesPage(selected.Id,0);
+        });
+        var inspectDescription=Btn("Teljes modleírás lekérése",LoadFullDescription);
+        filesPrevious=Btn("Előző fájloldal",async ()=>{
+            if(loadedFiles!=null && loadedFiles.Index>=25)
+                await LoadFilesPage(filesProject,loadedFiles.Index-25);
+        });
+        filesNext=Btn("Következő fájloldal",async ()=>{
+            if(loadedFiles?.HasMore==true)
+                await LoadFilesPage(filesProject,loadedFiles.Index+25);
+        });
+        filesPrevious.IsEnabled=false;
+        filesNext.IsEnabled=false;
         Add(Box(V(
             Label("CurseForge online modkereső – csak olvasás",20,Mint,true),
             Label("Hivatalos CurseForge Core API; saját jóváhagyott API-kulcs szükséges. "+
@@ -271,6 +393,10 @@ public partial class MainWindow
             projectId,lookup,
             previous,next,paging,results,
             addFromCatalog,
-            detail,status)));
+            detail,
+            inspectDescription,fullDescription,
+            Label("FÁJLVERZIÓK / KAPCSOLATOK (HIVATALOS API)",12,Aqua,true),
+            inspectFiles,filesPrevious,filesNext,filesStatus,fileList,fileDetail,
+            status)));
     }
 }
