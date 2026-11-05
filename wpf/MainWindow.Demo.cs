@@ -137,6 +137,7 @@ public partial class MainWindow
             "settings"=>"Beállítások · OFFLINE DEMO",
             "monitoring"=>"Műveleti központ · OFFLINE DEMO",
             "operations"=>"Műveletek · OFFLINE DEMO",
+            "logs"=>"Naplóközpont · OFFLINE DEMO",
             "recovery"=>"Recovery Center · OFFLINE DEMO",
             _=>"Untamed Manager · OFFLINE DEMO"
         },"Az alábbi adatok és gombok teljes egészében szimuláltak. Nincs ASA-, LAN-, Store- vagy adatbázismódosítás.");
@@ -155,6 +156,7 @@ public partial class MainWindow
             case "schedules": DemoSchedules();break;
             case "settings": DemoSettings();break;
             case "monitoring": DemoEvents();break;
+            case "logs": DemoSelectedMapPanel("Naplóközpont · mintanaplók",DemoLogsPane);break;
             case "recovery": DemoRecovery();break;
             default: DemoOther(page);break;
         }
