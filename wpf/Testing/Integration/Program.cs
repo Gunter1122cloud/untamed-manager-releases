@@ -55,6 +55,8 @@ try
     File.WriteAllText(steamFixture,"offline synthetic steamcmd file");
     await OperationalFeaturesTests.Run(root,fake,args.Length>3?args[3]:null);
     await SteamCmdIsolatedUpdaterTests.Run(root,args.Length>3?args[3]:null);
+    await SteamFreshInstallTests.Run(root,args.Length>3?args[3]:null);
+    AsaSteamBuildCatalogTests.Run(root);
     await ModDependencyPlannerTests.Run();
     await CurseForgeDependencyResolverTests.Run();
     await CurseForgeExactLookupTests.Run();
