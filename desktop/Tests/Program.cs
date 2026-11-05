@@ -339,6 +339,58 @@ try
             "manager can restore verified native Steam job status after UI navigation");
     }
 
+    // Verify that launch settings are a separate explicit stage after ASA
+    // files exist. This never starts an ASA process or enables RCON.
+    var valguero=cluster.Config.LocalMaps.Single(m=>m.Name=="Valguero");
+    using(var setup=new DesktopInitialMapSetupBridge(cluster))
+    {
+        var status=await Call(setup.HandleAsync,"servers.initialStatus",
+            new{mapId=valguero.Id});
+        IsOk(status,"freshly registered ASA map is eligible for initial setup");
+        Check(status.GetProperty("data")
+            .GetProperty("initialSetupAvailable").GetBoolean(),
+            "new map is confirmed stopped and unconfigured");
+
+        var bad=await Call(setup.HandleAsync,"servers.initialPreview",
+            new{mapId=valguero.Id,sessionName="UK Test",gamePort=7797,queryPort=7797});
+        Check(!bad.GetProperty("ok").GetBoolean(),
+            "initial setup rejects identical Game and Query UDP ports");
+
+        var preview=await Call(setup.HandleAsync,"servers.initialPreview",
+            new{mapId=valguero.Id,sessionName="Untamed Kingdom Test",
+                gamePort=7797,queryPort=27035});
+        IsOk(preview,"official ASA level/session/ports preview is calculated");
+        var token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        Check(string.IsNullOrEmpty(valguero.Arguments) &&
+              valguero.GamePort==0 && valguero.QueryPort==0,
+            "profile stays unmodified until approval");
+        var unconfirmed=await Call(setup.HandleAsync,"servers.initialApply",
+            new{token,confirm=false});
+        Check(IsError(unconfirmed,"UM-INITIAL-CONFIRMATION-REQUIRED"),
+            "unapproved initial setup writes nothing and preserves preview");
+
+        var committed=await Call(setup.HandleAsync,"servers.initialApply",
+            new{token,confirm=true});
+        IsOk(committed,"approved initial setup saves registered Manager launch profile");
+        var configured=cluster.Config.LocalMaps.Single(m=>m.Id==valguero.Id);
+        Check(configured.GamePort==7797 && configured.QueryPort==27035 &&
+              configured.Arguments.StartsWith("Valguero_WP?listen",StringComparison.Ordinal) &&
+              configured.Arguments.Contains("SessionName=") &&
+              configured.RconPort==0 && string.IsNullOrEmpty(configured.RconPasswordProtected) &&
+              !configured.AutoStart,
+            "official map level, session and UDP ports saved without RCON or autostart");
+        var oldToken=await Call(setup.HandleAsync,"servers.initialApply",
+            new{token,confirm=true});
+        Check(IsError(oldToken,"UM-INITIAL-PREVIEW-EXPIRED"),
+            "initial setup approval cannot be replayed");
+        var alreadyConfigured=await Call(setup.HandleAsync,"servers.initialPreview",
+            new{mapId=valguero.Id,sessionName="Override",gamePort=7817,queryPort=27055});
+        Check(IsError(alreadyConfigured,"UM-INITIAL-ALREADY-CONFIGURED"),
+            "initial-only editor never overwrites existing configured map");
+        Check(File.ReadAllText(configured.ExecutablePath).Contains("SYNTHETIC ASA EXE"),
+            "first profile setup preserves original ASA executable and saved data");
+    }
+
     // A new, deliberately untrusted process observer must not write INI.
     await using var running=new ClusterService("obsidian-running",Path.Combine(root,"running-profile"),
         _=>new ProcessCheck(true,"Synthetic running map",null,false));
