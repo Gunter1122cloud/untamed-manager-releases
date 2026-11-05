@@ -206,6 +206,29 @@ public partial class App : System.Windows.Application
                     if(new FileInfo(path).Length<8000)
                         throw new IOException("WPF page screenshot too small: "+page);
                 }
+                // Regress the actual native WPF mouse-wheel route, not just
+                // ScrollBoundaryPolicy arithmetic. No real ASA state is touched.
+                if(galleryEnabled)
+                {
+                    window.PrepareScreenshotPage("demo-dashboard");
+                    window.UpdateLayout();
+                    var scroller=window.Dashboard;
+                    scroller.UpdateLayout();
+                    if(scroller.ScrollableHeight<40)
+                        throw new InvalidOperationException(
+                            "Dashboard has no vertical scroll range in 10-map demo");
+                    scroller.ScrollToTop();
+                    var wheel=new System.Windows.Input.MouseWheelEventArgs(
+                        System.Windows.Input.Mouse.PrimaryDevice,Environment.TickCount,-120){
+                            RoutedEvent=UIElement.MouseWheelEvent
+                        };
+                    scroller.RaiseEvent(wheel);
+                    scroller.UpdateLayout();
+                    if(scroller.VerticalOffset<1)
+                        throw new InvalidOperationException(
+                            "Dashboard does not scroll on actual WPF MouseWheel event");
+                    scroller.ScrollToTop();
+                }
                 // Exercise the REAL five-step local server editor on Windows.
                 // Only navigation clicks are synthesized. Saving is never invoked,
                 // and no map/server/Store/SQL file is accessed or changed.
@@ -231,6 +254,23 @@ public partial class App : System.Windows.Application
                             }
                             return null;
                         }
+                        // Reject a regression to the unstyled Windows white
+                        // password input. The same implicit style covers
+                        // RCON, CurseForge and LAN secret boxes everywhere.
+                        bool HasNeonPassword(DependencyObject root)
+                        {
+                            if(root is System.Windows.Controls.PasswordBox input &&
+                               input.Background is SolidColorBrush actual &&
+                               Resources["SurfaceRaised"] is SolidColorBrush expected)
+                                return actual.Color==expected.Color;
+                            foreach(object child in LogicalTreeHelper.GetChildren(root))
+                                if(child is DependencyObject node && HasNeonPassword(node))
+                                    return true;
+                            return false;
+                        }
+                        if(!HasNeonPassword(editorContent))
+                            throw new InvalidOperationException(
+                                "Map wizard RCON PasswordBox lacks Neon Kingdom styling");
                         const int wizardWidth=860, wizardHeight=660;
                         for(int step=1;step<=5;step++)
                         {
