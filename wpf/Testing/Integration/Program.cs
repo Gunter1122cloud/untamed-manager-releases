@@ -56,6 +56,7 @@ try
     await OperationalFeaturesTests.Run(root,fake,args.Length>3?args[3]:null);
     await SteamCmdIsolatedUpdaterTests.Run(root,args.Length>3?args[3]:null);
     await SteamStoppedMapUpdaterTests.Run(root,args.Length>3?args[3]:null);
+    await SteamStoppedBulkUpdateTests.Run(root,args.Length>3?args[3]:null);
     await SteamFreshInstallTests.Run(root,args.Length>3?args[3]:null);
     AsaInitialRconSettingsTests.Run(root);
     await SteamCmdZipValidatorTests.Run();
