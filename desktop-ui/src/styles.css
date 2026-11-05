@@ -213,3 +213,25 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 @media(max-width:1150px){.fresh-wizard-form{grid-template-columns:1fr 1fr}
 .fresh-wizard-form>label:first-child{grid-column:1/-1}}
 @media(max-width:830px){.fresh-wizard-form{grid-template-columns:1fr}.fresh-wizard-form>label:first-child{grid-column:auto}}
+
+/* Map-level ASA initial setup: pure configuration, separate from downloads. */
+.initial-map-setup{margin-top:16px;border-color:#47836a;background:linear-gradient(120deg,#142e31,#102b2c)}
+.initial-map-setup>.panel-head h2{display:flex;align-items:center;gap:10px}
+.initial-setup-form{display:grid;grid-template-columns:minmax(210px,1.7fr) minmax(130px,.8fr) minmax(130px,.8fr);
+  gap:13px;align-items:end;margin:18px 0}
+.initial-setup-form>label{display:flex;flex-direction:column;gap:9px;color:#add5c3;font-size:12px;font-weight:650}
+.initial-setup-form input{min-width:0;min-height:44px;border:1px solid #417f68;border-radius:8px;
+  background:#10282d;color:#d8ffed;padding:10px 12px}
+.initial-setup-form button{grid-column:1/-1;justify-self:start;display:inline-flex;gap:8px;align-items:center}
+.initial-preview{border:1px solid #4fa37b;border-radius:11px;padding:17px;background:#173d31;margin:14px 0}
+.initial-preview h3{display:flex;align-items:center;gap:9px;color:#b3f3d4;font-size:14px;margin:0 0 16px}
+.initial-preview-grid{display:grid;grid-template-columns:180px minmax(0,1fr);gap:12px 16px;
+  padding:11px;background:#132b2c;border-radius:8px;margin-bottom:16px;font-size:12px}
+.initial-preview-grid span{color:#a7d3c1}.initial-preview-grid b{color:#edfff4}
+.initial-confirm{display:flex;align-items:start;gap:9px;color:#bde1d0;font-size:12px;line-height:1.5;margin-bottom:15px}
+.initial-confirm input{width:17px;height:17px;flex-shrink:0;accent-color:#7ce1b5}
+@media(max-width:1220px){.initial-setup-form{grid-template-columns:1fr 1fr}
+.initial-setup-form>label:first-child{grid-column:1/-1}}
+@media(max-width:780px){.initial-setup-form{grid-template-columns:1fr}
+.initial-setup-form>label:first-child{grid-column:auto}
+.initial-preview-grid{grid-template-columns:1fr 1fr}}

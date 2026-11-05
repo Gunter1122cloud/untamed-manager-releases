@@ -41,7 +41,7 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number }) => {
       switch (m.method) {
         case "steam.freshCurrent": return {current:null};
         case "steam.freshPreflight": return {
@@ -67,6 +67,30 @@ test.beforeEach(async ({ page }) => {
             evidence:"VERIFIED_STEAM_FILES_REGISTERED_MANAGER_PROFILE_ONLY"};
         case "steam.freshCancel": return {cancelRequested:true};
         case "steam.freshDiscard": return {discarded:true};
+        case "servers.initialStatus": {
+          const map = state.local.maps.find(x=>x.id===m.mapId);
+          if(!map)throw new Error("UM-MAP-NOT-OWNED");
+          return {mapId:map.id,mapName:map.name,level:"Genesis_WP",
+            initialSetupAvailable:map.gamePort===0,confirmedStopped:!map.running,
+            hasServerExecutable:true,gamePort:map.gamePort,queryPort:0,
+            suggestion:{game:7797,query:27035},
+            evidence:"LOCAL_MANAGER_PROFILE_FIRST_SETUP_STATUS"};
+        }
+        case "servers.initialPreview": return {
+          token:"00000000-0000-4000-8000-000000008877",mapId:m.mapId,
+          mapName:"Genesis Part 1",sessionName:m.sessionName||"Untamed Kingdom",
+          mapLevel:"Genesis_WP",gamePort:m.gamePort||7797,queryPort:m.queryPort||27035,
+          rconEnabled:false,serverStartRequested:false,configuredArgumentsLength:93,
+          evidence:"INITIAL_MAP_PROFILE_PREVIEW_NO_WRITES"
+        };
+        case "servers.initialApply": {
+          const map=state.local.maps.find(x=>x.name==="Genesis Part 1");
+          if(map)map.gamePort=7797;
+          return {mapId:map?.id||"",mapName:"Genesis Part 1",
+            configured:true,gamePort:7797,queryPort:27035,
+            rconEnabled:false,serverStarted:false,
+            evidence:"ATOMIC_MANAGER_PROFILE_INITIAL_SETUP_ONLY"};
+        }
         case "servers.inspectLocal": return {importToken:"00000000-0000-4000-8000-000000009999",name:m.name||"The Island",folderName:"ASA-LAB",exeFound:true,apiLoaderDetected:false,portsConfigured:false,evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"};
         case "servers.importLocal":
           state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
@@ -352,4 +376,29 @@ test("SteamCMD new ASA workflow requires approval, follows provider progress, an
   await expect(page.getByText(/Valguero regisztrálva/)).toBeVisible();
   await expect(page.getByText("Valguero").first()).toBeVisible();
   await page.screenshot({path:"test-results/steam-fresh-install-1600.png",fullPage:true});
+});
+
+test("Newly imported local map first setup saves session and UDP ports only after preview and confirmation",async ({page})=>{
+  await page.setViewportSize({width:1500,height:850});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új helyi map felvétele"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await expect(page.getByText("Első mapbeállítások")).toBeVisible();
+  await page.getByRole("textbox",{name:"ASA szerver neve"}).fill("Untamed Kingdom Valued Genesis");
+  await page.getByRole("textbox",{name:"Első Game UDP"}).fill("7797");
+  await page.getByRole("textbox",{name:"Első Query UDP"}).fill("27035");
+  await page.getByRole("button",{name:"Beállítások ellenőrzése"}).click();
+  await expect(page.getByText("Konfigurációs előnézet")).toBeVisible();
+  await expect(page.getByText("Genesis_WP")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"})).toBeDisabled();
+  await page.getByText(/Jóváhagyom a regisztrált helyi map Manager-profiljának mentését/).click();
+  await page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"}).click();
+  await expect(page.getByText(/indítási profilja mentve/)).toBeVisible();
+  await expect(page.getByText("7797").first()).toBeVisible();
+  await page.screenshot({path:"test-results/asa-first-map-setup-1500.png",fullPage:true});
 });
