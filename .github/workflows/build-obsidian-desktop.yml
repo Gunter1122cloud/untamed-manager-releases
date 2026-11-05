@@ -92,6 +92,14 @@ jobs:
           dotnet restore desktop/UntamedDesktop.csproj -r win-x64
           dotnet publish desktop/UntamedDesktop.csproj -c Release -r win-x64 --self-contained false -o desktop/publish --no-restore
           if (!(Test-Path desktop/publish/ui/index.html)) { throw "React assets not packaged into Windows host" }
+          $sourceAtlas = "wpf/Assets/reference-atlas.jpg"
+          $packagedAtlas = "desktop/publish/ui/uk-reference-map-atlas.jpg"
+          if (!(Test-Path $packagedAtlas)) { throw "Approved offline 10-map reference art missing" }
+          if ((Get-FileHash $sourceAtlas -Algorithm SHA256).Hash -ne
+              (Get-FileHash $packagedAtlas -Algorithm SHA256).Hash) {
+            throw "Packaged map illustration differs from approved original asset"
+          }
+
           if (!(Test-Path desktop/publish/UntamedDesktop.exe)) { throw "Windows host missing" }
       - name: Run real native C# bridge integration tests (isolated synthetic Windows files)
         shell: pwsh
