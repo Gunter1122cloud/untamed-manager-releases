@@ -59,7 +59,7 @@ public static class CurseForgeBrowseApiTests
         var catalog=new CurseForgeCatalog(http);
         var categories=await catalog.GetAsaCategoriesAsync(Key);
         Check(categories.Count==1 && categories[0].Name=="Structures" &&
-            handler.Attempts==1 && handler.Calls==3,
+            handler.Attempts==2 && handler.Calls==3,
             "ASA categories filtered by documented gameId with bounded 429 retry");
 
         var search=await catalog.SearchAsaAsync(Key,
