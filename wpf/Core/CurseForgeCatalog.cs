@@ -69,44 +69,71 @@ public sealed class CurseForgeCatalog
         var mods=new List<CurseForgeMod>();
         foreach(var item in data.EnumerateArray())
         {
-            int id=Int(item,"id");
-            string name=Str(item,"name")??"";
-            if(id<=0 || name.Length==0 || Int(item,"gameId")!=game)continue;
-            string? url=null;
-            if(item.TryGetProperty("links",out var links) && links.ValueKind==JsonValueKind.Object)
-            {
-                var offered=Str(links,"websiteUrl");
-                if(Uri.TryCreate(offered,UriKind.Absolute,out var parsed) &&
-                   parsed.Scheme==Uri.UriSchemeHttps &&
-                   (parsed.Host.Equals("curseforge.com",StringComparison.OrdinalIgnoreCase) ||
-                    parsed.Host.EndsWith(".curseforge.com",StringComparison.OrdinalIgnoreCase)))
-                    url=parsed.ToString();
-            }
-            string? file=null;
-            if(item.TryGetProperty("latestFiles",out var latest) &&
-               latest.ValueKind==JsonValueKind.Array && latest.GetArrayLength()>0)
-                file=Str(latest[0],"displayName")??Str(latest[0],"fileName");
-            DateTimeOffset? date=null;
-            if(DateTimeOffset.TryParse(Str(item,"dateModified"),out var parsedDate))
-                date=parsedDate;
-            string? thumbnail=null;
-            if(item.TryGetProperty("logo",out var logo) && logo.ValueKind==JsonValueKind.Object)
-            {
-                string? offered=Str(logo,"thumbnailUrl")??Str(logo,"url");
-                if(Uri.TryCreate(offered,UriKind.Absolute,out var picture) &&
-                   picture.Scheme==Uri.UriSchemeHttps &&
-                   (picture.Host.Equals("media.forgecdn.net",StringComparison.OrdinalIgnoreCase) ||
-                    picture.Host.EndsWith(".forgecdn.net",StringComparison.OrdinalIgnoreCase)))
-                    thumbnail=picture.ToString();
-            }
-            mods.Add(new(id,name,Str(item,"summary")??"",url,file,date)
-                {ThumbnailUrl=thumbnail});
+            var mod=ParseAsaMod(item,game);
+            if(mod!=null)mods.Add(mod);
         }
         int total=0;
         if(root.TryGetProperty("pagination",out var pagination) &&
            pagination.ValueKind==JsonValueKind.Object)
             total=Int(pagination,"totalCount");
         return new(game,mods,total,index,index+PageSize<Math.Min(total,10000));
+    }
+
+    /// <summary>
+    /// Fetch one configured project by its exact ID. This is metadata-only,
+    /// never a download, subscription, update or evidence of a loaded mod.
+    /// The provider's gameId is checked against the authenticated ASA catalog.
+    /// </summary>
+    public async Task<CurseForgeMod> GetAsaModAsync(string key,int modId,
+        CancellationToken ct=default)
+    {
+        if(string.IsNullOrWhiteSpace(key) || key.Length>512 || key.Any(char.IsControl))
+            throw new ArgumentException("Approved CurseForge API key required",nameof(key));
+        if(modId<10000)throw new ArgumentOutOfRangeException(nameof(modId));
+        int game=await FindAsaGameAsync(key,ct);
+        using var document=await Request(key,"/v1/mods/"+modId,ct);
+        if(!document.RootElement.TryGetProperty("data",out var entry) ||
+           entry.ValueKind!=JsonValueKind.Object ||
+           Int(entry,"id")!=modId)
+            throw new InvalidDataException("CurseForge mod lookup returned an invalid project ID");
+        return ParseAsaMod(entry,game) ??
+            throw new InvalidDataException("The requested project is not an ARK Survival Ascended mod");
+    }
+
+    private static CurseForgeMod? ParseAsaMod(JsonElement item,int game)
+    {
+        int id=Int(item,"id");
+        string name=Str(item,"name")??"";
+        if(id<=0 || name.Length==0 || Int(item,"gameId")!=game)return null;
+        string? url=null;
+        if(item.TryGetProperty("links",out var links) && links.ValueKind==JsonValueKind.Object)
+        {
+            var offered=Str(links,"websiteUrl");
+            if(Uri.TryCreate(offered,UriKind.Absolute,out var parsed) &&
+               parsed.Scheme==Uri.UriSchemeHttps &&
+               (parsed.Host.Equals("curseforge.com",StringComparison.OrdinalIgnoreCase) ||
+                parsed.Host.EndsWith(".curseforge.com",StringComparison.OrdinalIgnoreCase)))
+                url=parsed.ToString();
+        }
+        string? file=null;
+        if(item.TryGetProperty("latestFiles",out var latest) &&
+           latest.ValueKind==JsonValueKind.Array && latest.GetArrayLength()>0)
+            file=Str(latest[0],"displayName")??Str(latest[0],"fileName");
+        DateTimeOffset? date=null;
+        if(DateTimeOffset.TryParse(Str(item,"dateModified"),out var parsedDate))
+            date=parsedDate;
+        string? thumbnail=null;
+        if(item.TryGetProperty("logo",out var logo) && logo.ValueKind==JsonValueKind.Object)
+        {
+            string? offered=Str(logo,"thumbnailUrl")??Str(logo,"url");
+            if(Uri.TryCreate(offered,UriKind.Absolute,out var picture) &&
+               picture.Scheme==Uri.UriSchemeHttps &&
+               (picture.Host.Equals("media.forgecdn.net",StringComparison.OrdinalIgnoreCase) ||
+                picture.Host.EndsWith(".forgecdn.net",StringComparison.OrdinalIgnoreCase)))
+                thumbnail=picture.ToString();
+        }
+        return new CurseForgeMod(id,name,Str(item,"summary")??"",url,file,date)
+            {ThumbnailUrl=thumbnail};
     }
 
     // Official Core API file metadata only. Not a download entitlement and not
