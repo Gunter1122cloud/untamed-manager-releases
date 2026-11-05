@@ -57,6 +57,7 @@ try
     await SteamCmdIsolatedUpdaterTests.Run(root,args.Length>3?args[3]:null);
     await ModDependencyPlannerTests.Run();
     await CurseForgeDependencyResolverTests.Run();
+    await CurseForgeExactLookupTests.Run();
     await AsaApiReleaseStagingTests.Run();
     await AsaApiIsolatedInstallerTests.Run();
     AsaApiLaunchPolicyTests.Run(root,fake);
