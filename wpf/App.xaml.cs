@@ -220,13 +220,13 @@ public partial class App : System.Windows.Application
                     scroller.ScrollToTop();
                     var wheel=new System.Windows.Input.MouseWheelEventArgs(
                         System.Windows.Input.Mouse.PrimaryDevice,Environment.TickCount,-120){
-                            RoutedEvent=UIElement.MouseWheelEvent
+                            RoutedEvent=UIElement.PreviewMouseWheelEvent
                         };
                     scroller.RaiseEvent(wheel);
                     scroller.UpdateLayout();
                     if(scroller.VerticalOffset<1)
                         throw new InvalidOperationException(
-                            "Dashboard does not scroll on actual WPF MouseWheel event");
+                            "Dashboard does not scroll on actual WPF PreviewMouseWheel event");
                     scroller.ScrollToTop();
                 }
                 // Exercise the REAL five-step local server editor on Windows.
