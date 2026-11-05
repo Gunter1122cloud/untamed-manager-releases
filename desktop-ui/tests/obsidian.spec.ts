@@ -493,8 +493,9 @@ test("Store-v1 ignores stale preview replies after the ASA root changes",async (
     const bridge=host.chrome.webview;
     const original=bridge.postMessage.bind(bridge);
     let delayed:{method:string}|undefined;
+    let intercepted=false;
     bridge.postMessage=(message)=>{
-      if(message.method==="historical.preview"){delayed=message;return;}
+      if(message.method==="historical.preview"&&!intercepted){intercepted=true;delayed=message;return;}
       original(message);
     };
     host.releasePreview=()=>{if(delayed){const message=delayed;delayed=undefined;original(message);}};
