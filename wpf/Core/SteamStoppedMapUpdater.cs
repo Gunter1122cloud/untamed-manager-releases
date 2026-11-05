@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -27,7 +28,7 @@ public static class SteamStoppedMapUpdater
         TimeSpan timeout,IProgress<SteamMaintenanceStage>? progress=null,
         CancellationToken ct=default) =>
         RunCore(cluster,map,steamCmdExecutable,downloadReserveBytes,
-            timeout,null,progress,ct);
+            timeout,null,progress,false,ct);
 
     internal static Task<Receipt> RunFakeFixtureAsync(
         ClusterService cluster,LocalMap map,string placeholderSteam,
@@ -42,12 +43,67 @@ public static class SteamStoppedMapUpdater
                 StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("Only isolated synthetic Steam update fixture supported");
         return RunCore(cluster,map,placeholderSteam,downloadReserveBytes,
-            timeout,fakeExecutable,progress,ct);
+            timeout,fakeExecutable,progress,false,ct);
+    }
+
+    /// <summary>
+    /// One-click local maintenance for all selected, CONFIRMED STOPPED ASA
+    /// installations. A shared installation is updated only once. Every map
+    /// is processed by the same machine-local journaled serial queue; the
+    /// next install is never touched until the preceding job passes.
+    /// Running or uncertain maps are refused, NOT stopped automatically.
+    /// </summary>
+    public static Task<IReadOnlyList<Receipt>> UpdateAllStoppedAsync(
+        ClusterService cluster,IReadOnlyList<LocalMap> candidates,
+        string steamExecutable,long downloadReserveBytes,TimeSpan timeout,
+        IProgress<SteamQueueProgress>? queueProgress=null,
+        IProgress<SteamMaintenanceStage>? stageProgress=null,CancellationToken ct=default) =>
+        BatchCore(cluster,candidates,steamExecutable,downloadReserveBytes,
+            timeout,null,queueProgress,stageProgress,ct);
+
+    internal static Task<IReadOnlyList<Receipt>> RunAllFakeFixtureAsync(
+        ClusterService cluster,IReadOnlyList<LocalMap> candidates,
+        string placeholderSteam,string fakeExecutable,long downloadReserveBytes,
+        TimeSpan timeout,CancellationToken ct=default)
+    {
+        if(candidates==null||candidates.Any(m=>m==null ||
+           !m.InstallationPath.Contains("Untamed-Integration-",StringComparison.OrdinalIgnoreCase))||
+           !Path.GetFileName(fakeExecutable).Equals("FakeSteamCMD.exe",StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Batch fixture must use isolated temp ASA roots");
+        return BatchCore(cluster,candidates,placeholderSteam,downloadReserveBytes,
+            timeout,fakeExecutable,null,null,ct);
+    }
+
+    private static async Task<IReadOnlyList<Receipt>> BatchCore(
+        ClusterService cluster,IReadOnlyList<LocalMap> candidates,
+        string steamExecutable,long reserve,TimeSpan timeout,
+        string? fakeExecutable,IProgress<SteamQueueProgress>? queueProgress,
+        IProgress<SteamMaintenanceStage>? stageProgress,CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+        ArgumentNullException.ThrowIfNull(candidates);
+        if(candidates.Count==0 || candidates.Count>25 ||
+           candidates.Any(m=>m==null || !cluster.Config.LocalMaps.Any(x=>ReferenceEquals(x,m))))
+            throw new UnauthorizedAccessException("Bulk update accepts registered LOCAL maps only");
+        // Multiple map processes may share one ASA file installation.
+        // SteamCMD app_update updates the INSTALLATION, not the map.
+        var selected=candidates.GroupBy(m=>Path.GetFullPath(m.InstallationPath)
+            .TrimEnd(Path.DirectorySeparatorChar),StringComparer.OrdinalIgnoreCase)
+            .Select(g=>g.First()).ToArray();
+        var receipts=new List<Receipt>();
+        var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
+        await queue.ExecuteAsync(selected,cluster.Config.LocalMaps,cluster.Check,
+            async (map,token)=>{
+                var item=await RunCore(cluster,map,steamExecutable,reserve,
+                    timeout,fakeExecutable,stageProgress,true,token);
+                receipts.Add(item);
+            },queueProgress,ct);
+        return receipts;
     }
 
     private static async Task<Receipt> RunCore(ClusterService cluster,LocalMap map,
         string steamExecutable,long reserve,TimeSpan timeout,string? fakeExecutable,
-        IProgress<SteamMaintenanceStage>? progress,CancellationToken ct)
+        IProgress<SteamMaintenanceStage>? progress,bool insideQueue,CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(map);
@@ -92,9 +148,7 @@ public static class SteamStoppedMapUpdater
         // Queue is machine-local and serializes updates on this Windows PC.
         // UK-HOME-01 and UK-HOME-02 have independent OS namespaces.
         Receipt? result=null;
-        var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
-        await queue.ExecuteAsync(new[]{map},cluster.Config.LocalMaps,cluster.Check,
-            async (_,token)=>{
+        Func<LocalMap,CancellationToken,Task> work=async (_,token)=>{
                 token.ThrowIfCancellationRequested();
                 VerifyStopped();
                 string backupRoot=Path.Combine(cluster.Store.Root,
@@ -165,7 +219,14 @@ public static class SteamStoppedMapUpdater
                 progress?.Report(SteamMaintenanceStage.Completed);
                 result=new(map.Id,root,oldBuild,next,backup.PackageDirectory,
                     receipt.FinishedUtc,true);
-            },ct:ct);
+            };
+        if(insideQueue)await work(map,ct);
+        else
+        {
+            var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
+            await queue.ExecuteAsync(new[]{map},cluster.Config.LocalMaps,cluster.Check,
+                work,ct:ct);
+        }
         return result ?? throw new InvalidOperationException("No verified Steam update receipt was committed");
     }
 
