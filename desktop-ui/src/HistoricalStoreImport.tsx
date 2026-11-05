@@ -20,8 +20,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   // A late response must never revive approval for a different ZIP/map/root.
   const importEpoch=useRef(0);
   const pairEpoch=useRef(0);
-  const invalidateImport=()=>{importEpoch.current++;reset();};
-  const invalidatePair=()=>{pairEpoch.current++;setPairResult(null);setPairError("");};
+  const invalidateImport=()=>{importEpoch.current++;setBusy(false);reset();};
+  const invalidatePair=()=>{pairEpoch.current++;setPairBusy(false);setPairResult(null);setPairError("");};
 
   const reset=()=>{setPreview(null);setApproved(false);setError("");setNotice("");};
   const inspectArchive=async(e:FormEvent)=>{
