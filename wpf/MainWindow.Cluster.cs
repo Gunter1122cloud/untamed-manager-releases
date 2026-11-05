@@ -837,8 +837,8 @@ public partial class MainWindow
         }
 
         var location=MakeStep("01  /  Térkép és telepítés",
-            "Csak ezen a Windows gépen található ASA telepítés adható hozzá. Automatikus import vagy szerverindítás nincs.");
-        var names=new ComboBox{ItemsSource=KnownMaps,IsEditable=true,Text=map.Name,
+            "Új map esetén előbb letöltheted az ASA 2430930 szervert. EXE és portok csak később kellenek.");
+        var names=new ComboBox{ItemsSource=KnownMaps,IsEditable=true,Text=existing==null?"The Island":map.Name,
             Margin=new Thickness(0,0,0,18),MinHeight=39};
         location.Children.Add(Label("ASA map neve",13,Aqua,true));
         location.Children.Add(names);
@@ -857,6 +857,10 @@ public partial class MainWindow
         var installRoot=Field(location,"Map telepítési gyökérkönyvtára",
             existing==null?defaultFreshRoot:map.InstallationPath,"folder");
         var serverExe=Field(location,"Szerver EXE teljes elérési útja",map.ExecutablePath,"exe");
+        // New SteamCMD installs have no EXE yet: hide the entire input,
+        // including its caption and Browse action, until importing an existing map.
+        var serverExeRow=(UIElement)serverExe.Parent;
+        var serverExeCaption=location.Children[location.Children.IndexOf(serverExeRow)-1];
         var steamCmdExe=Field(location,"SteamCMD EXE (új telepítés esetén)",
             string.IsNullOrWhiteSpace(_cluster.Config.SteamCmdExecutable)?
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -874,6 +878,10 @@ public partial class MainWindow
         location.Children.Add(retryFresh);
         var sessionBox=Field(location,"Új szerver nyilvános neve",
             "Untamed Kingdom - "+(map.Name.Length==0?"The Island":map.Name));
+        names.SelectionChanged+=(_,_)=>{
+            if(Fresh() && sessionBox.Text.StartsWith("Untamed Kingdom - ",StringComparison.Ordinal))
+                sessionBox.Text="Untamed Kingdom - "+names.Text;
+        };
         var installStatus=Label("SteamCMD nincs elindítva; az új mapnak külön, üres könyvtár szükséges.",12,Soft);
         location.Children.Add(installStatus);
         var recover=Btn("Megszakadt Steam-telepítés visszaállítása (csak ellenőrzés)",()=>{
@@ -917,6 +925,8 @@ public partial class MainWindow
             retryFresh.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
             recover.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
             sessionBox.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            serverExeRow.Visibility=fresh?Visibility.Collapsed:Visibility.Visible;
+            serverExeCaption.Visibility=fresh?Visibility.Collapsed:Visibility.Visible;
             serverExe.IsReadOnly=fresh;
             serverExe.ToolTip=fresh?"Telepítés után a SteamCMD által létrehozott EXE automatikusan kitöltődik.":
                 "Létező szerver EXE kijelölése";
@@ -1200,7 +1210,7 @@ public partial class MainWindow
             try
             {
                 name=LocalMapNameRules.Normalize(names.Text);
-                _=AsaSteamMapCatalog.LaunchArguments(name,sessionBox.Text.Trim(),7777,27015);
+                _=AsaSteamMapCatalog.LevelFor(name);
                 root=Path.GetFullPath(installRoot.Text.Trim());
                 steamExe=Path.GetFullPath(steamCmdExe.Text.Trim());
                 if(WinMessageBox.Show(
@@ -1266,8 +1276,12 @@ public partial class MainWindow
                 downloadProgress.Visibility=Visibility.Collapsed;
             }
         });
-        location.Children.Add(downloadProgress);
-        location.Children.Add(downloadButton);
+        // Keep the primary download action above the fold at 1366x768;
+        // advanced paths and loader options remain available by scrolling.
+        var rootRow=(UIElement)installRoot.Parent;
+        int insertion=location.Children.IndexOf(rootRow)+1;
+        location.Children.Insert(insertion,downloadProgress);
+        location.Children.Insert(insertion+1,downloadButton);
         downloadButton.Visibility=Fresh()?Visibility.Visible:Visibility.Collapsed;
         installMode.SelectionChanged+=(_,_)=>{
             downloadButton.Visibility=Fresh()?Visibility.Visible:Visibility.Collapsed;
@@ -1293,7 +1307,7 @@ public partial class MainWindow
             previous.IsEnabled=index>0;
             next.Visibility=index<steps.Count-1?Visibility.Visible:Visibility.Collapsed;
             saveButton.Visibility=index==steps.Count-1?Visibility.Visible:Visibility.Collapsed;
-            saveButton.Content=Fresh()?"SteamCMD telepítés + map hozzáadása":"Mentés";
+            saveButton.Content=Fresh()?"Letöltött map regisztrálása":"Mentés";
             errorMessage.Text="";
             if(index==steps.Count-1)
             {
