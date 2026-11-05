@@ -49,9 +49,12 @@ public static class AsaSteamMapCatalog
         if(string.IsNullOrWhiteSpace(session)||session.Length>75||
            session.Any(c=>char.IsControl(c)||c is '"' or '?' or '\\' or '/' or ';'))
             throw new InvalidDataException("Invalid ASA server session name");
-        // RCON is OFF until an explicit admin password is configured; it is
-        // unsafe to enable remote administration with an empty password.
-        return level+"?listen?SessionName=\""+session+"\"?RCONEnabled=False"+
+        // Never set RCONEnabled=False on the command line: doing so can
+        // override an explicit, password-protected RCONEnabled=True in
+        // GameUserSettings.ini. The documented ASA default is False.
+        // Passwords are configured in a newly created local INI, not in
+        // a world-readable process command line.
+        return level+"?listen?SessionName=\""+session+"\""+
             " -port="+gamePort+" -QueryPort="+queryPort+" -log";
     }
 }
