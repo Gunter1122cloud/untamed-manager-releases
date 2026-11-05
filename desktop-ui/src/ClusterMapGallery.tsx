@@ -1,5 +1,5 @@
 import {useMemo,useState} from "react";
-import {ArrowRight,Plus,ShieldCheck,Server,Search,X,ChevronDown,Grid2X2} from "lucide-react";
+import {ArrowRight,Plus,ShieldCheck,Server,Search,X,ChevronDown,Grid2X2,LockKeyhole,Wrench,RadioTower} from "lucide-react";
 import type {DashboardSnapshot,PublicMap} from "./bridge";
 import {MapCover} from "./MapArtwork";
 
@@ -33,6 +33,15 @@ function MapTile({entry,onSelect}:{entry:LocatedMap;onSelect:(id:string)=>void})
     <span className="uk-gallery-tile-body">
       <b className="uk-gallery-name">{map.name}</b>
       <span className="uk-gallery-meta"><Server size={12}/>{host}</span>
+      {local&&(map.storeProtected||map.maintenance||map.rconConfigured)&&
+        <span className="uk-gallery-profile-flags">
+          {map.storeProtected&&<span className="uk-flag locked"><LockKeyhole size={12}/>
+            STORE-V1 ZÁROLT</span>}
+          {map.maintenance&&<span className="uk-flag maintenance"><Wrench size={12}/>
+            KARBANTARTÁS</span>}
+          {map.rconConfigured&&<span className="uk-flag rcon" title="RCON-adatok konfigurálva, kapcsolat nem ellenőrzött">
+            <RadioTower size={12}/> RCON BEÁLLÍTVA</span>}
+        </span>}
       <span className="uk-gallery-footer">
         <span>UDP <b>{map.gamePort||"—"}</b></span>
         <span className={local?"uk-gallery-local":"uk-gallery-remote"}>
