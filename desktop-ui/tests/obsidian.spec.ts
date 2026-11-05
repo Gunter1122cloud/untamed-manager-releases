@@ -40,8 +40,12 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string; mode?: string; file?: string; token?: string; content?: string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string }) => {
       switch (m.method) {
+        case "servers.inspectLocal": return {importToken:"00000000-0000-4000-8000-000000009999",name:m.name||"The Island",folderName:"ASA-LAB",exeFound:true,apiLoaderDetected:false,portsConfigured:false,evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"};
+        case "servers.importLocal":
+          state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
+          return {mapId:"00000000-0000-4000-8000-000000009998",mapName:"Genesis Part 1",exeRegistered:true,needsConfiguration:true,evidence:"MANAGER_PROFILE_ONLY_NO_ASA_CHANGE"};
         case "dashboard.snapshot": return state;
         case "ini.open": return {token:iniToken,mapId:one,file:m.file||"Game.ini",content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
@@ -234,4 +238,21 @@ test("local map card opens map-specific details, functional tabs, back navigatio
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await expect(page.getByRole("heading",{name:"Szerverek"})).toBeVisible();
   await page.screenshot({path:"test-results/map-detail-navigation-1600.png",fullPage:true});
+});
+
+test("local ASA import wizard requires preview and confirmation, then refreshes registered maps",async ({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új helyi map felvétele"}).click();
+  await expect(page.getByText("Helyi ASA-telepítés felvétele")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Ellenőrzött map regisztrálása"})).toBeDisabled();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await expect(page.getByText(/Genesis Part 1 · ASA EXE megtalálva/)).toBeVisible();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await expect(page.getByText(/bekerült a helyi Manager profiljába/)).toBeVisible();
+  await expect(page.getByRole("row",{name:/Genesis Part 1/})).toBeVisible();
+  await page.screenshot({path:"test-results/map-import-1600.png",fullPage:true});
 });
