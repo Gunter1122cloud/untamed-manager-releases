@@ -1,4 +1,4 @@
-/* Strict, read-only Windows host contract. No mutation methods are exported. */
+/* Explicit allowlisted Windows host contract; only guarded native methods may mutate local Manager configuration. */
 export type PublicMap = {
   id: string;
   name: string;
@@ -33,17 +33,46 @@ export type DashboardSnapshot = {
   peerMessage: string;
 };
 
+export type CurseForgeMod = {
+  id: number; name: string; summary: string; website: string | null;
+  thumbnailUrl: string | null; authors: string[]; latestFile: string | null;
+  modifiedUtc: string | null; downloadCount: number; categories: string[];
+  screenshots: string[]; isAvailable: boolean | null;
+};
+export type CurseForgeCategory = {
+  id: number; name: string; isClass: boolean; parentCategoryId: number;
+};
+export type CurseForgeCategories = {
+  categories: CurseForgeCategory[]; evidence: "OFFICIAL_ASA_CATEGORY_METADATA";
+};
+export type CurseForgeFeatured = {
+  gameId: number; featured: CurseForgeMod[]; popular: CurseForgeMod[];
+  recentlyUpdated: CurseForgeMod[]; evidence: "OFFICIAL_ASA_FEATURED_METADATA";
+};
+export type CurseForgeFile = {
+  fileId: number; name: string; published: string | null; available: boolean;
+  sizeBytes: number; gameVersions: string[];
+  dependencies: Array<{ modId: number; type: string }>; distributionState: string;
+};
+export type CurseForgeProject = {
+  mod: CurseForgeMod; description: string; files: CurseForgeFile[];
+  filesTotal: number; filesHasMore: boolean;
+  evidence: "OFFICIAL_ASA_PROJECT_METADATA_ONLY";
+};
+export type CurseForgeFilePage = {
+  modId: number; page: number; hasMore: boolean; totalCount: number;
+  files: CurseForgeFile[]; evidence: "OFFICIAL_ASA_FILE_METADATA_ONLY";
+};
+export type CurseForgeBrowseOptions = {
+  term: string; categoryId?: number; sort?: number; descending?: boolean; page?: number;
+};
 export type CurseForgeResult = {
   gameId: number;
   totalCount: number;
   page: number;
   hasMore: boolean;
   evidence: "OFFICIAL_CATALOG_METADATA_ONLY";
-  mods: Array<{
-    id: number; name: string; summary: string; website: string | null;
-    thumbnailUrl: string | null; authors: string[]; latestFile: string | null;
-    modifiedUtc: string | null; downloadCount: number;
-  }>;
+  mods: CurseForgeMod[];
 };
 
 export type PluginInventory = {
@@ -136,11 +165,14 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
-  "servers.inspectLocal" | "servers.importLocal";
+  "servers.inspectLocal" | "servers.importLocal" |
+  "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
+  "curseforge.project" | "curseforge.files";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
-  name?: string; root?: string; importToken?: string };
+  name?: string; root?: string; importToken?: string;
+  modId?: number; categoryId?: number; sort?: number; descending?: boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -202,4 +234,9 @@ export const managerBridge = {
     request<LocalImportPreview>("servers.inspectLocal", { name, root }),
   importLocalAsa: (importToken: string) =>
     request<LocalImportReceipt>("servers.importLocal", { importToken }),
+  catalogCategories: () => request<CurseForgeCategories>("curseforge.categories"),
+  catalogFeatured: () => request<CurseForgeFeatured>("curseforge.featured"),
+  catalogBrowse: (options: CurseForgeBrowseOptions) => request<CurseForgeResult>("curseforge.browse", options),
+  catalogProject: (modId: number) => request<CurseForgeProject>("curseforge.project", { modId }),
+  catalogFiles: (modId: number, page: number) => request<CurseForgeFilePage>("curseforge.files", { modId, page }),
 };
