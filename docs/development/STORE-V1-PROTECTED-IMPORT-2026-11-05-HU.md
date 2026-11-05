@@ -56,3 +56,41 @@ A teljes történeti metadata-egyezés **nem oldja fel a `ReleaseCapabilityGate`
 nem ellenőrzi az élő SMB-írót és nem bizonyít valódi ASA karakterutazást.
 A C# szintetikus pozitív 8+4 és negatív hiányzó-lock teszt az archívumok
 SHA-256 változatlanságát és az éles írás tiltását ellenőrzi.
+
+## 2026-11-05: eredeti ASA indítási sor szöveges összevetése (új)
+
+A `historical.launchEvidence` szigorúan olvasási célú WebView2 metódus a
+manifesttel igazolt, archivált map GUID + mapkulcs + Game/Query port +
+aktív modlista mellett elemzi az **operátor által megadott** eredeti ASA
+indítási szöveget. Nem keres a hálózaton Kova-konfigurációt, nem fogad
+el ismeretlen fájlrendszer-útvonalat, nem generál indítási parancsot,
+nem módosít a Manager-profilon sem, és nem ad semmilyen írási jogosultságot.
+
+Az ASA közösségi wiki szerint a karaktertárolási `-usestore` kapcsoló
+a korábbi profilforma működését érinti; a `-converttostore` migrációs
+paraméter, ezért újraalkalmazása tilos a már működő Store-v1 klaszteren.
+A `-clusterid`, `-ClusterDirOverride`, `-mods` sorrend, a mapkulcs
+és a portok külön vizsgálat alá esnek. Hiányzó, ismételt vagy eltérő
+érték nem válhat csendben feltételezett alapértelmezéssé.
+
+A kezelőfelület kizárólag állapotértékeket és nem érzékeny hibakódokat
+kap vissza. Nincs eredeti parancssor, sessionnév, clusterazonosító,
+transferútvonal vagy jelszó a válaszban. Az input a felületen ideiglenes,
+nem kerül tartós mentésre, de a felhasználónak továbbra is titkos adatként
+kell kezelnie az eredeti indítási sort.
+
+**Bizonyítékhatár:** az operátor által bemásolt szöveg nem hitelesített
+eredeti folyamatnapló. Az összes eredmény
+`sourceAuthenticated=false`, `fullLaunchArgumentsVerified=false`,
+`peerWriterVerified=false`, `serverStartAllowed=false` és
+`productionUseAllowed=false`. Ez szándékos, nem hiányos
+engedélyezőfunkció. Későbbi, független eredetellenőrzés és valódi
+kétgépes utazási teszt nélkül nem lehet indítást feloldani.
+
+Források:
+- https://ark.wiki.gg/wiki/Server_Configuration
+- https://ark.wiki.gg/wiki/Dedicated_server_setup
+- https://docs.curseforge.com/rest-api/
+
+**Az eddigi szintetikus natív és Playwright tesztek nem helyettesítik
+a valódi ASA próbakört.**
