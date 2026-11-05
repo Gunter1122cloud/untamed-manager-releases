@@ -1,7 +1,7 @@
 import {useMemo,useState} from "react";
 import {ArrowRight,Plus,ShieldCheck,Server,Search,X,ChevronDown,Grid2X2} from "lucide-react";
 import type {DashboardSnapshot,PublicMap} from "./bridge";
-import {MapCover} from "./PremiumDashboard";
+import {MapCover} from "./MapArtwork";
 
 export const UK_MAPS=[
   "Astraeos","Lost Colony","Ragnarok","The Island","The Center",
