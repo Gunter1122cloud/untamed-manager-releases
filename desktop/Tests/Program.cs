@@ -460,6 +460,15 @@ try
               !launchEvidence.GetRawText().Contains("KovaCluster",StringComparison.Ordinal) &&
               !launchEvidence.GetRawText().Contains("private",StringComparison.OrdinalIgnoreCase),
             "raw command, secrets and cluster path never return to WebView");
+        Check(assessed.GetProperty("clusterIdStatus").GetString()=="MATCH",
+            "original KovaCluster internal identity matches without renaming it");
+        var wrongCluster=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,
+                command=privateLaunch.Replace("-clusterid=KovaCluster",
+                    "-clusterid=WrongCluster",StringComparison.Ordinal)});
+        Check(wrongCluster.GetProperty("data").GetProperty("clusterIdStatus").GetString()=="MISMATCH" &&
+              !wrongCluster.GetProperty("data").GetProperty("serverStartAllowed").GetBoolean(),
+            "a merely present but renamed cluster id must not count as a verified match");
         var conversion=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
             new{archive=oldArchive,mapId=historicalId,command=privateLaunch+" -converttostore"});
         Check(conversion.GetProperty("data").GetProperty("conversionFlagPresent").GetBoolean() &&
