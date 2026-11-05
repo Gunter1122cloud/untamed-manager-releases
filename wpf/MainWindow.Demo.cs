@@ -210,10 +210,15 @@ public partial class MainWindow
             operations.Children.Add(Btn("↻  Restart + SaveWorld",()=>Act(()=>demo.Restart(map.Id),"Restart")));
             operations.Children.Add(Btn("▣  Mentés",()=>Act(()=>demo.Backup(map.Id),"Backup")));
             var tabs=new TabControl{Foreground=Brushes.White,Background=Panel};
-            void Tab(string name,UIElement content)=>
-                tabs.Items.Add(new TabItem{Header=name,Content=new ScrollViewer{
+            void Tab(string name,UIElement content)
+            {
+                var viewer=new ScrollViewer {
                     Content=content,Padding=new Thickness(12),
-                    VerticalScrollBarVisibility=ScrollBarVisibility.Auto}});
+                    VerticalScrollBarVisibility=ScrollBarVisibility.Auto
+                };
+                NestedWheelScroll.SetChainToParent(viewer,true);
+                tabs.Items.Add(new TabItem{Header=name,Content=viewer});
+            }
             Tab("Áttekintés",V(Label(map.Name,22,Mint,true),
                 Label("Gép: "+map.Host+" · ASA API "+map.ApiVersion,13,Aqua),
                 Label("Játékosok (minta): "+map.Players+" · "+demo.Status(map),13,Soft),
@@ -242,14 +247,16 @@ public partial class MainWindow
         int cursor=_demoModCursor[map.Id];
         var staged=timeline[cursor].ToList();
         var list=new ListView {
-            MinHeight=260,MaxHeight=510,
+            MinHeight=230,MaxHeight=440,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModRow")
         };
-        var search=new TextBox {Width=180,Height=36,Margin=new Thickness(0,0,9,7)};
+        NestedWheelScroll.SetChainToParent(list,true);
+        var search=new TextBox {Width=180,Height=36,Margin=new Thickness(0,0,9,7),
+            Tag="Mod keresése"};
         var filter=new ComboBox {ItemsSource=new[]{"Összes","Aktív","Passzív","Letiltva"},
             SelectedIndex=0,Width=130,Margin=new Thickness(0,0,9,7)};
         var project=new TextBox {Width=140,Height=36,Margin=new Thickness(0,0,9,7),
-            ToolTip="DEMO: modprojekt azonosító"};
+            Tag="CurseForge ID", ToolTip="DEMO: modprojekt azonosító"};
         var mode=new ComboBox {ItemsSource=new[]{"Aktív","Passzív","Letiltva","Eltávolítás"},
             SelectedIndex=0,MinWidth=150,Margin=new Thickness(0,0,0,9)};
         var selected=Label("Válassz modot",18,Mint,true);
@@ -311,8 +318,10 @@ public partial class MainWindow
                  x.DisplayName.Contains(term,StringComparison.OrdinalIgnoreCase)||
                  x.State.Contains(term,StringComparison.OrdinalIgnoreCase)) &&
                 (selectedFilter=="Összes"||x.State==selectedFilter)).ToArray();
+            var priorOffset=NestedWheelScroll.CaptureVerticalOffset(list);
             list.ItemsSource=visible;
             list.SelectedItem=visible.FirstOrDefault(x=>x.Id==oldId);
+            NestedWheelScroll.RestoreVerticalOffset(list,priorOffset);
             summary.Text=map.Name+" · "+all.Length+" mintamod · "+visible.Length+" megjelenítve";
             result.Text=map.Mods.SequenceEqual(staged)?
                 "[DEMO] Nincs függőben lévő változás.":
@@ -381,6 +390,7 @@ public partial class MainWindow
         var leftBox=Box(left);var rightBox=Box(right);
         Grid.SetColumn(rightBox,1);
         grid.Children.Add(leftBox);grid.Children.Add(rightBox);
+        BindResponsiveDetails(grid,leftBox,rightBox);
 
         var actions=new WrapPanel {Margin=new Thickness(0,8,0,7)};
         actions.Children.Add(Btn("Változások előnézete",()=>{
@@ -422,14 +432,15 @@ public partial class MainWindow
     private UIElement DemoPluginsPane(DemoMap map)
     {
         var demo=_demo!;
-        var search=new TextBox{Width=205,Height=36,
+        var search=new TextBox{Width=205,Height=36,Tag="Plugin keresése",
             ToolTip="DEMO plugin keresése név alapján"};
         var filter=new ComboBox{ItemsSource=new[]{"Összes","Engedélyezett","Letiltott"},
             SelectedIndex=0,MinWidth=135,Margin=new Thickness(8,0,0,0)};
         var list=new ListView{
-            MinHeight=260,MaxHeight=510,
+            MinHeight=230,MaxHeight=440,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumPluginRow")
         };
+        NestedWheelScroll.SetChainToParent(list,true);
         var summary=Label("",12,Soft);
         var title=Label("Válassz mintaplugint",18,Mint,true);
         var detail=Label("A DEMO csak memóriában módosít adatokat. Nincs pluginfájl vagy ASA-folyamat.",12,Soft);
@@ -454,9 +465,11 @@ public partial class MainWindow
                 (term.Length==0||x.Name.Contains(term,StringComparison.OrdinalIgnoreCase)) &&
                 (state=="Összes"||(state=="Engedélyezett"&&x.Enabled)||
                  (state=="Letiltott"&&!x.Enabled))).ToArray();
+            var priorOffset=NestedWheelScroll.CaptureVerticalOffset(list);
             list.ItemsSource=visible;
             list.SelectedItem=visible.FirstOrDefault(x=>x.Name==selected)
                 ??visible.FirstOrDefault();
+            NestedWheelScroll.RestoreVerticalOffset(list,priorOffset);
             summary.Text=map.Name+" · "+all.Length+" mintaplugin · "+
                 all.Count(x=>x.Enabled)+" engedélyezett · "+
                 all.Count(x=>!x.Enabled)+" letiltott";
@@ -505,6 +518,7 @@ public partial class MainWindow
         layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=225});
         Grid.SetColumn(right,1);
         layout.Children.Add(left);layout.Children.Add(right);
+        BindResponsiveDetails(layout,left,right);
         Render();
         return V(Box(toolbar),layout,Box(V(Label("Visszajelzés",14,Mint,true),status)));
     }

@@ -37,7 +37,7 @@ public static class NestedWheelScroll
             return;
         // The template-internal ScrollViewer is the only viewer belonging
         // to this list; the parent viewer is found strictly ABOVE the list.
-        ScrollViewer? inner = FindChild<ScrollViewer>(control);
+        ScrollViewer? inner = control as ScrollViewer ?? FindChild<ScrollViewer>(control);
         if (inner is not null && !ScrollBoundaryPolicy.ShouldChain(
             inner.VerticalOffset, inner.ScrollableHeight, e.Delta)) return;
 

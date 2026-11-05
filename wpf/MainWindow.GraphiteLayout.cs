@@ -61,6 +61,65 @@ public partial class MainWindow
         layout.SizeChanged+=(_,_)=>Apply();
     }
 
+    // Server Center: the map inventory is a narrow sidebar, unlike the 70/30
+    // Mod Center. The details must stack at 150% DPI instead of being clipped.
+    private static void BindResponsiveServerDetails(Grid layout, UIElement inventory, UIElement details)
+    {
+        bool? stacked=null;
+        void Apply()
+        {
+            if(layout.ActualWidth<=0)return;
+            bool narrow=layout.ActualWidth<780;
+            if(stacked==narrow)return;
+            stacked=narrow;
+            layout.ColumnDefinitions.Clear();
+            layout.RowDefinitions.Clear();
+            if(narrow)
+            {
+                layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+                layout.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+                layout.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+                Grid.SetRow(inventory,0);Grid.SetColumn(inventory,0);
+                Grid.SetRow(details,1);Grid.SetColumn(details,0);
+            }
+            else
+            {
+                layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(265)});
+                layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+                layout.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+                Grid.SetRow(inventory,0);Grid.SetColumn(inventory,0);
+                Grid.SetRow(details,0);Grid.SetColumn(details,1);
+            }
+        }
+        layout.Loaded+=(_,_)=>Apply();
+        layout.SizeChanged+=(_,_)=>Apply();
+    }
+
+    private static void BindResponsiveOperationsHub(Grid layout)
+    {
+        int currentColumns=0;
+        void Apply()
+        {
+            if(layout.ActualWidth<=0)return;
+            int cols=layout.ActualWidth>=1050?3:layout.ActualWidth>=790?2:1;
+            if(cols==currentColumns)return;
+            currentColumns=cols;
+            layout.ColumnDefinitions.Clear();
+            layout.RowDefinitions.Clear();
+            for(int c=0;c<cols;c++)
+                layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+            for(int r=0;r<(layout.Children.Count+cols-1)/cols;r++)
+                layout.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+            for(int i=0;i<layout.Children.Count;i++)
+            {
+                Grid.SetColumn(layout.Children[i],i%cols);
+                Grid.SetRow(layout.Children[i],i/cols);
+            }
+        }
+        layout.Loaded+=(_,_)=>Apply();
+        layout.SizeChanged+=(_,_)=>Apply();
+    }
+
     // WPF uses device-independent pixels: a 1366px 150% DPI desktop may
     // expose fewer than 930 logical pixels. Stack the operational details
     // below the map table instead of compressing columns into unreadable text.

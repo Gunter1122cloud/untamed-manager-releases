@@ -39,6 +39,7 @@ public partial class MainWindow
             Width=195,Margin=new Thickness(0,0,9,8)
         };
         var search=new TextBox { Width=200,Height=36,Margin=new Thickness(0,0,9,8),
+            Tag="Plugin keresése",
             ToolTip="Keresés a helyi pluginmappák neve alapján" };
         var filter=new ComboBox { ItemsSource=new[]{"Összes","Engedélyezett","Letiltott"},
             SelectedIndex=0,Width=140,Margin=new Thickness(0,0,9,8) };
@@ -57,6 +58,7 @@ public partial class MainWindow
         PremiumPluginRow[] all=Array.Empty<PremiumPluginRow>();
         bool busy=false;
         bool refreshing=false;
+        Expander? advancedExpander=null;
         // Initialized before any callback closes over the controls.
         Button enable=null!,disable=null!,inventory=null!;
         enable=Btn("Plugin bekapcsolása",()=>ChangePlugin(true));
@@ -256,6 +258,11 @@ public partial class MainWindow
         toolbar.Children.Add(search);
         toolbar.Children.Add(filter);
         toolbar.Children.Add(Btn("Frissítés",Refresh));
+        toolbar.Children.Add(Btn("Tömeges / rollback",()=>{
+            if(advancedExpander==null)return;
+            advancedExpander.IsExpanded=true;
+            advancedExpander.BringIntoView();
+        }));
         var left=Box(V(Label("PLUGIN CENTER  /  ASA API",16,Mint,true),
             Label("Helyi pluginmappák · kapcsolás ellenőrzött leállítással és mentéssel",12,Soft),
             count,list));
@@ -296,14 +303,15 @@ public partial class MainWindow
         Add(new Expander {Header="ASA API verziók, frissítési csomagok és helyreállítás",
             Margin=new Thickness(0,5,9,9),Padding=new Thickness(12),
             IsExpanded=false,Content=Capture(ShowAsaApiAndPluginStates)});
-        Add(new Expander {Header="Haladó pluginműveletek · tömeges kezelés, rollback, JSON",
+        advancedExpander=new Expander {Header="Haladó pluginműveletek · tömeges kezelés, rollback, JSON",
             Margin=new Thickness(0,0,9,14),Padding=new Thickness(12),
             IsExpanded=false,Content=Capture(()=>{
                 ShowLocalPluginInventoryControls();
                 ShowBulkPluginsControls();
                 ShowPluginRollbackControls();
                 ShowSafeTextEditor(ConfigKind.PluginJson);
-            })});
+            })};
+        Add(advancedExpander);
         Refresh();
     }
 }

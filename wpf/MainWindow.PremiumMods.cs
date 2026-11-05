@@ -72,10 +72,12 @@ public partial class MainWindow
             SelectedItem=maps.FirstOrDefault(x=>x.Id==_preferredModMapId)??maps[0],
             Width=190,Margin=new Thickness(0,0,10,8)};
         var search=new TextBox {Width=205,Height=36,Margin=new Thickness(0,0,10,8),
+            Tag="Keresés: név vagy projekt ID",
             ToolTip="Modnév, projektazonosító vagy konfigurált állapot"};
         var filter=new ComboBox {ItemsSource=new[]{"Összes","Aktív","Passzív","Letiltva"},
             SelectedIndex=0,Width=128,Margin=new Thickness(0,0,10,8)};
         var addId=new TextBox {Width=135,Height=36,Margin=new Thickness(0,0,9,8),
+            Tag="CurseForge ID",
             ToolTip="Új mod CurseForge projektazonosítója (5–12 számjegy)"};
         var rows=new ListView {MinHeight=230,MaxHeight=440,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModRow")};
@@ -89,6 +91,7 @@ public partial class MainWindow
         var preview=Label("",12,Soft);
         PremiumModRow? chosen=null;
         Expander? catalogExpander=null;
+        Expander? advancedExpander=null;
 
         LocalMap CurrentMap()=>selector.SelectedItem as LocalMap
             ??throw new InvalidOperationException("Előbb válassz helyi mapot.");
@@ -265,6 +268,11 @@ public partial class MainWindow
             catalogExpander.IsExpanded=true;
             catalogExpander.BringIntoView();
         }));
+        toolbar.Children.Add(Btn("Tömeges / többmapos",()=>{
+            if(advancedExpander==null)return;
+            advancedExpander.IsExpanded=true;
+            advancedExpander.BringIntoView();
+        }));
         var left=V(Label("MOD CENTER  /  KONFIGURÁLT MODOK",16,Mint,true),
             Label("Sorrend · státusz · kapcsolók · változtatás csak jóváhagyás után",12,Soft),
             summary,rows);
@@ -379,12 +387,13 @@ public partial class MainWindow
             PageBody.Children.Remove(element);
             advanced.Children.Add(element);
         }
-        Add(new Expander {
+        advancedExpander=new Expander {
             Header="Speciális modműveletek · tömeges szerkesztés / leltár / SteamCMD",
             Foreground=Soft,Padding=new Thickness(10),
             Margin=new Thickness(0,3,12,18),Content=advanced,
             IsExpanded=false
-        });
+        };
+        Add(advancedExpander);
         Safely(Render);
     }
 }

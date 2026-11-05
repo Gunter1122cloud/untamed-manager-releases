@@ -144,7 +144,9 @@ public partial class App : System.Windows.Application
                 bool galleryEnabled=Environment.GetEnvironmentVariable("UNTAMED_SCREENSHOT_GALLERY")=="1";
                 var pages=galleryEnabled
                     ? new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","ini",
-                        "logs","demo-dashboard","demo-servers","demo-cluster","demo-mods","demo-plugins","demo-logs",
+                        "rcon","monitoring","schedules","recovery","operations","network","data",
+                        "steam","license","lan","readiness","extensions","setup","logs",
+                        "demo-dashboard","demo-servers","demo-cluster","demo-mods","demo-plugins","demo-logs",
                         "demo-ini","demo-rcon","demo-backups","demo-schedules","demo-monitoring",
                         "demo-recovery","demo-settings"}
                     : new[]{"dashboard"};

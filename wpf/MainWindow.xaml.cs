@@ -389,6 +389,7 @@ public partial class MainWindow : Window
         areas.Children.Add(monitoring);
         areas.Children.Add(maintenance);
         areas.Children.Add(storage);
+        BindResponsiveOperationsHub(areas);
         Add(areas);
     }
 

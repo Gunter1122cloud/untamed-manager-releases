@@ -304,11 +304,13 @@ public partial class MainWindow
             return;
         }
         var search=new TextBox {Width=208,Height=36,
+            Tag="Map keresése",
             ToolTip="Keresés a regisztrált mapok nevére"};
         var list=new ListBox {
             MinHeight=165,MaxHeight=480,Margin=new Thickness(0,8,0,0),
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumServerRow")
         };
+        NestedWheelScroll.SetChainToParent(list,true);
         var sidebar=Box(V(Label("Maplista",17,Mint,true),search,list));
         var details=new StackPanel();
         var detailSurface=Box(details);
@@ -317,6 +319,7 @@ public partial class MainWindow
         layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
         Grid.SetColumn(sidebar,0);Grid.SetColumn(detailSurface,1);
         layout.Children.Add(sidebar);layout.Children.Add(detailSurface);
+        BindResponsiveServerDetails(layout,sidebar,detailSurface);
         void Filter()
         {
             string id=(list.SelectedItem as PremiumLocalServerRow)?.Map.Id.ToString("N")
@@ -390,9 +393,12 @@ public partial class MainWindow
             Background=Panel,Foreground=Brushes.White,BorderBrush=Aqua };
         void Tab(string title,UIElement body)
         {
-            tabs.Items.Add(new TabItem{Header=title,Content=new ScrollViewer{
+            var viewer=new ScrollViewer {
                 VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Content=body,
-                Padding=new Thickness(12)}});
+                Padding=new Thickness(12)
+            };
+            NestedWheelScroll.SetChainToParent(viewer,true);
+            tabs.Items.Add(new TabItem{Header=title,Content=viewer});
         }
         var startStop=new WrapPanel{Margin=new Thickness(0,4,0,8)};
         var readiness=Label("ASA / Loader / RCON Ready: még nincs ellenőrizve. API és csatlakozás külön igazolandó.",12,Soft);

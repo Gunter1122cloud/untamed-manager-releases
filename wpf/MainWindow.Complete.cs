@@ -19,7 +19,8 @@ public partial class MainWindow
         // Only rendered application pages, never a fabricated design preview.
         string demoPage=page.StartsWith("demo-",StringComparison.Ordinal)?page["demo-".Length..]:page;
         if(!new[]{"dashboard","servers","mods","plugins","cluster","backups","settings","ini",
-            "rcon","monitoring","schedules","recovery","logs"}.Contains(demoPage,StringComparer.Ordinal))
+            "rcon","monitoring","schedules","recovery","logs","operations","network","data",
+            "steam","license","lan","readiness","extensions","setup"}.Contains(demoPage,StringComparer.Ordinal))
             throw new ArgumentOutOfRangeException(nameof(page),"Unknown screenshot page");
         if(page.StartsWith("demo-",StringComparison.Ordinal))
         {
