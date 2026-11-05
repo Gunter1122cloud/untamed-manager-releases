@@ -836,8 +836,50 @@ public partial class MainWindow
             Margin=new Thickness(0,0,0,18),MinHeight=39};
         location.Children.Add(Label("ASA map neve",13,Aqua,true));
         location.Children.Add(names);
+        var installMode=new ComboBox {
+            ItemsSource=new[]{"Meglévő ASA-szerver felvétele (adatmegőrző)",
+                "Új ASA-szerver automatikus telepítése SteamCMD-vel"},
+            SelectedIndex=0,IsEnabled=existing==null,
+            Margin=new Thickness(0,7,0,14),MinHeight=38
+        };
+        location.Children.Add(Label("Telepítési mód",13,Aqua,true));
+        location.Children.Add(installMode);
+        bool Fresh()=>existing==null && installMode.SelectedIndex==1;
         var installRoot=Field(location,"Map telepítési gyökérkönyvtára",map.InstallationPath,"folder");
         var serverExe=Field(location,"Szerver EXE teljes elérési útja",map.ExecutablePath,"exe");
+        var steamCmdExe=Field(location,"SteamCMD EXE (új telepítés esetén)",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "UntamedManager","SteamCMD","steamcmd.exe"),"exe");
+        var downloadSteam=new CheckBox{
+            Content="Ha hiányzik, hivatalos Valve SteamCMD ZIP letöltése (HTTPS)",
+            Margin=new Thickness(0,1,0,12),IsChecked=false
+        };
+        location.Children.Add(downloadSteam);
+        var retryFresh=new CheckBox{
+            Content="Korábbi, kizárólag ezen maphoz tartozó félbeszakadt telepítés kézi újrapróbálása",
+            Margin=new Thickness(0,1,0,12),IsChecked=false
+        };
+        location.Children.Add(retryFresh);
+        var sessionBox=Field(location,"Új szerver nyilvános neve",
+            "Untamed Kingdom - "+(map.Name.Length==0?"The Island":map.Name));
+        var installStatus=Label("SteamCMD nincs elindítva; az új mapnak külön, üres könyvtár szükséges.",12,Soft);
+        location.Children.Add(installStatus);
+        void ChangeMode()
+        {
+            bool fresh=Fresh();
+            steamCmdExe.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            downloadSteam.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            retryFresh.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            sessionBox.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            serverExe.IsReadOnly=fresh;
+            serverExe.ToolTip=fresh?"Telepítés után a SteamCMD által létrehozott EXE automatikusan kitöltődik.":
+                "Létező szerver EXE kijelölése";
+            installStatus.Text=fresh?
+                "Új, külön ASA gyökér: a map kiválasztása után 2430930 települ, adatokat nem importálunk.":
+                "Meglévő szerver: nincs letöltés, a világok és INI-k érintetlenek.";
+        }
+        installMode.SelectionChanged+=(_,_)=>ChangeMode();
+        ChangeMode();
         var locateResult=Label("Válaszd ki a telepítési mappát az ASA-fájlok felismeréséhez.",12,Soft);
         var detect=Btn("ASA szerver EXE + API loader felismerése",()=>{
             try
@@ -872,7 +914,7 @@ public partial class MainWindow
         location.Children.Add(locateResult);
 
         var launch=MakeStep("02  /  Indítás és portok",
-            "Az indítási argumentumok és a portok a meglévő szerverrel pontosan egyezzenek meg.");
+            "Új telepítéskor a valódi ASA mapazonosítóval generálunk indítást. Meglévő profilnál a paraméterek megmaradnak.");
         Field(launch,"Indítási paraméterek (pontos egyezés)",map.Arguments);
         Field(launch,"Game UDP port",map.GamePort==0?"":map.GamePort.ToString());
         Field(launch,"Query UDP port",map.QueryPort==0?"":map.QueryPort.ToString());
@@ -947,11 +989,46 @@ public partial class MainWindow
         var previous=Btn("← Előző",()=>showStep?.Invoke(stepIndex-1));
         var next=Btn("Következő →",()=>showStep?.Invoke(stepIndex+1));
         Button saveButton=null!;
-        saveButton=Btn("Mentés",()=>{
+        saveButton=Btn("Mentés",async()=>{
+                    saveButton.IsEnabled=false;
                     try{
                         var name=LocalMapNameRules.Normalize(names.Text);
                         var root=Path.GetFullPath(fields["Map telepítési gyökérkönyvtára"].Text.Trim());
-                        var exe=Path.GetFullPath(fields["Szerver EXE teljes elérési útja"].Text.Trim());
+                        var exeText=fields["Szerver EXE teljes elérési útja"].Text.Trim();
+                        if(Fresh())
+                        {
+                            // Check local ports BEFORE starting a multi-GB download.
+                            if(!int.TryParse(fields["Game UDP port"].Text,out int preGame) ||
+                               !int.TryParse(fields["Query UDP port"].Text,out int preQuery) ||
+                               !int.TryParse(fields["RCON TCP port"].Text,out int preRcon) ||
+                               preGame is <1 or >65535 || preQuery is <1 or >65535 ||
+                               preRcon is <1 or >65535)
+                                throw new InvalidDataException("Telepítés előtt érvényes portok szükségesek.");
+                            LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
+                                Id=map.Id,Name=name,GamePort=preGame,QueryPort=preQuery,RconPort=preRcon},
+                                _cluster.Config.LocalMaps);
+                            if(apiStart.IsChecked==true)
+                                throw new InvalidDataException(
+                                    "Új telepítésnél az ASA API loader külön, ellenőrzött lépésben engedélyezhető.");
+                            var args=AsaSteamMapCatalog.LaunchArguments(
+                                name,sessionBox.Text.Trim(),preGame,preQuery);
+                            var request=new SteamFreshInstallRequest(
+                                map.Id,name,sessionBox.Text.Trim(),root,
+                                steamCmdExe.Text.Trim(),
+                                downloadSteam.IsChecked==true,retryFresh.IsChecked==true);
+                            var progress=new Progress<SteamInstallProgress>(info=>{
+                                installStatus.Text=info.Stage+" · "+info.Detail;
+                                errorMessage.Text="SteamCMD: "+info.Detail;
+                            });
+                            var receipt=await SteamFreshInstall.InstallAsync(
+                                request,_cluster.Config.LocalMaps.ToArray(),progress);
+                            exeText=receipt.ServerExecutable;
+                            serverExe.Text=exeText;
+                            fields["Indítási paraméterek (pontos egyezés)"].Text=args;
+                            installStatus.Text="Telepítés sikeres. Steam Build ID: "+
+                                (receipt.BuildId??"ismeretlen")+"; ASA szerver még NEM indult el.";
+                        }
+                        var exe=Path.GetFullPath(exeText);
                         if(!Directory.Exists(root)||!File.Exists(exe)||!IsUnderRoot(exe,root))
                             throw new InvalidDataException("Az EXE-nek a megadott helyi telepítési könyvtárban kell lennie");
                         if(!int.TryParse(fields["Game UDP port"].Text,out var game)||game is < 1 or > 65535)
@@ -1010,7 +1087,11 @@ public partial class MainWindow
                         else _cluster.ReplaceMap(existing,target);
                         RefreshDashboardMapCards();dialog.DialogResult=true;
                         ShowLocalServerPage();
-                    }catch(Exception e){ errorMessage.Text="Nem menthető: "+UntamedPresentation.Display(e.Message); }
+                    }catch(Exception e){
+                        WriteLog("steam-map-wizard",e);
+                        errorMessage.Text="Nem menthető: "+UntamedPresentation.Display(e.Message);
+                        saveButton.IsEnabled=true;
+                    }
                 });
         saveButton.Style=(Style)System.Windows.Application.Current.Resources["PrimaryAction"];
         saveButton.MinWidth=112;
@@ -1034,6 +1115,7 @@ public partial class MainWindow
             previous.IsEnabled=index>0;
             next.Visibility=index<steps.Count-1?Visibility.Visible:Visibility.Collapsed;
             saveButton.Visibility=index==steps.Count-1?Visibility.Visible:Visibility.Collapsed;
+            saveButton.Content=Fresh()?"SteamCMD telepítés + map hozzáadása":"Mentés";
             errorMessage.Text="";
             if(index==steps.Count-1)
             {
@@ -1052,11 +1134,11 @@ public partial class MainWindow
                 catch(Exception){problems.Add("Érvénytelen vagy üres mapnév.");}
                 string chosenRoot=installRoot.Text.Trim();
                 string chosenExe=serverExe.Text.Trim();
-                if(chosenRoot.Length==0 || !Directory.Exists(chosenRoot))
-                    problems.Add("Az ASA gyökérkönyvtár nem létezik.");
-                if(chosenExe.Length==0 || !File.Exists(chosenExe))
-                    problems.Add("A szerver EXE nem található.");
-                else if(chosenRoot.Length>0 && Directory.Exists(chosenRoot))
+                if(!Fresh() && (chosenRoot.Length==0 || !Directory.Exists(chosenRoot)))
+                    problems.Add("A meglévő ASA gyökérkönyvtár nem létezik.");
+                if(!Fresh() && (chosenExe.Length==0 || !File.Exists(chosenExe)))
+                    problems.Add("A meglévő szerver EXE nem található.");
+                else if(!Fresh() && chosenRoot.Length>0 && Directory.Exists(chosenRoot))
                 {
                     try{
                         if(!IsUnderRoot(Path.GetFullPath(chosenExe),Path.GetFullPath(chosenRoot)))
@@ -1079,7 +1161,29 @@ public partial class MainWindow
                     out int seconds) || seconds<5 || seconds>3600)
                     problems.Add("Watchdog: 5–3600 másodperc közötti egész szám szükséges.");
                 var loaderPath=fields["API-loader EXE (opcionális)"].Text.Trim();
-                if(apiStart.IsChecked==true)
+                if(Fresh())
+                {
+                    try
+                    {
+                        _=AsaSteamMapCatalog.LevelFor(names.Text);
+                        _=AsaSteamMapCatalog.LaunchArguments(names.Text,
+                            sessionBox.Text.Trim(),gp,qp);
+                        if(chosenRoot.Length==0 || !Path.IsPathFullyQualified(chosenRoot))
+                            problems.Add("Új ASA gyökér: teljes helyi elérési út szükséges.");
+                        else if(Directory.Exists(chosenRoot) &&
+                                Directory.EnumerateFileSystemEntries(chosenRoot).Any() &&
+                                retryFresh.IsChecked!=true)
+                            problems.Add("Új szerver könyvtára nem üres; importáld meglévőként, vagy ellenőrizd a félbeszakadt telepítést.");
+                        if(steamCmdExe.Text.Length==0)
+                            problems.Add("SteamCMD teljes elérési útja szükséges.");
+                        else if(!File.Exists(steamCmdExe.Text) && downloadSteam.IsChecked!=true)
+                            problems.Add("SteamCMD hiányzik; pipáld be a hivatalos letöltést vagy válassz meglévőt.");
+                        if(apiStart.IsChecked==true)
+                            problems.Add("Friss telepítésnél az ASA API loader csak utólag, ellenőrzés után engedélyezhető.");
+                    }
+                    catch(Exception){problems.Add("Ismeretlen mapazonosító vagy hibás indítási adatok.");}
+                }
+                if(apiStart.IsChecked==true && !Fresh())
                 {
                     if(loaderPath.Length==0 && chosenRoot.Length>0)
                         loaderPath=Path.Combine(chosenRoot,
