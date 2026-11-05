@@ -397,6 +397,54 @@ try
             "first profile setup preserves original ASA executable and saved data");
     }
 
+    // Native cross-map Mod Center inventory: real Core parser, read-only
+    // historical Store-v1 metadata, never the quarantined Arguments field.
+    {
+        var mapA=new LocalMap{
+            Id=Guid.NewGuid(),Name="The Island",
+            Arguments="-mods=928548,940975 -passivemods=940975"
+        };
+        var mapB=new LocalMap{
+            Id=Guid.NewGuid(),Name="Ragnarok",
+            Arguments="-mods=928548 -port=7817"
+        };
+        var historical=new LocalMap{
+            Id=Guid.NewGuid(),Name="Aberration",
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=new string('A',64),
+            HistoricalMapKey="Aberration_WP",
+            HistoricalEnabledMods=new(){"928548"},
+            HistoricalPassiveMods=new(){"940975"},
+            Arguments=""
+        };
+        var before=new[]{mapA.Arguments,mapB.Arguments,historical.Arguments};
+        var usage=DesktopSharedModInventory.Read(new[]{mapA,mapB,historical});
+        var shared=usage.Projects.Single(p=>p.ProjectId=="928548");
+        Check(usage.MapCount==3 && usage.SharedProjectCount==2 &&
+              usage.UnreadableMaps.Length==0 && shared.EnabledMapCount==3 &&
+              shared.Assignments.Any(a=>a.HistoricalProtected &&
+                  a.MapId==historical.Id.ToString("D")),
+            "shared mod inventory merges Core live configuration and historical read-only archive mod assignments");
+        Check(usage.Projects.Single(p=>p.ProjectId=="940975").EnabledMapCount==2 &&
+              usage.Projects.Single(p=>p.ProjectId=="940975").Assignments.Any(a=>
+                  a.Mode=="passive" && a.HistoricalProtected),
+            "passive mods remain distinct and historical archive assignments remain marked");
+        Check(mapA.Arguments==before[0] && mapB.Arguments==before[1] &&
+              historical.Arguments==before[2] && historical.HistoricalStoreProtected,
+            "inventory never changes real launch arguments or unblocks historical Store");
+        var bad=new LocalMap{
+            Id=Guid.NewGuid(),Name="Invalid history",
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256="HASH",
+            HistoricalMapKey="TheIsland_WP",
+            HistoricalEnabledMods=new(){"NOT_AN_ID"}
+        };
+        var partial=DesktopSharedModInventory.Read(new[]{mapA,bad});
+        Check(partial.UnreadableMaps.Contains("Invalid history") &&
+              partial.Projects.Any(p=>p.ProjectId=="928548"),
+            "broken historical metadata is reported without erasing valid local mod assignments");
+    }
+
     // A historical Store-v1 ZIP is an identity/provenance source, NOT a
     // complete command line. Test imported map remains blocked even with
     // valid SHA and an actual world file.
