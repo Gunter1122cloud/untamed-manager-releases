@@ -361,7 +361,8 @@ test("native mod draft contract stages in memory and saves only on explicit clic
   await page.getByRole("button",{name:"Újra",exact:true}).click();
   await expect(page.locator(".draft-difference").getByText("567890")).toBeVisible();
   await page.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
-  await expect(page.getByText("Projekt · 567890").first()).toBeVisible();
+  await page.getByRole("tab",{name:"Map modjai"}).click();
+  await expect(page.getByRole("table",{name:"Konfigurált modlista"}).getByText("CurseForge ID: 567890")).toBeVisible();
   await expect(page.getByText(/Mentve a helyi indítási konfigurációba/)).toBeVisible();
 });
 
