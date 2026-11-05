@@ -14,7 +14,7 @@ public static class SteamStoppedMapUpdaterTests
     }
     private static readonly Func<LocalMap,ProcessCheck> IsStopped=map=>
         new ProcessCheck(false,"CI confirmed stopped process",null,true);
-    private static void Prepare(string install,bool withSave=true)
+    internal static void Prepare(string install,bool withSave=true)
     {
         string exe=Path.Combine(install,"ShooterGame","Binaries","Win64",
             "ArkAscendedServer.exe");
