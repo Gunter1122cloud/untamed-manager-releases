@@ -7,7 +7,7 @@ import {
 import {
   managerBridge, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
   type LogTail, type ModDraftState, type ModDraftSave, type ModDraftMode,
-  type IniFile, type IniDocument, type IniPreview,
+  type IniFile, type IniDocument, type IniPreview, type LocalImportPreview,
   type SteamInstallations, type SuggestedPorts,
   type PluginInventory, type DashboardSnapshot,
   type PublicMap, type RemoteHost
@@ -188,11 +188,90 @@ function Dashboard({ snapshot, onPage, onSelect }: {
     </div>
   </>;
 }
-function Servers({ snapshot, search, setSearch, onSelect }: {
-  snapshot: DashboardSnapshot; search: string; setSearch: (v: string) => void; onSelect: (v: string) => void
+const asaMapNames = [
+  "The Island","The Center","Scorched Earth","Aberration","Extinction",
+  "Genesis Part 1","Valguero","Ragnarok","Astraeos","Lost Colony"
+];
+function LocalAsaImport({onImported}: {onImported:()=>Promise<void>}) {
+  const [name,setName]=useState("The Island");
+  const [root,setRoot]=useState("");
+  const [preview,setPreview]=useState<LocalImportPreview | null>(null);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const validate = async (e:React.FormEvent) => {
+    e.preventDefault(); setError(""); setNotice("");setPreview(null);
+    setBusy(true);
+    try { setPreview(await managerBridge.inspectLocalAsa(name,root)); }
+    catch(e) {
+      const code=e instanceof Error?e.message:"UM-IMPORT-VALIDATION-FAILED";
+      setError(code==="UM-ASA-EXE-MISSING"
+        ? "A megadott helyen nincs meg az ASA ShooterGame/Binaries/Win64/ArkAscendedServer.exe."
+        : "A kiválasztott helyi telepítés nem importálható ("+code+"). Ellenőrizd a mappát és a már regisztrált mapokat.");
+    } finally {setBusy(false);}
+  };
+  const confirm=async()=>{
+    if(!preview)return;
+    setBusy(true);setError("");setNotice("");
+    try {
+      const result=await managerBridge.importLocalAsa(preview.importToken);
+      setPreview(null);
+      setNotice(result.mapName+" bekerült a helyi Manager profiljába. A portok, RCON, modok és indítás később konfigurálhatók.");
+      await onImported();
+    } catch(e) {
+      const code=e instanceof Error?e.message:"UM-IMPORT-VALIDATION-FAILED";
+      setPreview(null);
+      setError("A natív Manager megtagadta a regisztrációt ("+code+"). Lehetséges versengő konfigurációmódosítás; ellenőrizd a maplistát.");
+    } finally{setBusy(false);}
+  };
+  const updateName=(v:string)=>{setName(v);setPreview(null);setNotice("");};
+  const updateRoot=(v:string)=>{setRoot(v);setPreview(null);setNotice("");};
+  return <Panel title="Helyi ASA-telepítés felvétele" action={<span className="mod-tag green">Telepítés változatlan</span>}>
+    <p className="muted small">Meglévő ASA-szerver EXE importálása a saját Manager profilba. Nem másol, nem tölt le és nem indít fájlt. A friss SteamCMD telepítés külön művelet.</p>
+    <div className="map-name-suggestions" aria-label="ASA mapválasztó">
+      {asaMapNames.map(item=><button key={item} type="button" className={name===item?"map-choice selected":"map-choice"}
+        onClick={()=>updateName(item)}>{item}</button>)}
+    </div>
+    <form onSubmit={e=>{void validate(e);}} className="import-form">
+      <label>Map neve
+        <input aria-label="Map neve" value={name} maxLength={100} onChange={e=>updateName(e.target.value)} required/>
+      </label>
+      <label>Helyi ASA telepítési gyökérkönyvtár (Windows)
+        <input aria-label="Helyi ASA mappa" value={root} maxLength={520} onChange={e=>updateRoot(e.target.value)}
+          placeholder="C:\\ASA\\TheIsland" autoComplete="off" required/>
+      </label>
+      <div className="import-actions">
+        <button type="submit" disabled={busy || !root.trim() || !name.trim()} className="secondary">
+          {busy?"Ellenőrzés...":"Helyi telepítés ellenőrzése"}
+        </button>
+        <button type="button" disabled={busy || !preview} className="primary" onClick={()=>{void confirm();}}>
+          Ellenőrzött map regisztrálása
+        </button>
+      </div>
+    </form>
+    {preview && <div className="import-preview">
+      <CheckCircle2 size={22}/><div><b>{preview.name} · ASA EXE megtalálva</b>
+        <p>Mappa: {preview.folderName || "Kiválasztott helyi gyökér"} · ASA API loader: {preview.apiLoaderDetected?"észlelve, de nincs engedélyezve":"nem észlelhető"}</p>
+        <p>Portok, RCON és modok: később beállíthatók. Nem indul ASA.</p>
+      </div>
+    </div>}
+    {notice && <div className="success-inline" role="status"><CheckCircle2 size={16}/>{notice}</div>}
+    {error && <div className="error-inline" role="alert"><AlertTriangle size={16}/>{error}</div>}
+    <div className="warning-inline"><Shield size={17}/> Csak helyi, létező ASA EXE regisztrálható. Az új Managerben egy map hozzáadásával semmilyen világ- vagy karakterfájl nem módosul.</div>
+  </Panel>;
+}
+
+function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
+  snapshot: DashboardSnapshot; search: string; setSearch: (v: string) => void; onSelect: (v: string) => void;
+  onImported:()=>Promise<void>
 }) {
+  const [showImport,setShowImport]=useState(false);
   return <><div className="page-intro"><span className="eyebrow">LOCAL HOST / LAN</span><h1>Szerverek</h1><p>A helyi mapok megfigyelése; távoli mapok kizárólag olvashatók.</p></div>
-    <div className="toolbar"><Search size={19}/><input aria-label="Map keresése" placeholder="Map keresése..." value={search} onChange={e => setSearch(e.target.value)}/></div>
+    <div className="server-toolbar">
+      <div className="toolbar"><Search size={19}/><input aria-label="Map keresése" placeholder="Map keresése..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
+      <button className="primary" onClick={()=>setShowImport(v=>!v)}>{showImport?"Map import bezárása":"Új helyi map felvétele"}</button>
+    </div>
+    {showImport && <LocalAsaImport onImported={onImported}/>}
     <Panel title={`Helyi mapok · ${snapshot.local.hostName}`}><MapTable maps={snapshot.local.maps} host={snapshot.local.hostName} filter={search} onPick={onSelect}/></Panel>
     {snapshot.remote && <Panel title={`Távoli mapok · ${snapshot.remote.hostName}`}><MapTable maps={snapshot.remote.maps} host={snapshot.remote.hostName} filter={search}/></Panel>}
   </>;
@@ -822,7 +901,7 @@ export function App() {
         {snapshot && <>
           {page === "dashboard" && <Dashboard snapshot={snapshot} onPage={setPage} onSelect={selectMap}/>}
           {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")}/>}
-          {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap}/>}
+          {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap} onImported={refresh}/>} 
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "plugins" && <PluginCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
