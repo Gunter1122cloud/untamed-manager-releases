@@ -22,10 +22,9 @@ public partial class MainWindow
     private void ShowPremiumBackups()
     {
         Header("Mentések","Maponkénti offline fájlmásolat · SHA-256 ellenőrzés · biztonságos előnézet.");
-        Add(Box(V(Label("Helyi fájlmentések",19,Mint,true),
-            Label("Csak az adott Windows-gépen regisztrált, igazoltan leállított mapokról. "+
-                  "A közös Cluster Vault, karakterutazások, SQL és élő ASA SaveComplete "+
-                  "nem részei a helyi fájlmásolatnak.",12,Soft))));
+        Add(Box(V(Label("BACKUP CENTER  /  OFFLINE MENTÉSEK",16,Mint,true),
+            Label("Csak regisztrált helyi, igazoltan leállított map · SHA-256 ellenőrzés. "+
+                  "A helyi csomag NEM bizonyítja az ASA SaveComplete, Store-v1, utazások vagy SQL konzisztenciáját.",12,Soft))));
         var maps=_cluster.Config.LocalMaps.ToArray();
         if(maps.Length==0)
         {
@@ -53,8 +52,8 @@ public partial class MainWindow
         var operationStatus=Label("Nincs folyamatban helyi mentési művelet.",12,Soft);
         var latestStatus=Label("Mentési előzmények: még nem ellenőrizve.",12,Soft);
         var detail=Label("Válassz mentést a fájlszintű integritás ellenőrzéséhez.",12,Soft);
-        var list=new ListBox{
-            MinHeight=235,MaxHeight=430,Margin=new Thickness(0,7,0,8),
+        var list=new ListView{
+            MinHeight=260,MaxHeight=530,Margin=new Thickness(0,7,0,8),
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumBackupRow")
         };
         var count=Label("",12,Soft);
@@ -270,32 +269,37 @@ public partial class MainWindow
         plugins.Checked+=(_,_)=>Invalidate();plugins.Unchecked+=(_,_)=>Invalidate();
 
         var scopePanel=V(world,ini,plugins);
+        var folderPick=Btn("Célmappa kiválasztása",()=>{
+            if(busy)return;
+            using var pick=new Forms.FolderBrowserDialog{
+                Description="Helyi, az ASA telepítési könyvtártól különálló mentési mappa",
+                SelectedPath=root.Text.Trim()
+            };
+            if(pick.ShowDialog()==Forms.DialogResult.OK)root.Text=pick.SelectedPath;
+        });
+        var createActions=new WrapPanel {Margin=new Thickness(0,7,0,9)};
+        createActions.Children.Add(previewButton);
+        createActions.Children.Add(createButton);
         var select=V(Label("Map kiválasztása",12,Aqua),selector,
             Label("Mentendő adatkörök",12,Aqua),scopePanel,
             Label("Helyi mentési célkönyvtár",12,Aqua),root,
-            Btn("Célmappa kiválasztása",()=>{
-                if(busy)return;
-                using var pick=new Forms.FolderBrowserDialog{
-                    Description="Helyi, az ASA telepítési könyvtártól különálló mentési mappa",
-                    SelectedPath=root.Text.Trim()
-                };
-                if(pick.ShowDialog()==Forms.DialogResult.OK)root.Text=pick.SelectedPath;
-            }),previewButton,createButton,preflightStatus);
+            folderPick,createActions,preflightStatus);
         var historyActions=new WrapPanel{Margin=new Thickness(0,3,0,7)};
         historyActions.Children.Add(historyButton);
         historyActions.Children.Add(verifyButton);
-        var catalog=V(Label("Mentési előzmények",19,Mint,true),
-            Label("A kijelölt map helyi mentései · SHA-256 alapján ellenőrizve",12,Soft),
-            historyActions,count,list,detail);
+        var catalog=V(Label("MENTÉSI ELŐZMÉNYEK",17,Mint,true),
+            Label("Fájlszintű SHA-256 ellenőrzés · nem garantál ASA-visszaállíthatóságot",12,Soft),
+            count,list,detail);
         var grid=new Grid{Margin=new Thickness(0,0,0,7)};
-        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
-        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
-        var left=Box(V(Label("Offline mentés",19,Mint,true),select));
+        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(4,GridUnitType.Star),MinWidth=285});
+        grid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(6,GridUnitType.Star),MinWidth=320});
+        var left=Box(V(Label("ÚJ HELYI MENTÉS",17,Mint,true),select));
         var right=Box(catalog);
         Grid.SetColumn(right,1);
         grid.Children.Add(left);grid.Children.Add(right);
+        Add(Box(historyActions));
         Add(grid);
-        Add(Box(V(Label("Művelet eredménye",15,Mint,true),operationStatus,latestStatus)));
+        Add(Box(V(Label("MŰVELETI ÁLLAPOT",15,Mint,true),operationStatus,latestStatus)));
 
         Add(new Expander{Header="Haladó mentési funkciók · retenció, SQL, teljes leltár",
             Padding=new Thickness(10),Margin=new Thickness(0,3,9,14),

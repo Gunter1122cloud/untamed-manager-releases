@@ -548,12 +548,12 @@ public partial class MainWindow
     private UIElement DemoBackupsPane(DemoMap map)
     {
         var demo=_demo!;
-        var list=new ListBox{Height=165,Background=Panel,Foreground=Brushes.White};
+        var list=new ListBox{MinHeight=155,MaxHeight=300,Background=Panel,Foreground=Mint};
         var status=Label("Mintakatalógus: nincs mentett állomány.",12,Soft);
         void Refresh()=>list.ItemsSource=map.Backups.ToArray();
         Refresh();
-        return V(Label("Backup / Restore – szimuláció",17,Mint,true),
-            Label("A mintamentés mod-, plugin-, INI- és állapotpillanatképet tárol a memóriában. A DEMO restore nem ír valódi állományt.",12,Soft),
+        return V(Label("BACKUP CENTER  /  DEMO",17,Mint,true),
+            Label("A mintamentés kizárólag memóriabeli mod-, plugin-, INI- és állapotpillanatkép. Nem ír valódi állományt, Store-t vagy SQL-t.",12,Soft),
             list,
             Btn("Mintamentés létrehozása",()=>{
                 RunDemo(()=>demo.Backup(map.Id),status,"DEMO mentésrekord létrejött",Refresh);

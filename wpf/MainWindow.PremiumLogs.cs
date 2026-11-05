@@ -39,8 +39,8 @@ public partial class MainWindow
             ItemsSource=new[]{"Összes sor","Hibák","Figyelmeztetések","Információ"},
             SelectedIndex=0,Width=164,Margin=new Thickness(0,0,10,9)
         };
-        var rows=new ListBox{
-            MinHeight=330,MaxHeight=650,
+        var rows=new ListView{
+            MinHeight=330,MaxHeight=680,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumLogRow")
         };
         var summary=Label("Még nincs helyi naplókivonat.",12,Soft);
@@ -182,10 +182,10 @@ public partial class MainWindow
         toolbar.Children.Add(selector);toolbar.Children.Add(search);toolbar.Children.Add(filter);
         var actions=new WrapPanel{Margin=new Thickness(0,2,0,9)};
         actions.Children.Add(refresh);actions.Children.Add(autoButton);actions.Children.Add(copy);
-        var top=Box(V(Label("ASA naplók – helyi map",18,Mint,true),
-            Label("Csak a napló végét olvassuk, nincs szervervezérlés vagy külső naplófeltöltés.",12,Soft),
-            toolbar,actions,source,status));
-        var main=Box(V(Label("Naplósorok",17,Mint,true),summary,rows,footer));
+        var top=Box(V(Label("LOG CENTER  /  HELYI ASA NAPLÓK",17,Mint,true),
+            Label("Valódi, helyi forrás · keresés, szintszűrés, frissítés · titokszűrés",12,Soft),
+            toolbar,actions));
+        var main=Box(V(Label("NAPLÓSOROK",17,Mint,true),source,summary,rows,footer,status));
         Add(top);Add(main);
         Add(new Expander{
             Header="Haladó · történeti ASA / ArkApi indítási naplóelemzés",
