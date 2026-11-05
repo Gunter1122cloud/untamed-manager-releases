@@ -235,3 +235,32 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 @media(max-width:780px){.initial-setup-form{grid-template-columns:1fr}
 .initial-setup-form>label:first-child{grid-column:auto}
 .initial-preview-grid{grid-template-columns:1fr 1fr}}
+
+/* Existing Store-v1 is NEVER the fresh-install wizard.
+   The subdued, evidence-focused layout clearly separates archived identity
+   proof from the unverified live launch capability. */
+.server-import-buttons{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.historical-import{border-color:#4e816c;background:linear-gradient(135deg,#102a31,#122e2b)}
+.historical-import .panel-head{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.historical-import .panel-head h2{display:inline-flex;align-items:center;gap:10px}
+.historical-import .panel-head .mod-tag{display:inline-flex;align-items:center;gap:5px}
+.historical-import-form{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:12px;
+  align-items:end;margin:15px 0;border-bottom:1px solid #345a52;padding-bottom:15px}
+.historical-import-form label{display:flex;flex-direction:column;gap:8px;
+  font-size:12px;color:#b3dcc7;font-weight:650}
+.historical-import-form input,.historical-import-form select{min-height:44px;min-width:0;
+  border:1px solid #47766a;background:#0e252a;color:#e8faef;border-radius:8px;padding:10px 12px}
+.historical-import-form button{display:inline-flex;align-items:center;gap:8px;min-height:44px}
+.historical-preview{padding:18px;border:1px solid #589c77;border-radius:10px;
+  background:#133a31;margin:12px 0 18px}
+.historical-preview-heading{display:flex;align-items:center;gap:9px;color:#c4f8d7;margin-bottom:16px}
+.historical-proof-grid{display:grid;grid-template-columns:minmax(145px,1fr) minmax(160px,1fr);
+  gap:10px;background:#122a2e;padding:15px;border-radius:8px;margin-bottom:15px}
+.historical-proof-grid span{font-size:12px;color:#b6cec4}
+.historical-proof-grid strong{font-size:12px;color:#d4f7e4}
+.historical-approval{display:flex;gap:9px;align-items:flex-start;margin-bottom:14px;
+  font-size:12px;line-height:1.5;color:#b9deca}
+.historical-approval input{width:17px;height:17px;accent-color:#83e9b4;flex-shrink:0;margin-top:2px}
+.historical-preview>button{display:inline-flex;align-items:center;gap:8px}
+@media(max-width:970px){.historical-import-form{grid-template-columns:1fr}
+.historical-proof-grid{grid-template-columns:1fr 1fr}}

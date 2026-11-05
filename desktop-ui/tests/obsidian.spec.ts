@@ -41,8 +41,33 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string }) => {
       switch (m.method) {
+        case "historical.list": return {
+          sourceVerified:true,completeLaunchArguments:false,liveStoreVerified:false,
+          allowServerStart:false,evidence:"HISTORICAL_LOCAL_ARCHIVE_READ_ONLY",
+          maps:[{mapId:"00000000-0000-4000-8000-000000003888",
+            mapKey:"ScorchedEarth_WP",gamePort:7777,queryPort:27015,
+            enabledMods:22,passiveMods:3}]
+        };
+        case "historical.preview": return {
+          token:"00000000-0000-4000-8000-000000003889",
+          mapId:m.mapId,mapKey:"ScorchedEarth_WP",name:"Scorched Earth",
+          gamePort:7777,queryPort:27015,enabledMods:22,passiveMods:3,
+          folderName:"TestExistingMap",historicalActive:true,
+          originalMapIdPreserved:true,fullLaunchArgumentsVerified:false,
+          peerWriterVerified:false,serverStartAllowed:false,
+          evidence:"HISTORICAL_STORE_V1_QUARANTINE_PREVIEW"
+        };
+        case "historical.register":
+          state.local.maps.push({
+            id:"00000000-0000-4000-8000-000000003888",
+            name:"Scorched Earth",running:false,status:"Store-v1 zárolt",
+            gamePort:7777,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
+          return {mapId:"00000000-0000-4000-8000-000000003888",
+            mapName:"Scorched Earth",registered:true,storeProtected:true,
+            requiresOriginalLaunchVerification:true,serverStarted:false,
+            worldFilesChanged:false,evidence:"HISTORICAL_STORE_V1_REGISTERED_QUARANTINED"};
         case "steam.freshCurrent": return {current:null};
         case "steam.freshPreflight": return {
           token:"00000000-0000-4000-8000-000000008888",
@@ -403,4 +428,25 @@ test("Newly imported local map first setup saves session and UDP ports only afte
   await expect(page.getByText(/indítási profilja mentve/)).toBeVisible();
   await expect(page.getByText("7797").first()).toBeVisible();
   await page.screenshot({path:"test-results/asa-first-map-setup-1500.png",fullPage:true});
+});
+
+test("Store-v1 historic import preserves map identity and never permits launch before real validation",async ({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Kova Store-v1 átvétel"}).click();
+  await expect(page.getByText(/Kova Store-v1 · meglévő map átvétele/)).toBeVisible();
+  await page.getByRole("textbox",{name:"Kova Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
+  await page.getByRole("button",{name:"Archívum ellenőrzése"}).click();
+  await expect(page.getByRole("combobox",{name:"Archivált Kova map"})).toBeVisible();
+  await page.getByRole("textbox",{name:"Kova ASA map mappája"}).fill("C:\\ASA\\TestExistingMap");
+  await page.getByRole("button",{name:"Map és Store-adatok előellenőrzése"}).click();
+  await expect(page.getByText(/Teljes launch argumentumok/)).toBeVisible();
+  await expect(page.getByText("TILTOTT")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"})).toBeDisabled();
+  await page.getByText(/Jóváhagyom a kizárólag Manager-profilba történő, zárolt regisztrációt/).click();
+  await page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"}).click();
+  await expect(page.getByText(/Store-v1 zárolt: a szerver nem indulhat/)).toBeVisible();
+  await expect(page.getByRole("row",{name:/Scorched Earth/})).toBeVisible();
+  await page.screenshot({path:"test-results/store-v1-locked-import-1600.png",fullPage:true});
 });
