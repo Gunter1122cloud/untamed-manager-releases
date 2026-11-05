@@ -48,8 +48,26 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string }) => {
       switch (m.method) {
+        case "updates.status": return {
+          repository:"Gunter1122cloud/untamed-manager-releases",
+          runningVersion:"1.4.0",installedTag:"v1.4.0",
+          provider:"GITHUB_RELEASES",updateCheckPerformed:false,
+          installationPermitted:false,updaterVerified:false,
+          evidence:"LOCAL_RELEASE_IDENTITY_NO_NETWORK"
+        };
+        case "updates.check": return {
+          repository:"Gunter1122cloud/untamed-manager-releases",
+          runningVersion:"1.4.0",installedTag:"v1.4.0",
+          channel:m.channel??"stable",found:true,newer:true,
+          tag:"v9.0.0",version:"9.0.0",
+          assetName:"UntamedManager-9.0.0-SETUP.exe",
+          sha256:"a".repeat(64),
+          releaseNotes:"Synthetic signed-release metadata only",
+          installationPermitted:false,updaterVerified:false,
+          evidence:"GITHUB_RELEASE_METADATA_NOT_AN_INSTALLER"
+        };
         case "historical.launchEvidence": return {
           mapStatus:"MENTIONED",gamePortStatus:"MATCH",queryPortStatus:"MATCH",
           modOrderStatus:"MATCH",passiveModOrderStatus:"MATCH",clusterIdPresent:!!m.command?.includes("-clusterid="),
@@ -268,6 +286,20 @@ test.beforeEach(async ({ page }) => {
       }}
     });
   }, { one: first, two: second });
+});
+
+test("Update Center checks official metadata without exposing installer mutation",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Frissítések"}).click();
+  await expect(page.getByRole("heading",{name:"Frissítési központ"})).toBeVisible();
+  await expect(page.getByText("v1.4.0")).toBeVisible();
+  await page.getByRole("combobox",{name:"Frissítési csatorna"}).selectOption("preview");
+  await page.getByRole("button",{name:"Frissítések keresése"}).click();
+  await expect(page.getByText("Új kiadás érhető el")).toBeVisible();
+  await expect(page.getByText("UntamedManager-9.0.0-SETUP.exe")).toBeVisible();
+  await expect(page.getByText(/A telepítés nincs engedélyezve/)).toBeVisible();
+  await expect(page.getByRole("button",{name:/Telepítés indítása/})).toHaveCount(0);
+  await page.screenshot({path:"test-results/uk-update-center-1600.png",fullPage:false});
 });
 
 test("full-HD premium cluster dashboard fits without horizontal clipping",async({page})=>{
