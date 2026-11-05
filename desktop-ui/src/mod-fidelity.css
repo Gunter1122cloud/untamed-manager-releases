@@ -156,3 +156,26 @@
   .premium-plugin-actions .plugin-row{flex-wrap:wrap;}
   .premium-plugin-actions .plugin-row button{width:100%;}
 }
+
+/* Keep the approved Mod Center inside one clear workspace. Advanced native
+   editors, shared-map inventory and full CurseForge catalog are real tabs,
+   not permanently stacked four screens below the mod list. */
+.premium-workspace-tabs {display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding:5px;border:1px solid #37575a;border-radius:10px;
+  background:linear-gradient(110deg,#1a3036,#13242c);margin:0 0 13px;}
+.premium-workspace-tabs>button {display:flex;align-items:center;justify-content:center;gap:8px;
+  min-height:40px;background:transparent;border:1px solid transparent;border-radius:7px;
+  color:#afc7c3;font-size:12px;font-weight:650;padding:9px 14px;}
+.premium-workspace-tabs>button:hover:not(.active) {background:#25423b;color:#eafff7;}
+.premium-workspace-tabs>button.active {background:linear-gradient(115deg,#246b54,#19503e);
+  border-color:#54b18e;color:#edfff6;box-shadow:inset 0 1px #b2ffe51a;}
+.premium-tab-count {display:grid;place-items:center;min-width:20px;height:20px;
+  background:#e1b45d;color:#26332e;font-size:10px;font-weight:800;border-radius:99px;}
+.premium-tab-surface.is-hidden {display:none!important;}
+.premium-tab-surface:not(.is-hidden) {animation:premium-workspace-enter .17s ease-out;}
+@keyframes premium-workspace-enter {from{opacity:.72;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:900px){
+  .premium-workspace-tabs {gap:3px;}
+  .premium-workspace-tabs>button {padding:9px 10px;flex:1 1 auto;font-size:11px;}
+}
+@media(prefers-reduced-motion:reduce){.premium-tab-surface:not(.is-hidden){animation:none;}}
