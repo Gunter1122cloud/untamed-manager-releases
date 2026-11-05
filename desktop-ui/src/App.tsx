@@ -17,6 +17,7 @@ import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { PremiumDashboard, MapCover } from "./PremiumDashboard";
+import { PremiumModBoard } from "./PremiumModBoard";
 
 type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -386,8 +387,9 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
     {snapshot.remote && <Panel title={`Távoli mapok · ${snapshot.remote.hostName}`}><MapTable maps={snapshot.remote.maps} host={snapshot.remote.hostName} filter={search}/></Panel>}
   </>;
 }
-function ModDraftEditor({ mapId, onSaved, prefillId }: {
-  mapId: string; onSaved: (saved: ModDraftSave) => void; prefillId: string
+function ModDraftEditor({ mapId, onSaved, prefillId, prefillMode, onDraftProgress }: {
+  mapId: string; onSaved: (saved: ModDraftSave) => void; prefillId: string;
+  prefillMode?: ModDraftMode; onDraftProgress?: (changes:number)=>void
 }) {
   const [draft, setDraft] = useState<ModDraftState | null>(null);
   const [modId, setModId] = useState("");
@@ -400,6 +402,7 @@ function ModDraftEditor({ mapId, onSaved, prefillId }: {
   useEffect(() => {
     if (!prefillId) return;
     setModId(prefillId);
+    if(prefillMode)setMode(prefillMode);
     // A catalog selection opens only an in-memory draft. No Manager file is
     // modified until the separate, explicitly confirmed Save operation.
     if (!draft && mapId) {
@@ -413,7 +416,8 @@ function ModDraftEditor({ mapId, onSaved, prefillId }: {
         .finally(() => { if (active) setBusy(false); });
       return () => { active = false; };
     }
-  }, [prefillId, mapId]);
+  }, [prefillId, prefillMode, mapId]);
+  useEffect(()=>{onDraftProgress?.(draft?.differences.length??0);},[draft,onDraftProgress]);
   const start = async () => {
     if (!mapId) return;
     setBusy(true); setError(""); setNotice("");
@@ -581,7 +585,14 @@ function Mods({ snapshot, selected, setSelected }: {
   const [info, setInfo] = useState<ConfiguredMods | null>(null);
   const [error, setError] = useState("");
   const [catalogPicked, setCatalogPicked] = useState("");
+  const [prefillMode,setPrefillMode]=useState<ModDraftMode>("active");
+  const [draftChanges,setDraftChanges]=useState(0);
   const [inventoryRevision,setInventoryRevision]=useState(0);
+  const currentName=info?.mapName||
+    snapshot.local.maps.find(m=>m.id===selected)?.name||"Helyi map";
+  useEffect(()=>{
+    setCatalogPicked("");setDraftChanges(0);setPrefillMode("active");
+  },[selected]);
   useEffect(() => {
     let active = true;
     setInfo(null); setError("");
@@ -590,49 +601,46 @@ function Mods({ snapshot, selected, setSelected }: {
       .catch(e => { if(active) setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE"); });
     return () => { active = false; };
   }, [selected]);
-  const entries = info ? [
-    ...info.active.map((id, position) => ({ id, position, state: "Aktív", cls: "green" })),
-    ...info.passive.map((id, position) => ({ id, position, state: "Passzív", cls: "amber" })),
-    ...info.disabled.map((id, position) => ({ id, position, state: "Letiltva", cls: "grey" }))
-  ] : [];
-  return <><div className="page-intro"><span className="eyebrow">CURSEFORGE / HELYI KONFIGURÁCIÓ</span><h1>Mod Center</h1>
-    <p>Modkiosztás a valódi indítási konfigurációból — a fájlok betöltöttségét nem állítjuk bizonyítottnak.</p></div>
-    <div className="toolbar mod-toolbar"><Layers3 size={19}/><select aria-label="Helyi map" value={selected} onChange={e => setSelected(e.target.value)}>
-      {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-    </select><span className="muted small">Konfigurációs piszkozat és mentés · ASA újraindítás nélkül</span></div>
-    <SharedModOverview revision={inventoryRevision} onPick={setSelected}/>
-    <div className="mods-grid">
-      <Panel title={info ? `Modlista · ${info.mapName}` : "Modlista"}>
-        {error ? <div className="error-inline"><AlertTriangle size={17}/>{error}</div> :
-        !selected ? <div className="empty">Először adj hozzá helyi mapot a meglévő Managerben.</div> :
-        !info ? <div className="empty">Konfiguráció betöltése...</div> :
-        entries.length===0 ? <div className="empty">Ehhez a maphoz nincs konfigurált mod.</div> :
-        <div className="mods-list">
-          {entries.map((m,i) => <div className="mod-item" key={m.state + m.id}>
-            <span className="mod-index">{i+1}</span><span className="mod-mark"><Package size={19}/></span>
-            <div className="mod-title"><strong>Modprojekt · {m.id}</strong><small>CurseForge projektazonosító · {m.state === "Letiltva" ? "Nincs betöltési pozíció" : `Helyi sorszám ${m.position+1}`}</small></div>
-            <span className={`mod-tag ${m.cls}`}>{m.state}</span>
-          </div>)}
-        </div>}
-      </Panel>
-      <Panel title="Modinformáció">
-        <div className="mod-details-icon"><Layers3 size={31}/></div>
-        <h3>Konfigurációs leltár</h3>
-        <p className="muted">Az aktív, passzív és letiltott modok az eredeti C# ModStateController alapján jelennek meg.</p>
-        <div className="detail-divider"/>
-        <div className="details-line"><span>Forrás</span><b>Helyi mapkonfiguráció</b></div>
-        <div className="details-line"><span>Valós ASA betöltés</span><b>Nem igazolt</b></div>
-        <div className="details-line"><span>Függő változtatások</span><b>{info?.pending ? "Vannak" : "Nincsenek"}</b></div>
-        <div className="warning-inline"><Shield size={17}/><span>A modokat lent a védett piszkozatkezelőben módosíthatod; a futó ASA betöltése nem igazolt.</span></div>
-      </Panel>
+  const scrollTo=(id:string)=>{
+    document.getElementById(id)?.scrollIntoView({behavior:"smooth",block:"start"});
+  };
+  const prepare=(id:string,mode:ModDraftMode)=>{
+    setCatalogPicked(id);setPrefillMode(mode);
+    requestAnimationFrame(()=>scrollTo("mod-draft-editor"));
+  };
+  const onDraftProgress=useCallback((changes:number)=>setDraftChanges(changes),[]);
+  return <div className="premium-mod-page">
+    <div className="page-intro premium-mod-intro">
+      <span className="eyebrow">CLUSTER / {currentName.toLocaleUpperCase("hu-HU")} / MODOK</span>
+      <h1>Modok – {currentName}</h1>
+      <p>Konfigurált modok kezelése, sorrend és CurseForge-projektadatok. A futó ASA-betöltés és a fájlok telepítettsége nem következtethető ki a listából.</p>
     </div>
-    <ModDraftEditor mapId={selected} prefillId={catalogPicked} onSaved={saved => {
-      setInventoryRevision(n=>n+1);
-      setInfo(current => current ? { ...current, pending: saved.pending,
-        active: saved.active, passive: saved.passive, disabled: saved.disabled } : current);
-    }}/>
-    <CurseForgeExplorer onPrepare={setCatalogPicked}/>
-  </>;
+    <div className="premium-mod-map-picker">
+      <Layers3 size={18}/>
+      <select aria-label="Helyi map" value={selected} onChange={e=>setSelected(e.target.value)}>
+        {snapshot.local.maps.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+      </select>
+      <span className="premium-small-muted">Az eredeti indítási paraméterek megőrzésével</span>
+    </div>
+    {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
+    <PremiumModBoard info={info} mapName={currentName} draftChanges={draftChanges}
+      onStage={prepare}
+      onOpenEditor={()=>scrollTo("mod-draft-editor")}
+      onOpenCatalog={()=>scrollTo("curseforge-catalog")}/>
+    <div id="mod-draft-editor" className="premium-editor-area">
+      <ModDraftEditor mapId={selected} prefillId={catalogPicked} prefillMode={prefillMode}
+        onDraftProgress={onDraftProgress}
+        onSaved={saved => {
+          setInventoryRevision(n=>n+1);
+          setInfo(current=>current?{...current,pending:saved.pending,
+            active:saved.active,passive:saved.passive,disabled:saved.disabled}:current);
+        }}/>
+    </div>
+    <SharedModOverview revision={inventoryRevision} onPick={setSelected}/>
+    <div id="curseforge-catalog" className="premium-catalog-area">
+      <CurseForgeExplorer onPrepare={id=>prepare(id,"active")}/>
+    </div>
+  </div>;
 }
 function PluginCenter({ snapshot, selected, setSelected }: {
   snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void
