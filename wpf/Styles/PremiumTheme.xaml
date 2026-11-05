@@ -64,6 +64,46 @@
     </ControlTemplate.Triggers>
    </ControlTemplate></Setter.Value></Setter>
  </Style>
+ <!-- PasswordBox must use the same readable graphite/mint treatment as TextBox.
+      WPF PART_ContentHost is retained, so keyboard input and password masking work. -->
+ <Style TargetType="{x:Type PasswordBox}">
+  <Setter Property="FontFamily" Value="Segoe UI"/>
+  <Setter Property="FontSize" Value="13"/>
+  <Setter Property="MinHeight" Value="36"/>
+  <Setter Property="Padding" Value="11,7"/>
+  <Setter Property="Background" Value="{StaticResource SurfaceRaised}"/>
+  <Setter Property="Foreground" Value="{StaticResource TextStrong}"/>
+  <Setter Property="CaretBrush" Value="{StaticResource AccentLight}"/>
+  <Setter Property="SelectionBrush" Value="{StaticResource AccentDeep}"/>
+  <Setter Property="BorderBrush" Value="{StaticResource SurfaceLine}"/>
+  <Setter Property="BorderThickness" Value="1"/>
+  <Setter Property="FocusVisualStyle" Value="{StaticResource PremiumFocusRing}"/>
+  <Setter Property="Template">
+   <Setter.Value>
+    <ControlTemplate TargetType="{x:Type PasswordBox}">
+     <Border x:Name="PasswordChrome"
+       Background="{TemplateBinding Background}"
+       BorderBrush="{TemplateBinding BorderBrush}"
+       BorderThickness="{TemplateBinding BorderThickness}"
+       CornerRadius="7" SnapsToDevicePixels="True">
+      <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+        VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Hidden"/>
+     </Border>
+     <ControlTemplate.Triggers>
+      <Trigger Property="IsKeyboardFocusWithin" Value="True">
+       <Setter TargetName="PasswordChrome" Property="BorderBrush" Value="{StaticResource AccentLight}"/>
+      </Trigger>
+      <Trigger Property="IsMouseOver" Value="True">
+       <Setter TargetName="PasswordChrome" Property="BorderBrush" Value="#5C847B"/>
+      </Trigger>
+      <Trigger Property="IsEnabled" Value="False">
+       <Setter TargetName="PasswordChrome" Property="Opacity" Value="0.48"/>
+      </Trigger>
+     </ControlTemplate.Triggers>
+    </ControlTemplate>
+   </Setter.Value>
+  </Setter>
+ </Style>
  <Style TargetType="{x:Type ListBox}">
   <Setter Property="Background" Value="{StaticResource SurfacePanel}"/>
   <Setter Property="Foreground" Value="{StaticResource TextStrong}"/>
