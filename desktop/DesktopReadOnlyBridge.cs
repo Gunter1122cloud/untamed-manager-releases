@@ -127,7 +127,8 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                         // map. Never pass encrypted RCON secrets, Store roots,
                         // launch arguments or internal cluster identifiers
                         // to the WebView2 renderer.
-                        var config = _cluster.Config.LocalMaps.FirstOrDefault(x => x.Id == m.Id);
+                        var config = _cluster.Config.LocalMaps.FirstOrDefault(x =>
+                            string.Equals(x.Id.ToString("D"), m.Id, StringComparison.OrdinalIgnoreCase));
                         return new {
                             id = m.Id, name = m.Name, running = m.Running,
                             status = m.Status, gamePort = m.GamePort,
