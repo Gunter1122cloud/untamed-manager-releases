@@ -67,3 +67,16 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 .draft-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin:6px 7px 17px}
 @media(max-width:1450px){.draft-form{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:830px){.draft-form{grid-template-columns:1fr}.draft-difference{grid-template-columns:1fr 1fr 20px 1fr}}
+
+.ini-toolbar{display:flex;align-items:end;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.ini-toolbar label{display:flex;flex-direction:column;gap:8px;font-size:12px;color:#a8d5c7;min-width:210px}
+.ini-toolbar select{padding:11px;background:#172e35;color:#e6fff3;border:1px solid #416961;border-radius:8px;min-height:43px}
+.ini-toolbar button{min-height:43px}
+.ini-editor-label{display:block;font-size:12px;font-weight:650;color:#a8d8c6;margin:10px 6px}
+.ini-editor{width:100%;height:410px;resize:vertical;background:#0c1b1f;border:1px solid #335958;color:#e0faed;border-radius:9px;padding:17px;font:12px/1.55 Consolas,"Cascadia Code",monospace;white-space:pre;tab-size:4;overflow:auto}
+.ini-editor:focus{outline:2px solid #76e4c4}
+.ini-actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end;margin:13px 3px 18px}
+.ini-preview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;background:#142f32;border:1px solid #3a665d;border-radius:9px;margin:10px 0 18px;padding:14px}
+.ini-preview span{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;font-size:12px;color:#afd0c5}
+.ini-preview b{color:#81edc1}.ini-preview code{font-size:11px;color:#d5f0e3}
+@media(max-width:830px){.ini-toolbar label{flex:1;min-width:155px}.ini-preview{grid-template-columns:1fr}.ini-editor{height:330px}}

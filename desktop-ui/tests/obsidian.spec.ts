@@ -39,9 +39,14 @@ test.beforeEach(async ({ page }) => {
       canUndo:!!stagedId,canRedo:!!redoId,evidence:"IN_MEMORY_MOD_DRAFT",
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string; mode?: string }) => {
+    const iniToken="00000000-0000-4000-8000-000000003333";
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string; mode?: string; file?: string; token?: string; content?: string }) => {
       switch (m.method) {
         case "dashboard.snapshot": return state;
+        case "ini.open": return {token:iniToken,mapId:one,file:m.file||"Game.ini",content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
+        case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
+        case "ini.save": return {saved:true,backupCreated:true,sha256:"FFEE11",evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
+        case "ini.close": return {closed:true};
         case "mods.draftStart": stagedId="";return draftState();
         case "mods.draftStage": stagedId=m.modId||"";redoId="";return draftState();
         case "mods.draftUndo": redoId=stagedId;stagedId="";return draftState();
@@ -181,4 +186,22 @@ test("native mod draft contract stages in memory and saves only on explicit clic
   await page.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
   await expect(page.getByText("Modprojekt · 567890")).toBeVisible();
   await expect(page.getByText(/Mentve a helyi indítási konfigurációba/)).toBeVisible();
+});
+
+test("INI editor requires explicit open, preview and save in test contract",async ({page})=>{
+  await page.setViewportSize({width:1366,height:768});
+  await page.goto("/");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await expect(page.getByRole("heading",{name:"INI szerkesztő"})).toBeVisible();
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  const editor=page.getByRole("textbox",{name:"Az eredeti fájl szerkeszthető tartalma"});
+  await expect(editor).toBeVisible();
+  await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"})).toBeDisabled();
+  await editor.fill("[ServerSettings]\\nExample=2\\n");
+  await page.getByRole("button",{name:"Hash és változások előnézete"}).click();
+  await expect(page.getByText("FFEE11")).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"})).toBeEnabled();
+  await page.screenshot({path:"test-results/ini-preview-1366.png",fullPage:true});
+  await page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}).click();
+  await expect(page.getByText(/visszaállítási \.bak másolattal/)).toBeVisible();
 });
