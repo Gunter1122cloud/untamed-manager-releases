@@ -41,11 +41,11 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 
             id = parsedId.ToString("D");
             string? method = rawMethod.GetString();
-            if (method is not ("dashboard.snapshot" or "mods.configured" or "curseforge.search"))
+            if (method is not ("dashboard.snapshot" or "mods.configured" or "curseforge.search" or "plugins.inventory" or "backups.summary"))
                 return Error(id, "UM-METHOD-DENIED");
 
             string? mapId = null;
-            if (method == "mods.configured")
+            if (method is "mods.configured" or "plugins.inventory")
             {
                 if (!request.TryGetProperty("mapId", out var rawMap) ||
                     rawMap.ValueKind != JsonValueKind.String ||
@@ -84,6 +84,8 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                     "dashboard.snapshot" => await GetDashboardAsync(),
                     "mods.configured" => GetConfiguredMods(Guid.Parse(mapId!)),
                     "curseforge.search" => await SearchCurseForgeAsync(searchTerm!, searchIndex),
+                    "plugins.inventory" => await Task.Run(() => GetLocalPluginInventory(Guid.Parse(mapId!))),
+                    "backups.summary" => await Task.Run<object>(() => GetLocalBackupOverview()),
                     _ => throw new InvalidOperationException("Disallowed bridge operation")
                 };
                 return JsonSerializer.Serialize(new { id, ok = true, data = result }, Json);
@@ -161,6 +163,41 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                 downloadCount = m.DownloadCount
             }).ToArray(),
             evidence = "OFFICIAL_CATALOG_METADATA_ONLY"
+        };
+    }
+
+    private object GetLocalPluginInventory(Guid mapId)
+    {
+        var map = _cluster.Config.LocalMaps.SingleOrDefault(m => m.Id == mapId);
+        if (map is null) throw new UnauthorizedAccessException("Not locally owned");
+        var entries = LocalPluginInventory.Scan(map);
+        return new
+        {
+            mapId = map.Id,
+            mapName = map.Name,
+            plugins = entries.Select(p => new {
+                name = p.PluginName,
+                protectedData = p.Protected,
+                binaries = p.Binaries.Select(b => new {
+                    name = b.Name, version = b.Version, bytes = b.Bytes
+                }).ToArray()
+            }).ToArray(),
+            evidence = "READ_ONLY_LOCAL_FILE_INVENTORY"
+        };
+    }
+
+    private object GetLocalBackupOverview()
+    {
+        var entries = LocalBackupOverview.Inspect(_cluster.Store.Root, _cluster.Config.LocalMaps);
+        return new {
+            maps = entries.Select(m => new {
+                mapId = m.MapId, mapName = m.MapName,
+                validPackages = m.ValidPackages,
+                invalidPackages = m.InvalidPackages,
+                verifiedBytes = m.VerifiedBytes,
+                latestVerifiedUtc = m.LatestVerifiedUtc
+            }).ToArray(),
+            evidence = "FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE"
         };
     }
 
