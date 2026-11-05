@@ -96,21 +96,21 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
 
                     // The historical map root must be EXACTLY the local
                     // installation being imported. No silent relocation.
-                    var (originalRoot,enabled,passive)=ReadVerifiedLaunchRow(archive,mapId);
+                    var (originalRoot,previewEnabled,previewPassive)=ReadVerifiedLaunchRow(archive,mapId);
                     if(!string.Equals(Path.GetFullPath(originalRoot).TrimEnd('\\'),
                         root.TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))
                         return Fail(id,"UM-HISTORICAL-ROOT-MISMATCH");
-                    if(enabled.Length!=selected.EnabledMods ||
-                       passive.Length!=selected.PassiveMods)
+                    if(previewEnabled.Length!=selected.EnabledMods ||
+                       previewPassive.Length!=selected.PassiveMods)
                         return Fail(id,"UM-HISTORICAL-INVALID-MODS");
-                    var install=LocalAsaInstallLocator.Probe(root);
-                    if(!install.HasServerExecutable ||
-                       string.IsNullOrWhiteSpace(install.ServerExecutable))
+                    var previewInstall=LocalAsaInstallLocator.Probe(root);
+                    if(!previewInstall.HasServerExecutable ||
+                       string.IsNullOrWhiteSpace(previewInstall.ServerExecutable))
                         return Fail(id,"UM-ASA-EXE-MISSING");
 
                     string name=MapName(selected.MapId);
                     CheckDuplicate(mapId,name,root);
-                    var observation=Observed(selected,root,install.ServerExecutable);
+                    var observation=Observed(selected,root,previewInstall.ServerExecutable);
                     if(observation.Running || !observation.ConfirmedStopped)
                         return Fail(id,"UM-HISTORICAL-STOP-REQUIRED");
 
@@ -121,8 +121,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     if(pending.Count>=8)pending.Clear();
                     var token=Guid.NewGuid();
                     pending[token]=new(token,archive,originalHash,mapId,
-                        selected.MapId,name,root,install.ServerExecutable,
-                        selected.GamePort,selected.QueryPort,enabled,passive,
+                        selected.MapId,name,root,previewInstall.ServerExecutable,
+                        selected.GamePort,selected.QueryPort,previewEnabled,previewPassive,
                         DateTimeOffset.UtcNow.AddMinutes(7));
                     return Ok(id,new{
                         token,mapId,mapKey=selected.MapId,name,
