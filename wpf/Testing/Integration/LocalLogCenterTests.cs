@@ -29,6 +29,8 @@ public static class LocalLogCenterTests
         File.WriteAllLines(file,lines);
         var map=new LocalMap{Id=Guid.NewGuid(),Name="Offline synthetic ASA",
             InstallationPath=install,LogFilePath=file};
+        LocalMap Choice(string path,Guid? identity=null)=>new(){Id=identity??map.Id,
+            Name=map.Name,InstallationPath=map.InstallationPath,LogFilePath=path};
         long fileSize=new FileInfo(file).Length;
         byte[] original=File.ReadAllBytes(file);
         var result=LocalLogCenter.Read(map,24_000,130);
@@ -49,11 +51,11 @@ public static class LocalLogCenterTests
         Check(File.ReadAllBytes(file).SequenceEqual(original),
             "read, search and severity filtering leave log byte-identical");
         bool outside=false,badExtension=false,noMap=false,invalidBound=false;
-        try{LocalLogCenter.Read(map with { LogFilePath=Path.Combine(work,"outside.log") });}
+        try{LocalLogCenter.Read(Choice(Path.Combine(work,"outside.log")));}
         catch(InvalidDataException){outside=true;}
-        try{LocalLogCenter.Read(map with { LogFilePath=Path.Combine(logs,"not-a-log.dll") });}
+        try{LocalLogCenter.Read(Choice(Path.Combine(logs,"not-a-log.dll")));}
         catch(InvalidDataException){badExtension=true;}
-        try{LocalLogCenter.Read(map with { Id=Guid.Empty });}
+        try{LocalLogCenter.Read(Choice(file,Guid.Empty));}
         catch(InvalidDataException){noMap=true;}
         try{LocalLogCenter.Read(map,1_048_577,130);}
         catch(ArgumentOutOfRangeException){invalidBound=true;}
@@ -66,7 +68,7 @@ public static class LocalLogCenterTests
         string binary=Path.Combine(logs,"binary.log");
         File.WriteAllBytes(binary,new byte[]{65,0,66,10});
         bool binaryRejected=false;
-        try{LocalLogCenter.Read(map with{LogFilePath=binary});}
+        try{LocalLogCenter.Read(Choice(binary));}
         catch(InvalidDataException){binaryRejected=true;}
         Check(binaryRejected,"NUL-containing binary file is never rendered as an ASA text log");
         Check(result.Lines.All(x=>x.Content.Length<=8212),
