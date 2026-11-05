@@ -460,7 +460,7 @@ try
         File.WriteAllText(Path.Combine(active,"license.key"),"KEEP-LICENSE-PRIVATE");
         bool peerRunning=false;
         var a=new LocalMap{Name="Plugin test A",InstallationPath=install};
-        var b=new LocalMap{Name="Plugin test B",InstallationPath=install};
+        var b=new LocalMap{Name="Plugin test B",InstallationPath=install+Path.DirectorySeparatorChar};
         await using var pluginCluster=new ClusterService("plugin-state-native-test",
             Path.Combine(root,"plugin-native-profile"),
             m=>peerRunning && m.Id==b.Id
