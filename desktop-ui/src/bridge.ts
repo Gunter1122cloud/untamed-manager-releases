@@ -232,6 +232,19 @@ export type LocalImportReceipt = {
   needsConfiguration:true; evidence:"MANAGER_PROFILE_ONLY_NO_ASA_CHANGE";
 };
 
+export type SharedModInventory = {
+  mapCount:number; configuredMapCount:number; sharedProjectCount:number;
+  unreadableMaps:string[];
+  projects:Array<{
+    projectId:string; enabledMapCount:number; shared:boolean;
+    assignments:Array<{
+      mapId:string; mapName:string; mode:"active"|"passive"|"disabled"|"unknown";
+      position:number; historicalProtected:boolean;
+    }>;
+  }>;
+  evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY";
+};
+
 export type ConfiguredMods = {
   mapId: string;
   mapName: string;
@@ -242,7 +255,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search" | "plugins.inventory" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
+type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
@@ -304,6 +317,7 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
 export const managerBridge = {
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
   configuredMods: (mapId: string) => request<ConfiguredMods>("mods.configured", { mapId }),
+  sharedModInventory: () => request<SharedModInventory>("mods.sharedInventory"),
   catalogSearch: (term: string, page = 0) => request<CurseForgeResult>("curseforge.search", { term, page }),
   pluginInventory: (mapId: string) => request<PluginInventory>("plugins.inventory", { mapId }),
   backupOverview: () => request<BackupOverview>("backups.summary"),
