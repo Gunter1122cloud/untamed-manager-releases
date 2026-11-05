@@ -524,6 +524,43 @@ try
             "running ASA prevents historical Store import before a map profile is created");
     }
 
+    // Synthetic two-host metadata: common eight-file coordination ZIP plus
+    // complementary four-file HP local JSON copy. No live host/SMB or Store writes.
+    ClusterVaultTests.Run(root);
+    string peerTestRoot=Path.Combine(root,"v16-vault-zip");
+    string coordinationCopy=Path.Combine(peerTestRoot,"Untamed-Cluster-Vault.zip");
+    string hpLocalCopy=Path.Combine(peerTestRoot,"Synthetic-HP-Local-v1.zip");
+    string originalCoordHash=Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(coordinationCopy)));
+    string originalHpHash=Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(hpLocalCopy)));
+    using(var pairBridge=new DesktopHistoricalStoreImportBridge(cluster))
+    {
+        var paired=await Call(pairBridge.HandleAsync,"historical.pairedEvidence",
+            new{coordinationArchive=coordinationCopy,localMetadataArchive=hpLocalCopy});
+        IsOk(paired,"paired historical 8+4-file Store metadata can be inspected without SMB");
+        var data=paired.GetProperty("data");
+        Check(data.GetProperty("completeTwoHostEvidence").GetBoolean() &&
+              data.GetProperty("sessionConsistent").GetBoolean() &&
+              data.GetProperty("configHashesVerified").GetBoolean() &&
+              !data.GetProperty("productionUseAllowed").GetBoolean(),
+            "consistent historical two-host archive still never authorizes live Store writer");
+        var badCopy=await Call(pairBridge.HandleAsync,"historical.pairedEvidence",
+            new{coordinationArchive=coordinationCopy,
+                localMetadataArchive=Path.Combine(peerTestRoot,"Synthetic-HP-Incomplete.zip")});
+        Check(IsError(badCopy,"UM-HISTORICAL-VERIFICATION-FAILED"),
+            "incomplete second host metadata is denied without inventing ownership");
+        var denied=await Call(pairBridge.HandleAsync,"historical.pairedEvidence",
+            new{coordinationArchive=coordinationCopy,localMetadataArchive=coordinationCopy});
+        Check(IsError(denied,"UM-HISTORICAL-PAIR-INVALID-REQUEST"),
+            "same ZIP cannot masquerade as two host sources");
+    }
+    Check(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        File.ReadAllBytes(coordinationCopy)))==originalCoordHash &&
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        File.ReadAllBytes(hpLocalCopy)))==originalHpHash,
+        "paired historical Store-v1 verification leaves BOTH original ZIPs byte-identical");
+
     // A new, deliberately untrusted process observer must not write INI.
     await using var running=new ClusterService("obsidian-running",Path.Combine(root,"running-profile"),
         _=>new ProcessCheck(true,"Synthetic running map",null,false));

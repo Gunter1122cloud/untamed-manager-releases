@@ -41,3 +41,18 @@ A jelenlegi import eredménye szándékosan *zárolt* map: nem állítja vissza 
 4. Csak ezután dönthető el külön, pontosan körülhatárolt éles indítási jogosultság. `ReleaseCapabilityGate` globális feloldása tilos.
 
 **Magyarul: a jelenlegi első szakasz a megőrzést és a rossz migráció megakadályozását fejleszti; még nem bizonyított karakterutazási helyettesítője a Kovának.**
+
+## 2026-11-05: kétgépes offline Store-bizonyítékok beolvasása
+
+A `historical.pairedEvidence` csak a két **helyi másolatként** megadott ZIP-et olvassa:
+a közös koordináció manifestelt archívumát és a másik host pontosan négy
+Store-v1 metaadatát tartalmazó ZIP-et. Az eredeti `ClusterVaultArchiveInspector.InspectPairedCopies`
+validator két peer, tíz map, eredeti session, configHash, local lock és active
+rekord szerint értékel. Az eredmények egyszerű jelzők és ellenőrzési kódok,
+nem tartalmaznak eredeti privát elérési utat vagy azonosítót.
+
+React felületen külön „Két host Store-adatainak összevetése” szakasz nyílik.
+A teljes történeti metadata-egyezés **nem oldja fel a `ReleaseCapabilityGate`-et**,
+nem ellenőrzi az élő SMB-írót és nem bizonyít valódi ASA karakterutazást.
+A C# szintetikus pozitív 8+4 és negatív hiányzó-lock teszt az archívumok
+SHA-256 változatlanságát és az éles írás tiltását ellenőrzi.

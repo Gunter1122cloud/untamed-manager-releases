@@ -9,5 +9,6 @@
   <ItemGroup>
     <ProjectReference Include="../UntamedDesktop.csproj" />
     <Compile Include="../../wpf/Testing/Integration/ManagerMigrationArchiveTests.cs" Link="SyntheticHistoricalManagerArchive.cs" />
+    <Compile Include="../../wpf/Testing/Integration/ClusterVaultTests.cs" Link="SyntheticTwoHostVaultTests.cs" />
   </ItemGroup>
 </Project>
