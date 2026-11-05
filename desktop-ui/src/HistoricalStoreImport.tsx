@@ -81,9 +81,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     setLaunchBusy(true);setLaunchError("");setLaunchEvidence(null);
     try{
       const result=await managerBridge.historicalLaunchEvidence(archive,mapId,launchCommand);
-      if(epoch===launchEpoch.current)setLaunchEvidence(result);
+      if(epoch===launchEpoch.current){setLaunchCommand("");setLaunchEvidence(result);}
     }catch{
-      if(epoch===launchEpoch.current)setLaunchError("A parancssor csak olvasható összevetése sikertelen.");
+      if(epoch===launchEpoch.current){setLaunchCommand("");setLaunchError("A parancssor csak olvasható összevetése sikertelen.");}
     }finally{if(epoch===launchEpoch.current)setLaunchBusy(false);}
   };
   const comparePeers=async(e:FormEvent)=>{
@@ -160,7 +160,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         <form className="historical-import-form" onSubmit={e=>{void checkLaunch(e);}}>
           <label>Helyben ellenőrizendő eredeti indítási sor
             <textarea aria-label="Eredeti ASA indítási sor" rows={3} maxLength={3072}
-              value={launchCommand} disabled={registering}
+              value={launchCommand} disabled={registering} autoComplete="off" spellCheck={false}
               onChange={e=>{setLaunchCommand(e.target.value);invalidateLaunch();}}
               placeholder="ArkAscendedServer.exe MAP?SessionName=... -port=... -mods=... -usestore"/>
           </label>
