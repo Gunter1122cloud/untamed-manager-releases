@@ -140,6 +140,22 @@ export type IniSaveReceipt = {
   evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
 };
 
+export type FreshInstallPreflight = {
+  token:string; mapName:string; mapLevel:string; folderName:string;
+  steamCmdPresent:boolean; needsOfficialSteamCmdDownload:boolean;
+  existingInterruptedInstall:boolean; minimumFreeGiB:number;
+  evidence:"FRESH_INSTALL_PREFLIGHT_NO_FILE_MUTATION";
+};
+export type FreshInstallJob = {
+  jobId:string; mapName:string; stage:string; detail:string;
+  percent:number | null; verified:boolean; registered:boolean;
+  errorCode:string | null; evidence:"NATIVE_STEAMCMD_JOB_STATE";
+};
+export type FreshInstallReceipt = {
+  mapId:string; mapName:string; needsConfiguration:true;
+  serverStarted:false; evidence:"VERIFIED_STEAM_FILES_REGISTERED_MANAGER_PROFILE_ONLY";
+};
+
 export type LocalImportPreview = {
   importToken:string; name:string; folderName:string;
   exeFound:true; apiLoaderDetected:boolean; portsConfigured:false;
@@ -167,12 +183,18 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
   "servers.inspectLocal" | "servers.importLocal" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
-  "curseforge.project" | "curseforge.files";
+  "curseforge.project" | "curseforge.files" |
+  "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
+  "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
+  "steam.freshRegister";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
   name?: string; root?: string; importToken?: string;
-  categoryId?: number; sort?: number; descending?: boolean };
+  categoryId?: number; sort?: number; descending?: boolean;
+  mapName?: string; installRoot?: string; steamExe?: string;
+  allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
+  confirm?: boolean; jobId?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -239,4 +261,15 @@ export const managerBridge = {
   catalogBrowse: (options: CurseForgeBrowseOptions) => request<CurseForgeResult>("curseforge.browse", options),
   catalogProject: (modId: number) => request<CurseForgeProject>("curseforge.project", { modId }),
   catalogFiles: (modId: number, page: number) => request<CurseForgeFilePage>("curseforge.files", { modId, page }),
+  freshPreflight: (args: {
+    mapName:string; installRoot:string; steamExe:string;
+    allowSteamCmdDownload:boolean; explicitRetry:boolean;
+  }) => request<FreshInstallPreflight>("steam.freshPreflight", args),
+  freshStart: (token:string) =>
+    request<{jobId:string;started:true;evidence:"EXPLICIT_FRESH_INSTALL_STARTED"}>("steam.freshStart", {token, confirm:true}),
+  freshCurrent: () => request<{current:FreshInstallJob|null}>("steam.freshCurrent"),
+  freshStatus: (jobId:string) => request<FreshInstallJob>("steam.freshStatus", {jobId}),
+  freshCancel: (jobId:string) => request<{cancelRequested:true}>("steam.freshCancel", {jobId}),
+  freshDiscard: (jobId:string) => request<{discarded:true}>("steam.freshDiscard", {jobId, confirm:true}),
+  freshRegister: (jobId:string) => request<FreshInstallReceipt>("steam.freshRegister", {jobId, confirm:true}),
 };
