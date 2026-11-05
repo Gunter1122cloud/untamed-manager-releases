@@ -210,6 +210,15 @@ test.beforeEach(async ({ page }) => {
             latestFile:"v1.0",modifiedUtc:null,downloadCount:650}],
           popular:[],recentlyUpdated:[]
         };
+        case "curseforge.summary": return {
+          evidence:"OFFICIAL_ASA_PROJECT_SUMMARY_ONLY",
+          mod:{id:m.modId||123456,
+            name:m.modId===789012?"Featured Mod":"Example Search Result",
+            summary:"Synthetic official metadata only",
+            website:null,thumbnailUrl:null,authors:["Lab"],
+            categories:["Structures"],screenshots:[],isAvailable:true,
+            latestFile:"v2.0",modifiedUtc:null,downloadCount:1000}
+        };
         case "curseforge.project": return {
           evidence:"OFFICIAL_ASA_PROJECT_METADATA_ONLY",
           mod:{id:m.modId||123456,name:(m.modId===123456?"Example Search Result":"Featured Mod"),
@@ -364,6 +373,20 @@ test("credential settings keeps API secret hidden and only saves on explicit sub
   await expect(page.getByRole("button",{name:"Megerősítés: kulcs törlése"})).toBeVisible();
   await page.getByRole("button",{name:"Megerősítés: kulcs törlése"}).click();
   await expect(page.getByText("Nincs beállított API-kulcs")).toBeVisible();
+});
+
+test("configured mods enrich official provider titles only when API credential is configured",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await expect(page.locator(".premium-mod-list-panel").getByText("Projekt · 789012")).toBeVisible();
+  await page.getByRole("button",{name:"Beállítások"}).click();
+  const secret=page.getByLabel("CurseForge API-kulcs (nem kerül megjelenítésre)");
+  await secret.fill("synthetic-mod-metadata-key");
+  await page.getByRole("button",{name:"Kulcs ellenőrzése és mentése"}).click();
+  await expect(page.getByText("API-kulcs helyileg beállítva")).toBeVisible();
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await expect(page.locator(".premium-mod-list-panel").getByText("Featured Mod")).toBeVisible();
+  await expect(page.locator(".premium-mod-list-panel")).not.toContainText("synthetic-mod-metadata-key");
 });
 
 test("native mod draft contract stages in memory and saves only on explicit click",async ({page})=>{
