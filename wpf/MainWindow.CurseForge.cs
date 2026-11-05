@@ -1,10 +1,12 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using UntamedManager.Core;
 
 namespace UntamedManager;
@@ -19,6 +21,14 @@ public partial class MainWindow
             BorderBrush=Aqua };
         var query=new TextBox { Height=38,Foreground=Brushes.White,Background=Panel,
             BorderBrush=Aqua,Text="Shiny" };
+        CancellationTokenSource requests=new();
+        var gallery=new WrapPanel{Orientation=Orientation.Horizontal};
+        var dependencyMap=new ComboBox{MinHeight=36,Width=280,
+            DisplayMemberPath="Name",Foreground=Brushes.White,Background=Panel};
+        var dependencyStatus=Label(
+            "Függőségek: csak ellenőrzés, nincs telepítés vagy modsorrend-változtatás.",12,Soft);
+        dependencyMap.ItemsSource=_cluster.Config.LocalMaps.ToArray();
+        dependencyMap.SelectedIndex=dependencyMap.Items.Count>0?0:-1;
         var categories=new ComboBox{MinHeight=35,Width=280,DisplayMemberPath="Name",
             SelectedValuePath="Id",Foreground=Brushes.White,Background=Panel};
         categories.ItemsSource=new[]{new CurseForgeCategory(0,"Összes kategória",0,false,0)};
@@ -107,6 +117,25 @@ public partial class MainWindow
             string summary=mod.Summary;
             if(summary.Length>500)summary=summary[..500]+"…";
             RefreshLocalAssignments();
+            gallery.Children.Clear();
+            foreach(string trustedUrl in mod.Screenshots.Take(12))
+            {
+                try
+                {
+                    var picture=new BitmapImage();
+                    picture.BeginInit();
+                    picture.UriSource=new Uri(trustedUrl,UriKind.Absolute);
+                    picture.CacheOption=BitmapCacheOption.OnDemand;
+                    picture.CreateOptions=BitmapCreateOptions.DelayCreation;
+                    picture.EndInit();
+                    gallery.Children.Add(new Image{
+                        Width=120,Height=80,Margin=new Thickness(4),
+                        Stretch=Stretch.UniformToFill,Source=picture,
+                        ToolTip="CurseForge galériakép – ellenőrzött HTTPS-forrás"
+                    });
+                }
+                catch(Exception) { /* Missing optional provider artwork */ }
+            }
             detail.Text=mod.Name+" · ID "+mod.Id+"\n"+
                 (string.IsNullOrWhiteSpace(summary)?"Leírás nem elérhető.":summary)+"\n"+
                 "Szerzők: "+(mod.Authors.Count==0?"nem közölt":
@@ -155,7 +184,7 @@ public partial class MainWindow
             try
             {
                 var page=await catalog.GetModFilesAsync(
-                    SecureStore.Unprotect(protectedKey),modId,index);
+                    SecureStore.Unprotect(protectedKey),modId,index,requests.Token);
                 // Discard stale HTTP results if a different project was selected.
                 if(results.SelectedItem is not CurseForgeMod chosen || chosen.Id!=modId)
                 {filesStatus.Text="A kijelölt projekt időközben megváltozott.";return;}
@@ -194,7 +223,7 @@ public partial class MainWindow
             try
             {
                 string content=await catalog.GetModDescriptionTextAsync(
-                    SecureStore.Unprotect(protectedKey),requestedId);
+                    SecureStore.Unprotect(protectedKey),requestedId,requests.Token);
                 if(results.SelectedItem is CurseForgeMod current && current.Id==requestedId)
                     fullDescription.Text=string.IsNullOrWhiteSpace(content)?
                         "A szolgáltató nem közölt részletes leírást.":content;
@@ -237,7 +266,7 @@ public partial class MainWindow
                 var page=await catalog.SearchAsaAsync(
                     SecureStore.Unprotect(protectedKey),
                     new CurseForgeSearchOptions(term,CategoryId:categoryId,
-                        Sort:order,Descending:true),index);
+                        Sort:order,Descending:true),index,requests.Token);
                 last=page;
                 lastTerm=term;
                 results.ItemsSource=page.Mods.ToArray();
@@ -296,7 +325,7 @@ public partial class MainWindow
             try
             {
                 var mod=await catalog.GetAsaModAsync(
-                    SecureStore.Unprotect(protectedKey),id);
+                    SecureStore.Unprotect(protectedKey),id,requests.Token);
                 string identifier=mod.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 _trustedModNames[identifier]=UntamedPresentation.Display(mod.Name);
                 if(mod.ThumbnailUrl is not null)_trustedModArt[identifier]=mod.ThumbnailUrl;
@@ -351,7 +380,7 @@ public partial class MainWindow
             try
             {
                 var groups=await catalog.GetAsaCategoriesAsync(
-                    SecureStore.Unprotect(protectedKey));
+                    SecureStore.Unprotect(protectedKey),requests.Token);
                 categories.ItemsSource=new[]{
                     new CurseForgeCategory(0,"Összes kategória",0,false,0)
                 }.Concat(groups).ToArray();
@@ -376,7 +405,7 @@ public partial class MainWindow
             try
             {
                 var featured=await catalog.GetAsaFeaturedAsync(
-                    SecureStore.Unprotect(protectedKey));
+                    SecureStore.Unprotect(protectedKey),requests.Token);
                 var combined=featured.Featured.Concat(featured.Popular)
                     .Concat(featured.RecentlyUpdated)
                     .GroupBy(x=>x.Id).Select(x=>x.First()).ToArray();
@@ -405,6 +434,65 @@ public partial class MainWindow
                     UntamedPresentation.Redact(ex.Message);
             }
             finally{busy=false;}
+        });
+        var dependencyInspect=Btn("Függőségi lánc ellenőrzése a kiválasztott mapon",async ()=>{
+            if(busy)return;
+            if(results.SelectedItem is not CurseForgeMod selectedMod ||
+               dependencyMap.SelectedItem is not LocalMap selectedMap)
+            {dependencyStatus.Text="Válassz CurseForge-modot és helyi mapot.";return;}
+            var protectedKey=_cluster.Config.CurseForgeApiKeyProtected;
+            if(string.IsNullOrWhiteSpace(protectedKey))
+            {dependencyStatus.Text="Nincs CurseForge-token.";return;}
+            busy=true;
+            dependencyStatus.Text="Kötelező függőségek és inkompatibilitások ellenőrzése...";
+            try
+            {
+                var current=ModStateController.Read(selectedMap);
+                var installed=current.Active.Concat(current.Passive).ToArray();
+                var resolver=new CurseForgeDependencyResolver(catalog);
+                var report=await resolver.ResolveAsync(
+                    SecureStore.Unprotect(protectedKey),
+                    selectedMod.Id,installed,requests.Token);
+                if(report.Preview==null)
+                {dependencyStatus.Text="NEM ELLENŐRIZHETŐ: "+report.Reason;return;}
+                var p=report.Preview;
+                var missingLocal=p.DependencyFirstOrder.Where(id=>
+                    id!=selectedMod.Id&&!installed.Contains(id.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture))).ToArray();
+                dependencyStatus.Text=selectedMap.Name+" · "+selectedMod.Name+
+                    "\nAPI-oldalak: "+report.HttpPagesRead+
+                    "\nFüggőségi sorrend (csak tájékoztatás): "+
+                        string.Join(" → ",p.DependencyFirstOrder)+
+                    "\nHiányzik a helyi modkonfigurációból: "+
+                        (missingLocal.Length==0?"nincs":string.Join(", ",missingLocal))+
+                    "\nOpcionális: "+string.Join(", ",p.OptionalMods)+
+                    "\nInkompatibilis helyi projektek: "+
+                        string.Join(", ",p.IncompatibleEnabled)+
+                    "\nIsmeretlen kapcsolatok / ciklusok: "+
+                        string.Join(", ",p.Unclassified.Concat(p.Cyclic))+
+                    "\nAPI-metaadatok teljesek: "+
+                        (report.FullMetadataRetrieved?"IGEN":"NEM")+
+                    "\nNincs automatikus telepítés vagy mod sorrendmódosítás.";
+            }
+            catch(OperationCanceledException)
+            {dependencyStatus.Text="Függőség-ellenőrzés megszakítva.";}
+            catch(Exception ex)
+            {
+                WriteLog("curseforge-dependency-review",ex);
+                dependencyStatus.Text="Függőségek nem ellenőrizhetők: "+
+                    UntamedPresentation.Redact(ex.Message);
+            }
+            finally{busy=false;}
+        });
+        var refreshMaps=Btn("Helyi maplista frissítése",()=>{
+            dependencyMap.ItemsSource=_cluster.Config.LocalMaps.ToArray();
+            dependencyMap.SelectedIndex=dependencyMap.Items.Count>0?0:-1;
+        });
+        var cancelApi=Btn("Futó CurseForge-kérés megszakítása",()=>{
+            requests.Cancel();
+            requests.Dispose();
+            requests=new CancellationTokenSource();
+            status.Text="Az aktuális API-lekérdezés megszakítását kértük.";
         });
         var openProject=Btn("Kiválasztott mod CurseForge-oldalának megnyitása",()=>{
             if(results.SelectedItem is not CurseForgeMod chosen ||
@@ -475,7 +563,7 @@ public partial class MainWindow
                 status.Text="Hivatalos CurseForge ASA-katalógus ellenőrzése...";
                 try
                 {
-                    int gameId=await catalog.VerifyAsaKeyAsync(candidate);
+                    int gameId=await catalog.VerifyAsaKeyAsync(candidate,requests.Token);
                     status.Text="CurseForge kapcsolat sikeres. ASA katalógus ID: "+
                         gameId+". Csak metaadatot kértünk le, modot nem telepítettünk.";
                 }
@@ -540,10 +628,13 @@ public partial class MainWindow
             projectId,lookup,
             previous,next,paging,results,
             openProject,addFromCatalog,
-            detail,refreshLocalAssignment,localAssignments,
+            detail,Label("CURSEFORGE GALÉRIA",12,Aqua,true),gallery,
+            refreshLocalAssignment,localAssignments,
             inspectDescription,fullDescription,
             Label("FÁJLVERZIÓK / KAPCSOLATOK (HIVATALOS API)",12,Aqua,true),
             inspectFiles,filesPrevious,filesNext,filesStatus,fileList,fileDetail,
-            status)));
+            Label("MAPONKÉNTI FÜGGŐSÉG-ELLENŐRZÉS",12,Aqua,true),
+            refreshMaps,dependencyMap,dependencyInspect,dependencyStatus,
+            cancelApi,status)));
     }
 }
