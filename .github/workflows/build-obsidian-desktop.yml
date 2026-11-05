@@ -43,7 +43,7 @@ jobs:
       - name: Compile and publish real .NET 10 + WebView2 Windows host
         shell: pwsh
         run: |
-          dotnet restore desktop/UntamedDesktop.csproj
+          dotnet restore desktop/UntamedDesktop.csproj -r win-x64
           dotnet publish desktop/UntamedDesktop.csproj -c Release -r win-x64 --self-contained false -o desktop/publish --no-restore
           if (!(Test-Path desktop/publish/ui/index.html)) { throw "React assets not packaged into Windows host" }
           if (!(Test-Path desktop/publish/UntamedDesktop.exe)) { throw "Windows host missing" }
