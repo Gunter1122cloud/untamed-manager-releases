@@ -136,6 +136,45 @@ try
             "external change preserved on failed staged save");
     }
 
+    // A real existing ASA install may be registered without constructing
+    // fake RCON credentials, ports, Store conversion or launching a server.
+    string candidate=Path.Combine(root,"asa-import");
+    string binaries=Path.Combine(candidate,"ShooterGame","Binaries","Win64");
+    Directory.CreateDirectory(binaries);
+    string candidateExe=Path.Combine(binaries,"ArkAscendedServer.exe");
+    File.WriteAllText(candidateExe,"FAKE EXE CONTENT FOR MANAGER IMPORT TEST ONLY");
+    using(var importer=new DesktopLocalMapRegistryBridge(cluster))
+    {
+        var invalid=await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Ragnarok",root=Path.Combine(root,"does-not-exist")});
+        Check(IsError(invalid,"UM-IMPORT-DIRECTORY-MISSING"),
+            "import refuses missing local installation");
+        var prepared=await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Ragnarok",root=candidate});
+        IsOk(prepared,"new local ASA installation is probed without modifying it");
+        var token=prepared.GetProperty("data").GetProperty("importToken").GetString()!;
+        Check(!cluster.Config.LocalMaps.Any(m=>m.Name=="Ragnarok"),
+            "preflight never writes the Manager profile");
+        var confirmed=await Call(importer.HandleAsync,"servers.importLocal",
+            new{importToken=token});
+        IsOk(confirmed,"confirmed local ASA import registers a Manager profile");
+        var newMap=cluster.Config.LocalMaps.Single(m=>m.Name=="Ragnarok");
+        Check(newMap.ExecutablePath==candidateExe &&
+              newMap.GamePort==0 && newMap.RconPort==0 &&
+              !newMap.AutoStart && !newMap.StartWithAsaApi,
+            "import never guesses ports, RCON, ASA loader or autostart");
+        Check(File.ReadAllText(candidateExe).StartsWith("FAKE EXE CONTENT"),
+            "Manager import leaves ASA binary and saved files unchanged");
+        var replay=await Call(importer.HandleAsync,"servers.importLocal",
+            new{importToken=token});
+        Check(IsError(replay,"UM-IMPORT-EXPIRED"),
+            "confirmed import cannot reuse consumed preview token");
+        var duplicate=await Call(importer.HandleAsync,"servers.inspectLocal",
+            new{name="Ragnarok",root=candidate});
+        Check(!duplicate.GetProperty("ok").GetBoolean(),
+            "duplicate local map name or overlapping install is rejected");
+    }
+
     // A new, deliberately untrusted process observer must not write INI.
     await using var running=new ClusterService("obsidian-running",Path.Combine(root,"running-profile"),
         _=>new ProcessCheck(true,"Synthetic running map",null,false));
