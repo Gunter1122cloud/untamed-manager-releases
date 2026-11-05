@@ -6,6 +6,36 @@
   <Application.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Styles/PremiumTheme.xaml" /></ResourceDictionary.MergedDictionaries>
+    <DataTemplate x:Key="PremiumBackupRow">
+      <Grid Height="58" Margin="5,5">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="28"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="99"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Text="▣" FontSize="15"
+          VerticalAlignment="Center" Foreground="{StaticResource AccentLight}"/>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+            Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Text="{Binding Description}" FontSize="11"
+            Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"
+            Margin="0,5,0,0"/>
+        </StackPanel>
+        <Border Grid.Column="2" Background="{StaticResource SurfaceRaised}" CornerRadius="6"
+          Padding="6,5" Margin="5,0,0,0" VerticalAlignment="Center">
+          <TextBlock x:Name="IntegrityStatus" Text="{Binding Quality}"
+            Foreground="{StaticResource AccentLight}" FontSize="10"
+            HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        </Border>
+      </Grid>
+      <DataTemplate.Triggers>
+        <DataTrigger Binding="{Binding Entry.Valid}" Value="False">
+          <Setter TargetName="IntegrityStatus" Property="Foreground"
+            Value="{StaticResource ErrorBrush}"/>
+        </DataTrigger>
+      </DataTemplate.Triggers>
+    </DataTemplate>
     <DataTemplate x:Key="PremiumServerRow">
       <Grid Height="61" Margin="5,4">
         <Grid.ColumnDefinitions>
