@@ -273,6 +273,10 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
   await expect(page.getByRole("table",{name:"Konfigurált modlista"})).toBeVisible();
   await expect(page.locator(".premium-mod-details")).toBeVisible();
   await expect(page.locator(".premium-mod-bottom-bar")).toBeVisible();
+  await expect(page.getByRole("tab",{name:"Map modjai"})).toHaveAttribute("aria-selected","true");
+  await expect(page.locator("#curseforge-catalog")).toBeHidden();
+  await expect(page.locator("#mod-draft-editor")).toBeHidden();
+  await page.screenshot({path:"test-results/mod-center-workspace-1600.png",fullPage:false});
 
   await page.getByRole("tab",{name:"CurseForge katalógus"}).click();
   await page.getByRole("textbox", { name: "CurseForge mod keresése" }).fill("Shiny");
