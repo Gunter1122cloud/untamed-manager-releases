@@ -58,23 +58,29 @@
       </DataTemplate.Triggers>
     </DataTemplate>
     <DataTemplate x:Key="PremiumServerRow">
-      <Grid Height="61" Margin="5,4">
+       <Grid Height="78" Margin="4,4">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="22"/>
-          <ColumnDefinition Width="*"/>
+         <ColumnDefinition Width="70"/><ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" Text="▤" FontSize="15" VerticalAlignment="Center"
-          Foreground="{StaticResource AccentLight}"/>
-        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-          <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-            Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
-          <TextBlock Text="{Binding State}" FontSize="11" Margin="0,5,0,0"
-            Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
-          <TextBlock Text="{Binding Detail}" FontSize="10"
-            Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+        <Border Grid.Column="0" Width="62" Height="62" VerticalAlignment="Center"
+          Background="#19393A" BorderBrush="#47776E" BorderThickness="1"
+          CornerRadius="8" ClipToBounds="True">
+         <Grid>
+          <Image Source="{Binding CoverImage}" Stretch="UniformToFill" Opacity="0.9"
+                 RenderOptions.BitmapScalingMode="HighQuality"/>
+          <Rectangle Fill="#4E071B20" IsHitTestVisible="False"/>
+         </Grid>
+        </Border>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0">
+         <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+          Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="{Binding State}" FontSize="11" Margin="0,6,0,0"
+          Foreground="{StaticResource AccentLight}" TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="{Binding Detail}" FontSize="10" Margin="0,4,0,0"
+          Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
         </StackPanel>
-      </Grid>
-    </DataTemplate>
+       </Grid>
+     </DataTemplate>
     <DataTemplate x:Key="PremiumPluginRow">
       <Grid Height="58" Margin="8,2" ToolTip="{Binding Hint}">
         <Grid.ColumnDefinitions>
