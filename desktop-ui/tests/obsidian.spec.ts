@@ -30,9 +30,23 @@ test.beforeEach(async ({ page }) => {
       peerMessage: ""
     };
     let keySaved = false;
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string }) => {
+    let stagedId = "";
+    const draftToken = "00000000-0000-4000-8000-000000001234";
+    const draftState = () => ({
+      draftId:draftToken,mapId:one,active:stagedId?["123456",stagedId]:["123456"],
+      passive:["789012"],disabled:[],pending:!!stagedId,dirty:!!stagedId,
+      canUndo:!!stagedId,canRedo:false,evidence:"IN_MEMORY_MOD_DRAFT",
+      differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
+    });
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string; mode?: string }) => {
       switch (m.method) {
         case "dashboard.snapshot": return state;
+        case "mods.draftStart": stagedId="";return draftState();
+        case "mods.draftStage": stagedId=m.modId||"";return draftState();
+        case "mods.draftUndo": stagedId="";return draftState();
+        case "mods.draftRedo": stagedId="567890";return draftState();
+        case "mods.draftDiscard": stagedId="";return {discarded:true};
+        case "mods.draftSave": return {saved:true,pending:true,active:["123456",stagedId],passive:["789012"],disabled:[],evidence:"CONFIGURED_ONLY_PENDING_REAL_RESTART"};
         case "curseforge.credentialStatus": return {configured:keySaved};
         case "curseforge.credentialSave":
           if(!m.credential || m.credential.length<3) throw new Error("invalid");
@@ -148,4 +162,22 @@ test("credential settings keeps API secret hidden and only saves on explicit sub
   await expect(page.getByRole("button",{name:"Megerősítés: kulcs törlése"})).toBeVisible();
   await page.getByRole("button",{name:"Megerősítés: kulcs törlése"}).click();
   await expect(page.getByText("Nincs beállított API-kulcs")).toBeVisible();
+});
+
+test("native mod draft contract stages in memory and saves only on explicit click",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Mod Center"})).toBeVisible();
+  await page.getByRole("button",{name:"Piszkozat indítása"}).click();
+  await page.getByRole("textbox",{name:"Modprojekt ID"}).fill("567890");
+  await page.getByRole("button",{name:"Lépés hozzáadása"}).click();
+  await expect(page.locator(".draft-difference").getByText("567890")).toBeVisible();
+  await page.screenshot({path:"test-results/mod-draft-1600.png",fullPage:true});
+  await page.getByRole("button",{name:"Visszavonás"}).click();
+  await expect(page.locator(".draft-difference")).toHaveCount(0);
+  await page.getByRole("button",{name:"Újra",exact:true}).click();
+  await expect(page.locator(".draft-difference").getByText("567890")).toBeVisible();
+  await page.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
+  await expect(page.getByText("Modprojekt · 567890")).toBeVisible();
+  await expect(page.getByText(/Mentve a helyi indítási konfigurációba/)).toBeVisible();
 });
