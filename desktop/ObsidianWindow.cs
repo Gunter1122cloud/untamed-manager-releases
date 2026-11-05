@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -14,6 +15,43 @@ namespace UntamedDesktop;
 public sealed class ObsidianWindow : Form
 {
     private const string AppOrigin = "https://untamed-app.example";
+    // Windows-native chrome is styled through DWM. Keep the regular system
+    // caption/buttons so taskbar, resize, snap, accessibility and DPI work.
+    // DWM may reject an attribute on older builds; these are best-effort only.
+    private const int DwmUseImmersiveDarkMode = 20;
+    private const int DwmCaptionColor = 35;
+    private const int DwmTextColor = 36;
+
+    [DllImport("dwmapi.dll", ExactSpelling = true)]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd, int attribute, ref int value, int valueSize);
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        ApplyObsidianTitleBar();
+    }
+
+    private void ApplyObsidianTitleBar()
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 17763)) return;
+        try
+        {
+            int dark = 1;
+            _ = DwmSetWindowAttribute(Handle, DwmUseImmersiveDarkMode,
+                ref dark, sizeof(int));
+            if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;
+            int caption = ColorTranslator.ToWin32(Color.FromArgb(16, 27, 33));
+            int foreground = ColorTranslator.ToWin32(Color.FromArgb(235, 246, 242));
+            _ = DwmSetWindowAttribute(Handle, DwmCaptionColor,
+                ref caption, sizeof(int));
+            _ = DwmSetWindowAttribute(Handle, DwmTextColor,
+                ref foreground, sizeof(int));
+        }
+        catch (DllNotFoundException) { /* Older Windows: system chrome */ }
+        catch (EntryPointNotFoundException) { /* Older Windows: system chrome */ }
+    }
+
     private readonly WebView2 _browser = new() { Dock = DockStyle.Fill };
     private readonly NotifyIcon _tray = new();
     private readonly DesktopReadOnlyBridge _bridge = new();
