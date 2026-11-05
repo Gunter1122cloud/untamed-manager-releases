@@ -40,7 +40,12 @@ function Metric({icon:Icon,value,label,detail,tone="mint"}:{
 function ServerRow({map,host,local,onSelect}:{
   map:PublicMap;host:string;local:boolean;onSelect:(id:string)=>void
 }){
-  return <div className="premium-server-row" role="row">
+  return <div className="premium-server-row" role="row"
+    tabIndex={local?0:-1}
+    onClick={()=>{if(local)onSelect(map.id);}}
+    onKeyDown={e=>{if(local&&(e.key==="Enter"||e.key===" ")){
+      e.preventDefault();onSelect(map.id);
+    }}}>
     <div className="premium-server-identity" role="cell">
       <MapCover name={map.name}/>
       <div><b>{map.name}</b><small>ASA · {map.steamBuildId?"Build "+map.steamBuildId:"Build nem ellenőrzött"}</small></div>
