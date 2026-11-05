@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./styles.css";
 import "./premium-fidelity.css";
+import "./mod-fidelity.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing root");
