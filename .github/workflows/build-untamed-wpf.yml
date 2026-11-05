@@ -153,6 +153,12 @@ jobs:
             $file = Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-$page.png"
             if (!(Test-Path $file) -or (Get-Item $file).Length -lt 8000) { throw "Missing or invalid WPF screenshot: $page" }
           }
+          foreach ($step in 1..5) {
+            $file=Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-map-setup-step$step.png"
+            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 8000) {
+              throw "Map setup wizard screenshot missing or invalid: step $step"
+            }
+          }
       - name: Test 1366, 1600 and 1920 desktop layouts with WPF render
         shell: pwsh
         run: |
