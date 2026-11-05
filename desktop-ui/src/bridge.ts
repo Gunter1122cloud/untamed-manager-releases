@@ -95,6 +95,22 @@ export type ModDraftSave = {
   disabled: string[]; evidence: "CONFIGURED_ONLY_PENDING_REAL_RESTART";
 };
 
+export type IniFile = "Game.ini" | "GameUserSettings.ini";
+export type IniDocument = {
+  token: string; mapId: string; file: IniFile; content: string;
+  encoding: string; sha256: string; bytes: number;
+  evidence: "STOPPED_LOCAL_INI_SNAPSHOT";
+};
+export type IniPreview = {
+  previewToken: string; changed: boolean; oldLines: number; newLines: number;
+  bytes: number; originalSha256: string; nextSha256: string;
+  evidence: "HASHED_IN_MEMORY_PREVIEW";
+};
+export type IniSaveReceipt = {
+  saved: true; backupCreated: boolean; sha256: string;
+  evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
+};
+
 export type ConfiguredMods = {
   mapId: string;
   mapName: string;
@@ -108,9 +124,11 @@ export type ConfiguredMods = {
 type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search" | "plugins.inventory" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
-  "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave";
+  "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
+  "ini.open" | "ini.preview" | "ini.save" | "ini.close";
   mapId?: string; term?: string; page?: number; credential?: string;
-  draftId?: string; modId?: string; mode?: ModDraftMode; position?: number };
+  draftId?: string; modId?: string; mode?: ModDraftMode; position?: number;
+  token?: string; file?: IniFile; content?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -164,4 +182,8 @@ export const managerBridge = {
   redoModDraft: (draftId: string) => request<ModDraftState>("mods.draftRedo", { draftId }),
   discardModDraft: (draftId: string) => request<{discarded:true}>("mods.draftDiscard", { draftId }),
   saveModDraft: (draftId: string) => request<ModDraftSave>("mods.draftSave", { draftId }),
+  iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
+  iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
+  iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
+  iniClose: (token: string) => request<{closed:true}>("ini.close", { token }),
 };
