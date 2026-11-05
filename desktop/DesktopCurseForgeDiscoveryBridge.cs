@@ -60,7 +60,7 @@ public sealed class DesktopCurseForgeDiscoveryBridge : IDisposable
                 return Error(id, "UM-INVALID-PAGE");
 
             var modId = 0;
-            if (method is "curseforge.project" or "curseforge.files" &&
+            if (method is ("curseforge.project" or "curseforge.files") &&
                 (!PositiveInt(request, "modId", out modId) || modId < 10000))
                 return Error(id, "UM-INVALID-PROJECT");
 
