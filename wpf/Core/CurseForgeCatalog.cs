@@ -125,6 +125,32 @@ public sealed class CurseForgeCatalog
             throw new InvalidDataException("The requested project is not an ARK Survival Ascended mod");
     }
 
+    /// <summary>
+    /// Read-only provider description. CurseForge returns HTML; never render
+    /// markup in a WPF WebBrowser. Decode a bounded, inert text preview only.
+    /// </summary>
+    public async Task<string> GetModDescriptionTextAsync(string key,int modId,
+        CancellationToken ct=default)
+    {
+        ValidateApiKey(key);
+        if(modId<10000)throw new ArgumentOutOfRangeException(nameof(modId));
+        using var document=await Request(key,
+            "/v1/mods/"+modId+"/description?stripped=true",ct);
+        if(!document.RootElement.TryGetProperty("data",out var entry) ||
+           entry.ValueKind!=JsonValueKind.String)
+            throw new InvalidDataException("CurseForge description response is invalid");
+        string html=entry.GetString()??"";
+        if(html.Length>150_000)
+            throw new InvalidDataException("CurseForge description is too long");
+        string safe=System.Net.WebUtility.HtmlDecode(
+            System.Text.RegularExpressions.Regex.Replace(html,@"<[^>]*>"," ",
+                System.Text.RegularExpressions.RegexOptions.Singleline,
+                TimeSpan.FromMilliseconds(200)));
+        safe=new string(safe.Where(c=>!char.IsControl(c) || c is '\r' or '\n' or '\t')
+            .ToArray()).Trim();
+        return safe.Length>10_000?safe[..10_000]+" …":safe;
+    }
+
     private static CurseForgeMod? ParseAsaMod(JsonElement item,int game)
     {
         int id=Int(item,"id");
