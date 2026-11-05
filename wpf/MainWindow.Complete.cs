@@ -55,7 +55,7 @@ public partial class MainWindow
             throw new InvalidOperationException("Premium ComboBox has no native dropdown popup");
         if(popup.Child is not Border surface ||
            surface.Background is not SolidColorBrush brush ||
-           brush.Color != (Color)ColorConverter.ConvertFromString("#1B252B"))
+           brush.Color != ((SolidColorBrush)System.Windows.Application.Current.FindResource("SurfacePanel")).Color)
             throw new InvalidOperationException("Premium ComboBox dropdown is not matte dark");
         if(comboTemplate.FindName("PART_EditableTextBox",chooser)
             is not TextBox || chooser.FocusVisualStyle==null)
@@ -65,7 +65,7 @@ public partial class MainWindow
         item.ApplyTemplate();
         if(item.Template==null || item.FocusVisualStyle==null ||
            item.Foreground is not SolidColorBrush ink ||
-           ink.Color != (Color)ColorConverter.ConvertFromString("#EDF3F1"))
+           ink.Color != ((SolidColorBrush)System.Windows.Application.Current.FindResource("TextStrong")).Color)
             throw new InvalidOperationException("Premium ComboBoxItem is missing contrast or keyboard focus");
         chooser.IsEnabled=false;
         chooser.ApplyTemplate();

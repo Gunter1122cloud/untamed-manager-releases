@@ -350,7 +350,7 @@
   <Setter Property="RowHeight" Value="54"/>
   <Setter Property="ColumnHeaderHeight" Value="34"/>
   <Setter Property="SelectionMode" Value="Single"/>
-  <Setter Property="AutoGenerateColumns" Value="False"/>
+  <!-- Keep WPF AutoGenerateColumns default: existing SQL and diagnostic grids rely on it. -->
  </Style>
  <Style TargetType="{x:Type Expander}">
   <Setter Property="Foreground" Value="{StaticResource TextStrong}"/>
