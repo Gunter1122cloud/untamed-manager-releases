@@ -51,7 +51,7 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
     // authoritative; absence of a CurseForge API key or network does not
     // cause a blank Mod Center or introduce invented titles.
     let active=true;
-    const ids=[...new Set(rows.map(r=>r.id))].slice(0,8);
+    const ids=[...new Set(rows.map(r=>r.id))].slice(0,50);
     const present:Record<string,CurseForgeMod>={};
     for(const id of ids){const found=officialSummaryCache.get(id);if(found)present[id]=found;}
     setSummaries(present);
@@ -61,6 +61,7 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
         const key=await managerBridge.curseForgeKeyStatus();
         if(!key.configured||!active)return;
       }catch{return;}
+      let failedRequests=0;
       for(const id of ids){
         if(!active)return;
         if(officialSummaryCache.has(id))continue;
@@ -69,7 +70,13 @@ export function PremiumModBoard({info,mapName,onStage,onOpenCatalog,onOpenEditor
           if(!active)return;
           officialSummaryCache.set(id,response.mod);
           setSummaries(old=>({...old,[id]:response.mod}));
-        }catch{return;}
+          failedRequests=0;
+        }catch{
+          // One removed/hidden provider project should not suppress names
+          // for all the other installed mods. Stop after three consecutive
+          // errors to avoid hammering an unavailable provider.
+          if(++failedRequests>=3)break;
+        }
       }
     };
     void load();
