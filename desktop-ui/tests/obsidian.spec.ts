@@ -271,6 +271,14 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
   await expect(page.locator(".premium-metrics .premium-metric")).toHaveCount(4);
   await expect(page.getByRole("table",{name:"Cluster szerverlista"})).toBeVisible();
   await expect(page.locator(".premium-dashboard-grid")).toBeVisible();
+  const mapArt=page.locator(".premium-map-cover.premium-map-island").first();
+  await expect(mapArt).toBeVisible();
+  expect(await mapArt.evaluate(node=>getComputedStyle(node).backgroundImage))
+    .toContain("uk-reference-map-atlas.jpg");
+  const atlas=await page.request.get("/uk-reference-map-atlas.jpg");
+  expect(atlas.ok()).toBeTruthy();
+  expect((await atlas.body()).byteLength).toBeGreaterThan(80000);
+
   await expect(page.getByText("KIZÁRÓLAG SZINTETIKUS UI-TESZTADAT")).toBeVisible();
   await expect(page.getByText("LAB-WIN-01").first()).toBeVisible();
   await expect(page.getByText("The Island").first()).toBeVisible();
