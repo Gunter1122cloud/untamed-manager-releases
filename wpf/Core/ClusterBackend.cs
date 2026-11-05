@@ -319,18 +319,21 @@ public sealed class PeerStatusListener : IAsyncDisposable
 {
     private readonly TcpListener _listener;
     private readonly Func<HostStatus> _status;
+    private readonly ClusterSteamLeaseStore? _steamLease;
     private readonly byte[] _key;
     private readonly CancellationTokenSource _cts=new();
     private readonly Dictionary<string,long> _seen = new();
     private readonly object _lock=new();
     private Task? _loop;
-    public PeerStatusListener(int port, string sharedSecret, Func<HostStatus> getStatus)
+    public PeerStatusListener(int port, string sharedSecret, Func<HostStatus> getStatus,
+        ClusterSteamLeaseStore? steamLease=null)
     {
         if (port is < 1024 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         if (sharedSecret.Length < 24) throw new ArgumentException("Pairing secret must be at least 24 characters");
         _listener=new TcpListener(IPAddress.Any,port);
         _key=SHA256.HashData(Encoding.UTF8.GetBytes(sharedSecret));
         _status=getStatus;
+        _steamLease=steamLease;
     }
     public void Start() { _listener.Start(); _loop=Task.Run(AcceptAsync); }
     private async Task AcceptAsync()
@@ -353,9 +356,25 @@ public sealed class PeerStatusListener : IAsyncDisposable
             ?? throw new InvalidDataException("Missing frame");
         if (!Verify(frame)) return;
         byte[] request=Convert.FromBase64String(frame.PayloadBase64);
-        if (Encoding.UTF8.GetString(StatusCipher.Decrypt(_key, request)) != "GET_STATUS") return;
-        var payload=JsonSerializer.SerializeToUtf8Bytes(_status());
-        await Framing.Write(stream, JsonSerializer.SerializeToUtf8Bytes(Sign(StatusCipher.Encrypt(_key, payload), frame.Nonce)),_cts.Token);
+        byte[] clear=StatusCipher.Decrypt(_key,request);
+        byte[] payload;
+        if(Encoding.UTF8.GetString(clear)=="GET_STATUS")
+            payload=JsonSerializer.SerializeToUtf8Bytes(_status());
+        else
+        {
+            if(clear.Length>4096 || _steamLease==null)return;
+            ClusterSteamLeaseRequest? requestMessage;
+            try{requestMessage=JsonSerializer.Deserialize<ClusterSteamLeaseRequest>(clear);}
+            catch(JsonException){return;}
+            if(requestMessage==null)return;
+            // Only HMAC-authenticated, encrypted peer traffic may change the
+            // lease metadata. Never pass remote commands to the ASA process.
+            var reply=_steamLease.Apply(requestMessage);
+            payload=JsonSerializer.SerializeToUtf8Bytes(reply);
+        }
+        await Framing.Write(stream,
+            JsonSerializer.SerializeToUtf8Bytes(Sign(StatusCipher.Encrypt(_key,payload),frame.Nonce)),
+            _cts.Token);
     }
     private WireEnvelope Sign(byte[] payload, string requestNonce)
     {
@@ -439,6 +458,7 @@ public static class PeerStatusClient
 public sealed class ClusterService : IAsyncDisposable
 {
     public UntamedOperationCoordinator Operations {get;}
+    public ClusterSteamLeaseStore SteamLease { get; }
     public ConfigStore Store { get; }
     public ManagerConfig Config { get; private set; }
     private readonly WindowsProcessInspector _inspector=new();
@@ -454,6 +474,10 @@ public sealed class ClusterService : IAsyncDisposable
         Store=new ConfigStore(profile,rootOverride);
         Operations=new UntamedOperationCoordinator();
         Config=Store.EnsureInitialized();
+        // A normal Manager uses machine-global journal storage regardless
+        // of GUI profile. A test-root override isolates simulated hosts.
+        SteamLease=new ClusterSteamLeaseStore(Config.LocalHostId,
+            rootOverride==null?null:Path.Combine(Store.Root,"steam-lease-isolated"));
         _inspect=inspect ?? _inspector.Inspect;
     }
     public void Save() => Store.Save(Config);
@@ -688,7 +712,7 @@ public sealed class ClusterService : IAsyncDisposable
         if(Config.ListenPort==0)return;
         string key=SecureStore.Unprotect(Config.PairingKeyProtected);
         if(key.Length<24)throw new InvalidOperationException("Configure shared pairing key first");
-        _listener=new PeerStatusListener(Config.ListenPort,key,LocalStatus);
+        _listener=new PeerStatusListener(Config.ListenPort,key,LocalStatus,SteamLease);
         _listener.Start();
         await Task.CompletedTask;
     }
