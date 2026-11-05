@@ -188,7 +188,7 @@ public partial class MainWindow
             IsChecked=settings.SteamRestartAfterUpdate};
         var verify=new TextBox{Text=settings.SteamPostUpdateProbeMinutes.ToString()};
         var queueStatus=Label("Az automatikus éles karbantartás alapértelmezésben KI. "+
-            "Biztonsági engedélyezéshez hitelesített SaveComplete és kétgépes zárolás szükséges.",
+            "A helyi mapok egyenként frissülhetnek, de éles frissítéshez hitelesített SaveComplete szükséges.",
             12,Soft);
         var queueDisplay=Label("",12,Soft);
         Add(Box(V(
@@ -212,7 +212,7 @@ public partial class MainWindow
                     if(enable.IsChecked==true &&
                        !ReleaseCapabilityGate.Check(ManagerOperation.LiveSteamUpdate,true).Allowed)
                         throw new InvalidOperationException(
-                            "Az automatikus éles frissítés nem engedélyezhető, mert az ASA SaveComplete/Stop és kétgépes clusterzárolás még nincs igazolva.");
+                            "Az automatikus éles frissítés nem engedélyezhető, mert az ASA SaveComplete, backup, leállítás és újraindítás még nincs igazolva.");
                     _cluster.UpdateSettings(c=>{
                         c.SteamCheckIntervalMinutes=minutes;
                         c.SteamMaintenanceStart=from.Text;
@@ -263,7 +263,7 @@ public partial class MainWindow
                     queueDisplay.Text="KARBANTARTÁSI TERV (NEM INDÍT FRISSÍTÉST):\n"+
                         string.Join("\n",lines)+
                         "\nMinden map csak az előző igazolt befejezése után következhet. "+
-                        "Kétgépes zárolás és valódi SaveComplete még nem tanúsított.";
+                        "A másik Windows Manager frissítései ettől a helyi sortól függetlenek. A valódi SaveComplete még nincs tanúsítva.";
                 }
                 catch(Exception ex)
                 {
@@ -282,45 +282,13 @@ public partial class MainWindow
                     {queueStatus.Text="Nincs hitelesen elavultként azonosított helyi map.";return;}
                     if(!ReleaseCapabilityGate.Check(ManagerOperation.LiveSteamUpdate,true).Allowed)
                         throw new InvalidOperationException(
-                            "Az éles SteamCMD karbantartás nem indulhat igazolt SaveWorld/backup/Stop és kétgépes zárolás nélkül.");
+                            "Az éles SteamCMD karbantartás nem indulhat igazolt SaveWorld/backup/Stop és újraindítási ellenőrzés nélkül.");
                     queueStatus.Text="A frissítéshez hitelesített éles karbantartási adapter szükséges.";
                 }
                 catch(Exception ex)
                 {
                     queueStatus.Text="Frissítési sor BLOKKOLVA: "+
                         UntamedPresentation.Redact(ex.Message);
-                }
-            }),
-            Btn("Kétgépes kizárólagos foglalás ellenőrzése",()=>{
-                try
-                {
-                    var local=_cluster.SteamLease.Observe();
-                    var remote=_cluster.RemoteIsFresh?_cluster.RemoteSnapshot:null;
-                    var localText=local==null?"nincs aktív vagy korábbi helyi foglalás":
-                        local.Phase+" · "+local.OperationId.ToString("N")+
-                        " · "+local.Stage;
-                    var remoteText=remote==null?"LAN peer: NEM HITELES / ELAVULT":
-                        "LAN peer: "+remote.MaintenanceLeasePhase+
-                        " · "+(remote.MaintenanceLeaseOperation??"nincs művelet");
-                    bool matching=local!=null&&remote!=null &&
-                        local.Phase==ClusterSteamLeasePhase.Committed &&
-                        remote.MaintenanceLeasePhase=="Committed" &&
-                        string.Equals(local.OperationId.ToString("N"),
-                            remote.MaintenanceLeaseOperation,
-                            StringComparison.OrdinalIgnoreCase);
-                    queueDisplay.Text="KÉTGÉPES KARBANTARTÁSI FENCE (CSAK OLVASÁS):\n"+
-                        "Helyi: "+localText+"\n"+remoteText+"\n"+
-                        (matching?"A két megfigyelt műveletazonosító egyezik. "+
-                            "Ez NEM igazolja az éles ASA SaveComplete-et.":
-                            "Nincs kétoldali, egyező aktív foglalás — clusterfrissítés BLOKKOLVA.")+
-                        "\nMegszakadt foglalást az alkalmazás nem old fel automatikusan.";
-                }
-                catch(Exception ex)
-                {
-                    WriteLog("steam-cluster-fence-observe",ex);
-                    queueDisplay.Text="A karbantartási foglalás nem ellenőrizhető: "+
-                        UntamedPresentation.Redact(ex.Message)+
-                        "\nA clusterfrissítés nem engedélyezett.";
                 }
             }),
             Btn("Karbantartási sor előzménye / megszakítás",()=>{
