@@ -142,8 +142,13 @@ public sealed class CurseForgeCatalog
         string html=entry.GetString()??"";
         if(html.Length>150_000)
             throw new InvalidDataException("CurseForge description is too long");
+        string inert=System.Text.RegularExpressions.Regex.Replace(html,
+            @"<\s*(script|style|iframe)\b[^>]*>.*?<\s*/\s*\1\s*>"," ",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase|
+            System.Text.RegularExpressions.RegexOptions.Singleline,
+            TimeSpan.FromMilliseconds(200));
         string safe=System.Net.WebUtility.HtmlDecode(
-            System.Text.RegularExpressions.Regex.Replace(html,@"<[^>]*>"," ",
+            System.Text.RegularExpressions.Regex.Replace(inert,@"<[^>]*>"," ",
                 System.Text.RegularExpressions.RegexOptions.Singleline,
                 TimeSpan.FromMilliseconds(200)));
         safe=new string(safe.Where(c=>!char.IsControl(c) || c is '\r' or '\n' or '\t')
