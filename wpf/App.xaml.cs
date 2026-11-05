@@ -228,6 +228,24 @@ public partial class App : System.Windows.Application
                         throw new InvalidOperationException(
                             "Dashboard does not scroll on actual WPF PreviewMouseWheel event");
                     scroller.ScrollToTop();
+                    window.PrepareScreenshotPage("demo-mods");
+                    window.UpdateLayout();
+                    var other=window.OtherPage;
+                    other.UpdateLayout();
+                    if(other.ScrollableHeight<40)
+                        throw new InvalidOperationException(
+                            "Mod Center page has no usable vertical wheel scroll range");
+                    other.ScrollToTop();
+                    var innerWheel=new System.Windows.Input.MouseWheelEventArgs(
+                        System.Windows.Input.Mouse.PrimaryDevice,Environment.TickCount,-120){
+                            RoutedEvent=UIElement.PreviewMouseWheelEvent
+                        };
+                    other.RaiseEvent(innerWheel);
+                    other.UpdateLayout();
+                    if(other.VerticalOffset<1)
+                        throw new InvalidOperationException(
+                            "Mod Center page does not react to WPF wheel preview");
+                    other.ScrollToTop();
                 }
                 // Exercise the REAL five-step local server editor on Windows.
                 // Only navigation clicks are synthesized. Saving is never invoked,
