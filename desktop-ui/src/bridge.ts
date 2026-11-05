@@ -140,6 +140,28 @@ export type IniSaveReceipt = {
   evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
 };
 
+export type HistoricalStoreList = {
+  maps: Array<{mapId:string;mapKey:string;gamePort:number;queryPort:number;
+    enabledMods:number;passiveMods:number}>;
+  sourceVerified:boolean;completeLaunchArguments:false;
+  liveStoreVerified:false;allowServerStart:false;
+  evidence:"HISTORICAL_LOCAL_ARCHIVE_READ_ONLY";
+};
+export type HistoricalStorePreview = {
+  token:string;mapId:string;mapKey:string;name:string;
+  gamePort:number;queryPort:number;enabledMods:number;passiveMods:number;
+  folderName:string;historicalActive:true;originalMapIdPreserved:true;
+  fullLaunchArgumentsVerified:false;peerWriterVerified:false;
+  serverStartAllowed:false;
+  evidence:"HISTORICAL_STORE_V1_QUARANTINE_PREVIEW";
+};
+export type HistoricalStoreRegistration = {
+  mapId:string;mapName:string;registered:true;storeProtected:true;
+  requiresOriginalLaunchVerification:true;serverStarted:false;
+  worldFilesChanged:false;
+  evidence:"HISTORICAL_STORE_V1_REGISTERED_QUARANTINED";
+};
+
 export type InitialMapStatus = {
   mapId:string; mapName:string; level:string | null;
   initialSetupAvailable:boolean; confirmedStopped:boolean;
@@ -207,7 +229,8 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
   "steam.freshRegister" |
   "servers.initialStatus" | "servers.initialPreview" |
-  "servers.initialApply";
+  "servers.initialApply" | "historical.list" |
+  "historical.preview" | "historical.register";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
@@ -216,7 +239,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
   confirm?: boolean; jobId?: string; sessionName?: string;
-  gamePort?: number; queryPort?: number };
+  gamePort?: number; queryPort?: number; archive?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -300,4 +323,9 @@ export const managerBridge = {
     request<InitialMapPreview>("servers.initialPreview", {mapId, sessionName, gamePort, queryPort}),
   initialApply: (token:string) =>
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
+  historicalList: (archive:string) => request<HistoricalStoreList>("historical.list", {archive}),
+  historicalPreview: (archive:string, mapId:string, root:string) =>
+    request<HistoricalStorePreview>("historical.preview", {archive,mapId,root}),
+  historicalRegister: (token:string) =>
+    request<HistoricalStoreRegistration>("historical.register", {token,confirm:true}),
 };
