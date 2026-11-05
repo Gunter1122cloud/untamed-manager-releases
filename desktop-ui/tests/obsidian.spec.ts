@@ -29,6 +29,12 @@ test.beforeEach(async ({ page }) => {
       },
       peerMessage: ""
     };
+    (window as typeof window & {__UNTAMED_EMPTY_FIXTURE__?:()=>void})
+      .__UNTAMED_EMPTY_FIXTURE__=()=>{
+        state.local.maps=[];
+        state.remote=null;
+        state.peerMessage="Peer nincs beállítva";
+      };
     let freshId = "";
     let keySaved = false;
     let stagedId = "";
@@ -262,6 +268,44 @@ test.beforeEach(async ({ page }) => {
       }}
     });
   }, { one: first, two: second });
+});
+
+test("first-run premium gallery shows exactly ten discoverable maps with no invented running state",async({page})=>{
+  await page.setViewportSize({width:1366,height:768});
+  await page.goto("/");
+  await page.evaluate(()=>{
+    (window as typeof window & {__UNTAMED_EMPTY_FIXTURE__?:()=>void})
+      .__UNTAMED_EMPTY_FIXTURE__?.();
+  });
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  const catalog=page.getByLabel("ASA map választék");
+  await expect(catalog).toBeVisible();
+  await expect(catalog.locator(".uk-gallery-tile")).toHaveCount(10);
+  await expect(page.locator(".uk-gallery-state.is-running")).toHaveCount(0);
+  await expect(page.getByText("Választék · nem regisztrált szerverállapot")).toBeVisible();
+  await page.getByRole("button",{name:"Astraeos · új szerver telepítése"}).click();
+  await expect(page.getByRole("heading",{name:"SteamCMD Center"})).toBeVisible();
+  await page.screenshot({path:"test-results/uk-first-run-steamcmd-1366.png",fullPage:false});
+});
+
+test("gallery filters local/remote machines without exposing peer control actions",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  const gallery=page.getByRole("region",{name:"Szervergaléria"});
+  await expect(gallery.locator(".uk-gallery-tile")).toHaveCount(3);
+  await expect(gallery.getByLabel(/Ragnarok távoli megfigyelés/)).toBeVisible();
+  await expect(gallery.getByRole("button",{name:/The Island szerver megnyitása/})).toBeVisible();
+  await page.getByRole("combobox",{name:"Gazdagép szűrő"}).selectOption("remote");
+  await expect(gallery.locator(".uk-gallery-tile")).toHaveCount(1);
+  await expect(gallery.locator(".uk-gallery-tile.is-local")).toHaveCount(0);
+  await page.getByRole("combobox",{name:"Gazdagép szűrő"}).selectOption("all");
+  await page.getByRole("button",{name:"Futók"}).click();
+  await expect(gallery.locator(".uk-gallery-tile")).toHaveCount(2);
+  await page.getByRole("button",{name:"Leállítottak"}).click();
+  await expect(gallery.locator(".uk-gallery-tile")).toHaveCount(1);
+  await expect(gallery.getByRole("button",{name:/Astraeos szerver megnyitása/})).toBeVisible();
+  await page.getByRole("button",{name:"Mind",exact:true}).click();
+  await page.screenshot({path:"test-results/uk-rex-ten-map-gallery-1600.png",fullPage:false});
 });
 
 test("real UI contract renders the synthetic dashboard and responsive navigation", async ({ page }) => {
