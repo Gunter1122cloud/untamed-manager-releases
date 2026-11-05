@@ -29,7 +29,7 @@ public static class SteamVerifiedMaintenancePipelineTests
         private bool saveRequested;
         private readonly ProcessIdentity original;
         private ProcessIdentity current;
-        private const string Receipt=new string('A',64);
+        private static readonly string Receipt=new string('A',64);
         public FakeCertifiedAdapter(string root,bool initiallyRunning)
         {
             string bin=Path.Combine(root,"ShooterGame","Binaries","Win64");
