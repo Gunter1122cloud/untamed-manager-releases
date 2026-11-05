@@ -142,7 +142,11 @@ public partial class MainWindow
                 Name=_cluster.Config.LocalHostName,
                 Description=summary.LocalMaps+" helyi map · "+App.ProfileName+" profil",
                 TrustState="HELYI PROFIL · nincs feltételezett LAN-kapcsolat",
-                Accent=Aqua
+                Accent=Aqua,
+                CpuPercent=_latestLocalResource?.CpuPercent,
+                RamPercent=_latestLocalResource?.UsedMemoryKiB is ulong used &&
+                           _latestLocalResource.TotalMemoryKiB is ulong total && total>0
+                           ?Math.Clamp(used*100d/total,0,100):null
             }
         };
         if(remote!=null)hosts.Add(new HostCardInfo {

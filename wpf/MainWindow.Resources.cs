@@ -11,6 +11,7 @@ public partial class MainWindow
         Interval=TimeSpan.FromSeconds(30)
     };
     private bool _resourceProbeBusy;
+    private LocalHostResourceSnapshot? _latestLocalResource;
     private void InitializeLocalResourceTelemetry()
     {
         _hostResourceTimer.Tick+=async (_,_)=>await RefreshLocalResourcesAsync();
@@ -29,7 +30,11 @@ public partial class MainWindow
         {
             var data=await Task.Run(LocalHostResourceProbe.Read);
             if(_demo==null)
+            {
+                _latestLocalResource=data;
                 LocalHostResourceStatus.Text=data.Display(_cluster.Config.LocalHostName);
+                RefreshDashboardMapCards();
+            }
         }
         catch(Exception ex)
         {

@@ -82,7 +82,10 @@ public partial class MainWindow
             Description=demo.Maps.Count(m=>m.Host==host.Name)+" fiktív map · CPU "+
                 host.CpuPercent+"% · RAM "+host.UsedRamGiB+"/"+host.TotalRamGiB+" GiB",
             TrustState=host.Online?"SZIMULÁLT ONLINE":"SZIMULÁLT OFFLINE",
-            Accent=host.Online?Aqua:Brushes.Orange
+            Accent=host.Online?Aqua:Brushes.Orange,
+            CpuPercent=host.Online?host.CpuPercent:null,
+            RamPercent=host.Online && host.TotalRamGiB>0
+                ?100d*host.UsedRamGiB/host.TotalRamGiB:null
         }).ToArray();
         ClusterMapCount.Text=demo.Maps.Count.ToString();
         ClusterHostCount.Text=demo.Hosts.Count.ToString();

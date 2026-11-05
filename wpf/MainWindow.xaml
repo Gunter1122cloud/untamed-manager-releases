@@ -234,6 +234,31 @@
            <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
            <TextBlock Text="{Binding Description}" FontSize="12" Foreground="{StaticResource TextSoft}" Margin="0,7,0,0" TextTrimming="CharacterEllipsis"/>
            <TextBlock Text="{Binding TrustState}" FontSize="11" Foreground="{Binding Accent}" Margin="0,7,0,0" TextTrimming="CharacterEllipsis"/>
+           <Grid Margin="0,10,0,0">
+            <Grid.Style>
+             <Style TargetType="Grid">
+              <Setter Property="Visibility" Value="Collapsed"/>
+              <Style.Triggers>
+               <DataTrigger Binding="{Binding HasTelemetry}" Value="True">
+                <Setter Property="Visibility" Value="Visible"/>
+               </DataTrigger>
+              </Style.Triggers>
+             </Style>
+            </Grid.Style>
+            <Grid.ColumnDefinitions>
+             <ColumnDefinition Width="35"/><ColumnDefinition Width="*"/>
+             <ColumnDefinition Width="32"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="17"/><RowDefinition Height="17"/></Grid.RowDefinitions>
+            <TextBlock Grid.Column="0" Text="CPU" Foreground="{StaticResource TextSoft}" FontSize="10"/>
+            <ProgressBar Grid.Column="1" Value="{Binding CpuPercent,FallbackValue=0}" Style="{StaticResource PremiumMeter}"
+                         Maximum="100" Height="6" Margin="4,1,7,0" VerticalAlignment="Top"/>
+            <TextBlock Grid.Column="2" Text="{Binding CpuLabel}" Foreground="{StaticResource TextSoft}" FontSize="10" TextAlignment="Right"/>
+            <TextBlock Grid.Row="1" Text="RAM" Foreground="{StaticResource TextSoft}" FontSize="10"/>
+            <ProgressBar Grid.Row="1" Grid.Column="1" Value="{Binding RamPercent,FallbackValue=0}"
+                         Style="{StaticResource PremiumMeter}" Maximum="100" Height="6" Margin="4,1,7,0" VerticalAlignment="Top"/>
+            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding RamLabel}" Foreground="{StaticResource TextSoft}" FontSize="10" TextAlignment="Right"/>
+           </Grid>
           </StackPanel>
          </Border>
         </DataTemplate>

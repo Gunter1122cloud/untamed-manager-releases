@@ -385,6 +385,21 @@
     </ControlTemplate.Triggers>
    </ControlTemplate></Setter.Value></Setter>
  </Style>
+ <Style x:Key="PremiumMeter" TargetType="{x:Type ProgressBar}">
+  <Setter Property="Background" Value="{StaticResource SurfaceRaised}"/>
+  <Setter Property="Foreground" Value="{StaticResource AccentLight}"/>
+  <Setter Property="BorderThickness" Value="0"/>
+  <Setter Property="Maximum" Value="100"/>
+  <Setter Property="Height" Value="6"/>
+  <Setter Property="Template"><Setter.Value>
+   <ControlTemplate TargetType="{x:Type ProgressBar}">
+    <Grid ClipToBounds="True" SnapsToDevicePixels="True">
+     <Border x:Name="PART_Track" Background="{TemplateBinding Background}" CornerRadius="3"/>
+     <Border x:Name="PART_Indicator" Background="{TemplateBinding Foreground}"
+             CornerRadius="3" HorizontalAlignment="Left"/>
+    </Grid>
+   </ControlTemplate></Setter.Value></Setter>
+ </Style>
  <Style TargetType="{x:Type ToolTip}">
   <Setter Property="Background" Value="{StaticResource SurfaceRaised}"/>
   <Setter Property="Foreground" Value="{StaticResource TextStrong}"/>

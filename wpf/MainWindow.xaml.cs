@@ -49,6 +49,11 @@ public sealed class HostCardInfo
     public string Description { get; init; } = "";
     public string TrustState { get; init; } = "";
     public Brush Accent { get; init; } = Brushes.Aquamarine;
+    public double? CpuPercent { get; init; }
+    public double? RamPercent { get; init; }
+    public string CpuLabel => CpuPercent.HasValue ? CpuPercent.Value.ToString("0")+"%" : "—";
+    public string RamLabel => RamPercent.HasValue ? RamPercent.Value.ToString("0")+"%" : "—";
+    public bool HasTelemetry => CpuPercent.HasValue || RamPercent.HasValue;
 }
 
 public partial class MainWindow : Window
