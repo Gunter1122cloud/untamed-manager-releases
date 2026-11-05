@@ -457,6 +457,63 @@ try
             "broken historical metadata is reported without erasing valid local mod assignments");
     }
 
+    // Read-only RCON uses an isolated synthetic process identity and injected
+    // fake ListPlayers response. This must never reach live ASA or real SQL.
+    {
+        var fakeMap=new LocalMap{
+            Name="RCON synthetic map",ExecutablePath=Path.Combine(root,"rcon-fake.exe"),
+            InstallationPath=Path.Combine(root,"rcon-fake-install"),
+            RconHost="127.0.0.1",RconPort=37555,
+            RconPasswordProtected=SecureStore.Protect("test-only-passphrase")
+        };
+        var identity=new ProcessIdentity {
+            Pid=550055,StartedUtc=DateTimeOffset.UtcNow,
+            ExecutablePath=fakeMap.ExecutablePath,Arguments=""
+        };
+        bool running=true,owner=true;
+        int dispatched=0;
+        await using var observed=new ClusterService("rcon-readonly-synthetic",
+            Path.Combine(root,"rcon-readonly-profile"),
+            _=>new ProcessCheck(running,"synthetic process observed",
+                running?identity:null,!running));
+        observed.AddMap(fakeMap);
+        var rcon=new DesktopRconReadOnlyBridge(observed,
+            (_,pid)=>owner && pid==identity.Pid,
+            (host,port,password,command,ct)=>{
+                Check(host=="127.0.0.1"&&port==fakeMap.RconPort &&
+                      password=="test-only-passphrase"&&command=="ListPlayers",
+                    "RCON command is fixed and secret never reaches WebView");
+                dispatched++;return Task.FromResult("Player 1: Synthetic Survivor");
+            });
+        var ready=await Call(rcon.HandleAsync,"rcon.status",new{mapId=fakeMap.Id});
+        IsOk(ready,"read-only local RCON status is available on synthetic owned map");
+        Check(ready.GetProperty("data").GetProperty("permitted").GetBoolean() &&
+              !ready.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal),
+            "RCON status reports safe local ownership without exposing credentials");
+        var players=await Call(rcon.HandleAsync,"rcon.listPlayers",
+            new{mapId=fakeMap.Id,command="DestroyWildDinos"});
+        IsOk(players,"ListPlayers can be read from a verified synthetic local process");
+        Check(dispatched==1 && players.GetProperty("data").GetProperty("readOnly").GetBoolean() &&
+              !players.GetProperty("data").GetProperty("saveCompleteProven").GetBoolean() &&
+              players.GetProperty("data").GetProperty("response").GetString()=="Player 1: Synthetic Survivor",
+            "arbitrary renderer command is ignored; only read-only ListPlayers is dispatched");
+        owner=false;
+        var refused=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
+        Check(IsError(refused,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
+              dispatched==1,"RCON port ownership loss prevents another dispatch");
+        owner=true;running=false;
+        var stopped=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
+        Check(IsError(stopped,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
+              dispatched==1,"stopped synthetic process cannot receive RCON");
+        running=true;fakeMap.HistoricalStoreProtected=true;
+        var locked=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
+        Check(IsError(locked,"UM-HISTORICAL-STORE-LOCKED") &&
+              dispatched==1,"historical Store-v1 lock always prevents RCON dispatch");
+        var foreign=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=Guid.NewGuid()});
+        Check(IsError(foreign,"UM-MAP-NOT-OWNED"),
+            "RCON cannot target an unregistered or remote peer map");
+    }
+
     // Update Center: deterministic provider response; no remote download,
     // installer launch or server mutation in this test.
     {
