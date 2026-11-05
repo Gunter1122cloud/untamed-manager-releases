@@ -106,7 +106,7 @@
     </Grid>
    </Border>
    <Grid Grid.Row="1">
-    <ScrollViewer x:Name="Dashboard" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="{StaticResource SurfaceWindow}">
+    <ScrollViewer x:Name="Dashboard" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="{StaticResource SurfaceWindow}" PreviewMouseWheel="Dashboard_PreviewMouseWheel">
      <StackPanel Margin="18,0,18,14">
       <Border Height="200" Background="#0C2525" BorderBrush="#315F56" BorderThickness="1"
  CornerRadius="16" ClipToBounds="True" Margin="0,13,0,17">
