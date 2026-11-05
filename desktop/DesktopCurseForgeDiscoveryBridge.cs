@@ -48,7 +48,8 @@ public sealed class DesktopCurseForgeDiscoveryBridge : IDisposable
             id = requestId.ToString("D");
             string? method = methodProp.GetString();
             if (method is not ("curseforge.categories" or "curseforge.featured" or
-                "curseforge.browse" or "curseforge.project" or "curseforge.files"))
+                "curseforge.browse" or "curseforge.project" or "curseforge.files" or
+                "curseforge.summary"))
                 return Error(id, "UM-METHOD-DENIED");
             if (string.IsNullOrWhiteSpace(cluster.Config.CurseForgeApiKeyProtected))
                 return Error(id, "UM-CURSEFORGE-NO-KEY");
@@ -60,7 +61,7 @@ public sealed class DesktopCurseForgeDiscoveryBridge : IDisposable
                 return Error(id, "UM-INVALID-PAGE");
 
             var modId = 0;
-            if (method is ("curseforge.project" or "curseforge.files") &&
+            if (method is ("curseforge.project" or "curseforge.files" or "curseforge.summary") &&
                 (!PositiveInt(request, "modId", out modId) || modId < 10000))
                 return Error(id, "UM-INVALID-PROJECT");
 
@@ -134,6 +135,16 @@ public sealed class DesktopCurseForgeDiscoveryBridge : IDisposable
                             page, hasMore = found.HasMore,
                             mods = found.Mods.Select(Summary).ToArray(),
                             evidence = "OFFICIAL_CATALOG_METADATA_ONLY"
+                        };
+                        break;
+                    case "curseforge.summary":
+                        // Lightweight single-project metadata for names and
+                        // thumbnails in the configured local Mod Center list.
+                        // No file/description download and no mod mutation.
+                        var summary=await catalog.GetAsaModAsync(key,modId);
+                        response=new {
+                            mod=Summary(summary),
+                            evidence="OFFICIAL_ASA_PROJECT_SUMMARY_ONLY"
                         };
                         break;
                     case "curseforge.project":
