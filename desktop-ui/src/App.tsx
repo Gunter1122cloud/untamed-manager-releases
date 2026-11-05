@@ -959,7 +959,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   setSelected:(value:string)=>void;onConfigured:()=>Promise<void>
 }) {
   const [section,setSection]=useState<MapSection>("overview");
-  useEffect(()=>setSection("overview"),[mapId]);
+  const [initialSetupSaved,setInitialSetupSaved]=useState(false);
+  useEffect(()=>{setSection("overview");setInitialSetupSaved(false);},[mapId]);
   const map=snapshot.local.maps.find(m=>m.id===mapId);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   const sections: Array<{id:MapSection;name:string}>=[
@@ -1007,7 +1008,13 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
           <div className="warning-inline"><Shield size={17}/> Valódi ASA Start/Stop/Restart és RCON írás csak sikeres izolált hitelesítési és életciklus-tesztek után engedhető.</div>
         </Panel>
       </div>
-      {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={onConfigured}/>}
+      {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
+        await onConfigured();
+        setInitialSetupSaved(true);
+      }}/>}
+      {map.gamePort>0 && initialSetupSaved && <div role="status" className="success-inline">
+        <CheckCircle2 size={17}/>{map.name} indítási profilja mentve. A szerver nem indult el; RCON és modok később konfigurálhatók.
+      </div>}
     </>}
     {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>} 
     {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
