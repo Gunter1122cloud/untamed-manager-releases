@@ -15,6 +15,7 @@ import {
 } from "./bridge";
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
+import { HistoricalStoreImport } from "./HistoricalStoreImport";
 
 type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -354,7 +355,9 @@ function LocalAsaImport({onImported}: {onImported:()=>Promise<void>}) {
       const code=e instanceof Error?e.message:"UM-IMPORT-VALIDATION-FAILED";
       setError(code==="UM-ASA-EXE-MISSING"
         ? "A megadott helyen nincs meg az ASA ShooterGame/Binaries/Win64/ArkAscendedServer.exe."
-        : "A kiválasztott helyi telepítés nem importálható ("+code+"). Ellenőrizd a mappát és a már regisztrált mapokat.");
+        : code==="UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT"
+          ? "Ez a telepítés már világmentést tartalmaz. Ne importáld üres szerverként; használd a külön Kova Store-v1 átvételt."
+          : "A kiválasztott helyi telepítés nem importálható ("+code+"). Ellenőrizd a mappát és a már regisztrált mapokat.");
     } finally {setBusy(false);}
   };
   const confirm=async()=>{
@@ -412,13 +415,21 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
   snapshot: DashboardSnapshot; search: string; setSearch: (v: string) => void; onSelect: (v: string) => void;
   onImported:()=>Promise<void>
 }) {
-  const [showImport,setShowImport]=useState(false);
+  const [importMode,setImportMode]=useState<"none"|"existing"|"store">("none");
   return <><div className="page-intro"><span className="eyebrow">LOCAL HOST / LAN</span><h1>Szerverek</h1><p>A helyi mapok megfigyelése; távoli mapok kizárólag olvashatók.</p></div>
     <div className="server-toolbar">
       <div className="toolbar"><Search size={19}/><input aria-label="Map keresése" placeholder="Map keresése..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
-      <button className="primary" onClick={()=>setShowImport(v=>!v)}>{showImport?"Map import bezárása":"Új helyi map felvétele"}</button>
+      <div className="server-import-buttons">
+        <button className="secondary" onClick={()=>setImportMode(v=>v==="store"?"none":"store")}>
+          {importMode==="store"?"Store-v1 import bezárása":"Kova Store-v1 átvétel"}
+        </button>
+        <button className="primary" onClick={()=>setImportMode(v=>v==="existing"?"none":"existing")}>
+          {importMode==="existing"?"Map import bezárása":"Új helyi map felvétele"}
+        </button>
+      </div>
     </div>
-    {showImport && <LocalAsaImport onImported={onImported}/>}
+    {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
+    {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}
     <Panel title={`Helyi mapok · ${snapshot.local.hostName}`}><MapTable maps={snapshot.local.maps} host={snapshot.local.hostName} filter={search} onPick={onSelect}/></Panel>
     {snapshot.remote && <Panel title={`Távoli mapok · ${snapshot.remote.hostName}`}><MapTable maps={snapshot.remote.maps} host={snapshot.remote.hostName} filter={search}/></Panel>}
   </>;
