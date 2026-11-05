@@ -199,24 +199,50 @@ public partial class MainWindow
         DemoSelectedMapPanel("Szimulált ASA-map kiválasztása",map=>{
             var demo=_demo!;
             var status=Label(demo.Status(map)+" · "+map.Players+" mintajátékos",12,Aqua);
+            var overview=new WrapPanel{Margin=new Thickness(0,7,0,7)};
+            var metrics=new List<(TextBlock Text,Func<string> Read)>();
+            void Metric(string caption,Func<string> value)
+            {
+                var text=Label(value(),17,Mint,true);
+                var tile=Box(V(Label(caption,10,Soft,true),text));
+                tile.MinWidth=158;tile.MaxWidth=210;
+                overview.Children.Add(tile);
+                metrics.Add((text,value));
+            }
+            Metric("GAZDAGÉP",()=>map.Host);
+            Metric("JÁTÉKOSOK / DEMO",()=>
+                (map.Running&&demo.FindHost(map.Host).Online?map.Players:0).ToString());
+            Metric("KONFIGURÁLT MODOK",()=>map.Mods.Count(m=>m.Mode!=DemoModMode.Disabled).ToString());
+            Metric("ENGEDÉLYEZETT PLUGINOK",()=>map.Plugins.Count(p=>p.Enabled)+"/"+map.Plugins.Count);
+            Metric("MINTAMENTÉSEK",()=>map.Backups.Count.ToString());
+            Metric("ASA API / DEMO",()=>map.ApiVersion);
+            void UpdateMetrics()
+            {
+                foreach(var (text,read) in metrics)text.Text=read();
+            }
             var operations=new WrapPanel{Margin=new Thickness(0,6,0,12)};
             void Act(Action act,string result)
             {
-                RunDemo(act,status,result,()=>status.Text+="\n"+demo.Status(map));
+                RunDemo(act,status,result,()=>{
+                    status.Text+="\n"+demo.Status(map);
+                    UpdateMetrics();
+                });
             }
             operations.Children.Add(Btn("▶  Indítás",()=>Act(()=>demo.SetRunning(map.Id,true),"Start")));
             operations.Children.Add(Btn("■  Leállítás",()=>Act(()=>demo.SetRunning(map.Id,false),"Stop")));
             operations.Children.Add(Btn("↻  Restart + SaveWorld",()=>Act(()=>demo.Restart(map.Id),"Restart")));
             operations.Children.Add(Btn("▣  Mentés",()=>Act(()=>demo.Backup(map.Id),"Backup")));
-            var tabs=new TabControl{Foreground=Brushes.White,Background=Panel};
+            var tabs=new TabControl{Foreground=Mint,Background=Panel};
             void Tab(string name,UIElement content)=>
                 tabs.Items.Add(new TabItem{Header=name,Content=new ScrollViewer{
                     Content=content,Padding=new Thickness(12),
                     VerticalScrollBarVisibility=ScrollBarVisibility.Auto}});
-            Tab("Áttekintés",V(Label(map.Name,22,Mint,true),
-                Label("Gép: "+map.Host+" · ASA API "+map.ApiVersion,13,Aqua),
-                Label("Játékosok (minta): "+map.Players+" · "+demo.Status(map),13,Soft),
-                Label("A műveletek nem indítanak vagy állítanak le Windows-folyamatot.",12,Soft)));
+            tabs.SelectionChanged+=(_,_)=>UpdateMetrics();
+            Tab("Áttekintés",V(
+                Label(map.Name,22,Mint,true),
+                Label(map.Host+" · "+demo.Status(map),13,Aqua),
+                overview,
+                Label("Minden adat szimulált. Az ASA API verzió csak DEMO-minta; a műveletek nem indítanak Windows-folyamatot.",12,Soft)));
             Tab("Modok",DemoModsPane(map));
             Tab("Pluginok / API",DemoPluginsPane(map));
             Tab("INI",DemoIniPane(map));
