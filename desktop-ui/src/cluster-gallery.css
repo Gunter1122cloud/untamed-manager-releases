@@ -173,3 +173,13 @@
   .premium-dashboard .premium-dashboard-banner.hero::before{animation:none;will-change:auto;}
   .uk-gallery-tile{transition:none;}
 }
+
+/* Genuine local profile flags, never guessed for authenticated LAN peers. */
+.uk-gallery-profile-flags{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 1px;}
+.uk-flag{display:inline-flex;align-items:center;gap:4px;max-width:100%;
+  padding:4px 5px;border:1px solid #4b7568;border-radius:5px;
+  font-size:8.5px;font-weight:750;line-height:1.2;color:#b7e7d5;background:#24483b;}
+.uk-flag svg{flex:none;}
+.uk-flag.locked{color:#f2c18b;background:#513a2a;border-color:#916643;}
+.uk-flag.maintenance{color:#dfbddf;background:#49374e;border-color:#866687;}
+.uk-flag.rcon{color:#a4d8ed;background:#233e4a;border-color:#53788a;}
