@@ -254,7 +254,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             }
             finally {gate.Release();}
         }
-        catch(Exception ex) when(ex is IOException or InvalidDataException or
+        catch(Exception ex) when(ex is IOException or InvalidDataException or JsonException or
             ArgumentException or UnauthorizedAccessException or
             InvalidOperationException or System.Text.RegularExpressions.RegexMatchTimeoutException or
             System.Security.Cryptography.CryptographicException)
