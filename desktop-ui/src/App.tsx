@@ -7,12 +7,13 @@ import {
 import {
   managerBridge, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
   type LogTail, type ModDraftState, type ModDraftSave, type ModDraftMode,
+  type IniFile, type IniDocument, type IniPreview,
   type SteamInstallations, type SuggestedPorts,
   type PluginInventory, type DashboardSnapshot,
   type PublicMap, type RemoteHost
 } from "./bridge";
 
-type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings";
+type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
   { page: "dashboard", label: "Áttekintés", icon: LayoutDashboard },
   { page: "servers", label: "Szerverek", icon: Server },
@@ -22,6 +23,7 @@ const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> =
   { page: "backups", label: "Mentések", icon: Archive },
   { page: "steam", label: "SteamCMD", icon: HardDrive },
   { page: "logs", label: "Naplók", icon: FileText },
+  { page: "ini", label: "INI szerkesztő", icon: FileText },
   { page: "settings", label: "Beállítások", icon: Settings2 },
 ];
 
@@ -520,6 +522,104 @@ function LogsCenter({ snapshot, selected, setSelected }: {
   </>;
 }
 
+function IniCenter({ snapshot, selected, setSelected }: {
+  snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void
+}) {
+  const [file, setFile] = useState<IniFile>("Game.ini");
+  const [opened, setOpened] = useState<IniDocument | null>(null);
+  const [content, setContent] = useState("");
+  const [preview, setPreview] = useState<IniPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setOpened(null); setContent(""); setPreview(null);
+    setNotice(""); setError("");
+  }, [selected, file]);
+  const load = async () => {
+    if (!selected) return;
+    setBusy(true); setError(""); setNotice(""); setPreview(null);
+    try {
+      const fresh = await managerBridge.iniOpen(selected, file);
+      setOpened(fresh); setContent(fresh.content);
+    } catch(e) {
+      const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
+      setError(code==="UM-INI-STOP-REQUIRED"
+        ? "A map nincs igazoltan leállítva, vagy karbantartás folyik. Az INI-szerkesztés tiltva."
+        : "A regisztrált map INI-fájlja nem nyitható meg biztonságosan ("+code+").");
+    } finally { setBusy(false); }
+  };
+  const showPreview = async () => {
+    if (!opened) return;
+    setBusy(true); setError(""); setNotice("");
+    try { setPreview(await managerBridge.iniPreview(opened.token, content)); }
+    catch { setPreview(null); setError("Az INI előnézet érvénytelen vagy lejárt. Nem írtunk fájlba."); }
+    finally { setBusy(false); }
+  };
+  const save = async () => {
+    if (!opened || !preview?.changed) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const result = await managerBridge.iniSave(opened.token);
+      setOpened(null); setPreview(null); setContent("");
+      setNotice(result.backupCreated
+        ? "Az INI mentése atomikusan befejeződött, visszaállítási .bak másolattal."
+        : "Az INI mentése befejeződött.");
+    } catch(e) {
+      const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
+      setError("Az INI-mentést a natív biztonsági ellenőrzés elutasította ("+code+"). Ellenőrizd, hogy a map leállt-e, és nem változott-e közben a fájl.");
+      setPreview(null);
+    } finally { setBusy(false); }
+  };
+  const close = async () => {
+    if (!opened) return;
+    setBusy(true);setError("");
+    try { await managerBridge.iniClose(opened.token); }
+    catch { /* Local draft expires; discarding UI text never writes a file. */ }
+    finally { setOpened(null); setContent(""); setPreview(null); setBusy(false); }
+  };
+  return <>
+    <div className="page-intro"><span className="eyebrow">LOCAL CONFIGURATION / ETAG PROTECTION</span><h1>INI szerkesztő</h1>
+      <p>A valódi Game.ini és GameUserSettings.ini szerkesztése, eredeti kódolás és sortörés megőrzésével. Csak igazoltan leállított, helyi ASA mapnál.</p></div>
+    <div className="ini-toolbar">
+      <label>Helyi map
+        <select aria-label="INI mapja" value={selected} onChange={e=>setSelected(e.target.value)}>
+          {snapshot.local.maps.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </label>
+      <label>INI-fájl
+        <select aria-label="INI fájl" value={file} onChange={e=>setFile(e.target.value as IniFile)}>
+          <option value="Game.ini">Game.ini</option><option value="GameUserSettings.ini">GameUserSettings.ini</option>
+        </select>
+      </label>
+      <button className="primary" onClick={() => { void load(); }} disabled={busy || !selected}>Fájl biztonságos megnyitása</button>
+    </div>
+    <Panel title={opened ? `Szerkesztés · ${opened.file}` : "Helyi konfiguráció"}
+      action={opened && <span className="muted tiny">Kódolás: {opened.encoding} · {opened.bytes.toLocaleString("hu-HU")} byte</span>}>
+      {!opened && <div className="empty">Válaszd ki a regisztrált helyi mapot és az INI-fájlt. Megnyitás csak igazolt leállítás esetén lehetséges.</div>}
+      {opened && <>
+        <label className="ini-editor-label" htmlFor="ini-contents">Az eredeti fájl szerkeszthető tartalma</label>
+        <textarea id="ini-contents" className="ini-editor" spellCheck={false} value={content}
+          onChange={e=>{setContent(e.target.value);setPreview(null);}} disabled={busy}/>
+        <div className="ini-actions">
+          <button className="secondary" disabled={busy} onClick={() => { void close(); }}>Mégse · piszkozat elvetése</button>
+          <button className="primary" disabled={busy || content===opened.content} onClick={() => { void showPreview(); }}>Hash és változások előnézete</button>
+          <button className="primary" disabled={busy || !preview?.changed} onClick={() => { void save(); }}>Jóváhagyás és atomikus mentés</button>
+        </div>
+        {preview && <div className="ini-preview">
+          <span>Változás: <b>{preview.changed ? "Igen" : "Nincs"}</b></span>
+          <span>Sorok: <b>{preview.oldLines} → {preview.newLines}</b></span>
+          <span>Eredeti SHA-256: <code>{preview.originalSha256.slice(0,16)}…</code></span>
+          <span>Új SHA-256: <code>{preview.nextSha256.slice(0,16)}…</code></span>
+        </div>}
+      </>}
+      {notice && <div role="status" className="success-inline"><CheckCircle2 size={18}/>{notice}</div>}
+      {error && <div role="alert" className="error-inline"><AlertTriangle size={18}/>{error}</div>}
+      <div className="warning-inline"><Shield size={17}/> Az INI jelszavakat tartalmazhat: kizárólag a helyi, védett Windows WebView2 felületen szerkeszd. Mentéskor a natív C# újraellenőrzi a leállítást és az eredeti fájl SHA-256 lenyomatát.</div>
+    </Panel>
+  </>;
+}
+
 function SettingsCenter() {
   const [status, setStatus] = useState<boolean | null>(null);
   const [credential, setCredential] = useState("");
@@ -663,7 +763,8 @@ export function App() {
           {page === "backups" && <BackupCenter/>}
           {page === "steam" && <SteamCenter snapshot={snapshot}/>}
           {page === "logs" && <LogsCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
-          {page === "settings" && <SettingsCenter/>} 
+          {page === "settings" && <SettingsCenter/>}
+          {page === "ini" && <IniCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>} 
         </>}
       </main>
       <footer className="footer"><span className="footer-dot"/> <b>Untamed Kingdom</b> · Natív .NET 10 / WebView2
