@@ -509,6 +509,15 @@ try
         Check(IsError(staleReplay,"UM-PLUGIN-PREVIEW-EXPIRED"),
             "failed plugin confirmation cannot reuse stale approval");
         peerRunning=false;
+        var rootPreview=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
+            new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
+        string rootToken=rootPreview.GetProperty("data").GetProperty("token").GetString()!;
+        a.InstallationPath=Path.Combine(root,"DIFFERENT-PLUGIN-INSTALL");
+        var rootDenied=await Call(pluginBridge.HandleAsync,"plugins.toggleApply",
+            new{token=rootToken,confirm=true});
+        Check(IsError(rootDenied,"UM-PLUGIN-STATE-CHANGED") && Directory.Exists(active),
+            "plugin approval is bound to the original local installation root");
+        a.InstallationPath=install;
         var secondPreview=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
             new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
         string approvedToken=secondPreview.GetProperty("data").GetProperty("token").GetString()!;
