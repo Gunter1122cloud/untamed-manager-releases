@@ -65,6 +65,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopInitialMapSetupBridge _initialMapSetup;
     private readonly DesktopHistoricalStoreImportBridge _historicalStore;
     private readonly DesktopUpdateStatusBridge _updates = new();
+    private readonly DesktopRconReadOnlyBridge _rcon;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -82,6 +83,7 @@ public sealed class ObsidianWindow : Form
         _freshInstall = new DesktopSteamFreshInstallBridge(_bridge.LocalCluster);
         _initialMapSetup = new DesktopInitialMapSetupBridge(_bridge.LocalCluster);
         _historicalStore = new DesktopHistoricalStoreImportBridge(_bridge.LocalCluster);
+        _rcon = new DesktopRconReadOnlyBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
@@ -196,6 +198,7 @@ public sealed class ObsidianWindow : Form
                 bool historicalRoute = false;
                 bool pluginStateRoute = false;
                 bool updateRoute = false;
+                bool rconRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -208,6 +211,7 @@ public sealed class ObsidianWindow : Form
                             "curseforge.credentialSave" or
                             "curseforge.credentialClear";
                         updateRoute = name is "updates.status" or "updates.check";
+                        rconRoute = name is "rcon.status" or "rcon.listPlayers";
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         draftRoute = name is
@@ -236,7 +240,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = updateRoute ? await _updates.HandleAsync(incoming)
+                    string response = rconRoute ? await _rcon.HandleAsync(incoming)
+                        : updateRoute ? await _updates.HandleAsync(incoming)
                         : credentialRoute ? await _credentials.HandleAsync(incoming)
                         : pluginStateRoute ? await _pluginState.HandleAsync(incoming)
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
