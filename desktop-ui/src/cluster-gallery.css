@@ -1,0 +1,175 @@
+/* UNTAMED KINGDOM / HERO + MAP GALAXY
+   Visual architecture follows the approved Rex/waterfall/TEK atlas:
+   real artwork, tangible 10-map choices, alive state vs offline discovery.
+   Only transform/opacity animate; zero canvas, video, GPU loops or timers. */
+
+.premium-dashboard .premium-dashboard-banner.hero {
+  height:171px;min-height:171px;position:relative;isolation:isolate;
+  border:1px solid #4c8577;border-radius:13px;
+  background:#0e242a;overflow:hidden;margin-bottom:13px;
+  box-shadow:0 14px 26px #0005,inset 0 1px #a9fff91c;
+}
+.premium-dashboard .premium-dashboard-banner.hero::before {
+  content:"";display:block;position:absolute;inset:-5px -13px;
+  background:url("/uk-reference-map-atlas.jpg") 50% top/cover no-repeat;
+  filter:saturate(.96) contrast(1.11);
+  transform:scale(1.012);transform-origin:65% 20%;
+  animation:uk-rex-breath 29s ease-in-out infinite alternate;
+  z-index:-2;will-change:transform;
+}
+.premium-dashboard .premium-dashboard-banner.hero::after {
+  content:"";display:block;position:absolute;inset:0;
+  background:linear-gradient(90deg,#081a20f5 0%,#0b2026de 26%,#08232aa8 47%,#0c252936 79%),
+    linear-gradient(0deg,#04131663,transparent 45%);
+  z-index:-1;pointer-events:none;
+}
+.premium-dashboard .premium-dashboard-banner .premium-banner-content {
+  position:relative;display:flex;flex-direction:column;align-items:flex-start;
+  justify-content:center;gap:6px;height:100%;box-sizing:border-box;
+  padding:19px 30px;min-width:0;
+}
+.premium-dashboard .premium-dashboard-banner .premium-kicker {
+  color:#73f0c0;letter-spacing:.19em;font-size:10.5px;font-weight:800;
+  text-shadow:0 2px 8px #000;
+}
+.premium-dashboard-banner .uk-hero-title {
+  display:block;font-family:"Segoe UI Variable",Segoe UI,sans-serif;
+  font-size:clamp(24px,2.5vw,37px);font-weight:850;
+  letter-spacing:-.025em;line-height:1.12;
+  margin:0;color:#fff;text-shadow:0 3px 12px #0009;
+}
+.premium-dashboard .premium-dashboard-banner .premium-overview-subtitle {
+  font-size:12px;font-weight:600;color:#d0e7df;text-shadow:0 2px 8px #000;
+  margin-top:2px;line-height:1.5;
+}
+.premium-dashboard .premium-dashboard-banner .premium-banner-mark {
+  bottom:17px;right:23px;background:#061719b8;
+  color:#e9f8f2;border:1px solid #75d8bc74;padding:5px 9px;
+  border-radius:5px;letter-spacing:.13em;
+}
+@keyframes uk-rex-breath {
+  0% {transform:scale(1.015) translateX(0);}
+  100% {transform:scale(1.055) translateX(-6px);}
+}
+/* Main collection is full width, not a narrow table beside empty info cards. */
+.premium-dashboard .premium-dashboard-grid {display:flex;flex-direction:column;align-items:stretch;gap:13px;}
+.premium-dashboard .premium-server-panel {width:100%;min-width:0;}
+.premium-dashboard .premium-dashboard-aside {
+  width:100%;display:grid;grid-template-columns:1.18fr 1fr .93fr;
+  gap:13px;align-items:start;
+}
+.premium-dashboard .premium-dashboard-aside .premium-security {grid-column:auto;}
+.premium-dashboard .premium-metrics {margin-bottom:13px;gap:11px;}
+.premium-dashboard .premium-metric {min-height:76px;padding:10px 16px;}
+.premium-dashboard .premium-metric-copy strong{font-size:25px;}
+.premium-dashboard .premium-panel-heading {min-height:51px;}
+.premium-view-switcher {display:flex;align-items:center;gap:3px;
+  border:1px solid #4c6666;border-radius:8px;background:#12262e;padding:3px;}
+.premium-view-switcher button {display:flex;align-items:center;gap:6px;
+  min-height:31px;border:1px solid transparent;background:transparent;
+  border-radius:6px;padding:6px 10px;color:#a5c9c2;font-size:11px;white-space:nowrap;}
+.premium-view-switcher button:hover {color:#f7fffb;background:#224f44;}
+.premium-view-switcher button.is-active {background:#276e57;border-color:#54ac8d;color:#fff;}
+.uk-cluster-gallery {padding:13px 15px;background:
+  radial-gradient(circle at 85% 9%,#266f5640,transparent 24%),#14272c;}
+.uk-gallery-controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
+.uk-gallery-tabs {display:flex;align-items:center;gap:2px;padding:3px;
+  border:1px solid #3e6260;border-radius:8px;background:#11252a;}
+.uk-gallery-tabs button {min-height:30px;background:transparent;color:#a5c5c0;
+  border:1px solid transparent;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:650;}
+.uk-gallery-tabs button.is-active{background:#236c53;border-color:#3aa37b;color:#fff;}
+.uk-gallery-host-filter {display:inline-flex;gap:8px;align-items:center;
+  background:#1a3338;border:1px solid #426962;border-radius:8px;
+  padding:6px 10px;min-height:33px;color:#9cddc4;}
+.uk-gallery-host-filter select{appearance:none;background:transparent;border:0;
+  color:#e6f8f2;padding-right:4px;max-width:155px;font-size:11px;outline:0;}
+.uk-gallery-host-filter select option {background:#18343a;color:#e7f7f3;}
+.uk-gallery-result-count{margin-left:auto;font-size:10px;letter-spacing:.13em;
+  color:#97d5bf;font-weight:800;}
+.uk-map-gallery-grid {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:11px;align-items:stretch;}
+.uk-gallery-tile {display:flex;flex-direction:column;position:relative;min-width:0;
+  border:1px solid #47736a;border-radius:9px;padding:0;
+  overflow:hidden;background:#1a3439;color:#e9fff8;box-shadow:0 5px 14px #0005;
+  text-align:left;transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease;}
+.uk-gallery-tile.is-local:hover,
+.uk-gallery-tile.is-discovery:hover {transform:translateY(-3px);border-color:#78edb7;
+  box-shadow:0 0 0 1px #5fc99d37,0 10px 24px #0007;}
+.uk-gallery-tile.is-local:focus-visible,
+.uk-gallery-tile.is-discovery:focus-visible {outline:2px solid #9fffd3;outline-offset:3px;}
+.uk-gallery-tile.is-remote {border-color:#4a7382;box-shadow:inset 0 -3px #4085a7a3;}
+.uk-gallery-art {position:relative;display:block;width:100%;height:113px;flex:none;overflow:hidden;}
+.uk-gallery-art .premium-map-cover {width:100%;height:100%;border:0;border-radius:0;
+  display:block;box-shadow:none;background-repeat:no-repeat;flex:none;}
+.uk-gallery-art-overlay{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(0deg,#071c20ca 0%,#08272c00 62%);}
+.uk-gallery-state-wrap {position:absolute;left:9px;top:9px;}
+.uk-gallery-state {display:inline-flex;align-items:center;gap:5px;padding:5px 8px;
+  background:#1a2526de;border:1px solid #73857a9e;border-radius:5px;
+  color:#d7dcd9;font-size:9px;font-weight:850;letter-spacing:.06em;}
+.uk-gallery-state>span {width:7px;height:7px;border-radius:50%;background:#939e9e;}
+.uk-gallery-state.is-running{border-color:#4da67b;color:#b4ffcd;background:#0e3227e8;}
+.uk-gallery-state.is-running>span{background:#5eff9f;box-shadow:0 0 8px #55f1b3bb;}
+.uk-gallery-tile-body {display:flex;flex-direction:column;gap:5px;
+  padding:10px 11px 11px;min-height:77px;box-sizing:border-box;flex:1;width:100%;}
+.uk-gallery-name{font-size:13.5px;font-weight:800;letter-spacing:-.01em;line-height:1.25;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+.uk-gallery-meta{display:flex;align-items:center;gap:5px;color:#a9c9be;
+  font-size:10px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+.uk-gallery-footer{display:flex;justify-content:space-between;align-items:center;
+  gap:5px;margin-top:auto;padding-top:7px;border-top:1px solid #3b5b58a8;
+  color:#adc6bd;font-size:9px;white-space:nowrap;}
+.uk-gallery-footer b{font-size:10.5px;color:#defbee;}
+.uk-gallery-local {display:flex;align-items:center;gap:4px;color:#78edb8;
+  font-weight:800;letter-spacing:.01em;}
+.uk-gallery-remote {display:flex;align-items:center;gap:4px;color:#9abedb;
+  font-size:9px;font-weight:720;}
+.uk-gallery-empty {display:flex;flex-direction:column;align-items:center;text-align:center;
+  padding:18px 14px;min-height:70px;gap:6px;color:#b4d8cc;}
+.uk-gallery-empty>svg{color:#6edeb8;}
+.uk-gallery-empty b{color:#f1fff9;font-size:14px;}
+.uk-gallery-empty p{max-width:680px;margin:0 0 5px;line-height:1.5;font-size:11px;}
+.uk-gallery-get-started{display:flex;align-items:center;justify-content:center;
+  flex-wrap:wrap;gap:8px;margin-top:4px;}
+.uk-gallery-get-started button {display:inline-flex;align-items:center;gap:8px;}
+.uk-gallery-catalog {border-top:1px solid #3e6860;margin-top:10px;padding-top:12px;}
+.uk-gallery-catalog-heading{display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+.uk-gallery-catalog-heading>span{display:flex;align-items:center;gap:9px;
+  font-size:11px;color:#6cf3be;font-weight:820;letter-spacing:.09em;}
+.uk-gallery-catalog-heading small {font-size:10px;color:#adc3bc;}
+.uk-map-gallery-grid.is-discover .uk-gallery-tile {border-color:#415e5c;background:#1a3136;}
+.uk-map-gallery-grid.is-discover .uk-gallery-art{height:93px;}
+.uk-map-gallery-grid.is-discover .uk-gallery-tile-body{min-height:60px;}
+.uk-map-gallery-grid.is-discover .uk-gallery-name{font-size:12.5px;}
+.uk-map-gallery-grid.is-discover .uk-gallery-footer {font-size:8.5px;color:#95aaa5;}
+/* Make the user-visible canvas attractive on a clean test machine, but only
+   claim 'running' for observed processes and 'installed' for registered maps. */
+@media(max-width:1540px) {
+  .uk-map-gallery-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;}
+  .uk-gallery-art{height:96px;}
+  .premium-dashboard .premium-dashboard-aside{grid-template-columns:1.1fr 1fr;}
+  .premium-dashboard .premium-dashboard-aside .premium-security{grid-column:1/-1;}
+}
+@media(max-width:1260px) {
+  .uk-map-gallery-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
+  .premium-dashboard .premium-dashboard-aside{grid-template-columns:1fr 1fr;}
+  .premium-dashboard .premium-dashboard-banner.hero{height:140px;min-height:140px;}
+}
+@media(max-width:980px) {
+  .uk-map-gallery-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .premium-dashboard .premium-dashboard-aside{grid-template-columns:1fr;}
+  .premium-dashboard .premium-dashboard-aside .premium-security{grid-column:auto;}
+  .premium-dashboard .premium-dashboard-banner .premium-banner-mark{display:none;}
+}
+@media(max-width:760px) {
+  .uk-map-gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .uk-gallery-art{height:98px;}
+  .premium-dashboard .premium-dashboard-banner.hero{height:124px;min-height:124px;}
+  .premium-dashboard .premium-dashboard-banner .premium-banner-content{padding:13px 17px;}
+  .premium-view-switcher button{padding:5px 8px;}
+}
+@media(prefers-reduced-motion:reduce) {
+  .premium-dashboard .premium-dashboard-banner.hero::before{animation:none;will-change:auto;}
+  .uk-gallery-tile{transition:none;}
+}
