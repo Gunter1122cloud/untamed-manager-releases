@@ -270,6 +270,17 @@ test.beforeEach(async ({ page }) => {
   }, { one: first, two: second });
 });
 
+test("full-HD premium cluster dashboard fits without horizontal clipping",async({page})=>{
+  await page.setViewportSize({width:1920,height:1080});
+  await page.goto("/");
+  await expect(page.getByRole("region",{name:"Szervergaléria"})).toBeVisible();
+  await expect(page.getByRole("button",{name:/The Island szerver megnyitása/})).toBeVisible();
+  await expect(page.locator(".premium-dashboard-banner.hero")).toBeVisible();
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  await page.screenshot({path:"test-results/uk-rex-cluster-fullhd-1920.png",fullPage:false});
+});
+
 test("first-run premium gallery shows exactly ten discoverable maps with no invented running state",async({page})=>{
   await page.setViewportSize({width:1366,height:768});
   await page.goto("/");
