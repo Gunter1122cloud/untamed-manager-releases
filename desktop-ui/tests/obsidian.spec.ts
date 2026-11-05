@@ -303,8 +303,10 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
 
   await page.getByRole("button", { name: "Pluginok" }).click();
   await expect(page.getByText("ExamplePlugin").first()).toBeVisible();
+  await page.screenshot({path:"test-results/plugin-center-premium-1600.png",fullPage:false});
   await page.getByRole("button", { name: "Mentések" }).click();
   await expect(page.getByText("1 rendben")).toBeVisible();
+  await page.screenshot({path:"test-results/backups-premium-1600.png",fullPage:false});
 });
 
 test("1366px viewport preserves keyboard focus and page scrolling", async ({ page }) => {
