@@ -313,9 +313,17 @@
       <Setter Property="Margin" Value="0,0,12,12"/>
     </Style>
     <Style TargetType="Border" x:Key="NeonStatPanel" BasedOn="{StaticResource Panel}">
-      <Setter Property="Background" Value="{StaticResource SurfacePanel}"/>
-      <Setter Property="BorderBrush" Value="{StaticResource SurfaceLine}"/>
-    </Style>
+      <Setter Property="Background">
+       <Setter.Value><LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#203E3D" Offset="0"/>
+        <GradientStop Color="#15262B" Offset="0.55"/>
+        <GradientStop Color="#122124" Offset="1"/>
+       </LinearGradientBrush></Setter.Value>
+      </Setter>
+      <Setter Property="BorderBrush" Value="#42675F"/>
+      <Setter Property="CornerRadius" Value="12"/>
+      <Setter Property="Padding" Value="17,15"/>
+     </Style>
     <Style TargetType="Border" x:Key="AmberStatPanel" BasedOn="{StaticResource NeonStatPanel}">
       <Setter Property="BorderBrush" Value="#63523A"/>
     </Style>
