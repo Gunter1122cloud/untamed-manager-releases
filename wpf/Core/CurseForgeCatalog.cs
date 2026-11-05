@@ -19,6 +19,8 @@ public sealed record CurseForgeMod(int Id,string Name,string Summary,string? Web
 {
     // Provider supplied, HTTPS-only, allowlisted artwork. Null never implies a missing mod.
     public string? ThumbnailUrl { get; init; }
+    public IReadOnlyList<string> Authors {get;init;}=Array.Empty<string>();
+    public IReadOnlyList<string> Categories {get;init;}=Array.Empty<string>();
 }
 public sealed record CurseForgeSearchResult(int GameId,IReadOnlyList<CurseForgeMod> Mods,
     int TotalCount,int Index,bool HasMore);
@@ -36,6 +38,8 @@ public sealed record CurseForgeFile(int FileId,int ModId,string Name,DateTimeOff
     // incompatible, included content or a standalone tool.
     public IReadOnlyList<CurseForgeRelation> Relations {get;init;}=
         Array.Empty<CurseForgeRelation>();
+    public long SizeBytes {get;init;}
+    public IReadOnlyList<string> GameVersions {get;init;}=Array.Empty<string>();
 }
 public sealed record CurseForgeFilesResult(int ModId,IReadOnlyList<CurseForgeFile> Files,
     int Index,int Total,bool HasMore);
@@ -154,7 +158,11 @@ public sealed class CurseForgeCatalog
                 thumbnail=picture.ToString();
         }
         return new CurseForgeMod(id,name,Str(item,"summary")??"",url,file,date)
-            {ThumbnailUrl=thumbnail};
+        {
+            ThumbnailUrl=thumbnail,
+            Authors=Names(item,"authors",12),
+            Categories=Names(item,"categories",20)
+        };
     }
 
     // Official Core API file metadata only. Not a download entitlement and not
@@ -206,8 +214,11 @@ public sealed class CurseForgeCatalog
             }
             bool available=item.TryGetProperty("isAvailable",out var availability) &&
                 availability.ValueKind==JsonValueKind.True;
+            long size=Long(item,"fileLength");
             files.Add(new CurseForgeFile(fileId,modId,display,published,available,deps){
-                Relations=relations
+                Relations=relations,
+                SizeBytes=Math.Max(0,size),
+                GameVersions=Strings(item,"gameVersions",25)
             });
         }
         int total=files.Count;
@@ -274,6 +285,29 @@ public sealed class CurseForgeCatalog
         memory.Position=0;
         return await JsonDocument.ParseAsync(memory,cancellationToken:ct);
     }
+    private static IReadOnlyList<string> Names(JsonElement root,string name,int cap)
+    {
+        if(!root.TryGetProperty(name,out var values) ||
+           values.ValueKind!=JsonValueKind.Array)return Array.Empty<string>();
+        return values.EnumerateArray().Take(cap).Select(x=>Str(x,"name"))
+            .Where(x=>!string.IsNullOrWhiteSpace(x) && x!.Length<=120 &&
+                !x.Any(char.IsControl)).Select(x=>x!).Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+    private static IReadOnlyList<string> Strings(JsonElement root,string name,int cap)
+    {
+        if(!root.TryGetProperty(name,out var values) ||
+           values.ValueKind!=JsonValueKind.Array)return Array.Empty<string>();
+        return values.EnumerateArray().Take(cap)
+            .Where(x=>x.ValueKind==JsonValueKind.String)
+            .Select(x=>x.GetString())
+            .Where(x=>!string.IsNullOrWhiteSpace(x) && x!.Length<=80 &&
+                !x.Any(char.IsControl)).Select(x=>x!).ToArray();
+    }
+    private static long Long(JsonElement root,string name) =>
+        root.ValueKind==JsonValueKind.Object &&
+        root.TryGetProperty(name,out var val) && val.ValueKind==JsonValueKind.Number &&
+        val.TryGetInt64(out long number)?number:0L;
     private static JsonElement Array(JsonElement root,string name)
     {
         if(!root.TryGetProperty(name,out var arr) || arr.ValueKind!=JsonValueKind.Array)
