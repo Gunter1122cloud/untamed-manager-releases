@@ -758,7 +758,11 @@ function PluginCenter({ snapshot, selected, setSelected }: {
       </div>)}
       <div className="warning-inline"><Shield size={17}/> Csak fájlleltár. Nem bizonyítja, hogy a futó ASA betöltötte a plugint.</div>
     </Panel>
-    <Panel title="Pluginok engedélyezése és tiltása">
+    <Panel title="Pluginok engedélyezése és tiltása" action={<button type="button"
+      className="quiet" disabled={working} onClick={()=>{
+        actionEpoch.current++;setPreview(null);setApproved(false);
+        setNotice("");setRevision(n=>n+1);
+      }}><RefreshCw size={15}/> Mappák frissítése</button>}>
       <p className="muted small">Az eredeti C# PluginStateManager az egész pluginmappát mozgatja; beállítások, licencfájlok és helyi adatállományok ellenőrzött mentésben megmaradnak. Az API futás közbeni betöltöttsége nem következtethető ki a lemezállapotból.</p>
       {pluginStates?.historicalProtected && <div className="warning-inline">
         <Shield size={17}/> Ez a Store-v1 map védett. Pluginművelet tiltva.
