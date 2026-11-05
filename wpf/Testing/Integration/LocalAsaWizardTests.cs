@@ -47,6 +47,18 @@ public static class LocalAsaWizardTests
         var owned=new LocalMap {Name="Island",GamePort=7777,QueryPort=27015,RconPort=37015};
         var another=new LocalMap {Name="Ragnarok",GamePort=7817,QueryPort=27055,RconPort=37055};
         var maps=new[]{owned,another};
+        var initialSuggestion=LocalMapPortPolicy.Suggest(Array.Empty<LocalMap>());
+        Assert(initialSuggestion.Game==7777 && initialSuggestion.Query==27015 &&
+               initialSuggestion.Rcon==37015,
+            "new machine receives a predictable ASA port suggestion without writing a profile");
+        var suggested=LocalMapPortPolicy.Suggest(maps);
+        Assert(suggested.Game==7797 && suggested.Query==27035 &&
+               suggested.Rcon==37035 &&
+               LocalMapPortPolicy.Conflicts(new LocalMap{
+                   Name="New map",GamePort=suggested.Game,
+                   QueryPort=suggested.Query,RconPort=suggested.Rcon
+               },maps).Count==0,
+            "next local ASA map gets non-conflicting suggestions; other machine is independent");
         var candidate=new LocalMap {Name="Center",GamePort=7907,QueryPort=27235,RconPort=37125};
         Assert(LocalMapPortPolicy.Conflicts(candidate,maps).Count==0,
             "unique local UDP and RCON TCP ports are accepted");
