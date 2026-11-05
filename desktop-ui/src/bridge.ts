@@ -161,7 +161,7 @@ export type InitialMapReceipt = {
 
 export type FreshInstallPreflight = {
   token:string; mapName:string; mapLevel:string; folderName:string;
-  steamCmdPresent:boolean; needsOfficialSteamCmdDownload:boolean;
+  steamCmdPresent:boolean; usingManagerDefaultSteamCmd:boolean; needsOfficialSteamCmdDownload:boolean;
   existingInterruptedInstall:boolean; minimumFreeGiB:number;
   evidence:"FRESH_INSTALL_PREFLIGHT_NO_FILE_MUTATION";
 };

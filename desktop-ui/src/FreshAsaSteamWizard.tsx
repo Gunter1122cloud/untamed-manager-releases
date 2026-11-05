@@ -127,10 +127,10 @@ export function FreshAsaSteamWizard({onRegistered}:{onRegistered:()=>Promise<voi
             onChange={e=>{setInstallRoot(e.target.value);invalidate();}}
             placeholder="D:\ASA-Servers\TheIsland" maxLength={520} disabled={running} required/>
         </label>
-        <label>SteamCMD.exe helyi elérési út
+        <label>SteamCMD.exe helyi elérési út (opcionális)
           <input aria-label="SteamCMD EXE" value={steamExe}
             onChange={e=>{setSteamExe(e.target.value);invalidate();}}
-            placeholder="D:\UntamedTools\SteamCMD\steamcmd.exe" maxLength={520} disabled={running} required/>
+            placeholder="Üresen: a Manager saját SteamCMD könyvtára" maxLength={520} disabled={running}/>
         </label>
         <div className="fresh-options">
           <label><input type="checkbox" checked={downloadSteam} disabled={running}
@@ -140,13 +140,13 @@ export function FreshAsaSteamWizard({onRegistered}:{onRegistered:()=>Promise<voi
             onChange={e=>{setExplicitRetry(e.target.checked);invalidate();}}/>
             Megszakadt telepítés tudatos folytatása (ugyanaz a map, mappa, SteamCMD)</label>
         </div>
-        <button type="submit" className="secondary" disabled={running||busy||!installRoot.trim()||!steamExe.trim()}>
+        <button type="submit" className="secondary" disabled={running||busy||!installRoot.trim()}>
           <Shield size={16}/> {busy?"Ellenőrzés...":"Letöltés előtti ellenőrzés"}
         </button>
       </form>
       {preview && !running && <div className="fresh-preview">
         <b><CheckCircle2 size={20}/>{preview.mapName} · {preview.mapLevel}</b>
-        <p>Mappa: {preview.folderName}. SteamCMD: {preview.steamCmdPresent?"megtalálva":"hivatalos letöltés szükséges"}.</p>
+        <p>Mappa: {preview.folderName}. SteamCMD: {preview.steamCmdPresent?"megtalálva":"hivatalos letöltés szükséges"}. {preview.usingManagerDefaultSteamCmd?"A Manager saját SteamCMD elérési útját használja.":""}</p>
         <p>Legalább {preview.minimumFreeGiB} GiB szabad helyet ellenőriz a natív telepítő. Az ASA később külön konfigurálható.</p>
         <label><input type="checkbox" checked={approval} onChange={e=>setApproval(e.target.checked)}/>
           Jóváhagyom a valódi SteamCMD-lemezműveletet a megadott új könyvtárban.</label>
