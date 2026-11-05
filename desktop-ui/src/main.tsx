@@ -4,6 +4,7 @@ import { App } from "./App";
 import "./styles.css";
 import "./premium-fidelity.css";
 import "./mod-fidelity.css";
+import "./cluster-gallery.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing root");
