@@ -1,17 +1,17 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
  <!-- Untamed Premium: one matte palette for all standard WPF input surfaces. -->
- <SolidColorBrush x:Key="SurfaceWindow" Color="#11161A"/>
- <SolidColorBrush x:Key="SurfaceSidebar" Color="#151C21"/>
- <SolidColorBrush x:Key="SurfacePanel" Color="#1B2429"/>
- <SolidColorBrush x:Key="SurfaceRaised" Color="#242F35"/>
- <SolidColorBrush x:Key="SurfaceHover" Color="#34434A"/>
- <SolidColorBrush x:Key="SurfaceSelected" Color="#275247"/>
- <SolidColorBrush x:Key="SurfaceLine" Color="#354048"/>
+ <SolidColorBrush x:Key="SurfaceWindow" Color="#0C1418"/>
+ <SolidColorBrush x:Key="SurfaceSidebar" Color="#101C21"/>
+ <SolidColorBrush x:Key="SurfacePanel" Color="#17292E"/>
+ <SolidColorBrush x:Key="SurfaceRaised" Color="#20363B"/>
+ <SolidColorBrush x:Key="SurfaceHover" Color="#2A4850"/>
+ <SolidColorBrush x:Key="SurfaceSelected" Color="#235849"/>
+ <SolidColorBrush x:Key="SurfaceLine" Color="#35565A"/>
  <SolidColorBrush x:Key="TextStrong" Color="#EAF3F1"/>
- <SolidColorBrush x:Key="TextSoft" Color="#A7B4B7"/>
- <SolidColorBrush x:Key="AccentDeep" Color="#2B7368"/>
- <SolidColorBrush x:Key="AccentLight" Color="#71C6B9"/>
+ <SolidColorBrush x:Key="TextSoft" Color="#ABCCC8"/>
+ <SolidColorBrush x:Key="AccentDeep" Color="#216D60"/>
+ <SolidColorBrush x:Key="AccentLight" Color="#76E4C4"/>
  <SolidColorBrush x:Key="WarningBrush" Color="#D8A956"/>
  <SolidColorBrush x:Key="ErrorBrush" Color="#D66A72"/>
  <Style x:Key="PremiumFocusRing" TargetType="{x:Type Control}">
