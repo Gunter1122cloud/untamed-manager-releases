@@ -41,6 +41,30 @@ public static class SteamBuildStatusStoreTests
             restore.LastCheckedUtc==t0 &&
             restore.LastUpdatedUtc==null,
             "saved map Build ID and timestamps survive a Manager restart");
+        // A SteamCMD exit alone must not set LastUpdatedUtc. Only a fully
+        // verified save/backup/build/restart receipt may advance it.
+        string appFolder=Path.Combine(map.InstallationPath,"steamapps");
+        Directory.CreateDirectory(appFolder);
+        File.WriteAllText(Path.Combine(appFolder,"appmanifest_2430930.acf"),
+            "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"3001\"\n}\n");
+        var success=new SteamMaintenanceReceipt(map.Id,"3000","3001",
+            true,true,DateTimeOffset.UtcNow,new string('A',64));
+        var updated=store.RecordVerifiedUpdate(map,success);
+        Check(updated.LastUpdatedUtc==success.FinishedUtc &&
+            updated.LocalBuild=="3001",
+            "verified completed restart records successful Steam update");
+        bool deniedUnready=false;
+        try{store.RecordVerifiedUpdate(map,success with {Restarted=false});}
+        catch(InvalidDataException){deniedUnready=true;}
+        Check(deniedUnready &&
+            store.Read(map).LastUpdatedUtc==success.FinishedUtc,
+            "failed restart cannot advance last successful update");
+        bool deniedFalseBuild=false;
+        try{store.RecordVerifiedUpdate(map,success with {NewBuild="3999"});}
+        catch(InvalidDataException){deniedFalseBuild=true;}
+        Check(deniedFalseBuild &&
+            store.Read(map).LocalBuild=="3001",
+            "unverified manifest Build ID cannot masquerade as a successful update");
         bool rejectedDifferentMap=false;
         try{store.Write(other,restore);}
         catch(InvalidDataException){rejectedDifferentMap=true;}
