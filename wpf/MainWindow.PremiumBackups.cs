@@ -128,7 +128,7 @@ public partial class MainWindow
             }
             finally{SetBusy(false);}
         }
-        async Task Preview()
+        async Task PreviewBackup()
         {
             if(busy)return;
             var map=CurrentMap();
@@ -239,7 +239,7 @@ public partial class MainWindow
             }
             finally{SetBusy(false);}
         }
-        previewButton=Btn("Mentés előnézete",async ()=>await Preview());
+        previewButton=Btn("Mentés előnézete",async ()=>await PreviewBackup());
         createButton=Btn("Ellenőrzött mentés készítése",async ()=>await Create());
         createButton.Style=(Style)System.Windows.Application.Current.FindResource("PrimaryAction");
         createButton.IsEnabled=false;
@@ -269,9 +269,9 @@ public partial class MainWindow
         ini.Checked+=(_,_)=>Invalidate();ini.Unchecked+=(_,_)=>Invalidate();
         plugins.Checked+=(_,_)=>Invalidate();plugins.Unchecked+=(_,_)=>Invalidate();
 
-        var scope=V(world,ini,plugins);
+        var scopePanel=V(world,ini,plugins);
         var select=V(Label("Map kiválasztása",12,Aqua),selector,
-            Label("Mentendő adatkörök",12,Aqua),scope,
+            Label("Mentendő adatkörök",12,Aqua),scopePanel,
             Label("Helyi mentési célkönyvtár",12,Aqua),root,
             Btn("Célmappa kiválasztása",()=>{
                 if(busy)return;
