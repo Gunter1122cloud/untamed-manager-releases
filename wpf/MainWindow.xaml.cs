@@ -418,37 +418,8 @@ public partial class MainWindow : Window
         Header("INI Editor 2.0","SHA-256 ellenőrzés, BOM/sorvégek megőrzése, atomikus mentés és .bak védőmásolat.");
         ShowSafeTextEditor(ConfigKind.GameIni);
     }
-    private void Backups()
-    {
-        Header("Mentések","Helyi mapfájlok és háromadatbázisos SQL-mentés; visszatöltés külön üres SQL-célra.");
-        Add(Box(V(Label("Untamed Cluster Vault · védett",19,Mint,true),
-            Label("Csak a kiválasztott helyi map fájljairól készül ellenőrzött másolat. "+
-                  "A közös Cluster Vault és a karakterátvitel nem része ennek a fájlmentésnek.",12,Soft))));
-        ShowSqlBackupControls();
-        if(_cluster.Config.LocalMaps.Count==0)
-        {
-            Add(Label("Nincs kézzel regisztrált helyi map. Előbb a Szerverek nézetben adj hozzá egyet.",13,Soft));
-            return;
-        }
-        ShowMultiMapBackupOverview();
-        var choice=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",
-            SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(x=>x.Id==_preferredBackupMapId)
-                ??_cluster.Config.LocalMaps[0]};
-        var pane=new StackPanel();
-        void SelectMap()
-        {
-            pane.Children.Clear();
-            if(choice.SelectedItem is LocalMap map)
-            {
-                _preferredBackupMapId=map.Id;
-                pane.Children.Add(MapBackupPane(map));
-            }
-        }
-        choice.SelectionChanged+=(_,_)=>SelectMap();
-        Add(Box(V(Label("Helyi map kiválasztása",13,Aqua),choice,pane)));
-        SelectMap();
-        ShowRetentionPreviewControls();
-    }
+    private void Backups()=>ShowPremiumBackups();
+
     private void Rcon()
     {
         Header("RCON konzol","A távoli parancsküldés a külön tesztgépen nincs engedélyezve.");
