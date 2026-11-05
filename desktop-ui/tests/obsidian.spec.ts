@@ -478,3 +478,64 @@ test("Store-v1 cross-host evidence distinguishes historical files from live writ
   await expect(report.getByText("TILTOTT")).toBeVisible();
   await page.screenshot({path:"test-results/store-v1-peer-evidence-1600.png",fullPage:true});
 });
+
+
+test("Store-v1 ignores stale preview replies after the ASA root changes",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
+  await page.getByRole("button",{name:"Archívum ellenőrzése"}).click();
+  await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeVisible();
+  await page.getByRole("textbox",{name:"Korábbi ASA map mappája"}).fill("C:\\ASA\\Original");
+  await page.evaluate(()=>{
+    const host=window as unknown as {chrome:{webview:{postMessage:(message:{method:string})=>void}},releasePreview?:()=>void};
+    const bridge=host.chrome.webview;
+    const original=bridge.postMessage.bind(bridge);
+    let delayed:{method:string}|undefined;
+    bridge.postMessage=(message)=>{
+      if(message.method==="historical.preview"){delayed=message;return;}
+      original(message);
+    };
+    host.releasePreview=()=>{if(delayed){const message=delayed;delayed=undefined;original(message);}};
+  });
+  await page.getByRole("button",{name:"Map és Store-adatok előellenőrzése"}).click();
+  await page.getByRole("textbox",{name:"Korábbi ASA map mappája"}).fill("C:\\ASA\\Changed");
+  await page.evaluate(()=>{(window as unknown as {releasePreview:()=>void}).releasePreview();});
+  await expect(page.getByText("Teljes launch argumentumok")).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Map és Store-adatok előellenőrzése"}).click();
+  await expect(page.getByText("Teljes launch argumentumok")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"})).toBeDisabled();
+});
+
+test("Store-v1 registration locks source inputs until native receipt",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
+  await page.getByRole("button",{name:"Archívum ellenőrzése"}).click();
+  await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeVisible();
+  await page.getByRole("textbox",{name:"Korábbi ASA map mappája"}).fill("C:\\ASA\\TestExistingMap");
+  await page.getByRole("button",{name:"Map és Store-adatok előellenőrzése"}).click();
+  await expect(page.getByText("Teljes launch argumentumok")).toBeVisible();
+  await page.evaluate(()=>{
+    const host=window as unknown as {chrome:{webview:{postMessage:(message:{method:string})=>void}},releaseRegistration?:()=>void};
+    const bridge=host.chrome.webview;
+    const original=bridge.postMessage.bind(bridge);
+    let delayed:{method:string}|undefined;
+    bridge.postMessage=(message)=>{
+      if(message.method==="historical.register"){delayed=message;return;}
+      original(message);
+    };
+    host.releaseRegistration=()=>{if(delayed){const message=delayed;delayed=undefined;original(message);}};
+  });
+  await page.getByText(/Jóváhagyom a kizárólag Manager-profilba történő, zárolt regisztrációt/).click();
+  await page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"}).click();
+  await expect(page.getByRole("textbox",{name:"Korábbi Manager archívum"})).toBeDisabled();
+  await expect(page.getByRole("textbox",{name:"Korábbi ASA map mappája"})).toBeDisabled();
+  await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeDisabled();
+  await page.evaluate(()=>{(window as unknown as {releaseRegistration:()=>void}).releaseRegistration();});
+  await expect(page.getByText(/Store-v1 zárolt: a szerver nem indulhat/)).toBeVisible();
+  await expect(page.getByRole("textbox",{name:"Korábbi Manager archívum"})).toBeEnabled();
+});
