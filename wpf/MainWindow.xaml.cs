@@ -493,22 +493,69 @@ public partial class MainWindow : Window
     }
     private void Settings()
     {
-        Header("Beállítások","Windows-értesítési terület és diagnosztika.");
-        Add(Box(V(Label("Windows integráció",19,Mint,true),
-             Label("Az X gomb tálcára rejti az alkalmazást. Végleges kilépés: tálcaikon → Kilépés.",13,Soft))));
-        var animated=new CheckBox { Content="Animált háttér és finom fényhatások", IsChecked=_animationsEnabled,
-            Foreground=Brushes.White,FontSize=14,Margin=new Thickness(0,12,0,12) };
+        Header("Beállítások","Helyi Windows-integráció, vizuális beállítások és biztonságos profilkarbantartás.");
+        var animated=new CheckBox {
+            Content="Finom háttéranimáció",
+            IsChecked=_animationsEnabled,
+            FontSize=13,Margin=new Thickness(0,8,0,8)
+        };
         animated.Checked+=(_,_)=>SetAnimations(true);
         animated.Unchecked+=(_,_)=>SetAnimations(false);
-        Add(Box(V(Label("Megjelenés / animáció",19,Mint,true),
-            Label("A mozgás külön kikapcsolható; a gombok és menük továbbra is működnek.",12,Soft), animated)));
+        var left=Box(V(
+            Label("WINDOWS / ALKALMAZÁS",17,Mint,true),
+            Label("A bezárás gomb az értesítési területre rejti a Manager-t. A teljes kilépés a tálcaikonon érhető el.",12,Soft),
+            Label("Környezet: "+Environment.OSVersion.Platform+" · WPF "+UiVersion,11,Aqua)));
+        var right=Box(V(
+            Label("MEGJELENÉS / GRAPHITE",17,Mint,true),
+            Label("Matt grafit panelek és visszafogott türkiz fókuszállapotok. Az animáció opcionális; a kezelhetőségtől független.",12,Soft),
+            animated));
+        var overview=new Grid {Margin=new Thickness(0,3,0,8)};
+        overview.ColumnDefinitions.Add(new ColumnDefinition {
+            Width=new GridLength(1,GridUnitType.Star),MinWidth=250
+        });
+        overview.ColumnDefinitions.Add(new ColumnDefinition {
+            Width=new GridLength(1,GridUnitType.Star),MinWidth=250
+        });
+        Grid.SetColumn(right,1);
+        overview.Children.Add(left);
+        overview.Children.Add(right);
+        Add(overview);
+
+        var folder=Btn("Helyi diagnosztikai mappa megnyitása",()=>{
+            try
+            {
+                Directory.CreateDirectory(App.LogDir);
+                Process.Start(new ProcessStartInfo {
+                    FileName=App.LogDir,UseShellExecute=true
+                });
+            }
+            catch(Exception ex)
+            {
+                WriteLog("settings-open-diagnostics",ex);
+                Notice("A helyi diagnosztikai mappát nem sikerült megnyitni.");
+            }
+        });
+        Add(Box(V(Label("DIAGNOSZTIKA / CSAK HELYI ADAT",16,Mint,true),
+            Label("A Manager műveleti naplói helyben maradnak. Támogatási csomag csak külön titokszűréssel állítható össze.",12,Soft),
+            folder)));
+
+        // Keep the existing verified transfer and support implementations,
+        // grouped as advanced controls rather than sprawling across every page.
+        int before=PageBody.Children.Count;
         ShowSafeProfileTransfer();
-        Add(Box(V(Label("Naplózás és diagnosztika",19,Mint,true),
-             Label("A naplómappa csak helyben vizsgálható. A támogatási ZIP külön titokszűréssel készül.",12,Soft),
-             Btn("Diagnosztikai mappa megnyitása",()=>{
-                 Process.Start(new ProcessStartInfo{FileName=App.LogDir,UseShellExecute=true});
-             }))));
         ShowSafeSupportCenter();
+        var advanced=new StackPanel();
+        foreach(var element in PageBody.Children.Cast<UIElement>().Skip(before).ToArray())
+        {
+            PageBody.Children.Remove(element);
+            advanced.Children.Add(element);
+        }
+        Add(new Expander {
+            Header="Speciális profilkezelés és támogatási eszközök",
+            IsExpanded=false,Padding=new Thickness(12),
+            Margin=new Thickness(0,3,12,14),Content=advanced
+        });
     }
+
 }
 
