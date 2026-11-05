@@ -183,3 +183,20 @@
 .uk-flag.locked{color:#f2c18b;background:#513a2a;border-color:#916643;}
 .uk-flag.maintenance{color:#dfbddf;background:#49374e;border-color:#866687;}
 .uk-flag.rcon{color:#a4d8ed;background:#233e4a;border-color:#53788a;}
+
+/* Two actual hosts instead of a visually mixed unverified 10-map row. */
+.uk-host-map-groups {display:flex;flex-direction:column;gap:14px;}
+.uk-host-map-group {min-width:0;}
+.uk-host-map-heading {display:flex;align-items:center;flex-wrap:wrap;
+  gap:8px 12px;min-height:32px;padding:0 2px 9px;color:#e1f8ed;}
+.uk-host-map-heading-label {display:flex;align-items:center;gap:8px;
+  color:#77eabc;font-size:10px;font-weight:850;letter-spacing:.11em;}
+.uk-host-map-group.remote .uk-host-map-heading-label{color:#9ec8e0;}
+.uk-host-map-heading>b {font-size:12px;font-weight:740;overflow:hidden;
+  max-width:35vw;white-space:nowrap;text-overflow:ellipsis;}
+.uk-host-map-heading>span:last-child {margin-left:auto;background:#173b34;
+  border:1px solid #437c63;border-radius:5px;color:#9fe6c6;
+  font-size:9px;padding:4px 7px;font-weight:750;letter-spacing:.08em;}
+.uk-host-map-group.remote .uk-host-map-heading>span:last-child {
+  background:#203845;border-color:#537989;color:#a4d9ef;}
+.uk-host-map-group.remote {padding-top:12px;border-top:1px solid #41646a;}
