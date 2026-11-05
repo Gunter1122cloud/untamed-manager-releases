@@ -41,11 +41,11 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 
             id = parsedId.ToString("D");
             string? method = rawMethod.GetString();
-            if (method is not ("dashboard.snapshot" or "mods.configured" or "curseforge.search" or "plugins.inventory" or "backups.summary"))
+            if (method is not ("dashboard.snapshot" or "mods.configured" or "curseforge.search" or "plugins.inventory" or "backups.summary" or "logs.read" or "steam.installations" or "servers.suggestPorts"))
                 return Error(id, "UM-METHOD-DENIED");
 
             string? mapId = null;
-            if (method is "mods.configured" or "plugins.inventory")
+            if (method is "mods.configured" or "plugins.inventory" or "logs.read")
             {
                 if (!request.TryGetProperty("mapId", out var rawMap) ||
                     rawMap.ValueKind != JsonValueKind.String ||
@@ -86,6 +86,9 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                     "curseforge.search" => await SearchCurseForgeAsync(searchTerm!, searchIndex),
                     "plugins.inventory" => await Task.Run(() => GetLocalPluginInventory(Guid.Parse(mapId!))),
                     "backups.summary" => await Task.Run<object>(() => GetLocalBackupOverview()),
+                    "logs.read" => await Task.Run<object>(() => GetLogTail(Guid.Parse(mapId!))),
+                    "steam.installations" => await Task.Run<object>(() => GetInstallationInventory()),
+                    "servers.suggestPorts" => GetSuggestedLocalPorts(),
                     _ => throw new InvalidOperationException("Disallowed bridge operation")
                 };
                 return JsonSerializer.Serialize(new { id, ok = true, data = result }, Json);
@@ -163,6 +166,59 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                 downloadCount = m.DownloadCount
             }).ToArray(),
             evidence = "OFFICIAL_CATALOG_METADATA_ONLY"
+        };
+    }
+
+    private object GetLogTail(Guid mapId)
+    {
+        // No arbitrary path is accepted: resolve only the registered local
+        // ASA log through Core's canonical-root, no-link and bounded-tail checks.
+        var map = _cluster.Config.LocalMaps.SingleOrDefault(m => m.Id == mapId);
+        if (map is null) throw new UnauthorizedAccessException("Not a locally owned map");
+        var snapshot = LocalLogCenter.Read(map, maxBytes: 131072, maxLines: 300);
+        return new
+        {
+            mapId = map.Id,
+            mapName = map.Name,
+            lastModifiedUtc = snapshot.LastModifiedUtc,
+            totalBytes = snapshot.TotalBytes,
+            truncated = snapshot.Truncated,
+            lines = snapshot.Lines.Select(l => new {
+                number = l.Number,
+                level = l.Level.ToString().ToLowerInvariant(),
+                content = l.Content
+            }).ToArray(),
+            evidence = "SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH"
+        };
+    }
+
+    private object GetInstallationInventory()
+    {
+        // Does not expose sensitive Windows paths or grant SteamCMD access.
+        var installations = AsaInstallationInventory.Inspect(_cluster.Config.LocalMaps, _cluster.Check);
+        return new
+        {
+            installations = installations.Select((i, index) => new {
+                id = index,
+                maps = i.LocalMaps,
+                executablePresent = i.ServerExecutablePresent,
+                installedSteamBuild = i.InstalledSteamBuild,
+                updateBlocked = i.UpdateBlocked,
+                reason = i.Reason
+            }).ToArray(),
+            evidence = "READ_ONLY_STEAM_INSTALLATION_PREFLIGHT"
+        };
+    }
+
+    private object GetSuggestedLocalPorts()
+    {
+        // Profile-only suggestions; OS sockets and router are not probed.
+        var suggested = LocalMapPortPolicy.Suggest(_cluster.Config.LocalMaps);
+        return new {
+            game = suggested.Game,
+            query = suggested.Query,
+            rcon = suggested.Rcon,
+            evidence = "PROFILE_ONLY_NO_NETWORK_PROBE"
         };
     }
 
