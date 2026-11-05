@@ -427,3 +427,49 @@ button,select,input {accent-color:#2cbf91;}
  .premium-backup-fact{grid-column:1/-1;}
  .premium-backup-row{flex-wrap:wrap;}
 }
+
+/* LOG CENTER — a real, redacted diagnostic console with derived counters.
+   Preserve native secret masking, per-map scoping and 300-line cap. */
+.premium-log-metrics {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;margin-bottom:15px;}
+.premium-log-metrics>div {min-height:76px;padding:14px;
+  display:flex;align-items:center;gap:10px;background:linear-gradient(115deg,#20343a,#152a32);
+  border:1px solid #395a5a;border-radius:10px;box-shadow:inset 3px 0 #4bd2a4;}
+.premium-log-metrics>div:nth-child(3) {box-shadow:inset 3px 0 #d9bd73;}
+.premium-log-metrics>div:nth-child(4) {box-shadow:inset 3px 0 #ca807c;}
+.premium-log-metrics>div>span {color:#6fe6bd;display:grid;place-items:center;flex:0 0 32px;}
+.premium-log-metrics>div:nth-child(3)>span {color:#edce87;}
+.premium-log-metrics>div:nth-child(4)>span {color:#d69a9d;}
+.premium-log-metrics b {font-size:24px;color:#f2fcf6;font-variant-numeric:tabular-nums;}
+.premium-log-metrics small {font-size:10.5px;color:#9ebdb8;line-height:1.4;}
+.premium-log-toolbar {border:1px solid #3d5d60;background:linear-gradient(105deg,#233940,#182d34);
+  border-radius:10px;padding:13px;margin-bottom:15px;display:flex;
+  align-items:flex-end;gap:11px;flex-wrap:wrap;}
+.premium-log-toolbar .log-select-label {flex:1 1 135px;min-width:130px;}
+.premium-log-toolbar .log-search-label {flex:2 1 250px;}
+.premium-log-toolbar .log-select-label select,
+.premium-log-toolbar .log-select-label input {background:#14272e;border:1px solid #4c6969;
+  border-radius:7px;color:#e8f7f1;min-height:40px;width:100%;padding:8px 11px;}
+.premium-log-toolbar .log-select-label select:focus-visible,
+.premium-log-toolbar .log-select-label input:focus-visible {outline:2px solid #5ce2b0;outline-offset:1px;}
+.premium-log-toolbar .icon-button {min-height:40px;min-width:43px;border:1px solid #4c6969;
+  border-radius:8px;background:#24423e;color:#a9f0d5;}
+.premium-log-view>.panel {overflow:hidden;}
+.premium-log-list {min-height:130px;max-height:min(64vh,640px);overflow-y:auto;
+  overflow-x:auto;background:#0e1d25;scrollbar-width:thin;
+  scrollbar-color:#457368 #15272d;}
+.premium-log-list .log-row {min-height:31px;border-bottom:1px solid #263d42;
+  font-family:Consolas,"Cascadia Mono",monospace;font-size:11.5px;
+  line-height:1.5;padding:6px 10px;gap:10px;}
+.premium-log-list .log-row:nth-child(2n) {background:#11242b;}
+.premium-log-list .log-row.log-error {background:#4d2d302e;}
+.premium-log-list .log-row.log-warning {background:#5b49282e;}
+.premium-log-list .log-number {font-variant-numeric:tabular-nums;color:#6fa39d;}
+.premium-log-list .log-level {font-size:10px;font-weight:800;text-transform:uppercase;}
+.premium-log-list .log-message {white-space:pre-wrap;overflow-wrap:anywhere;
+  color:#d6e5dd;min-width:0;}
+@media(max-width:850px){
+  .premium-log-metrics{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .premium-log-toolbar .log-select-label {flex-basis:100%;}
+  .premium-log-toolbar .icon-button {flex:1 1 auto;}
+}
