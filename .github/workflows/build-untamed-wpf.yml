@@ -248,7 +248,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-premium-test.7"
+          $tag = "v1.6.1-premium-test.8"
           $repo = "$env:GITHUB_REPOSITORY"
           $files = @(
             "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-premium-test.exe",
@@ -263,15 +263,21 @@ jobs:
             "dist/UI-Screenshots/UntamedManager-demo-backups.png#UntamedManager-premium-demo-backups.png",
             "dist/UI-Screenshots/UntamedManager-logs.png#UntamedManager-premium-log-center.png",
             "dist/UI-Screenshots/UntamedManager-demo-logs.png#UntamedManager-premium-demo-logs.png",
-            "dist/UI-Screenshots/UntamedManager-cluster.png#UntamedManager-premium-cluster.png"
+            "dist/UI-Screenshots/UntamedManager-cluster.png#UntamedManager-premium-cluster.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step1.png#UntamedManager-map-wizard-1.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step2.png#UntamedManager-map-wizard-2.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step3.png#UntamedManager-map-wizard-3.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step4.png#UntamedManager-map-wizard-4.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step5.png#UntamedManager-map-wizard-5.png",
+            "dist/UI-Screenshots/UntamedManager-layout-1366x768.png#UntamedManager-layout-1366x768.png"
           )
           gh release view $tag --repo $repo --json tagName 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @files --repo $repo --clobber
           } else {
             gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 7" --prerelease `
-              --notes "Graphite TEST 7: cohesive matte graphite/teal WPF design tokens, responsive Dashboard and map/table player counts, compact Mod and Plugin Centers with safety-guarded toggles, explicit pending mod changes, authenticated CurseForge name lookup, reworked Backup and Log Centers and an offline DEMO. New screenshot capture renders the native WPF content in an isolated target-sized visual tree. Real ASA SaveComplete, production restart, Store-v1 multi-host write and live SQL restore are NOT certified or enabled. Use only on an isolated Windows test PC."
+              --title "Untamed Manager Premium UI v1.6.1 · Neon Kingdom TEST 8" --prerelease `
+              --notes "Neon Kingdom TEST 8: original ARK T-Rex hero, responsive illustrated Dashboard map cards, graphite emerald design tokens, all five real server-add wizard screenshot steps, styled password controls, native dashboard mouse-wheel regression, upgraded Mod and Plugin inventory cards, verified CurseForge HTTPS thumbnails, retained guarded local mod/plugin operations and offline DEMO. Real ASA SaveComplete, production restart, two-node Store-v1 writes, character travel and live SQL restore remain NOT certified; hard safety gates stay enabled. Install only on a separate isolated Windows test PC, never UK-HOME-01 or UK-HOME-02."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
           # A cancelled prior CI can leave an unpublished draft with the same tag.
