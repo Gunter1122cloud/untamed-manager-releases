@@ -47,7 +47,9 @@ public partial class MainWindow
                     string encrypted=_cluster.Config.CurseForgeApiKeyProtected;
                     if(string.IsNullOrWhiteSpace(encrypted))
                         throw new InvalidOperationException("Előbb add meg az engedélyezett CurseForge API-kulcsot");
-                    var files=await new CurseForgeCatalog(_http).GetModFilesAsync(
+                    // Full, validated ASA file pagination is required
+                    // before claiming a local file is current or newer.
+                    var files=await new CurseForgeCatalog(_http).GetCompleteAsaModFilesAsync(
                         SecureStore.Unprotect(encrypted),id);
                     var local=ModUpdatePlanner.InspectCandidate(map.InstallationPath,id.ToString());
                     var state=ModUpdatePlanner.Assess(local,files);
@@ -67,7 +69,7 @@ public partial class MainWindow
                         _=>"ismeretlen – ellenőrzendő"
                     };
                     status.Text="MOD "+id+" · "+state.State+"\n"+state.Reason+
-                        "\nFájlok az első oldalon: "+files.Files.Count+
+                        "\nEllenőrzött teljes fájllista: "+files.Files.Count+
                         " / "+files.Total+"\n"+
                         string.Join("\n",files.Files.Take(8).Select(x=>"#"+x.FileId+" "+x.Name+
                             " · "+(x.Published?.ToString("yyyy-MM-dd")??"dátum ismeretlen")+
