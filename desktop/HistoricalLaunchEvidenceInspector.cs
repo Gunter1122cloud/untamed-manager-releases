@@ -34,7 +34,7 @@ public static class HistoricalLaunchEvidenceInspector
     }
 
     public static object Inspect(string source,string expectedMap,int gamePort,int queryPort,
-        IReadOnlyList<string> expectedMods)
+        IReadOnlyList<string> expectedMods,IReadOnlyList<string> expectedPassiveMods)
     {
         if(string.IsNullOrWhiteSpace(source)||source.Length>3072||
            source.Any(c=>char.IsControl(c)&&c!='\t'))
@@ -48,6 +48,7 @@ public static class HistoricalLaunchEvidenceInspector
         var game=Values(source,"port").Concat(Values(source,"port",true)).ToArray();
         var query=Values(source,"QueryPort").Concat(Values(source,"QueryPort",true)).ToArray();
         var mods=Values(source,"mods");
+        var passive=Values(source,"passivemods");
         var deprecatedMods=Values(source,"GameModIds",true);
         var cluster=Values(source,"clusterid");
         // Verified Untamed Kingdom Store-v1 internal identity. Never rename this
@@ -60,18 +61,27 @@ public static class HistoricalLaunchEvidenceInspector
         var useStore=Flag(source,"usestore");
         var convert=Flag(source,"converttostore");
         string modStatus;
-        if(mods.Length==0) modStatus=deprecatedMods.Length>0?"LEGACY_SYNTAX":"UNKNOWN";
+        if(mods.Length==0) modStatus=deprecatedMods.Length>0?"LEGACY_SYNTAX":expectedMods.Count==0?"MATCH":"UNKNOWN";
         else if(mods.Length!=1)modStatus="CONFLICT";
         else
         {
             var found=mods[0].Split(',',StringSplitOptions.TrimEntries);
             modStatus=found.SequenceEqual(expectedMods,StringComparer.Ordinal)?"MATCH":"MISMATCH";
         }
+        string passiveStatus;
+        if(passive.Length==0)passiveStatus=expectedPassiveMods.Count==0?"MATCH":"UNKNOWN";
+        else if(passive.Length!=1)passiveStatus="CONFLICT";
+        else
+        {
+            var found=passive[0].Split(',',StringSplitOptions.TrimEntries);
+            passiveStatus=found.SequenceEqual(expectedPassiveMods,StringComparer.Ordinal)?"MATCH":"MISMATCH";
+        }
         var codes=new List<string>();
         if(!mapFound)codes.Add("MAP_NOT_CONFIRMED");
         if(PortStatus(game,gamePort)!="MATCH")codes.Add("GAME_PORT_NOT_CONFIRMED");
         if(PortStatus(query,queryPort)!="MATCH")codes.Add("QUERY_PORT_NOT_CONFIRMED");
         if(modStatus!="MATCH")codes.Add("MOD_ORDER_NOT_CONFIRMED");
+        if(passiveStatus!="MATCH")codes.Add("PASSIVE_MOD_ORDER_NOT_CONFIRMED");
         if(clusterStatus!="MATCH")codes.Add("CLUSTER_ID_NOT_CONFIRMED");
         if(transfer.Length!=1||string.IsNullOrWhiteSpace(transfer[0]))codes.Add("CLUSTER_PATH_NOT_CONFIRMED");
         if(!useStore)codes.Add("USESTORE_NOT_CONFIRMED");
@@ -82,7 +92,7 @@ public static class HistoricalLaunchEvidenceInspector
             mapStatus=mapFound?"MENTIONED":"UNKNOWN",
             gamePortStatus=PortStatus(game,gamePort),
             queryPortStatus=PortStatus(query,queryPort),
-            modOrderStatus=modStatus,
+            modOrderStatus=modStatus,passiveModOrderStatus=passiveStatus,
             clusterIdPresent=cluster.Length==1&&!string.IsNullOrWhiteSpace(cluster[0]),
             clusterIdStatus=clusterStatus,
             clusterPathPresent=transfer.Length==1&&!string.IsNullOrWhiteSpace(transfer[0]),
