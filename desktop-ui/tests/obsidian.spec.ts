@@ -258,7 +258,7 @@ test.beforeEach(async ({ page }) => {
 test("real UI contract renders the synthetic dashboard and responsive navigation", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Cluster Command Center" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Áttekintés" })).toBeVisible();
   await expect(page.getByText("KIZÁRÓLAG SZINTETIKUS UI-TESZTADAT")).toBeVisible();
   await expect(page.getByText("LAB-WIN-01").first()).toBeVisible();
   await expect(page.getByText("The Island").first()).toBeVisible();
@@ -282,7 +282,7 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
 test("1366px viewport preserves keyboard focus and page scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Cluster Command Center" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Áttekintés" })).toBeVisible();
   const sidebar = page.locator(".sidebar");
   await expect(sidebar).toBeVisible();
   await page.getByRole("button", { name: "Szerverek", exact: true }).click();
