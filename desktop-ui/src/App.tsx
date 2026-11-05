@@ -10,7 +10,7 @@ import {
   type IniFile, type IniDocument, type IniPreview, type LocalImportPreview,
   type SteamInstallations, type SuggestedPorts,
   type CurseForgeCategory, type CurseForgeFeatured, type CurseForgeProject, type CurseForgeFile,
-  type PluginInventory, type DashboardSnapshot,
+  type PluginInventory, type SharedModInventory, type DashboardSnapshot,
   type PublicMap, type RemoteHost
 } from "./bridge";
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
@@ -553,12 +553,83 @@ function ModDraftEditor({ mapId, onSaved, prefillId }: {
   </Panel>;
 }
 
+function SharedModOverview({onPick,revision}: {
+  onPick:(mapId:string)=>void; revision:number
+}) {
+  const [inventory,setInventory]=useState<SharedModInventory|null>(null);
+  const [error,setError]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [refresh,setRefresh]=useState(0);
+  const [search,setSearch]=useState("");
+  const [sharedOnly,setSharedOnly]=useState(true);
+  useEffect(()=>{
+    let active=true;
+    setLoading(true);setError("");
+    managerBridge.sharedModInventory().then(data=>{if(active)setInventory(data);})
+      .catch(()=>{if(active)setError("A helyi modleltár nem olvasható. Nem módosítottunk konfigurációt.");})
+      .finally(()=>{if(active)setLoading(false);});
+    return ()=>{active=false;};
+  },[revision,refresh]);
+  const filtered=useMemo(()=>{
+    const term=search.trim().toLocaleLowerCase("hu-HU");
+    return (inventory?.projects??[]).filter(project=>
+      (!sharedOnly||project.shared) &&
+      (!term||project.projectId.includes(term)||
+       project.assignments.some(a=>a.mapName.toLocaleLowerCase("hu-HU").includes(term))));
+  },[inventory,sharedOnly,search]);
+  return <Panel title="Közös modok · helyi mapok" action={
+    <button type="button" className="quiet" disabled={loading}
+      onClick={()=>setRefresh(x=>x+1)}><RefreshCw size={15}/> Frissítés</button>
+  }>
+    <p className="muted small">Konfigurált modkiosztás a helyi mapok között; az archivált Store-v1 listák külön jelölve. Nem fájlellenőrzés, nem futó ASA modállapot és nem változtatás.</p>
+    <div className="toolbar">
+      <Search size={17}/>
+      <input aria-label="Közös modok keresése" placeholder="Projektazonosító vagy map neve"
+        value={search} onChange={e=>setSearch(e.target.value)}/>
+      <label><input type="checkbox" checked={sharedOnly}
+        onChange={e=>setSharedOnly(e.target.checked)}/> Csak több mapon</label>
+    </div>
+    {inventory && <p className="muted small">
+      {inventory.mapCount} helyi map · {inventory.configuredMapCount} konfigurált ·
+      {inventory.sharedProjectCount} megosztott mod · {inventory.projects.length} projekt
+    </p>}
+    {error && <div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
+    {loading && !inventory && <div className="empty">Modkiosztások beolvasása...</div>}
+    {inventory?.unreadableMaps.length ? <div className="warning-inline">
+      <AlertTriangle size={17}/> Nem olvasható modkonfiguráció: {inventory.unreadableMaps.join(", ")}
+    </div> : null}
+    {inventory && <div className="mods-list" aria-label="Közös modkiosztások">
+      {filtered.length===0 ? <div className="empty">Nincs a szűrőnek megfelelő mod.</div> :
+        filtered.slice(0,80).map(project=><div className="mod-item" key={project.projectId}>
+          <span className="mod-mark"><Layers3 size={18}/></span>
+          <div className="mod-title">
+            <strong>Projekt #{project.projectId}</strong>
+            <small>{project.enabledMapCount} helyi map · {project.assignments.map(a=>
+              a.mapName+(a.historicalProtected?" (védett archívum)":"")).join(", ")}</small>
+            <div className="row-wrap">
+              {project.assignments.map((a,i)=><button className="quiet" type="button"
+                key={a.mapId+"-"+a.mode+"-"+i} onClick={()=>onPick(a.mapId)}>
+                {a.mapName} · {a.mode==="active"?"Aktív":a.mode==="passive"?"Passzív":"Letiltva"} #{a.position+1}
+              </button>)}
+            </div>
+          </div>
+          <span className={project.shared?"mod-tag green":"mod-tag grey"}>
+            {project.shared?"Közös":"Egy map"}
+          </span>
+        </div>)}
+      {filtered.length>80 && <p className="muted small">
+        Az első 80 találat látható; szűkíts projektazonosítóra vagy mapnévre.
+      </p>}
+    </div>}
+  </Panel>;
+}
 function Mods({ snapshot, selected, setSelected }: {
   snapshot: DashboardSnapshot; selected: string; setSelected: (value: string) => void
 }) {
   const [info, setInfo] = useState<ConfiguredMods | null>(null);
   const [error, setError] = useState("");
   const [catalogPicked, setCatalogPicked] = useState("");
+  const [inventoryRevision,setInventoryRevision]=useState(0);
   useEffect(() => {
     let active = true;
     setInfo(null); setError("");
@@ -577,6 +648,7 @@ function Mods({ snapshot, selected, setSelected }: {
     <div className="toolbar mod-toolbar"><Layers3 size={19}/><select aria-label="Helyi map" value={selected} onChange={e => setSelected(e.target.value)}>
       {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
     </select><span className="muted small">Konfigurációs piszkozat és mentés · ASA újraindítás nélkül</span></div>
+    <SharedModOverview revision={inventoryRevision} onPick={setSelected}/>
     <div className="mods-grid">
       <Panel title={info ? `Modlista · ${info.mapName}` : "Modlista"}>
         {error ? <div className="error-inline"><AlertTriangle size={17}/>{error}</div> :
@@ -603,6 +675,7 @@ function Mods({ snapshot, selected, setSelected }: {
       </Panel>
     </div>
     <ModDraftEditor mapId={selected} prefillId={catalogPicked} onSaved={saved => {
+      setInventoryRevision(n=>n+1);
       setInfo(current => current ? { ...current, pending: saved.pending,
         active: saved.active, passive: saved.passive, disabled: saved.disabled } : current);
     }}/>
