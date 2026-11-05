@@ -1169,7 +1169,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       <ArrowRight size={16}/> Vissza a szerverlistához
     </button>
     <div className="map-detail-hero">
-      <div>
+      <MapCover name={map.name}/>
+      <div className="premium-map-detail-copy">
         <span className="eyebrow">UNTAMED KINGDOM / HELYI MAP</span>
         <h1>{map.name}</h1>
         <p>{snapshot.local.hostName} · ARK: Survival Ascended</p>
