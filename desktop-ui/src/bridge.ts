@@ -104,6 +104,21 @@ export type PluginInventory = {
     binaries: Array<{ name: string; version: string; bytes: number }> }>;
 };
 
+export type UpdateStatus = {
+  repository:string; runningVersion:string; installedTag:string;
+  provider:"GITHUB_RELEASES";updateCheckPerformed:false;
+  installationPermitted:false; updaterVerified:false;
+  evidence:"LOCAL_RELEASE_IDENTITY_NO_NETWORK";
+};
+export type UpdateCheck = {
+  repository:string;runningVersion:string;installedTag:string;
+  channel:"stable"|"preview";found:boolean;newer:boolean;
+  tag:string|null;version:string|null;assetName:string|null;
+  sha256:string|null;releaseNotes:string|null;
+  installationPermitted:false;updaterVerified:false;
+  evidence:"GITHUB_RELEASE_METADATA_NOT_AN_INSTALLER";
+};
+
 export type BackupOverview = {
   evidence: "FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE";
   maps: Array<{ mapId: string; mapName: string; validPackages: number;
@@ -290,7 +305,8 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
-  "historical.pairedEvidence" | "historical.launchEvidence";
+  "historical.pairedEvidence" | "historical.launchEvidence" |
+  "updates.status" | "updates.check";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
@@ -301,7 +317,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   confirm?: boolean; jobId?: string; sessionName?: string;
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
-  plugin?: string; enabled?: boolean };
+  plugin?: string; enabled?: boolean; channel?: "stable"|"preview" };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -338,6 +354,8 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
 
 export const managerBridge = {
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
+  updateStatus: () => request<UpdateStatus>("updates.status"),
+  updateCheck: (channel:"stable"|"preview") => request<UpdateCheck>("updates.check",{channel}),
   configuredMods: (mapId: string) => request<ConfiguredMods>("mods.configured", { mapId }),
   sharedModInventory: () => request<SharedModInventory>("mods.sharedInventory"),
   catalogSearch: (term: string, page = 0) => request<CurseForgeResult>("curseforge.search", { term, page }),
