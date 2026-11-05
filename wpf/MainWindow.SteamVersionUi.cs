@@ -318,23 +318,60 @@ public partial class MainWindow
                         UntamedPresentation.Redact(ex.Message);
                 }
             }),
-            Btn("Összes elavult szerver frissítése",()=>{
+            Btn("Összes elavult, leállított helyi szerver frissítése",async()=>{
                 try
                 {
                     var candidates=maps.Where(m=>
                         SteamMapJournal().Read(m).State==AsaSteamBuildState.UpdateAvailable)
                         .ToArray();
                     if(candidates.Length==0)
-                    {queueStatus.Text="Nincs hitelesen elavultként azonosított helyi map.";return;}
-                    if(!ReleaseCapabilityGate.Check(ManagerOperation.LiveSteamUpdate,true).Allowed)
-                        throw new InvalidOperationException(
-                            "Az éles SteamCMD karbantartás nem indulhat igazolt SaveWorld/backup/Stop és újraindítási ellenőrzés nélkül.");
-                    queueStatus.Text="A frissítéshez hitelesített éles karbantartási adapter szükséges.";
+                    {queueStatus.Text="Nincs hitelesen elavultnak jelölt helyi telepítés.";return;}
+                    var unsafeMap=candidates.FirstOrDefault(m=>{
+                        var p=_cluster.Check(m);
+                        return p.Running||!p.ConfirmedStopped||
+                            p.Identity!=null||p.LoaderIdentity!=null;
+                    });
+                    if(unsafeMap!=null)
+                    {
+                        queueStatus.Text="A helyi frissítési sor nem indulhat: "+
+                            unsafeMap.Name+" fut vagy nem igazoltan leállított. "+
+                            "A futó szerver SaveComplete/Stop automatikája nincs tanúsítva.";
+                        return;
+                    }
+                    if(MessageBox.Show(this,
+                        "Az összes elavult, igazoltan LEÁLLÍTOTT helyi telepítést "+
+                        "szigorúan sorban frissítjük. Minden telepítés előtt külön "+
+                        "ellenőrzött mentés készül. Egyetlen hibánál a sor megáll. "+
+                        "Sem szerverleállítás, sem újraindítás nem történik.\\n\\n"+
+                        "Érintett helyi mapok: "+
+                        string.Join(", ",candidates.Select(m=>m.Name))+
+                        "\\n\\nElindítod a műveletet?",
+                        "Untamed Manager — soros SteamCMD-frissítés",
+                        MessageBoxButton.YesNo,MessageBoxImage.Warning,
+                        MessageBoxResult.No)!=MessageBoxResult.Yes)return;
+                    queueStatus.Text="A helyi, soros SteamCMD-karbantartás elindult.";
+                    var queueProgress=new Progress<SteamQueueProgress>(p=>
+                        queueDisplay.Text=p.Position+"/"+p.Total+
+                            "  "+p.MapName+" · "+p.Stage);
+                    var stageProgress=new Progress<SteamMaintenanceStage>(p=>
+                        queueStatus.Text="Aktuális ellenőrzött lépés: "+p);
+                    var results=await SteamStoppedMapUpdater.UpdateAllStoppedAsync(
+                        _cluster,candidates,_cluster.Config.SteamCmdExecutable,
+                        8L*1024*1024*1024,TimeSpan.FromHours(4),
+                        queueProgress,stageProgress);
+                    queueStatus.Text="Soros helyi frissítés BEFEJEZVE: "+
+                        results.Count+" külön ASA-telepítés ellenőrzött.";
+                    queueDisplay.Text=string.Join("\\n",results.Select(item=>
+                        item.OldBuild+" → "+item.NewBuild+
+                        " · mentés: "+item.BackupDirectory));
                 }
                 catch(Exception ex)
                 {
-                    queueStatus.Text="Frissítési sor BLOKKOLVA: "+
+                    WriteLog("steam-stopped-bulk-update",ex);
+                    queueStatus.Text="A helyi frissítési sor HIBÁVAL MEGÁLLT: "+
                         UntamedPresentation.Redact(ex.Message);
+                    queueDisplay.Text="Nincs automatikus következő map vagy vak "+
+                        "újrapróbálás. Ellenőrizd a sor naplóját és az előzetes mentést.";
                 }
             }),
             Btn("Karbantartási sor előzménye / megszakítás",()=>{
