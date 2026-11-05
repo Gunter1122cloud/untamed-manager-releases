@@ -283,10 +283,16 @@ try
             "new Steam download refuses foreign/UNC install root");
         Check(fakeRuns==0,"preflight never launches synthetic SteamCMD adapter");
 
+        // Operator need not type steamcmd.exe path: native Manager config
+        // resolves it without ever exposing the path to JavaScript.
+        cluster.UpdateSettings(config=>config.SteamCmdExecutable=steamExe);
         var prepared=await Call(steamBridge.HandleAsync,"steam.freshPreflight",
             new{mapName="Valguero",installRoot=freshRoot,
-                steamExe,allowSteamCmdDownload=false,explicitRetry=false});
-        IsOk(prepared,"official local ASA fresh preflight returns a review token");
+                steamExe="",allowSteamCmdDownload=false,explicitRetry=false});
+        IsOk(prepared,"official local ASA fresh preflight resolves native SteamCMD default");
+        Check(prepared.GetProperty("data")
+            .GetProperty("usingManagerDefaultSteamCmd").GetBoolean(),
+            "native default SteamCMD path is used with zero manual operator input");
         Check(!Directory.Exists(freshRoot),
             "new installation preflight never creates destination");
         string token=prepared.GetProperty("data").GetProperty("token").GetString()!;
