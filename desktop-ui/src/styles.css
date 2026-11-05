@@ -24,3 +24,20 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 /* Original project artwork, packaged offline in the Windows build, not a CDN. */
 .hero{background:linear-gradient(90deg,#092126f7 0%,#0a282cbf 43%,#09212696 100%),url('/kingdom-hero.jpg') center / cover no-repeat}
 .brand-symbol img{width:54px;height:54px;object-fit:contain;filter:drop-shadow(0 0 7px #54e5b77f)}
+
+.installation-row{display:flex;align-items:center;gap:14px;padding:15px 12px;border-bottom:1px solid #334f54}
+.installation-row .mod-tag{white-space:nowrap}
+.port-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}
+.port-strip>div{padding:15px;border:1px solid #3b625d;border-radius:10px;background:#163532;display:flex;flex-direction:column;gap:8px}
+.port-strip small{color:#a2c6bc;font-size:11px}.port-strip strong{color:#8af0cc;font:700 23px "Segoe UI",system-ui,sans-serif}
+.log-toolbar{display:flex;align-items:end;gap:12px;margin:0 0 18px;flex-wrap:wrap}
+.log-select-label{display:flex;flex-direction:column;gap:7px;color:#b4d1c8;font-size:12px;min-width:170px}
+.log-select-label select,.log-select-label input{border-radius:8px;border:1px solid #456568;background:#1b3239;color:#edf8f3;min-height:40px;padding:7px 10px;min-width:0;width:100%}
+.log-search-label{flex:1;min-width:210px}.log-toolbar .icon-button{height:40px;width:42px}
+.log-list{min-height:180px;max-height:490px;overflow:auto;background:#0b181d;border:1px solid #2b4447;border-radius:8px;padding:8px;overscroll-behavior:contain}
+.log-row{display:grid;grid-template-columns:42px 66px minmax(0,1fr);gap:12px;padding:7px 8px;border-bottom:1px solid #24383d;align-items:start;font-size:12px}
+.log-row:last-child{border-bottom:0}.log-number{color:#6c9692;font-variant-numeric:tabular-nums;text-align:right}
+.log-level{color:#7dd0b2;font-weight:600;text-transform:uppercase;font-size:10px;padding-top:2px}
+.log-warning .log-level{color:#f1d185}.log-error .log-level{color:#ffaaa8}
+.log-message{white-space:pre-wrap;overflow-wrap:anywhere;color:#d3e7dd;font-family:Consolas,"Cascadia Code",monospace;line-height:1.55}
+@media(max-width:830px){.log-toolbar{align-items:stretch}.log-select-label{flex:1}.log-list{max-height:380px}.installation-row{flex-wrap:wrap}.port-strip strong{font-size:20px}}

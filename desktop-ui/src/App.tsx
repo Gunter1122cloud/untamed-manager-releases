@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
-  Cpu, Database, HardDrive, LayoutDashboard, Layers3, Monitor,
+  Cpu, Database, FileText, HardDrive, LayoutDashboard, Layers3, Monitor,
   Package, Plug, RefreshCw, Search, Server, Shield, WifiOff
 } from "lucide-react";
 import {
   managerBridge, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
+  type LogTail, type SteamInstallations, type SuggestedPorts,
   type PluginInventory, type DashboardSnapshot,
   type PublicMap, type RemoteHost
 } from "./bridge";
 
-type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam";
+type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
   { page: "dashboard", label: "Áttekintés", icon: LayoutDashboard },
   { page: "servers", label: "Szerverek", icon: Server },
@@ -19,6 +20,7 @@ const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> =
   { page: "plugins", label: "Pluginok", icon: Plug },
   { page: "backups", label: "Mentések", icon: Archive },
   { page: "steam", label: "SteamCMD", icon: HardDrive },
+  { page: "logs", label: "Naplók", icon: FileText },
 ];
 
 function prettyMemory(kiB: number | null): string {
@@ -301,16 +303,111 @@ function BackupCenter() {
   </>;
 }
 function SteamCenter({ snapshot }: { snapshot: DashboardSnapshot }) {
+  const [inventory, setInventory] = useState<SteamInstallations | null>(null);
+  const [ports, setPorts] = useState<SuggestedPorts | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const reload = useCallback(async () => {
+    setBusy(true); setError("");
+    const [installs, suggestion] = await Promise.allSettled([
+      managerBridge.steamInstallations(), managerBridge.suggestedPorts()
+    ]);
+    setInventory(installs.status === "fulfilled" ? installs.value : null);
+    setPorts(suggestion.status === "fulfilled" ? suggestion.value : null);
+    if (installs.status === "rejected" || suggestion.status === "rejected")
+      setError("A helyi telepítési leltár vagy a portjavaslat nem érhető el. Egyetlen fájlt sem módosítottunk.");
+    setBusy(false);
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
   return <>
     <div className="page-intro"><span className="eyebrow">VALVE STEAMCMD / INSTALLED BUILD</span><h1>SteamCMD Center</h1>
-      <p>A meglévő C# Steam-build leltár által szolgáltatott állapotok. Ez az oldal nem indít frissítést.</p></div>
-    <Panel title="Helyi ASA telepítések">
+      <p>Valódi C#-os helyi telepítés-ellenőrzés és portjavaslat. A telepítés, frissítés és indítás a migrációs UI-ban még tiltott.</p></div>
+    <Panel title="Regisztrált ASA mapok" action={<button className="quiet" onClick={() => { void reload(); }} disabled={busy}><RefreshCw size={16}/> Ellenőrzés</button>}>
       {snapshot.local.maps.length===0 && <div className="empty">Nincs hozzáadott helyi telepítés.</div>}
       {snapshot.local.maps.map(m => <div className="steam-row" key={m.id}>
-        <div className="plugin-copy"><b>{m.name}</b><small>Game port: {m.gamePort || "nem ismert"}</small></div>
+        <div className="plugin-copy"><b>{m.name}</b><small>Game UDP: {m.gamePort || "nem ismert"}</small></div>
         <div className="backup-stats"><strong>Build: {m.steamBuildId || "nem ismert"}</strong><span>{m.steamUpdateState}</span></div>
       </div>)}
-      <div className="warning-inline"><Shield size={17}/> Az új UI-n nincs SteamCMD írási művelet. A meglévő helyi műveleti koordinátor és biztonsági kapuk változatlanok.</div>
+    </Panel>
+    <Panel title="Steam telepítési könyvtárak · ellenőrzött leltár">
+      {error && <div role="status" className="warning-inline"><AlertTriangle size={17}/>{error}</div>}
+      {!inventory && !error && <div className="empty">Helyi telepítési adatok olvasása...</div>}
+      {inventory?.installations.length===0 && <div className="empty">Nincs vizsgálható helyi ASA telepítés.</div>}
+      {inventory?.installations.map(entry => <div className="installation-row" key={entry.id}>
+        <span className="plugin-symbol"><HardDrive size={22}/></span>
+        <div className="plugin-copy"><b>{entry.maps.join(", ")}</b>
+          <small>ASA EXE: {entry.executablePresent ? "megtalálva" : "hiányzik"} · Build: {entry.installedSteamBuild || "ismeretlen"}</small>
+          <small>{entry.reason}</small>
+        </div>
+        <span className="mod-tag amber">Frissítés tiltva</span>
+      </div>)}
+    </Panel>
+    <Panel title="Új map · konfigurációs előkészítés">
+      <p className="muted small">A hivatalos SteamCMD letöltést és a részletes szerverbeállításokat külön lépésekben fogjuk kezelni. Ez a panel nem indít SteamCMD-műveletet.</p>
+      {ports && <div className="port-strip">
+        <div><small>Game UDP</small><strong>{ports.game}</strong></div>
+        <div><small>Query UDP</small><strong>{ports.query}</strong></div>
+        <div><small>RCON TCP</small><strong>{ports.rcon}</strong></div>
+      </div>}
+      <div className="warning-inline"><Shield size={17}/> A portjavaslat csak a helyi profil ütközéseit ellenőrzi. Nem vizsgálja a foglalt OS-portokat és a routert.</div>
+    </Panel>
+  </>;
+}
+function LogsCenter({ snapshot, selected, setSelected }: {
+  snapshot: DashboardSnapshot; selected: string; setSelected: (value: string) => void
+}) {
+  const [result, setResult] = useState<LogTail | null>(null);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [level, setLevel] = useState<"all" | "info" | "warning" | "error">("all");
+  const [generation, setGeneration] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setResult(null); setError("");
+    if (!selected) return;
+    managerBridge.logTail(selected)
+      .then(data => { if (active) setResult(data); })
+      .catch(() => { if (active) setError("A regisztrált helyi ASA napló nem olvasható vagy nincs konfigurálva."); });
+    return () => { active = false; };
+  }, [selected, generation]);
+  const filtered = useMemo(() => (result?.lines ?? []).filter(row =>
+    (level === "all" || row.level === level) &&
+    row.content.toLocaleLowerCase("hu-HU").includes(query.toLocaleLowerCase("hu-HU"))
+  ), [result, query, level]);
+  return <>
+    <div className="page-intro"><span className="eyebrow">LOCAL ASA / SAFE LOG TAIL</span><h1>Naplóközpont</h1>
+      <p>Legfeljebb 300, a meglévő C# által titokszűrt naplósor — csak regisztrált helyi mapról. Nem jelent ASA állapot- vagy mentési bizonyítékot.</p></div>
+    <div className="log-toolbar">
+      <label className="log-select-label">Helyi map
+        <select aria-label="Napló mapja" value={selected} onChange={e => setSelected(e.target.value)}>
+          {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </label>
+      <label className="log-select-label">Szint
+        <select aria-label="Naplószint" value={level} onChange={e => setLevel(e.target.value as typeof level)}>
+          <option value="all">Összes</option><option value="info">Információ</option>
+          <option value="warning">Figyelmeztetés</option><option value="error">Hiba</option>
+        </select>
+      </label>
+      <label className="log-select-label log-search-label">Keresés
+        <input aria-label="Keresés a naplóban" value={query} maxLength={128}
+          onChange={e => setQuery(e.target.value)} placeholder="Szöveg szűrése..."/>
+      </label>
+      <button className="icon-button" aria-label="Napló újraolvasása" onClick={() => setGeneration(x => x+1)}><RefreshCw size={18}/></button>
+    </div>
+    <Panel title={result ? `Naplórészlet · ${result.mapName}` : "Naplórészlet"}
+      action={result && <span className="muted tiny">Módosítva: {observedAt(result.lastModifiedUtc)} · {result.truncated ? "Részlet (levágva)" : "Teljes olvasott rész"}</span>}>
+      {error && <div role="status" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
+      {!selected && <div className="empty">Nincs kiválasztott helyi map.</div>}
+      {selected && !result && !error && <div className="empty">Naplósorok betöltése...</div>}
+      {result && <div className="log-list" role="log" aria-label="Titokszűrt helyi napló">
+        {filtered.length===0 && <div className="empty">Nincs a szűrőnek megfelelő naplósor.</div>}
+        {filtered.map(row => <div key={row.number} className={`log-row log-${row.level}`}>
+          <span className="log-number">{row.number}</span><span className="log-level">{row.level}</span>
+          <span className="log-message">{row.content}</span>
+        </div>)}
+      </div>}
+      <div className="warning-inline"><Shield size={17}/> Titokszűrt, korlátozott méretű naplórészlet. A bejegyzés önmagában nem igazolja a SaveComplete vagy RCON művelet sikerét.</div>
     </Panel>
   </>;
 }
@@ -380,7 +477,8 @@ export function App() {
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "plugins" && <PluginCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "backups" && <BackupCenter/>}
-          {page === "steam" && <SteamCenter snapshot={snapshot}/>} 
+          {page === "steam" && <SteamCenter snapshot={snapshot}/>}
+          {page === "logs" && <LogsCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>} 
         </>}
       </main>
       <footer className="footer"><span className="footer-dot"/> <b>Untamed Kingdom</b> · Natív .NET 10 / WebView2

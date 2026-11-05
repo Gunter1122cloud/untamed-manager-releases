@@ -60,6 +60,24 @@ export type BackupOverview = {
     invalidPackages: number; verifiedBytes: number; latestVerifiedUtc: string | null }>;
 };
 
+export type LogTail = {
+  mapId: string; mapName: string; lastModifiedUtc: string;
+  totalBytes: number; truncated: boolean;
+  evidence: "SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH";
+  lines: Array<{ number: number; level: "info" | "warning" | "error"; content: string }>;
+};
+export type SteamInstallations = {
+  evidence: "READ_ONLY_STEAM_INSTALLATION_PREFLIGHT";
+  installations: Array<{
+    id: number; maps: string[]; executablePresent: boolean;
+    installedSteamBuild: string | null; updateBlocked: boolean; reason: string;
+  }>;
+};
+export type SuggestedPorts = {
+  game: number; query: number; rcon: number;
+  evidence: "PROFILE_ONLY_NO_NETWORK_PROBE";
+};
+
 export type ConfiguredMods = {
   mapId: string;
   mapName: string;
@@ -70,7 +88,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search" | "plugins.inventory" | "backups.summary"; mapId?: string; term?: string; page?: number };
+type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search" | "plugins.inventory" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts"; mapId?: string; term?: string; page?: number };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -111,4 +129,7 @@ export const managerBridge = {
   catalogSearch: (term: string, page = 0) => request<CurseForgeResult>("curseforge.search", { term, page }),
   pluginInventory: (mapId: string) => request<PluginInventory>("plugins.inventory", { mapId }),
   backupOverview: () => request<BackupOverview>("backups.summary"),
+  logTail: (mapId: string) => request<LogTail>("logs.read", { mapId }),
+  steamInstallations: () => request<SteamInstallations>("steam.installations"),
+  suggestedPorts: () => request<SuggestedPorts>("servers.suggestPorts"),
 };

@@ -35,6 +35,9 @@ test.beforeEach(async ({ page }) => {
         case "mods.configured": return {mapId: m.mapId, mapName: "The Island", pending: false, active: ["123456"], passive: ["789012"], disabled: [], evidence:"CONFIGURED_ONLY"};
         case "plugins.inventory": return {mapId:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
+        case "steam.installations": return {evidence:"READ_ONLY_STEAM_INSTALLATION_PREFLIGHT",installations:[{id:0,maps:["The Island","Astraeos"],executablePresent:true,installedSteamBuild:"123456",updateBlocked:true,reason:"Read-only test fixture: upgrade blocked"}]};
+        case "servers.suggestPorts": return {game:7797,query:27035,rcon:37035,evidence:"PROFILE_ONLY_NO_NETWORK_PROBE"};
+        case "logs.read": return {mapId:m.mapId,mapName:"The Island",lastModifiedUtc:"2026-11-05T12:00:00Z",totalBytes:1900,truncated:false,evidence:"SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH",lines:[{number:1,level:"info",content:"Synthetic ASA startup line"},{number:2,level:"error",content:"Synthetic failure detected"}]};
         case "curseforge.search": return {
           gameId: 1234,totalCount: 25,page:m.page||0,hasMore:false,evidence:"OFFICIAL_CATALOG_METADATA_ONLY",
           mods:[{id:123456,name:"Example Search Result",summary:"Synthetic catalog response for UI test",website:null,thumbnailUrl:null,authors:["Lab"],latestFile:null,modifiedUtc:null,downloadCount:15}]
@@ -99,4 +102,26 @@ test("1366px viewport preserves keyboard focus and page scrolling", async ({ pag
   await search.fill("Astraeos");
   await expect(page.getByText("Astraeos").first()).toBeVisible();
   await page.screenshot({ path: "test-results/server-list-1366.png", fullPage: true });
+});
+
+test("Steam installation preflight and redacted log center are read-only and filterable", async ({page}) => {
+  await page.setViewportSize({width:1366,height:768});
+  await page.goto("/");
+  await page.getByRole("button", { name: "SteamCMD" }).click();
+  await expect(page.getByRole("heading", {name:"SteamCMD Center"})).toBeVisible();
+  await expect(page.getByText("Build: 123456")).toBeVisible();
+  await expect(page.getByText("2797", {exact:true})).toHaveCount(0);
+  await expect(page.getByText("7797", {exact:true})).toBeVisible();
+  await expect(page.getByText("Frissítés tiltva")).toBeVisible();
+  await page.screenshot({path:"test-results/steam-preflight-1366.png",fullPage:true});
+
+  await page.getByRole("button", { name: "Naplók" }).click();
+  await expect(page.getByRole("heading", {name:"Naplóközpont"})).toBeVisible();
+  await expect(page.getByText("Synthetic ASA startup line")).toBeVisible();
+  await page.getByRole("combobox", {name:"Naplószint"}).selectOption("error");
+  await expect(page.getByText("Synthetic failure detected")).toBeVisible();
+  await expect(page.getByText("Synthetic ASA startup line")).toHaveCount(0);
+  await page.getByRole("textbox", {name:"Keresés a naplóban"}).fill("no match");
+  await expect(page.getByText("Nincs a szűrőnek megfelelő naplósor.")).toBeVisible();
+  await page.screenshot({path:"test-results/log-center-filter-1366.png",fullPage:true});
 });
