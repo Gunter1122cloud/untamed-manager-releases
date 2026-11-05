@@ -140,6 +140,18 @@ export type IniSaveReceipt = {
   evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
 };
 
+export type HistoricalLaunchEvidence = {
+  mapStatus: "MENTIONED"|"UNKNOWN";
+  gamePortStatus: "MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT";
+  queryPortStatus: "MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT";
+  modOrderStatus: "MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT"|"LEGACY_SYNTAX";
+  clusterIdPresent:boolean; clusterPathPresent:boolean;
+  useStorePresent:boolean; conversionFlagPresent:boolean;
+  findings:string[]; sourceAuthenticated:false;
+  fullLaunchArgumentsVerified:false; peerWriterVerified:false;
+  productionUseAllowed:false; serverStartAllowed:false;
+  evidence:"OPERATOR_TEXT_READ_ONLY_UNAUTHENTICATED";
+};
 export type HistoricalPairEvidence = {
   files:number; maps:number; peers:number;
   sessionConsistent:boolean; configHashesVerified:boolean;
@@ -243,7 +255,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
-  "historical.pairedEvidence";
+  "historical.pairedEvidence" | "historical.launchEvidence";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
@@ -252,7 +264,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
   confirm?: boolean; jobId?: string; sessionName?: string;
-  gamePort?: number; queryPort?: number; archive?: string;
+  gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
@@ -337,6 +349,8 @@ export const managerBridge = {
     request<InitialMapPreview>("servers.initialPreview", {mapId, sessionName, gamePort, queryPort}),
   initialApply: (token:string) =>
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
+  historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
+    request<HistoricalLaunchEvidence>("historical.launchEvidence",{archive,mapId,command}),
   historicalList: (archive:string) => request<HistoricalStoreList>("historical.list", {archive}),
   historicalPreview: (archive:string, mapId:string, root:string) =>
     request<HistoricalStorePreview>("historical.preview", {archive,mapId,root}),
