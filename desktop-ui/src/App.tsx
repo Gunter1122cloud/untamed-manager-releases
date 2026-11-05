@@ -582,7 +582,7 @@ function SharedModOverview({onPick,revision}: {
       onClick={()=>setRefresh(x=>x+1)}><RefreshCw size={15}/> Frissítés</button>
   }>
     <p className="muted small">Konfigurált modkiosztás a helyi mapok között; az archivált Store-v1 listák külön jelölve. Nem fájlellenőrzés, nem futó ASA modállapot és nem változtatás.</p>
-    <div className="toolbar">
+    <div className="toolbar shared-mod-toolbar">
       <Search size={17}/>
       <input aria-label="Közös modok keresése" placeholder="Projektazonosító vagy map neve"
         value={search} onChange={e=>setSearch(e.target.value)}/>
