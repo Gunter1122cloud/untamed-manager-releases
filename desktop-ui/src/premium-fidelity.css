@@ -341,3 +341,32 @@ button,select,input {accent-color:#2cbf91;}
   .premium-onboarding-actions{flex-direction:column;align-items:stretch;}
   .premium-onboarding-actions button{width:100%;}
 }
+
+/* Real approved map illustrations. The original 1200x530 atlas is included
+   offline from wpf/Assets/reference-atlas.jpg without redrawing or replacing
+   any installed ASA files. Ten distinct 200x100 reference tiles occupy
+   x=0..1000, y≈260 and y≈365. This is artwork, not measured game data. */
+.premium-map-cover {
+  background-image:url('/uk-reference-map-atlas.jpg');
+  background-repeat:no-repeat;
+  background-size:600% 530%;
+  background-position:60% 85%;
+  background-color:#122c35;
+  border-color:#557c78;
+}
+.premium-map-cover:before,.premium-cover-ridge,.premium-cover-light {display:none!important;}
+.premium-map-cover:after {content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,transparent 62%,#06191a3b 100%);}
+.premium-map-island {background-position:60% 85%;}
+.premium-map-astraeos {background-position:0% 60.5%;}
+.premium-map-ragnarok {background-position:80% 60.5%;}
+.premium-map-aberration {background-position:20% 85%;}
+.premium-map-desert {background-position:40% 85%;}
+.premium-map-extinction {background-position:60% 60.5%;}
+.premium-map-genesis {background-position:20% 60.5%;}
+.premium-map-valguero {background-position:40% 60.5%;}
+.premium-map-center {background-position:80% 85%;}
+.premium-map-colony {background-position:0% 85%;}
+.premium-map-unknown {background:
+  linear-gradient(145deg,#22574e77,#132d36a8),
+  url('/kingdom-hero.jpg') center/cover no-repeat;}
