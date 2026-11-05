@@ -696,17 +696,18 @@ function PluginCenter({ snapshot, selected, setSelected }: {
       setNotice("A pluginművelet nem igazolható. Ellenőrizd a fájlokat és a helyi mapok állapotát, majd készíts új előnézetet.");
     }finally{setWorking(false);}
   };
-  return <>
+  return <div className="premium-plugin-page">
     <div className="page-intro"><span className="eyebrow">ASA API / LOCAL INSTALLATION</span><h1>Plugin Center</h1>
       <p>Helyi pluginleltár és ellenőrzött engedélyezés/tiltás. A módosítás csak leállított szervereken, előnézet és jóváhagyás után történik.</p></div>
-    <div className="toolbar"><Plug size={19}/><select aria-label="Pluginok mapja" value={selected}
+    <div className="premium-mod-map-picker"><Plug size={19}/><select aria-label="Pluginok mapja" value={selected}
       disabled={working} onChange={e=>{
         actionEpoch.current++;setPreview(null);setApproved(false);
         setNotice("");setSelected(e.target.value);
       }}>
       {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
     </div>
-    <Panel title={info ? `Helyi pluginok · ${info.mapName}` : "Pluginok"}>
+    <div className="premium-plugin-grid">
+    <Panel className="premium-plugin-inventory" title={info ? `Helyi pluginok · ${info.mapName}` : "Pluginok"}>
       {error && <div className="error-inline"><AlertTriangle size={17}/>{error}</div>}
       {!error && !selected && <div className="empty">Nincs kiválasztható helyi map.</div>}
       {!error && selected && !info && <div className="empty">Helyi telepítés vizsgálata...</div>}
@@ -718,7 +719,7 @@ function PluginCenter({ snapshot, selected, setSelected }: {
       </div>)}
       <div className="warning-inline"><Shield size={17}/> Csak fájlleltár. Nem bizonyítja, hogy a futó ASA betöltötte a plugint.</div>
     </Panel>
-    <Panel title="Pluginok engedélyezése és tiltása" action={<button type="button"
+    <Panel className="premium-plugin-actions" title="Pluginállapot · biztonságos műveletek" action={<button type="button"
       className="quiet" disabled={working} onClick={()=>{
         actionEpoch.current++;setPreview(null);setApproved(false);
         setNotice("");setRevision(n=>n+1);
@@ -758,7 +759,8 @@ function PluginCenter({ snapshot, selected, setSelected }: {
       </div>}
       {notice && <div role="status" className="warning-inline"><AlertTriangle size={17}/>{notice}</div>}
     </Panel>
-  </>;
+    </div>
+  </div>;
 }
 function BackupCenter({mapId}:{mapId?:string} = {}) {
   const [info, setInfo] = useState<BackupOverview | null>(null);
