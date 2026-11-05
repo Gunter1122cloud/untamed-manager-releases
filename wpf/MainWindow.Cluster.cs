@@ -652,20 +652,37 @@ public partial class MainWindow
     }
     private UIElement MapLogPane(LocalMap map)
     {
-        var output=new TextBox{Height=290,IsReadOnly=true,TextWrapping=TextWrapping.NoWrap,
-            VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,
-            FontFamily=new FontFamily("Consolas")};
-        return V(Label("Helyi naplónézet · csak olvasás",16,Mint,true),
-            Label(map.LogFilePath,12,Soft),
-            Btn("Napló újratöltése",()=>{
-                try{
-                    if(!IsUnderRoot(map.LogFilePath,map.InstallationPath))throw new InvalidOperationException("Érvénytelen naplóútvonal");
-                    using var fs=new FileStream(map.LogFilePath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite);
-                    fs.Seek(-Math.Min(100_000,fs.Length),SeekOrigin.End);
-                    using var sr=new StreamReader(fs,Encoding.UTF8);
-                    output.Text=sr.ReadToEnd();
-                }catch(Exception e){output.Text=e.Message;}
-            }),output);
+        var output=new TextBox{Height=260,IsReadOnly=true,TextWrapping=TextWrapping.Wrap,
+            VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
+            FontFamily=new FontFamily("Consolas"),
+            Foreground=Brushes.White,Background=Panel};
+        var message=Label("Csak a map saját helyi naplófájljának utolsó, korlátozott részét olvassuk.",12,Soft);
+        void Refresh()
+        {
+            try
+            {
+                if(!_cluster.Config.LocalMaps.Contains(map))
+                    throw new UnauthorizedAccessException("Csak saját helyi map naplója");
+                var result=LocalLogCenter.Read(map);
+                output.Text=string.Join("\n",result.Lines.Select(x=>x.Content));
+                message.Text=result.FileName+" · "+result.Lines.Count+
+                    " titokszűrt sor · "+(result.Truncated?"csak naplóvég":"teljes fájlrész");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-log-read",ex);
+                output.Text="";
+                message.Text="A helyi napló nem nyitható meg: "+ex.GetType().Name;
+            }
+        }
+        return V(Label("ASA napló · csak olvasás",16,Mint,true),
+            message,
+            Btn("Napló végének betöltése",Refresh),
+            Btn("Teljes Naplóközpont megnyitása",()=>{
+                _preferredLogMapId=map.Id;
+                Navigate("logs");
+            }),
+            output);
     }
     private void ShowMapEditor(LocalMap? existing)
     {
