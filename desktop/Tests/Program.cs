@@ -409,6 +409,10 @@ try
     Directory.CreateDirectory(oldSaveFolder);
     string oldWorld=Path.Combine(oldSaveFolder,"ScorchedEarth_WP.ark");
     File.WriteAllBytes(oldWorld,new byte[]{3,1,4,1,5,9,2,6,5});
+    // A zero-byte temporary profile is not automatically corruption. It must
+    // never be deleted or replaced solely because of its byte length.
+    string zeroProfile=Path.Combine(oldSaveFolder,"temporary-transfer.arkprofile");
+    File.WriteAllBytes(zeroProfile,Array.Empty<byte>());
     byte[] originalWorld=File.ReadAllBytes(oldWorld);
     ManagerMigrationArchiveTests.Run(root,oldRoot);
     string oldArchive=Path.Combine(root,"untamed-manager-package-fixtures",
@@ -463,6 +467,8 @@ try
             Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
                 File.ReadAllBytes(oldArchive)))==originalZipSha,
             "actual copied world and historical ZIP bytes remain exactly unchanged");
+        Check(File.Exists(zeroProfile) && new FileInfo(zeroProfile).Length==0,
+            "zero-byte temporary arkprofile is neither deleted nor rewritten on import");
         Check(!cluster.Check(imported).ConfirmedStopped,
             "Store-v1 map readiness remains locked even when no process is running");
         bool launchDenied=false;
@@ -500,8 +506,11 @@ try
         Check(!duplicate.GetProperty("ok").GetBoolean(),
             "second registration of same original map is refused");
     }
-    using(var uncertain=new DesktopHistoricalStoreImportBridge(cluster,
-        _=>new ProcessCheck(true,"Synthetic running process",null,false)))
+    await using(var runningStoreCluster=new ClusterService("store-running-synthetic",
+        Path.Combine(root,"store-running-profile"),
+        _=>new ProcessCheck(true,"Synthetic running ASA process",null,false)))
+    using(var uncertain=new DesktopHistoricalStoreImportBridge(runningStoreCluster,
+        _=>new ProcessCheck(true,"Synthetic running ASA process",null,false)))
     {
         var listed=await Call(uncertain.HandleAsync,"historical.list",
             new{archive=oldArchive});
@@ -511,8 +520,8 @@ try
         var stoppedOnly=await Call(uncertain.HandleAsync,"historical.preview",
             new{archive=oldArchive,root=oldRoot,
                 mapId=sample.GetProperty("mapId").GetString()});
-        Check(!stoppedOnly.GetProperty("ok").GetBoolean(),
-            "running or already registered Store profile never passes preflight");
+        Check(IsError(stoppedOnly,"UM-HISTORICAL-STOP-REQUIRED"),
+            "running ASA prevents historical Store import before a map profile is created");
     }
 
     // A new, deliberately untrusted process observer must not write INI.
