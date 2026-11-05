@@ -1,17 +1,17 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
  <!-- UNTAMED KINGDOM / Graphite Design System 2026
-      Neutral matte surfaces, restrained teal emphasis; no luminous/gradient cards. -->
- <SolidColorBrush x:Key="GraphiteCanvas" Color="#11161A"/>
- <SolidColorBrush x:Key="GraphiteSidebar" Color="#151C21"/>
- <SolidColorBrush x:Key="GraphiteHeader" Color="#171F24"/>
- <SolidColorBrush x:Key="GraphitePanel" Color="#1B2429"/>
- <SolidColorBrush x:Key="GraphiteRaised" Color="#242F35"/>
- <SolidColorBrush x:Key="GraphiteBorder" Color="#354048"/>
- <SolidColorBrush x:Key="GraphiteMuted" Color="#A7B4B7"/>
+      Graphite / jungle depth, restrained emerald glows and bright accessible text. -->
+ <SolidColorBrush x:Key="GraphiteCanvas" Color="#0C1418"/>
+ <SolidColorBrush x:Key="GraphiteSidebar" Color="#101C21"/>
+ <SolidColorBrush x:Key="GraphiteHeader" Color="#12272A"/>
+ <SolidColorBrush x:Key="GraphitePanel" Color="#17292E"/>
+ <SolidColorBrush x:Key="GraphiteRaised" Color="#20363B"/>
+ <SolidColorBrush x:Key="GraphiteBorder" Color="#35565A"/>
+ <SolidColorBrush x:Key="GraphiteMuted" Color="#ABCCC8"/>
  <SolidColorBrush x:Key="GraphitePrimary" Color="#EAF3F1"/>
- <SolidColorBrush x:Key="GraphiteAccent" Color="#71C6B9"/>
- <SolidColorBrush x:Key="GraphiteAccentDeep" Color="#2B7368"/>
+ <SolidColorBrush x:Key="GraphiteAccent" Color="#76E4C4"/>
+ <SolidColorBrush x:Key="GraphiteAccentDeep" Color="#216D60"/>
  <SolidColorBrush x:Key="GraphiteAmber" Color="#C7A56A"/>
  <Thickness x:Key="GraphitePageMargin">22,18,22,30</Thickness>
  <Thickness x:Key="GraphiteCardPadding">16,14,16,14</Thickness>
