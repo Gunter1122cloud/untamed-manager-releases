@@ -184,7 +184,7 @@
           <Grid.ColumnDefinitions>
            <ColumnDefinition Width="80"/><ColumnDefinition Width="2*"/>
            <ColumnDefinition Width="1.2*"/><ColumnDefinition Width="1.4*"/>
-           <ColumnDefinition Width="Auto"/>
+           <ColumnDefinition Width="64"/><ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
           <TextBlock Grid.Column="1" Text="TÉRKÉP" Foreground="{StaticResource TextSoft}"
                      FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/>
@@ -192,7 +192,9 @@
                      FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/>
           <TextBlock Grid.Column="3" Text="ÁLLAPOT" Foreground="{StaticResource TextSoft}"
                      FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/>
-          <TextBlock Grid.Column="4" Text="MŰVELET" Foreground="{StaticResource TextSoft}"
+          <TextBlock Grid.Column="4" Text="JÁTÉKOS" Foreground="{StaticResource TextSoft}"
+                     FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" TextAlignment="Center"/>
+          <TextBlock Grid.Column="5" Text="MŰVELET" Foreground="{StaticResource TextSoft}"
                      FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0"/>
          </Grid>
       <Border x:Name="MapListEmpty" Background="#152629" BorderBrush="#3D6467" BorderThickness="1"
@@ -221,6 +223,7 @@
             <ColumnDefinition Width="2*"/>
             <ColumnDefinition Width="1.2*"/>
             <ColumnDefinition Width="1.4*"/>
+            <ColumnDefinition Width="64"/>
             <ColumnDefinition Width="Auto"/>
            </Grid.ColumnDefinitions>
            <Border Grid.Column="0" Width="58" Height="48" CornerRadius="6" ClipToBounds="True"
@@ -238,8 +241,10 @@
               FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
            <TextBlock Grid.Column="3" Text="{Binding Status}" Foreground="{StaticResource TextStrong}"
               FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-           <TextBlock Grid.Column="4" Text="Részletek  ›" Foreground="{StaticResource AccentLight}"
-              Margin="10,0,3,0" FontSize="11" VerticalAlignment="Center"/>
+           <TextBlock Grid.Column="4" Text="{Binding PlayerDisplay}" Foreground="{StaticResource TextSoft}"
+              FontSize="11" TextAlignment="Center" VerticalAlignment="Center"/>
+           <TextBlock Grid.Column="5" Text="Részletek  ›" Foreground="{StaticResource AccentLight}"
+              Margin="9,0,3,0" FontSize="11" VerticalAlignment="Center"/>
           </Grid>
          </Button>
         </DataTemplate>

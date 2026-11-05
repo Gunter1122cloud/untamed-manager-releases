@@ -73,6 +73,7 @@ public partial class MainWindow
             return new MapInfo{
                 Id=m.Id,Name=m.Name,Host=m.Host,IsRemote=false,IsDemo=true,
                 ModCount=m.Mods.Count(x=>x.Mode!=DemoModMode.Disabled),
+                PlayerCount=m.Running&&demo.FindHost(m.Host).Online?m.Players:0,
                 Status=demo.Status(m),CoverBrush=image?.CoverBrush??Panel,
                 CoverImage=image?.CoverImage
             };

@@ -33,6 +33,8 @@ public sealed class MapInfo
     public string Name { get; init; } = "";
     public string Host { get; init; } = "";
     public int? ModCount { get; init; }
+    public int? PlayerCount { get; init; }
+    public string PlayerDisplay => PlayerCount.HasValue ? PlayerCount.Value.ToString() : "—";
     public int? GamePort { get; init; }
     public int? QueryPort { get; init; }
     public int? RconPort { get; init; }
