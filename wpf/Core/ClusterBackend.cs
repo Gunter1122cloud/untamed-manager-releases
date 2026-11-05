@@ -450,12 +450,48 @@ public sealed class ClusterService : IAsyncDisposable
         if(Config.LocalMaps.Any(m=>m.Id==map.Id))throw new InvalidOperationException("Duplicate map");
         if(Config.LocalMaps.Any(m=>m.Name.Equals(map.Name,StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Map is already registered locally");
-        Config.LocalMaps.Add(map);Save();
+        Config.LocalMaps.Add(map);
+        try{Save();}
+        catch
+        {
+            // A failed config CAS/write must not leave an unpersisted map visible
+            // to UI, process observation, scheduler, or later config saves.
+            Config.LocalMaps.Remove(map);
+            throw;
+        }
+    }
+    public void ReplaceMap(LocalMap existing,LocalMap replacement)
+    {
+        // An entirely staged candidate is persisted atomically. The original
+        // object and any active observers remain unchanged if the save fails.
+        int index=Config.LocalMaps.IndexOf(existing);
+        if(index<0 || replacement.Id!=existing.Id)
+            throw new UnauthorizedAccessException("Map identity changed or is not registered locally");
+        replacement.Name=LocalMapNameRules.Normalize(replacement.Name);
+        if(Config.LocalMaps.Any(m=>m.Id!=existing.Id &&
+            m.Name.Equals(replacement.Name,StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Map name is already registered locally");
+        Config.LocalMaps[index]=replacement;
+        try{Save();}
+        catch
+        {
+            Config.LocalMaps[index]=existing;
+            throw;
+        }
     }
     public void RemoveMap(Guid id)
     {
-        if(Config.LocalMaps.RemoveAll(m=>m.Id==id)!=1)throw new KeyNotFoundException("Map not found locally");
-        Save();
+        int index=Config.LocalMaps.FindIndex(m=>m.Id==id);
+        if(index<0)throw new KeyNotFoundException("Map not found locally");
+        var map=Config.LocalMaps[index];
+        Config.LocalMaps.RemoveAt(index);
+        try{Save();}
+        catch
+        {
+            // Keep original order and object identity after optimistic-CAS failure.
+            Config.LocalMaps.Insert(index,map);
+            throw;
+        }
     }
     public ProcessCheck Check(LocalMap map)
     {
