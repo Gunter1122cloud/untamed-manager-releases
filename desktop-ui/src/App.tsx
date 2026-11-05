@@ -316,7 +316,8 @@ function Dashboard({ snapshot, onPage, onSelect }: {
   onPage: (page: Page) => void; onSelect: (id: string) => void
 }) {
   return <PremiumDashboard snapshot={snapshot} onSelect={onSelect}
-    onServers={()=>onPage("servers")} onCluster={()=>onPage("cluster")}/>;
+    onServers={()=>onPage("servers")} onInstall={()=>onPage("steam")}
+    onCluster={()=>onPage("cluster")}/>;
 }
 const asaMapNames = [
   "The Island","The Center","Scorched Earth","Aberration","Extinction",
