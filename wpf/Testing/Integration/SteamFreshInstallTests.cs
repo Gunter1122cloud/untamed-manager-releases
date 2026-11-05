@@ -66,6 +66,52 @@ public static class SteamFreshInstallTests
         },Array.Empty<LocalMap>(),fakeSteam);}
         catch(UnauthorizedAccessException){refusedRemote=true;}
         Check(refusedRemote,"fresh installer never runs on a remote/UNC location");
+        // A failed real child launch leaves a durable installation journal.
+        // After a Manager restart, retry is only possible with the original
+        // map GUID and explicit human approval; no blind re-run.
+        string incompleteRoot=Path.Combine(root,"interrupted-install-"+Guid.NewGuid().ToString("N"));
+        var pending=new SteamFreshInstallRequest(Guid.NewGuid(),"The Island",
+            "Untamed Island",incompleteRoot,cmd,false,
+            MinimumFreeBytes:5L*1024*1024*1024);
+        bool interrupted=false;
+        try
+        {
+            await SteamFreshInstall.RunFakeFixtureAsync(pending,
+                Array.Empty<LocalMap>(),Path.Combine(root,"FakeSteamCMD.exe"));
+        }
+        catch(Exception ex) when(ex is IOException or
+            System.ComponentModel.Win32Exception){interrupted=true;}
+        var pendingJournal=SteamFreshInstall.InspectIncomplete(incompleteRoot);
+        Check(interrupted && pendingJournal!=null &&
+            pendingJournal.MapId==pending.MapId &&
+            pendingJournal.MapName=="The Island" &&
+            pendingJournal.Phase=="mutating",
+            "failed installation records recoverable original map identity");
+        bool wrongIdentityBlocked=false;
+        try
+        {
+            await SteamFreshInstall.RunFakeFixtureAsync(
+                pending with {MapId=Guid.NewGuid(),ExplicitRetry=true},
+                Array.Empty<LocalMap>(),fakeSteam);
+        }
+        catch(InvalidOperationException){wrongIdentityBlocked=true;}
+        Check(wrongIdentityBlocked,
+            "manual restart refuses an unexpected map ID in the incomplete journal");
+        bool wrongMapBlocked=false;
+        try
+        {
+            await SteamFreshInstall.RunFakeFixtureAsync(
+                pending with {MapName="Astraeos",ExplicitRetry=true},
+                Array.Empty<LocalMap>(),fakeSteam);
+        }
+        catch(InvalidOperationException){wrongMapBlocked=true;}
+        Check(wrongMapBlocked,
+            "interrupted ASA install cannot silently change to a different map");
+        var retryReceipt=await SteamFreshInstall.RunFakeFixtureAsync(
+            pending with {ExplicitRetry=true},Array.Empty<LocalMap>(),fakeSteam);
+        Check(retryReceipt.MapId==pending.MapId &&
+            SteamFreshInstall.InspectIncomplete(incompleteRoot)==null,
+            "explicit retry with original identity completes once and closes journal");
         foreach(var entry in new[]{
             ("The Island","TheIsland_WP"),("The Center","TheCenter_WP"),
             ("Scorched Earth","ScorchedEarth_WP"),("Ragnarok","Ragnarok_WP"),
