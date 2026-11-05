@@ -16,7 +16,8 @@ import {
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
-import { PremiumDashboard, MapCover } from "./PremiumDashboard";
+import { PremiumDashboard } from "./PremiumDashboard";
+import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
 
 type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "map";
