@@ -356,7 +356,7 @@ public partial class MainWindow
                 Background=new SolidColorBrush(Color.FromRgb(36,47,53)),
                 BorderBrush=new SolidColorBrush(Color.FromRgb(53,64,72)),
                 BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),
-                Padding=new Thickness(11,8),Margin=new Thickness(0,0,9,7),
+                Padding=new Thickness(11,8,11,8),Margin=new Thickness(0,0,9,7),
                 Child=V(Label(caption,10,Soft,true),Label(value,14,Mint,true))
             };
         }
