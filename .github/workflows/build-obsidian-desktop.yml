@@ -1,0 +1,88 @@
+name: Obsidian React Desktop Preview (Windows)
+on:
+  push:
+    branches:
+      - chatgpt/obsidian-react-desktop-20261105
+    paths:
+      - "desktop/**"
+      - "desktop-ui/**"
+      - "wpf/Core/**"
+      - ".github/workflows/build-obsidian-desktop.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "desktop-ui/**"
+      - "wpf/Core/**"
+      - ".github/workflows/build-obsidian-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-preview:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Use .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build offline React assets (no CDN runtime)
+        shell: pwsh
+        working-directory: desktop-ui
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          if (!(Test-Path dist/index.html)) { throw "Missing offline UI" }
+      - name: Compile and publish real .NET 10 + WebView2 Windows host
+        shell: pwsh
+        run: |
+          dotnet restore desktop/UntamedDesktop.csproj
+          dotnet publish desktop/UntamedDesktop.csproj -c Release -r win-x64 --self-contained false -o desktop/publish --no-restore
+          if (!(Test-Path desktop/publish/ui/index.html)) { throw "React assets not packaged into Windows host" }
+          if (!(Test-Path desktop/publish/UntamedDesktop.exe)) { throw "Windows host missing" }
+      - name: Build portable ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path desktop-artifacts | Out-Null
+          Compress-Archive -Path desktop/publish/* -DestinationPath desktop-artifacts/Untamed_Obsidian_Desktop_Preview_Portable.zip -Force
+      - name: Build separate preview Setup (never overwrites WPF installation)
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          if (!$iscc) {
+            $candidate = Join-Path "${env:ProgramFiles(x86)}" "Inno Setup 6/ISCC.exe"
+            if (Test-Path $candidate) { $iscc = $candidate }
+          }
+          if (!$iscc) {
+            choco install innosetup --no-progress -y
+            $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+            if (!$iscc) {
+              $candidate = Join-Path "${env:ProgramFiles(x86)}" "Inno Setup 6/ISCC.exe"
+              if (Test-Path $candidate) { $iscc = $candidate }
+            }
+          }
+          if (!$iscc) { throw "ISCC not found" }
+          $publish = (Resolve-Path desktop/publish).Path
+          & $iscc "/DBuildDir=$publish" desktop/installer/ObsidianPreview.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+      - name: SHA-256 checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem desktop-artifacts -File | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash *$($_.Name)"
+          } | Set-Content desktop-artifacts/SHA256SUMS.txt
+      - name: Upload Windows preview only
+        uses: actions/upload-artifact@v4
+        with:
+          name: Obsidian-Desktop-TEST-ONLY
+          path: desktop-artifacts/*
+          if-no-files-found: error
+          retention-days: 10
