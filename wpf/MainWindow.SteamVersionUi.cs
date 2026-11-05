@@ -73,28 +73,74 @@ public partial class MainWindow
         var check=Btn("Frissítés ellenőrzése",async()=>{
             await CheckSteamVersionForMap(map,status);
         });
-        var install=Btn("Frissítés telepítése",()=>{
-            var readiness=ReleaseCapabilityGate.Check(ManagerOperation.LiveSteamUpdate,
-                _cluster.Config.LocalMaps.Contains(map),
-                map.Maintenance,_cluster.Check(map).ConfirmedStopped);
-            if(!readiness.Allowed)
+        var downloadReserve=new TextBox{
+            Text="8",MinHeight=36,Width=75,
+            ToolTip="Letöltési tartalék GiB-ban (1–500)"
+        };
+        Button install=null!;
+        install=Btn("Frissítés telepítése",async()=>{
+            if(!_cluster.Config.LocalMaps.Contains(map))
+            {status.Text="A map nem tartozik ehhez a helyi Managerhez.";return;}
+            var current=_cluster.Check(map);
+            if(current.Running || !current.ConfirmedStopped ||
+               current.Identity!=null || current.LoaderIdentity!=null)
             {
-                status.Text="ÉLES FRISSÍTÉS BLOKKOLVA: "+readiness.Reason+
-                    "\nA SaveComplete, ellenőrzött backup/Stop és a teljes újraindítási elfogadási teszt"+
-                    " nélkül a SteamCMD nem írhat egy futó ASA-szerver telepítésébe.";
+                status.Text="A map még fut vagy nem igazoltan leállított. "+
+                    "A leállítás/SaveComplete automatikus része még nincs tanúsítva, "+
+                    "ezért itt nem indítok SteamCMD-t.";
                 return;
             }
-            status.Text="Frissítés csak igazolt, teljes mentés/backup/leállítási adapterrel indítható.";
+            if(!int.TryParse(downloadReserve.Text,out int gib) || gib is <1 or >500)
+            {status.Text="1–500 GiB közötti letöltési tartalék szükséges.";return;}
+            var answer=MessageBox.Show(this,
+                "A map igazoltan leállított. A SteamCMD frissítés először SHA-256 "+
+                "ellenőrzött, helyi világ/INI/plugin mentést készít, majd a szerver "+
+                "fájljait frissíti. A szerver NEM indul el automatikusan. "+
+                "A művelet hiba esetén leáll és kézi ellenőrzést kér.\n\n"+
+                "Map: "+map.Name+"\nMappa: "+map.InstallationPath+
+                "\n\nElindítod a leállított map frissítését?",
+                "Untamed Manager — leállított map frissítése",
+                MessageBoxButton.YesNo,MessageBoxImage.Warning,
+                MessageBoxResult.No);
+            if(answer!=MessageBoxResult.Yes)return;
+            install.IsEnabled=false;
+            check.IsEnabled=false;
+            try
+            {
+                var progress=new Progress<SteamMaintenanceStage>(phase=>
+                    status.Text="SteamCMD karbantartás: "+phase+
+                        "\nA következő lépés csak ellenőrzött siker után indulhat.");
+                var receipt=await SteamStoppedMapUpdater.UpdateAsync(
+                    _cluster,map,_cluster.Config.SteamCmdExecutable,
+                    gib*1024L*1024*1024,TimeSpan.FromHours(4),progress);
+                status.Text="LEÁLLÍTOTT MAP SIKERESEN FRISSÍTVE\n"+
+                    "Steam Build ID: "+receipt.OldBuild+" → "+receipt.NewBuild+
+                    "\nEllenőrzött mentés: "+receipt.BackupDirectory+
+                    "\nA szervert nem indítottuk újra.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("steam-stopped-map-update",ex);
+                status.Text="A SteamCMD-frissítés nem fejeződött be: "+
+                    UntamedPresentation.Redact(ex.Message)+
+                    "\nA map újraindítása és az újrapróbálás előtt a helyi műveleti "+
+                    "naplót és a mentést ellenőrizni kell.";
+            }
+            finally{install.IsEnabled=true;check.IsEnabled=true;}
         });
         actions.Children.Add(check);actions.Children.Add(install);
         actions.Children.Add(Btn("SteamCMD / frissítési központ",()=>Navigate("steam")));
         return V(
             Label("STEAM 2430930  /  BUILD OBSERVATION",11,Aqua,true),
             Label(map.Name+" – szervertelepítés",19,Mint,true),
-            Label(map.InstallationPath,12,Soft),status,actions,
+            Label(map.InstallationPath,12,Soft),status,
+            Label("Leállított map frissítési letöltési tartaléka (GiB)",12,Aqua),
+            downloadReserve,actions,
             Label("A Steam Build ID a dedikált alkalmazás buildje, nem az ARK kliens verziója. "+
                 "A megosztott telepítések a többi helyi mapot is érinthetik. "+
-                "Automatikus éles frissítés igazolt mentési/újraindítási képesség nélkül tiltva.",
+                "A leállított map kézzel frissíthető ellenőrzött mentéssel. "+
+                "Futó szerver automatikus leállítása és újraindítása továbbra is tiltva "+
+                "az éles SaveComplete/életciklus-elfogadásig.",
                 12,Soft));
     }
 
