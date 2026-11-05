@@ -50,7 +50,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       if(epoch!==importEpoch.current)return;
       const code=e instanceof Error?e.message:"UM-HISTORICAL-VERIFICATION-FAILED";
       const hints:Record<string,string>={
-        "UM-HISTORICAL-ROOT-MISMATCH":"A megadott helyi ASA telepítés nem egyezik a Kova archivált eredeti mapgyökerével.",
+        "UM-HISTORICAL-ROOT-MISMATCH":"A megadott helyi ASA telepítés nem egyezik a korábbi archivált eredeti mapgyökérrel.",
         "UM-HISTORICAL-STOP-REQUIRED":"A map/loader még fut, vagy nem igazolható a szabályos leállítás.",
         "UM-ASA-EXE-MISSING":"A map könyvtárában nem található az eredeti ASA-szerver EXE."
       };
