@@ -65,8 +65,14 @@ public sealed class SteamBuildStatusStore
     public SteamMapUpdateStatus SaveCheck(LocalMap map,AsaSteamBuildCheck check)
     {
         var old=Read(map);
+        // "Last successful check" only advances if BOTH authoritative
+        // Steam BuildIDs were obtained. Failed or ambiguous probes must not
+        // overwrite previously verified success timestamps.
+        bool confirmed=check.State is
+            AsaSteamBuildState.Current or AsaSteamBuildState.UpdateAvailable;
         var status=new SteamMapUpdateStatus(map.Id,map.InstallationPath,check.Branch,
-            check.InstalledBuild,check.AvailableBuild,check.State,check.CheckedUtc,
+            check.InstalledBuild,check.AvailableBuild,check.State,
+            confirmed?check.CheckedUtc:old.LastCheckedUtc,
             old.LastUpdatedUtc,check.Explanation);
         Write(map,status);
         return status;
