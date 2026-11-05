@@ -140,6 +140,25 @@ export type IniSaveReceipt = {
   evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
 };
 
+export type InitialMapStatus = {
+  mapId:string; mapName:string; level:string | null;
+  initialSetupAvailable:boolean; confirmedStopped:boolean;
+  hasServerExecutable:boolean; gamePort:number; queryPort:number;
+  suggestion:{game:number;query:number};
+  evidence:"LOCAL_MANAGER_PROFILE_FIRST_SETUP_STATUS";
+};
+export type InitialMapPreview = {
+  token:string; mapId:string; mapName:string; sessionName:string;
+  mapLevel:string; gamePort:number; queryPort:number;
+  rconEnabled:false; serverStartRequested:false; configuredArgumentsLength:number;
+  evidence:"INITIAL_MAP_PROFILE_PREVIEW_NO_WRITES";
+};
+export type InitialMapReceipt = {
+  mapId:string; mapName:string; configured:true;
+  gamePort:number;queryPort:number;rconEnabled:false;serverStarted:false;
+  evidence:"ATOMIC_MANAGER_PROFILE_INITIAL_SETUP_ONLY";
+};
+
 export type FreshInstallPreflight = {
   token:string; mapName:string; mapLevel:string; folderName:string;
   steamCmdPresent:boolean; needsOfficialSteamCmdDownload:boolean;
@@ -186,7 +205,9 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister";
+  "steam.freshRegister" |
+  "servers.initialStatus" | "servers.initialPreview" |
+  "servers.initialApply";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
@@ -194,7 +215,8 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
-  confirm?: boolean; jobId?: string };
+  confirm?: boolean; jobId?: string; sessionName?: string;
+  gamePort?: number; queryPort?: number };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -272,4 +294,10 @@ export const managerBridge = {
   freshCancel: (jobId:string) => request<{cancelRequested:true}>("steam.freshCancel", {jobId}),
   freshDiscard: (jobId:string) => request<{discarded:true}>("steam.freshDiscard", {jobId, confirm:true}),
   freshRegister: (jobId:string) => request<FreshInstallReceipt>("steam.freshRegister", {jobId, confirm:true}),
+  initialStatus: (mapId:string) =>
+    request<InitialMapStatus>("servers.initialStatus", {mapId}),
+  initialPreview: (mapId:string, sessionName:string, gamePort:number, queryPort:number) =>
+    request<InitialMapPreview>("servers.initialPreview", {mapId, sessionName, gamePort, queryPort}),
+  initialApply: (token:string) =>
+    request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
 };
