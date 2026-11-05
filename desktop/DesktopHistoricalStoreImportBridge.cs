@@ -54,13 +54,45 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             id=requestId.ToString("D");
             string? method=methodProp.GetString();
             if(method is not ("historical.list" or "historical.preview" or
-                "historical.register"))
+                "historical.register" or "historical.pairedEvidence"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
             {
                 foreach(var expired in pending.Where(x=>x.Value.ExpiresUtc<DateTimeOffset.UtcNow)
                     .Select(x=>x.Key).ToArray())pending.Remove(expired);
+
+                if(method=="historical.pairedEvidence")
+                {
+                    if(!TextField(data,"coordinationArchive",520,out var coord) ||
+                       !TextField(data,"localMetadataArchive",520,out var local))
+                        return Fail(id,"UM-HISTORICAL-PAIR-INVALID-REQUEST");
+                    coord=CanonicalArchive(coord);
+                    local=CanonicalArchive(local);
+                    if(string.Equals(coord,local,StringComparison.OrdinalIgnoreCase))
+                        return Fail(id,"UM-HISTORICAL-PAIR-INVALID-REQUEST");
+                    string firstHash=Digest(coord),secondHash=Digest(local);
+                    var result=ClusterVaultArchiveInspector.InspectPairedCopies(coord,local);
+                    if(firstHash!=Digest(coord) || secondHash!=Digest(local))
+                        return Fail(id,"UM-HISTORICAL-ARCHIVE-CHANGED");
+                    return Ok(id,new {
+                        files=result.VerifiedFiles,maps=result.Maps,peers=result.Peers,
+                        sessionConsistent=result.SessionConsistent,
+                        configHashesVerified=result.ConfigHashesVerified,
+                        activeStoreRecords=result.LocalHostMapRecordsActive,
+                        completeTwoHostEvidence=result.CompleteTwoHostEvidence,
+                        historicalConsistent=result.HistoricalConsistent,
+                        findings=result.Findings.Select(x=>x.Code.ToString()).Distinct().ToArray(),
+                        hosts=result.Hosts.Select(x=>new{
+                            number=x.Number,maps=x.Maps,localEvidence=x.LocalEvidence,
+                            sessionMatches=x.SessionMatches,
+                            configHashMatches=x.ConfigHashMatches,
+                            lockMatches=x.LockMatches,activeMaps=x.ActiveMaps
+                        }).ToArray(),
+                        productionUseAllowed=false,
+                        evidence="PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION"
+                    });
+                }
 
                 if(method=="historical.list")
                 {
