@@ -473,3 +473,23 @@ button,select,input {accent-color:#2cbf91;}
   .premium-log-toolbar .log-select-label {flex-basis:100%;}
   .premium-log-toolbar .icon-button {flex:1 1 auto;}
 }
+
+/* Badge-free artwork crops from the original 1200x530 visual reference.
+   Draw the 128px LEFT slice of every 200px tile and the 95px art row.
+   This deliberately excludes baked gold badges/WPF UI controls on the
+   right edge. It is a visual crop only; the reference JPEG is unchanged. */
+.premium-map-cover {
+  background-image:url('/uk-reference-map-atlas.jpg');
+  background-repeat:no-repeat;
+  background-size:937.5% 558%;
+}
+.premium-map-astraeos {background-position:0% 59.77%;}
+.premium-map-genesis {background-position:18.66% 59.77%;}
+.premium-map-valguero {background-position:37.31% 59.77%;}
+.premium-map-extinction {background-position:55.97% 59.77%;}
+.premium-map-ragnarok {background-position:74.63% 59.77%;}
+.premium-map-center {background-position:0% 84.14%;}
+.premium-map-aberration {background-position:18.66% 84.14%;}
+.premium-map-desert {background-position:37.31% 84.14%;}
+.premium-map-island {background-position:55.97% 84.14%;}
+.premium-map-colony {background-position:74.63% 84.14%;}
