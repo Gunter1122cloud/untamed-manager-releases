@@ -51,6 +51,15 @@ public static class ModUpdatePlanner
     {
         if(local==null||remote==null||!int.TryParse(local.ModId,out var id)||id!=remote.ModId)
             throw new InvalidDataException("Mod project identity mismatch");
+        // The provider may return only one page of available files.
+        // Never label a mod "current" or "newer" based on an incomplete
+        // page, a nonzero page index, or duplicate file IDs.
+        if(remote.Index!=0 || remote.HasMore || remote.Total>remote.Files.Count ||
+           remote.Files.GroupBy(x=>x.FileId).Any(g=>g.Count()!=1) ||
+           remote.Files.Any(x=>x.ModId!=remote.ModId))
+            return new(local.ModId,ModUpdateState.Unknown,
+                local.VerifiedFileId,null,
+                "CurseForge file inventory is incomplete or inconsistent; exact version comparison blocked");
         var valid=remote.Files.Where(x=>x.ModId==remote.ModId&&x.Available)
             .OrderByDescending(x=>x.Published??DateTimeOffset.MinValue)
             .ThenByDescending(x=>x.FileId).ToArray();
@@ -59,8 +68,9 @@ public static class ModUpdatePlanner
                 local.VerifiedFileId,null,"No available verified CurseForge file metadata");
         var latest=valid[0];
         if(!local.DirectoryPresent)
-            return new(local.ModId,ModUpdateState.NotInstalled,
-                null,latest.FileId,"No known installed directory; not proof of absence");
+            return new(local.ModId,ModUpdateState.Unknown,
+                null,latest.FileId,
+                "Known candidate mod directory not found; alternative ASA install layouts may exist");
         if(local.VerifiedFileId==null)
             return new(local.ModId,ModUpdateState.Unknown,
                 null,latest.FileId,"Installed CurseForge file ID unknown; update comparison is unsafe");
@@ -74,9 +84,12 @@ public static class ModUpdatePlanner
         if(!installed.Published.HasValue||!latest.Published.HasValue)
             return new(local.ModId,ModUpdateState.Unknown,
                 installed.FileId,latest.FileId,"Publication order is unverified");
-        return new(local.ModId,latest.Published>installed.Published?
-            ModUpdateState.NewerFileAvailable:ModUpdateState.Current,
+        if(latest.Published<=installed.Published)
+            return new(local.ModId,ModUpdateState.Unknown,
+                installed.FileId,latest.FileId,
+                "Different exact file IDs share an unproven publication order");
+        return new(local.ModId,ModUpdateState.NewerFileAvailable,
             installed.FileId,latest.FileId,
-            "File IDs and publication dates compared; no authorized download/installation");
+            "Complete available-file list and verified local file ID establish newer published file; download rights remain unverified");
     }
 }
