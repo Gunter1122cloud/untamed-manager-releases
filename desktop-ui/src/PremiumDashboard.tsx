@@ -1,10 +1,11 @@
 import {useMemo,useState} from "react";
 import {
   Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, Cpu, Plus,
-  HardDrive, Map as MapIcon, Monitor, Search, Server, Shield, Users, WifiOff
+  HardDrive, Map as MapIcon, Monitor, Search, Server, Shield, Users, WifiOff, Grid2X2, List
 } from "lucide-react";
 import type {DashboardSnapshot,PublicMap} from "./bridge";
 import {MapCover} from "./MapArtwork";
+import {ClusterMapGallery} from "./ClusterMapGallery";
 
 type Props={
   snapshot:DashboardSnapshot;
@@ -47,7 +48,7 @@ function ServerRow({map,host,local,onSelect}:{
     </span>
     <div className="premium-server-action" role="cell">
       {local?<button type="button" className="premium-icon-action"
-          aria-label={map.name+" részletei"} onClick={()=>onSelect(map.id)}
+          aria-label={map.name+" részletei"} onClick={e=>{e.stopPropagation();onSelect(map.id);}}
           title="Helyi map részletei"><ArrowRight size={17}/></button>:
         <span className="premium-remote-lock"><Shield size={16}/> Csak olvasás</span>}
     </div>
@@ -93,6 +94,7 @@ function HostPanel({snapshot}:{snapshot:DashboardSnapshot}){
 
 export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelect}:Props){
   const [query,setQuery]=useState("");
+  const [view,setView]=useState<"gallery"|"table">("gallery");
   const hosts=1+(snapshot.remote?1:0);
   const local=snapshot.local.maps;
   const peer=snapshot.remote?.maps??[];
@@ -108,6 +110,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
     <section className="hero premium-dashboard-banner">
       <div className="premium-banner-content">
         <span className="premium-kicker">UNTAMED KINGDOM / CLUSTER OVERVIEW</span>
+        <strong className="uk-hero-title">UNTAMED KINGDOM <span>ASA CLUSTER</span></strong>
         <p className="premium-overview-subtitle">Szerverüzemeltetés · {snapshot.local.hostName} ·
           {snapshot.remote?" kétgépes LAN-megfigyelés":" helyi Manager"}</p>
       </div>
@@ -131,10 +134,21 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
             <label className="premium-search"><Search size={15}/>
               <input aria-label="Áttekintés map keresése" placeholder="Map keresése..."
                 value={query} onChange={e=>setQuery(e.target.value)}/></label>
+            <div className="premium-view-switcher" role="group" aria-label="Szerver nézet">
+              <button type="button" className={view==="gallery"?"is-active":""}
+                aria-pressed={view==="gallery"} onClick={()=>setView("gallery")}>
+                <Grid2X2 size={14}/> Kártyák</button>
+              <button type="button" className={view==="table"?"is-active":""}
+                aria-pressed={view==="table"} onClick={()=>setView("table")}>
+                <List size={14}/> Lista</button>
+            </div>
             <button className="primary" type="button" onClick={onServers}>
               <ArrowRight size={15}/> Mapok kezelése</button>
           </div>
         </header>
+        {view==="gallery" ?
+          <ClusterMapGallery snapshot={snapshot} query={query} onSelect={onSelect}
+            onImport={onServers} onInstall={onInstall}/>:
         <div className="premium-server-list" role="table" aria-label="Cluster szerverlista">
           <div className="premium-server-table-head" role="row">
             <span>MAP / SZERVER</span><span>GAZDAGÉP</span>
@@ -158,7 +172,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
                 Új ASA letöltése · SteamCMD <Plus size={15}/></button>
             </div>}
           </div>}
-        </div>
+        </div>}
         <div className="premium-panel-footnote"><Shield size={14}/> A távoli szerverek csak megfigyelhetők; nem jelenítünk meg kitalált játékosadatokat.</div>
       </section>
       <div className="premium-dashboard-aside">
