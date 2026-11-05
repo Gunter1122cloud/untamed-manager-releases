@@ -275,3 +275,16 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 .historical-peer-host b{color:#c8f4d9;font-size:12px}
 .historical-peer-host span{font-size:11px;color:#a9cdbb;overflow-wrap:anywhere}
 @media(max-width:950px){.historical-peer-check .historical-import-form{grid-template-columns:1fr}.historical-peer-hosts{grid-template-columns:1fr}}
+
+/* Cross-map local mod inventory: searchable and scrollable without moving
+   the native WPF/React navigation or clipping on 1366px displays. */
+.shared-mod-toolbar{max-width:none;flex-wrap:wrap;padding:9px 13px;gap:10px}
+.shared-mod-toolbar input[type="text"],.shared-mod-toolbar input:not([type]){
+  width:min(420px,100%);flex:1 1 220px
+}
+.shared-mod-toolbar label{display:flex;gap:8px;align-items:center;white-space:nowrap;font-size:12px}
+.shared-mod-toolbar label input[type="checkbox"]{width:17px;height:17px;flex:none;accent-color:#53bda0}
+.row-wrap{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-top:7px}
+.row-wrap .quiet{font-size:11px;border:1px solid #3c5b59;border-radius:7px;
+  padding:4px 7px;max-width:100%;white-space:normal;text-align:left}
+.row-wrap .quiet:focus-visible{outline:2px solid #7fe9c2;outline-offset:2px}
