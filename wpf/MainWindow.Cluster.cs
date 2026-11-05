@@ -971,6 +971,13 @@ public partial class MainWindow
             BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(10),
             Padding=new Thickness(17),Child=summary});
         review.Children.Add(validationHints);
+        var steamProgress=new ProgressBar {
+            Height=12,Minimum=0,Maximum=100,Value=0,
+            Visibility=Visibility.Collapsed,Margin=new Thickness(0,12,0,8),
+            IsIndeterminate=true,
+            Foreground=Aqua,Background=Panel
+        };
+        review.Children.Add(steamProgress);
         review.Children.Add(Label("A konfiguráció kizárólag az Untamed Manager helyi profiljába kerül. "+
             "A meglévő karakterek, Store-v1, SQL és mentések érintetlenek.",12,Soft));
 
@@ -1002,7 +1009,15 @@ public partial class MainWindow
         Action<int>? showStep=null;
         var previous=Btn("← Előző",()=>showStep?.Invoke(stepIndex-1));
         var next=Btn("Következő →",()=>showStep?.Invoke(stepIndex+1));
+        var cancel=Btn("Mégse",()=>dialog.DialogResult=false);
         Button saveButton=null!;
+        bool installInProgress=false;
+        dialog.Closing+=(_,e)=>{
+            // A multi-GB SteamCMD child must not keep writing after the
+            // operator closes the WPF dialog without a recoverable journal.
+            // The window stays open until the bounded installer exits.
+            if(installInProgress) { e.Cancel=true; return; }
+        };
         saveButton=Btn("Mentés",async()=>{
                     saveButton.IsEnabled=false;
                     try{
@@ -1032,8 +1047,16 @@ public partial class MainWindow
                                 downloadSteam.IsChecked==true,retryFresh.IsChecked==true);
                             var progress=new Progress<SteamInstallProgress>(info=>{
                                 installStatus.Text=info.Stage+" · "+info.Detail;
-                                errorMessage.Text="SteamCMD: "+info.Detail;
+                                validationHints.Foreground=Aqua;
+                                validationHints.Text="SteamCMD: "+info.Stage+" · "+info.Detail;
+                                steamProgress.IsIndeterminate=info.Percent is null;
+                                if(info.Percent is double pct)
+                                    steamProgress.Value=Math.Clamp(pct,0,100);
                             });
+                            installInProgress=true;
+                            previous.IsEnabled=false;next.IsEnabled=false;
+                            cancel.IsEnabled=false;
+                            steamProgress.Visibility=Visibility.Visible;
                             var receipt=await SteamFreshInstall.InstallAsync(
                                 request,_cluster.Config.LocalMaps.ToArray(),progress);
                             exeText=receipt.ServerExecutable;
@@ -1106,10 +1129,18 @@ public partial class MainWindow
                         errorMessage.Text="Nem menthető: "+UntamedPresentation.Display(e.Message);
                         saveButton.IsEnabled=true;
                     }
+                    finally
+                    {
+                        installInProgress=false;
+                        previous.IsEnabled=stepIndex>0;
+                        next.IsEnabled=true;
+                        cancel.IsEnabled=true;
+                        steamProgress.IsIndeterminate=false;
+                        steamProgress.Visibility=Visibility.Collapsed;
+                    }
                 });
         saveButton.Style=(Style)System.Windows.Application.Current.Resources["PrimaryAction"];
         saveButton.MinWidth=112;
-        var cancel=Btn("Mégse",()=>dialog.DialogResult=false);
         buttons.Children.Add(previous);
         buttons.Children.Add(next);
         buttons.Children.Add(saveButton);
