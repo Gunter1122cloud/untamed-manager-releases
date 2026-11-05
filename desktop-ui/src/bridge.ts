@@ -80,6 +80,21 @@ export type SuggestedPorts = {
 
 export type CurseForgeCredentialStatus = { configured: boolean; verifiedNow?: boolean };
 
+export type ModDraftMode = "active" | "passive" | "disabled" | "remove";
+export type ModDraftState = {
+  draftId: string; mapId: string; active: string[]; passive: string[];
+  disabled: string[]; pending: boolean; dirty: boolean;
+  canUndo: boolean; canRedo: boolean; evidence: "IN_MEMORY_MOD_DRAFT";
+  differences: Array<{
+    modId: string; beforeMode: string | null; beforePosition: number | null;
+    afterMode: string | null; afterPosition: number | null;
+  }>;
+};
+export type ModDraftSave = {
+  saved: true; pending: boolean; active: string[]; passive: string[];
+  disabled: string[]; evidence: "CONFIGURED_ONLY_PENDING_REAL_RESTART";
+};
+
 export type ConfiguredMods = {
   mapId: string;
   mapName: string;
@@ -91,8 +106,11 @@ export type ConfiguredMods = {
 };
 
 type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search" | "plugins.inventory" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
-  "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear";
-  mapId?: string; term?: string; page?: number; credential?: string };
+  "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
+  "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
+  "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave";
+  mapId?: string; term?: string; page?: number; credential?: string;
+  draftId?: string; modId?: string; mode?: ModDraftMode; position?: number };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -139,4 +157,11 @@ export const managerBridge = {
   curseForgeKeyStatus: () => request<CurseForgeCredentialStatus>("curseforge.credentialStatus"),
   saveCurseForgeKey: (credential: string) => request<CurseForgeCredentialStatus>("curseforge.credentialSave", { credential }),
   clearCurseForgeKey: () => request<CurseForgeCredentialStatus>("curseforge.credentialClear"),
+  startModDraft: (mapId: string) => request<ModDraftState>("mods.draftStart", { mapId }),
+  stageModDraft: (draftId: string, modId: string, mode: ModDraftMode, position?: number) =>
+    request<ModDraftState>("mods.draftStage", { draftId, modId, mode, ...(position===undefined?{}:{position}) }),
+  undoModDraft: (draftId: string) => request<ModDraftState>("mods.draftUndo", { draftId }),
+  redoModDraft: (draftId: string) => request<ModDraftState>("mods.draftRedo", { draftId }),
+  discardModDraft: (draftId: string) => request<{discarded:true}>("mods.draftDiscard", { draftId }),
+  saveModDraft: (draftId: string) => request<ModDraftSave>("mods.draftSave", { draftId }),
 };
