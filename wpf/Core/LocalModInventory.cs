@@ -26,7 +26,7 @@ public sealed record LocalModInventoryResult(
         Projects.Where(x=>x.Shared).ToArray();
 }
 
-public static class LocalModInventory
+public static class LocalModUsageInventory
 {
     public static LocalModInventoryResult Read(IEnumerable<LocalMap> localMaps)
     {
