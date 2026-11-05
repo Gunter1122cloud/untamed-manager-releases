@@ -1,0 +1,120 @@
+import { useState, type FormEvent } from "react";
+import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
+import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview } from "./bridge";
+
+export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
+  const [archive,setArchive]=useState("");
+  const [known,setKnown]=useState<HistoricalStoreList | null>(null);
+  const [mapId,setMapId]=useState("");
+  const [root,setRoot]=useState("");
+  const [preview,setPreview]=useState<HistoricalStorePreview | null>(null);
+  const [approved,setApproved]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+
+  const reset=()=>{setPreview(null);setApproved(false);setError("");setNotice("");};
+  const inspectArchive=async(e:FormEvent)=>{
+    e.preventDefault();reset();setKnown(null);setBusy(true);
+    try{
+      const result=await managerBridge.historicalList(archive);
+      setKnown(result);setMapId(result.maps[0]?.mapId??"");
+    }catch{
+      setError("A privát Kova Manager ZIP nem ellenőrizhető, hiányos vagy megváltozott. A fájlokat nem módosítottuk.");
+    }finally{setBusy(false);}
+  };
+  const previewImport=async(e:FormEvent)=>{
+    e.preventDefault();reset();setBusy(true);
+    try{
+      const result=await managerBridge.historicalPreview(archive,mapId,root);
+      setPreview(result);
+    }catch(e){
+      const code=e instanceof Error?e.message:"UM-HISTORICAL-VERIFICATION-FAILED";
+      const hints:Record<string,string>={
+        "UM-HISTORICAL-ROOT-MISMATCH":"A megadott helyi ASA telepítés nem egyezik a Kova archivált eredeti mapgyökerével.",
+        "UM-HISTORICAL-STOP-REQUIRED":"A map/loader még fut, vagy nem igazolható a szabályos leállítás.",
+        "UM-ASA-EXE-MISSING":"A map könyvtárában nem található az eredeti ASA-szerver EXE."
+      };
+      setError(hints[code]??"A natív Store-v1 előellenőrzés elutasította az importot ("+code+").");
+    }finally{setBusy(false);}
+  };
+  const register=async()=>{
+    if(!preview || !approved)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const receipt=await managerBridge.historicalRegister(preview.token);
+      setPreview(null);setApproved(false);
+      setNotice(receipt.mapName+" felvéve az eredeti mapazonosítóval. A Store-v1 zárolt: a szerver nem indulhat, amíg a teljes régi indítási profil és a két host állapota nincs igazolva.");
+      await onImported();
+    }catch(e){
+      setError("A Store-v1 regisztráció meghiúsult ("+(e instanceof Error?e.message:"UM-HISTORICAL-VERIFICATION-FAILED")+"). Az eredeti világ- és karakterfájlokhoz nem nyúltunk.");
+    }finally{setBusy(false);}
+  };
+
+  return <section className="glass panel historical-import">
+    <div className="panel-head">
+      <h2><Archive size={19}/> Kova Store-v1 · meglévő map átvétele</h2>
+      <span className="mod-tag amber"><LockKeyhole size={13}/> Indítás zárolva</span>
+    </div>
+    <div className="panel-inner">
+      <p className="muted small">
+        A már működő Store-v1 rendszert nem konvertáljuk újra. A meglévő Kova Manager ZIP-ből
+        ellenőrizzük az eredeti mapazonosítót, mapgyökeret, portokat és a modlistát.
+        A ZIP nem tartalmaz teljes indítási parancssort: emiatt a regisztrált map
+        <strong> védett és nem indítható</strong> a további kétgépes ellenőrzésig.
+      </p>
+      <form className="historical-import-form" onSubmit={e=>{void inspectArchive(e);}}>
+        <label>Korábban mentett Kova Manager ZIP (helyi, olvasási célú másolat)
+          <input aria-label="Kova Manager archívum" placeholder="D:\Kova-Backups\KovaManager-Fontos.zip"
+            value={archive} maxLength={520} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");reset();}} required/>
+        </label>
+        <button type="submit" className="secondary" disabled={busy||!archive.trim()}>
+          <Shield size={16}/> Archívum ellenőrzése
+        </button>
+      </form>
+      {known && <form className="historical-import-form" onSubmit={e=>{void previewImport(e);}}>
+        <label>Archivált Store-v1 map
+          <select aria-label="Archivált Kova map" value={mapId} onChange={e=>{setMapId(e.target.value);reset();}}>
+            {known.maps.map(m=><option key={m.mapId} value={m.mapId}>
+              {m.mapKey} · Game {m.gamePort} / Query {m.queryPort} · {m.enabledMods} mod
+            </option>)}
+          </select>
+        </label>
+        <label>Eredeti, változatlan helyi ASA telepítési mappa
+          <input aria-label="Kova ASA map mappája" placeholder="C:\ASA\ExistingMap"
+            value={root} maxLength={520} onChange={e=>{setRoot(e.target.value);reset();}} required/>
+        </label>
+        <button className="secondary" type="submit" disabled={busy||!mapId||!root.trim()}>
+          <Shield size={16}/> Map és Store-adatok előellenőrzése
+        </button>
+      </form>}
+      {preview && <div className="historical-preview">
+        <div className="historical-preview-heading"><CheckCircle2 size={20}/>
+          <strong>{preview.name} · {preview.mapKey}</strong></div>
+        <div className="historical-proof-grid">
+          <span>Eredeti mapazonosító</span><strong>Megőrzendő</strong>
+          <span>Store-v1 állapot a másolatban</span><strong>Active</strong>
+          <span>Game / Query UDP</span><strong>{preview.gamePort} / {preview.queryPort}</strong>
+          <span>Aktív / passzív mod</span><strong>{preview.enabledMods} / {preview.passiveMods}</strong>
+          <span>Telepítési mappa</span><strong>{preview.folderName}</strong>
+          <span>Teljes launch argumentumok</span><strong>Nem igazolt</strong>
+          <span>Kétgépes élő Store-írójog</span><strong>Nem igazolt</strong>
+          <span>Szerver indítása</span><strong>TILTOTT</strong>
+        </div>
+        <label className="historical-approval">
+          <input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/>
+          Jóváhagyom a kizárólag Manager-profilba történő, zárolt regisztrációt.
+          Az eredeti Store- és ASA-állományok nem változhatnak.
+        </label>
+        <button className="primary" disabled={busy||!approved}
+          onClick={()=>{void register();}}><LockKeyhole size={16}/> Zárolt Store-v1 map regisztrálása</button>
+      </div>}
+      {error && <div className="error-inline" role="alert"><AlertTriangle size={16}/>{error}</div>}
+      {notice && <div className="success-inline" role="status"><CheckCircle2 size={16}/>{notice}</div>}
+      <div className="warning-inline"><Shield size={17}/>
+        A történeti ZIP nem igazolja az éles karakterutazást vagy a teljes, eredeti indítási konfigurációt.
+        Az import nem helyettesíti a kétgépes Store-v1 és ASA végtesztet.
+        Nem futtatunk -converttostore műveletet.</div>
+    </div>
+  </section>;
+}
