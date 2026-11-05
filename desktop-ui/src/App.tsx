@@ -53,17 +53,46 @@ function Panel({ title, children, className = "", action }: {
 function MapTable({ maps, host, onPick, filter = "" }: {
   maps: PublicMap[]; host: string; onPick?: (id: string) => void; filter?: string
 }) {
-  const rows = maps.filter(m => m.name.toLocaleLowerCase("hu-HU").includes(filter.toLocaleLowerCase("hu-HU")));
-  if (!rows.length) return <div className="empty">Nincs megjeleníthető, regisztrált map.</div>;
-  return <div className="map-table" role="table" aria-label="Szerverek">
-    <div className="map-row map-heading" role="row"><span>MAP / SZERVER</span><span>GAZDAGÉP</span><span>ÁLLAPOT</span><span>PORT</span></div>
-    {rows.map(map => <button className="map-row" role="row" key={map.id}
-      onClick={onPick ? () => onPick(map.id) : undefined}
-      disabled={!onPick} title={onPick ? "Helyi szerver részletei" : "Távoli megfigyelés"}>
-      <span className="map-name"><MapCover name={map.name}/><span><b>{map.name}</b><small>ASA · {map.steamBuildId ? "build " + map.steamBuildId : "build ismeretlen"}</small></span></span>
-      <span className="muted">{host}</span><State running={map.running} status={map.status}/>
-      <span className="mono muted">{map.gamePort || "—"}</span>
-    </button>)}
+  const needle=filter.trim().toLocaleLowerCase("hu-HU");
+  const rows=maps.filter(m=>m.name.toLocaleLowerCase("hu-HU").includes(needle));
+  if(!rows.length)return <div className="premium-map-empty">
+    <Server size={27}/>
+    <b>{needle?"Nem található megfelelő map":"Nincs regisztrált map"}</b>
+    <span>{needle?"Módosítsd a keresési kifejezést.":"A helyi szerverek a fenti importálással vehetők fel; az éles fájlokhoz nem nyúlunk."}</span>
+  </div>;
+  return <div className="premium-map-table" role="table" aria-label="Szerverek">
+    <div className="premium-map-table-heading" role="row">
+      <span role="columnheader">MAP / SZERVER</span>
+      <span role="columnheader">GAZDAGÉP</span>
+      <span role="columnheader">ÁLLAPOT</span>
+      <span role="columnheader">GAME UDP</span>
+      <span role="columnheader">RÉSZLETEK</span>
+    </div>
+    {rows.map(map=><div className={"premium-map-line"+(onPick?" is-local":" is-remote")}
+        role="row" key={map.id} tabIndex={onPick?0:undefined}
+        aria-label={map.name+" · "+host+" · "+(map.running?"Fut":"Leállítva")}
+        onClick={onPick?()=>onPick(map.id):undefined}
+        onKeyDown={onPick?(e)=>{
+          if(e.key==="Enter"||e.key===" "){e.preventDefault();onPick(map.id);}
+        }:undefined}>
+      <span className="premium-map-title" role="cell">
+        <MapCover name={map.name}/>
+        <span><b>{map.name}</b>
+          <small>ARK: Survival Ascended · {map.steamBuildId?
+            "Build "+map.steamBuildId:"Build nem ellenőrzött"}</small>
+        </span>
+      </span>
+      <span className="premium-map-host" role="cell">{host}</span>
+      <span className="premium-map-status" role="cell">
+        <State running={map.running} status={map.status}/>
+      </span>
+      <span className="premium-map-port mono" role="cell">{map.gamePort||"—"}</span>
+      <span className="premium-map-actions" role="cell">
+        {onPick?<span className="premium-map-action-symbol" title="Map részleteinek megnyitása">
+          <ArrowRight size={17}/></span>:
+          <span className="premium-map-readonly"><Shield size={16}/> Megfigyelés</span>}
+      </span>
+    </div>)}
   </div>;
 }
 function HostCard({ host, local = false }: {
