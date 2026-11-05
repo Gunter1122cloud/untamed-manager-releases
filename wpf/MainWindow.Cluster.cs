@@ -851,11 +851,17 @@ public partial class MainWindow
         location.Children.Add(Label("Telepítési mód",13,Aqua,true));
         location.Children.Add(installMode);
         bool Fresh()=>existing==null && installMode.SelectedIndex==1;
-        var installRoot=Field(location,"Map telepítési gyökérkönyvtára",map.InstallationPath,"folder");
+        var defaultFreshRoot=Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "UntamedManager","ASA-Servers",map.Id.ToString("N"));
+        var installRoot=Field(location,"Map telepítési gyökérkönyvtára",
+            existing==null?defaultFreshRoot:map.InstallationPath,"folder");
         var serverExe=Field(location,"Szerver EXE teljes elérési útja",map.ExecutablePath,"exe");
         var steamCmdExe=Field(location,"SteamCMD EXE (új telepítés esetén)",
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "UntamedManager","SteamCMD","steamcmd.exe"),"exe");
+            string.IsNullOrWhiteSpace(_cluster.Config.SteamCmdExecutable)?
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "UntamedManager","SteamCMD","steamcmd.exe"):
+                _cluster.Config.SteamCmdExecutable,"exe");
         var downloadSteam=new CheckBox{
             Content="Ha hiányzik, hivatalos Valve SteamCMD ZIP letöltése (HTTPS)",
             Margin=new Thickness(0,1,0,12),IsChecked=false
@@ -873,6 +879,8 @@ public partial class MainWindow
         void ChangeMode()
         {
             bool fresh=Fresh();
+            if(fresh && string.IsNullOrWhiteSpace(installRoot.Text))
+                installRoot.Text=defaultFreshRoot;
             steamCmdExe.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
             downloadSteam.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
             retryFresh.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
@@ -1069,7 +1077,7 @@ public partial class MainWindow
                         if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,out var interval)||interval<5||interval>3600)throw new InvalidDataException("Érvénytelen watchdog-időköz");
                         // Stage a full candidate without mutating the registered map.
                         // This preserves all process and Store-v1 identity fields.
-                        var target=existing==null?new LocalMap():
+                        var target=existing==null?map:
                             JsonSerializer.Deserialize<LocalMap>(
                                 JsonSerializer.Serialize(existing)) ??
                             throw new InvalidDataException("Map profile cannot be staged");
