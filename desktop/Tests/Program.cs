@@ -215,6 +215,18 @@ try
         Check(!browse.GetRawText().Contains(fakeKey,StringComparison.Ordinal),
             "browse result never serializes the protected API credential");
 
+        var summary=await Call(discovery.HandleAsync,"curseforge.summary",
+            new{modId=928548});
+        IsOk(summary,"lightweight official CurseForge summary resolves configured mod title without file downloads");
+        Check(summary.GetProperty("data").GetProperty("mod").GetProperty("id").GetInt32()==928548 &&
+              summary.GetProperty("data").GetProperty("evidence").GetString()=="OFFICIAL_ASA_PROJECT_SUMMARY_ONLY" &&
+              !summary.GetRawText().Contains(fakeKey,StringComparison.Ordinal),
+            "mod summary returns provider-confirmed identity and never leaks API credentials");
+        var invalidSummary=await Call(discovery.HandleAsync,"curseforge.summary",
+            new{modId=0});
+        Check(IsError(invalidSummary,"UM-INVALID-PROJECT"),
+            "mod summary refuses untrusted or invalid project IDs before network calls");
+
         var project=await Call(discovery.HandleAsync,"curseforge.project",
             new{modId=928548});
         IsOk(project,"provider-backed project description and exact files");
