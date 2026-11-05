@@ -219,7 +219,9 @@ public partial class MainWindow
             localList.Children.Add(Label("Nincs regisztrált helyi map. A Szerverek oldalon tudsz hozzáadni.",12,Soft));
         foreach(var map in local.Maps)
         {
-            var entry=Btn(map.Name+"  ·  "+map.Status,()=>{
+            var entry=Btn(map.Name+"  ·  "+map.Status+
+                "  · Steam "+(map.SteamBuildId??"ismeretlen")+
+                "  · "+map.SteamUpdateState,()=>{
                 _selected=_maps.FirstOrDefault(x=>x.Name==map.Name);
                 Navigate("servers");
             });
@@ -245,7 +247,10 @@ public partial class MainWindow
             foreach(var map in peerMaps)
             {
                 remoteList.Children.Add(Label(map.Name+"  ·  "+
-                    (_cluster.RemoteIsFresh?map.Status:"ELAVULT · "+map.Status),
+                    (_cluster.RemoteIsFresh?map.Status:"ELAVULT · "+map.Status)+
+                    "\nSteam Build: "+
+                    (_cluster.RemoteIsFresh?(map.SteamBuildId??"ismeretlen"):"ELAVULT / NEM HITELES")+
+                    " · "+(_cluster.RemoteIsFresh?map.SteamUpdateState:"NEM IGAZOLT"),
                     12,_cluster.RemoteIsFresh?Aqua:Soft));
             }
         else remoteList.Children.Add(Label(
