@@ -40,6 +40,40 @@ public static class SteamFreshInstall
                 throw new InvalidDataException("Steam installation cannot traverse junctions/links");
         return full;
     }
+    private static async Task<string> CaptureSteamOutput(StreamReader source,
+        IProgress<SteamInstallProgress>? updates,bool stderr,CancellationToken ct)
+    {
+        var builder=new StringBuilder();
+        char[] chunk=new char[2048];
+        while(true)
+        {
+            int count=await source.ReadAsync(chunk.AsMemory(),ct);
+            if(count==0)break;
+            if(builder.Length+count>3_000_000)
+                throw new InvalidDataException("SteamCMD output exceeded safety bound");
+            builder.Append(chunk,0,count);
+            if(!stderr)
+            {
+                // SteamCMD publishes percentages intermittently. Expose only
+                // a numeric, bounded provider value; never invent progress.
+                string tail=builder.ToString(Math.Max(0,builder.Length-4096),
+                    Math.Min(builder.Length,4096));
+                var matches=System.Text.RegularExpressions.Regex.Matches(tail,
+                    @"progress:\s*(?<pct>\d+(?:\.\d+)?)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if(matches.Count>0 &&
+                   double.TryParse(matches[^1].Groups["pct"].Value,
+                       System.Globalization.NumberStyles.Float,
+                       System.Globalization.CultureInfo.InvariantCulture,
+                       out var percent) && percent is >=0 and <=100)
+                    updates?.Report(new("download","SteamCMD letöltés / ellenőrzés",percent));
+            }
+        }
+        // Callers may inspect Steam's success acknowledgement but must never
+        // log these untrusted bytes (which may include credentials/paths).
+        return builder.ToString();
+    }
+
     private static bool Same(string a,string b)=>string.Equals(
         Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
         Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),StringComparison.OrdinalIgnoreCase);
@@ -252,8 +286,10 @@ public static class SteamFreshInstall
                 progress?.Report(new("test","Izolált FakeSteamCMD teszt, nem éles Steam",null));
             }
             using var process=Process.Start(psi)??throw new IOException("SteamCMD launch failed");
-            Task<string> stdout=process.StandardOutput.ReadToEndAsync(deadline.Token);
-            Task<string> stderr=process.StandardError.ReadToEndAsync(deadline.Token);
+            Task<string> stdout=CaptureSteamOutput(
+                process.StandardOutput,progress,false,deadline.Token);
+            Task<string> stderr=CaptureSteamOutput(
+                process.StandardError,null,true,deadline.Token);
             try
             {
                 await process.WaitForExitAsync(deadline.Token);
