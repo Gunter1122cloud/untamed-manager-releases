@@ -50,6 +50,21 @@ jobs:
           if ($ico.encoding -ne "base64") { throw "Original icon blob unavailable" }
           [IO.File]::WriteAllBytes("wpf/Assets/UntamedManager.ico",[Convert]::FromBase64String(($ico.content -replace '\s','')))
           if ((Get-Item "wpf/Assets/UntamedManager.ico").Length -lt 800) { throw "Incomplete icon" }
+      - name: Install Playwright Chromium for isolated browser UI tests
+        shell: pwsh
+        working-directory: desktop-ui
+        run: npx playwright install chromium
+      - name: Test dashboard, Mod Center, navigation and 1366px wheel scroll
+        shell: pwsh
+        working-directory: desktop-ui
+        run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Obsidian-React-UI-Smoke-Screenshots
+          path: desktop-ui/test-results/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Compile and publish real .NET 10 + WebView2 Windows host
         shell: pwsh
         run: |

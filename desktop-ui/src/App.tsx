@@ -346,6 +346,8 @@ export function App() {
   const selectMap = (id: string) => { setSelected(id); setPage("mods"); };
 
   return <div className="app-layout">
+    {(window as typeof window & { __UNTAMED_TEST_FIXTURE__?: boolean }).__UNTAMED_TEST_FIXTURE__ &&
+      <div className="synthetic-fixture-label">KIZÁRÓLAG SZINTETIKUS UI-TESZTADAT</div>}
     <aside className="sidebar">
       <div className="brand">
         <div className="brand-symbol"><Activity size={31} strokeWidth={1.8}/></div>
