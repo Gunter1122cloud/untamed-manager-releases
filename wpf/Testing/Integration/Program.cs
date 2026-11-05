@@ -66,6 +66,7 @@ try
     await ModDependencyPlannerTests.Run();
     await CurseForgeDependencyResolverTests.Run();
     await CurseForgeExactLookupTests.Run();
+    await CurseForgeApiKeyValidationTests.Run();
     await MapProfileAtomicityTests.Run(root);
     await ManagerSettingsAtomicityTests.Run(root);
     LocalAsaWizardTests.Run(root);
