@@ -306,6 +306,10 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
   await page.screenshot({path:"test-results/plugin-center-premium-1600.png",fullPage:false});
   await page.getByRole("button", { name: "Mentések" }).click();
   await expect(page.getByText("1 rendben")).toBeVisible();
+  await expect(page.locator(".premium-backup-metrics>div")).toHaveCount(4);
+  await expect(page.locator(".premium-backup-grid")).toBeVisible();
+  await expect(page.locator(".premium-backup-list .premium-map-cover")).toHaveCount(1);
+  await page.screenshot({path:"test-results/backup-center-premium-1600.png",fullPage:false});
   await page.screenshot({path:"test-results/backups-premium-1600.png",fullPage:false});
 });
 
