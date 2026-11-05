@@ -6,7 +6,8 @@ import {
 } from "lucide-react";
 import {
   managerBridge, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
-  type LogTail, type SteamInstallations, type SuggestedPorts,
+  type LogTail, type ModDraftState, type ModDraftSave, type ModDraftMode,
+  type SteamInstallations, type SuggestedPorts,
   type PluginInventory, type DashboardSnapshot,
   type PublicMap, type RemoteHost
 } from "./bridge";
@@ -194,6 +195,108 @@ function Servers({ snapshot, search, setSearch, onSelect }: {
     {snapshot.remote && <Panel title={`Távoli mapok · ${snapshot.remote.hostName}`}><MapTable maps={snapshot.remote.maps} host={snapshot.remote.hostName} filter={search}/></Panel>}
   </>;
 }
+function ModDraftEditor({ mapId, onSaved }: {
+  mapId: string; onSaved: (saved: ModDraftSave) => void
+}) {
+  const [draft, setDraft] = useState<ModDraftState | null>(null);
+  const [modId, setModId] = useState("");
+  const [mode, setMode] = useState<ModDraftMode>("active");
+  const [position, setPosition] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  useEffect(() => { setDraft(null); setError(""); setNotice(""); setModId(""); }, [mapId]);
+  const start = async () => {
+    if (!mapId) return;
+    setBusy(true); setError(""); setNotice("");
+    try { setDraft(await managerBridge.startModDraft(mapId)); }
+    catch { setError("Nem sikerült a map eredeti modkonfigurációját előkészíteni."); }
+    finally { setBusy(false); }
+  };
+  const stage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!draft) return;
+    if (!/^\d{5,12}$/.test(modId)) { setError("A projektazonosító 5–12 számjegyből áll."); return; }
+    let index: number | undefined;
+    if (position.trim()) {
+      const requested = Number(position);
+      if (!Number.isInteger(requested) || requested < 1 || requested > 501) {
+        setError("A pozíció pozitív egész szám (1–501)."); return;
+      }
+      index = requested - 1;
+    }
+    setBusy(true); setError(""); setNotice("");
+    try { setDraft(await managerBridge.stageModDraft(draft.draftId,modId,mode,index)); setModId(""); setPosition(""); }
+    catch { setError("A modmódosítás nem érvényes, vagy a piszkozat megváltozott. Nem történt mentés."); }
+    finally { setBusy(false); }
+  };
+  const history = async (type: "undo" | "redo") => {
+    if (!draft) return;
+    setBusy(true); setError("");
+    try { setDraft(type === "undo"
+      ? await managerBridge.undoModDraft(draft.draftId)
+      : await managerBridge.redoModDraft(draft.draftId)); }
+    catch { setError("A piszkozat előzménye nem érhető el."); }
+    finally { setBusy(false); }
+  };
+  const discard = async () => {
+    if (!draft) return;
+    setBusy(true); setError("");
+    try { await managerBridge.discardModDraft(draft.draftId); setDraft(null); setNotice("Piszkozat elvetve. A konfiguráció változatlan."); }
+    catch { setError("A piszkozat már nem érvényes; töltsd újra a modlistát."); }
+    finally { setBusy(false); }
+  };
+  const save = async () => {
+    if (!draft || !draft.dirty) return;
+    setBusy(true); setError("");
+    try {
+      const saved = await managerBridge.saveModDraft(draft.draftId);
+      onSaved(saved); setDraft(null);
+      setNotice("Mentve a helyi indítási konfigurációba. A futó ASA modbetöltése NEM igazolt; ellenőrzött újraindítás szükséges.");
+    } catch { setError("Nem sikerült a konfiguráció biztonságos mentése. Lehetséges versengő módosítás, az eredeti adatokat ellenőrizni kell."); }
+    finally { setBusy(false); }
+  };
+  return <Panel title="Modváltoztatások · előnézet és mentés" action={<span className="mod-tag amber">Csak helyi indítási konfiguráció</span>}>
+    {!draft ? <div className="draft-intro">
+      <p className="muted small">Nyiss egy piszkozatot az aktuális map eredeti konfigurációjából. A lépések előbb csak memóriában változnak, majd kifejezett jóváhagyással, ellenőrzött C# tranzakcióban menthetők.</p>
+      <button className="primary" disabled={busy || !mapId} onClick={() => { void start(); }}>Piszkozat indítása</button>
+    </div> : <>
+      <form className="draft-form" onSubmit={e => { void stage(e); }}>
+        <label>CurseForge projektazonosító (5-12 számjegy)
+          <input aria-label="Modprojekt ID" value={modId} onChange={e=>setModId(e.target.value)} maxLength={12} inputMode="numeric" placeholder="pl. 123456"/>
+        </label>
+        <label>Célállapot
+          <select aria-label="Mod célállapota" value={mode} onChange={e=>setMode(e.target.value as ModDraftMode)}>
+            <option value="active">Aktív</option><option value="passive">Passzív</option>
+            <option value="disabled">Letiltva</option><option value="remove">Eltávolítás a konfigurációból</option>
+          </select>
+        </label>
+        <label>Pozíció (opcionális)
+          <input aria-label="Modpozíció" value={position} onChange={e=>setPosition(e.target.value)} placeholder="1-től" inputMode="numeric"/>
+        </label>
+        <button className="primary" type="submit" disabled={busy}>Lépés hozzáadása</button>
+      </form>
+      <div className="draft-differences">
+        <h3>Függőben lévő módosítások</h3>
+        {draft.differences.length===0 ? <p className="muted small">A jelenlegi piszkozat az eredeti konfigurációval egyezik.</p> :
+          draft.differences.map(d=><div className="draft-difference" key={d.modId}>
+            <b>{d.modId}</b><span>{d.beforeMode ? d.beforeMode+" #"+d.beforePosition : "Nincs a listában"}</span>
+            <ArrowRight size={16}/><strong>{d.afterMode ? d.afterMode+" #"+d.afterPosition : "Eltávolítva"}</strong>
+          </div>)}
+      </div>
+      <div className="draft-actions">
+        <button className="secondary" disabled={busy || !draft.canUndo} onClick={() => { void history("undo"); }}>Visszavonás</button>
+        <button className="secondary" disabled={busy || !draft.canRedo} onClick={() => { void history("redo"); }}>Újra</button>
+        <button className="secondary" disabled={busy} onClick={() => { void discard(); }}>Piszkozat elvetése</button>
+        <button className="primary" disabled={busy || !draft.dirty} onClick={() => { void save(); }}>Jóváhagyás és mentés</button>
+      </div>
+    </>}
+    {notice && <div className="success-inline" role="status"><CheckCircle2 size={17}/>{notice}</div>}
+    {error && <div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
+    <div className="warning-inline"><Shield size={17}/> A mentés nem tölt le fájlt és nem indítja újra az ASA-t. Az eredeti -mods/-passivemods sorrendet a C# ModDraftSession és ModStateController kezeli.</div>
+  </Panel>;
+}
+
 function Mods({ snapshot, selected, setSelected }: {
   snapshot: DashboardSnapshot; selected: string; setSelected: (value: string) => void
 }) {
@@ -242,6 +345,10 @@ function Mods({ snapshot, selected, setSelected }: {
         <div className="warning-inline"><Shield size={17}/><span>Modmódosítás az új felületen még nem engedélyezett. A meglévő C# védelem változatlan.</span></div>
       </Panel>
     </div>
+    <ModDraftEditor mapId={selected} onSaved={saved => {
+      setInfo(current => current ? { ...current, pending: saved.pending,
+        active: saved.active, passive: saved.passive, disabled: saved.disabled } : current);
+    }}/>
     <CurseForgeExplorer/>
   </>;
 }
