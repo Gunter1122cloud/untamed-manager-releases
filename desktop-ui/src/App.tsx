@@ -13,7 +13,7 @@ import {
   type PublicMap, type RemoteHost
 } from "./bridge";
 
-type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini";
+type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
   { page: "dashboard", label: "Áttekintés", icon: LayoutDashboard },
   { page: "servers", label: "Szerverek", icon: Server },
@@ -321,7 +321,7 @@ function Mods({ snapshot, selected, setSelected }: {
     <p>Modkiosztás a valódi indítási konfigurációból — a fájlok betöltöttségét nem állítjuk bizonyítottnak.</p></div>
     <div className="toolbar mod-toolbar"><Layers3 size={19}/><select aria-label="Helyi map" value={selected} onChange={e => setSelected(e.target.value)}>
       {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-    </select><span className="muted small">Az új UI-ban egyelőre csak megfigyelés</span></div>
+    </select><span className="muted small">Konfigurációs piszkozat és mentés · ASA újraindítás nélkül</span></div>
     <div className="mods-grid">
       <Panel title={info ? `Modlista · ${info.mapName}` : "Modlista"}>
         {error ? <div className="error-inline"><AlertTriangle size={17}/>{error}</div> :
@@ -387,7 +387,7 @@ function PluginCenter({ snapshot, selected, setSelected }: {
     </Panel>
   </>;
 }
-function BackupCenter() {
+function BackupCenter({mapId}:{mapId?:string} = {}) {
   const [info, setInfo] = useState<BackupOverview | null>(null);
   const [error, setError] = useState("");
   const reload = useCallback(async () => {
@@ -395,14 +395,15 @@ function BackupCenter() {
     catch(e){ setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE"); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
+  const visible = info?.maps.filter(m => !mapId || m.mapId === mapId);
   return <>
     <div className="page-intro"><span className="eyebrow">BACKUP / FILE INTEGRITY</span><h1>Mentésközpont</h1>
       <p>Meglévő helyi csomagok integritásának ellenőrzött áttekintése, bármiféle restore vagy SQL-írás nélkül.</p></div>
     <Panel title="Helyi mentésleltár" action={<button className="quiet" onClick={() => { void reload(); }}><RefreshCw size={16}/> Frissítés</button>}>
       {error && <div className="error-inline">{error}</div>}
       {!info && !error && <div className="empty">Mentések ellenőrzése...</div>}
-      {info?.maps.length === 0 && <div className="empty">Nincs regisztrált helyi map.</div>}
-      {info?.maps.map(m => <div className="backup-row" key={m.mapId}>
+      {visible?.length === 0 && <div className="empty">Ehhez a maphoz nincs regisztrált, ellenőrzött mentéscsomag.</div>}
+      {visible?.map(m => <div className="backup-row" key={m.mapId}>
         <span className="plugin-symbol"><Archive size={21}/></span>
         <div className="plugin-copy"><b>{m.mapName}</b>
           <small>Legutóbbi igazolt csomag: {m.latestVerifiedUtc ? new Date(m.latestVerifiedUtc).toLocaleString("hu-HU") : "Nincs adat"}</small></div>
@@ -705,6 +706,69 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
     </div>
   </>;
 }
+type MapSection = "overview" | "mods" | "plugins" | "ini" | "backups" | "logs";
+function MapDetails({snapshot,mapId,onBack,setSelected}: {
+  snapshot:DashboardSnapshot;mapId:string;onBack:()=>void;
+  setSelected:(value:string)=>void
+}) {
+  const [section,setSection]=useState<MapSection>("overview");
+  useEffect(()=>setSection("overview"),[mapId]);
+  const map=snapshot.local.maps.find(m=>m.id===mapId);
+  if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
+  const sections: Array<{id:MapSection;name:string}>=[
+    {id:"overview",name:"Áttekintés"},{id:"mods",name:"Modok"},
+    {id:"plugins",name:"Pluginok / ASA API"},{id:"ini",name:"INI"},
+    {id:"backups",name:"Mentések"},{id:"logs",name:"Naplók"}
+  ];
+  return <div className="map-detail-page">
+    <button className="quiet back-to-servers" onClick={onBack}>
+      <ArrowRight size={16}/> Vissza a szerverlistához
+    </button>
+    <div className="map-detail-hero">
+      <div>
+        <span className="eyebrow">UNTAMED KINGDOM / HELYI MAP</span>
+        <h1>{map.name}</h1>
+        <p>{snapshot.local.hostName} · ARK: Survival Ascended</p>
+      </div>
+      <State running={map.running} status={map.status}/>
+    </div>
+    <div className="map-detail-tabs" role="tablist" aria-label="Map funkciói">
+      {sections.map(item=><button type="button" key={item.id} role="tab"
+        aria-selected={section===item.id}
+        className={section===item.id?"map-detail-tab selected":"map-detail-tab"}
+        onClick={()=>setSection(item.id)}>{item.name}</button>)}
+      <button type="button" role="tab" disabled className="map-detail-tab disabled"
+        title="Az éles RCON-konzolhoz még külön hitelesített ASA-integrációs teszt szükséges.">
+        RCON / Konzol · teszt alatt
+      </button>
+    </div>
+    {section==="overview" && <>
+      <div className="map-overview-grid">
+        <Panel title="Helyi folyamatállapot">
+          <div className="map-info-line"><span>Megfigyelt állapot</span><State running={map.running} status={map.status}/></div>
+          <div className="map-info-line"><span>Gazdagép</span><strong>{snapshot.local.hostName}</strong></div>
+          <div className="map-info-line"><span>Game UDP</span><strong>{map.gamePort || "Nem ismert"}</strong></div>
+          <div className="map-info-line"><span>Steam build</span><strong>{map.steamBuildId || "Nem ellenőrizhető"}</strong></div>
+          <div className="map-info-line"><span>Frissítési állapot</span><strong>{map.steamUpdateState}</strong></div>
+        </Panel>
+        <Panel title="Biztonságos karbantartási útvonal">
+          <p className="muted small">A regisztrált helyi maphoz már elérhető a modkonfiguráció, az INI, a pluginleltár, a mentéstörténet és a titokszűrt napló.</p>
+          <div className="map-overview-actions">
+            <button className="primary" onClick={()=>setSection("mods")}><Layers3 size={17}/> Modok kezelése</button>
+            <button className="secondary" onClick={()=>setSection("ini")}><FileText size={17}/> INI szerkesztése</button>
+          </div>
+          <div className="warning-inline"><Shield size={17}/> Valódi ASA Start/Stop/Restart és RCON írás csak sikeres izolált hitelesítési és életciklus-tesztek után engedhető.</div>
+        </Panel>
+      </div>
+    </>}
+    {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
+    {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
+    {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
+    {section==="backups" && <BackupCenter mapId={mapId}/>}
+    {section==="logs" && <LogsCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
+  </div>;
+}
+
 export function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
@@ -723,8 +787,9 @@ export function App() {
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
-  const title = useMemo(() => tabs.find(t => t.page === page)?.label ?? "Áttekintés", [page]);
-  const selectMap = (id: string) => { setSelected(id); setPage("mods"); };
+  const title = useMemo(() => page==="map" ? "Map részletei" :
+    tabs.find(t => t.page === page)?.label ?? "Áttekintés", [page]);
+  const selectMap = (id: string) => { setSelected(id); setPage("map"); };
 
   return <div className="app-layout">
     {(window as typeof window & { __UNTAMED_TEST_FIXTURE__?: boolean }).__UNTAMED_TEST_FIXTURE__ &&
@@ -756,6 +821,7 @@ export function App() {
         {!snapshot && !error && <div className="loading"><RefreshCw className="spin"/> Valós helyi állapot betöltése...</div>}
         {snapshot && <>
           {page === "dashboard" && <Dashboard snapshot={snapshot} onPage={setPage} onSelect={selectMap}/>}
+          {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")}/>}
           {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap}/>}
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
