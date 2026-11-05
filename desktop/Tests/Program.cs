@@ -429,6 +429,13 @@ try
     using(var archiveImport=new DesktopHistoricalStoreImportBridge(cluster,
         _=>new ProcessCheck(false,"Confirmed stopped synthetic test only",null,true)))
     {
+        using(var malformed=JsonDocument.Parse(await archiveImport.HandleAsync(
+            "{not valid json")))
+        {
+            Check(malformed.RootElement.GetProperty("error").GetString()=="UM-HISTORICAL-VERIFICATION-FAILED" &&
+                  !malformed.RootElement.GetProperty("ok").GetBoolean(),
+                "malformed WebView JSON fails closed without crashing the bridge");
+        }
         var listing=await Call(archiveImport.HandleAsync,"historical.list",
             new{archive=oldArchive});
         IsOk(listing,"historical 39-file Manager ZIP passes verification and lists five maps");
