@@ -87,6 +87,9 @@ public sealed class ObsidianWindow : Form
         MinimumSize = new Size(940, 620);
         BackColor = Color.FromArgb(12, 20, 24);
         StartPosition = FormStartPosition.CenterScreen;
+        // Match the approved full-screen dashboard on 1366p, 1600p and
+        // 1920p monitors. Keep the isolated CI capture at fixed dimensions.
+        WindowState = smokeTest ? FormWindowState.Normal : FormWindowState.Maximized;
         Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
         Controls.Add(_browser);
 
@@ -135,7 +138,8 @@ public sealed class ObsidianWindow : Form
     {
         ShowInTaskbar = true;
         Show();
-        WindowState = FormWindowState.Normal;
+        if (WindowState == FormWindowState.Minimized)
+            WindowState = FormWindowState.Normal;
         Activate();
     }
 
