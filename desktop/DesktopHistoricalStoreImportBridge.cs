@@ -108,7 +108,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                        string.IsNullOrWhiteSpace(install.ServerExecutable))
                         return Fail(id,"UM-ASA-EXE-MISSING");
 
-                    string name=AsaSteamMapCatalog.DisplayNameFor(selected.MapId);
+                    string name=MapName(selected.MapId);
                     CheckDuplicate(mapId,name,root);
                     var observation=Observed(selected,root,install.ServerExecutable);
                     if(observation.Running || !observation.ConfirmedStopped)
@@ -206,6 +206,21 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         }
     }
 
+    private static string MapName(string key)=>key switch
+    {
+        "TheIsland_WP"=>"The Island",
+        "TheCenter_WP"=>"The Center",
+        "ScorchedEarth_WP"=>"Scorched Earth",
+        "Aberration_WP"=>"Aberration",
+        "Extinction_WP"=>"Extinction",
+        "Genesis_WP"=>"Genesis Part 1",
+        "Valguero_WP"=>"Valguero",
+        "Ragnarok_WP"=>"Ragnarok",
+        "Astraeos_WP"=>"Astraeos",
+        "LostColony_WP"=>"Lost Colony",
+        _=>LocalMapNameRules.Normalize(key)
+    };
+
     private ProcessCheck Observed(HistoricalLaunchProfile selected,string root,string exe)
     {
         var map=new LocalMap{Id=selected.Id,Name=selected.MapId,
@@ -300,9 +315,11 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
     private static bool BoolField(JsonElement obj,string key,out bool value)
     {
         value=false;
-        return obj.TryGetProperty(key,out var item) &&
-            item.ValueKind is JsonValueKind.True or JsonValueKind.False &&
-            (value=item.GetBoolean())==value;
+        if(!obj.TryGetProperty(key,out var item) ||
+           item.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return false;
+        value=item.GetBoolean();
+        return true;
     }
     private static string Ok(string id,object data)=>
         JsonSerializer.Serialize(new{id,ok=true,data},Json);
