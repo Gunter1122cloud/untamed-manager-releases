@@ -105,35 +105,43 @@
        </Grid>
      </DataTemplate>
     <DataTemplate x:Key="PremiumPluginRow">
-      <Grid Height="58" Margin="8,2" ToolTip="{Binding Hint}">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="34"/><ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="108"/><ColumnDefinition Width="65"/>
-        </Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Width="26" Height="26" Background="{StaticResource SurfaceRaised}"
-                BorderBrush="{StaticResource SurfaceLine}" BorderThickness="1" CornerRadius="7"
-                VerticalAlignment="Center">
-          <TextBlock Text="✳" Foreground="{StaticResource AccentLight}" FontSize="15"
-                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        </Border>
-        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,5,0">
-          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13"
-                     Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
-          <TextBlock Text="{Binding Hint}" FontSize="10" Margin="0,4,0,0"
-                     Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
-        </StackPanel>
-        <TextBlock Grid.Column="2" Text="{Binding State}" FontSize="11"
-                   Foreground="{StaticResource TextSoft}" VerticalAlignment="Center"
-                   TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
-        <ToggleButton Grid.Column="3" Style="{StaticResource PremiumSwitch}"
-                      IsChecked="{Binding Enabled,Mode=OneWay}"
-                      Command="{Binding ToggleCommand}"
-                      IsEnabled="{Binding CanToggle}" HorizontalAlignment="Center"
-                      VerticalAlignment="Center"
-                      AutomationProperties.Name="Plugin engedélyezése vagy letiltása"
-                      ToolTip="Állapotváltás – a biztonsági ellenőrzés és megerősítés kötelező"/>
+      <Grid Height="72" Margin="6,3" ToolTip="{Binding Hint}">
+       <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="60"/><ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="110"/><ColumnDefinition Width="60"/>
+       </Grid.ColumnDefinitions>
+       <Border Grid.Column="0" Width="52" Height="52"
+        Background="#1E393B" BorderBrush="#46726D" BorderThickness="1"
+        CornerRadius="9" VerticalAlignment="Center">
+        <Grid>
+         <Ellipse Stroke="#4C9F8B" StrokeThickness="1.3" Width="34" Height="34" />
+         <TextBlock Text="✳" Foreground="{StaticResource AccentLight}"
+           FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Grid>
+       </Border>
+       <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,7,0">
+        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+         Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+        <TextBlock Text="{Binding Hint}" FontSize="11" Margin="0,6,0,0"
+         Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+        <TextBlock Text="ASA API  /  HELYI DLL-LELTÁR" FontSize="9" Margin="0,5,0,0"
+         Foreground="{StaticResource AccentLight}"/>
+       </StackPanel>
+       <Border Grid.Column="2" VerticalAlignment="Center" Margin="0,0,7,0"
+        Background="#19342F" BorderBrush="#41675B" BorderThickness="1"
+        CornerRadius="6" Padding="5,6">
+        <TextBlock Text="{Binding State}" Foreground="{Binding StateBrush}"
+         FontSize="10" FontWeight="SemiBold" TextAlignment="Center"
+         TextTrimming="CharacterEllipsis"/>
+       </Border>
+       <ToggleButton Grid.Column="3" Style="{StaticResource PremiumSwitch}"
+        IsChecked="{Binding Enabled,Mode=OneWay}" Command="{Binding ToggleCommand}"
+        IsEnabled="{Binding CanToggle}" HorizontalAlignment="Center"
+        VerticalAlignment="Center"
+        AutomationProperties.Name="Plugin engedélyezése vagy letiltása"
+        ToolTip="Csak igazolt leállítás után, biztonsági másolattal"/>
       </Grid>
-    </DataTemplate>
+     </DataTemplate>
     <DataTemplate x:Key="PremiumModRow">
        <Grid Height="72" Margin="6,3" ToolTip="{Binding Information}">
         <Grid.ColumnDefinitions>
