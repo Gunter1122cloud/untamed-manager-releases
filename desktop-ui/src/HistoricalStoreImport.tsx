@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
-import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence } from "./bridge";
+import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLaunchEvidence } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -18,10 +18,16 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [pairResult,setPairResult]=useState<HistoricalPairEvidence | null>(null);
   const [pairError,setPairError]=useState("");
   const [pairBusy,setPairBusy]=useState(false);
+  const [launchCommand,setLaunchCommand]=useState("");
+  const [launchEvidence,setLaunchEvidence]=useState<HistoricalLaunchEvidence|null>(null);
+  const [launchBusy,setLaunchBusy]=useState(false);
+  const [launchError,setLaunchError]=useState("");
+  const launchEpoch=useRef(0);
+  const invalidateLaunch=()=>{launchEpoch.current++;setLaunchEvidence(null);setLaunchError("");setLaunchBusy(false);};
   // A late response must never revive approval for a different ZIP/map/root.
   const importEpoch=useRef(0);
   const pairEpoch=useRef(0);
-  const invalidateImport=()=>{importEpoch.current++;setBusy(false);reset();};
+  const invalidateImport=()=>{importEpoch.current++;setBusy(false);reset();invalidateLaunch();};
   const invalidatePair=()=>{pairEpoch.current++;setPairBusy(false);setPairResult(null);setPairError("");};
 
   const reset=()=>{setPreview(null);setApproved(false);setError("");setNotice("");};
@@ -68,6 +74,18 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }finally{setRegistering(false);if(epoch===importEpoch.current)setBusy(false);}
   };
 
+  const checkLaunch=async(e:FormEvent)=>{
+    e.preventDefault();
+    if(!known || !mapId || !launchCommand.trim() || registering)return;
+    const epoch=++launchEpoch.current;
+    setLaunchBusy(true);setLaunchError("");setLaunchEvidence(null);
+    try{
+      const result=await managerBridge.historicalLaunchEvidence(archive,mapId,launchCommand);
+      if(epoch===launchEpoch.current)setLaunchEvidence(result);
+    }catch{
+      if(epoch===launchEpoch.current)setLaunchError("A parancssor csak olvasható összevetése sikertelen.");
+    }finally{if(epoch===launchEpoch.current)setLaunchBusy(false);}
+  };
   const comparePeers=async(e:FormEvent)=>{
     e.preventDefault();const epoch=++pairEpoch.current;setPairResult(null);setPairError("");setPairBusy(true);
     try {
@@ -93,7 +111,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       <form className="historical-import-form" onSubmit={e=>{void inspectArchive(e);}}>
         <label>Korábban mentett Manager ZIP (helyi, olvasási célú másolat)
           <input aria-label="Korábbi Manager archívum" placeholder="D:\Kova-Backups\KovaManager-Fontos.zip"
-            value={archive} maxLength={520} disabled={registering} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");invalidateImport();}} required/>
+            value={archive} maxLength={520} disabled={registering} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");invalidateImport();setLaunchCommand("");}} required/>
         </label>
         <button type="submit" className="secondary" disabled={busy||registering||!archive.trim()}>
           <Shield size={16}/> Archívum ellenőrzése
@@ -136,6 +154,34 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         <button className="primary" disabled={busy||registering||!approved}
           onClick={()=>{void register();}}><LockKeyhole size={16}/> Zárolt Store-v1 map regisztrálása</button>
       </div>}
+      {known && <section className="historical-peer-check" aria-label="Eredeti indítási sor ellenőrzése">
+        <h3>Eredeti ASA indítási sor · csak olvasási összevetés</h3>
+        <p className="muted small">Kizárólag a korábbi működő Managerből hitelesen kinyert teljes indítási sort add meg. Nem tároljuk el, nem jelenítjük meg az eredményben, és az ellenőrzés nem engedélyezi a szerverindítást. Jelszó is előfordulhat benne, ezért ne osszd meg nyilvánosan.</p>
+        <form className="historical-import-form" onSubmit={e=>{void checkLaunch(e);}}>
+          <label>Helyben ellenőrizendő eredeti indítási sor
+            <textarea aria-label="Eredeti ASA indítási sor" rows={3} maxLength={3072}
+              value={launchCommand} disabled={registering}
+              onChange={e=>{setLaunchCommand(e.target.value);invalidateLaunch();}}
+              placeholder="ArkAscendedServer.exe MAP?SessionName=... -port=... -mods=... -usestore"/>
+          </label>
+          <button type="submit" className="secondary"
+            disabled={registering||launchBusy||!launchCommand.trim()}>
+            <Shield size={16}/> Indítási paraméterek összevetése
+          </button>
+        </form>
+        {launchEvidence && <div className="historical-proof-grid" role="status">
+          <span>Map neve</span><strong>{launchEvidence.mapStatus}</strong>
+          <span>Game UDP</span><strong>{launchEvidence.gamePortStatus}</strong>
+          <span>Query UDP</span><strong>{launchEvidence.queryPortStatus}</strong>
+          <span>Modok sorrendje</span><strong>{launchEvidence.modOrderStatus}</strong>
+          <span>Cluster ID / könyvtár megadva</span><strong>{launchEvidence.clusterIdPresent?"Igen":"Nem igazolt"} / {launchEvidence.clusterPathPresent?"Igen":"Nem igazolt"}</strong>
+          <span>-usestore kapcsoló</span><strong>{launchEvidence.useStorePresent?"Megadva":"Nem igazolt"}</strong>
+          <span>-converttostore</span><strong>{launchEvidence.conversionFlagPresent?"VESZÉLY: szerepel":"Nem található"}</strong>
+          <span>Éles indítás</span><strong>TILTOTT</strong>
+          <span>Hiányosságok</span><strong>{launchEvidence.findings.join(", ")||"Nem észlelt szöveges eltérés – eredet továbbra sem igazolt"}</strong>
+        </div>}
+        {launchError && <div role="alert" className="error-inline"><AlertTriangle size={16}/>{launchError}</div>}
+      </section>}
       <section className="historical-peer-check" aria-label="Store-v1 peer bizonyítékok">
         <h3>Kétgépes Store-v1 · történeti másolatok összevetése</h3>
         <p className="muted small">A közös koordinációs ZIP és a másik host négy helyi Store-metaadatfájljának másolata. Csak olvasás; a másolat egyezősége nem igazol élő írótulajdont vagy karakterutazást.</p>
