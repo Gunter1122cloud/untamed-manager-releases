@@ -151,7 +151,9 @@ public partial class MainWindow : Window
         try {
             if(File.Exists(SettingsFile)) {
                 using var doc=JsonDocument.Parse(File.ReadAllText(SettingsFile));
-                if(doc.RootElement.TryGetProperty("animations",out var a) && a.ValueKind==JsonValueKind.False) _animationsEnabled=false;
+                if(doc.RootElement.TryGetProperty("animations",out var a) &&
+                   a.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                    _animationsEnabled=a.GetBoolean();
             }
         } catch (Exception e) { WriteLog("settings",e); }
         UpdateNavSelection("dashboard");
