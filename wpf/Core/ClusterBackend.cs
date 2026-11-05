@@ -442,7 +442,52 @@ public sealed class ClusterService : IAsyncDisposable
         _inspect=inspect ?? _inspector.Inspect;
     }
     public void Save() => Store.Save(Config);
-    public void UpdateSettings(Action<ManagerConfig> update) {update(Config);Save();}
+
+    /// <summary>
+    /// Commit only settings through the existing optimistic ConfigStore
+    /// transaction. The callback sees an isolated staged copy: an exception,
+    /// competing Manager update or filesystem failure cannot mutate the live
+    /// config, map instances, Store ownership or scheduler state in memory.
+    /// </summary>
+    public void UpdateSettings(Action<ManagerConfig> update)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        ManagerConfig staged=JsonSerializer.Deserialize<ManagerConfig>(
+            JsonSerializer.Serialize(Config)) ??
+            throw new InvalidDataException("Unable to stage Manager settings");
+        update(staged);
+
+        // Keep schedule and map mutation on their dedicated, guarded paths.
+        // These collections contain live object identities; replacing them
+        // would silently invalidate the selected map and pending UI drafts.
+        if(staged.LocalHostId!=Config.LocalHostId ||
+           JsonSerializer.Serialize(staged.LocalMaps)!=
+               JsonSerializer.Serialize(Config.LocalMaps) ||
+           JsonSerializer.Serialize(staged.ScheduledTasks)!=
+               JsonSerializer.Serialize(Config.ScheduledTasks) ||
+           JsonSerializer.Serialize(staged.RecurringSchedules)!=
+               JsonSerializer.Serialize(Config.RecurringSchedules))
+            throw new InvalidOperationException(
+                "UpdateSettings cannot mutate host identity, maps or schedules");
+
+        // Save checks the original digest and writes atomically. On failure
+        // the original Config object has never been altered.
+        Store.Save(staged);
+
+        // Preserve Config, LocalMaps and task-list object identity for
+        // selection, reattach, LAN polling and in-memory draft sessions.
+        Config.LocalHostName=staged.LocalHostName;
+        Config.ListenPort=staged.ListenPort;
+        Config.PeerAddress=staged.PeerAddress;
+        Config.PeerPort=staged.PeerPort;
+        Config.PairingKeyProtected=staged.PairingKeyProtected;
+        Config.CurseForgeApiKeyProtected=staged.CurseForgeApiKeyProtected;
+        Config.DiscordWebhookProtected=staged.DiscordWebhookProtected;
+        Config.GitHubRepository=staged.GitHubRepository;
+        Config.UpdateChannel=staged.UpdateChannel;
+        Config.PublisherCertificateThumbprint=staged.PublisherCertificateThumbprint;
+        Config.TelemetryHistoryEnabled=staged.TelemetryHistoryEnabled;
+    }
     public void AddMap(LocalMap map)
     {
         // Names are user-supplied; the installed game's current map list is not a cap.
