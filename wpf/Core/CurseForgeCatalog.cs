@@ -394,41 +394,67 @@ public sealed class CurseForgeCatalog
             "ARK Survival Ascended is not visible to this approved CurseForge API key");
     }
 
+    // Bounded asynchronous request pipeline. Only GET is retried on 429 or
+    // temporary 502/503/504; POST /featured is read-only but never auto-replayed.
+    // No key, raw URL containing key, or raw provider response reaches logs.
     private async Task<JsonDocument> Request(string key,string relative,CancellationToken ct,
         HttpMethod? method=null,string? jsonBody=null)
     {
         ct.ThrowIfCancellationRequested();
-        if(jsonBody!=null && ((method??HttpMethod.Get)!=HttpMethod.Post ||
-           jsonBody.Length>8192))
-            throw new InvalidDataException("Invalid CurseForge JSON request payload");
-        using var request=new HttpRequestMessage(method??HttpMethod.Get,
-            new Uri("https://api.curseforge.com"+relative,UriKind.Absolute));
-        request.Headers.Add("x-api-key",key);
-        request.Headers.Accept.ParseAdd("application/json");
-        if(jsonBody!=null)
-            request.Content=new StringContent(jsonBody,Encoding.UTF8,"application/json");
-        using var response=await http.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,ct);
-        if(response.StatusCode==HttpStatusCode.Unauthorized ||
-           response.StatusCode==HttpStatusCode.Forbidden)
-            throw new UnauthorizedAccessException("CurseForge API access denied; check approved key");
-        if((int)response.StatusCode==429)
-            throw new IOException("CurseForge API rate limit reached; retry later");
-        if(!response.IsSuccessStatusCode)
-            throw new HttpRequestException("CurseForge request failed: HTTP "+(int)response.StatusCode);
-        if(response.Content.Headers.ContentLength>MaxJsonBytes)
-            throw new InvalidDataException("CurseForge JSON response exceeds safe size");
-        await using var input=await response.Content.ReadAsStreamAsync(ct);
-        using var memory=new MemoryStream();
-        var buffer=new byte[16384];
-        int count;
-        while((count=await input.ReadAsync(buffer,ct))>0)
+        method??=HttpMethod.Get;
+        if(relative.Length>2048 || !relative.StartsWith("/v1/",StringComparison.Ordinal) ||
+           (method!=HttpMethod.Get && method!=HttpMethod.Post) ||
+           (jsonBody!=null && (method!=HttpMethod.Post || jsonBody.Length>8192)))
+            throw new InvalidDataException("Invalid CurseForge API request");
+        using var deadline=CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(18));
+        var token=deadline.Token;
+        for(int attempt=0;attempt<3;attempt++)
         {
-            if(memory.Length+count>MaxJsonBytes)
+            using var request=new HttpRequestMessage(method,
+                new Uri("https://api.curseforge.com"+relative,UriKind.Absolute));
+            request.Headers.Add("x-api-key",key);
+            request.Headers.Accept.ParseAdd("application/json");
+            if(jsonBody!=null)
+                request.Content=new StringContent(jsonBody,Encoding.UTF8,"application/json");
+            using var response=await http.SendAsync(request,
+                HttpCompletionOption.ResponseHeadersRead,token);
+            if(response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                throw new UnauthorizedAccessException("CurseForge API access denied; check approved key");
+            int code=(int)response.StatusCode;
+            bool retryable=code is 429 or 502 or 503 or 504;
+            if(retryable && method==HttpMethod.Get && attempt<2)
+            {
+                double waitMs=250*(attempt+1);
+                if(response.Headers.RetryAfter?.Delta is TimeSpan delay)
+                    waitMs=Math.Clamp(delay.TotalMilliseconds,200,2500);
+                await Task.Delay(TimeSpan.FromMilliseconds(waitMs),token);
+                continue;
+            }
+            if(code==429)
+                throw new IOException("CurseForge API rate limit reached; retry later");
+            if(!response.IsSuccessStatusCode)
+                throw new HttpRequestException("CurseForge request failed: HTTP "+code);
+            if(response.Content.Headers.ContentLength>MaxJsonBytes)
                 throw new InvalidDataException("CurseForge JSON response exceeds safe size");
-            memory.Write(buffer,0,count);
+            await using var input=await response.Content.ReadAsStreamAsync(token);
+            using var memory=new MemoryStream();
+            var buffer=new byte[16384];
+            int count;
+            while((count=await input.ReadAsync(buffer,token))>0)
+            {
+                if(memory.Length+count>MaxJsonBytes)
+                    throw new InvalidDataException("CurseForge JSON response exceeds safe size");
+                memory.Write(buffer,0,count);
+            }
+            memory.Position=0;
+            try{return await JsonDocument.ParseAsync(memory,cancellationToken:token);}
+            catch(JsonException ex)
+            {
+                throw new InvalidDataException("CurseForge API returned invalid JSON",ex);
+            }
         }
-        memory.Position=0;
-        return await JsonDocument.ParseAsync(memory,cancellationToken:ct);
+        throw new IOException("CurseForge request retry limit reached");
     }
     private static bool? Bool(JsonElement root,string name)
     {
