@@ -228,6 +228,50 @@ public partial class MainWindow
                 }
                 catch(Exception ex){queueStatus.Text="Nem menthető: "+UntamedPresentation.Redact(ex.Message);}
             }),
+            Btn("Soros frissítési sor előnézete (csak olvasás)",()=>{
+                try
+                {
+                    var candidates=maps.Where(m=>
+                        SteamMapJournal().Read(m).State==AsaSteamBuildState.UpdateAvailable)
+                        .ToArray();
+                    if(candidates.Length==0)
+                    {
+                        queueDisplay.Text="Nincs hitelesen elavultként azonosított helyi map. "+
+                            "Verzióellenőrzés szükséges.";
+                        return;
+                    }
+                    var lines=candidates.Select((map,index)=>{
+                        var status=SteamMapJournal().Read(map);
+                        var sameRoot=maps.Where(other=>other.Id!=map.Id &&
+                            !string.IsNullOrWhiteSpace(other.InstallationPath) &&
+                            string.Equals(Path.GetFullPath(other.InstallationPath),
+                                Path.GetFullPath(map.InstallationPath),
+                                StringComparison.OrdinalIgnoreCase)).ToArray();
+                        bool sharedUnsafe=sameRoot.Any(other=>{
+                            var proc=_cluster.Check(other);
+                            return proc.Running||!proc.ConfirmedStopped||
+                                proc.Identity!=null||proc.LoaderIdentity!=null;
+                        });
+                        return (index+1)+". "+map.Name+"  ·  Steam "+
+                            (status.LocalBuild??"ismeretlen")+" → "+
+                            (status.AvailableBuild??"nem ellenőrizhető")+
+                            (sharedUnsafe?"  · BLOKKOLVA: közös telepítésben más map fut":
+                            sameRoot.Length>0?"  · KÖZÖS TELEPÍTÉS: teljes csoport ellenőrzése szükséges":
+                            "  · külön telepítés")+
+                            "  · helyi";
+                    });
+                    queueDisplay.Text="KARBANTARTÁSI TERV (NEM INDÍT FRISSÍTÉST):\n"+
+                        string.Join("\n",lines)+
+                        "\nMinden map csak az előző igazolt befejezése után következhet. "+
+                        "Kétgépes zárolás és valódi SaveComplete még nem tanúsított.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("steam-queue-preview",ex);
+                    queueDisplay.Text="Soros terv nem állítható össze: "+
+                        UntamedPresentation.Redact(ex.Message);
+                }
+            }),
             Btn("Összes elavult szerver frissítése",()=>{
                 try
                 {
