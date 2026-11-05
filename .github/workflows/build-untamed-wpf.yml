@@ -248,12 +248,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-premium-test.9"
+          $tag = "v1.6.1-premium-test.10"
           $repo = "$env:GITHUB_REPOSITORY"
           $files = @(
-            "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-steam-test9.exe",
-            "dist/UntamedManager-1.6.1-win-x64.zip#UntamedManager-1.6.1-steam-test9-portable.zip",
-            "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-steam-test9-SETUP.exe",
+            "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-local-steam-test10.exe",
+            "dist/UntamedManager-1.6.1-win-x64.zip#UntamedManager-1.6.1-local-steam-test10-portable.zip",
+            "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-local-steam-test10-SETUP.exe",
             "dist/SHA256SUMS.txt#SHA256SUMS.txt",
             "dist/UntamedManager-preview.png#UntamedManager-premium-dashboard.png",
             "dist/UI-Screenshots/UntamedManager-demo-mods.png#UntamedManager-premium-demo-mods.png",
@@ -277,8 +277,8 @@ jobs:
             gh release upload $tag @files --repo $repo --clobber
           } else {
             gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager v1.6.1 · Neon Kingdom SteamCMD TEST 9" --prerelease `
-              --notes "Neon Kingdom SteamCMD TEST 9 (Windows TEST PC ONLY): the actual WPF server-add wizard offers fresh SteamCMD ASA 2430930 installation into a separately named empty directory, or data-preserving existing-install import; first download requires explicit approval. Read-only official Valve SteamCMD app-info and local manifest BuildID comparison, per-map version tab, status history, serial queue preview and fail-closed interrupted-install recovery are integrated. Offline CI covers actual FakeSteamCMD child process, protected map and Store-v1/SQL preservation checks, ZIP tampering/traversal, false-positive versions, strict serial locking, failed SaveWorld, backup and restart readiness; this is NOT proof of real ASA/Steam CDN live compatibility. Live ASA SaveComplete/Stop/Restart, automatic production updates and authenticated cross-host maintenance leases remain NOT certified and are intentionally blocked. UK-HOME-01/02 must not run this test build."
+              --title "Untamed Manager v1.6.1 · Local SteamCMD TEST 10" --prerelease `
+              --notes "Neon Kingdom Local SteamCMD TEST 10: UK-HOME-01 and UK-HOME-02 update their own locally registered maps independently; both may update at the same time on their separate Windows hosts. No cluster-wide queue, two-machine lease, remote maintenance approval, or peer availability requirement. Each local Windows Manager retains a single strictly serial map queue, host-local cross-profile semaphore, shared-install running-map safety, interrupted-operation journal, Steam BuildID checks and explicit-retry SteamCMD installation. The existing authenticated LAN GET_STATUS remains read-only; Store-v1, character profiles and SQL data are untouched. Windows CI includes separate-host-failure independence and existing local concurrency regressions. The live ASA SaveComplete / backup / controlled stop / restart adapter still needs real isolated acceptance and remains production-blocked. Windows TEST PC ONLY: never install on UK-HOME-01 or UK-HOME-02."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
           # A cancelled prior CI can leave an unpublished draft with the same tag.
