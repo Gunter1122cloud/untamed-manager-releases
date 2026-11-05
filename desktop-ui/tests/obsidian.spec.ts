@@ -159,6 +159,22 @@ test.beforeEach(async ({ page }) => {
           if(!m.credential || m.credential.length<3) throw new Error("invalid");
           keySaved = true; return {configured:true,verifiedNow:true};
         case "curseforge.credentialClear": keySaved=false;return {configured:false,verifiedNow:false};
+        case "mods.sharedInventory": return {
+          mapCount:state.local.maps.length,configuredMapCount:2,
+          sharedProjectCount:1,unreadableMaps:[],
+          projects:[
+            {projectId:"928548",enabledMapCount:2,shared:true,
+              assignments:[
+                {mapId:one,mapName:"The Island",mode:"active",position:0,historicalProtected:false},
+                {mapId:two,mapName:"Astraeos",mode:"passive",position:0,historicalProtected:false}
+              ]},
+            {projectId:"940975",enabledMapCount:1,shared:false,
+              assignments:[
+                {mapId:one,mapName:"The Island",mode:"active",position:1,historicalProtected:false}
+              ]}
+          ],
+          evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY"
+        };
         case "mods.configured": return {mapId: m.mapId, mapName: "The Island", pending: false, active: ["123456"], passive: ["789012"], disabled: [], evidence:"CONFIGURED_ONLY"};
         case "plugins.inventory": return {mapId:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
@@ -574,4 +590,24 @@ test("Store-v1 original ASA launch text stays read-only and redacted",async ({pa
   await expect(report).not.toContainText(secret);
   await launch.fill("ArkAscendedServer.exe ScorchedEarth_WP -port=9999");
   await expect(report).toHaveCount(0);
+});
+
+test("cross-map mod inventory uses actual native contract, filtering and map selection",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Mod Center"})).toBeVisible();
+  const inventory=page.getByRole("region",{name:"Közös modok · helyi mapok"});
+  // Panel is a section with a heading; identify via its text instead of
+  // depending on fragile CSS selectors.
+  const shared=page.getByRole("heading",{name:"Közös modok · helyi mapok"});
+  await expect(shared).toBeVisible();
+  await expect(page.getByText("Projekt #928548")).toBeVisible();
+  await expect(page.getByText("Projekt #940975")).toHaveCount(0);
+  await page.getByText("Csak több mapon").click();
+  await expect(page.getByText("Projekt #940975")).toBeVisible();
+  await page.getByRole("textbox",{name:"Közös modok keresése"}).fill("928548");
+  await expect(page.getByText("Projekt #928548")).toBeVisible();
+  await expect(page.getByText("Projekt #940975")).toHaveCount(0);
+  await page.getByRole("button",{name:"Astraeos · Passzív #1"}).click();
+  await expect(page.getByRole("combobox",{name:"Helyi map"})).toHaveValue("00000000-0000-4000-8000-000000000002");
 });
