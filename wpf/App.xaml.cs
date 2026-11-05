@@ -206,6 +206,75 @@ public partial class App : System.Windows.Application
                     if(new FileInfo(path).Length<8000)
                         throw new IOException("WPF page screenshot too small: "+page);
                 }
+                // Exercise the REAL five-step local server editor on Windows.
+                // Only navigation clicks are synthesized. Saving is never invoked,
+                // and no map/server/Store/SQL file is accessed or changed.
+                if(galleryEnabled)
+                {
+                    var editor=window.PrepareMapEditorScreenshot();
+                    try
+                    {
+                        if(editor.Content is not FrameworkElement editorContent)
+                            throw new InvalidOperationException("Map setup editor missing WPF content");
+                        System.Windows.Controls.Button? FindNext(DependencyObject root)
+                        {
+                            foreach(object element in LogicalTreeHelper.GetChildren(root))
+                            {
+                                if(element is System.Windows.Controls.Button button &&
+                                   Equals(button.Content,"Következő →"))
+                                    return button;
+                                if(element is DependencyObject child)
+                                {
+                                    var found=FindNext(child);
+                                    if(found!=null)return found;
+                                }
+                            }
+                            return null;
+                        }
+                        const int wizardWidth=860, wizardHeight=660;
+                        for(int step=1;step<=5;step++)
+                        {
+                            if(step>1)
+                            {
+                                var next=FindNext(editorContent) ??
+                                    throw new InvalidOperationException("Map wizard Next button missing");
+                                next.RaiseEvent(new RoutedEventArgs(
+                                    System.Windows.Controls.Primitives.ButtonBase.ClickEvent,next));
+                            }
+                            var renderHost=new System.Windows.Controls.Grid {
+                                Width=wizardWidth,Height=wizardHeight,Background=editor.Background
+                            };
+                            editor.Content=null;
+                            try
+                            {
+                                editorContent.Width=double.NaN;
+                                editorContent.Height=double.NaN;
+                                renderHost.Children.Add(editorContent);
+                                renderHost.Measure(new Size(wizardWidth,wizardHeight));
+                                renderHost.Arrange(new Rect(0,0,wizardWidth,wizardHeight));
+                                renderHost.UpdateLayout();
+                                editor.Dispatcher.Invoke(()=>{},DispatcherPriority.Render);
+                                var screenshot=new RenderTargetBitmap(
+                                    wizardWidth,wizardHeight,96,96,PixelFormats.Pbgra32);
+                                screenshot.Render(renderHost);
+                                var png=new PngBitmapEncoder();
+                                png.Frames.Add(BitmapFrame.Create(screenshot));
+                                string output=Path.Combine(gallery,
+                                    $"UntamedManager-map-setup-step{step}.png");
+                                using(var file=File.Create(output))png.Save(file);
+                                if(new FileInfo(output).Length<8000)
+                                    throw new IOException("WPF map wizard screenshot invalid: step "+step);
+                            }
+                            finally
+                            {
+                                renderHost.Children.Remove(editorContent);
+                                editor.Content=editorContent;
+                                editor.UpdateLayout();
+                            }
+                        }
+                    }
+                    finally { editor.Close(); }
+                }
                 Environment.Exit(0);
             }
             catch(Exception ex) {
