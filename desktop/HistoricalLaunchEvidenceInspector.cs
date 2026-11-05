@@ -20,7 +20,7 @@ public static class HistoricalLaunchEvidenceInspector
     {
         string prefix=query?@"\?":@"(?:^|\s)-";
         string pattern=prefix+Regex.Escape(name)+@"=(?:""(?<value>[^""]*)""|(?<value>[^\s?]*))";
-        return Matches(source,pattern).Select(m=>m.Groups["value"].Value).ToArray();
+        return Matches(source,pattern).Cast<Match>().Select(m=>m.Groups["value"].Value).ToArray();
     }
 
     private static bool Flag(string source,string name)=>
