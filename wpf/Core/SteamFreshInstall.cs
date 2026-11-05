@@ -178,25 +178,21 @@ public static class SteamFreshInstall
             }
         }
         archiveBytes.Position=0;
-        using var archive=new ZipArchive(archiveBytes,ZipArchiveMode.Read,true);
-        var candidates=archive.Entries.Where(e=>e.FullName.Equals("steamcmd.exe",
-            StringComparison.OrdinalIgnoreCase)).ToArray();
-        if(candidates.Length!=1 || candidates[0].Length is <=0 or > 50_000_000)
-            throw new InvalidDataException("Valve archive does not contain exactly one SteamCMD executable");
+        byte[] validated=await SteamCmdZipValidator.ExtractExecutableAsync(
+            archiveBytes,cancellationToken);
         string temp=exe+"."+Guid.NewGuid().ToString("N")+".partial";
         try
         {
             await using(var target=new FileStream(temp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
-            await using(var source=candidates[0].Open())
             {
-                await source.CopyToAsync(target,cancellationToken);
+                await target.WriteAsync(validated,cancellationToken);
                 await target.FlushAsync(cancellationToken);
                 target.Flush(true);
             }
             if(File.Exists(exe))throw new IOException("SteamCMD executable appeared during installation");
             File.Move(temp,exe);
             SteamCmdPreflight.Inspect(exe);
-            progress?.Report(new("steamcmd","SteamCMD előkészítve; a fájl SHA-256 ellenőrizve",null));
+            progress?.Report(new("steamcmd","SteamCMD előkészítve; SHA-256 ujjlenyomat kiszámítva",null));
             return exe;
         }
         finally{if(File.Exists(temp))File.Delete(temp);}
