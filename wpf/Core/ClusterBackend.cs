@@ -99,6 +99,10 @@ public sealed class HostStatus
     public string HostName { get; set; } = "";
     public DateTimeOffset ObservedUtc { get; set; } = DateTimeOffset.UtcNow;
     public List<PublicMapStatus> Maps { get; set; } = new();
+    // Only authenticated, read-only fencing telemetry. No remote server
+    // actions or private install paths are disclosed on GET_STATUS.
+    public string? MaintenanceLeaseOperation { get; set; }
+    public string MaintenanceLeasePhase { get; set; } = "Nincs foglalás";
 }
 public sealed class WireEnvelope
 {
@@ -679,8 +683,23 @@ public sealed class ClusterService : IAsyncDisposable
     }
     public HostStatus LocalStatus()
     {
+        // Journal corruption is never treated as an idle maintenance lock.
+        // The remote client sees an explicit uncertain state instead.
+        string leaseState="Nincs foglalás";
+        string? operation=null;
+        try
+        {
+            var record=SteamLease.Observe();
+            if(record!=null)
+            {
+                leaseState=record.Phase.ToString();
+                operation=record.OperationId.ToString("N");
+            }
+        }
+        catch(Exception){leaseState="NEM ELLENŐRIZHETŐ — MŰVELETEK BLOKKOLVA";}
         return new HostStatus{
             HostId=Config.LocalHostId,HostName=Config.LocalHostName,ObservedUtc=DateTimeOffset.UtcNow,
+            MaintenanceLeaseOperation=operation,MaintenanceLeasePhase=leaseState,
             Maps=Config.LocalMaps.Select(map=>{
                 var c=Check(map);
                 string? build=null;
