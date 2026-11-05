@@ -35,8 +35,8 @@ public partial class MainWindow
         _beforeDemoBadge=SupervisorBadge.Text;
         _updateTimer.Stop();
         _hostResourceTimer.Stop();
-        DemoToggle.Content="✕ Kilépés DEMO-ból";
-        DemoModeIndicator.Visibility=Visibility.Visible;
+        DemoToggle.Content="✕ Kilépés";
+        DemoModeIndicator.Visibility=Visibility.Collapsed;
         ModeFooterText.Text="◆  OFFLINE DEMO · SZIMULÁCIÓ";
         PageEyebrow.Text="OFFLINE DEMO / NINCS VALÓDI MŰVELET";
         SupervisorBadge.Text="DEMO";
@@ -148,10 +148,9 @@ public partial class MainWindow
             "recovery"=>"Recovery Center · OFFLINE DEMO",
             _=>"Untamed Manager · OFFLINE DEMO"
         },"Az alábbi adatok és gombok teljes egészében szimuláltak. Nincs ASA-, LAN-, Store- vagy adatbázismódosítás.");
-        var simulationNotice=V(
-            Label("◆  OFFLINE DEMO · CSAK SZIMULÁLT ADAT",13,Brushes.Gold,true),
-            Label("Nincs ASA-, Store-, SQL- vagy LAN-művelet. A DEMO elhagyásával a változások eltűnnek.",11,Soft));
-        Add(Box(simulationNotice));
+        // The page heading, top mode badge and footer identify simulation.
+        // Avoid a second oversized warning card that pushes core controls
+        // below the fold at 900px height or elevated Windows DPI.
         switch(page)
         {
             case "servers": DemoServers();break;
@@ -312,7 +311,8 @@ public partial class MainWindow
                  x.State.Contains(term,StringComparison.OrdinalIgnoreCase)) &&
                 (selectedFilter=="Összes"||x.State==selectedFilter)).ToArray();
             list.ItemsSource=visible;
-            list.SelectedItem=visible.FirstOrDefault(x=>x.Id==oldId);
+            list.SelectedItem=visible.FirstOrDefault(x=>x.Id==oldId)
+                ??visible.FirstOrDefault();
             summary.Text=map.Name+" · "+all.Length+" mintamod · "+visible.Length+" megjelenítve";
             result.Text=map.Mods.SequenceEqual(staged)?
                 "[DEMO] Nincs függőben lévő változás.":
