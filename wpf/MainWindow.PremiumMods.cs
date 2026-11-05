@@ -79,8 +79,8 @@ public partial class MainWindow
             {
                 PageBody.Children.Remove(child);extras.Children.Add(child);
             }
-            Add(new Expander {Header="CurseForge katalógus – csak olvasás",
-                Content=extras,Padding=new Thickness(12),Margin=new Thickness(0,0,10,10)});
+            Add(new Expander {Header="OBSIDIAN MOD GALAXY · CurseForge modkatalógus",
+                IsExpanded=true,Content=extras,Padding=new Thickness(12),Margin=new Thickness(0,0,10,10)});
             return;
         }
 
@@ -394,12 +394,16 @@ public partial class MainWindow
             catalogPane.Children.Add(element);
         }
         catalogExpander=new Expander {
-            Header="CurseForge · online modkereső / hiteles modadatok",
+            Header="OBSIDIAN MOD GALAXY · online CurseForge katalógus",
             Foreground=Mint,Padding=new Thickness(10),
             Margin=new Thickness(0,3,12,12),Content=catalogPane,
-            IsExpanded=false
+            IsExpanded=true
         };
-        Add(catalogExpander);
+        // Make discovery visible before the configured list; selecting a mod
+        // still stages only an in-memory draft in the existing safe editor.
+        int modPanelIndex=PageBody.Children.IndexOf(main);
+        if(modPanelIndex>=0)PageBody.Children.Insert(modPanelIndex,catalogExpander);
+        else Add(catalogExpander);
         before=PageBody.Children.Count;
         ShowModStateEditor();
         ShowBulkModsControls();
