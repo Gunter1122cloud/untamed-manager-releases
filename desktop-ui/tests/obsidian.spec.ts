@@ -596,7 +596,6 @@ test("cross-map mod inventory uses actual native contract, filtering and map sel
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
   await expect(page.getByRole("heading",{name:"Mod Center"})).toBeVisible();
-  const inventory=page.getByRole("region",{name:"Közös modok · helyi mapok"});
   // Panel is a section with a heading; identify via its text instead of
   // depending on fragile CSS selectors.
   const shared=page.getByRole("heading",{name:"Közös modok · helyi mapok"});
