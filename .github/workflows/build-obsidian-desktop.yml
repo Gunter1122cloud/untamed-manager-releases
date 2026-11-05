@@ -94,14 +94,26 @@ jobs:
           $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/desktop/publish/UntamedDesktop.exe" -ArgumentList "--smoke-test" -PassThru
           if (-not $p.WaitForExit(90000)) {
             try { $p.Kill() } catch {}
+            if (Test-Path $env:UNTAMED_OBSIDIAN_CAPTURE_PATH) {
+              Copy-Item $env:UNTAMED_OBSIDIAN_CAPTURE_PATH desktop-artifacts/Untamed-Obsidian-Native-Preview.png -Force
+            }
             throw "Native WebView2 startup timed out"
           }
-          if ($p.ExitCode -ne 0) { throw "Native WebView2 or packaged React failed" }
-          if (!(Test-Path $env:UNTAMED_OBSIDIAN_CAPTURE_PATH) -or
-              (Get-Item $env:UNTAMED_OBSIDIAN_CAPTURE_PATH).Length -lt 8000) {
+          if (Test-Path $env:UNTAMED_OBSIDIAN_CAPTURE_PATH) {
+            Copy-Item $env:UNTAMED_OBSIDIAN_CAPTURE_PATH desktop-artifacts/Untamed-Obsidian-Native-Preview.png -Force
+          }
+          if ($p.ExitCode -ne 0) { throw "Native WebView2 failed to render the live local dashboard" }
+          if (!(Test-Path desktop-artifacts/Untamed-Obsidian-Native-Preview.png) -or
+              (Get-Item desktop-artifacts/Untamed-Obsidian-Native-Preview.png).Length -lt 8000) {
             throw "Real WebView2 screenshot missing"
           }
-          Copy-Item $env:UNTAMED_OBSIDIAN_CAPTURE_PATH desktop-artifacts/Untamed-Obsidian-Native-Preview.png -Force
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Obsidian-Native-WebView2-Diagnostic
+          path: desktop-artifacts/Untamed-Obsidian-Native-Preview.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build portable ZIP
         shell: pwsh
         run: |
