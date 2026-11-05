@@ -72,7 +72,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                         return Error(id, "UM-INVALID-PAGE");
                     searchIndex = page * 25;
                 }
-                if (string.IsNullOrWhiteSpace(_cluster.Config.CurseForgeApiKeyProtected))
+                if (string.IsNullOrWhiteSpace(_cluster.Store.Read().CurseForgeApiKeyProtected))
                     return Error(id, "UM-CURSEFORGE-NO-KEY");
             }
 
@@ -147,7 +147,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
     {
         // The DPAPI protected secret stays in native memory. Only sanitized
         // official ASA catalog metadata is sent to the React renderer.
-        string secret = SecureStore.Unprotect(_cluster.Config.CurseForgeApiKeyProtected);
+        string secret = SecureStore.Unprotect(_cluster.Store.Read().CurseForgeApiKeyProtected);
         var found = await _catalog.SearchAsaAsync(secret, term, index);
         return new {
             gameId = found.GameId,

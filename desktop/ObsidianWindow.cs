@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Text.Json;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -14,6 +15,7 @@ public sealed class ObsidianWindow : Form
     private readonly WebView2 _browser = new() { Dock = DockStyle.Fill };
     private readonly NotifyIcon _tray = new();
     private readonly DesktopReadOnlyBridge _bridge = new();
+    private readonly DesktopCredentialBridge _credentials = new();
     private bool _reallyExit;
 
     public ObsidianWindow()
@@ -55,6 +57,7 @@ public sealed class ObsidianWindow : Form
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
+            _credentials.Dispose();
             _ = _bridge.DisposeAsync();
         };
     }
@@ -108,7 +111,22 @@ public sealed class ObsidianWindow : Form
             core.WebMessageReceived += async (_, e) =>
             {
                 if (!IsAppUrl(e.Source)) return;
-                string response = await _bridge.HandleAsync(e.WebMessageAsJson);
+                string incoming = e.WebMessageAsJson;
+                bool credentialRoute = false;
+                try
+                {
+                    using var parsed = JsonDocument.Parse(incoming);
+                    if (parsed.RootElement.TryGetProperty("method", out var method) &&
+                        method.ValueKind == JsonValueKind.String)
+                        credentialRoute = method.GetString() is
+                            "curseforge.credentialStatus" or
+                            "curseforge.credentialSave" or
+                            "curseforge.credentialClear";
+                }
+                catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
+                string response = credentialRoute
+                    ? await _credentials.HandleAsync(incoming)
+                    : await _bridge.HandleAsync(incoming);
                 if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
                     _browser.CoreWebView2.PostWebMessageAsJson(response);
             };
