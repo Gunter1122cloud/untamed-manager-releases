@@ -45,12 +45,14 @@ public partial class MainWindow
         var list=new ListView {MinHeight=260,MaxHeight=510,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumPluginRow"),
             Margin=new Thickness(0,10,0,0)};
+        NestedWheelScroll.SetChainToParent(list,true);
         var count=Label("",12,Soft);
         var selectedName=Label("Válassz plugint",19,Mint,true);
         var selectedState=Label("Kattints egy sorra a részletekért.",12,Soft);
         var readiness=Label("Állapotváltás csak igazoltan leállított helyi mapon.",12,Soft);
         var activity=Label("A frissítés csak olvasás. Nincs automatikus restart.",12,Soft);
         var binaries=new ListBox {MinHeight=50,MaxHeight=145,FontSize=11,Margin=new Thickness(0,7,0,4)};
+        NestedWheelScroll.SetChainToParent(binaries,true);
         PremiumPluginRow? chosen=null;
         PremiumPluginRow[] all=Array.Empty<PremiumPluginRow>();
         bool busy=false;
@@ -124,10 +126,12 @@ public partial class MainWindow
                 (term.Length==0||x.Name.Contains(term,StringComparison.OrdinalIgnoreCase)) &&
                 (state=="Összes" || (state=="Engedélyezett"&&x.Enabled) ||
                  (state=="Letiltott"&&!x.Enabled))).ToArray();
+            var previousOffset=NestedWheelScroll.CaptureVerticalOffset(list);
             list.ItemsSource=visible;
             list.SelectedItem=visible.FirstOrDefault(x=>
                 x.Name.Equals(old,StringComparison.OrdinalIgnoreCase))
                 ??visible.FirstOrDefault();
+            NestedWheelScroll.RestoreVerticalOffset(list,previousOffset);
             count.Text=CurrentMap().Name+" · "+all.Length+" lemezen talált plugin"+
                 " · "+all.Count(x=>x.Enabled)+" engedélyezett"+
                 " · "+all.Count(x=>!x.Enabled)+" letiltott"+

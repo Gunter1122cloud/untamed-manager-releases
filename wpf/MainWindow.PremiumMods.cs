@@ -79,6 +79,7 @@ public partial class MainWindow
             ToolTip="Új mod CurseForge projektazonosítója (5–12 számjegy)"};
         var rows=new ListView {MinHeight=260,MaxHeight=510,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModRow")};
+        NestedWheelScroll.SetChainToParent(rows,true);
         var summary=Label("",12,Soft);
         var selectedTitle=Label("Válassz modot",19,Mint,true);
         var selectedInfo=Label("A lista az indítási konfigurációt mutatja; a telepítés és a tényleges betöltés nincs igazolva.",12,Soft);
@@ -140,9 +141,11 @@ public partial class MainWindow
                  x.DisplayName.Contains(term,StringComparison.OrdinalIgnoreCase)||
                  x.State.Contains(term,StringComparison.OrdinalIgnoreCase)) &&
                 (selectedFilter=="Összes" || x.State==selectedFilter)).ToArray();
+            var previousOffset=NestedWheelScroll.CaptureVerticalOffset(rows);
             rows.ItemsSource=visible;
             rows.SelectedItem=visible.FirstOrDefault(x=>x.Id==selectedId)
                 ??visible.FirstOrDefault();
+            NestedWheelScroll.RestoreVerticalOffset(rows,previousOffset);
             summary.Text=CurrentMap().Name+" · "+all.Length+" konfigurált mod · "+
                 state.Active.Count+" aktív · "+state.Passive.Count+" passzív · "+
                 state.Disabled.Count+" tiltott · "+visible.Length+" megjelenítve";

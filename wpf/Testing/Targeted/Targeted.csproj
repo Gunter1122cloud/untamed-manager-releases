@@ -20,6 +20,7 @@
     <Compile Include="../Integration/ModArgumentSafetyTests.cs" Link="ModArgumentSafetyTests.cs" />
     <Compile Include="../Integration/ModDraftSessionTests.cs" Link="ModDraftSessionTests.cs" />
     <Compile Include="../Integration/PluginCenterTests.cs" Link="PluginCenterTests.cs" />
+    <Compile Include="../Integration/ScrollBoundaryTests.cs" Link="ScrollBoundaryTests.cs" />
     <Compile Include="../Integration/PremiumBackupWorkflowTests.cs" Link="PremiumBackupWorkflowTests.cs" />
     <Compile Include="../Integration/LocalLogCenterTests.cs" Link="LocalLogCenterTests.cs" />
     <Compile Include="../Integration/DemoWorkspaceTests.cs" Link="DemoWorkspaceTests.cs" />

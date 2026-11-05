@@ -22,6 +22,7 @@ await PluginCenterTests.Run(root);
 await PremiumBackupWorkflowTests.Run(root);
 await LocalLogCenterTests.Run(root);
 DemoWorkspaceTests.Run();
+ScrollBoundaryTests.Run();
 await GuardedPluginUpdateTests.Run(root);
 await IsolatedRconAdminQueueTests.Run(args[1]);
 await SchedulerConcurrencyTests.Run(root);
