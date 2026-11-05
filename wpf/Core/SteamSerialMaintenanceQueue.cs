@@ -20,11 +20,12 @@ public sealed record SteamQueueSnapshot(Guid QueueId,SteamQueuePhase Phase,
 public sealed record SteamQueueProgress(int Position,int Total,string MapName,string Stage);
 
 /// <summary>
-/// A host-wide, cross-profile OS mutex and durable operation journal. It is
-/// deliberately NOT a claim of cluster-wide coordination: remote mutation is
-/// forbidden until an authenticated, shared two-node lease is implemented.
-/// Never auto-resume any interrupted or failed update. One failure blocks all
-/// following maps, with no unbounded retries or concurrent Steam downloads.
+/// A machine-local, cross-profile named semaphore and durable operation journal.
+/// Each Windows Manager handles only its own registered maps. The named OS
+/// semaphore is shared by local processes, NOT by the other physical computer.
+/// No LAN connection, peer state or cluster-wide lease is required.
+/// Never auto-resume an interrupted update. A failure blocks the remaining
+/// local map queue; no unbounded retries or concurrent Steam downloads.
 /// </summary>
 public sealed class SteamSerialMaintenanceQueue
 {
@@ -67,37 +68,6 @@ public sealed class SteamSerialMaintenanceQueue
         }
         finally{if(File.Exists(temporary))File.Delete(temporary);}
     }
-    /// <summary>
-    /// Require an HMAC-authenticated, durable two-node maintenance lease
-    /// BEFORE taking the local queue lock. Each map callback is fenced by
-    /// authenticated peer checkpoints both before and after its work.
-    /// If the LAN peer disappears at either boundary, ExecuteAsync persists
-    /// NeedsOperator and will not start the next map.
-    /// This coordinates callbacks only: the production ASA update gate is
-    /// independent and remains closed until a certified adapter exists.
-    /// </summary>
-    public async Task<SteamQueueSnapshot> ExecutePairedAsync(
-        ClusterSteamLeaseCoordinator paired,
-        IReadOnlyList<LocalMap> selected,IReadOnlyList<LocalMap> registeredLocal,
-        Func<LocalMap,ProcessCheck> inspect,
-        Func<LocalMap,CancellationToken,Task> applyVerifiedMaintenance,
-        IProgress<SteamQueueProgress>? progress=null,CancellationToken ct=default)
-    {
-        ArgumentNullException.ThrowIfNull(paired);
-        ArgumentNullException.ThrowIfNull(applyVerifiedMaintenance);
-        SteamQueueSnapshot? completed=null;
-        await paired.ExecuteAsync(async (checkpoint,token)=>{
-            completed=await ExecuteAsync(selected,registeredLocal,inspect,
-                async (map,mapToken)=>{
-                    await checkpoint(mapToken);
-                    await applyVerifiedMaintenance(map,mapToken);
-                    await checkpoint(mapToken);
-                },progress,token);
-        },ct);
-        return completed ?? throw new InvalidOperationException(
-            "Paired maintenance finished without a verified local queue");
-    }
-
     public async Task<SteamQueueSnapshot> ExecuteAsync(
         IReadOnlyList<LocalMap> selected,IReadOnlyList<LocalMap> registeredLocal,
         Func<LocalMap,ProcessCheck> inspect,
