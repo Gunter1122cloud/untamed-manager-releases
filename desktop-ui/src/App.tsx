@@ -1007,10 +1007,25 @@ function LogsCenter({ snapshot, selected, setSelected }: {
     (level === "all" || row.level === level) &&
     row.content.toLocaleLowerCase("hu-HU").includes(query.toLocaleLowerCase("hu-HU"))
   ), [result, query, level]);
-  return <>
+  const logStats=useMemo(()=>{
+    const rows=result?.lines??[];
+    return {
+      loaded:rows.length,
+      warnings:rows.filter(line=>line.level==="warning").length,
+      errors:rows.filter(line=>line.level==="error").length,
+      filtered:filtered.length
+    };
+  },[result,filtered]);
+  return <div className="premium-log-page">
     <div className="page-intro"><span className="eyebrow">LOCAL ASA / SAFE LOG TAIL</span><h1>Naplóközpont</h1>
       <p>Legfeljebb 300, a meglévő C# által titokszűrt naplósor — csak regisztrált helyi mapról. Nem jelent ASA állapot- vagy mentési bizonyítékot.</p></div>
-    <div className="log-toolbar">
+    <div className="premium-log-metrics">
+      <div><span><FileText size={19}/></span><b>{logStats.loaded}</b><small>Olvasott naplósor</small></div>
+      <div><span><Search size={19}/></span><b>{logStats.filtered}</b><small>Szűrésben látható</small></div>
+      <div><span><AlertTriangle size={19}/></span><b>{logStats.warnings}</b><small>Figyelmeztetés</small></div>
+      <div><span><Shield size={19}/></span><b>{logStats.errors}</b><small>Hiba</small></div>
+    </div>
+    <div className="log-toolbar premium-log-toolbar">
       <label className="log-select-label">Helyi map
         <select aria-label="Napló mapja" value={selected} onChange={e => setSelected(e.target.value)}>
           {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -1028,12 +1043,13 @@ function LogsCenter({ snapshot, selected, setSelected }: {
       </label>
       <button className="icon-button" aria-label="Napló újraolvasása" onClick={() => setGeneration(x => x+1)}><RefreshCw size={18}/></button>
     </div>
+    <div className="premium-log-view">
     <Panel title={result ? `Naplórészlet · ${result.mapName}` : "Naplórészlet"}
       action={result && <span className="muted tiny">Módosítva: {observedAt(result.lastModifiedUtc)} · {result.truncated ? "Részlet (levágva)" : "Teljes olvasott rész"}</span>}>
       {error && <div role="status" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
       {!selected && <div className="empty">Nincs kiválasztott helyi map.</div>}
       {selected && !result && !error && <div className="empty">Naplósorok betöltése...</div>}
-      {result && <div className="log-list" role="log" aria-label="Titokszűrt helyi napló">
+      {result && <div className="log-list premium-log-list" role="log" aria-label="Titokszűrt helyi napló">
         {filtered.length===0 && <div className="empty">Nincs a szűrőnek megfelelő naplósor.</div>}
         {filtered.map(row => <div key={row.number} className={`log-row log-${row.level}`}>
           <span className="log-number">{row.number}</span><span className="log-level">{row.level}</span>
@@ -1042,7 +1058,8 @@ function LogsCenter({ snapshot, selected, setSelected }: {
       </div>}
       <div className="warning-inline"><Shield size={17}/> Titokszűrt, korlátozott méretű naplórészlet. A bejegyzés önmagában nem igazolja a SaveComplete vagy RCON művelet sikerét.</div>
     </Panel>
-  </>;
+    </div>
+  </div>;
 }
 
 function IniCenter({ snapshot, selected, setSelected }: {
