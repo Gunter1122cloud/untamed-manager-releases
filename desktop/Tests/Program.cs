@@ -469,6 +469,19 @@ try
         Check(wrongCluster.GetProperty("data").GetProperty("clusterIdStatus").GetString()=="MISMATCH" &&
               !wrongCluster.GetProperty("data").GetProperty("serverStartAllowed").GetBoolean(),
             "a merely present but renamed cluster id must not count as a verified match");
+        var queryStyle=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,
+                command=privateLaunch.Replace(" -port=7777 -QueryPort=27015",
+                    "?port=7777?QueryPort=27015",StringComparison.Ordinal)});
+        Check(queryStyle.GetProperty("data").GetProperty("gamePortStatus").GetString()=="MATCH" &&
+              queryStyle.GetProperty("data").GetProperty("queryPortStatus").GetString()=="MATCH",
+            "query-string ASA port and QueryPort parameters are recognized");
+        var duplicatePort=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,
+                command=privateLaunch+"?port=9999"});
+        Check(duplicatePort.GetProperty("data").GetProperty("gamePortStatus").GetString()=="CONFLICT" &&
+              !duplicatePort.GetProperty("data").GetProperty("serverStartAllowed").GetBoolean(),
+            "duplicate mixed-style ASA port definitions fail closed");
         var conversion=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
             new{archive=oldArchive,mapId=historicalId,command=privateLaunch+" -converttostore"});
         Check(conversion.GetProperty("data").GetProperty("conversionFlagPresent").GetBoolean() &&
