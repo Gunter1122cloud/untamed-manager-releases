@@ -994,6 +994,10 @@ public partial class MainWindow
         monitoring.Children.Add(Label("RCON jelszó (Windows DPAPI-val titkosítva)",13,Aqua,true));
         var password=new PasswordBox{MinHeight=37,Margin=new Thickness(0,0,0,13)};
         monitoring.Children.Add(password);
+        monitoring.Children.Add(Label("Új SteamCMD-telepítésnél a megadott admin jelszó "+
+            "a frissen létrehozott GameUserSettings.ini fájlba kerül, nem az "+
+            "indítási parancssorba. Meglévő INI-t nem írunk felül. "+
+            "Üres jelszó esetén az RCON kikapcsolva marad.",12,Soft));
 
         var review=MakeStep("05  /  Ellenőrzés és mentés",
             "A Mentés teljes útvonal-, port- és ASA API-ellenőrzést végez. Nem indít vagy állít le szervert.");
@@ -1071,6 +1075,11 @@ public partial class MainWindow
                             if(apiStart.IsChecked==true)
                                 throw new InvalidDataException(
                                     "Új telepítésnél az ASA API loader külön, ellenőrzött lépésben engedélyezhető.");
+                            if(password.Password.Length>0)
+                                AsaInitialRconSettings.ValidateAdminPassword(password.Password);
+                            else if(monitorRcon.IsChecked==true)
+                                throw new InvalidDataException(
+                                    "Új szerveren az RCON-monitoringhoz admin jelszó szükséges.");
                             var args=AsaSteamMapCatalog.LaunchArguments(
                                 name,sessionBox.Text.Trim(),preGame,preQuery);
                             var request=new SteamFreshInstallRequest(
@@ -1097,7 +1106,20 @@ public partial class MainWindow
                             exeText=receipt.ServerExecutable;
                             serverExe.Text=exeText;
                             fields["Indítási paraméterek (pontos egyezés)"].Text=args;
-                            installStatus.Text="Telepítés sikeres. Steam Build ID: "+
+                            if(password.Password.Length>0)
+                            {
+                                var created=AsaInitialRconSettings.CreateForNewServer(
+                                    receipt.InstallationRoot,preRcon,password.Password);
+                                monitorRcon.IsChecked=true;
+                                installStatus.Text="RCON konfiguráció létrehozva: "+created+
+                                    " (új INI, felülírás nélkül).";
+                            }
+                            else
+                            {
+                                monitorRcon.IsChecked=false;
+                                installStatus.Text="Az új szerveren az RCON kikapcsolva marad.";
+                            }
+                            installStatus.Text+="\nSteam Build ID: "+
                                 (receipt.BuildId??"ismeretlen")+"; ASA szerver még NEM indult el.";
                         }
                         var exe=Path.GetFullPath(exeText);
