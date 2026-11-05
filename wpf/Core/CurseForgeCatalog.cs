@@ -287,8 +287,19 @@ public sealed class CurseForgeCatalog
         var files=new List<CurseForgeFile>();
         foreach(var item in data.EnumerateArray())
         {
+            var parsed=ParseFile(item,modId);
+            if(parsed!=null)files.Add(parsed);
+        }
+        int total=files.Count;
+        if(root.TryGetProperty("pagination",out var page)&&page.ValueKind==JsonValueKind.Object)
+            total=Int(page,"totalCount");
+        return new(modId,files,index,total,index+25<Math.Min(total,10000));
+    }
+
+    private static CurseForgeFile? ParseFile(JsonElement item,int modId)
+    {
             int fileId=Int(item,"id");
-            if(fileId<=0 || Int(item,"modId")!=modId)continue;
+            if(fileId<=0 || Int(item,"modId")!=modId)return null;
             string display=Str(item,"displayName")??Str(item,"fileName")??"";
             if(display.Length==0)display="File "+fileId;
             DateTimeOffset? published=null;
@@ -322,16 +333,36 @@ public sealed class CurseForgeCatalog
             bool available=item.TryGetProperty("isAvailable",out var availability) &&
                 availability.ValueKind==JsonValueKind.True;
             long size=Long(item,"fileLength");
-            files.Add(new CurseForgeFile(fileId,modId,display,published,available,deps){
+            return new CurseForgeFile(fileId,modId,display,published,available,deps){
                 Relations=relations,
                 SizeBytes=Math.Max(0,size),
-                GameVersions=Strings(item,"gameVersions",25)
-            });
-        }
-        int total=files.Count;
-        if(root.TryGetProperty("pagination",out var page)&&page.ValueKind==JsonValueKind.Object)
-            total=Int(page,"totalCount");
-        return new(modId,files,index,total,index+25<Math.Min(total,10000));
+                GameVersions=Strings(item,"gameVersions",25),
+                FileFingerprint=Long(item,"fileFingerprint")>0?Long(item,"fileFingerprint"):null,
+                DistributionState=available?"Fájl elérhető; terjesztési engedély külön ellenőrizendő":
+                    "Fájl elérhetősége nem igazolt"
+            };
+    }
+
+    /// <summary>
+    /// Resolve a single exact CurseForge file ID, without claiming local
+    /// installation, file identity, version freshness or download permission.
+    /// </summary>
+    public async Task<CurseForgeFile> GetExactAsaFileAsync(string key,int modId,int fileId,
+        CancellationToken ct=default)
+    {
+        ValidateApiKey(key);
+        if(modId<10000 || fileId<1)throw new ArgumentOutOfRangeException(nameof(fileId));
+        int game=await FindAsaGameAsync(key,ct);
+        using var document=await Request(key,
+            "/v1/mods/"+modId+"/files/"+fileId,ct);
+        if(!document.RootElement.TryGetProperty("data",out var item) ||
+           item.ValueKind!=JsonValueKind.Object ||
+           Int(item,"gameId")!=game ||
+           Int(item,"id")!=fileId)
+            throw new InvalidDataException(
+                "CurseForge file has mismatched ID/game; refusing cross-game metadata");
+        return ParseFile(item,modId) ??
+            throw new InvalidDataException("CurseForge file does not belong to the requested project");
     }
 
     private async Task<int> FindAsaGameAsync(string key,CancellationToken ct)
