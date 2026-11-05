@@ -508,7 +508,7 @@ test("720px desktop sidebar scroll reaches Settings and INI without clipping", a
 test("local map card opens map-specific details, functional tabs, back navigation and blocks RCON", async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
-  await page.getByRole("row",{name:/The Island/}).first().click();
+  await page.getByRole("button",{name:/The Island szerver megnyitása/}).click();
   await expect(page.getByRole("heading",{name:"The Island",exact:true})).toBeVisible();
   await expect(page.getByRole("tablist",{name:"Map funkciói"})).toBeVisible();
   await expect(page.locator(".map-detail-hero .premium-map-cover")).toBeVisible();
