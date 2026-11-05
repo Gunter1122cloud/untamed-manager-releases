@@ -1,0 +1,36 @@
+.uk-rcon-page {min-width:0;}
+.uk-rcon-grid {display:grid;grid-template-columns:minmax(0,1.65fr) minmax(290px,1fr);
+  gap:14px;align-items:start;}
+.uk-rcon-console,.uk-rcon-security{min-width:0;}
+.uk-rcon-commands {display:flex;align-items:center;flex-wrap:wrap;gap:10px;
+  padding:12px 14px;border-bottom:1px solid #365957;background:#1b3037;}
+.uk-rcon-commands button {display:flex;align-items:center;gap:9px;min-height:40px;}
+.uk-rcon-terminal {margin:12px;background:#0b1b22;border:1px solid #3d6b62;
+  border-radius:9px;overflow:auto;min-height:225px;max-height:520px;
+  scrollbar-width:thin;scrollbar-color:#3d685e #10232a;}
+.uk-rcon-terminal-bar {display:flex;align-items:center;gap:10px;
+  padding:10px 13px;background:#1a3437;color:#9ee8cd;border-bottom:1px solid #365857;
+  font-size:10px;font-family:Consolas,monospace;font-weight:800;letter-spacing:.08em;}
+.uk-rcon-terminal-bar span {color:#4cf0a8;font-size:12px;}
+.uk-rcon-terminal pre {white-space:pre-wrap;overflow-wrap:anywhere;color:#d6ede0;
+  font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;
+  line-height:1.6;padding:13px;margin:0;max-width:100%;}
+.uk-rcon-placeholder {display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:12px;text-align:center;color:#a7c8bc;font-size:12px;
+  line-height:1.6;padding:25px;min-height:160px;}
+.uk-rcon-placeholder svg {color:#70caa7;}
+.uk-rcon-receipt {display:flex;align-items:center;gap:8px;
+  color:#95e8bf;font-size:11px;padding:5px 15px 14px;}
+.uk-rcon-receipt svg {flex:none;}
+.uk-rcon-security-inner {padding:13px 15px;}
+.uk-rcon-security-inner>div:not(.uk-rcon-locked) {display:flex;align-items:center;
+  justify-content:space-between;gap:10px;padding:12px 3px;
+  border-bottom:1px solid #3a5655;font-size:11px;}
+.uk-rcon-security-inner>div>span{color:#a7c8c0;}
+.uk-rcon-security-inner>div>b{color:#e1f6ed;text-align:right;}
+.uk-rcon-locked {display:flex;align-items:flex-start;gap:10px;line-height:1.6;
+  color:#e8c78f;border:1px solid #806742;background:#3e3325;
+  padding:12px;border-radius:9px;font-size:11.5px;margin-top:16px;}
+.uk-rcon-locked svg {flex:none;}
+@media(max-width:1080px){.uk-rcon-grid{grid-template-columns:1fr;}}
+@media(max-width:760px){.uk-rcon-commands button{width:100%;justify-content:center;}}
