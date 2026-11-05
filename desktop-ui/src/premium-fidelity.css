@@ -370,3 +370,60 @@ button,select,input {accent-color:#2cbf91;}
 .premium-map-unknown {background:
   linear-gradient(145deg,#22574e77,#132d36a8),
   url('/kingdom-hero.jpg') center/cover no-repeat;}
+
+/* BACKUP CENTER / design-fidelity
+   Metrics and illustrations report verified local data only; never suggest
+   that file hashes prove ASA save completion or Store-v1 travel safety. */
+.premium-backup-metrics {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px;}
+.premium-backup-metrics>div {display:flex;align-items:center;gap:10px;min-height:93px;
+  padding:13px;background:linear-gradient(130deg,#21343d,#15292f);
+  border:1px solid #3c5b5e;border-radius:10px;box-shadow:inset 3px 0 #54d9ac;}
+.premium-backup-metrics>div:nth-child(3) {box-shadow:inset 3px 0 #e5c179;}
+.premium-backup-metrics>div.has-errors {border-color:#a27757;}
+.premium-backup-icon {color:#77e5c4;display:grid;place-items:center;flex:0 0 36px;}
+.premium-backup-metrics>div:nth-child(3) .premium-backup-icon {color:#ebc37e;}
+.premium-backup-metrics b {font-size:25px;font-weight:800;font-variant-numeric:tabular-nums;}
+.premium-backup-metrics span:not(.premium-backup-icon) {font-weight:650;color:#e6f6f2;font-size:12px;}
+.premium-backup-metrics small {color:#95b9b4;font-size:10px;display:block;}
+.premium-backup-grid {display:grid;grid-template-columns:minmax(0,1.55fr) minmax(310px,1fr);gap:14px;align-items:start;}
+.premium-backup-controls {display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.premium-backup-controls .secondary {display:flex;align-items:center;gap:6px;white-space:nowrap;min-height:37px;}
+.premium-backup-row {display:flex;align-items:center;justify-content:space-between;
+  gap:14px;padding:12px 15px;min-height:83px;border-bottom:1px solid #314d51;background:#192b32;}
+.premium-backup-row:hover {background:#203a39;}
+.premium-backup-row:last-of-type {border-bottom:0;}
+.premium-backup-map {display:flex;align-items:center;gap:12px;min-width:0;}
+.premium-backup-map .premium-map-cover {width:91px;height:51px;flex-basis:91px;}
+.premium-backup-map>div {min-width:0;}
+.premium-backup-map b {display:block;font-size:13.5px;color:#f2fff7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.premium-backup-map small {display:block;font-size:10.5px;color:#9cbab5;line-height:1.45;margin-top:6px;}
+.premium-backup-row-status {display:flex;flex-direction:column;align-items:flex-end;
+  gap:5px;white-space:nowrap;font-size:11px;}
+.premium-backup-row-status strong {font-size:12px;color:#70e5af;}
+.premium-backup-row-status .premium-backup-bad {color:#eec17a;}
+.premium-backup-row-status small {font-size:10px;color:#9bb4b2;}
+.premium-backup-integrity-body {padding:15px;}
+.premium-backup-evidence {display:flex;align-items:center;gap:12px;padding:13px;
+  border:1px solid #427761;background:#1a4136;border-radius:9px;margin-bottom:11px;}
+.premium-backup-evidence>svg {color:#6ae7b3;flex:none;}
+.premium-backup-evidence b {display:block;font-size:13px;}
+.premium-backup-evidence span {display:block;font-size:11px;color:#b7d7c8;line-height:1.4;margin-top:4px;}
+.premium-backup-fact {display:flex;align-items:center;justify-content:space-between;
+  gap:10px;padding:12px 0;border-bottom:1px solid #344d50;font-size:11px;}
+.premium-backup-fact span {color:#adcbc4;}
+.premium-backup-fact strong {color:#e6f4ef;font-size:11px;text-align:right;}
+.premium-backup-caution {display:flex;align-items:flex-start;gap:9px;border:1px solid #766141;
+  border-radius:9px;background:#342c24;padding:12px;margin-top:15px;
+  color:#e4c69b;font-size:11.5px;line-height:1.6;}
+.premium-backup-caution>svg {flex:none;margin-top:2px;}
+@media(max-width:1220px){
+ .premium-backup-grid{grid-template-columns:1fr;}
+ .premium-backup-integrity-body{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+ .premium-backup-evidence,.premium-backup-caution{grid-column:1/-1;margin:0;}
+}
+@media(max-width:900px){
+ .premium-backup-metrics{grid-template-columns:repeat(2,minmax(0,1fr));}
+ .premium-backup-integrity-body{grid-template-columns:1fr;}
+ .premium-backup-fact{grid-column:1/-1;}
+ .premium-backup-row{flex-wrap:wrap;}
+}
