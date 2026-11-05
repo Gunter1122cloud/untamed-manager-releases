@@ -45,6 +45,7 @@ internal sealed class PremiumUiCommand : ICommand
 public partial class MainWindow
 {
     private Action<string>? _catalogSelectForMod;
+    private Action<string>? _catalogLookupById;
     private readonly Dictionary<Guid,ModDraftSession> _modDraftSessions=new();
     // Display names are added only after an actual authenticated CurseForge catalog read.
     // No hard-coded IDs/names are substituted for the real local profile.
@@ -60,6 +61,7 @@ public partial class MainWindow
     {
         Header("Modok","Maponkénti modlista, állapot és sorrend – előnézet után, biztonságos helyi mentéssel.");
         _catalogSelectForMod=null;
+        _catalogLookupById=null;
         _catalogMetadataUpdated=null;
         var maps=_cluster.Config.LocalMaps.ToArray();
         if(maps.Length==0)
@@ -296,10 +298,16 @@ public partial class MainWindow
             Btn("Állapot módosítása",()=>Safely(ChangeMode)),
             Btn("↑  Előrébb a sorrendben",()=>Safely(()=>Move(-1))),
             Btn("↓  Hátrébb a sorrendben",()=>Safely(()=>Move(1))),
-            Btn("Mod keresése CurseForge-on",()=>{
-                if(catalogExpander==null)return;
+            Btn("Kijelölt mod hiteles adatainak lekérése",()=>{
+                if(chosen==null)
+                {
+                    status.Text="Előbb válassz egy modot.";
+                    return;
+                }
+                if(catalogExpander==null || _catalogLookupById==null)return;
                 catalogExpander.IsExpanded=true;
                 catalogExpander.BringIntoView();
+                _catalogLookupById(chosen.Id);
             }),
             Label("Mentés előtt minden eltérést az alsó műveleti sávban kell jóváhagyni. Szerver újraindítás nem történik.",11,Soft));
         var main=new Grid {Margin=new Thickness(0,2,0,10)};
