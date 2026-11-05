@@ -54,9 +54,18 @@ public partial class MainWindow
                     "Eltávolítod a jelenlegi Discord webhookot ebből a helyi profilból?",
                     "Discord kapcsolat",MessageBoxButton.YesNo,MessageBoxImage.Question)
                     !=MessageBoxResult.Yes)return;
-                key.Clear();
-                _cluster.UpdateSettings(c=>c.DiscordWebhookProtected="");
-                status.Text="Webhook eltávolítva; nem küldünk Discordra.";
+                try
+                {
+                    _cluster.UpdateSettings(c=>c.DiscordWebhookProtected="");
+                    key.Clear();
+                    status.Text="Webhook eltávolítva; nem küldünk Discordra.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("discord-webhook-remove",ex);
+                    status.Text="A webhook nem távolítható el: "+
+                        UntamedPresentation.Redact(ex.Message);
+                }
             }),status)));
 
         var preview=Label("Még nincs ellenőrzött állapot-előnézet.",12,Soft);
