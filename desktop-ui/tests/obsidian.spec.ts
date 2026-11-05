@@ -41,8 +41,20 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; coordinationArchive?: string; localMetadataArchive?: string }) => {
       switch (m.method) {
+        case "historical.pairedEvidence": return {
+          files:12,maps:10,peers:2,sessionConsistent:true,
+          configHashesVerified:true,activeStoreRecords:true,
+          completeTwoHostEvidence:false,historicalConsistent:false,
+          findings:["LocalLock"],
+          hosts:[{number:1,maps:5,localEvidence:true,sessionMatches:true,
+            configHashMatches:false,lockMatches:false,activeMaps:true},
+            {number:2,maps:5,localEvidence:true,sessionMatches:true,
+            configHashMatches:true,lockMatches:true,activeMaps:true}],
+          productionUseAllowed:false,
+          evidence:"PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION"
+        };
         case "historical.list": return {
           sourceVerified:true,completeLaunchArguments:false,liveStoreVerified:false,
           allowServerStart:false,evidence:"HISTORICAL_LOCAL_ARCHIVE_READ_ONLY",
@@ -449,4 +461,20 @@ test("Store-v1 historic import preserves map identity and never permits launch b
   await expect(page.getByText(/Store-v1 zárolt: a szerver nem indulhat/)).toBeVisible();
   await expect(page.getByRole("row",{name:/Scorched Earth/})).toBeVisible();
   await page.screenshot({path:"test-results/store-v1-locked-import-1600.png",fullPage:true});
+});
+
+test("Store-v1 cross-host evidence distinguishes historical files from live writer authorization", async ({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Kova Store-v1 átvétel"}).click();
+  await page.getByRole("textbox",{name:"Store koordináció ZIP"}).fill("D:\\Store-Coordination.zip");
+  await page.getByRole("textbox",{name:"Másik Store host ZIP"}).fill("D:\\Other-Host-Local.zip");
+  await page.getByRole("button",{name:"Két host Store-adatainak összevetése"}).click();
+  const report=page.getByRole("status").filter({hasText:"Csak offline bizonyíték"});
+  await expect(report).toBeVisible();
+  await expect(report.getByText("NEM IGAZOLT").first()).toBeVisible();
+  await expect(report.getByText("LocalLock")).toBeVisible();
+  await expect(report.getByText("TILTOTT")).toBeVisible();
+  await page.screenshot({path:"test-results/store-v1-peer-evidence-1600.png",fullPage:true});
 });
