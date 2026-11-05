@@ -173,7 +173,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <span>Map neve</span><strong>{launchEvidence.mapStatus}</strong>
           <span>Game UDP</span><strong>{launchEvidence.gamePortStatus}</strong>
           <span>Query UDP</span><strong>{launchEvidence.queryPortStatus}</strong>
-          <span>Modok sorrendje</span><strong>{launchEvidence.modOrderStatus}</strong>
+          <span>Aktív modok sorrendje</span><strong>{launchEvidence.modOrderStatus}</strong>
+          <span>Passzív modok sorrendje</span><strong>{launchEvidence.passiveModOrderStatus}</strong>
           <span>Eredeti belső clusterazonosító / könyvtár</span><strong>{launchEvidence.clusterIdStatus} / {launchEvidence.clusterPathPresent?"Megadva, nem igazolt":"Nem igazolt"}</strong>
           <span>-usestore kapcsoló</span><strong>{launchEvidence.useStorePresent?"Megadva":"Nem igazolt"}</strong>
           <span>-converttostore</span><strong>{launchEvidence.conversionFlagPresent?"VESZÉLY: szerepel":"Nem található"}</strong>
