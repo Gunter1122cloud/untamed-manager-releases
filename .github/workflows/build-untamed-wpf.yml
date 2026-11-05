@@ -140,8 +140,8 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "WPF screenshot generation failed" }
           if (!(Test-Path "$env:UNTAMED_SCREENSHOT_PATH")) { throw "WPF screenshot output missing" }
           if ((Get-Item "$env:UNTAMED_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF screenshot unexpectedly small" }
-          foreach ($page in @("servers","mods","plugins","cluster","backups","settings","ini",
-            "demo-dashboard","demo-servers","demo-cluster","demo-mods","demo-plugins",
+          foreach ($page in @("servers","mods","plugins","cluster","backups","settings","ini","logs",
+            "demo-dashboard","demo-servers","demo-cluster","demo-mods","demo-plugins","demo-logs",
             "demo-ini","demo-rcon","demo-backups","demo-schedules","demo-monitoring",
             "demo-recovery","demo-settings")) {
             $file = Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-$page.png"
@@ -236,7 +236,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-premium-test.5"
+          $tag = "v1.6.1-premium-test.6"
           $repo = "$env:GITHUB_REPOSITORY"
           $files = @(
             "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-premium-test.exe",
@@ -249,6 +249,8 @@ jobs:
             "dist/UI-Screenshots/UntamedManager-demo-servers.png#UntamedManager-premium-demo-servers.png",
             "dist/UI-Screenshots/UntamedManager-backups.png#UntamedManager-premium-backup-center.png",
             "dist/UI-Screenshots/UntamedManager-demo-backups.png#UntamedManager-premium-demo-backups.png",
+            "dist/UI-Screenshots/UntamedManager-logs.png#UntamedManager-premium-log-center.png",
+            "dist/UI-Screenshots/UntamedManager-demo-logs.png#UntamedManager-premium-demo-logs.png",
             "dist/UI-Screenshots/UntamedManager-cluster.png#UntamedManager-premium-cluster.png"
           )
           gh release view $tag --repo $repo --json tagName 2>$null | Out-Null
@@ -256,8 +258,8 @@ jobs:
             gh release upload $tag @files --repo $repo --clobber
           } else {
             gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 5" --prerelease `
-              --notes "Graphite TEST 5: NEW native graphite Backup Center with map-scoped two-column interface, real stopped-map offline backup preflight (files, selected bytes, free disk and reserve), explicit operator confirmation, SHA-256 verified file-copy, searchable integrity history and selected-package re-verification. Existing retentions, quarantine, SQL tools and multi-map overview remain in advanced controls. Premium Mod and Plugin Centers, undo/redo, local server shortcuts and offline DEMO remain. The source of ASA SaveComplete and multi-host Store-v1 consistency remains NOT production-certified: no real ASA restart or SQL/Store live restore is enabled. Test only on an isolated Windows PC."
+              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 6" --prerelease `
+              --notes "Graphite TEST 6: NEW native graphite Log Center with locally owned bounded ASA log tail, 5-second opt-in refresh, severity and text filtering, redacted clipboard export, and safe path guards. Local map Logs tab now uses the same bounded reader. Offline DEMO includes a simulated log page. Existing Backup Center retains stopped-map preflight and SHA-256 file-copy. Existing retentions, quarantine, SQL tools and multi-map overview remain in advanced controls. Premium Mod and Plugin Centers, undo/redo, local server shortcuts and offline DEMO remain. The source of ASA SaveComplete and multi-host Store-v1 consistency remains NOT production-certified: no real ASA restart or SQL/Store live restore is enabled. Test only on an isolated Windows PC."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
           # A cancelled prior CI can leave an unpublished draft with the same tag.
