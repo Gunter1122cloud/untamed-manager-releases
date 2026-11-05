@@ -42,7 +42,7 @@ public partial class MainWindow
             ToolTip="Keresés a helyi pluginmappák neve alapján" };
         var filter=new ComboBox { ItemsSource=new[]{"Összes","Engedélyezett","Letiltott"},
             SelectedIndex=0,Width=140,Margin=new Thickness(0,0,9,8) };
-        var list=new ListView {MinHeight=260,MaxHeight=510,
+        var list=new ListView {MinHeight=230,MaxHeight=440,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumPluginRow"),
             Margin=new Thickness(0,10,0,0)};
         NestedWheelScroll.SetChainToParent(list,true);
@@ -274,6 +274,7 @@ public partial class MainWindow
         Grid.SetColumn(right,1);
         layout.Children.Add(left);
         layout.Children.Add(right);
+        BindResponsiveDetails(layout,left,right);
         Add(Box(toolbar));
         Add(layout);
         Add(Box(V(Label("Műveleti visszajelzés",15,Mint,true),activity)));

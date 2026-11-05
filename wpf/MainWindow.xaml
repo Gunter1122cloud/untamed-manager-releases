@@ -2,9 +2,10 @@
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  Title="Untamed Manager · Untamed Kingdom" Icon="/Assets/UntamedManager.ico"
- Width="1600" Height="900" MinWidth="1050" MinHeight="670"
+ Width="1600" Height="900" MinWidth="780" MinHeight="450"
  WindowStartupLocation="CenterScreen" Background="{StaticResource SurfaceWindow}"
- Loaded="Window_Loaded" Closing="Window_Closing">
+ Loaded="Window_Loaded" Closing="Window_Closing" SizeChanged="Window_SizeChanged"
+ UseLayoutRounding="True" SnapsToDevicePixels="True">
  <Window.Resources>
   <LinearGradientBrush x:Key="HeroBack" StartPoint="0,0" EndPoint="1,1">
    <GradientStop Color="#092529" Offset="0"/><GradientStop Color="#174D48" Offset="0.52"/><GradientStop Color="#8D8148" Offset="0.85"/><GradientStop Color="#183A35" Offset="1"/>
@@ -49,7 +50,7 @@
   </Style>
  </Window.Resources>
  <Grid>
-  <Grid.ColumnDefinitions><ColumnDefinition Width="224"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="224"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Grid Grid.Column="0" Background="{StaticResource SurfaceSidebar}">
    <Grid.RowDefinitions><RowDefinition Height="96"/><RowDefinition Height="*"/><RowDefinition Height="67"/></Grid.RowDefinitions>
    <Grid Grid.Row="0" ClipToBounds="True">
@@ -98,8 +99,8 @@
      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
       <TextBlock x:Name="DemoModeIndicator" Text="DEMO" FontSize="11" FontWeight="Bold" Foreground="#FFD28C" Margin="0,0,8,0" VerticalAlignment="Center" Visibility="Collapsed"/>
       <Button x:Name="DemoToggle" Content="▶ DEMO" Style="{StaticResource GoldAction}" Padding="12,8" Margin="0,0,8,0" Click="DemoMode_Click" AutomationProperties.Name="Offline DEMO mód be- és kikapcsolása"/>
-      <Border Background="{StaticResource GraphiteRaised}" BorderBrush="{StaticResource GraphiteBorder}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,0,8,0"><TextBlock x:Name="VersionBadge" Text="WPF" Foreground="#73DDC8" FontSize="11"/></Border>
-      <Border Background="{StaticResource GraphiteRaised}" BorderBrush="{StaticResource GraphiteBorder}" BorderThickness="1" CornerRadius="7" Padding="10,8"><TextBlock x:Name="SupervisorBadge" Text="Supervisor: ellenőrzés" Foreground="#F4BB78" FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="146"/></Border>
+      <Border x:Name="VersionContainer" Background="{StaticResource GraphiteRaised}" BorderBrush="{StaticResource GraphiteBorder}" BorderThickness="1" CornerRadius="7" Padding="10,8" Margin="0,0,8,0"><TextBlock x:Name="VersionBadge" Text="WPF" Foreground="#73DDC8" FontSize="11"/></Border>
+      <Border x:Name="SupervisorContainer" Background="{StaticResource GraphiteRaised}" BorderBrush="{StaticResource GraphiteBorder}" BorderThickness="1" CornerRadius="7" Padding="10,8"><TextBlock x:Name="SupervisorBadge" Text="Supervisor: ellenőrzés" Foreground="#F4BB78" FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="146"/></Border>
      </StackPanel>
     </Grid>
    </Border>
@@ -125,7 +126,7 @@
           <TextBlock Text="Untamed Kingdom  ·  Szerverüzemeltetés és cluster"
             Foreground="{StaticResource TextSoft}" FontSize="12" Margin="0,7,0,0"/>
          </StackPanel>
-         <WrapPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
+         <WrapPanel x:Name="DashboardHeroActions" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
           <Button Style="{StaticResource ActionButton}" Content="Szerverek" Tag="servers" Click="Navigate_Click"/>
           <Button Style="{StaticResource ActionButton}" Content="Mod Center" Tag="mods" Click="Navigate_Click"/>
           <Button Style="{StaticResource PrimaryAction}" Content="Frissítések" Tag="license" Click="Navigate_Click"/>
@@ -133,7 +134,7 @@
         </Grid>
        </Grid>
       </Border>
-      <UniformGrid Columns="4" Margin="0,10,0,0">
+      <UniformGrid x:Name="DashboardKpis" Columns="4" Margin="0,10,0,0">
        <Border Style="{StaticResource NeonStatPanel}">
         <StackPanel>
          <TextBlock Text="◇  TÉRKÉPEK" Foreground="{StaticResource TextSoft}" FontSize="11"/>

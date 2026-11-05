@@ -131,9 +131,9 @@ public partial class App : System.Windows.Application
             try
             {
                 int width=int.TryParse(Environment.GetEnvironmentVariable("UNTAMED_CAPTURE_WIDTH"),
-                    out var captureWidth)?Math.Clamp(captureWidth,1050,2560):1650;
+                    out var captureWidth)?Math.Clamp(captureWidth,780,2560):1650;
                 int height=int.TryParse(Environment.GetEnvironmentVariable("UNTAMED_CAPTURE_HEIGHT"),
-                    out var captureHeight)?Math.Clamp(captureHeight,670,1600):930;
+                    out var captureHeight)?Math.Clamp(captureHeight,450,1600):930;
                 var window=new MainWindow {Width=width,Height=height};
                 window.Show();
                 if (window.Content is not FrameworkElement content)

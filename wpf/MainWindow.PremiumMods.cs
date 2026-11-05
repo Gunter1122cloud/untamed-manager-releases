@@ -77,7 +77,7 @@ public partial class MainWindow
             SelectedIndex=0,Width=128,Margin=new Thickness(0,0,10,8)};
         var addId=new TextBox {Width=135,Height=36,Margin=new Thickness(0,0,9,8),
             ToolTip="Új mod CurseForge projektazonosítója (5–12 számjegy)"};
-        var rows=new ListView {MinHeight=260,MaxHeight=510,
+        var rows=new ListView {MinHeight=230,MaxHeight=440,
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModRow")};
         NestedWheelScroll.SetChainToParent(rows,true);
         var summary=Label("",12,Soft);
@@ -286,6 +286,7 @@ public partial class MainWindow
         var rightSurface=Box(right);
         Grid.SetColumn(leftSurface,0);Grid.SetColumn(rightSurface,1);
         main.Children.Add(leftSurface);main.Children.Add(rightSurface);
+        BindResponsiveDetails(main,leftSurface,rightSurface);
         Add(Box(toolbar));
         Add(main);
 

@@ -97,6 +97,14 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Fit a normal Manager session inside the current desktop working area.
+        // Screenshot/CI capture deliberately supplies its own exact viewport.
+        if(!App.IsSmokeTest)
+        {
+            Rect desktop=SystemParameters.WorkArea;
+            Width=Math.Min(Width,Math.Max(MinWidth,desktop.Width-20));
+            Height=Math.Min(Height,Math.Max(MinHeight,desktop.Height-20));
+        }
         VersionBadge.Text="WPF "+UiVersion;
         InitializeAutomaticUpdates();
         InitializeSupervision();

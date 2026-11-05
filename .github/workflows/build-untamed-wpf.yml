@@ -154,7 +154,7 @@ jobs:
       - name: Test 1366, 1600 and 1920 desktop layouts with WPF render
         shell: pwsh
         run: |
-          foreach ($size in @("1366x768","1600x900","1920x1080")) {
+          foreach ($size in @("910x512","1366x768","1600x900","1920x1080")) {
             $parts=$size.Split("x")
             $env:UNTAMED_CAPTURE_WIDTH=$parts[0]
             $env:UNTAMED_CAPTURE_HEIGHT=$parts[1]
