@@ -245,6 +245,8 @@ public partial class MainWindow
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumModRow")
         };
         var search=new TextBox {Width=180,Height=36,Margin=new Thickness(0,0,9,7)};
+        var filter=new ComboBox {ItemsSource=new[]{"Összes","Aktív","Passzív","Letiltva"},
+            SelectedIndex=0,Width=130,Margin=new Thickness(0,0,9,7)};
         var project=new TextBox {Width=140,Height=36,Margin=new Thickness(0,0,9,7),
             ToolTip="DEMO: modprojekt azonosító"};
         var mode=new ComboBox {ItemsSource=new[]{"Aktív","Passzív","Letiltva","Eltávolítás"},
@@ -302,10 +304,12 @@ public partial class MainWindow
                         m.Mode==DemoModMode.Active?DemoModMode.Disabled:DemoModMode.Active)))
                 }).ToArray();
             string term=search.Text.Trim();
-            var visible=all.Where(x=>term.Length==0||
-                x.Id.Contains(term,StringComparison.OrdinalIgnoreCase)||
-                x.DisplayName.Contains(term,StringComparison.OrdinalIgnoreCase)||
-                x.State.Contains(term,StringComparison.OrdinalIgnoreCase)).ToArray();
+            string selectedFilter=filter.SelectedItem as string??"Összes";
+            var visible=all.Where(x=>
+                (term.Length==0||x.Id.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                 x.DisplayName.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                 x.State.Contains(term,StringComparison.OrdinalIgnoreCase)) &&
+                (selectedFilter=="Összes"||x.State==selectedFilter)).ToArray();
             list.ItemsSource=visible;
             list.SelectedItem=visible.FirstOrDefault(x=>x.Id==oldId);
             summary.Text=map.Name+" · "+all.Length+" mintamod · "+visible.Length+" megjelenítve";
@@ -350,9 +354,11 @@ public partial class MainWindow
         }
         list.SelectionChanged+=(_,_)=>ShowSelection();
         search.TextChanged+=(_,_)=>Attempt(Render);
+        filter.SelectionChanged+=(_,_)=>Attempt(Render);
 
         var leftToolbar=new WrapPanel {Margin=new Thickness(0,0,0,7)};
         leftToolbar.Children.Add(search);
+        leftToolbar.Children.Add(filter);
         leftToolbar.Children.Add(project);
         leftToolbar.Children.Add(Btn("＋ Mod hozzáadása",()=>Attempt(()=>
             Stage(project.Text.Trim(),DemoModMode.Active))));
@@ -360,6 +366,7 @@ public partial class MainWindow
             Label("DEMO mintamodok · sorrend · állapot · jóváhagyott szimulált mentés",12,Soft),
             leftToolbar,summary,list);
         var right=V(Label("Mod részletei",17,Mint,true),selected,details,
+            Label("Csak DEMO · nincs valós fájl vagy szerverkapcsolat",11,Soft),
             Label("Állapot",12,Aqua),mode,
             Btn("Állapot módosítása",()=>Attempt(()=>{
                 if(chosen==null)throw new InvalidOperationException("Válassz modot.");

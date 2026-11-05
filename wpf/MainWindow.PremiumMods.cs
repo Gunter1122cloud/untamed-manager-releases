@@ -37,6 +37,11 @@ public partial class MainWindow
 {
     private Action<string>? _catalogSelectForMod;
     private readonly Dictionary<Guid,ModDraftSession> _modDraftSessions=new();
+    // Display names are added only after an actual authenticated CurseForge catalog read.
+    // No hard-coded IDs/names are substituted for the real local profile.
+    private readonly Dictionary<string,string> _trustedModNames=new(StringComparer.Ordinal);
+    private string? VerifiedModName(string projectId)=>
+        _trustedModNames.TryGetValue(projectId,out var name)?name:null;
 
     private void ShowPremiumMods()
     {
@@ -66,8 +71,10 @@ public partial class MainWindow
         var selector=new ComboBox {ItemsSource=maps,DisplayMemberPath="Name",
             SelectedItem=maps.FirstOrDefault(x=>x.Id==_preferredModMapId)??maps[0],
             Width=190,Margin=new Thickness(0,0,10,8)};
-        var search=new TextBox {Width=200,Height=36,Margin=new Thickness(0,0,10,8),
-            ToolTip="Modazonosító vagy konfigurált állapot keresése"};
+        var search=new TextBox {Width=205,Height=36,Margin=new Thickness(0,0,10,8),
+            ToolTip="Modnév, projektazonosító vagy konfigurált állapot"};
+        var filter=new ComboBox {ItemsSource=new[]{"Összes","Aktív","Passzív","Letiltva"},
+            SelectedIndex=0,Width=128,Margin=new Thickness(0,0,10,8)};
         var addId=new TextBox {Width=135,Height=36,Margin=new Thickness(0,0,9,8),
             ToolTip="Új mod CurseForge projektazonosítója (5–12 számjegy)"};
         var rows=new ListView {MinHeight=260,MaxHeight=510,
@@ -80,6 +87,7 @@ public partial class MainWindow
         var status=Label("",12,Soft);
         var preview=Label("",12,Soft);
         PremiumModRow? chosen=null;
+        Expander? catalogExpander=null;
 
         LocalMap CurrentMap()=>selector.SelectedItem as LocalMap
             ??throw new InvalidOperationException("Előbb válassz helyi mapot.");
@@ -101,9 +109,12 @@ public partial class MainWindow
             chosen=rows.SelectedItem as PremiumModRow;
             selectedTitle.Text=chosen==null?"Válassz modot":chosen.DisplayName;
             selectedInfo.Text=chosen==null?
-                "Válassz egy sort a módosításhoz.":
-                "Azonosító: "+chosen.Id+" · "+chosen.State+" · "+chosen.Information+
-                "\nAz állapot az indítási konfigurációból származik; nem bizonyít telepített fájlokat vagy ASA-betöltést.";
+                "Válassz ki egy modot. A sorok kapcsolója csak függő módosítást készít elő.":
+                "CURSEFORGE PROJEKT  #"+chosen.Id+"\n"+
+                "Konfigurált állapot: "+chosen.State+" · Sorrend: "+chosen.Position+"\n"+
+                chosen.Information+"\n"+
+                "Telepített fájl: nem igazolt · Függőségek/verzió: nincs ellenőrizve.\n"+
+                "A váltás a biztonságos előnézetig csak memóriában történik.";
             if(chosen!=null)modeBox.SelectedItem=chosen.State;
         }
         void Render()
@@ -118,14 +129,17 @@ public partial class MainWindow
                 .Concat(state.Disabled.Select((id,i)=>new PremiumModRow(id,"Letiltva",i+1,
                     draft.TouchedModIds.Contains(id)?"Függőben lévő módosítás":"Csak Manager-profil")))
                 .Select(x=>x with {
+                    DisplayTitle=VerifiedModName(x.Id),
                     ToggleCommand=new PremiumUiCommand(()=>Safely(()=>Stage(x.Id,
                         x.IsActive?ModMode.Disabled:ModMode.Active)))
                 }).ToArray();
             string term=search.Text.Trim();
-            var visible=term.Length==0?all:all.Where(x=>
-                x.Id.Contains(term,StringComparison.OrdinalIgnoreCase)||
-                x.DisplayName.Contains(term,StringComparison.OrdinalIgnoreCase)||
-                x.State.Contains(term,StringComparison.OrdinalIgnoreCase)).ToArray();
+            string selectedFilter=filter.SelectedItem as string??"Összes";
+            var visible=all.Where(x=>
+                (term.Length==0 || x.Id.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                 x.DisplayName.Contains(term,StringComparison.OrdinalIgnoreCase)||
+                 x.State.Contains(term,StringComparison.OrdinalIgnoreCase)) &&
+                (selectedFilter=="Összes" || x.State==selectedFilter)).ToArray();
             rows.ItemsSource=visible;
             rows.SelectedItem=visible.FirstOrDefault(x=>x.Id==selectedId)
                 ??visible.FirstOrDefault();
@@ -226,9 +240,11 @@ public partial class MainWindow
         };
         rows.SelectionChanged+=(_,_)=>ShowDetails();
         search.TextChanged+=(_,_)=>Safely(Render);
+        filter.SelectionChanged+=(_,_)=>Safely(Render);
         var toolbar=new WrapPanel {Margin=new Thickness(0,3,0,8)};
         toolbar.Children.Add(selector);
         toolbar.Children.Add(search);
+        toolbar.Children.Add(filter);
         toolbar.Children.Add(Btn("Konfiguráció újraolvasása",()=>Safely(()=>{
             if(draft.IsDirty && System.Windows.MessageBox.Show(
                 "A még nem mentett modmódosítások elvesznek. Újraolvasod a helyi profilt?",
@@ -241,6 +257,11 @@ public partial class MainWindow
         })));
         toolbar.Children.Add(addId);
         toolbar.Children.Add(Btn("＋ Mod hozzáadása",()=>Safely(()=>AddProject(addId.Text))));
+        toolbar.Children.Add(Btn("CurseForge keresés",()=>{
+            if(catalogExpander==null)return;
+            catalogExpander.IsExpanded=true;
+            catalogExpander.BringIntoView();
+        }));
         var left=V(Label("MOD CENTER  /  KONFIGURÁLT MODOK",16,Mint,true),
             Label("Sorrend · státusz · egykattintásos aktiválás · változtatás csak jóváhagyás után",12,Soft),
             toolbar,summary,rows);
@@ -249,7 +270,12 @@ public partial class MainWindow
             Btn("Állapot módosítása",()=>Safely(ChangeMode)),
             Btn("↑  Előrébb a sorrendben",()=>Safely(()=>Move(-1))),
             Btn("↓  Hátrébb a sorrendben",()=>Safely(()=>Move(1))),
-            Label("A modállapot módosítása önmagában nem indít újra ASA-folyamatot.",11,Soft));
+            Btn("Mod keresése CurseForge-on",()=>{
+                if(catalogExpander==null)return;
+                catalogExpander.IsExpanded=true;
+                catalogExpander.BringIntoView();
+            }),
+            Label("Mentés előtt minden eltérést az alsó műveleti sávban kell jóváhagyni. Szerver újraindítás nem történik.",11,Soft));
         var main=new Grid {Margin=new Thickness(0,2,0,10)};
         main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(7,GridUnitType.Star),MinWidth=390});
         main.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(3,GridUnitType.Star),MinWidth=245});
@@ -318,8 +344,24 @@ public partial class MainWindow
             addId.Text=id;AddProject(id);
             status.Text="CurseForge projekt "+id+" előkészítve – még nincs mentve.";
         });
+        // The read-only official catalog is a first-class tool, not buried
+        // among destructive/advanced operations. Do not introduce a second API client.
         int before=PageBody.Children.Count;
         ShowCurseForgeSearchControls();
+        var catalogPane=new StackPanel();
+        foreach(var element in PageBody.Children.Cast<UIElement>().Skip(before).ToArray())
+        {
+            PageBody.Children.Remove(element);
+            catalogPane.Children.Add(element);
+        }
+        catalogExpander=new Expander {
+            Header="CurseForge · online modkereső / hiteles modadatok",
+            Foreground=Mint,Padding=new Thickness(10),
+            Margin=new Thickness(0,3,12,12),Content=catalogPane,
+            IsExpanded=false
+        };
+        Add(catalogExpander);
+        before=PageBody.Children.Count;
         ShowModStateEditor();
         ShowBulkModsControls();
         ShowLocalModAssignmentInventory();
@@ -333,9 +375,9 @@ public partial class MainWindow
             advanced.Children.Add(element);
         }
         Add(new Expander {
-            Header="CurseForge katalógus és haladó modműveletek",
-            Foreground=Brushes.White,Padding=new Thickness(10),
-            Margin=new Thickness(0,3,10,18),Content=advanced,
+            Header="Speciális modműveletek · tömeges szerkesztés / leltár / SteamCMD",
+            Foreground=Soft,Padding=new Thickness(10),
+            Margin=new Thickness(0,3,12,18),Content=advanced,
             IsExpanded=false
         });
         Safely(Render);
