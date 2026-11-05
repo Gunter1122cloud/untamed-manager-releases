@@ -5,7 +5,11 @@
  StartupUri="MainWindow.xaml">
   <Application.Resources>
     <ResourceDictionary>
-      <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Styles/PremiumTheme.xaml" /></ResourceDictionary.MergedDictionaries>
+      <ResourceDictionary.MergedDictionaries>
+       <ResourceDictionary Source="Styles/GraphiteTokens.xaml"/>
+       <ResourceDictionary Source="Styles/PremiumTheme.xaml"/>
+       <ResourceDictionary Source="Styles/GraphiteChrome.xaml"/>
+      </ResourceDictionary.MergedDictionaries>
     <DataTemplate x:Key="PremiumLogRow">
       <Grid Margin="4,5">
         <Grid.ColumnDefinitions>
@@ -171,18 +175,16 @@
       <GradientStop Color="#00342F" Offset="1"/>
     </LinearGradientBrush>
     <Style x:Key="SectionHeading" TargetType="TextBlock">
-      <Setter Property="Foreground" Value="#F6FFF9"/>
-      <Setter Property="FontSize" Value="21"/>
-      <Setter Property="FontWeight" Value="Bold"/>
-      <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#9ACCC4" BlurRadius="4" ShadowDepth="0" Opacity="0.38"/></Setter.Value></Setter>
+      <Setter Property="Foreground" Value="{StaticResource GraphitePrimary}"/>
+      <Setter Property="FontSize" Value="19"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style x:Key="HeroIcon" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="26"/>
-      <Setter Property="Foreground" Value="#4CF6DB"/>
-      <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#1BFFE2" BlurRadius="13" ShadowDepth="0" Opacity="0.78"/></Setter.Value></Setter>
+      <Setter Property="FontSize" Value="23"/>
+      <Setter Property="Foreground" Value="{StaticResource GraphiteAccent}"/>
     </Style>
-    <SolidColorBrush x:Key="Accent" Color="#A6F873"/>
-    <SolidColorBrush x:Key="Teal" Color="#72DED0"/>
+    <SolidColorBrush x:Key="Accent" Color="#71C6B9"/>
+    <SolidColorBrush x:Key="Teal" Color="#71C6B9"/>
     <SolidColorBrush x:Key="Muted" Color="#9DB7B2"/>
     <!-- Premium navigation: state owned by one attached DP, never by mutable local brushes. -->
     <Style x:Key="NavKeyboardFocus" TargetType="{x:Type Control}">
@@ -202,12 +204,12 @@
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FocusVisualStyle" Value="{StaticResource NavKeyboardFocus}"/>
       <Setter Property="FontFamily" Value="Segoe UI"/>
-      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontSize" Value="13"/>
       <Setter Property="FontWeight" Value="Medium"/>
-      <Setter Property="MinHeight" Value="39"/>
+      <Setter Property="MinHeight" Value="43"/>
       <Setter Property="HorizontalContentAlignment" Value="Left"/>
       <Setter Property="Padding" Value="15,8,12,8"/>
-      <Setter Property="Margin" Value="10,1,10,1"/>
+      <Setter Property="Margin" Value="10,2,10,2"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
@@ -264,10 +266,10 @@
       <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="BorderBrush" Value="#334249"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="14,10"/>
-      <Setter Property="MinHeight" Value="35"/>
+      <Setter Property="Padding" Value="12,7"/>
+      <Setter Property="MinHeight" Value="36"/>
       <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Margin" Value="0,0,9,5"/>
+      <Setter Property="Margin" Value="0,0,8,5"/>
       <Setter Property="FocusVisualStyle" Value="{StaticResource NavKeyboardFocus}"/>
       <Setter Property="Template"><Setter.Value>
         <ControlTemplate TargetType="Button">
@@ -297,18 +299,18 @@
       </Setter.Value></Setter>
     </Style>
     <Style TargetType="Button" x:Key="PrimaryAction" BasedOn="{StaticResource ActionButton}">
-      <Setter Property="Background" Value="#23896D"/><Setter Property="BorderBrush" Value="#3E9F87"/>
+      <Setter Property="Background" Value="#2B7368"/><Setter Property="BorderBrush" Value="#468F83"/>
     </Style>
     <Style TargetType="Button" x:Key="GoldAction" BasedOn="{StaticResource ActionButton}">
-      <Setter Property="Background" Value="#3C372D"/><Setter Property="BorderBrush" Value="#947E55"/>
+      <Setter Property="Background" Value="#35322D"/><Setter Property="BorderBrush" Value="#72654B"/>
     </Style>
     <Style TargetType="Border" x:Key="Panel">
       <Setter Property="Background" Value="{StaticResource SurfacePanel}"/>
       <Setter Property="BorderBrush" Value="{StaticResource SurfaceLine}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="9"/>
-      <Setter Property="Padding" Value="14"/>
-      <Setter Property="Margin" Value="0,0,10,10"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="16,14"/>
+      <Setter Property="Margin" Value="0,0,12,12"/>
     </Style>
     <Style TargetType="Border" x:Key="NeonStatPanel" BasedOn="{StaticResource Panel}">
       <Setter Property="Background" Value="{StaticResource SurfacePanel}"/>

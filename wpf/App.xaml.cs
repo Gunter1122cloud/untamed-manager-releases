@@ -195,7 +195,12 @@ public partial class App : System.Windows.Application
                 }
                 Environment.Exit(0);
             }
-            catch(Exception ex) { Log(ex); Environment.Exit(1); }
+            catch(Exception ex) {
+                Log(ex);
+                try{File.AppendAllText(Path.Combine(LogDir,"screenshot-diagnostics.log"),
+                    DateTimeOffset.UtcNow.ToString("O")+" "+ex+"\n");}catch{}
+                Environment.Exit(1);
+            }
             return;
         }
         if (IsSmokeTest)

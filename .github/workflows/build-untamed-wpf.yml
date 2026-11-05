@@ -137,7 +137,11 @@ jobs:
         run: |
           $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--screenshot-test" -PassThru
           if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "WPF screenshot render timeout" }
-          if ($p.ExitCode -ne 0) { throw "WPF screenshot generation failed" }
+          if ($p.ExitCode -ne 0) {
+            $logDir=Join-Path $env:LOCALAPPDATA "UntamedManager/WPF"
+            if(Test-Path "$logDir/crash.log"){Get-Content "$logDir/crash.log" -Tail 35}
+            throw "WPF screenshot generation failed"
+          }
           if (!(Test-Path "$env:UNTAMED_SCREENSHOT_PATH")) { throw "WPF screenshot output missing" }
           if ((Get-Item "$env:UNTAMED_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF screenshot unexpectedly small" }
           foreach ($page in @("servers","mods","plugins","cluster","backups","settings","ini","logs",

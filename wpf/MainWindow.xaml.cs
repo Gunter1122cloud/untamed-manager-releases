@@ -87,10 +87,10 @@ public partial class MainWindow : Window
         "CousinCustomRates 1.5", "ImplantFix",
         "Unicode RCON ASA", "Lethal Quests Ascended"
     };
-    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(27,37,43));
-    private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(237,243,241));
-    private static readonly Brush Aqua = new SolidColorBrush(Color.FromRgb(91,196,183));
-    private static readonly Brush Soft = new SolidColorBrush(Color.FromRgb(169,187,189));
+    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(27,36,41));
+    private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(234,243,241));
+    private static readonly Brush Aqua = new SolidColorBrush(Color.FromRgb(113,198,185));
+    private static readonly Brush Soft = new SolidColorBrush(Color.FromRgb(167,180,183));
 
     public MainWindow()
     {
@@ -362,13 +362,13 @@ public partial class MainWindow : Window
         PageTitle.Text=title;PageDescription.Text=description;
     }
     private static TextBlock Label(string text,int size=14,Brush? color=null,bool bold=false) =>
-       new() { Text=UntamedPresentation.Display(text),Foreground=color??Brushes.White,FontSize=size,
-           TextWrapping=TextWrapping.Wrap,FontWeight=bold?FontWeights.Bold:FontWeights.Normal,
-           Margin=new Thickness(0,0,0,10) };
+       new() { Text=UntamedPresentation.Display(text),Foreground=color??Mint,FontSize=size,
+           TextWrapping=TextWrapping.Wrap,FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal,
+           Margin=new Thickness(0,0,0,8) };
     private static Border Box(UIElement child) =>
-       new() { Background=Panel,BorderBrush=new SolidColorBrush(Color.FromRgb(51,66,73)),
-           BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(9),
-           Padding=new Thickness(14),Margin=new Thickness(0,0,0,10),Child=child };
+       new() { Background=Panel,BorderBrush=new SolidColorBrush(Color.FromRgb(53,64,72)),
+           BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(10),
+           Padding=new Thickness(16,14,16,14),Margin=new Thickness(0,0,12,12),Child=child };
     private static StackPanel V(params UIElement[] elements)
     {
         var p=new StackPanel();

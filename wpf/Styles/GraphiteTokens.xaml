@@ -1,0 +1,19 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <!-- UNTAMED KINGDOM / Graphite Design System 2026
+      Neutral matte surfaces, restrained teal emphasis; no luminous/gradient cards. -->
+ <SolidColorBrush x:Key="GraphiteCanvas" Color="#11161A"/>
+ <SolidColorBrush x:Key="GraphiteSidebar" Color="#151C21"/>
+ <SolidColorBrush x:Key="GraphiteHeader" Color="#171F24"/>
+ <SolidColorBrush x:Key="GraphitePanel" Color="#1B2429"/>
+ <SolidColorBrush x:Key="GraphiteRaised" Color="#242F35"/>
+ <SolidColorBrush x:Key="GraphiteBorder" Color="#354048"/>
+ <SolidColorBrush x:Key="GraphiteMuted" Color="#A7B4B7"/>
+ <SolidColorBrush x:Key="GraphitePrimary" Color="#EAF3F1"/>
+ <SolidColorBrush x:Key="GraphiteAccent" Color="#71C6B9"/>
+ <SolidColorBrush x:Key="GraphiteAccentDeep" Color="#2B7368"/>
+ <SolidColorBrush x:Key="GraphiteAmber" Color="#C7A56A"/>
+ <Thickness x:Key="GraphitePageMargin">22,18,22,30</Thickness>
+ <Thickness x:Key="GraphiteCardPadding">16,14,16,14</Thickness>
+ <CornerRadius x:Key="GraphiteCardRadius">10</CornerRadius>
+</ResourceDictionary>
