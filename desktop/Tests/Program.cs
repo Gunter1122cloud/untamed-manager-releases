@@ -457,6 +457,35 @@ try
             "broken historical metadata is reported without erasing valid local mod assignments");
     }
 
+    // Update Center: deterministic provider response; no remote download,
+    // installer launch or server mutation in this test.
+    {
+        var release=new UpdateRelease(new Version(9,0,0),"v9.0.0",
+            "Synthetic test release; do not install.",
+            "https://github.com/Gunter1122cloud/untamed-manager-releases/releases/download/v9.0.0/UntamedManager-9.0.0-SETUP.exe",
+            new string('a',64),"UntamedManager-9.0.0-SETUP.exe");
+        var update=new DesktopUpdateStatusBridge((_,_)=>Task.FromResult<UpdateRelease?>(release));
+        var status=await Call(update.HandleAsync,"updates.status");
+        IsOk(status,"local Update Center exposes installed release identity without network");
+        Check(!status.GetProperty("data").GetProperty("installationPermitted").GetBoolean() &&
+              !status.GetProperty("data").GetProperty("updaterVerified").GetBoolean(),
+            "local update status does not invent verified updater privileges");
+        var found=await Call(update.HandleAsync,"updates.check",new{channel="stable"});
+        IsOk(found,"official release metadata checker resolves trusted static repo");
+        Check(found.GetProperty("data").GetProperty("found").GetBoolean() &&
+              found.GetProperty("data").GetProperty("tag").GetString()=="v9.0.0" &&
+              !found.GetProperty("data").GetProperty("installationPermitted").GetBoolean(),
+            "update check cannot install even when newer release metadata is present");
+        var invalid=await Call(update.HandleAsync,"updates.check",new{channel="invalid"});
+        Check(IsError(invalid,"UM-UPDATE-CHECK-FAILED"),
+            "malformed release channel is denied, not redirected to untrusted API");
+        var untrusted=new DesktopUpdateStatusBridge((_,_)=>Task.FromResult<UpdateRelease?>(
+            release with{AssetUrl="https://example.org/UntamedManager-9.0.0-SETUP.exe"}));
+        var blocked=await Call(untrusted.HandleAsync,"updates.check",new{channel="stable"});
+        Check(IsError(blocked,"UM-UPDATE-UNTRUSTED-RELEASE"),
+            "untrusted release asset domain fails closed without staging an installer");
+    }
+
     // Real native Plugin Center mutations only in a disposable synthetic
     // installation. Both local maps sharing the plugin folder must be stopped.
     {
