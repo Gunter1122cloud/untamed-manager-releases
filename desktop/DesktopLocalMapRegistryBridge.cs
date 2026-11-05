@@ -131,6 +131,19 @@ public sealed class DesktopLocalMapRegistryBridge : IDisposable
         for(DirectoryInfo? node=new(root);node!=null;node=node.Parent)
             if(node.Exists && (node.Attributes&FileAttributes.ReparsePoint)!=0)
                 throw new InvalidDataException("Linked installation directory refused");
+        // Probe only the exact ASA binary layout, refusing descendant junctions,
+        // symbolic links and redirected executables before a profile can own it.
+        string cursor=root;
+        foreach(var segment in new[]{"ShooterGame","Binaries","Win64"})
+        {
+            cursor=Path.Combine(cursor,segment);
+            if(Directory.Exists(cursor) &&
+               (File.GetAttributes(cursor)&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("Linked ASA executable directory refused");
+        }
+        string exe=Path.Combine(cursor,"ArkAscendedServer.exe");
+        if(File.Exists(exe) && (File.GetAttributes(exe)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("Linked ASA executable refused");
         return root;
     }
     private static bool GuidField(JsonElement root,string key,out Guid value)
