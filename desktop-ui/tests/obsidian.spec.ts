@@ -274,6 +274,7 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
   await expect(page.locator(".premium-mod-details")).toBeVisible();
   await expect(page.locator(".premium-mod-bottom-bar")).toBeVisible();
 
+  await page.getByRole("tab",{name:"CurseForge katalógus"}).click();
   await page.getByRole("textbox", { name: "CurseForge mod keresése" }).fill("Shiny");
   await page.getByRole("button", { name: "Keresés", exact: true }).click();
   await expect(page.locator("#curseforge-catalog").getByRole("heading", { name: "Example Search Result" }).first()).toBeVisible();
@@ -345,6 +346,7 @@ test("native mod draft contract stages in memory and saves only on explicit clic
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
   await expect(page.getByRole("heading",{name:/^Modok –/})).toBeVisible();
+  await page.getByRole("tab",{name:"Modpiszkozat"}).click();
   await page.getByRole("button",{name:"Piszkozat indítása"}).click();
   await page.getByRole("textbox",{name:"Modprojekt ID"}).fill("567890");
   await page.getByRole("button",{name:"Lépés hozzáadása"}).click();
@@ -428,6 +430,7 @@ test("CurseForge official Galaxy browses categories, projects, versions, and pre
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("tab",{name:"CurseForge katalógus"}).click();
   await expect(page.getByText("CurseForge ASA Mod Galaxy")).toBeVisible();
   await expect(page.getByRole("tab",{name:"Kiemelt modok"})).toBeVisible();
   await expect(page.getByText("Featured Mod").first()).toBeVisible();
@@ -622,6 +625,7 @@ test("cross-map mod inventory uses actual native contract, filtering and map sel
   await expect(page.getByRole("heading",{name:/^Modok –/})).toBeVisible();
   // Panel is a section with a heading; identify via its text instead of
   // depending on fragile CSS selectors.
+  await page.getByRole("tab",{name:"Közös modok"}).click();
   const shared=page.getByRole("heading",{name:"Közös modok · helyi mapok"});
   await expect(shared).toBeVisible();
   await expect(page.getByText("Projekt #928548")).toBeVisible();
