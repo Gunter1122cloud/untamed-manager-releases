@@ -46,6 +46,20 @@ export type CurseForgeResult = {
   }>;
 };
 
+export type PluginInventory = {
+  mapId: string;
+  mapName: string;
+  evidence: "READ_ONLY_LOCAL_FILE_INVENTORY";
+  plugins: Array<{ name: string; protectedData: boolean;
+    binaries: Array<{ name: string; version: string; bytes: number }> }>;
+};
+
+export type BackupOverview = {
+  evidence: "FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE";
+  maps: Array<{ mapId: string; mapName: string; validPackages: number;
+    invalidPackages: number; verifiedBytes: number; latestVerifiedUtc: string | null }>;
+};
+
 export type ConfiguredMods = {
   mapId: string;
   mapName: string;
@@ -56,7 +70,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search"; mapId?: string; term?: string; page?: number };
+type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "curseforge.search" | "plugins.inventory" | "backups.summary"; mapId?: string; term?: string; page?: number };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -95,4 +109,6 @@ export const managerBridge = {
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
   configuredMods: (mapId: string) => request<ConfiguredMods>("mods.configured", { mapId }),
   catalogSearch: (term: string, page = 0) => request<CurseForgeResult>("curseforge.search", { term, page }),
+  pluginInventory: (mapId: string) => request<PluginInventory>("plugins.inventory", { mapId }),
+  backupOverview: () => request<BackupOverview>("backups.summary"),
 };

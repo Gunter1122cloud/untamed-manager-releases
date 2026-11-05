@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, ChevronRight,
+  Activity, AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   Cpu, Database, HardDrive, LayoutDashboard, Layers3, Monitor,
-  Package, RefreshCw, Search, Server, Shield, WifiOff
+  Package, Plug, RefreshCw, Search, Server, Shield, WifiOff
 } from "lucide-react";
 import {
-  managerBridge, type ConfiguredMods, type CurseForgeResult, type DashboardSnapshot,
+  managerBridge, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
+  type PluginInventory, type DashboardSnapshot,
   type PublicMap, type RemoteHost
 } from "./bridge";
 
-type Page = "dashboard" | "servers" | "mods" | "cluster";
+type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
   { page: "dashboard", label: "Áttekintés", icon: LayoutDashboard },
   { page: "servers", label: "Szerverek", icon: Server },
   { page: "cluster", label: "Cluster", icon: Boxes },
   { page: "mods", label: "Modok", icon: Layers3 },
+  { page: "plugins", label: "Pluginok", icon: Plug },
+  { page: "backups", label: "Mentések", icon: Archive },
+  { page: "steam", label: "SteamCMD", icon: HardDrive },
 ];
 
 function prettyMemory(kiB: number | null): string {
@@ -238,6 +242,79 @@ function Mods({ snapshot, selected, setSelected }: {
     <CurseForgeExplorer/>
   </>;
 }
+function PluginCenter({ snapshot, selected, setSelected }: {
+  snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void
+}) {
+  const [info, setInfo] = useState<PluginInventory | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setInfo(null); setError("");
+    if (!selected) return;
+    managerBridge.pluginInventory(selected).then(data => { if (active) setInfo(data); })
+      .catch(e => { if (active) setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE"); });
+    return () => { active = false; };
+  }, [selected]);
+  return <>
+    <div className="page-intro"><span className="eyebrow">ASA API / LOCAL INSTALLATION</span><h1>Plugin Center</h1>
+      <p>Helyi DLL-leltár a meglévő C# pluginolvasóval. Nem engedélyez vagy frissít pluginokat.</p></div>
+    <div className="toolbar"><Plug size={19}/><select aria-label="Pluginok mapja" value={selected} onChange={e => setSelected(e.target.value)}>
+      {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+    </div>
+    <Panel title={info ? `Helyi pluginok · ${info.mapName}` : "Pluginok"}>
+      {error && <div className="error-inline"><AlertTriangle size={17}/>{error}</div>}
+      {!error && !selected && <div className="empty">Nincs kiválasztható helyi map.</div>}
+      {!error && selected && !info && <div className="empty">Helyi telepítés vizsgálata...</div>}
+      {info?.plugins.length === 0 && <div className="empty">Nem található plugin a regisztrált map telepítési helyén.</div>}
+      {info?.plugins.map((plugin,i) => <div className="plugin-row" key={plugin.name + i}>
+        <span className="plugin-symbol"><Plug size={21}/></span>
+        <div className="plugin-copy"><b>{plugin.name}</b><small>{plugin.binaries.map(b => b.name + " · " + (b.version || "verzió nélkül")).join(", ") || "Nincs DLL-adat"}</small></div>
+        <span className={plugin.protectedData ? "mod-tag amber" : "mod-tag green"}>{plugin.protectedData ? "Védett" : "Helyi leltár"}</span>
+      </div>)}
+      <div className="warning-inline"><Shield size={17}/> Csak fájlleltár. Nem bizonyítja, hogy a futó ASA betöltötte a plugint.</div>
+    </Panel>
+  </>;
+}
+function BackupCenter() {
+  const [info, setInfo] = useState<BackupOverview | null>(null);
+  const [error, setError] = useState("");
+  const reload = useCallback(async () => {
+    try { setInfo(await managerBridge.backupOverview()); setError(""); }
+    catch(e){ setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE"); }
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
+  return <>
+    <div className="page-intro"><span className="eyebrow">BACKUP / FILE INTEGRITY</span><h1>Mentésközpont</h1>
+      <p>Meglévő helyi csomagok integritásának ellenőrzött áttekintése, bármiféle restore vagy SQL-írás nélkül.</p></div>
+    <Panel title="Helyi mentésleltár" action={<button className="quiet" onClick={() => { void reload(); }}><RefreshCw size={16}/> Frissítés</button>}>
+      {error && <div className="error-inline">{error}</div>}
+      {!info && !error && <div className="empty">Mentések ellenőrzése...</div>}
+      {info?.maps.length === 0 && <div className="empty">Nincs regisztrált helyi map.</div>}
+      {info?.maps.map(m => <div className="backup-row" key={m.mapId}>
+        <span className="plugin-symbol"><Archive size={21}/></span>
+        <div className="plugin-copy"><b>{m.mapName}</b>
+          <small>Legutóbbi igazolt csomag: {m.latestVerifiedUtc ? new Date(m.latestVerifiedUtc).toLocaleString("hu-HU") : "Nincs adat"}</small></div>
+        <div className="backup-stats"><strong>{m.validPackages} rendben</strong><span>{m.invalidPackages} hibás · {(m.verifiedBytes / 1073741824).toFixed(2)} GiB</span></div>
+      </div>)}
+      <div className="warning-inline"><Shield size={17}/> A fájlintegritás nem bizonyítja az ASA mentésének, a Store-nak vagy az SQL-nek az alkalmazásszintű konzisztenciáját.</div>
+    </Panel>
+  </>;
+}
+function SteamCenter({ snapshot }: { snapshot: DashboardSnapshot }) {
+  return <>
+    <div className="page-intro"><span className="eyebrow">VALVE STEAMCMD / INSTALLED BUILD</span><h1>SteamCMD Center</h1>
+      <p>A meglévő C# Steam-build leltár által szolgáltatott állapotok. Ez az oldal nem indít frissítést.</p></div>
+    <Panel title="Helyi ASA telepítések">
+      {snapshot.local.maps.length===0 && <div className="empty">Nincs hozzáadott helyi telepítés.</div>}
+      {snapshot.local.maps.map(m => <div className="steam-row" key={m.id}>
+        <div className="plugin-copy"><b>{m.name}</b><small>Game port: {m.gamePort || "nem ismert"}</small></div>
+        <div className="backup-stats"><strong>Build: {m.steamBuildId || "nem ismert"}</strong><span>{m.steamUpdateState}</span></div>
+      </div>)}
+      <div className="warning-inline"><Shield size={17}/> Az új UI-n nincs SteamCMD írási művelet. A meglévő helyi műveleti koordinátor és biztonsági kapuk változatlanok.</div>
+    </Panel>
+  </>;
+}
+
 function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
   const remote: RemoteHost | null = snapshot.remote;
   return <><div className="page-intro"><span className="eyebrow">LAN / OWNERSHIP</span><h1>Cluster</h1><p>Gazdagépenként saját Manager, közös státusznézet, távoli parancsok nélkül.</p></div>
@@ -299,6 +376,9 @@ export function App() {
           {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap}/>}
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
+          {page === "plugins" && <PluginCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
+          {page === "backups" && <BackupCenter/>}
+          {page === "steam" && <SteamCenter snapshot={snapshot}/>} 
         </>}
       </main>
       <footer className="footer"><span className="footer-dot"/> <b>Untamed Kingdom</b> · Natív .NET 10 / WebView2
