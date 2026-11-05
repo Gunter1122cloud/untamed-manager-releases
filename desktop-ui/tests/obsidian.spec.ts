@@ -50,6 +50,14 @@ test.beforeEach(async ({ page }) => {
     const iniToken="00000000-0000-4000-8000-000000003333";
     const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string }) => {
       switch (m.method) {
+        case "rcon.status": return {
+          mapId:m.mapId,mapName:"The Island",configured:false,
+          processVerified:true,permitted:false,maintenance:false,
+          allowedCommands:["ListPlayers"],
+          evidence:"LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND"
+        };
+        case "rcon.listPlayers":
+          throw new Error("Only verified local process/port can query players");
         case "updates.status": return {
           repository:"Gunter1122cloud/untamed-manager-releases",
           runningVersion:"1.4.0",installedTag:"v1.4.0",
@@ -556,7 +564,11 @@ test("local map card opens map-specific details, functional tabs, back navigatio
   await expect(page.getByRole("tablist",{name:"Map funkciói"})).toBeVisible();
   await expect(page.locator(".map-detail-hero .premium-map-cover")).toBeVisible();
   await page.screenshot({path:"test-results/map-detail-premium-1600.png",fullPage:false});
-  await expect(page.getByRole("tab",{name:/RCON/})).toBeDisabled();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  await expect(page.getByRole("heading",{name:"RCON konzol"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Játékoslista lekérdezése"})).toBeDisabled();
+  await expect(page.getByText(/Nem küldhető RCON parancs/)).toBeVisible();
+  await page.getByRole("tab",{name:"Áttekintés"}).click();
   await page.getByRole("tab",{name:"Modok"}).click();
   await expect(page.getByRole("heading",{name:/^Modok –/})).toBeVisible();
   await page.getByRole("tab",{name:"INI"}).click();
