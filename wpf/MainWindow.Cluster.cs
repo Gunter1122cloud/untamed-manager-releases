@@ -1059,6 +1059,9 @@ public partial class MainWindow
                             steamProgress.Visibility=Visibility.Visible;
                             var receipt=await SteamFreshInstall.InstallAsync(
                                 request,_cluster.Config.LocalMaps.ToArray(),progress);
+                            // SteamCMD has exited and all install receipts are
+                            // verified; no further background filesystem writer exists.
+                            installInProgress=false;
                             exeText=receipt.ServerExecutable;
                             serverExe.Text=exeText;
                             fields["Indítási paraméterek (pontos egyezés)"].Text=args;
