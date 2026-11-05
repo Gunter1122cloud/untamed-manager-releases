@@ -306,6 +306,26 @@ test("1366px viewport preserves keyboard focus and page scrolling", async ({ pag
   await page.screenshot({ path: "test-results/server-list-1366.png", fullPage: true });
 });
 
+test("premium server browser opens local maps by keyboard and never issues remote navigation",async({page})=>{
+  await page.setViewportSize({width:1366,height:768});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const local=page.locator(".premium-map-line.is-local").first();
+  await expect(local).toBeVisible();
+  await expect(local).toHaveAttribute("tabindex","0");
+  await local.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading",{name:"The Island",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  const peer=page.locator(".premium-map-line.is-remote").first();
+  await expect(peer).toBeVisible();
+  await expect(peer).not.toHaveAttribute("tabindex","0");
+  await expect(peer.getByText("Megfigyelés")).toBeVisible();
+  await peer.click();
+  await expect(page.getByRole("heading",{name:"Szerverek",exact:true})).toBeVisible();
+  await page.screenshot({path:"test-results/premium-server-browser-1366.png",fullPage:false});
+});
+
 test("Steam installation preflight and redacted log center are read-only and filterable", async ({page}) => {
   await page.setViewportSize({width:1366,height:768});
   await page.goto("/");
