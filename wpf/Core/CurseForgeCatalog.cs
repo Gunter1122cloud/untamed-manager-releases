@@ -87,6 +87,7 @@ public sealed class CurseForgeCatalog
     public async Task<CurseForgeMod> GetAsaModAsync(string key,int modId,
         CancellationToken ct=default)
     {
+        ct.ThrowIfCancellationRequested();
         if(string.IsNullOrWhiteSpace(key) || key.Length>512 || key.Any(char.IsControl))
             throw new ArgumentException("Approved CurseForge API key required",nameof(key));
         if(modId<10000)throw new ArgumentOutOfRangeException(nameof(modId));
