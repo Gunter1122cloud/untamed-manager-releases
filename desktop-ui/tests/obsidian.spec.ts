@@ -30,7 +30,6 @@ test.beforeEach(async ({ page }) => {
       peerMessage: ""
     };
     let freshId = "";
-    let freshDone = false;
     let keySaved = false;
     let stagedId = "";
     let redoId = "";
@@ -42,7 +41,7 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string }) => {
       switch (m.method) {
         case "steam.freshCurrent": return {current:null};
         case "steam.freshPreflight": return {
@@ -56,7 +55,6 @@ test.beforeEach(async ({ page }) => {
           freshId="00000000-0000-4000-8000-000000008889";
           return {jobId:freshId,started:true,evidence:"EXPLICIT_FRESH_INSTALL_STARTED"};
         case "steam.freshStatus":
-          freshDone=true;
           return {jobId:freshId,mapName:"Valguero",stage:"verified",
             detail:"ASA EXE és Steam appmanifest ellenőrizve",percent:100,
             verified:true,registered:false,errorCode:null,evidence:"NATIVE_STEAMCMD_JOB_STATE"};
