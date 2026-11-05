@@ -195,7 +195,7 @@ public static class ModStateController
             enabled.Insert(insertAt,edit.ModId);
         }
         var next=remaining+
-            (enabled.Length>0?(remaining.Length>0?" ":"")+"-mods="+string.Join(",",enabled):"");
+            (enabled.Count>0?(remaining.Length>0?" ":"")+"-mods="+string.Join(",",enabled):"");
         next+=(passive.Count>0?(next.Length>0?" ":"")+"-passivemods="+
             string.Join(",",passive):"");
         bool changed=!string.Equals(next,arg,StringComparison.Ordinal) ||
