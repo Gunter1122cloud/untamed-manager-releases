@@ -22,7 +22,7 @@ public sealed class DesktopPluginStateBridge : IDisposable
     private readonly Dictionary<Guid,Pending> approvals=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private sealed record Pending(Guid MapId,string Plugin,bool TargetEnabled,
-        string OriginalInstallation,DateTimeOffset ExpiresUtc);
+        string OriginalInstallation,Guid[] InstallationMembers,DateTimeOffset ExpiresUtc);
 
     public DesktopPluginStateBridge(ClusterService service)=>
         cluster=service??throw new ArgumentNullException(nameof(service));
@@ -89,8 +89,9 @@ public sealed class DesktopPluginStateBridge : IDisposable
                         });
                     if(approvals.Count>=8)approvals.Clear();
                     var token=Guid.NewGuid();
+                    string sourceRoot=Path.GetFullPath(map.InstallationPath);
                     approvals[token]=new(mapId,readiness.Plugin,enabled,
-                        Path.GetFullPath(map.InstallationPath),DateTimeOffset.UtcNow.AddMinutes(5));
+                        sourceRoot,Members(sourceRoot),DateTimeOffset.UtcNow.AddMinutes(5));
                     return Success(id,new{
                         allowed=true,token,plugin=readiness.Plugin,
                         targetEnabled=enabled,checkedLocalMaps=readiness.CheckedLocalMaps,
@@ -115,7 +116,8 @@ public sealed class DesktopPluginStateBridge : IDisposable
                 if(owned.HistoricalStoreProtected)
                     return Error(id,"UM-HISTORICAL-STORE-LOCKED");
                 if(!string.Equals(Path.GetFullPath(owned.InstallationPath),
-                    saved.OriginalInstallation,StringComparison.OrdinalIgnoreCase))
+                    saved.OriginalInstallation,StringComparison.OrdinalIgnoreCase) ||
+                   !Members(saved.OriginalInstallation).SequenceEqual(saved.InstallationMembers))
                     return Error(id,"UM-PLUGIN-STATE-CHANGED");
                 if(DateTimeOffset.UtcNow>=saved.ExpiresUtc)
                     return Error(id,"UM-PLUGIN-PREVIEW-EXPIRED");
@@ -142,6 +144,13 @@ public sealed class DesktopPluginStateBridge : IDisposable
             return Error(id,"UM-PLUGIN-OPERATION-FAILED");
         }
     }
+
+    private Guid[] Members(string installationRoot)=>
+        cluster.Config.LocalMaps
+            .Where(m=>!string.IsNullOrWhiteSpace(m.InstallationPath) &&
+                string.Equals(Path.GetFullPath(m.InstallationPath),installationRoot,
+                    StringComparison.OrdinalIgnoreCase))
+            .Select(m=>m.Id).OrderBy(id=>id).ToArray();
 
     private LocalMap? Own(Guid id)=>
         cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id);
