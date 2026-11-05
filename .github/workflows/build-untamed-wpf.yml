@@ -236,7 +236,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-premium-test.4"
+          $tag = "v1.6.1-premium-test.5"
           $repo = "$env:GITHUB_REPOSITORY"
           $files = @(
             "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-premium-test.exe",
@@ -247,6 +247,8 @@ jobs:
             "dist/UI-Screenshots/UntamedManager-demo-mods.png#UntamedManager-premium-demo-mods.png",
             "dist/UI-Screenshots/UntamedManager-demo-plugins.png#UntamedManager-premium-demo-plugins.png",
             "dist/UI-Screenshots/UntamedManager-demo-servers.png#UntamedManager-premium-demo-servers.png",
+            "dist/UI-Screenshots/UntamedManager-backups.png#UntamedManager-premium-backup-center.png",
+            "dist/UI-Screenshots/UntamedManager-demo-backups.png#UntamedManager-premium-demo-backups.png",
             "dist/UI-Screenshots/UntamedManager-cluster.png#UntamedManager-premium-cluster.png"
           )
           gh release view $tag --repo $repo --json tagName 2>$null | Out-Null
@@ -254,8 +256,8 @@ jobs:
             gh release upload $tag @files --repo $repo --clobber
           } else {
             gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 4" --prerelease `
-              --notes "Graphite TEST 3: native graphite Plugin Center with map-scoped search/filter, selected plugin controls, safe DLL version and SHA-256 details, and confirmed shared-install plugin enable/disable with full directory backup. Plugins recheck all local sibling map process states under the mutation lease. Local Servers now has searchable observed-state cards and direct Mod Center / Plugin Center / map-scoped Backups navigation. Offline DEMO Plugin Center matches the design. The Mod Center still supports ordered drafts and Undo/Redo. Isolated Store-v1/SQL/FakeAsa tests and existing production safety gates are retained. Use only on a separate Windows test PC; no live ASA or Store writer certification."
+              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 5" --prerelease `
+              --notes "Graphite TEST 5: NEW native graphite Backup Center with map-scoped two-column interface, real stopped-map offline backup preflight (files, selected bytes, free disk and reserve), explicit operator confirmation, SHA-256 verified file-copy, searchable integrity history and selected-package re-verification. Existing retentions, quarantine, SQL tools and multi-map overview remain in advanced controls. Premium Mod and Plugin Centers, undo/redo, local server shortcuts and offline DEMO remain. The source of ASA SaveComplete and multi-host Store-v1 consistency remains NOT production-certified: no real ASA restart or SQL/Store live restore is enabled. Test only on an isolated Windows PC."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
           # A cancelled prior CI can leave an unpublished draft with the same tag.
