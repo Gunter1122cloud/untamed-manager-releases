@@ -33,6 +33,7 @@ test.beforeEach(async ({ page }) => {
     let keySaved = false;
     let stagedId = "";
     let redoId = "";
+    let pluginEnabled = true;
     const draftToken = "00000000-0000-4000-8000-000000001234";
     const draftState = () => ({
       draftId:draftToken,mapId:one,active:stagedId?["123456",stagedId]:["123456"],
@@ -41,7 +42,7 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean }) => {
       switch (m.method) {
         case "historical.launchEvidence": return {
           mapStatus:"MENTIONED",gamePortStatus:"MATCH",queryPortStatus:"MATCH",
@@ -176,6 +177,23 @@ test.beforeEach(async ({ page }) => {
           evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY"
         };
         case "mods.configured": return {mapId: m.mapId, mapName: "The Island", pending: false, active: ["123456"], passive: ["789012"], disabled: [], evidence:"CONFIGURED_ONLY"};
+        case "plugins.state": return {
+          mapId:m.mapId,mapName:"The Island",historicalProtected:false,
+          plugins:[{name:"ExamplePlugin",enabled:pluginEnabled,runtimeLoadedVerified:false}],
+          evidence:"LOCAL_PLUGIN_DISK_STATE_ONLY"
+        };
+        case "plugins.togglePreview": return {
+          allowed:true,token:"00000000-0000-4000-8000-000000002222",
+          plugin:m.plugin??"ExamplePlugin",targetEnabled:m.enabled??false,
+          checkedLocalMaps:2,reason:"Minden megosztott telepítésű helyi map igazoltan leállítva.",
+          requiresRestart:true,productionRuntimeVerified:false,
+          evidence:"LOCAL_PLUGIN_TOGGLE_PREFLIGHT_NO_WRITES"
+        };
+        case "plugins.toggleApply":
+          pluginEnabled=!pluginEnabled;
+          return {mapId:one,plugin:"ExamplePlugin",enabled:pluginEnabled,
+            backupCreated:true,requiresRestart:true,runtimeLoadedVerified:false,
+            evidence:"VERIFIED_LOCAL_PLUGIN_DIRECTORY_TOGGLE"};
         case "plugins.inventory": return {mapId:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
         case "steam.installations": return {evidence:"READ_ONLY_STEAM_INSTALLATION_PREFLIGHT",installations:[{id:0,maps:["The Island","Astraeos"],executablePresent:true,installedSteamBuild:"123456",updateBlocked:true,reason:"Read-only test fixture: upgrade blocked"}]};
@@ -609,4 +627,20 @@ test("cross-map mod inventory uses actual native contract, filtering and map sel
   await expect(page.getByText("Projekt #940975")).toHaveCount(0);
   await page.getByRole("button",{name:"Astraeos · Passzív #1"}).click();
   await expect(page.getByRole("combobox",{name:"Helyi map"})).toHaveValue("00000000-0000-4000-8000-000000000002");
+});
+
+test("plugin center requires native preview and explicit operator approval before toggle",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Pluginok"}).click();
+  await expect(page.getByRole("heading",{name:"Plugin Center"})).toBeVisible();
+  await expect(page.getByText("Engedélyezett mappa")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Pluginállapot módosításának jóváhagyása"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Letiltás előnézete"}).click();
+  await expect(page.getByText("Megvizsgált helyi mapok")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Pluginállapot módosításának jóváhagyása"})).toBeDisabled();
+  await page.getByText(/Jóváhagyom a helyi pluginmappa áthelyezését/).click();
+  await page.getByRole("button",{name:"Pluginállapot módosításának jóváhagyása"}).click();
+  await expect(page.getByText("Letiltott mappa")).toBeVisible();
+  await expect(page.getByText(/teljes könyvtár mentése elkészült/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Engedélyezés előnézete"})).toBeVisible();
 });
