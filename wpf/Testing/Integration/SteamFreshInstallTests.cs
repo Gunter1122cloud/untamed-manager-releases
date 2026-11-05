@@ -23,7 +23,7 @@ public static class SteamFreshInstallTests
         if(!File.Exists(cmd))File.WriteAllText(cmd,"synthetic steam command placeholder");
         var mapId=Guid.NewGuid();
         string destination=Path.Combine(root,"steam-new-map-"+Guid.NewGuid().ToString("N"));
-        var req=new SteamFreshInstallRequest(mapId,"The Island","Untamed Island",
+        var req=new SteamFreshInstallRequest(mapId,"The Island","",
             destination,cmd,false,MinimumFreeBytes:5L*1024*1024*1024);
         var receipt=await SteamFreshInstall.RunFakeFixtureAsync(
             req,Array.Empty<LocalMap>(),fakeSteam);
@@ -32,7 +32,7 @@ public static class SteamFreshInstallTests
             receipt.ServerExecutable.EndsWith("ArkAscendedServer.exe",
                 StringComparison.OrdinalIgnoreCase) &&
             File.Exists(receipt.ServerExecutable),
-            "new ASA installation executes the same bounded Steam arguments and verifies EXE/build");
+            "fresh ASA download accepts an empty session name and verifies the EXE/build before port setup");
         Check(!File.Exists(Path.Combine(destination,"ShooterGame","Saved","SavedArks","TheIsland_WP.ark")) &&
             !Directory.Exists(Path.Combine(destination,"ShooterGame","Saved")),
             "new Steam install does not invent/overwrite saves, INIs or Store state");

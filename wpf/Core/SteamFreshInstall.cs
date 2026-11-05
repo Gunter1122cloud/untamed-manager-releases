@@ -284,7 +284,9 @@ public static class SteamFreshInstall
                         "Retry blocked: save/config files appeared in incomplete installation");
             }
             cancellationToken.ThrowIfCancellationRequested();
-            _=AsaSteamMapCatalog.LaunchArguments(request.MapName,request.SessionName,7777,27015);
+            // SteamCMD downloads shared ASA application files. The public
+            // session name, launch arguments and ports are configured later,
+            // after the binary and manifest have been verified.
             SaveJournal(journal,new(request.MapId,root,steam,"prepared",DateTimeOffset.UtcNow,
                 request.MapName));
             steam=await PrepareSteamCmdAsync(steam,request.DownloadSteamCmd,progress,cancellationToken);

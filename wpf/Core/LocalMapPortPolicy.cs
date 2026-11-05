@@ -43,6 +43,30 @@ public static class LocalMapPortPolicy
         return found;
     }
 
+    /// <summary>
+    /// Suggests locally non-conflicting profile ports without opening sockets or
+    /// mutating another Manager. Suggestions are not proof of OS/router availability.
+    /// Game and Query use UDP, RCON uses TCP.
+    /// </summary>
+    public static (int Game,int Query,int Rcon) Suggest(
+        IEnumerable<LocalMap> existingMaps)
+    {
+        if(existingMaps is null)throw new ArgumentNullException(nameof(existingMaps));
+        var owned=existingMaps.ToArray();
+        for(int index=0;index<1000;index++)
+        {
+            int game=7777+index*20;
+            int query=27015+index*20;
+            int rcon=37015+index*20;
+            if(game>65535 || query>65535 || rcon>65535)break;
+            var proposal=new LocalMap{GamePort=game,QueryPort=query,RconPort=rcon};
+            if(Conflicts(proposal,owned).Count==0)
+                return (game,query,rcon);
+        }
+        throw new InvalidOperationException(
+            "Nincs szabad helyi map-port javaslat a támogatott tartományban.");
+    }
+
     public static void RequireNoConflicts(LocalMap candidate,
         IEnumerable<LocalMap> existingMaps)
     {
