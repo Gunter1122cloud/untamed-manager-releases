@@ -140,6 +140,18 @@ export type IniSaveReceipt = {
   evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
 };
 
+export type HistoricalPairEvidence = {
+  files:number; maps:number; peers:number;
+  sessionConsistent:boolean; configHashesVerified:boolean;
+  activeStoreRecords:boolean; completeTwoHostEvidence:boolean;
+  historicalConsistent:boolean; findings:string[];
+  hosts:Array<{number:number;maps:number;localEvidence:boolean;
+    sessionMatches:boolean;configHashMatches:boolean;
+    lockMatches:boolean;activeMaps:boolean}>;
+  productionUseAllowed:false;
+  evidence:"PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION";
+};
+
 export type HistoricalStoreList = {
   maps: Array<{mapId:string;mapKey:string;gamePort:number;queryPort:number;
     enabledMods:number;passiveMods:number}>;
@@ -230,7 +242,8 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "steam.freshRegister" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
-  "historical.preview" | "historical.register";
+  "historical.preview" | "historical.register" |
+  "historical.pairedEvidence";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
@@ -239,7 +252,8 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
   confirm?: boolean; jobId?: string; sessionName?: string;
-  gamePort?: number; queryPort?: number; archive?: string };
+  gamePort?: number; queryPort?: number; archive?: string;
+  coordinationArchive?: string; localMetadataArchive?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -328,4 +342,6 @@ export const managerBridge = {
     request<HistoricalStorePreview>("historical.preview", {archive,mapId,root}),
   historicalRegister: (token:string) =>
     request<HistoricalStoreRegistration>("historical.register", {token,confirm:true}),
+  historicalPairedEvidence: (coordinationArchive:string, localMetadataArchive:string) =>
+    request<HistoricalPairEvidence>("historical.pairedEvidence", {coordinationArchive,localMetadataArchive}),
 };

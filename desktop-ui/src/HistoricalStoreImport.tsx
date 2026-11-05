@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
-import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview } from "./bridge";
+import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -12,6 +12,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [coordZip,setCoordZip]=useState("");
+  const [localZip,setLocalZip]=useState("");
+  const [pairResult,setPairResult]=useState<HistoricalPairEvidence | null>(null);
+  const [pairError,setPairError]=useState("");
+  const [pairBusy,setPairBusy]=useState(false);
 
   const reset=()=>{setPreview(null);setApproved(false);setError("");setNotice("");};
   const inspectArchive=async(e:FormEvent)=>{
@@ -49,6 +54,13 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }catch(e){
       setError("A Store-v1 regisztráció meghiúsult ("+(e instanceof Error?e.message:"UM-HISTORICAL-VERIFICATION-FAILED")+"). Az eredeti világ- és karakterfájlokhoz nem nyúltunk.");
     }finally{setBusy(false);}
+  };
+
+  const comparePeers=async(e:FormEvent)=>{
+    e.preventDefault();setPairResult(null);setPairError("");setPairBusy(true);
+    try { setPairResult(await managerBridge.historicalPairedEvidence(coordZip,localZip)); }
+    catch { setPairError("A két történeti Store-másolat összevetése sikertelen. Semmilyen adatot nem módosítottunk."); }
+    finally {setPairBusy(false);}
   };
 
   return <section className="glass panel historical-import">
@@ -109,6 +121,46 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         <button className="primary" disabled={busy||!approved}
           onClick={()=>{void register();}}><LockKeyhole size={16}/> Zárolt Store-v1 map regisztrálása</button>
       </div>}
+      <section className="historical-peer-check" aria-label="Store-v1 peer bizonyítékok">
+        <h3>Kétgépes Store-v1 · történeti másolatok összevetése</h3>
+        <p className="muted small">A közös koordinációs ZIP és a másik host négy helyi Store-metaadatfájljának másolata. Csak olvasás; a másolat egyezősége nem igazol élő írótulajdont vagy karakterutazást.</p>
+        <form className="historical-import-form" onSubmit={e=>{void comparePeers(e);}}>
+          <label>Közös Store-koordinációs archívum
+            <input aria-label="Store koordináció ZIP" value={coordZip} maxLength={520}
+              onChange={e=>{setCoordZip(e.target.value);setPairResult(null);}}
+              placeholder="D:\\Backups\\Store-coordination.zip" required/>
+          </label>
+          <label>Másik host négy helyi metaadatának ZIP-másolata
+            <input aria-label="Másik Store host ZIP" value={localZip} maxLength={520}
+              onChange={e=>{setLocalZip(e.target.value);setPairResult(null);}}
+              placeholder="D:\\Backups\\Store-peer-local.zip" required/>
+          </label>
+          <button className="secondary" type="submit" disabled={pairBusy || !coordZip.trim() || !localZip.trim()}>
+            <Shield size={16}/> {pairBusy?"Ellenőrzés...":"Két host Store-adatainak összevetése"}
+          </button>
+        </form>
+        {pairResult && <div className="historical-peer-result" role="status">
+          <div className="historical-preview-heading"><Shield size={18}/>
+            <strong>Csak offline bizonyíték · éles Store-írás TILOS</strong></div>
+          <div className="historical-proof-grid">
+            <span>Map / peer</span><strong>{pairResult.maps} / {pairResult.peers}</strong>
+            <span>Két teljes helyi hostmásolat</span><strong>{pairResult.completeTwoHostEvidence?"Igen":"NEM IGAZOLT"}</strong>
+            <span>Azonos Store-session</span><strong>{pairResult.sessionConsistent?"Egyező":"Eltérés vagy hiány"}</strong>
+            <span>Konfigurációhash-ek</span><strong>{pairResult.configHashesVerified?"Egyező":"Eltérés vagy hiány"}</strong>
+            <span>Aktív Store rekordok</span><strong>{pairResult.activeStoreRecords?"Másolatban igazolt":"NEM IGAZOLT"}</strong>
+            <span>Éles írási jogosultság</span><strong>TILTOTT</strong>
+          </div>
+          {pairResult.findings.length>0 && <p className="muted small">Ellenőrzési kódok: {pairResult.findings.join(", ")}</p>}
+          <div className="historical-peer-hosts">
+            {pairResult.hosts.map(h=><div key={h.number} className="historical-peer-host">
+              <b>Peer {h.number}</b>
+              <span>{h.maps} map · helyi másolat: {h.localEvidence?"igen":"hiányzik"}</span>
+              <span>Lock / hash / aktív: {h.lockMatches?"OK":"?"} / {h.configHashMatches?"OK":"?"} / {h.activeMaps?"OK":"?"}</span>
+            </div>)}
+          </div>
+        </div>}
+        {pairError && <div className="error-inline" role="alert"><AlertTriangle size={16}/>{pairError}</div>}
+      </section>
       {error && <div className="error-inline" role="alert"><AlertTriangle size={16}/>{error}</div>}
       {notice && <div className="success-inline" role="status"><CheckCircle2 size={16}/>{notice}</div>}
       <div className="warning-inline"><Shield size={17}/>
