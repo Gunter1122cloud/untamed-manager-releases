@@ -47,7 +47,7 @@ test.beforeEach(async ({ page }) => {
         case "steam.freshPreflight": return {
           token:"00000000-0000-4000-8000-000000008888",
           mapName:m.mapName||"Valguero",mapLevel:"Valguero_WP",folderName:"ASA-NEW",
-          steamCmdPresent:true,needsOfficialSteamCmdDownload:false,
+          steamCmdPresent:true,usingManagerDefaultSteamCmd:true,needsOfficialSteamCmdDownload:false,
           existingInterruptedInstall:false,minimumFreeGiB:35,
           evidence:"FRESH_INSTALL_PREFLIGHT_NO_FILE_MUTATION"
         };
@@ -365,9 +365,11 @@ test("SteamCMD new ASA workflow requires approval, follows provider progress, an
   await expect(page.getByText("Új ASA szerver · SteamCMD telepítés")).toBeVisible();
   await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("Valguero");
   await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-NEW");
-  await page.getByRole("textbox",{name:"SteamCMD EXE"}).fill("D:\\Valve\\steamcmd.exe");
+  // The Manager-managed SteamCMD executable path is optional.
+  await expect(page.getByRole("textbox",{name:"SteamCMD EXE"})).toHaveValue("");
   await page.getByRole("button",{name:"Letöltés előtti ellenőrzés"}).click();
   await expect(page.getByText(/Valguero · Valguero_WP/)).toBeVisible();
+  await expect(page.getByText(/A Manager saját SteamCMD elérési útját használja/)).toBeVisible();
   await expect(page.getByRole("button",{name:/ASA 2430930 letöltése/})).toBeDisabled();
   await page.getByText(/Jóváhagyom a valódi SteamCMD-lemezműveletet/).click();
   await page.getByRole("button",{name:/ASA 2430930 letöltése/}).click();
