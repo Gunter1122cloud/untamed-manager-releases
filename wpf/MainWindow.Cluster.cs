@@ -910,9 +910,11 @@ public partial class MainWindow
         var review=MakeStep("05  /  Ellenőrzés és mentés",
             "A Mentés teljes útvonal-, port- és ASA API-ellenőrzést végez. Nem indít vagy állít le szervert.");
         var summary=Label("",13,Mint);
+        var validationHints=Label("",12,Soft);
         review.Children.Add(new Border{Background=Panel,BorderBrush=Aqua,
             BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(10),
             Padding=new Thickness(17),Child=summary});
+        review.Children.Add(validationHints);
         review.Children.Add(Label("A konfiguráció kizárólag az Untamed Manager helyi profiljába kerül. "+
             "A meglévő karakterek, Store-v1, SQL és mentések érintetlenek.",12,Soft));
 
@@ -1034,6 +1036,7 @@ public partial class MainWindow
             saveButton.Visibility=index==steps.Count-1?Visibility.Visible:Visibility.Collapsed;
             errorMessage.Text="";
             if(index==steps.Count-1)
+            {
                 summary.Text="Map: "+names.Text+
                     "\nTelepítés: "+fields["Map telepítési gyökérkönyvtára"].Text+
                     "\nEXE: "+fields["Szerver EXE teljes elérési útja"].Text+
@@ -1042,6 +1045,61 @@ public partial class MainWindow
                     fields["RCON TCP port"].Text+
                     "\nASA API: "+(apiStart.IsChecked==true?"bekapcsolva":"kikapcsolva")+
                     "\nMaintenance: "+(maintenance.IsChecked==true?"bekapcsolva":"kikapcsolva");
+                // All these checks are read-only. Save repeats every check
+                // and may still fail if files or a peer configuration change.
+                var problems=new List<string>();
+                try{LocalMapNameRules.Normalize(names.Text);}
+                catch(Exception){problems.Add("Érvénytelen vagy üres mapnév.");}
+                string chosenRoot=installRoot.Text.Trim();
+                string chosenExe=serverExe.Text.Trim();
+                if(chosenRoot.Length==0 || !Directory.Exists(chosenRoot))
+                    problems.Add("Az ASA gyökérkönyvtár nem létezik.");
+                if(chosenExe.Length==0 || !File.Exists(chosenExe))
+                    problems.Add("A szerver EXE nem található.");
+                else if(chosenRoot.Length>0 && Directory.Exists(chosenRoot))
+                {
+                    try{
+                        if(!IsUnderRoot(Path.GetFullPath(chosenExe),Path.GetFullPath(chosenRoot)))
+                            problems.Add("A szerver EXE nincs a megadott telepítési gyökérben.");
+                    }catch(Exception){problems.Add("Az EXE útvonala nem ellenőrizhető.");}
+                }
+                bool goodGame=int.TryParse(fields["Game UDP port"].Text,out int gp) && gp>0 && gp<=65535;
+                bool goodQuery=int.TryParse(fields["Query UDP port"].Text,out int qp) && qp>0 && qp<=65535;
+                bool goodRcon=int.TryParse(fields["RCON TCP port"].Text,out int rp) && rp>0 && rp<=65535;
+                if(!goodGame || !goodQuery || !goodRcon)
+                    problems.Add("Game, Query és RCON: 1–65535 közötti port szükséges.");
+                else
+                {
+                    var previewMap=new LocalMap{Id=map.Id,Name=names.Text,
+                        GamePort=gp,QueryPort=qp,RconPort=rp};
+                    problems.AddRange(LocalMapPortPolicy.Conflicts(previewMap,
+                        _cluster.Config.LocalMaps));
+                }
+                if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,
+                    out int seconds) || seconds<5 || seconds>3600)
+                    problems.Add("Watchdog: 5–3600 másodperc közötti egész szám szükséges.");
+                var loaderPath=fields["API-loader EXE (opcionális)"].Text.Trim();
+                if(apiStart.IsChecked==true)
+                {
+                    if(loaderPath.Length==0 && chosenRoot.Length>0)
+                        loaderPath=Path.Combine(chosenRoot,
+                            "ShooterGame","Binaries","Win64","AsaApiLoader.exe");
+                    if(loaderPath.Length==0 || !File.Exists(loaderPath))
+                        problems.Add("Bekapcsolt ASA API indításhoz loader EXE szükséges.");
+                }
+                if(problems.Count==0)
+                {
+                    validationHints.Foreground=Aqua;
+                    validationHints.Text="✓ A helyi fájlok, portok és az alapbeállítások előzetes ellenőrzése sikeres. "+
+                        "Mentéskor újra ellenőrzünk. ASA-indítás nem történik.";
+                }
+                else
+                {
+                    validationHints.Foreground=Brushes.OrangeRed;
+                    validationHints.Text="Mentés előtt javítandó:\n• "+string.Join("\n• ",problems);
+                }
+                saveButton.IsEnabled=problems.Count==0;
+            }
             scroll.ScrollToTop();
         };
         dialog.Content=wizardGrid;
