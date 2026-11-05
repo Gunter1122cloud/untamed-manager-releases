@@ -178,7 +178,7 @@ public sealed class ObsidianWindow : Form
                             "servers.initialPreview" or "servers.initialApply";
                         historicalRoute = name is "historical.list" or
                             "historical.preview" or "historical.register" or
-                            "historical.pairedEvidence";
+                            "historical.pairedEvidence" or "historical.launchEvidence";
                     }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
