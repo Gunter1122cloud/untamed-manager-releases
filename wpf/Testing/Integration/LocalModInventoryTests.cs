@@ -27,7 +27,7 @@ public static class LocalModInventoryTests
             Arguments="-mods=999101"
         };
         string[] before={island.Arguments,rag.Arguments,center.Arguments};
-        var inventory=LocalModInventory.Read(new[]{island,rag,center});
+        var inventory=LocalModUsageInventory.Read(new[]{island,rag,center});
         Verify(inventory.MapCount==3 && inventory.UnreadableMaps.Count==0 &&
             inventory.Projects.Count==3,
             "all configured local map mod states inventoried without network requests");
@@ -49,12 +49,12 @@ public static class LocalModInventoryTests
             Id=Guid.NewGuid(),Name="Broken mods",
             Arguments="-mods=928548 -mods=999101"
         };
-        var partial=LocalModInventory.Read(new[]{island,invalid,rag});
+        var partial=LocalModUsageInventory.Read(new[]{island,invalid,rag});
         Verify(partial.UnreadableMaps.SequenceEqual(new[]{"Broken mods"}) &&
             partial.Projects.Single(x=>x.ProjectId==shared).EnabledMapCount==2,
             "one invalid map is explicitly reported without erasing sound local states");
         bool duplicateRejected=false;
-        try{_ =LocalModInventory.Read(new[]{island,island});}
+        try{_ =LocalModUsageInventory.Read(new[]{island,island});}
         catch(InvalidDataException){duplicateRejected=true;}
         Verify(duplicateRejected,"duplicate local map identity fails closed");
     }
