@@ -256,7 +256,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         }
         catch(Exception ex) when(ex is IOException or InvalidDataException or
             ArgumentException or UnauthorizedAccessException or
-            InvalidOperationException or System.Security.Cryptography.CryptographicException)
+            InvalidOperationException or System.Text.RegularExpressions.RegexMatchTimeoutException or
+            System.Security.Cryptography.CryptographicException)
         {
             // Never echo private paths, usernames, Kova IDs or ZIP content to UI.
             return Fail(id,"UM-HISTORICAL-VERIFICATION-FAILED");
