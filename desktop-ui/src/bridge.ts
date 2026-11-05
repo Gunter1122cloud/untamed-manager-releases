@@ -111,6 +111,16 @@ export type IniSaveReceipt = {
   evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
 };
 
+export type LocalImportPreview = {
+  importToken:string; name:string; folderName:string;
+  exeFound:true; apiLoaderDetected:boolean; portsConfigured:false;
+  evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION";
+};
+export type LocalImportReceipt = {
+  mapId:string; mapName:string; exeRegistered:true;
+  needsConfiguration:true; evidence:"MANAGER_PROFILE_ONLY_NO_ASA_CHANGE";
+};
+
 export type ConfiguredMods = {
   mapId: string;
   mapName: string;
@@ -125,10 +135,12 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
-  "ini.open" | "ini.preview" | "ini.save" | "ini.close";
+  "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
+  "servers.inspectLocal" | "servers.importLocal";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string; mode?: ModDraftMode; position?: number;
-  token?: string; file?: IniFile; content?: string };
+  token?: string; file?: IniFile; content?: string;
+  name?: string; root?: string; importToken?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -186,4 +198,8 @@ export const managerBridge = {
   iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
   iniClose: (token: string) => request<{closed:true}>("ini.close", { token }),
+  inspectLocalAsa: (name: string, root: string) =>
+    request<LocalImportPreview>("servers.inspectLocal", { name, root }),
+  importLocalAsa: (importToken: string) =>
+    request<LocalImportReceipt>("servers.importLocal", { importToken }),
 };
