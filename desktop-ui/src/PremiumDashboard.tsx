@@ -1,6 +1,6 @@
 import {useMemo,useState} from "react";
 import {
-  Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, Cpu,
+  Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, Cpu, Plus,
   HardDrive, Map as MapIcon, Monitor, Search, Server, Shield, Users, WifiOff
 } from "lucide-react";
 import type {DashboardSnapshot,PublicMap} from "./bridge";
@@ -156,10 +156,16 @@ export function PremiumDashboard({snapshot,onServers,onCluster,onSelect}:Props){
           {maps.map(({map,host,isLocal})=><ServerRow key={host+map.id}
             map={map} host={host} local={isLocal} onSelect={onSelect}/>)}
           {maps.length===0 && <div className="premium-dashboard-empty">
-            <Boxes size={34}/><b>{query?"Nincs találat":"Még nincs regisztrált map"}</b>
-            <p>{query?"Próbálj másik keresést.":"A meglévő szervereket a Szerverek menüpontban veheted fel. A világ- és karakterfájlok nem változnak."}</p>
+            <Boxes size={30}/><b>{query?"Nincs találat":"A helyi Manager még nem tartalmaz mapot"}</b>
+            <p>{query?"Próbálj másik keresést.":"A már telepített ASA-mapokat az eredeti konfigurációjuk megőrzésével veheted fel. Az alábbiak elérhető mapválasztékok, nem futó vagy regisztrált szerverek."}</p>
+            {!query&&<div className="premium-onboarding-maps" aria-label="Felvehető mapok mintái">
+              {["The Island","Astraeos","Ragnarok","Aberration"].map(name=>
+                <button type="button" key={name} onClick={onServers}>
+                  <MapCover name={name}/><span>{name}</span><Plus size={15}/>
+                </button>)}
+            </div>}
             {!query&&<button type="button" className="secondary" onClick={onServers}>
-              Szerverek megnyitása <ArrowRight size={15}/></button>}
+              Szerverimport megnyitása <ArrowRight size={15}/></button>}
           </div>}
         </div>
         <div className="premium-panel-footnote"><Shield size={14}/> A távoli szerverek csak megfigyelhetők; nem jelenítünk meg kitalált játékosadatokat.</div>
