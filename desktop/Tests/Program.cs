@@ -445,6 +445,90 @@ try
             "broken historical metadata is reported without erasing valid local mod assignments");
     }
 
+    // Real native Plugin Center mutations only in a disposable synthetic
+    // installation. Both local maps sharing the plugin folder must be stopped.
+    {
+        string install=Path.Combine(root,"plugin-state-bridge-install");
+        string active=Path.Combine(install,"ShooterGame","Binaries","Win64",
+            "ArkApi","Plugins","ExamplePlugin");
+        string disabled=Path.Combine(install,"ShooterGame","Binaries","Win64",
+            "UntamedDisabledPlugins","ExamplePlugin");
+        Directory.CreateDirectory(active);
+        File.WriteAllBytes(Path.Combine(active,"ExamplePlugin.dll"),
+            new byte[]{0x4d,0x5a,0x90,0,0x13,0x37});
+        File.WriteAllText(Path.Combine(active,"config.json"),"{\"secret\":123}");
+        File.WriteAllText(Path.Combine(active,"license.key"),"KEEP-LICENSE-PRIVATE");
+        bool peerRunning=false;
+        var a=new LocalMap{Name="Plugin test A",InstallationPath=install};
+        var b=new LocalMap{Name="Plugin test B",InstallationPath=install};
+        await using var pluginCluster=new ClusterService("plugin-state-native-test",
+            Path.Combine(root,"plugin-native-profile"),
+            m=>peerRunning && m.Id==b.Id
+                ?new ProcessCheck(true,"synthetic running peer",null,false)
+                :new ProcessCheck(false,"synthetic confirmed stopped",null,true));
+        pluginCluster.Config.LocalMaps.Add(a);
+        pluginCluster.Config.LocalMaps.Add(b);
+        pluginCluster.Save();
+        using var pluginBridge=new DesktopPluginStateBridge(pluginCluster);
+        var state=await Call(pluginBridge.HandleAsync,"plugins.state",new{mapId=a.Id});
+        IsOk(state,"plugin-state native inventory reads existing DLL folder");
+        Check(state.GetProperty("data").GetProperty("plugins")[0]
+                .GetProperty("enabled").GetBoolean(),
+            "native plugin inventory reports installed disk state without runtime claims");
+        a.HistoricalStoreProtected=true;
+        var locked=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
+            new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
+        Check(IsError(locked,"UM-HISTORICAL-STORE-LOCKED") && Directory.Exists(active),
+            "historical Store-v1 map cannot authorize plugin folder mutation");
+        a.HistoricalStoreProtected=false;
+        peerRunning=true;
+        var denied=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
+            new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
+        IsOk(denied,"running-peer preview is an informative but blocked result");
+        Check(!denied.GetProperty("data").GetProperty("allowed").GetBoolean() &&
+              Directory.Exists(active),"running shared-install map blocks plugin toggle");
+        peerRunning=false;
+        var preview=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
+            new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
+        IsOk(preview,"confirmed stopped local maps allow one-shot plugin preview");
+        Check(preview.GetProperty("data").GetProperty("allowed").GetBoolean() &&
+              preview.GetProperty("data").GetProperty("checkedLocalMaps").GetInt32()==2,
+            "preview verified both maps sharing the installation");
+        string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var unconfirmed=await Call(pluginBridge.HandleAsync,"plugins.toggleApply",
+            new{token,confirm=false});
+        Check(IsError(unconfirmed,"UM-PLUGIN-EXPLICIT-CONFIRMATION-REQUIRED") &&
+              Directory.Exists(active),"plugin move requires explicit confirmation");
+        peerRunning=true;
+        var stale=await Call(pluginBridge.HandleAsync,"plugins.toggleApply",
+            new{token,confirm=true});
+        Check(IsError(stale,"UM-PLUGIN-STATE-CHANGED") && Directory.Exists(active),
+            "running shared-install peer after preview causes fail-closed recheck");
+        var staleReplay=await Call(pluginBridge.HandleAsync,"plugins.toggleApply",
+            new{token,confirm=true});
+        Check(IsError(staleReplay,"UM-PLUGIN-PREVIEW-EXPIRED"),
+            "failed plugin confirmation cannot reuse stale approval");
+        peerRunning=false;
+        var secondPreview=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
+            new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
+        string approvedToken=secondPreview.GetProperty("data").GetProperty("token").GetString()!;
+        var saved=await Call(pluginBridge.HandleAsync,"plugins.toggleApply",
+            new{token=approvedToken,confirm=true});
+        IsOk(saved,"guarded native plugin state changes with full backup");
+        Check(!Directory.Exists(active) && Directory.Exists(disabled) &&
+              saved.GetProperty("data").GetProperty("backupCreated").GetBoolean() &&
+              File.ReadAllText(Path.Combine(disabled,"config.json"))=="{\"secret\":123}" &&
+              File.ReadAllText(Path.Combine(disabled,"license.key"))=="KEEP-LICENSE-PRIVATE",
+            "plugin DLL move preserves original settings and license data");
+        Check(!saved.GetRawText().Contains("KEEP-LICENSE-PRIVATE",StringComparison.Ordinal) &&
+              !saved.GetRawText().Contains(install,StringComparison.OrdinalIgnoreCase),
+            "native plugin receipt never exposes source path or license contents");
+        var newState=await Call(pluginBridge.HandleAsync,"plugins.state",new{mapId=a.Id});
+        Check(!newState.GetProperty("data").GetProperty("plugins")[0]
+                .GetProperty("enabled").GetBoolean(),
+            "native plugin inventory can see explicitly disabled plugin folder");
+    }
+
     // A historical Store-v1 ZIP is an identity/provenance source, NOT a
     // complete command line. Test imported map remains blocked even with
     // valid SHA and an actual world file.
