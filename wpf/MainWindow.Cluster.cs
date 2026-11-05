@@ -840,10 +840,10 @@ public partial class MainWindow
         review.Children.Add(Label("A konfiguráció kizárólag az Untamed Manager helyi profiljába kerül. "+
             "A meglévő karakterek, Store-v1, SQL és mentések érintetlenek.",12,Soft));
 
-        var root=new Grid();
-        root.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
-        root.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
-        root.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+        var wizardGrid=new Grid();
+        wizardGrid.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+        wizardGrid.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
+        wizardGrid.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         var header=new StackPanel{Margin=new Thickness(22,15,22,14)};
         header.Children.Add(Label("UNTAMED KINGDOM  /  MAP SETUP",12,Aqua,true));
         var currentStep=Label("",13,Soft);
@@ -851,12 +851,12 @@ public partial class MainWindow
         var headerPanel=new Border{Background=new SolidColorBrush(Color.FromRgb(19,42,44)),
             BorderBrush=new SolidColorBrush(Color.FromRgb(54,100,87)),
             BorderThickness=new Thickness(0,0,0,1),Child=header};
-        Grid.SetRow(headerPanel,0);root.Children.Add(headerPanel);
+        Grid.SetRow(headerPanel,0);wizardGrid.Children.Add(headerPanel);
         var body=new StackPanel();
         foreach(var step in steps)body.Children.Add(step);
         var scroll=new ScrollViewer{Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
-        Grid.SetRow(scroll,1);root.Children.Add(scroll);
+        Grid.SetRow(scroll,1);wizardGrid.Children.Add(scroll);
         var errorMessage=Label("",12,Brushes.OrangeRed);
         var footer=new Grid{Margin=new Thickness(18,13,18,8)};
         footer.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
@@ -936,7 +936,7 @@ public partial class MainWindow
         var footerPanel=new Border{Background=new SolidColorBrush(Color.FromRgb(18,33,36)),
             BorderBrush=new SolidColorBrush(Color.FromRgb(52,79,76)),
             BorderThickness=new Thickness(0,1,0,0),Child=footer};
-        Grid.SetRow(footerPanel,2);root.Children.Add(footerPanel);
+        Grid.SetRow(footerPanel,2);wizardGrid.Children.Add(footerPanel);
         showStep=index=>{
             if(index<0||index>=steps.Count)return;
             stepIndex=index;
@@ -959,7 +959,7 @@ public partial class MainWindow
                     "\nMaintenance: "+(maintenance.IsChecked==true?"bekapcsolva":"kikapcsolva");
             scroll.ScrollToTop();
         };
-        dialog.Content=root;
+        dialog.Content=wizardGrid;
         showStep(0);
         dialog.ShowDialog();
     }
