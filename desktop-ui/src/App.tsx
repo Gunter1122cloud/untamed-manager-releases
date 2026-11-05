@@ -342,7 +342,7 @@ function Mods({ snapshot, selected, setSelected }: {
         <div className="details-line"><span>Forrás</span><b>Helyi mapkonfiguráció</b></div>
         <div className="details-line"><span>Valós ASA betöltés</span><b>Nem igazolt</b></div>
         <div className="details-line"><span>Függő változtatások</span><b>{info?.pending ? "Vannak" : "Nincsenek"}</b></div>
-        <div className="warning-inline"><Shield size={17}/><span>Modmódosítás az új felületen még nem engedélyezett. A meglévő C# védelem változatlan.</span></div>
+        <div className="warning-inline"><Shield size={17}/><span>A modokat lent a védett piszkozatkezelőben módosíthatod; a futó ASA betöltése nem igazolt.</span></div>
       </Panel>
     </div>
     <ModDraftEditor mapId={selected} onSaved={saved => {
@@ -647,7 +647,7 @@ export function App() {
       <header className="topbar"><div className="topbar-title"><span className="topbar-kicker">UNTAMED KINGDOM</span><b>{title}</b></div>
         <div className="topbar-right">
           <span className="pill subtle"><Monitor size={15}/>{snapshot?.local.hostName || "Gazdagép betöltése"}</span>
-          <span className="pill amber"><Shield size={15}/> ÉLŐ / CSAK OLVASÁS</span>
+          <span className="pill amber"><Shield size={15}/> HELYI / VÉDETT</span>
           <button className="icon-button" onClick={() => { void refresh(); }} disabled={loading} aria-label="Állapot frissítése"><RefreshCw size={19} className={loading ? "spin" : ""}/></button>
         </div>
       </header>

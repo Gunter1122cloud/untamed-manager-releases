@@ -31,20 +31,21 @@ test.beforeEach(async ({ page }) => {
     };
     let keySaved = false;
     let stagedId = "";
+    let redoId = "";
     const draftToken = "00000000-0000-4000-8000-000000001234";
     const draftState = () => ({
       draftId:draftToken,mapId:one,active:stagedId?["123456",stagedId]:["123456"],
       passive:["789012"],disabled:[],pending:!!stagedId,dirty:!!stagedId,
-      canUndo:!!stagedId,canRedo:false,evidence:"IN_MEMORY_MOD_DRAFT",
+      canUndo:!!stagedId,canRedo:!!redoId,evidence:"IN_MEMORY_MOD_DRAFT",
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string; mode?: string }) => {
       switch (m.method) {
         case "dashboard.snapshot": return state;
         case "mods.draftStart": stagedId="";return draftState();
-        case "mods.draftStage": stagedId=m.modId||"";return draftState();
-        case "mods.draftUndo": stagedId="";return draftState();
-        case "mods.draftRedo": stagedId="567890";return draftState();
+        case "mods.draftStage": stagedId=m.modId||"";redoId="";return draftState();
+        case "mods.draftUndo": redoId=stagedId;stagedId="";return draftState();
+        case "mods.draftRedo": stagedId=redoId;redoId="";return draftState();
         case "mods.draftDiscard": stagedId="";return {discarded:true};
         case "mods.draftSave": return {saved:true,pending:true,active:["123456",stagedId],passive:["789012"],disabled:[],evidence:"CONFIGURED_ONLY_PENDING_REAL_RESTART"};
         case "curseforge.credentialStatus": return {configured:keySaved};
