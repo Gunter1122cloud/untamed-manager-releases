@@ -566,7 +566,10 @@ test("Store-v1 original ASA launch text stays read-only and redacted",async ({pa
   await expect(report.getByText("MATCH").first()).toBeVisible();
   await expect(report.getByText("VESZÉLY: szerepel")).toBeVisible();
   await expect(report.getByText("TILTOTT")).toBeVisible();
-  await expect(page.getByText(secret)).toHaveCount(0);
+  // The original command is sensitive. The native classification reply must
+  // not echo its password, and the form must clear the local input on success.
+  await expect(launch).toHaveValue("");
+  await expect(report).not.toContainText(secret);
   await launch.fill("ArkAscendedServer.exe ScorchedEarth_WP -port=9999");
   await expect(report).toHaveCount(0);
 });
