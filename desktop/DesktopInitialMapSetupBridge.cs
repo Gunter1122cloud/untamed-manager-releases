@@ -111,11 +111,13 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                 }
 
                 if(!GuidField(args,"token",out var approvalToken) ||
-                   !pending.Remove(approvalToken,out var saved))
+                   !pending.TryGetValue(approvalToken,out var saved))
                     return Fail(id,"UM-INITIAL-PREVIEW-EXPIRED");
                 if(!args.TryGetProperty("confirm",out var confirmation) ||
                    confirmation.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-INITIAL-CONFIRMATION-REQUIRED");
+                // A negative/missing confirmation must not consume a valid preview.
+                // Commit remains one-time: a successful save removes its token.
                 var owned=Owned(saved.MapId);
                 if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
                 if(!Initial(owned) || owned.Arguments!=saved.BaselineArguments ||
@@ -140,6 +142,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                 copy.RconPort=0;
                 copy.AutoStart=false;
                 cluster.ReplaceMap(owned,copy);
+                pending.Remove(approvalToken);
                 return Success(id,new{
                     mapId=copy.Id,mapName=copy.Name,configured=true,
                     gamePort=copy.GamePort,queryPort=copy.QueryPort,
