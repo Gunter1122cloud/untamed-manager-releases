@@ -22,6 +22,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopIniBridge _iniEditor;
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
     private readonly DesktopCurseForgeDiscoveryBridge _modCatalog;
+    private readonly DesktopSteamFreshInstallBridge _freshInstall;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -35,6 +36,7 @@ public sealed class ObsidianWindow : Form
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
         _mapRegistry = new DesktopLocalMapRegistryBridge(_bridge.LocalCluster);
         _modCatalog = new DesktopCurseForgeDiscoveryBridge(_bridge.LocalCluster);
+        _freshInstall = new DesktopSteamFreshInstallBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
@@ -72,6 +74,7 @@ public sealed class ObsidianWindow : Form
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
+            _freshInstall.Dispose();
             _modCatalog.Dispose();
             _mapRegistry.Dispose();
             _iniEditor.Dispose();
@@ -136,6 +139,7 @@ public sealed class ObsidianWindow : Form
                 bool iniRoute = false;
                 bool registryRoute = false;
                 bool discoveryRoute = false;
+                bool freshRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -158,6 +162,10 @@ public sealed class ObsidianWindow : Form
                         discoveryRoute = name is "curseforge.categories" or
                             "curseforge.featured" or "curseforge.browse" or
                             "curseforge.project" or "curseforge.files";
+                        freshRoute = name is "steam.freshPreflight" or "steam.freshStart" or
+                            "steam.freshStatus" or "steam.freshCurrent" or
+                            "steam.freshCancel" or "steam.freshDiscard" or
+                            "steam.freshRegister";
                     }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
@@ -170,7 +178,8 @@ public sealed class ObsidianWindow : Form
                             : iniRoute ? await _iniEditor.HandleAsync(incoming)
                                 : registryRoute ? await _mapRegistry.HandleAsync(incoming)
                                     : discoveryRoute ? await _modCatalog.HandleAsync(incoming)
-                                        : await _bridge.HandleAsync(incoming);
+                                        : freshRoute ? await _freshInstall.HandleAsync(incoming)
+                                            : await _bridge.HandleAsync(incoming);
                     if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
                         _browser.CoreWebView2.PostWebMessageAsJson(response);
                 }

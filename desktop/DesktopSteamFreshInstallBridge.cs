@@ -67,12 +67,18 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
             id=requestId.ToString("D");
             string? method=methodValue.GetString();
             if(method is not ("steam.freshPreflight" or "steam.freshStart" or
-                "steam.freshStatus" or "steam.freshCancel" or "steam.freshRegister"))
+                "steam.freshStatus" or "steam.freshCurrent" or "steam.freshCancel" or
+                "steam.freshDiscard" or "steam.freshRegister"))
                 return Error(id,"UM-METHOD-DENIED");
 
             await serial.WaitAsync();
             try
             {
+                if(method=="steam.freshCurrent")
+                {
+                    lock(stateGate)return Ok(id,new{current=currentJob==null?null:Describe(currentJob)});
+                }
+
                 if(method=="steam.freshPreflight")
                 {
                     if(!TextField(data,"mapName",100,out var mapName) ||
@@ -129,7 +135,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     // Only one live native Steam download at a time.
                     lock(stateGate)
                     {
-                        if(currentJob!=null && !currentJob.Completed && !currentJob.Registered &&
+                        if(currentJob!=null && !currentJob.Registered &&
                            currentJob.ErrorCode==null)
                             return Error(id,"UM-FRESH-INSTALL-IN-PROGRESS");
                     }
@@ -169,7 +175,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                         return Error(id,"UM-FRESH-EXPLICIT-CONFIRMATION-REQUIRED");
                     lock(stateGate)
                     {
-                        if(currentJob!=null && !currentJob.Completed && currentJob.ErrorCode==null)
+                        if(currentJob!=null && !currentJob.Registered && currentJob.ErrorCode==null)
                             return Error(id,"UM-FRESH-INSTALL-IN-PROGRESS");
                     }
                     prepared.Remove(token);
@@ -188,6 +194,23 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                 InstallJob? selected;
                 lock(stateGate)selected=currentJob?.Id==currentId?currentJob:null;
                 if(selected==null)return Error(id,"UM-FRESH-JOB-NOT-FOUND");
+
+                if(method=="steam.freshDiscard")
+                {
+                    if(!BoolField(data,"confirm",out var approved) || !approved)
+                        return Error(id,"UM-FRESH-EXPLICIT-CONFIRMATION-REQUIRED");
+                    lock(stateGate)
+                    {
+                        // Never discard while SteamCMD might still be writing.
+                        if(!selected.Completed && selected.ErrorCode==null)
+                            return Error(id,"UM-FRESH-INSTALL-IN-PROGRESS");
+                        if(selected.Registered)
+                            return Error(id,"UM-FRESH-ALREADY-REGISTERED");
+                        if(currentJob==selected)currentJob=null;
+                    }
+                    return Ok(id,new{discarded=true,
+                        evidence="FRESH_JOB_FORGOTTEN_EXISTING_FILES_UNCHANGED"});
+                }
 
                 if(method=="steam.freshCancel")
                 {
