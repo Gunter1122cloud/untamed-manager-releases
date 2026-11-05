@@ -19,6 +19,18 @@ public partial class MainWindow
             BorderBrush=Aqua };
         var query=new TextBox { Height=38,Foreground=Brushes.White,Background=Panel,
             BorderBrush=Aqua,Text="Shiny" };
+        var categories=new ComboBox{MinHeight=35,Width=280,DisplayMemberPath="Name",
+            SelectedValuePath="Id",Foreground=Brushes.White,Background=Panel};
+        categories.ItemsSource=new[]{new CurseForgeCategory(0,"Összes kategória",0,false,0)};
+        categories.SelectedIndex=0;
+        var sortOptions=new ComboBox{MinHeight=35,Width=280,Foreground=Brushes.White,
+            Background=Panel,SelectedIndex=0};
+        sortOptions.ItemsSource=new[]{
+            "Alapértelmezett","Népszerűség","Legutóbb frissített","Letöltésszám",
+            "Név","Szerző","Kiemelt"
+        };
+        var categoryInfo=Label("Kategóriák: még nem töltöttük be.",12,Soft);
+        var featuredInfo=Label("Kiemelt, népszerű és frissen frissített modok: még nem ellenőrizve.",12,Soft);
         var projectId=new TextBox {Height=38,Width=180,Tag="CurseForge projekt ID",
             ToolTip="Pontosan az ASA-hoz tartozó CurseForge modazonosító (nem szabad szöveg)"};
         var results=new ListBox { MaxHeight=330,MinHeight=120,Foreground=Brushes.White,Background=Panel,
@@ -104,6 +116,13 @@ public partial class MainWindow
                 "Utolsó ismert fájl: "+(mod.LatestFile??"ismeretlen")+"\n"+
                 "Legutóbbi módosítás: "+(mod.ModifiedUtc?.ToLocalTime().ToString("yyyy-MM-dd")??"ismeretlen")+"\n"+
                 "Forrás: "+(mod.Website??"nincs hiteles CurseForge-link")+
+                "\nLetöltések: "+mod.DownloadCount.ToString("N0")+
+                "\nSzolgáltatói terjesztés jelző: "+
+                    (mod.AllowModDistribution==true?"engedélyezett jelző – külön feltételek is szükségesek":
+                     mod.AllowModDistribution==false?"nem engedélyezett":"nincs adat")+
+                "\nProjekt elérhetősége: "+(mod.IsAvailable==true?"igen":
+                    mod.IsAvailable==false?"nem":"nincs adat")+
+                "\nGalériaképek: "+mod.Screenshots.Count+
                 "\nCrossplay és prémium státusz: nincs ellenőrizve.";
         };
         fileList.SelectionChanged+=(_,_)=>{
@@ -204,8 +223,21 @@ public partial class MainWindow
             status.Text="CurseForge modkeresés folyamatban...";
             try
             {
+                int categoryId=categories.SelectedItem is CurseForgeCategory selected?
+                    selected.Id:0;
+                CurseForgeSearchSortField order=sortOptions.SelectedIndex switch{
+                    1=>CurseForgeSearchSortField.Popularity,
+                    2=>CurseForgeSearchSortField.LastUpdated,
+                    3=>CurseForgeSearchSortField.TotalDownloads,
+                    4=>CurseForgeSearchSortField.Name,
+                    5=>CurseForgeSearchSortField.Author,
+                    6=>CurseForgeSearchSortField.Featured,
+                    _=>CurseForgeSearchSortField.ProviderDefault
+                };
                 var page=await catalog.SearchAsaAsync(
-                    SecureStore.Unprotect(protectedKey),term,index);
+                    SecureStore.Unprotect(protectedKey),
+                    new CurseForgeSearchOptions(term,CategoryId:categoryId,
+                        Sort:order,Descending:true),index);
                 last=page;
                 lastTerm=term;
                 results.ItemsSource=page.Mods.ToArray();
@@ -309,6 +341,86 @@ public partial class MainWindow
         });
         previous.IsEnabled=false;
         next.IsEnabled=false;
+        var categoriesRefresh=Btn("ASA modkategóriák betöltése",async ()=>{
+            if(busy)return;
+            string protectedKey=_cluster.Config.CurseForgeApiKeyProtected;
+            if(string.IsNullOrWhiteSpace(protectedKey))
+            {categoryInfo.Text="CurseForge API-kulcs szükséges.";return;}
+            busy=true;
+            categoryInfo.Text="CurseForge ASA-kategóriák lekérése...";
+            try
+            {
+                var groups=await catalog.GetAsaCategoriesAsync(
+                    SecureStore.Unprotect(protectedKey));
+                categories.ItemsSource=new[]{
+                    new CurseForgeCategory(0,"Összes kategória",0,false,0)
+                }.Concat(groups).ToArray();
+                categories.SelectedIndex=0;
+                categoryInfo.Text="Hivatalos ASA-kategóriák betöltve: "+groups.Count;
+            }
+            catch(Exception ex)
+            {
+                WriteLog("curseforge-categories",ex);
+                categoryInfo.Text="A kategóriák nem tölthetők be: "+
+                    UntamedPresentation.Redact(ex.Message);
+            }
+            finally{busy=false;}
+        });
+        var featuredBrowse=Btn("Kiemelt / népszerű / friss ASA modok",async ()=>{
+            if(busy)return;
+            string protectedKey=_cluster.Config.CurseForgeApiKeyProtected;
+            if(string.IsNullOrWhiteSpace(protectedKey))
+            {featuredInfo.Text="CurseForge API-kulcs szükséges.";return;}
+            busy=true;
+            featuredInfo.Text="Hivatalos CurseForge kiemeltlisták lekérése...";
+            try
+            {
+                var featured=await catalog.GetAsaFeaturedAsync(
+                    SecureStore.Unprotect(protectedKey));
+                var combined=featured.Featured.Concat(featured.Popular)
+                    .Concat(featured.RecentlyUpdated)
+                    .GroupBy(x=>x.Id).Select(x=>x.First()).ToArray();
+                foreach(var mod in combined)
+                {
+                    string id=mod.Id.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture);
+                    _trustedModNames[id]=UntamedPresentation.Display(mod.Name);
+                    if(mod.ThumbnailUrl is not null)_trustedModArt[id]=mod.ThumbnailUrl;
+                }
+                _catalogMetadataUpdated?.Invoke();
+                results.ItemsSource=combined;
+                last=null;
+                previous.IsEnabled=false;
+                next.IsEnabled=false;
+                featuredInfo.Text="Kiemelt: "+featured.Featured.Count+
+                    " · népszerű: "+featured.Popular.Count+
+                    " · frissen frissített: "+featured.RecentlyUpdated.Count+
+                    " · egyedi ASA-projektek: "+combined.Length;
+                paging.Text="CurseForge /v1/mods/featured – szolgáltatói metaadat";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("curseforge-featured",ex);
+                featuredInfo.Text="Kiemelt modok nem ellenőrizhetők: "+
+                    UntamedPresentation.Redact(ex.Message);
+            }
+            finally{busy=false;}
+        });
+        var openProject=Btn("Kiválasztott mod CurseForge-oldalának megnyitása",()=>{
+            if(results.SelectedItem is not CurseForgeMod chosen ||
+               string.IsNullOrWhiteSpace(chosen.Website))
+            {status.Text="Nincs hivatalosan ellenőrzött CurseForge-projektlink.";return;}
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    chosen.Website){UseShellExecute=true});
+            }
+            catch(Exception ex)
+            {
+                WriteLog("curseforge-open-official-project",ex);
+                status.Text="A hivatalos projektoldal nem nyitható meg.";
+            }
+        });
         var addFromCatalog=Btn("Kiválasztott mod hozzáadása a kijelölt maphoz",()=>{
             if(results.SelectedItem is not CurseForgeMod chosen)
             { status.Text="Előbb válassz egy találatot.";return; }
@@ -419,12 +531,15 @@ public partial class MainWindow
                         UntamedPresentation.Redact(ex.Message);
                 }
             }),
-            Label("Modkeresés név alapján",12,Aqua),
-            query,search,
+            Label("Modkeresés név / szerző alapján",12,Aqua),
+            query,
+            Label("ASA kategória",12,Aqua),categoriesRefresh,categories,categoryInfo,
+            Label("Hivatalos CurseForge rendezés",12,Aqua),sortOptions,
+            search,featuredBrowse,featuredInfo,
             Label("Pontos ASA CurseForge projektazonosító",12,Aqua),
             projectId,lookup,
             previous,next,paging,results,
-            addFromCatalog,
+            openProject,addFromCatalog,
             detail,refreshLocalAssignment,localAssignments,
             inspectDescription,fullDescription,
             Label("FÁJLVERZIÓK / KAPCSOLATOK (HIVATALOS API)",12,Aqua,true),
