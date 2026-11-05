@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence } from "./bridge";
 
@@ -17,23 +17,30 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [pairResult,setPairResult]=useState<HistoricalPairEvidence | null>(null);
   const [pairError,setPairError]=useState("");
   const [pairBusy,setPairBusy]=useState(false);
+  // A late response must never revive approval for a different ZIP/map/root.
+  const importEpoch=useRef(0);
+  const pairEpoch=useRef(0);
+  const invalidateImport=()=>{importEpoch.current++;reset();};
+  const invalidatePair=()=>{pairEpoch.current++;setPairResult(null);setPairError("");};
 
   const reset=()=>{setPreview(null);setApproved(false);setError("");setNotice("");};
   const inspectArchive=async(e:FormEvent)=>{
-    e.preventDefault();reset();setKnown(null);setBusy(true);
+    e.preventDefault();const epoch=++importEpoch.current;reset();setKnown(null);setBusy(true);
     try{
       const result=await managerBridge.historicalList(archive);
+      if(epoch!==importEpoch.current)return;
       setKnown(result);setMapId(result.maps[0]?.mapId??"");
     }catch{
-      setError("A privát Manager ZIP nem ellenőrizhető, hiányos vagy megváltozott. A fájlokat nem módosítottuk.");
-    }finally{setBusy(false);}
+      if(epoch===importEpoch.current)setError("A privát Manager ZIP nem ellenőrizhető, hiányos vagy megváltozott. A fájlokat nem módosítottuk.");
+    }finally{if(epoch===importEpoch.current)setBusy(false);}
   };
   const previewImport=async(e:FormEvent)=>{
-    e.preventDefault();reset();setBusy(true);
+    e.preventDefault();const epoch=++importEpoch.current;reset();setBusy(true);
     try{
       const result=await managerBridge.historicalPreview(archive,mapId,root);
-      setPreview(result);
+      if(epoch===importEpoch.current)setPreview(result);
     }catch(e){
+      if(epoch!==importEpoch.current)return;
       const code=e instanceof Error?e.message:"UM-HISTORICAL-VERIFICATION-FAILED";
       const hints:Record<string,string>={
         "UM-HISTORICAL-ROOT-MISMATCH":"A megadott helyi ASA telepítés nem egyezik a Kova archivált eredeti mapgyökerével.",
@@ -41,26 +48,32 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         "UM-ASA-EXE-MISSING":"A map könyvtárában nem található az eredeti ASA-szerver EXE."
       };
       setError(hints[code]??"A natív Store-v1 előellenőrzés elutasította az importot ("+code+").");
-    }finally{setBusy(false);}
+    }finally{if(epoch===importEpoch.current)setBusy(false);}
   };
   const register=async()=>{
     if(!preview || !approved)return;
+    const epoch=++importEpoch.current;
     setBusy(true);setError("");setNotice("");
     try{
       const receipt=await managerBridge.historicalRegister(preview.token);
+      if(epoch!==importEpoch.current)return;
       setPreview(null);setApproved(false);
       setNotice(receipt.mapName+" felvéve az eredeti mapazonosítóval. A Store-v1 zárolt: a szerver nem indulhat, amíg a teljes régi indítási profil és a két host állapota nincs igazolva.");
       await onImported();
     }catch(e){
+      if(epoch!==importEpoch.current)return;
       setError("A Store-v1 regisztráció meghiúsult ("+(e instanceof Error?e.message:"UM-HISTORICAL-VERIFICATION-FAILED")+"). Az eredeti világ- és karakterfájlokhoz nem nyúltunk.");
-    }finally{setBusy(false);}
+    }finally{if(epoch===importEpoch.current)setBusy(false);}
   };
 
   const comparePeers=async(e:FormEvent)=>{
-    e.preventDefault();setPairResult(null);setPairError("");setPairBusy(true);
-    try { setPairResult(await managerBridge.historicalPairedEvidence(coordZip,localZip)); }
-    catch { setPairError("A két történeti Store-másolat összevetése sikertelen. Semmilyen adatot nem módosítottunk."); }
-    finally {setPairBusy(false);}
+    e.preventDefault();const epoch=++pairEpoch.current;setPairResult(null);setPairError("");setPairBusy(true);
+    try {
+      const result=await managerBridge.historicalPairedEvidence(coordZip,localZip);
+      if(epoch===pairEpoch.current)setPairResult(result);
+    }
+    catch { if(epoch===pairEpoch.current)setPairError("A két történeti Store-másolat összevetése sikertelen. Semmilyen adatot nem módosítottunk."); }
+    finally {if(epoch===pairEpoch.current)setPairBusy(false);}
   };
 
   return <section className="glass panel historical-import">
@@ -78,7 +91,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       <form className="historical-import-form" onSubmit={e=>{void inspectArchive(e);}}>
         <label>Korábban mentett Manager ZIP (helyi, olvasási célú másolat)
           <input aria-label="Korábbi Manager archívum" placeholder="D:\Kova-Backups\KovaManager-Fontos.zip"
-            value={archive} maxLength={520} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");reset();}} required/>
+            value={archive} maxLength={520} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");invalidateImport();}} required/>
         </label>
         <button type="submit" className="secondary" disabled={busy||!archive.trim()}>
           <Shield size={16}/> Archívum ellenőrzése
@@ -86,7 +99,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       </form>
       {known && <form className="historical-import-form" onSubmit={e=>{void previewImport(e);}}>
         <label>Archivált Store-v1 map
-          <select aria-label="Archivált Store-v1 map" value={mapId} onChange={e=>{setMapId(e.target.value);reset();}}>
+          <select aria-label="Archivált Store-v1 map" value={mapId} onChange={e=>{setMapId(e.target.value);invalidateImport();}}>
             {known.maps.map(m=><option key={m.mapId} value={m.mapId}>
               {m.mapKey} · Game {m.gamePort} / Query {m.queryPort} · {m.enabledMods} mod
             </option>)}
@@ -94,7 +107,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         </label>
         <label>Eredeti, változatlan helyi ASA telepítési mappa
           <input aria-label="Korábbi ASA map mappája" placeholder="C:\ASA\ExistingMap"
-            value={root} maxLength={520} onChange={e=>{setRoot(e.target.value);reset();}} required/>
+            value={root} maxLength={520} onChange={e=>{setRoot(e.target.value);invalidateImport();}} required/>
         </label>
         <button className="secondary" type="submit" disabled={busy||!mapId||!root.trim()}>
           <Shield size={16}/> Map és Store-adatok előellenőrzése
@@ -127,12 +140,12 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         <form className="historical-import-form" onSubmit={e=>{void comparePeers(e);}}>
           <label>Közös Store-koordinációs archívum
             <input aria-label="Store koordináció ZIP" value={coordZip} maxLength={520}
-              onChange={e=>{setCoordZip(e.target.value);setPairResult(null);}}
+              onChange={e=>{setCoordZip(e.target.value);invalidatePair();}}
               placeholder="D:\\Backups\\Store-coordination.zip" required/>
           </label>
           <label>Másik host négy helyi metaadatának ZIP-másolata
             <input aria-label="Másik Store host ZIP" value={localZip} maxLength={520}
-              onChange={e=>{setLocalZip(e.target.value);setPairResult(null);}}
+              onChange={e=>{setLocalZip(e.target.value);invalidatePair();}}
               placeholder="D:\\Backups\\Store-peer-local.zip" required/>
           </label>
           <button className="secondary" type="submit" disabled={pairBusy || !coordZip.trim() || !localZip.trim()}>
