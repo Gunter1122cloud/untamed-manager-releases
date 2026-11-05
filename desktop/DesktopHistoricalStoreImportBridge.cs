@@ -127,7 +127,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     return Ok(id,new{
                         token,mapId,mapKey=selected.MapId,name,
                         gamePort=selected.GamePort,queryPort=selected.QueryPort,
-                        enabledMods=enabled.Length,passiveMods=passive.Length,
+                        enabledMods=previewEnabled.Length,passiveMods=previewPassive.Length,
                         folderName=Path.GetFileName(root),
                         historicalActive=true,originalMapIdPreserved=true,
                         fullLaunchArgumentsVerified=false,peerWriterVerified=false,
