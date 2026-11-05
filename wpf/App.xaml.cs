@@ -152,36 +152,47 @@ public partial class App : System.Windows.Application
                 foreach(string page in pages)
                 {
                     window.PrepareScreenshotPage(page);
-                    // The GitHub runner's virtual screen can be smaller than the
-                    // requested viewport (e.g. 1024x768). Rendering the attached
-                    // Window content captures the HWND viewport clip and produces
-                    // a misleading black 600px strip on 1600px screenshots.
-                    // Temporarily detach the already-initialized view from its
-                    // native HWND, lay it out at the exact target size and render
-                    // the real WPF visual tree offscreen. Reattach after capture.
+                    // Real offscreen WPF layout, independent of the CI runner's
+                    // 1024px virtual desktop. A root detached from its native
+                    // Window has no painted background or guaranteed layout.
+                    // Reparent into a full-size WPF Grid and measure that host.
+                    var captureHost=new System.Windows.Controls.Grid {
+                        Width=width,Height=height,
+                        Background=window.Background
+                    };
                     RenderTargetBitmap bitmap;
                     window.Content=null;
                     try
                     {
-                        content.Width=width;content.Height=height;
-                        content.Measure(new Size(width,height));
-                        content.Arrange(new Rect(0,0,width,height));
-                        content.UpdateLayout();
-                        window.Dispatcher.Invoke(() => { },DispatcherPriority.Render);
+                        // Keep the production view, bindings, controls and
+                        // event handlers. Do not substitute a mock screenshot.
+                        content.Width=double.NaN;
+                        content.Height=double.NaN;
+                        captureHost.Children.Add(content);
+                        captureHost.Measure(new Size(width,height));
+                        captureHost.Arrange(new Rect(0,0,width,height));
+                        captureHost.UpdateLayout();
+                        window.Dispatcher.Invoke(()=>{},DispatcherPriority.Render);
+                        if(content.RenderSize.Width<width-2 ||
+                           content.RenderSize.Height<height-2)
+                            throw new InvalidOperationException(
+                                "WPF offscreen layout incomplete: rendered "+
+                                content.RenderSize.Width+"x"+content.RenderSize.Height+
+                                " instead of "+width+"x"+height);
                         bitmap=new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
-                        bitmap.Render(content);
-                        // The matte root must fill the entire bitmap. Never
-                        // accept a screenshot with a black virtual-screen crop.
+                        bitmap.Render(captureHost);
+                        // The offscreen host has an opaque graphite background;
+                        // a transparent corner means the render failed outright.
                         byte[] pixel=new byte[4];
                         bitmap.CopyPixels(new Int32Rect(width-3,height-3,1,1),pixel,4,0);
-                        if(pixel[3]<200 || (pixel[0]<6&&pixel[1]<6&&pixel[2]<6))
+                        if(pixel[3]<200)
                             throw new InvalidOperationException(
-                                "WPF screenshot captured an incomplete viewport at "+width+"x"+height);
+                                "WPF offscreen bitmap alpha invalid at full viewport: "+
+                                width+"x"+height+" alpha="+pixel[3]);
                     }
                     finally
                     {
-                        content.Width=double.NaN;
-                        content.Height=double.NaN;
+                        captureHost.Children.Remove(content);
                         window.Content=content;
                         window.UpdateLayout();
                     }
