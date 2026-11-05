@@ -254,7 +254,7 @@ public partial class MainWindow
             _modDraftSessions[draft.MapId]=draft;
             chosen=null;preview.Text="A helyi konfiguráció újraolvasva.";
             Render();
-        })));
+        }))));
         toolbar.Children.Add(GraphiteField("ÚJ MOD ID",addId));
         toolbar.Children.Add(GraphiteField("MÓDOSÍTÁS",
             Btn("＋ Mod hozzáadása",()=>Safely(()=>AddProject(addId.Text)))));
