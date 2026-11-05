@@ -70,6 +70,7 @@ try
     await CurseForgeExactLookupTests.Run();
     await CurseForgeApiKeyValidationTests.Run();
     await CurseForgeProjectDetailsTests.Run();
+    await CurseForgeBrowseApiTests.Run();
     await MapProfileAtomicityTests.Run(root);
     await ManagerSettingsAtomicityTests.Run(root);
     LocalAsaWizardTests.Run(root);
