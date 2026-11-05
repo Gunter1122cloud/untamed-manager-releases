@@ -222,3 +222,16 @@ button,select,input {accent-color:#2cbf91;}
   .premium-server-action{justify-content:flex-end;}
 }
 @media(prefers-reduced-motion:reduce){.premium-server-row,.nav-link{transition:none;}}
+
+/* Empty test-PC workspaces stay visually useful without inventing server
+   state or fake players. These are selectable map names, not installed maps. */
+.premium-onboarding-maps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;width:100%;max-width:710px;margin:10px 0 12px;}
+.premium-onboarding-maps button{display:flex;min-width:0;align-items:center;flex-direction:column;
+  padding:9px 6px;gap:8px;background:linear-gradient(140deg,#22353d,#17272f);
+  border:1px solid #42595d;border-radius:9px;color:#e1f3ed;font-size:11px;}
+.premium-onboarding-maps button:hover{border-color:#66cca0;background:#214d40;}
+.premium-onboarding-maps .premium-map-cover{width:100%;height:52px;flex-basis:52px;}
+.premium-onboarding-maps button>span:nth-child(2){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+.premium-onboarding-maps button>svg{color:#79dcac;}
+@media(max-width:800px){.premium-onboarding-maps{grid-template-columns:repeat(2,minmax(0,1fr));}}
