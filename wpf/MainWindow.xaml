@@ -359,7 +359,7 @@
       </Grid>
      </StackPanel>
     </ScrollViewer>
-    <ScrollViewer x:Name="OtherPage" Background="{StaticResource SurfaceWindow}" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <ScrollViewer x:Name="OtherPage" Background="{StaticResource SurfaceWindow}" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PreviewMouseWheel="OtherPage_PreviewMouseWheel">
      <StackPanel Margin="{StaticResource GraphitePageMargin}">
       <Border CornerRadius="14" Height="132" Background="{StaticResource GraphitePanel}" BorderBrush="{StaticResource SurfaceLine}" BorderThickness="1" ClipToBounds="True" Margin="0,0,0,15">
        <Grid>
