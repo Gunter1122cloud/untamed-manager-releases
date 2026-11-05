@@ -48,6 +48,12 @@ public static class HistoricalLaunchEvidenceInspector
         var mods=Values(source,"mods");
         var deprecatedMods=Values(source,"GameModIds",true);
         var cluster=Values(source,"clusterid");
+        // Verified Untamed Kingdom Store-v1 internal identity. Never rename this
+        // to the product/display name while retaining historical data.
+        const string historicalClusterId="KovaCluster";
+        string clusterStatus=cluster.Length==0?"UNKNOWN":
+            cluster.Length!=1?"CONFLICT":
+            string.Equals(cluster[0],historicalClusterId,StringComparison.Ordinal)?"MATCH":"MISMATCH";
         var transfer=Values(source,"ClusterDirOverride");
         var useStore=Flag(source,"usestore");
         var convert=Flag(source,"converttostore");
@@ -64,7 +70,7 @@ public static class HistoricalLaunchEvidenceInspector
         if(PortStatus(game,gamePort)!="MATCH")codes.Add("GAME_PORT_NOT_CONFIRMED");
         if(PortStatus(query,queryPort)!="MATCH")codes.Add("QUERY_PORT_NOT_CONFIRMED");
         if(modStatus!="MATCH")codes.Add("MOD_ORDER_NOT_CONFIRMED");
-        if(cluster.Length!=1||string.IsNullOrWhiteSpace(cluster[0]))codes.Add("CLUSTER_ID_NOT_CONFIRMED");
+        if(clusterStatus!="MATCH")codes.Add("CLUSTER_ID_NOT_CONFIRMED");
         if(transfer.Length!=1||string.IsNullOrWhiteSpace(transfer[0]))codes.Add("CLUSTER_PATH_NOT_CONFIRMED");
         if(!useStore)codes.Add("USESTORE_NOT_CONFIRMED");
         if(convert)codes.Add("CONVERSION_FLAG_PRESENT");
@@ -76,6 +82,7 @@ public static class HistoricalLaunchEvidenceInspector
             queryPortStatus=PortStatus(query,queryPort),
             modOrderStatus=modStatus,
             clusterIdPresent=cluster.Length==1&&!string.IsNullOrWhiteSpace(cluster[0]),
+            clusterIdStatus=clusterStatus,
             clusterPathPresent=transfer.Length==1&&!string.IsNullOrWhiteSpace(transfer[0]),
             useStorePresent=useStore,conversionFlagPresent=convert,
             findings=codes.ToArray(),sourceAuthenticated=false,
