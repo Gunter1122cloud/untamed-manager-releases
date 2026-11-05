@@ -588,10 +588,12 @@ function Mods({ snapshot, selected, setSelected }: {
   const [prefillMode,setPrefillMode]=useState<ModDraftMode>("active");
   const [draftChanges,setDraftChanges]=useState(0);
   const [inventoryRevision,setInventoryRevision]=useState(0);
+  const [workspaceTab,setWorkspaceTab]=useState<"installed"|"draft"|"galaxy"|"shared">("installed");
   const currentName=info?.mapName||
     snapshot.local.maps.find(m=>m.id===selected)?.name||"Helyi map";
   useEffect(()=>{
     setCatalogPicked("");setDraftChanges(0);setPrefillMode("active");
+    setWorkspaceTab("installed");
   },[selected]);
   useEffect(() => {
     let active = true;
@@ -606,7 +608,8 @@ function Mods({ snapshot, selected, setSelected }: {
   };
   const prepare=(id:string,mode:ModDraftMode)=>{
     setCatalogPicked(id);setPrefillMode(mode);
-    requestAnimationFrame(()=>scrollTo("mod-draft-editor"));
+    setWorkspaceTab("draft");
+    requestAnimationFrame(()=>scrollTo("mod-workspace-tabs"));
   };
   const onDraftProgress=useCallback((changes:number)=>setDraftChanges(changes),[]);
   return <div className="premium-mod-page">
@@ -623,11 +626,31 @@ function Mods({ snapshot, selected, setSelected }: {
       <span className="premium-small-muted">Az eredeti indítási paraméterek megőrzésével</span>
     </div>
     {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
+    <div id="mod-workspace-tabs" className="premium-workspace-tabs" role="tablist"
+      aria-label="Mod Center munkaterületek">
+      {([
+        {id:"installed",name:"Map modjai",icon:Package},
+        {id:"draft",name:"Modpiszkozat",icon:FileText},
+        {id:"galaxy",name:"CurseForge katalógus",icon:Search},
+        {id:"shared",name:"Közös modok",icon:Layers3}
+      ] as const).map(tab=><button type="button" key={tab.id} role="tab"
+        aria-selected={workspaceTab===tab.id}
+        className={workspaceTab===tab.id?"active":""}
+        onClick={()=>setWorkspaceTab(tab.id)}>
+        <tab.icon size={17}/>{tab.name}
+        {tab.id==="draft"&&draftChanges>0?<span className="premium-tab-count">{draftChanges}</span>:null}
+      </button>)}
+    </div>
+    <section className={workspaceTab==="installed"?"premium-tab-surface":"premium-tab-surface is-hidden"}
+      aria-hidden={workspaceTab!=="installed"}>
     <PremiumModBoard info={info} mapName={currentName} draftChanges={draftChanges}
       onStage={prepare}
-      onOpenEditor={()=>scrollTo("mod-draft-editor")}
-      onOpenCatalog={()=>scrollTo("curseforge-catalog")}/>
-    <div id="mod-draft-editor" className="premium-editor-area">
+      onOpenEditor={()=>setWorkspaceTab("draft")}
+      onOpenCatalog={()=>setWorkspaceTab("galaxy")}/>
+    </section>
+    <div id="mod-draft-editor" className={workspaceTab==="draft"?
+      "premium-editor-area premium-tab-surface":"premium-editor-area premium-tab-surface is-hidden"}
+      aria-hidden={workspaceTab!=="draft"}>
       <ModDraftEditor mapId={selected} prefillId={catalogPicked} prefillMode={prefillMode}
         onDraftProgress={onDraftProgress}
         onSaved={saved => {
@@ -636,8 +659,13 @@ function Mods({ snapshot, selected, setSelected }: {
             active:saved.active,passive:saved.passive,disabled:saved.disabled}:current);
         }}/>
     </div>
-    <SharedModOverview revision={inventoryRevision} onPick={setSelected}/>
-    <div id="curseforge-catalog" className="premium-catalog-area">
+    <div className={workspaceTab==="shared"?"premium-tab-surface":"premium-tab-surface is-hidden"}
+      aria-hidden={workspaceTab!=="shared"}>
+      <SharedModOverview revision={inventoryRevision} onPick={setSelected}/>
+    </div>
+    <div id="curseforge-catalog" className={workspaceTab==="galaxy"?
+      "premium-catalog-area premium-tab-surface":"premium-catalog-area premium-tab-surface is-hidden"}
+      aria-hidden={workspaceTab!=="galaxy"}>
       <CurseForgeExplorer onPrepare={id=>prepare(id,"active")}/>
     </div>
   </div>;
