@@ -240,7 +240,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-premium-test.6"
+          $tag = "v1.6.1-premium-test.7"
           $repo = "$env:GITHUB_REPOSITORY"
           $files = @(
             "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-premium-test.exe",
@@ -262,8 +262,8 @@ jobs:
             gh release upload $tag @files --repo $repo --clobber
           } else {
             gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 6" --prerelease `
-              --notes "Graphite TEST 6: NEW native graphite Log Center with locally owned bounded ASA log tail, 5-second opt-in refresh, severity and text filtering, redacted clipboard export, and safe path guards. Local map Logs tab now uses the same bounded reader. Offline DEMO includes a simulated log page. Existing Backup Center retains stopped-map preflight and SHA-256 file-copy. Existing retentions, quarantine, SQL tools and multi-map overview remain in advanced controls. Premium Mod and Plugin Centers, undo/redo, local server shortcuts and offline DEMO remain. The source of ASA SaveComplete and multi-host Store-v1 consistency remains NOT production-certified: no real ASA restart or SQL/Store live restore is enabled. Test only on an isolated Windows PC."
+              --title "Untamed Manager Premium UI v1.6.1 · Graphite TEST 7" --prerelease `
+              --notes "Graphite TEST 7: cohesive matte graphite/teal WPF design tokens, responsive Dashboard and map/table player counts, compact Mod and Plugin Centers with safety-guarded toggles, explicit pending mod changes, authenticated CurseForge name lookup, reworked Backup and Log Centers and an offline DEMO. New screenshot capture renders the native WPF content in an isolated target-sized visual tree. Real ASA SaveComplete, production restart, Store-v1 multi-host write and live SQL restore are NOT certified or enabled. Use only on an isolated Windows test PC."
           }
           if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
           # A cancelled prior CI can leave an unpublished draft with the same tag.
