@@ -13,6 +13,7 @@ import {
   type PluginInventory, type DashboardSnapshot,
   type PublicMap, type RemoteHost
 } from "./bridge";
+import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 
 type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -655,7 +656,9 @@ function BackupCenter({mapId}:{mapId?:string} = {}) {
     </Panel>
   </>;
 }
-function SteamCenter({ snapshot }: { snapshot: DashboardSnapshot }) {
+function SteamCenter({ snapshot, onRegistered }: {
+  snapshot: DashboardSnapshot; onRegistered:()=>Promise<void>
+}) {
   const [inventory, setInventory] = useState<SteamInstallations | null>(null);
   const [ports, setPorts] = useState<SuggestedPorts | null>(null);
   const [error, setError] = useState("");
@@ -695,6 +698,7 @@ function SteamCenter({ snapshot }: { snapshot: DashboardSnapshot }) {
         <span className="mod-tag amber">Frissítés tiltva</span>
       </div>)}
     </Panel>
+    <FreshAsaSteamWizard onRegistered={onRegistered}/>
     <Panel title="Új map · konfigurációs előkészítés">
       <p className="muted small">A hivatalos SteamCMD letöltést és a részletes szerverbeállításokat külön lépésekben fogjuk kezelni. Ez a panel nem indít SteamCMD-műveletet.</p>
       {ports && <div className="port-strip">
@@ -1069,7 +1073,7 @@ export function App() {
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "plugins" && <PluginCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "backups" && <BackupCenter/>}
-          {page === "steam" && <SteamCenter snapshot={snapshot}/>}
+          {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh}/>}
           {page === "logs" && <LogsCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "settings" && <SettingsCenter/>}
           {page === "ini" && <IniCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>} 
