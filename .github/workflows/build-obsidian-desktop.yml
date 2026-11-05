@@ -40,20 +40,15 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-      - name: Bundle original Untamed Kingdom hero and icon (offline)
+      - name: Validate bundled offline Rex hero and app icon
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          New-Item -ItemType Directory -Force desktop-ui/public | Out-Null
-          $hero = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/21f8154d985845935a30bac3a33914ab7c449575" | ConvertFrom-Json
-          if ($hero.encoding -ne "base64") { throw "Original hero unavailable" }
-          [IO.File]::WriteAllBytes("desktop-ui/public/kingdom-hero.jpg",[Convert]::FromBase64String(($hero.content -replace '\s','')))
-          $ico = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/7d6fa69a40eac8b7cf343e0f39223d776d4131c2" | ConvertFrom-Json
-          if ($ico.encoding -ne "base64") { throw "Original icon unavailable" }
-          [IO.File]::WriteAllBytes("desktop-ui/public/UntamedManager.ico",[Convert]::FromBase64String(($ico.content -replace '\s','')))
-          if ((Get-Item desktop-ui/public/kingdom-hero.jpg).Length -lt 1000) { throw "Hero truncated" }
-          if ((Get-Item desktop-ui/public/UntamedManager.ico).Length -lt 800) { throw "Icon truncated" }
+          if ((Get-Item desktop-ui/public/kingdom-hero.jpg).Length -lt 1000) { throw "Original Rex hero missing" }
+          if ((Get-Item desktop-ui/public/UntamedManager.ico).Length -lt 800) { throw "Original icon missing" }
+          if ((Get-FileHash desktop-ui/public/UntamedManager.ico -Algorithm SHA256).Hash -ne
+              (Get-FileHash wpf/Assets/UntamedManager.ico -Algorithm SHA256).Hash) {
+            throw "UI and native icons must remain identical"
+          }
       - name: Build offline React assets (no CDN runtime)
         shell: pwsh
         working-directory: desktop-ui
@@ -61,16 +56,6 @@ jobs:
           npm install --no-audit --no-fund
           npm run build
           if (!(Test-Path dist/index.html)) { throw "Missing offline UI" }
-      - name: Restore original Untamed Kingdom icon asset (read-only repository blob)
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          New-Item -ItemType Directory -Force wpf/Assets | Out-Null
-          $ico = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/7d6fa69a40eac8b7cf343e0f39223d776d4131c2" | ConvertFrom-Json
-          if ($ico.encoding -ne "base64") { throw "Original icon blob unavailable" }
-          [IO.File]::WriteAllBytes("wpf/Assets/UntamedManager.ico",[Convert]::FromBase64String(($ico.content -replace '\s','')))
-          if ((Get-Item "wpf/Assets/UntamedManager.ico").Length -lt 800) { throw "Incomplete icon" }
       - name: Install Playwright Chromium for isolated browser UI tests
         shell: pwsh
         working-directory: desktop-ui
@@ -100,6 +85,14 @@ jobs:
             throw "Packaged map illustration differs from approved original asset"
           }
 
+          if (!(Test-Path desktop/publish/ui/kingdom-hero.jpg) -or
+              !(Test-Path desktop/publish/ui/UntamedManager.ico)) {
+            throw "Branded offline UI asset missing in Windows publish"
+          }
+          if ((Get-FileHash desktop-ui/public/kingdom-hero.jpg -Algorithm SHA256).Hash -ne
+              (Get-FileHash desktop/publish/ui/kingdom-hero.jpg -Algorithm SHA256).Hash) {
+            throw "Bundled Rex background altered during publish"
+          }
           if (!(Test-Path desktop/publish/UntamedDesktop.exe)) { throw "Windows host missing" }
       - name: Run real native C# bridge integration tests (isolated synthetic Windows files)
         shell: pwsh
