@@ -69,6 +69,7 @@ try
     await ModDraftSessionTests.Run(root);
     await PluginCenterTests.Run(root);
     await PremiumBackupWorkflowTests.Run(root);
+    await LocalLogCenterTests.Run(root);
     await GuardedPluginUpdateTests.Run(root);
     await IsolatedRconAdminQueueTests.Run(fake);
     await SchedulerConcurrencyTests.Run(root);
