@@ -362,6 +362,8 @@ test("Steam installation preflight and redacted log center are read-only and fil
 
   await page.getByRole("button", { name: "Naplók" }).click();
   await expect(page.getByRole("heading", {name:"Naplóközpont"})).toBeVisible();
+  await expect(page.locator(".premium-log-metrics>div")).toHaveCount(4);
+  await expect(page.locator(".premium-log-list")).toBeVisible();
   await expect(page.getByText("Synthetic ASA startup line")).toBeVisible();
   await page.getByRole("combobox", {name:"Naplószint"}).selectOption("error");
   await expect(page.getByText("Synthetic failure detected")).toBeVisible();
