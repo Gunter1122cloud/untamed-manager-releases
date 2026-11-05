@@ -358,11 +358,12 @@ public partial class MainWindow
         filter.SelectionChanged+=(_,_)=>Attempt(Render);
 
         var leftToolbar=new WrapPanel {Margin=new Thickness(0,0,0,7)};
-        leftToolbar.Children.Add(search);
-        leftToolbar.Children.Add(filter);
-        leftToolbar.Children.Add(project);
-        leftToolbar.Children.Add(Btn("＋ Mod hozzáadása",()=>Attempt(()=>
-            Stage(project.Text.Trim(),DemoModMode.Active))));
+        leftToolbar.Children.Add(GraphiteField("MODKERESÉS",search));
+        leftToolbar.Children.Add(GraphiteField("ÁLLAPOT",filter));
+        leftToolbar.Children.Add(GraphiteField("ÚJ MOD ID",project));
+        leftToolbar.Children.Add(GraphiteField("MÓDOSÍTÁS",
+            Btn("＋ Mod hozzáadása",()=>Attempt(()=>
+                Stage(project.Text.Trim(),DemoModMode.Active)))));
         var left=V(Label("MOD CENTER  /  KONFIGURÁLT MODOK",16,Mint,true),
             Label("DEMO mintamodok · sorrend · állapot · jóváhagyott szimulált mentés",12,Soft),
             summary,list);
@@ -489,8 +490,8 @@ public partial class MainWindow
         search.TextChanged+=(_,_)=>Render();
         filter.SelectionChanged+=(_,_)=>Render();
         var toolbar=new WrapPanel{Margin=new Thickness(0,4,0,10)};
-        toolbar.Children.Add(search);
-        toolbar.Children.Add(filter);
+        toolbar.Children.Add(GraphiteField("PLUGINKERESÉS",search));
+        toolbar.Children.Add(GraphiteField("ÁLLAPOT",filter));
         var left=Box(V(Label("PLUGIN CENTER  /  ASA API",16,Mint,true),
             Label("DEMO mintapluginok · a kapcsolók kizárólag memóriát módosítanak",12,Soft),
             summary,list));

@@ -9,6 +9,17 @@ public partial class MainWindow
     // WPF uses device-independent pixels: a 1366px 150% DPI desktop may
     // expose fewer than 930 logical pixels. Stack the operational details
     // below the map table instead of compressing columns into unreadable text.
+    private static StackPanel GraphiteField(string caption,UIElement control)
+    {
+        var stack=new StackPanel {Margin=new Thickness(0,0,10,5)};
+        stack.Children.Add(new TextBlock {
+            Text=caption,FontSize=10,FontWeight=FontWeights.SemiBold,
+            Foreground=Soft,Margin=new Thickness(0,0,0,5)
+        });
+        stack.Children.Add(control);
+        return stack;
+    }
+
     private bool _dashboardCompactLayout;
 
     private void DashboardColumns_SizeChanged(object sender,SizeChangedEventArgs args)

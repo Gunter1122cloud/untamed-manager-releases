@@ -242,10 +242,10 @@ public partial class MainWindow
         search.TextChanged+=(_,_)=>Safely(Render);
         filter.SelectionChanged+=(_,_)=>Safely(Render);
         var toolbar=new WrapPanel {Margin=new Thickness(0,3,0,8)};
-        toolbar.Children.Add(selector);
-        toolbar.Children.Add(search);
-        toolbar.Children.Add(filter);
-        toolbar.Children.Add(Btn("Konfiguráció újraolvasása",()=>Safely(()=>{
+        toolbar.Children.Add(GraphiteField("MAP",selector));
+        toolbar.Children.Add(GraphiteField("MODKERESÉS",search));
+        toolbar.Children.Add(GraphiteField("ÁLLAPOT",filter));
+        toolbar.Children.Add(GraphiteField("ÚJRAOLVASÁS",Btn("Frissítés",()=>Safely(()=>{
             if(draft.IsDirty && System.Windows.MessageBox.Show(
                 "A még nem mentett modmódosítások elvesznek. Újraolvasod a helyi profilt?",
                 "Modlista újraolvasása",MessageBoxButton.YesNo,
@@ -255,13 +255,14 @@ public partial class MainWindow
             chosen=null;preview.Text="A helyi konfiguráció újraolvasva.";
             Render();
         })));
-        toolbar.Children.Add(addId);
-        toolbar.Children.Add(Btn("＋ Mod hozzáadása",()=>Safely(()=>AddProject(addId.Text))));
-        toolbar.Children.Add(Btn("CurseForge keresés",()=>{
+        toolbar.Children.Add(GraphiteField("ÚJ MOD ID",addId));
+        toolbar.Children.Add(GraphiteField("MÓDOSÍTÁS",
+            Btn("＋ Mod hozzáadása",()=>Safely(()=>AddProject(addId.Text)))));
+        toolbar.Children.Add(GraphiteField("CURSEFORGE",Btn("Modkeresés",()=>{
             if(catalogExpander==null)return;
             catalogExpander.IsExpanded=true;
             catalogExpander.BringIntoView();
-        }));
+        })));
         var left=V(Label("MOD CENTER  /  KONFIGURÁLT MODOK",16,Mint,true),
             Label("Sorrend · státusz · kapcsolók · változtatás csak jóváhagyás után",12,Soft),
             summary,rows);

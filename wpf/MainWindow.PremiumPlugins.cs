@@ -248,10 +248,10 @@ public partial class MainWindow
         };
 
         var toolbar=new WrapPanel {Margin=new Thickness(0,4,0,7)};
-        toolbar.Children.Add(selector);
-        toolbar.Children.Add(search);
-        toolbar.Children.Add(filter);
-        toolbar.Children.Add(Btn("Frissítés",Refresh));
+        toolbar.Children.Add(GraphiteField("MAP",selector));
+        toolbar.Children.Add(GraphiteField("PLUGINKERESÉS",search));
+        toolbar.Children.Add(GraphiteField("ÁLLAPOT",filter));
+        toolbar.Children.Add(GraphiteField("ÚJRAOLVASÁS",Btn("Frissítés",Refresh)));
         var left=Box(V(Label("PLUGIN CENTER  /  ASA API",16,Mint,true),
             Label("Helyi pluginmappák · kapcsolás ellenőrzött leállítással és mentéssel",12,Soft),
             count,list));
