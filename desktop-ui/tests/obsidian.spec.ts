@@ -199,7 +199,7 @@ test("INI editor requires explicit open, preview and save in test contract",asyn
   await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"})).toBeDisabled();
   await editor.fill("[ServerSettings]\\nExample=2\\n");
   await page.getByRole("button",{name:"Hash és változások előnézete"}).click();
-  await expect(page.getByText("FFEE11")).toHaveCount(0);
+  await expect(page.getByText(/FFEE11/).first()).toBeVisible();
   await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"})).toBeEnabled();
   await page.screenshot({path:"test-results/ini-preview-1366.png",fullPage:true});
   await page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}).click();
