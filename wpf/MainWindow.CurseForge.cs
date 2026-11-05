@@ -69,8 +69,15 @@ public partial class MainWindow
                 lastTerm=term;
                 results.ItemsSource=page.Mods.ToArray();
                 foreach(var mod in page.Mods)
-                    _trustedModNames[mod.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)]
-                        =UntamedPresentation.Display(mod.Name);
+                {
+                    string id=mod.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    _trustedModNames[id]=UntamedPresentation.Display(mod.Name);
+                    if(mod.ThumbnailUrl is not null)
+                        _trustedModArt[id]=mod.ThumbnailUrl;
+                }
+                // Only update visual metadata for configured IDs; no mod
+                // installation, load order, draft or disk state changes.
+                _catalogMetadataUpdated?.Invoke();
                 // The provider's pagination count can describe more results than one page.
                 paging.Text=$"Oldal {index/25+1} · {page.Mods.Count} találat ezen az oldalon · "+
                     $"összesen {page.TotalCount} · további oldal: {(page.HasMore?"igen":"nincs")}";
