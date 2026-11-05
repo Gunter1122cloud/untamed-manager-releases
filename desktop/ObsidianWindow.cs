@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -16,7 +17,8 @@ public sealed class ObsidianWindow : Form
     private readonly WebView2 _browser = new() { Dock = DockStyle.Fill };
     private readonly NotifyIcon _tray = new();
     private readonly DesktopReadOnlyBridge _bridge = new();
-    private readonly DesktopCredentialBridge _credentials = new();
+    private readonly DesktopCredentialBridge _credentials;
+    private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
     private bool _smokeCompleted;
@@ -24,6 +26,7 @@ public sealed class ObsidianWindow : Form
     public ObsidianWindow(bool smokeTest = false)
     {
         _smokeTest = smokeTest;
+        _credentials = new DesktopCredentialBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
@@ -128,11 +131,16 @@ public sealed class ObsidianWindow : Form
                             "curseforge.credentialClear";
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
-                string response = credentialRoute
-                    ? await _credentials.HandleAsync(incoming)
-                    : await _bridge.HandleAsync(incoming);
-                if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
-                    _browser.CoreWebView2.PostWebMessageAsJson(response);
+                await _bridgeGate.WaitAsync();
+                try
+                {
+                    string response = credentialRoute
+                        ? await _credentials.HandleAsync(incoming)
+                        : await _bridge.HandleAsync(incoming);
+                    if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
+                        _browser.CoreWebView2.PostWebMessageAsJson(response);
+                }
+                finally { _bridgeGate.Release(); }
             };
             if (_smokeTest)
                 core.NavigationCompleted += async (_, args) =>

@@ -17,6 +17,7 @@ namespace UntamedDesktop;
 public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 {
     private readonly ClusterService _cluster = new();
+    internal ClusterService LocalCluster => _cluster;
     private readonly SemaphoreSlim _serial = new(1, 1);
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
     private readonly CurseForgeCatalog _catalog;
@@ -72,7 +73,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                         return Error(id, "UM-INVALID-PAGE");
                     searchIndex = page * 25;
                 }
-                if (string.IsNullOrWhiteSpace(_cluster.Store.Read().CurseForgeApiKeyProtected))
+                if (string.IsNullOrWhiteSpace(_cluster.Config.CurseForgeApiKeyProtected))
                     return Error(id, "UM-CURSEFORGE-NO-KEY");
             }
 
@@ -147,7 +148,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
     {
         // The DPAPI protected secret stays in native memory. Only sanitized
         // official ASA catalog metadata is sent to the React renderer.
-        string secret = SecureStore.Unprotect(_cluster.Store.Read().CurseForgeApiKeyProtected);
+        string secret = SecureStore.Unprotect(_cluster.Config.CurseForgeApiKeyProtected);
         var found = await _catalog.SearchAsaAsync(secret, term, index);
         return new {
             gameId = found.GameId,

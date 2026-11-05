@@ -16,9 +16,14 @@ public sealed class DesktopCredentialBridge : IDisposable
 {
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(22) };
     private readonly CurseForgeCatalog _catalog;
+    private readonly ClusterService _cluster;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    public DesktopCredentialBridge() => _catalog = new CurseForgeCatalog(_http);
+    public DesktopCredentialBridge(ClusterService cluster)
+    {
+        _cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
+        _catalog = new CurseForgeCatalog(_http);
+    }
 
     public async Task<string> HandleAsync(string raw)
     {
@@ -61,7 +66,7 @@ public sealed class DesktopCredentialBridge : IDisposable
                 if (method == "curseforge.credentialStatus")
                 {
                     // Never expose key bytes, even to the privileged local UI.
-                    bool configured = !string.IsNullOrEmpty(new ConfigStore().Read().CurseForgeApiKeyProtected);
+                    bool configured = !string.IsNullOrEmpty(_cluster.Config.CurseForgeApiKeyProtected);
                     return Success(id, new { configured });
                 }
 
@@ -74,11 +79,10 @@ public sealed class DesktopCredentialBridge : IDisposable
 
                 // The read + save pair uses the existing CAS hash and process mutex.
                 // Concurrent WPF config edits are rejected instead of overwritten.
-                var store = new ConfigStore();
-                var config = store.Read();
-                config.CurseForgeApiKeyProtected = method == "curseforge.credentialClear"
+                string protectedValue = method == "curseforge.credentialClear"
                     ? "" : SecureStore.Protect(supplied!);
-                store.Save(config);
+                _cluster.UpdateSettings(config =>
+                    config.CurseForgeApiKeyProtected = protectedValue);
                 return Success(id, new {
                     configured = method != "curseforge.credentialClear",
                     verifiedNow = method == "curseforge.credentialSave"
