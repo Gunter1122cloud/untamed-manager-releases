@@ -33,6 +33,14 @@ public static class AsaSteamBuildCatalogTests
             DateTimeOffset.UtcNow);
         Check(current.State==AsaSteamBuildState.Current,
             "same build IDs suppress false positive updates");
+        var newerLocal=AsaSteamBuildCatalog.Compare(install,"public","123458",
+            "123457",DateTimeOffset.UtcNow);
+        Check(newerLocal.State==AsaSteamBuildState.Unknown,
+            "locally newer/private build does not trigger a backwards public-branch update");
+        var sameNumeric=AsaSteamBuildCatalog.Compare(install,"public","000123456",
+            "123456",DateTimeOffset.UtcNow);
+        Check(sameNumeric.State==AsaSteamBuildState.Current,
+            "leading-zero formatting does not generate a false positive update");
         var noData=AsaSteamBuildCatalog.Compare(install,"public",local,null,
             DateTimeOffset.UtcNow);
         Check(noData.State==AsaSteamBuildState.Unknown,
