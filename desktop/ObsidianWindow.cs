@@ -19,6 +19,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopReadOnlyBridge _bridge = new();
     private readonly DesktopCredentialBridge _credentials;
     private readonly DesktopModDraftBridge _modDrafts;
+    private readonly DesktopIniBridge _iniEditor;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -29,6 +30,7 @@ public sealed class ObsidianWindow : Form
         _smokeTest = smokeTest;
         _credentials = new DesktopCredentialBridge(_bridge.LocalCluster);
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
+        _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
@@ -66,6 +68,7 @@ public sealed class ObsidianWindow : Form
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
+            _iniEditor.Dispose();
             _modDrafts.Dispose();
             _credentials.Dispose();
             _ = _bridge.DisposeAsync();
@@ -124,6 +127,7 @@ public sealed class ObsidianWindow : Form
                 string incoming = e.WebMessageAsJson;
                 bool credentialRoute = false;
                 bool draftRoute = false;
+                bool iniRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -139,6 +143,8 @@ public sealed class ObsidianWindow : Form
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
                             "mods.draftDiscard" or "mods.draftSave";
+                        iniRoute = name is "ini.open" or "ini.preview" or
+                            "ini.save" or "ini.close";
                     }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
@@ -148,7 +154,8 @@ public sealed class ObsidianWindow : Form
                     string response = credentialRoute
                         ? await _credentials.HandleAsync(incoming)
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
-                            : await _bridge.HandleAsync(incoming);
+                            : iniRoute ? await _iniEditor.HandleAsync(incoming)
+                                : await _bridge.HandleAsync(incoming);
                     if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
                         _browser.CoreWebView2.PostWebMessageAsJson(response);
                 }
