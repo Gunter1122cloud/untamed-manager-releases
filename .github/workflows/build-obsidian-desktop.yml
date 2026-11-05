@@ -33,6 +33,20 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+      - name: Bundle original Untamed Kingdom hero and icon (offline)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force desktop-ui/public | Out-Null
+          $hero = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/21f8154d985845935a30bac3a33914ab7c449575" | ConvertFrom-Json
+          if ($hero.encoding -ne "base64") { throw "Original hero unavailable" }
+          [IO.File]::WriteAllBytes("desktop-ui/public/kingdom-hero.jpg",[Convert]::FromBase64String(($hero.content -replace '\s','')))
+          $ico = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/7d6fa69a40eac8b7cf343e0f39223d776d4131c2" | ConvertFrom-Json
+          if ($ico.encoding -ne "base64") { throw "Original icon unavailable" }
+          [IO.File]::WriteAllBytes("desktop-ui/public/UntamedManager.ico",[Convert]::FromBase64String(($ico.content -replace '\s','')))
+          if ((Get-Item desktop-ui/public/kingdom-hero.jpg).Length -lt 1000) { throw "Hero truncated" }
+          if ((Get-Item desktop-ui/public/UntamedManager.ico).Length -lt 800) { throw "Icon truncated" }
       - name: Build offline React assets (no CDN runtime)
         shell: pwsh
         working-directory: desktop-ui

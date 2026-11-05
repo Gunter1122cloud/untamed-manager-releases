@@ -20,3 +20,7 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 .plugin-row,.backup-row,.steam-row{display:flex;align-items:center;gap:14px;padding:14px 12px;border-bottom:1px solid #334f54}.plugin-row:last-child,.backup-row:last-child,.steam-row:last-child{border-bottom:0}.plugin-symbol{width:45px;height:45px;flex-shrink:0;display:grid;place-items:center;border-radius:9px;border:1px solid #45786a;background:#20433e;color:#84dabd}.plugin-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:7px}.plugin-copy b{font-size:13px}.plugin-copy small{font-size:11px;color:#a3c1ba;line-height:1.35;overflow-wrap:anywhere}.backup-stats{display:flex;flex-direction:column;align-items:flex-end;gap:7px;white-space:nowrap}.backup-stats strong{font-size:12px;color:#70dcb0}.backup-stats span{font-size:11px;color:#9eaaa9}
 
 .synthetic-fixture-label{position:fixed;left:50%;top:5px;transform:translateX(-50%);background:#a77810;color:#101b1a;border:1px solid #ecd693;border-radius:6px;padding:3px 9px;font-size:10px;font-weight:850;letter-spacing:.12em;z-index:9999;pointer-events:none}
+
+/* Original project artwork, packaged offline in the Windows build, not a CDN. */
+.hero{background:linear-gradient(90deg,#092126f7 0%,#0a282cbf 43%,#09212696 100%),url('/kingdom-hero.jpg') center / cover no-repeat}
+.brand-symbol img{width:54px;height:54px;object-fit:contain;filter:drop-shadow(0 0 7px #54e5b77f)}

@@ -350,7 +350,7 @@ export function App() {
       <div className="synthetic-fixture-label">KIZÁRÓLAG SZINTETIKUS UI-TESZTADAT</div>}
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-symbol"><Activity size={31} strokeWidth={1.8}/></div>
+        <div className="brand-symbol"><img src="/UntamedManager.ico" alt="Untamed Kingdom ikon"/></div>
         <strong>UNTAMED</strong><span>MANAGER</span><small>OBSIDIAN COMMAND</small>
       </div>
       <div className="sidebar-label">KÖZPONT</div>
