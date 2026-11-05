@@ -86,6 +86,22 @@ jobs:
           dotnet publish desktop/UntamedDesktop.csproj -c Release -r win-x64 --self-contained false -o desktop/publish --no-restore
           if (!(Test-Path desktop/publish/ui/index.html)) { throw "React assets not packaged into Windows host" }
           if (!(Test-Path desktop/publish/UntamedDesktop.exe)) { throw "Windows host missing" }
+      - name: Launch actual Windows WebView2 and capture packaged React
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force desktop-artifacts | Out-Null
+          $env:UNTAMED_OBSIDIAN_CAPTURE_PATH = Join-Path $env:RUNNER_TEMP "Obsidian-Native-WebView2.png"
+          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/desktop/publish/UntamedDesktop.exe" -ArgumentList "--smoke-test" -PassThru
+          if (-not $p.WaitForExit(90000)) {
+            try { $p.Kill() } catch {}
+            throw "Native WebView2 startup timed out"
+          }
+          if ($p.ExitCode -ne 0) { throw "Native WebView2 or packaged React failed" }
+          if (!(Test-Path $env:UNTAMED_OBSIDIAN_CAPTURE_PATH) -or
+              (Get-Item $env:UNTAMED_OBSIDIAN_CAPTURE_PATH).Length -lt 8000) {
+            throw "Real WebView2 screenshot missing"
+          }
+          Copy-Item $env:UNTAMED_OBSIDIAN_CAPTURE_PATH desktop-artifacts/Untamed-Obsidian-Native-Preview.png -Force
       - name: Build portable ZIP
         shell: pwsh
         run: |
