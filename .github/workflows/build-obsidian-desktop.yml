@@ -86,6 +86,11 @@ jobs:
           dotnet publish desktop/UntamedDesktop.csproj -c Release -r win-x64 --self-contained false -o desktop/publish --no-restore
           if (!(Test-Path desktop/publish/ui/index.html)) { throw "React assets not packaged into Windows host" }
           if (!(Test-Path desktop/publish/UntamedDesktop.exe)) { throw "Windows host missing" }
+      - name: Run real native C# bridge integration tests (isolated synthetic Windows files)
+        shell: pwsh
+        run: |
+          dotnet run --project desktop/Tests/DesktopBridgeTests.csproj -c Release -r win-x64
+          if ($LASTEXITCODE -ne 0) { throw "Native ModDraft/INI bridge tests failed" }
       - name: Launch actual Windows WebView2 and capture packaged React
         shell: pwsh
         run: |
