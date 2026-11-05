@@ -8,7 +8,12 @@ namespace UntamedManager.Core;
 
 public enum ModMode { Active, Passive, Disabled }
 public sealed record ModSet(IReadOnlyList<string> Active,IReadOnlyList<string> Passive,
-    IReadOnlyList<string> Disabled,bool Pending);
+    IReadOnlyList<string> Disabled,bool Pending)
+{
+    // Preserve the original interleaved -mods sequence. Passive is a SUBSET
+    // switch, not a separate group that must be moved to the front.
+    public IReadOnlyList<string> EnabledOrder {get;init;}=Array.Empty<string>();
+}
 public sealed record ModEdit(Guid Map,string ModId,ModMode? Target,int? Position=null);
 public sealed record ModPreview(Guid Map,string PreviousArguments,string NewArguments,
     ModSet Previous,ModSet Updated,bool Changed);
@@ -102,7 +107,9 @@ public static class ModStateController
                 "Passive mods must be a subset of -mods and disabled mods cannot be enabled");
         var passiveSet=new HashSet<string>(passive,StringComparer.Ordinal);
         var active=enabled.Where(id=>!passiveSet.Contains(id)).ToArray();
-        return new(active,passive,disabled,map.ModChangesPending);
+        return new(active,passive,disabled,map.ModChangesPending){
+            EnabledOrder=enabled
+        };
     }
 
     private static string[] CheckList(IEnumerable<string> ids)
@@ -124,7 +131,20 @@ public static class ModStateController
         var active=before.Active.ToList();
         var passive=before.Passive.ToList();
         var disabled=before.Disabled.ToList();
+        var originalOrder=before.EnabledOrder.ToList();
+        int formerLoadIndex=originalOrder.IndexOf(edit.ModId);
+        ModMode? formerMode=before.Active.Contains(edit.ModId)?ModMode.Active:
+            before.Passive.Contains(edit.ModId)?ModMode.Passive:
+            before.Disabled.Contains(edit.ModId)?ModMode.Disabled:null;
+        int oldModePosition=formerMode switch{
+            ModMode.Active=>active.IndexOf(edit.ModId),
+            ModMode.Passive=>passive.IndexOf(edit.ModId),
+            ModMode.Disabled=>disabled.IndexOf(edit.ModId),
+            _=>-1
+        };
         active.Remove(edit.ModId);passive.Remove(edit.ModId);disabled.Remove(edit.ModId);
+        IReadOnlyList<string>? selectedMode=null;
+        int newModeIndex=-1;
         if(edit.Target.HasValue)
         {
             var selected=edit.Target.Value switch{
@@ -134,7 +154,13 @@ public static class ModStateController
             if(edit.Position.HasValue &&
                (edit.Position<0 || edit.Position>selected.Count))
                 throw new ArgumentOutOfRangeException(nameof(edit.Position));
-            selected.Insert(edit.Position??selected.Count,edit.ModId);
+            // An unchanged mode with no explicit position is a no-op for
+            // that mode's ordering. New/moved mods append by default.
+            newModeIndex=edit.Position ??
+                (formerMode==edit.Target && oldModePosition>=0?
+                    Math.Min(oldModePosition,selected.Count):selected.Count);
+            selected.Insert(newModeIndex,edit.ModId);
+            selectedMode=selected;
         }
         CheckList(active);CheckList(passive);CheckList(disabled);
         var arg=(map.Arguments??"").Trim();
@@ -144,9 +170,30 @@ public static class ModStateController
         foreach(var token in Switches(arg).Reverse())
             remaining=remaining.Remove(token.Start,token.Length);
         remaining=remaining.Trim();
-        // A passive project stays in the normal load list and is also tagged
-        // passive. Passive projects are first, preserving each state's order.
-        var enabled=passive.Concat(active).ToArray();
+        // Preserve every untouched -mods item's global position. Moving a mod
+        // between Active and Passive is a mode change, NOT a load-order change.
+        var enabled=originalOrder.ToList();
+        enabled.Remove(edit.ModId);
+        if(edit.Target is ModMode.Active or ModMode.Passive)
+        {
+            int insertAt=formerLoadIndex>=0?
+                Math.Min(formerLoadIndex,enabled.Count):enabled.Count;
+            if(edit.Position.HasValue && selectedMode!=null)
+            {
+                // An EXPLICIT reorder is anchored against the next or previous
+                // project in the same mode. Unrelated passive/active items
+                // retain their relative ordering as much as possible.
+                var nextModeItem=newModeIndex+1<selectedMode.Count?
+                    selectedMode[newModeIndex+1]:null;
+                var previousModeItem=newModeIndex>0?
+                    selectedMode[newModeIndex-1]:null;
+                if(nextModeItem!=null && enabled.Contains(nextModeItem))
+                    insertAt=enabled.IndexOf(nextModeItem);
+                else if(previousModeItem!=null && enabled.Contains(previousModeItem))
+                    insertAt=enabled.IndexOf(previousModeItem)+1;
+            }
+            enabled.Insert(insertAt,edit.ModId);
+        }
         var next=remaining+
             (enabled.Length>0?(remaining.Length>0?" ":"")+"-mods="+string.Join(",",enabled):"");
         next+=(passive.Count>0?(next.Length>0?" ":"")+"-passivemods="+
@@ -154,7 +201,9 @@ public static class ModStateController
         bool changed=!string.Equals(next,arg,StringComparison.Ordinal) ||
             !disabled.SequenceEqual(before.Disabled);
         return new(map.Id,map.Arguments??"",next,before,
-            new(active,passive,disabled,before.Pending||changed),changed);
+            new ModSet(active,passive,disabled,before.Pending||changed){
+                EnabledOrder=enabled
+            },changed);
     }
 
     public static IReadOnlyList<ModPreview> ApplyLocalBatch(ClusterService cluster,
