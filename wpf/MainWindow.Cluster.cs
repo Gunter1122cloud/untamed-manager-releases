@@ -502,6 +502,7 @@ public partial class MainWindow
         Tab("RCON / Konzol",MapRconPane(map));
         Tab("Mentések",MapBackupPane(map));
         Tab("Naplók",MapLogPane(map));
+        Tab("Steam / Frissítések",SteamMapVersionPane(map));
         parent.Children.Add(tabs);
     }
     private UIElement MapModPane(LocalMap map)
