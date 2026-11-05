@@ -33,6 +33,22 @@ public partial class MainWindow
     private void StartClusterUi()
     {
         // No automatic map discovery or import. Only local maps explicitly saved by the user.
+        // A deliberate one-time local credential bootstrap is unrelated to
+        // server operations and cannot run in isolated test/demo modes.
+        if(!App.IsSmokeTest && !App.IsSupervisionTest && !App.IsDemoStart)
+        {
+            try
+            {
+                if(CurseForgeCredentialBootstrap.TryImport(_cluster,App.LogDir))
+                    _curseForgeImportNotice="A kapott CurseForge token a Windows-profilban titkosítva importálva. A kapcsolat még nincs igazolva.";
+            }
+            catch(Exception)
+            {
+                // Never write raw exception details: credentials must not leak
+                // through reports or diagnostics.
+                _curseForgeImportNotice="A helyi tokenimport sikertelen. Ellenőrizd a Windows-felhasználót és a profilbeállításokat.";
+            }
+        }
         RefreshDashboardMapCards();
         if (!App.IsSmokeTest && !App.IsSupervisionTest && !App.IsDemoStart) _ = BeginClusterNetworkingAsync();
     }

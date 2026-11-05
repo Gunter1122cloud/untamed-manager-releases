@@ -50,11 +50,32 @@ public sealed class CurseForgeCatalog
     public CurseForgeCatalog(HttpClient httpClient) =>
         http=httpClient??throw new ArgumentNullException(nameof(httpClient));
 
+    // Do not guess an API credential's validity from its shape. Operators may
+    // provision the exact value supplied by their provider, including strings
+    // resembling a password hash. Only a real CurseForge API request can verify
+    // acceptance. Never echo the credential in logs, UI or repository content.
+    public static void ValidateApiKey(string? key)
+    {
+        if(string.IsNullOrWhiteSpace(key) || key.Length>512 ||
+           key.Any(char.IsControl))
+            throw new ArgumentException("A CurseForge credential is required",nameof(key));
+        var candidate=key.Trim();
+        if(candidate.StartsWith("{",StringComparison.Ordinal) ||
+           candidate.StartsWith("[",StringComparison.Ordinal))
+            throw new ArgumentException("Paste only the credential value, not a JSON document",nameof(key));
+    }
+
+    // The connection test queries game metadata only: no downloads and no ASA changes.
+    public async Task<int> VerifyAsaKeyAsync(string key,CancellationToken ct=default)
+    {
+        ValidateApiKey(key);
+        return await FindAsaGameAsync(key,ct);
+    }
+
     public async Task<CurseForgeSearchResult> SearchAsaAsync(string key,string term,int index=0,
         CancellationToken ct=default)
     {
-        if(string.IsNullOrWhiteSpace(key) || key.Length>512 || key.Any(char.IsControl))
-            throw new ArgumentException("Approved CurseForge API key required",nameof(key));
+        ValidateApiKey(key);
         term=term?.Trim()??"";
         if(term.Length<2 || term.Length>80)
             throw new ArgumentException("Search text must contain 2-80 characters",nameof(term));
@@ -88,8 +109,7 @@ public sealed class CurseForgeCatalog
         CancellationToken ct=default)
     {
         ct.ThrowIfCancellationRequested();
-        if(string.IsNullOrWhiteSpace(key) || key.Length>512 || key.Any(char.IsControl))
-            throw new ArgumentException("Approved CurseForge API key required",nameof(key));
+        ValidateApiKey(key);
         if(modId<10000)throw new ArgumentOutOfRangeException(nameof(modId));
         int game=await FindAsaGameAsync(key,ct);
         using var document=await Request(key,"/v1/mods/"+modId,ct);
@@ -142,8 +162,7 @@ public sealed class CurseForgeCatalog
     public async Task<CurseForgeFilesResult> GetModFilesAsync(string key,int modId,
         int index=0,CancellationToken ct=default)
     {
-        if(string.IsNullOrWhiteSpace(key) || key.Length>512 || key.Any(char.IsControl))
-            throw new ArgumentException("Approved CurseForge API key required",nameof(key));
+        ValidateApiKey(key);
         if(modId<10000 || index<0 || index>9975 || index%25!=0)
             throw new ArgumentOutOfRangeException(nameof(modId));
         using var document=await Request(key,

@@ -11,6 +11,8 @@ namespace UntamedManager;
 
 public partial class MainWindow
 {
+    private string? _curseForgeImportNotice;
+
     private void ShowCurseForgeSearchControls()
     {
         var key=new PasswordBox { Height=36,Foreground=Brushes.White,Background=Panel,
@@ -26,9 +28,10 @@ public partial class MainWindow
         var detail=Label("Válassz modot a találati listából a részletekhez.",12,Soft);
         var paging=Label("Nincs lekérdezés.",12,Soft);
         var status=Label(
-            string.IsNullOrEmpty(_cluster.Config.CurseForgeApiKeyProtected)
-                ?"A CurseForge API-kulcs nincs beállítva. Csak jóváhagyott kulccsal lehet keresni."
-                :"Helyileg védett CurseForge API-kulcs beállítva. A keresés csak olvas.",
+            _curseForgeImportNotice ??
+            (string.IsNullOrEmpty(_cluster.Config.CurseForgeApiKeyProtected)
+                ?"Nincs helyi CurseForge token. A kapott érték kézzel vagy egyszeri helyi importtal is beállítható."
+                :"CurseForge token helyileg titkosítva eltárolva. A hitelesítést a kapcsolatteszt igazolja."),
             12,Soft);
         var catalog=new CurseForgeCatalog(_http);
         CurseForgeSearchResult? last=null;
@@ -184,18 +187,64 @@ public partial class MainWindow
                 "Nem tölt le vagy telepít modot, és nem indít újra szervert.",12,Soft),
             Label("API-kulcs (Windows DPAPI-val helyileg védve, nem kerül a GitHubra)",12,Aqua),
             key,
+            Btn("CurseForge API-kapcsolat ellenőrzése",async ()=>{
+                if(busy)return;
+                string candidate=key.Password;
+                if(string.IsNullOrWhiteSpace(candidate))
+                {
+                    var stored=_cluster.Config.CurseForgeApiKeyProtected;
+                    if(string.IsNullOrWhiteSpace(stored))
+                    {
+                        status.Text="Előbb állítsd be a kapott CurseForge tokent.";
+                        return;
+                    }
+                    try { candidate=SecureStore.Unprotect(stored); }
+                    catch
+                    {
+                        status.Text="A korábban elmentett kulcs nem olvasható ebben a Windows-profilban.";
+                        return;
+                    }
+                }
+                busy=true;
+                status.Text="Hivatalos CurseForge ASA-katalógus ellenőrzése...";
+                try
+                {
+                    int gameId=await catalog.VerifyAsaKeyAsync(candidate);
+                    status.Text="CurseForge kapcsolat sikeres. ASA katalógus ID: "+
+                        gameId+". Csak metaadatot kértünk le, modot nem telepítettünk.";
+                }
+                catch(ArgumentException)
+                {
+                    status.Text="A token hiányzik, túl hosszú vagy teljes JSON-dokumentum. "+
+                        "A kapott tokenértéket önmagában add meg.";
+                }
+                catch(UnauthorizedAccessException)
+                {
+                    status.Text="CurseForge 401/403: ezt a tokent az API nem fogadta el. A mentett tokent nem módosítottuk.";
+                }
+                catch(Exception)
+                {
+                    status.Text="A CurseForge API ellenőrzése nem sikerült. "+
+                        "Ellenőrizd az internetkapcsolatot és a jóváhagyott hozzáférést.";
+                }
+                finally { busy=false; }
+            }),
             Btn("API-kulcs mentése helyileg",()=>{
                 try
                 {
-                    if(string.IsNullOrWhiteSpace(key.Password) || key.Password.Length>512)
-                        throw new InvalidDataException("Érvénytelen kulcs");
+                    CurseForgeCatalog.ValidateApiKey(key.Password);
                     var protectedValue=SecureStore.Protect(key.Password);
                     _cluster.UpdateSettings(c=>c.CurseForgeApiKeyProtected=protectedValue);
                     key.Clear();
                     last=null;
                     previous.IsEnabled=false;
                     next.IsEnabled=false;
-                    status.Text="Kulcs titkosítva elmentve a helyi Windows-profilban.";
+                    status.Text="A kulcs helyileg titkosítva tárolva. "+
+                        "Érvényességét az API-kapcsolat ellenőrzésével igazolhatod.";
+                }
+                catch(ArgumentException)
+                {
+                    status.Text="Nem menthető: csak a kapott tokent add meg, ne teljes JSON-t.";
                 }
                 catch(Exception e){status.Text="Kulcs nem menthető: "+e.GetType().Name;}
             }),
