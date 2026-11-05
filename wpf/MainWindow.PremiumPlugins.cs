@@ -13,6 +13,7 @@ namespace UntamedManager;
 // versions, loaded process state, dependencies or update availability.
 internal sealed record PremiumPluginRow(string Name,string State,string Hint,bool Enabled)
 {
+    public Brush StateBrush => Enabled ? Brushes.MediumAquamarine : Brushes.Goldenrod;
     public System.Windows.Input.ICommand? ToggleCommand { get; init; }
     public bool CanToggle => ToggleCommand is not null;
 }
