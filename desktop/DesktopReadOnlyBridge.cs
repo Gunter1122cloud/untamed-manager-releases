@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,6 +18,9 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 {
     private readonly ClusterService _cluster = new();
     private readonly SemaphoreSlim _serial = new(1, 1);
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
+    private readonly CurseForgeCatalog _catalog;
+    public DesktopReadOnlyBridge() => _catalog = new CurseForgeCatalog(_http);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public async Task<string> HandleAsync(string input)
@@ -37,7 +41,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 
             id = parsedId.ToString("D");
             string? method = rawMethod.GetString();
-            if (method is not ("dashboard.snapshot" or "mods.configured"))
+            if (method is not ("dashboard.snapshot" or "mods.configured" or "curseforge.search"))
                 return Error(id, "UM-METHOD-DENIED");
 
             string? mapId = null;
@@ -50,12 +54,38 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                 mapId = parsedMap.ToString("D");
             }
 
+            string? searchTerm = null;
+            int searchIndex = 0;
+            if (method == "curseforge.search")
+            {
+                if (!request.TryGetProperty("term", out var rawTerm) ||
+                    rawTerm.ValueKind != JsonValueKind.String)
+                    return Error(id, "UM-INVALID-SEARCH");
+                searchTerm = (rawTerm.GetString() ?? "").Trim();
+                if (searchTerm.Length is < 2 or > 80 ||
+                    searchTerm.Any(char.IsControl))
+                    return Error(id, "UM-INVALID-SEARCH");
+                if (request.TryGetProperty("page", out var pageField))
+                {
+                    if (pageField.ValueKind != JsonValueKind.Number ||
+                        !pageField.TryGetInt32(out int page) || page is < 0 or > 19)
+                        return Error(id, "UM-INVALID-PAGE");
+                    searchIndex = page * 25;
+                }
+                if (string.IsNullOrWhiteSpace(_cluster.Config.CurseForgeApiKeyProtected))
+                    return Error(id, "UM-CURSEFORGE-NO-KEY");
+            }
+
             await _serial.WaitAsync();
             try
             {
-                object result = method == "dashboard.snapshot"
-                    ? await GetDashboardAsync()
-                    : GetConfiguredMods(Guid.Parse(mapId!));
+                object result = method switch
+                {
+                    "dashboard.snapshot" => await GetDashboardAsync(),
+                    "mods.configured" => GetConfiguredMods(Guid.Parse(mapId!)),
+                    "curseforge.search" => await SearchCurseForgeAsync(searchTerm!, searchIndex),
+                    _ => throw new InvalidOperationException("Disallowed bridge operation")
+                };
                 return JsonSerializer.Serialize(new { id, ok = true, data = result }, Json);
             }
             finally { _serial.Release(); }
@@ -108,6 +138,32 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
         });
     }
 
+    private async Task<object> SearchCurseForgeAsync(string term, int index)
+    {
+        // The DPAPI protected secret stays in native memory. Only sanitized
+        // official ASA catalog metadata is sent to the React renderer.
+        string secret = SecureStore.Unprotect(_cluster.Config.CurseForgeApiKeyProtected);
+        var found = await _catalog.SearchAsaAsync(secret, term, index);
+        return new {
+            gameId = found.GameId,
+            totalCount = found.TotalCount,
+            page = found.Index / 25,
+            hasMore = found.HasMore,
+            mods = found.Mods.Select(m => new {
+                id = m.Id,
+                name = m.Name,
+                summary = m.Summary,
+                website = m.Website,
+                thumbnailUrl = m.ThumbnailUrl,
+                authors = m.Authors,
+                latestFile = m.LatestFile,
+                modifiedUtc = m.ModifiedUtc,
+                downloadCount = m.DownloadCount
+            }).ToArray(),
+            evidence = "OFFICIAL_CATALOG_METADATA_ONLY"
+        };
+    }
+
     private object GetConfiguredMods(Guid mapId)
     {
         var map = _cluster.Config.LocalMaps.SingleOrDefault(m => m.Id == mapId);
@@ -131,6 +187,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _cluster.DisposeAsync();
+        _http.Dispose();
         _serial.Dispose();
     }
 }
