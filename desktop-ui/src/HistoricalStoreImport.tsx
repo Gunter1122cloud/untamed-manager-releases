@@ -25,7 +25,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       const result=await managerBridge.historicalList(archive);
       setKnown(result);setMapId(result.maps[0]?.mapId??"");
     }catch{
-      setError("A privát Kova Manager ZIP nem ellenőrizhető, hiányos vagy megváltozott. A fájlokat nem módosítottuk.");
+      setError("A privát Manager ZIP nem ellenőrizhető, hiányos vagy megváltozott. A fájlokat nem módosítottuk.");
     }finally{setBusy(false);}
   };
   const previewImport=async(e:FormEvent)=>{
@@ -65,19 +65,19 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
 
   return <section className="glass panel historical-import">
     <div className="panel-head">
-      <h2><Archive size={19}/> Kova Store-v1 · meglévő map átvétele</h2>
+      <h2><Archive size={19}/> Untamed Store-v1 · meglévő map átvétele</h2>
       <span className="mod-tag amber"><LockKeyhole size={13}/> Indítás zárolva</span>
     </div>
     <div className="panel-inner">
       <p className="muted small">
-        A már működő Store-v1 rendszert nem konvertáljuk újra. A meglévő Kova Manager ZIP-ből
+        A már működő Store-v1 rendszert nem konvertáljuk újra. A korábbi Manager hitelesített ZIP-másolatából
         ellenőrizzük az eredeti mapazonosítót, mapgyökeret, portokat és a modlistát.
         A ZIP nem tartalmaz teljes indítási parancssort: emiatt a regisztrált map
         <strong> védett és nem indítható</strong> a további kétgépes ellenőrzésig.
       </p>
       <form className="historical-import-form" onSubmit={e=>{void inspectArchive(e);}}>
-        <label>Korábban mentett Kova Manager ZIP (helyi, olvasási célú másolat)
-          <input aria-label="Kova Manager archívum" placeholder="D:\Kova-Backups\KovaManager-Fontos.zip"
+        <label>Korábban mentett Manager ZIP (helyi, olvasási célú másolat)
+          <input aria-label="Korábbi Manager archívum" placeholder="D:\Kova-Backups\KovaManager-Fontos.zip"
             value={archive} maxLength={520} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");reset();}} required/>
         </label>
         <button type="submit" className="secondary" disabled={busy||!archive.trim()}>
@@ -86,14 +86,14 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       </form>
       {known && <form className="historical-import-form" onSubmit={e=>{void previewImport(e);}}>
         <label>Archivált Store-v1 map
-          <select aria-label="Archivált Kova map" value={mapId} onChange={e=>{setMapId(e.target.value);reset();}}>
+          <select aria-label="Archivált Store-v1 map" value={mapId} onChange={e=>{setMapId(e.target.value);reset();}}>
             {known.maps.map(m=><option key={m.mapId} value={m.mapId}>
               {m.mapKey} · Game {m.gamePort} / Query {m.queryPort} · {m.enabledMods} mod
             </option>)}
           </select>
         </label>
         <label>Eredeti, változatlan helyi ASA telepítési mappa
-          <input aria-label="Kova ASA map mappája" placeholder="C:\ASA\ExistingMap"
+          <input aria-label="Korábbi ASA map mappája" placeholder="C:\ASA\ExistingMap"
             value={root} maxLength={520} onChange={e=>{setRoot(e.target.value);reset();}} required/>
         </label>
         <button className="secondary" type="submit" disabled={busy||!mapId||!root.trim()}>

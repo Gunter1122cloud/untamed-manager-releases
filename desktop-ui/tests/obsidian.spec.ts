@@ -446,12 +446,12 @@ test("Store-v1 historic import preserves map identity and never permits launch b
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
-  await page.getByRole("button",{name:"Kova Store-v1 átvétel"}).click();
-  await expect(page.getByText(/Kova Store-v1 · meglévő map átvétele/)).toBeVisible();
-  await page.getByRole("textbox",{name:"Kova Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  await expect(page.getByText(/Untamed Store-v1 · meglévő map átvétele/)).toBeVisible();
+  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
   await page.getByRole("button",{name:"Archívum ellenőrzése"}).click();
-  await expect(page.getByRole("combobox",{name:"Archivált Kova map"})).toBeVisible();
-  await page.getByRole("textbox",{name:"Kova ASA map mappája"}).fill("C:\\ASA\\TestExistingMap");
+  await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeVisible();
+  await page.getByRole("textbox",{name:"Korábbi ASA map mappája"}).fill("C:\\ASA\\TestExistingMap");
   await page.getByRole("button",{name:"Map és Store-adatok előellenőrzése"}).click();
   await expect(page.getByText(/Teljes launch argumentumok/)).toBeVisible();
   await expect(page.getByText("TILTOTT")).toBeVisible();
@@ -467,7 +467,7 @@ test("Store-v1 cross-host evidence distinguishes historical files from live writ
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
-  await page.getByRole("button",{name:"Kova Store-v1 átvétel"}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
   await page.getByRole("textbox",{name:"Store koordináció ZIP"}).fill("D:\\Store-Coordination.zip");
   await page.getByRole("textbox",{name:"Másik Store host ZIP"}).fill("D:\\Other-Host-Local.zip");
   await page.getByRole("button",{name:"Két host Store-adatainak összevetése"}).click();

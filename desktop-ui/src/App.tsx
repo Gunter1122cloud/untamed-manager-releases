@@ -356,7 +356,7 @@ function LocalAsaImport({onImported}: {onImported:()=>Promise<void>}) {
       setError(code==="UM-ASA-EXE-MISSING"
         ? "A megadott helyen nincs meg az ASA ShooterGame/Binaries/Win64/ArkAscendedServer.exe."
         : code==="UM-EXISTING-WORLD-REQUIRES-PRESERVED-IMPORT"
-          ? "Ez a telepítés már világmentést tartalmaz. Ne importáld üres szerverként; használd a külön Kova Store-v1 átvételt."
+          ? "Ez a telepítés már világmentést tartalmaz. Ne importáld üres szerverként; használd a külön Store-v1 átvételt."
           : "A kiválasztott helyi telepítés nem importálható ("+code+"). Ellenőrizd a mappát és a már regisztrált mapokat.");
     } finally {setBusy(false);}
   };
@@ -421,7 +421,7 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
       <div className="toolbar"><Search size={19}/><input aria-label="Map keresése" placeholder="Map keresése..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
       <div className="server-import-buttons">
         <button className="secondary" onClick={()=>setImportMode(v=>v==="store"?"none":"store")}>
-          {importMode==="store"?"Store-v1 import bezárása":"Kova Store-v1 átvétel"}
+          {importMode==="store"?"Store-v1 import bezárása":"Store-v1 átvétel"}
         </button>
         <button className="primary" onClick={()=>setImportMode(v=>v==="existing"?"none":"existing")}>
           {importMode==="existing"?"Map import bezárása":"Új helyi map felvétele"}
