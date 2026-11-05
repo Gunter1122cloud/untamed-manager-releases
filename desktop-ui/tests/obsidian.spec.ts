@@ -40,7 +40,7 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; modId?: number }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean }) => {
       switch (m.method) {
         case "servers.inspectLocal": return {importToken:"00000000-0000-4000-8000-000000009999",name:m.name||"The Island",folderName:"ASA-LAB",exeFound:true,apiLoaderDetected:false,portsConfigured:false,evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"};
         case "servers.importLocal":
@@ -52,7 +52,7 @@ test.beforeEach(async ({ page }) => {
         case "ini.save": return {saved:true,backupCreated:true,sha256:"FFEE11",evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
         case "ini.close": return {closed:true};
         case "mods.draftStart": stagedId="";return draftState();
-        case "mods.draftStage": stagedId=m.modId||"";redoId="";return draftState();
+        case "mods.draftStage": stagedId=String(m.modId||"");redoId="";return draftState();
         case "mods.draftUndo": redoId=stagedId;stagedId="";return draftState();
         case "mods.draftRedo": stagedId=redoId;redoId="";return draftState();
         case "mods.draftDiscard": stagedId="";return {discarded:true};

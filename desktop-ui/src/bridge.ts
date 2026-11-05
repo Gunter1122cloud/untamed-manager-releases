@@ -169,10 +169,10 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
   "curseforge.project" | "curseforge.files";
   mapId?: string; term?: string; page?: number; credential?: string;
-  draftId?: string; modId?: string; mode?: ModDraftMode; position?: number;
+  draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
   name?: string; root?: string; importToken?: string;
-  modId?: number; categoryId?: number; sort?: number; descending?: boolean };
+  categoryId?: number; sort?: number; descending?: boolean };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
