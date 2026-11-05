@@ -126,14 +126,28 @@ public static class AsaSteamBuildCatalog
     public static AsaSteamBuildCheck Compare(string install,string branch,
         string? local,string? available,DateTimeOffset when)
     {
-        bool known=!string.IsNullOrWhiteSpace(local)&&!string.IsNullOrWhiteSpace(available)
-            &&local.All(char.IsAsciiDigit)&&available.All(char.IsAsciiDigit);
-        var state=!known?AsaSteamBuildState.Unknown:
-            local==available?AsaSteamBuildState.Current:AsaSteamBuildState.UpdateAvailable;
+        static bool ReadBuild(string? raw,out System.Numerics.BigInteger number)
+        {
+            number=default;
+            return raw is {Length:>0 and <=20} &&
+                raw.All(char.IsAsciiDigit) &&
+                System.Numerics.BigInteger.TryParse(raw,
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,out number);
+        }
+        bool known=ReadBuild(local,out var installed) &&
+            ReadBuild(available,out var published);
+        // The public branch may lag a private / manually supplied install.
+        // A different build ID is NOT sufficient to assert an upgrade exists.
+        var state=!known||installed>published?AsaSteamBuildState.Unknown:
+            installed==published?AsaSteamBuildState.Current:
+            AsaSteamBuildState.UpdateAvailable;
         return new AsaSteamBuildCheck(install,branch,local,available,state,when,
             state==AsaSteamBuildState.Current?"Naprakész (azonos Steam build ID)":
-            state==AsaSteamBuildState.UpdateAvailable?"Steam-frissítés elérhető":
-            "A Steam Build ID nem ellenőrizhető hitelesen");
+            state==AsaSteamBuildState.UpdateAvailable?"Újabb Steam-frissítés elérhető":
+            known&&installed>published?
+                "A helyi build újabb a publikus ágnál: kézi ágellenőrzés szükséges":
+                "A Steam Build ID nem ellenőrizhető hitelesen");
     }
     /// <summary>
     /// SteamCMD app_info_print reads published depot metadata only. It never
