@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 
 namespace UntamedManager.Core;
@@ -62,6 +63,38 @@ public sealed class SteamBuildStatusStore
         }
         finally{if(File.Exists(temp))File.Delete(temp);}
     }
+    /// <summary>
+    /// The success timestamp is written only after the verified pipeline
+    /// returns a full completed receipt. SteamCMD exit code alone never
+    /// qualifies, and a failed restart never advances last-updated.
+    /// </summary>
+    public SteamMapUpdateStatus RecordVerifiedUpdate(LocalMap map,
+        SteamMaintenanceReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        ArgumentNullException.ThrowIfNull(receipt);
+        if(map.Id!=receipt.MapId || receipt.FinishedUtc>DateTimeOffset.UtcNow.AddSeconds(5) ||
+           receipt.FinishedUtc<DateTimeOffset.UtcNow.AddDays(-1) ||
+           receipt.BackupDigest.Length!=64 ||
+           !receipt.BackupDigest.All(Uri.IsHexDigit) ||
+           string.IsNullOrWhiteSpace(receipt.OldBuild) ||
+           string.IsNullOrWhiteSpace(receipt.NewBuild) ||
+           !receipt.NewBuild.All(char.IsAsciiDigit) ||
+           receipt.WasRunning!=receipt.Restarted ||
+           AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)!=receipt.NewBuild)
+            throw new InvalidDataException(
+                "Only a correlated, completed ASA update can advance the success timestamp");
+        var old=Read(map);
+        var compared=AsaSteamBuildCatalog.Compare(map.InstallationPath,
+            old.Branch,receipt.NewBuild,old.AvailableBuild,DateTimeOffset.UtcNow);
+        var state=new SteamMapUpdateStatus(map.Id,map.InstallationPath,old.Branch,
+            receipt.NewBuild,old.AvailableBuild,compared.State,
+            old.LastCheckedUtc,receipt.FinishedUtc,
+            "SteamCMD frissítés, mentés, leállítás és előírt újraindítás ellenőrizve");
+        Write(map,state);
+        return state;
+    }
+
     public SteamMapUpdateStatus SaveCheck(LocalMap map,AsaSteamBuildCheck check)
     {
         var old=Read(map);
