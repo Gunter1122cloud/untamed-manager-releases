@@ -20,6 +20,7 @@ import { PremiumDashboard } from "./PremiumDashboard";
 import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
+import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 
 type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -1248,7 +1249,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
     </div>
   </>;
 }
-type MapSection = "overview" | "mods" | "plugins" | "ini" | "backups" | "logs";
+type MapSection = "overview" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
 function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   snapshot:DashboardSnapshot;mapId:string;onBack:()=>void;
   setSelected:(value:string)=>void;onConfigured:()=>Promise<void>
@@ -1261,7 +1262,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const sections: Array<{id:MapSection;name:string}>=[
     {id:"overview",name:"Áttekintés"},{id:"mods",name:"Modok"},
     {id:"plugins",name:"Pluginok / ASA API"},{id:"ini",name:"INI"},
-    {id:"backups",name:"Mentések"},{id:"logs",name:"Naplók"}
+    {id:"backups",name:"Mentések"},{id:"logs",name:"Naplók"},
+    {id:"rcon",name:"RCON / Konzol"}
   ];
   return <div className="map-detail-page">
     <button className="quiet back-to-servers" onClick={onBack}>
@@ -1281,10 +1283,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         aria-selected={section===item.id}
         className={section===item.id?"map-detail-tab selected":"map-detail-tab"}
         onClick={()=>setSection(item.id)}>{item.name}</button>)}
-      <button type="button" role="tab" disabled className="map-detail-tab disabled"
-        title="Az éles RCON-konzolhoz még külön hitelesített ASA-integrációs teszt szükséges.">
-        RCON / Konzol · teszt alatt
-      </button>
+
     </div>
     {section==="overview" && <>
       <div className="map-overview-grid">
@@ -1317,6 +1316,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="backups" && <BackupCenter mapId={mapId}/>}
     {section==="logs" && <LogsCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
+    {section==="rcon" && <RconReadOnlyPanel mapId={mapId}/>}
   </div>;
 }
 
