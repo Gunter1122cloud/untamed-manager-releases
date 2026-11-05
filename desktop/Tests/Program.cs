@@ -241,6 +241,104 @@ try
             "no mod install method is exposed to JavaScript");
     }
 
+    // Exercise the WebView2-to-Core SteamCMD wizard with a synthetic
+    // asynchronous Windows process adapter. Real SteamCMD/ASA is never started.
+    string freshRoot=Path.Combine(root,"fresh-asa-empty");
+    string steamDir=Path.Combine(root,"steam-toolkit");
+    Directory.CreateDirectory(steamDir);
+    string steamExe=Path.Combine(steamDir,"steamcmd.exe");
+    File.WriteAllText(steamExe,"SYNTHETIC STEAMCMD EXE - DO NOT EXECUTE");
+    int fakeRuns=0;
+    async Task<SteamFreshInstallReceipt> SyntheticSteamRunner(
+        SteamFreshInstallRequest request,LocalMap[] existing,
+        IProgress<SteamInstallProgress>? progress,CancellationToken cancellationToken)
+    {
+        fakeRuns++;
+        Check(request.MapName=="Valguero" && request.SessionName=="" &&
+              !existing.Any(m=>m.Name=="Valguero"),
+            "new Steam installer begins without ports, session or existing map");
+        progress?.Report(new("download","SYNTHETIC provider stage",32.5));
+        await Task.Delay(80,cancellationToken);
+        string binaries=Path.Combine(request.InstallRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(binaries);
+        string targetExe=Path.Combine(binaries,"ArkAscendedServer.exe");
+        File.WriteAllText(targetExe,"SYNTHETIC ASA EXE - NEVER EXECUTE");
+        string manifestDir=Path.Combine(request.InstallRoot,"steamapps");
+        Directory.CreateDirectory(manifestDir);
+        File.WriteAllText(Path.Combine(manifestDir,"appmanifest_2430930.acf"),
+            "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
+        progress?.Report(new("complete","SYNTHETIC fixtures verified",100));
+        return new(request.MapId,request.InstallRoot,targetExe,"123456",
+            DateTimeOffset.UtcNow,request.SteamCmdExecutable,
+            AsaSteamMapCatalog.LevelFor(request.MapName));
+    }
+
+    using(var steamBridge=new DesktopSteamFreshInstallBridge(cluster,
+        SyntheticSteamRunner))
+    {
+        var badPath=await Call(steamBridge.HandleAsync,"steam.freshPreflight",
+            new{mapName="Valguero",installRoot=@"\\foreign\server",
+                steamExe,allowSteamCmdDownload=false});
+        Check(!badPath.GetProperty("ok").GetBoolean(),
+            "new Steam download refuses foreign/UNC install root");
+        Check(fakeRuns==0,"preflight never launches synthetic SteamCMD adapter");
+
+        var prepared=await Call(steamBridge.HandleAsync,"steam.freshPreflight",
+            new{mapName="Valguero",installRoot=freshRoot,
+                steamExe,allowSteamCmdDownload=false,explicitRetry=false});
+        IsOk(prepared,"official local ASA fresh preflight returns a review token");
+        Check(!Directory.Exists(freshRoot),
+            "new installation preflight never creates destination");
+        string token=prepared.GetProperty("data").GetProperty("token").GetString()!;
+        var refused=await Call(steamBridge.HandleAsync,"steam.freshStart",
+            new{token,confirm=false});
+        Check(IsError(refused,"UM-FRESH-EXPLICIT-CONFIRMATION-REQUIRED") &&
+              fakeRuns==0,"SteamCMD cannot start without explicit confirmation");
+
+        var started=await Call(steamBridge.HandleAsync,"steam.freshStart",
+            new{token,confirm=true});
+        IsOk(started,"approved SteamCMD job is scheduled separately from UI request");
+        string jobId=started.GetProperty("data").GetProperty("jobId").GetString()!;
+        var repeat=await Call(steamBridge.HandleAsync,"steam.freshStart",
+            new{token,confirm=true});
+        Check(IsError(repeat,"UM-FRESH-PREFLIGHT-EXPIRED"),
+            "one-time launch token cannot replay");
+        JsonElement progressState=default;
+        for(int attempt=0;attempt<40;attempt++)
+        {
+            progressState=await Call(steamBridge.HandleAsync,"steam.freshStatus",
+                new{jobId});
+            if(progressState.GetProperty("data").GetProperty("verified").GetBoolean())
+                break;
+            await Task.Delay(40);
+        }
+        IsOk(progressState,"native asynchronous SteamCMD job status is readable");
+        Check(progressState.GetProperty("data").GetProperty("verified").GetBoolean() &&
+              fakeRuns==1 &&
+              !cluster.Config.LocalMaps.Any(m=>m.Name=="Valguero"),
+            "finished SteamCMD files never silently register or start a server");
+        var registered=await Call(steamBridge.HandleAsync,"steam.freshRegister",
+            new{jobId,confirm=true});
+        IsOk(registered,"explicit registration succeeds after verified file and manifest");
+        var newMap=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
+        Check(newMap.GamePort==0 && newMap.QueryPort==0 && newMap.RconPort==0 &&
+              !newMap.AutoStart && !newMap.StartWithAsaApi &&
+              newMap.Arguments=="",
+            "Steam installation preserves download-before-configuration semantics");
+        Check(File.ReadAllText(newMap.ExecutablePath).Contains("SYNTHETIC ASA EXE"),
+            "Steam installation registration never modifies server EXE content");
+        var again=await Call(steamBridge.HandleAsync,"steam.freshRegister",
+            new{jobId,confirm=true});
+        Check(IsError(again,"UM-FRESH-NOT-VERIFIED"),
+            "completed Steam registration is not replayable");
+        Check(!File.Exists(Path.Combine(freshRoot,"ShooterGame","Saved","SavedArks","Valguero_WP.ark")),
+            "fresh download never fabricates world saves or Store data");
+        var current=await Call(steamBridge.HandleAsync,"steam.freshCurrent");
+        Check(current.GetProperty("data").GetProperty("current")
+            .GetProperty("registered").GetBoolean(),
+            "manager can restore verified native Steam job status after UI navigation");
+    }
+
     // A new, deliberately untrusted process observer must not write INI.
     await using var running=new ClusterService("obsidian-running",Path.Combine(root,"running-profile"),
         _=>new ProcessCheck(true,"Synthetic running map",null,false));
