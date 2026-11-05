@@ -14,8 +14,31 @@ public partial class MainWindow
         SidebarColumn.Width=new GridLength(width<1080?184:224);
         VersionContainer.Visibility=width<940?Visibility.Collapsed:Visibility.Visible;
         SupervisorContainer.Visibility=width<1180?Visibility.Collapsed:Visibility.Visible;
-        DashboardHeroActions.Visibility=width<1160?Visibility.Collapsed:Visibility.Visible;
-        DashboardKpis.Columns=width<1180?2:4;
+        // Content sizing is based on its measured DIPs below, not Window.Width.
+        // Content sizing is based on its measured DIPs below, not Window.Width.
+    }
+
+    /// <summary>
+    /// Use the actual card-area width: a CI screenshot can render the same
+    /// live WPF visual tree off-screen at a viewport larger than the runner.
+    /// More importantly, a 150% DPI laptop still receives usable card widths.
+    /// </summary>
+    private void DashboardKpis_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if(sender is not UniformGrid cards || e.NewSize.Width<=0)
+            return;
+        int columns=e.NewSize.Width>=1040?4:
+            e.NewSize.Width>=560?2:1;
+        if(cards.Columns!=columns)
+            cards.Columns=columns;
+    }
+
+    private void DashboardHeroContent_SizeChanged(object sender,SizeChangedEventArgs e)
+    {
+        if(e.NewSize.Width<=0)return;
+        var visible=e.NewSize.Width>=840?Visibility.Visible:Visibility.Collapsed;
+        if(DashboardHeroActions.Visibility!=visible)
+            DashboardHeroActions.Visibility=visible;
     }
 
     /// <summary>
