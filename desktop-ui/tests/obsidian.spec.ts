@@ -259,14 +259,20 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Áttekintés" })).toBeVisible();
+  await expect(page.locator(".premium-metrics .premium-metric")).toHaveCount(4);
+  await expect(page.getByRole("table",{name:"Cluster szerverlista"})).toBeVisible();
+  await expect(page.locator(".premium-dashboard-grid")).toBeVisible();
   await expect(page.getByText("KIZÁRÓLAG SZINTETIKUS UI-TESZTADAT")).toBeVisible();
   await expect(page.getByText("LAB-WIN-01").first()).toBeVisible();
   await expect(page.getByText("The Island").first()).toBeVisible();
   await page.screenshot({ path: "test-results/dashboard-1600.png", fullPage: true });
 
   await page.getByRole("button", { name: "Modok", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Mod Center" })).toBeVisible();
-  await expect(page.getByText("Modprojekt · 123456")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Modok –/ })).toBeVisible();
+  await expect(page.getByText("Projekt · 123456").first()).toBeVisible();
+  await expect(page.getByRole("table",{name:"Konfigurált modlista"})).toBeVisible();
+  await expect(page.locator(".premium-mod-details")).toBeVisible();
+  await expect(page.locator(".premium-mod-bottom-bar")).toBeVisible();
 
   await page.getByRole("textbox", { name: "CurseForge mod keresése" }).fill("Shiny");
   await page.getByRole("button", { name: "Keresés", exact: true }).click();
@@ -338,7 +344,7 @@ test("credential settings keeps API secret hidden and only saves on explicit sub
 test("native mod draft contract stages in memory and saves only on explicit click",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
-  await expect(page.getByRole("heading",{name:"Mod Center"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:/^Modok –/})).toBeVisible();
   await page.getByRole("button",{name:"Piszkozat indítása"}).click();
   await page.getByRole("textbox",{name:"Modprojekt ID"}).fill("567890");
   await page.getByRole("button",{name:"Lépés hozzáadása"}).click();
@@ -349,7 +355,7 @@ test("native mod draft contract stages in memory and saves only on explicit clic
   await page.getByRole("button",{name:"Újra",exact:true}).click();
   await expect(page.locator(".draft-difference").getByText("567890")).toBeVisible();
   await page.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
-  await expect(page.getByText("Modprojekt · 567890")).toBeVisible();
+  await expect(page.getByText("Projekt · 567890").first()).toBeVisible();
   await expect(page.getByText(/Mentve a helyi indítási konfigurációba/)).toBeVisible();
 });
 
@@ -391,7 +397,7 @@ test("local map card opens map-specific details, functional tabs, back navigatio
   await expect(page.getByRole("tablist",{name:"Map funkciói"})).toBeVisible();
   await expect(page.getByRole("tab",{name:/RCON/})).toBeDisabled();
   await page.getByRole("tab",{name:"Modok"}).click();
-  await expect(page.getByRole("heading",{name:"Mod Center"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:/^Modok –/})).toBeVisible();
   await page.getByRole("tab",{name:"INI"}).click();
   await expect(page.getByRole("heading",{name:"INI szerkesztő"})).toBeVisible();
   await page.getByRole("tab",{name:"Naplók"}).click();
@@ -613,7 +619,7 @@ test("Store-v1 original ASA launch text stays read-only and redacted",async ({pa
 test("cross-map mod inventory uses actual native contract, filtering and map selection",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
-  await expect(page.getByRole("heading",{name:"Mod Center"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:/^Modok –/})).toBeVisible();
   // Panel is a section with a heading; identify via its text instead of
   // depending on fragile CSS selectors.
   const shared=page.getByRole("heading",{name:"Közös modok · helyi mapok"});
