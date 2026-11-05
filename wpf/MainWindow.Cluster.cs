@@ -876,6 +876,37 @@ public partial class MainWindow
             "Untamed Kingdom - "+(map.Name.Length==0?"The Island":map.Name));
         var installStatus=Label("SteamCMD nincs elindítva; az új mapnak külön, üres könyvtár szükséges.",12,Soft);
         location.Children.Add(installStatus);
+        var recover=Btn("Megszakadt Steam-telepítés visszaállítása (csak ellenőrzés)",()=>{
+            try
+            {
+                if(!Fresh() || retryFresh.IsChecked!=true)
+                    throw new InvalidOperationException(
+                        "Válaszd az új telepítést, majd hagyd jóvá a kézi újrapróbálást.");
+                var record=SteamFreshInstall.InspectIncomplete(installRoot.Text.Trim()) ??
+                    throw new InvalidDataException(
+                        "Ehhez a gyökérhez nincs félbeszakadt telepítési napló.");
+                if(!string.Equals(record.MapName,names.Text,
+                       StringComparison.OrdinalIgnoreCase) ||
+                   !string.Equals(Path.GetFullPath(record.SteamCmdExecutable),
+                       Path.GetFullPath(steamCmdExe.Text.Trim()),
+                       StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(
+                        "A napló mapneve vagy SteamCMD-elérési útja nem egyezik.");
+                if(_cluster.Config.LocalMaps.Any(m=>m.Id==record.MapId))
+                    throw new InvalidDataException(
+                        "Az eredeti map már regisztrált: új telepítés helyett meglévőként kezeld.");
+                map.Id=record.MapId;
+                installStatus.Text="Ellenőrzött, megszakadt telepítés: "+record.Phase+
+                    ". A korábbi mapazonosítót visszaállítottuk. "+
+                    "A Mentés csak a kifejezetten jóváhagyott újrapróbálást indíthatja.";
+            }
+            catch(Exception ex)
+            {
+                installStatus.Text="Újrapróbálás nem engedélyezhető: "+
+                    UntamedPresentation.Redact(ex.Message);
+            }
+        });
+        location.Children.Add(recover);
         void ChangeMode()
         {
             bool fresh=Fresh();
@@ -884,6 +915,7 @@ public partial class MainWindow
             steamCmdExe.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
             downloadSteam.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
             retryFresh.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            recover.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
             sessionBox.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
             serverExe.IsReadOnly=fresh;
             serverExe.ToolTip=fresh?"Telepítés után a SteamCMD által létrehozott EXE automatikusan kitöltődik.":
