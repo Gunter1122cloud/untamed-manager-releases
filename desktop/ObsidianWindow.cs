@@ -175,7 +175,7 @@ public sealed class ObsidianWindow : Form
                             "servers.importLocal";
                         discoveryRoute = name is "curseforge.categories" or
                             "curseforge.featured" or "curseforge.browse" or
-                            "curseforge.project" or "curseforge.files";
+                            "curseforge.project" or "curseforge.files" or "curseforge.summary";
                         freshRoute = name is "steam.freshPreflight" or "steam.freshStart" or
                             "steam.freshStatus" or "steam.freshCurrent" or
                             "steam.freshCancel" or "steam.freshDiscard" or
