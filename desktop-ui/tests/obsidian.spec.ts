@@ -76,7 +76,7 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
 
   await page.getByRole("textbox", { name: "CurseForge mod keresése" }).fill("Shiny");
   await page.getByRole("button", { name: "Keresés", exact: true }).click();
-  await expect(page.getByText("Example Search Result")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Example Search Result" })).toBeVisible();
   await page.screenshot({ path: "test-results/mod-center-1600.png", fullPage: true });
 
   await page.getByRole("button", { name: "Pluginok" }).click();
