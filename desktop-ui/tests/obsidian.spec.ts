@@ -461,6 +461,8 @@ test("local map card opens map-specific details, functional tabs, back navigatio
   await page.getByRole("row",{name:/The Island/}).first().click();
   await expect(page.getByRole("heading",{name:"The Island",exact:true})).toBeVisible();
   await expect(page.getByRole("tablist",{name:"Map funkciói"})).toBeVisible();
+  await expect(page.locator(".map-detail-hero .premium-map-cover")).toBeVisible();
+  await page.screenshot({path:"test-results/map-detail-premium-1600.png",fullPage:false});
   await expect(page.getByRole("tab",{name:/RCON/})).toBeDisabled();
   await page.getByRole("tab",{name:"Modok"}).click();
   await expect(page.getByRole("heading",{name:/^Modok –/})).toBeVisible();
