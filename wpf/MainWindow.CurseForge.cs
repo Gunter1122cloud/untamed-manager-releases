@@ -292,7 +292,7 @@ public partial class MainWindow
             {filesStatus.Text="Előbb válassz ki egy modot.";return;}
             await LoadFilesPage(selected.Id,0);
         });
-        var inspectDescription=Btn("Teljes modleírás lekérése",LoadFullDescription);
+        var inspectDescription=Btn("Teljes modleírás lekérése",async ()=>await LoadFullDescription());
         filesPrevious=Btn("Előző fájloldal",async ()=>{
             if(loadedFiles!=null && loadedFiles.Index>=25)
                 await LoadFilesPage(filesProject,loadedFiles.Index-25);
