@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -24,6 +25,7 @@ public partial class MainWindow
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("CurseForgeSearchRow") };
         NestedWheelScroll.SetChainToParent(results,true);
         var detail=Label("Válassz modot a találati listából a részletekhez.",12,Soft);
+        detail.TextWrapping=TextWrapping.Wrap;
         var paging=Label("Nincs lekérdezés.",12,Soft);
         var status=Label(
             string.IsNullOrEmpty(_cluster.Config.CurseForgeApiKeyProtected)
@@ -92,7 +94,7 @@ public partial class MainWindow
                 last=null;
                 results.ItemsSource=Array.Empty<CurseForgeMod>();
                 paging.Text="Nem sikerült ellenőrizni az oldalt.";
-                status.Text="CurseForge keresési hiba: "+e.Message;
+                status.Text="CurseForge keresési hiba: "+UntamedPresentation.Redact(e.Message);
                 WriteLog("curseforge-search",e);
             }
             finally
@@ -170,6 +172,27 @@ public partial class MainWindow
         });
         previous.IsEnabled=false;
         next.IsEnabled=false;
+        // A short UI-thread debounce avoids one HTTP request per keypress;
+        // Enter and explicit Search still work without waiting for the timer.
+        var searchDelay=new DispatcherTimer{Interval=TimeSpan.FromMilliseconds(450)};
+        searchDelay.Tick+=async (_,_)=>{
+            searchDelay.Stop();
+            if(query.Text.Trim().Length>=2 && !busy)
+                await LoadPage(0,query.Text.Trim());
+        };
+        query.TextChanged+=(_,_)=>{
+            searchDelay.Stop();
+            if(query.Text.Trim().Length>=2)searchDelay.Start();
+        };
+        query.KeyDown+=async (_,e)=>{
+            if(e.Key==System.Windows.Input.Key.Enter)
+            {
+                e.Handled=true;
+                searchDelay.Stop();
+                await LoadPage(0,query.Text.Trim());
+            }
+        };
+        query.Unloaded+=(_,_)=>searchDelay.Stop();
         var addFromCatalog=Btn("Kiválasztott mod hozzáadása a kijelölt maphoz",()=>{
             if(results.SelectedItem is not CurseForgeMod chosen)
             { status.Text="Előbb válassz egy találatot.";return; }
@@ -178,10 +201,41 @@ public partial class MainWindow
             _catalogSelectForMod(chosen.Id.ToString());
         });
         addFromCatalog.Visibility=_catalogSelectForMod==null?Visibility.Collapsed:Visibility.Visible;
-        Add(Box(V(
-            Label("CurseForge online modkereső – csak olvasás",20,Mint,true),
-            Label("Hivatalos CurseForge Core API; saját jóváhagyott API-kulcs szükséges. "+
-                "Nem tölt le vagy telepít modot, és nem indít újra szervert.",12,Soft),
+        var searchActions=new WrapPanel{Margin=new Thickness(0,8,0,8)};
+        query.Width=360;
+        query.Margin=new Thickness(0,0,12,8);
+        searchActions.Children.Add(query);
+        searchActions.Children.Add(search!);
+        var exactActions=new WrapPanel{Margin=new Thickness(0,0,0,8)};
+        projectId.Margin=new Thickness(0,0,12,8);
+        exactActions.Children.Add(projectId);
+        exactActions.Children.Add(lookup);
+        var browser=new Grid{Margin=new Thickness(0,4,0,12)};
+        browser.ColumnDefinitions.Add(new ColumnDefinition{
+            Width=new GridLength(11,GridUnitType.Star),MinWidth=270});
+        browser.ColumnDefinitions.Add(new ColumnDefinition{
+            Width=new GridLength(9,GridUnitType.Star),MinWidth=240});
+        results.MinHeight=300;
+        results.MaxHeight=470;
+        results.HorizontalContentAlignment=HorizontalAlignment.Stretch;
+        var discovery=Box(V(
+            Label("CURSEFORGE  /  FELFEDEZÉS",16,Mint,true),
+            Label("Valódi találatok · projekt ID és modkép · lapozható katalógus",12,Soft),
+            results,paging,previous!,next!));
+        var information=Box(V(
+            Label("MOD DOSSIER  /  RÉSZLETEK",16,Mint,true),
+            Label("A kiválasztott CurseForge-mod hitelesen lekért metaadatai",12,Soft),
+            detail,addFromCatalog));
+        Grid.SetColumn(discovery,0);
+        Grid.SetColumn(information,1);
+        browser.Children.Add(discovery);
+        browser.Children.Add(information);
+        var apiConfiguration=new Expander{
+            Header="CurseForge API-kulcs · helyi, DPAPI-val védett integráció",
+            Foreground=Mint,Padding=new Thickness(12),
+            IsExpanded=string.IsNullOrWhiteSpace(_cluster.Config.CurseForgeApiKeyProtected),
+            Margin=new Thickness(0,5,0,10),
+            Content=V(
             Label("API-kulcs (Windows DPAPI-val helyileg védve, nem kerül a GitHubra)",12,Aqua),
             key,
             Btn("API-kulcs mentése helyileg",()=>{
@@ -216,12 +270,15 @@ public partial class MainWindow
                         UntamedPresentation.Redact(ex.Message);
                 }
             }),
-            Label("Modkeresés név alapján",12,Aqua),
-            query,search,
-            Label("Pontos ASA CurseForge projektazonosító",12,Aqua),
-            projectId,lookup,
-            previous,next,paging,results,
-            addFromCatalog,
-            detail,status)));
+                Label("A kulcs kizárólag ezen a Windows-profilon tárolódik.",11,Soft))
+        };
+        Add(Box(V(
+            Label("OBSIDIAN MOD GALAXY  /  CURSEFORGE",21,Mint,true),
+            Label("Integrált ASA-modkatalógus, külön böngészés és modrészletek. "+
+                  "A találatokból történő hozzáadás piszkozatot módosít, nem telepít fájlt.",12,Soft),
+            Label("Mod keresése név alapján",12,Aqua),searchActions,
+            Label("Pontos CurseForge projekt ID",12,Aqua),exactActions,
+            browser,status,apiConfiguration)));
+
     }
 }
