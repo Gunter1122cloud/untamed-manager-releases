@@ -291,6 +291,38 @@ public partial class MainWindow
                         UntamedPresentation.Redact(ex.Message);
                 }
             }),
+            Btn("Kétgépes kizárólagos foglalás ellenőrzése",()=>{
+                try
+                {
+                    var local=_cluster.SteamLease.Observe();
+                    var remote=_cluster.RemoteIsFresh?_cluster.RemoteSnapshot:null;
+                    var localText=local==null?"nincs aktív vagy korábbi helyi foglalás":
+                        local.Phase+" · "+local.OperationId.ToString("N")+
+                        " · "+local.Stage;
+                    var remoteText=remote==null?"LAN peer: NEM HITELES / ELAVULT":
+                        "LAN peer: "+remote.MaintenanceLeasePhase+
+                        " · "+(remote.MaintenanceLeaseOperation??"nincs művelet");
+                    bool matching=local!=null&&remote!=null &&
+                        local.Phase==ClusterSteamLeasePhase.Committed &&
+                        remote.MaintenanceLeasePhase=="Committed" &&
+                        string.Equals(local.OperationId.ToString("N"),
+                            remote.MaintenanceLeaseOperation,
+                            StringComparison.OrdinalIgnoreCase);
+                    queueDisplay.Text="KÉTGÉPES KARBANTARTÁSI FENCE (CSAK OLVASÁS):\n"+
+                        "Helyi: "+localText+"\n"+remoteText+"\n"+
+                        (matching?"A két megfigyelt műveletazonosító egyezik. "+
+                            "Ez NEM igazolja az éles ASA SaveComplete-et.":
+                            "Nincs kétoldali, egyező aktív foglalás — clusterfrissítés BLOKKOLVA.")+
+                        "\nMegszakadt foglalást az alkalmazás nem old fel automatikusan.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("steam-cluster-fence-observe",ex);
+                    queueDisplay.Text="A karbantartási foglalás nem ellenőrizhető: "+
+                        UntamedPresentation.Redact(ex.Message)+
+                        "\nA clusterfrissítés nem engedélyezett.";
+                }
+            }),
             Btn("Karbantartási sor előzménye / megszakítás",()=>{
                 try
                 {
