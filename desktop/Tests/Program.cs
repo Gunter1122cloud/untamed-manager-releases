@@ -489,6 +489,14 @@ try
         Check(duplicatePort.GetProperty("data").GetProperty("gamePortStatus").GetString()=="CONFLICT" &&
               !duplicatePort.GetProperty("data").GetProperty("serverStartAllowed").GetBoolean(),
             "duplicate mixed-style ASA port definitions fail closed");
+        Check(assessed.GetProperty("passiveModOrderStatus").GetString()=="MATCH",
+            "empty original passive mod list matches absent passive launch flag");
+        var injectedPassive=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,
+                command=privateLaunch+" -passivemods=928548"});
+        Check(injectedPassive.GetProperty("data").GetProperty("passiveModOrderStatus").GetString()=="MISMATCH" &&
+              !injectedPassive.GetProperty("data").GetProperty("serverStartAllowed").GetBoolean(),
+            "new passive mods never silently become historical launch evidence");
         var conversion=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
             new{archive=oldArchive,mapId=historicalId,command=privateLaunch+" -converttostore"});
         Check(conversion.GetProperty("data").GetProperty("conversionFlagPresent").GetBoolean() &&
