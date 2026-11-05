@@ -73,6 +73,7 @@ try
     await CurseForgeBrowseApiTests.Run();
     LocalModInventoryTests.Run();
     ModUpdatePlannerTests.Run();
+    await CurseForgeCompleteFilesTests.Run();
     await MapProfileAtomicityTests.Run(root);
     await ManagerSettingsAtomicityTests.Run(root);
     LocalAsaWizardTests.Run(root);
