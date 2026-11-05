@@ -217,3 +217,21 @@ test("720px desktop sidebar scroll reaches Settings and INI without clipping", a
   await page.getByRole("button",{name:"INI szerkesztő"}).click();
   await expect(page.getByRole("heading",{name:"INI szerkesztő"})).toBeVisible();
 });
+
+test("local map card opens map-specific details, functional tabs, back navigation and blocks RCON", async ({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("row",{name:/The Island/}).first().click();
+  await expect(page.getByRole("heading",{name:"The Island",exact:true})).toBeVisible();
+  await expect(page.getByRole("tablist",{name:"Map funkciói"})).toBeVisible();
+  await expect(page.getByRole("tab",{name:/RCON/})).toBeDisabled();
+  await page.getByRole("tab",{name:"Modok"}).click();
+  await expect(page.getByRole("heading",{name:"Mod Center"})).toBeVisible();
+  await page.getByRole("tab",{name:"INI"}).click();
+  await expect(page.getByRole("heading",{name:"INI szerkesztő"})).toBeVisible();
+  await page.getByRole("tab",{name:"Naplók"}).click();
+  await expect(page.getByRole("heading",{name:"Naplóközpont"})).toBeVisible();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await expect(page.getByRole("heading",{name:"Szerverek"})).toBeVisible();
+  await page.screenshot({path:"test-results/map-detail-navigation-1600.png",fullPage:true});
+});

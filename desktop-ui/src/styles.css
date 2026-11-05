@@ -92,3 +92,25 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
   .sidebar .brand{min-height:119px;margin-bottom:7px}
   .sidebar .sidebar-bottom{padding-top:10px}
 }
+
+/* Map detail retains the approved split-panel Graphite aesthetic, with real
+   existing C# module views rather than placeholder interaction. */
+.back-to-servers{margin:0 0 14px;display:inline-flex;gap:9px;align-items:center;color:#91ddc3}
+.back-to-servers svg{transform:rotate(180deg)}
+.map-detail-hero{min-height:136px;display:flex;gap:20px;justify-content:space-between;align-items:center;padding:24px 26px;border:1px solid #36695a;border-radius:13px;background:linear-gradient(108deg,#0b2929ec,#0d3035a6),url('/kingdom-hero.jpg') 50% 42%/cover no-repeat;margin-bottom:14px}
+.map-detail-hero h1{font-size:29px;margin:8px 0 6px;line-height:1.13}
+.map-detail-hero p{font-size:12px;color:#b4d1c7;margin:0}
+.map-detail-hero .state{white-space:nowrap;font-weight:700;border:1px solid #4c7b68;border-radius:8px;background:#183b34d9;padding:10px 13px}
+.map-detail-tabs{display:flex;align-items:stretch;gap:5px;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:#527d72 #183033;border-bottom:1px solid #41605f;margin-bottom:19px;padding-bottom:6px}
+.map-detail-tab{white-space:nowrap;flex-shrink:0;padding:13px 17px;color:#aecac2;background:none;border:1px solid transparent;border-radius:8px;font-size:13px;font-weight:650}
+.map-detail-tab:hover:not(:disabled){background:#26483d;color:#ebfff3}
+.map-detail-tab.selected{color:#aaffd0;border-color:#3e7c65;background:#1c4839}
+.map-detail-tab.disabled{opacity:.5;cursor:not-allowed}
+.map-overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px}
+.map-info-line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px;border-bottom:1px solid #2b4e51;font-size:12px}
+.map-info-line:last-child{border-bottom:0}.map-info-line>span:first-child{color:#a5c4bc}
+.map-info-line strong{max-width:60%;text-align:right;overflow-wrap:anywhere}
+.map-overview-actions{display:flex;gap:11px;flex-wrap:wrap;padding:12px 0 17px}
+.map-overview-actions button{display:inline-flex;align-items:center;gap:8px}
+@media(max-width:1260px){.map-overview-grid{grid-template-columns:1fr}}
+@media(max-width:830px){.map-detail-hero{align-items:flex-start;flex-direction:column}.map-detail-tabs{gap:2px}.map-detail-tab{padding:11px 13px}}
