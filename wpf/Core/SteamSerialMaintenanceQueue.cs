@@ -67,6 +67,37 @@ public sealed class SteamSerialMaintenanceQueue
         }
         finally{if(File.Exists(temporary))File.Delete(temporary);}
     }
+    /// <summary>
+    /// Require an HMAC-authenticated, durable two-node maintenance lease
+    /// BEFORE taking the local queue lock. Each map callback is fenced by
+    /// authenticated peer checkpoints both before and after its work.
+    /// If the LAN peer disappears at either boundary, ExecuteAsync persists
+    /// NeedsOperator and will not start the next map.
+    /// This coordinates callbacks only: the production ASA update gate is
+    /// independent and remains closed until a certified adapter exists.
+    /// </summary>
+    public async Task<SteamQueueSnapshot> ExecutePairedAsync(
+        ClusterSteamLeaseCoordinator paired,
+        IReadOnlyList<LocalMap> selected,IReadOnlyList<LocalMap> registeredLocal,
+        Func<LocalMap,ProcessCheck> inspect,
+        Func<LocalMap,CancellationToken,Task> applyVerifiedMaintenance,
+        IProgress<SteamQueueProgress>? progress=null,CancellationToken ct=default)
+    {
+        ArgumentNullException.ThrowIfNull(paired);
+        ArgumentNullException.ThrowIfNull(applyVerifiedMaintenance);
+        SteamQueueSnapshot? completed=null;
+        await paired.ExecuteAsync(async (checkpoint,token)=>{
+            completed=await ExecuteAsync(selected,registeredLocal,inspect,
+                async (map,mapToken)=>{
+                    await checkpoint(mapToken);
+                    await applyVerifiedMaintenance(map,mapToken);
+                    await checkpoint(mapToken);
+                },progress,token);
+        },ct);
+        return completed ?? throw new InvalidOperationException(
+            "Paired maintenance finished without a verified local queue");
+    }
+
     public async Task<SteamQueueSnapshot> ExecuteAsync(
         IReadOnlyList<LocalMap> selected,IReadOnlyList<LocalMap> registeredLocal,
         Func<LocalMap,ProcessCheck> inspect,
