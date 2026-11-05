@@ -45,7 +45,7 @@ test.beforeEach(async ({ page }) => {
       switch (m.method) {
         case "historical.launchEvidence": return {
           mapStatus:"MENTIONED",gamePortStatus:"MATCH",queryPortStatus:"MATCH",
-          modOrderStatus:"MATCH",clusterIdPresent:!!m.command?.includes("-clusterid="),
+          modOrderStatus:"MATCH",passiveModOrderStatus:"MATCH",clusterIdPresent:!!m.command?.includes("-clusterid="),
           clusterIdStatus:m.command?.includes("-clusterid=KovaCluster")?"MATCH":"MISMATCH",
           clusterPathPresent:!!m.command?.includes("-ClusterDirOverride="),clusterPathVerified:false,
           useStorePresent:true,conversionFlagPresent:!!m.command?.includes("-converttostore"),
