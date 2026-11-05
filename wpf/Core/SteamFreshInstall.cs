@@ -191,12 +191,11 @@ public static class SteamFreshInstall
             throw new IOException("Insufficient free disk space to install ASA");
         string journal=OperationPath(root);
         string key=Path.GetFileNameWithoutExtension(journal);
-        using var mutex=new Mutex(false,@"Global\Untamed-FreshSteam-v1-"+key);
+        using var mutex=new Semaphore(1,1,@"Global\Untamed-FreshSteam-v1-"+key);
         bool held=false;
         try
         {
-            try{held=mutex.WaitOne(0);}
-            catch(AbandonedMutexException){held=true;}
+            held=mutex.WaitOne(0);
             if(!held)throw new IOException("Another Manager owns this Steam installation");
             Journal? previous=null;
             if(File.Exists(journal))
@@ -281,6 +280,6 @@ public static class SteamFreshInstall
             return new(request.MapId,root,probeInstall.ServerExecutable!,build,
                 DateTimeOffset.UtcNow,steam,level);
         }
-        finally{if(held)mutex.ReleaseMutex();}
+        finally{if(held)mutex.Release();}
     }
 }
