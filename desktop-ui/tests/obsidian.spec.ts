@@ -205,3 +205,15 @@ test("INI editor requires explicit open, preview and save in test contract",asyn
   await page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}).click();
   await expect(page.getByText(/visszaállítási \.bak másolattal/)).toBeVisible();
 });
+
+test("720px desktop sidebar scroll reaches Settings and INI without clipping", async ({page})=>{
+  await page.setViewportSize({width:1280,height:720});
+  await page.goto("/");
+  const nav=page.getByRole("navigation",{name:"Fő navigáció"});
+  await expect(nav).toBeVisible();
+  await expect.poll(async()=>nav.evaluate(el=>el.scrollHeight>el.clientHeight)).toBeTruthy();
+  await page.getByRole("button",{name:"Beállítások"}).click();
+  await expect(page.getByRole("heading",{name:"Beállítások"})).toBeVisible();
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await expect(page.getByRole("heading",{name:"INI szerkesztő"})).toBeVisible();
+});
