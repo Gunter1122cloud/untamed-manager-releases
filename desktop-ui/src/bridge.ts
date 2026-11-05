@@ -104,6 +104,17 @@ export type PluginInventory = {
     binaries: Array<{ name: string; version: string; bytes: number }> }>;
 };
 
+export type RconStatus = {
+  mapId:string;mapName:string;configured:boolean;processVerified:boolean;
+  permitted:boolean;maintenance:boolean;allowedCommands:["ListPlayers"];
+  evidence:"LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND";
+};
+export type RconPlayers = {
+  mapId:string;mapName:string;response:string;observedUtc:string;
+  readOnly:true;saveCompleteProven:false;
+  evidence:"LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS";
+};
+
 export type UpdateStatus = {
   repository:string; runningVersion:string; installedTag:string;
   provider:"GITHUB_RELEASES";updateCheckPerformed:false;
@@ -306,7 +317,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" |
-  "updates.status" | "updates.check";
+  "updates.status" | "updates.check" | "rcon.status" | "rcon.listPlayers";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
@@ -355,6 +366,8 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
 export const managerBridge = {
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
   updateStatus: () => request<UpdateStatus>("updates.status"),
+  rconStatus: (mapId:string) => request<RconStatus>("rcon.status",{mapId}),
+  rconListPlayers: (mapId:string) => request<RconPlayers>("rcon.listPlayers",{mapId}),
   updateCheck: (channel:"stable"|"preview") => request<UpdateCheck>("updates.check",{channel}),
   configuredMods: (mapId: string) => request<ConfiguredMods>("mods.configured", { mapId }),
   sharedModInventory: () => request<SharedModInventory>("mods.sharedInventory"),
