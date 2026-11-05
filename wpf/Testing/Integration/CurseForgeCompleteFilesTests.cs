@@ -40,7 +40,7 @@ public static class CurseForgeCompleteFilesTests
                     int id=10000+index+i;
                     if(index==25&&DuplicateSecond)id=10000;
                     return "{\"id\":"+id+",\"modId\":928548,\"isAvailable\":true,"+
-                        "\"displayName\":\"Verified file\", \"fileDate\":\"2026-11-05T00:00:00Z\"}";
+                        "\"displayName\":\"Verified file\", \"fileDate\":\"2026-10-"+(index+i+1).ToString("00")+"T00:00:00Z\"}";
                 });
                 body="{\"data\":["+string.Join(",",files)+"],\"pagination\":{\"totalCount\":"+
                     total+"}}";
