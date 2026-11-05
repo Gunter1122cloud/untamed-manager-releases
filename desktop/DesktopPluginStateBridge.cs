@@ -89,7 +89,7 @@ public sealed class DesktopPluginStateBridge : IDisposable
                         });
                     if(approvals.Count>=8)approvals.Clear();
                     var token=Guid.NewGuid();
-                    string sourceRoot=Path.GetFullPath(map.InstallationPath);
+                    string sourceRoot=CanonicalRoot(map.InstallationPath);
                     approvals[token]=new(mapId,readiness.Plugin,enabled,
                         sourceRoot,Members(sourceRoot),DateTimeOffset.UtcNow.AddMinutes(5));
                     return Success(id,new{
@@ -115,7 +115,7 @@ public sealed class DesktopPluginStateBridge : IDisposable
                 if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
                 if(owned.HistoricalStoreProtected)
                     return Error(id,"UM-HISTORICAL-STORE-LOCKED");
-                if(!string.Equals(Path.GetFullPath(owned.InstallationPath),
+                if(!string.Equals(CanonicalRoot(owned.InstallationPath),
                     saved.OriginalInstallation,StringComparison.OrdinalIgnoreCase) ||
                    !Members(saved.OriginalInstallation).SequenceEqual(saved.InstallationMembers))
                     return Error(id,"UM-PLUGIN-STATE-CHANGED");
@@ -145,10 +145,13 @@ public sealed class DesktopPluginStateBridge : IDisposable
         }
     }
 
+    private static string CanonicalRoot(string root)=>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+
     private Guid[] Members(string installationRoot)=>
         cluster.Config.LocalMaps
             .Where(m=>!string.IsNullOrWhiteSpace(m.InstallationPath) &&
-                string.Equals(Path.GetFullPath(m.InstallationPath),installationRoot,
+                string.Equals(CanonicalRoot(m.InstallationPath),installationRoot,
                     StringComparison.OrdinalIgnoreCase))
             .Select(m=>m.Id).OrderBy(id=>id).ToArray();
 
