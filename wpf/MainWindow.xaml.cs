@@ -256,7 +256,7 @@ public partial class MainWindow : Window
             NavSelection.SetIsCurrent(button,tag==(page switch {
                 "ini" or "rcon" or "data" or "steam" or "monitoring" or "network"
                 or "discord" or "recovery" or "schedules" or "license" or "readiness"
-                or "extensions" or "setup" or "lan" => "operations",
+                or "extensions" or "setup" or "lan" or "logs" => "operations",
                 _ => page
             }));
         }
@@ -312,6 +312,7 @@ public partial class MainWindow : Window
             case "rcon": Rcon(); break;
             case "schedules": ShowBackgroundSchedules(); break;
             case "monitoring": ShowMonitoring(); break;
+            case "logs": ShowPremiumLogs(); break;
             case "network": ShowNetworkDiagnostics(); break;
             case "discord": ShowDiscordStatusPage(); break;
             case "recovery": ShowRecoveryCenter(); break;
@@ -328,7 +329,8 @@ public partial class MainWindow : Window
             "Az üzemeltetési eszközök egy helyen. A biztonsági korlátozások változatlanok.");
         var monitoring=new WrapPanel { Margin=new Thickness(0,8,0,0) };
         foreach(var (title,page) in new[]{
-            ("Monitoring és események","monitoring"),("Watchdog / helyreállítás","recovery"),
+            ("Monitoring és események","monitoring"),("ASA Naplóközpont","logs"),
+            ("Watchdog / helyreállítás","recovery"),
             ("Ütemezések","schedules"),("Hálózat és LAN","network"),("Discord státusz","discord")})
             monitoring.Children.Add(Btn(title,()=>Navigate(page)));
         var maintenance=new WrapPanel { Margin=new Thickness(0,8,0,0) };
