@@ -41,8 +41,17 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; coordinationArchive?: string; localMetadataArchive?: string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string }) => {
       switch (m.method) {
+        case "historical.launchEvidence": return {
+          mapStatus:"MENTIONED",gamePortStatus:"MATCH",queryPortStatus:"MATCH",
+          modOrderStatus:"MATCH",clusterIdPresent:true,clusterPathPresent:true,
+          useStorePresent:true,conversionFlagPresent:!!m.command?.includes("-converttostore"),
+          findings:m.command?.includes("-converttostore")?["CONVERSION_FLAG_PRESENT"]:[],
+          sourceAuthenticated:false,fullLaunchArgumentsVerified:false,
+          peerWriterVerified:false,productionUseAllowed:false,serverStartAllowed:false,
+          evidence:"OPERATOR_TEXT_READ_ONLY_UNAUTHENTICATED"
+        };
         case "historical.pairedEvidence": return {
           files:12,maps:10,peers:2,sessionConsistent:true,
           configHashesVerified:true,activeStoreRecords:true,
@@ -539,4 +548,25 @@ test("Store-v1 registration locks source inputs until native receipt",async ({pa
   await page.evaluate(()=>{(window as unknown as {releaseRegistration:()=>void}).releaseRegistration();});
   await expect(page.getByText(/Store-v1 zárolt: a szerver nem indulhat/)).toBeVisible();
   await expect(page.getByRole("textbox",{name:"Korábbi Manager archívum"})).toBeEnabled();
+});
+
+test("Store-v1 original ASA launch text stays read-only and redacted",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
+  await page.getByRole("button",{name:"Archívum ellenőrzése"}).click();
+  await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeVisible();
+  const secret="SYNTHETIC_PRIVATE_ADMIN_SECRET";
+  const launch=page.getByRole("textbox",{name:"Eredeti ASA indítási sor"});
+  await launch.fill("ArkAscendedServer.exe ScorchedEarth_WP?ServerAdminPassword="+secret+
+    " -port=7777 -QueryPort=27015 -mods=928548 -clusterid=test -ClusterDirOverride=C:\\Cluster -usestore -converttostore");
+  await page.getByRole("button",{name:"Indítási paraméterek összevetése"}).click();
+  const report=page.getByRole("status").filter({hasText:"Game UDP"});
+  await expect(report.getByText("MATCH").first()).toBeVisible();
+  await expect(report.getByText("VESZÉLY: szerepel")).toBeVisible();
+  await expect(report.getByText("TILTOTT")).toBeVisible();
+  await expect(page.getByText(secret)).toHaveCount(0);
+  await launch.fill("ArkAscendedServer.exe ScorchedEarth_WP -port=9999");
+  await expect(report).toHaveCount(0);
 });
