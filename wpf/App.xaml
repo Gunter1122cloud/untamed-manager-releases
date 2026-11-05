@@ -6,6 +6,23 @@
   <Application.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Styles/PremiumTheme.xaml" /></ResourceDictionary.MergedDictionaries>
+    <DataTemplate x:Key="PremiumLogRow">
+      <Grid Margin="4,5">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="105"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Background="{StaticResource SurfaceRaised}"
+          Padding="6,4" Margin="0,0,10,0" CornerRadius="5" VerticalAlignment="Top">
+          <TextBlock Text="{Binding Level}" Foreground="{Binding LevelBrush}"
+            FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"
+            HorizontalAlignment="Center"/>
+        </Border>
+        <TextBlock Grid.Column="1" Text="{Binding Content}" FontFamily="Consolas"
+          FontSize="12" Foreground="{StaticResource TextStrong}"
+          TextWrapping="Wrap" TextTrimming="None"/>
+      </Grid>
+    </DataTemplate>
     <DataTemplate x:Key="PremiumBackupRow">
       <Grid Height="58" Margin="5,5">
         <Grid.ColumnDefinitions>
