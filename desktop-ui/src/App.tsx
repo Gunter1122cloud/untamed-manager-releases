@@ -14,6 +14,7 @@ import {
   type PublicMap, type RemoteHost
 } from "./bridge";
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
+import { InitialMapSetup } from "./InitialMapSetup";
 
 type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -677,7 +678,7 @@ function SteamCenter({ snapshot, onRegistered }: {
   useEffect(() => { void reload(); }, [reload]);
   return <>
     <div className="page-intro"><span className="eyebrow">VALVE STEAMCMD / INSTALLED BUILD</span><h1>SteamCMD Center</h1>
-      <p>Valódi C#-os helyi telepítés-ellenőrzés és portjavaslat. A telepítés, frissítés és indítás a migrációs UI-ban még tiltott.</p></div>
+      <p>Valódi C#-os helyi telepítés-ellenőrzés és portjavaslat. A friss telepítés külön jóváhagyással elérhető; frissítés és szerverindítás a migrációs felületen továbbra is tiltott.</p></div>
     <Panel title="Regisztrált ASA mapok" action={<button className="quiet" onClick={() => { void reload(); }} disabled={busy}><RefreshCw size={16}/> Ellenőrzés</button>}>
       {snapshot.local.maps.length===0 && <div className="empty">Nincs hozzáadott helyi telepítés.</div>}
       {snapshot.local.maps.map(m => <div className="steam-row" key={m.id}>
@@ -700,7 +701,7 @@ function SteamCenter({ snapshot, onRegistered }: {
     </Panel>
     <FreshAsaSteamWizard onRegistered={onRegistered}/>
     <Panel title="Új map · konfigurációs előkészítés">
-      <p className="muted small">A hivatalos SteamCMD letöltést és a részletes szerverbeállításokat külön lépésekben fogjuk kezelni. Ez a panel nem indít SteamCMD-műveletet.</p>
+      <p className="muted small">Az új telepítés után a szerver nevének és portjainak ellenőrzött beállítása a map Áttekintés oldalán érhető el. A javaslat önmagában nem indít SteamCMD-műveletet.</p>
       {ports && <div className="port-strip">
         <div><small>Game UDP</small><strong>{ports.game}</strong></div>
         <div><small>Query UDP</small><strong>{ports.query}</strong></div>
@@ -953,9 +954,9 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
   </>;
 }
 type MapSection = "overview" | "mods" | "plugins" | "ini" | "backups" | "logs";
-function MapDetails({snapshot,mapId,onBack,setSelected}: {
+function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   snapshot:DashboardSnapshot;mapId:string;onBack:()=>void;
-  setSelected:(value:string)=>void
+  setSelected:(value:string)=>void;onConfigured:()=>Promise<void>
 }) {
   const [section,setSection]=useState<MapSection>("overview");
   useEffect(()=>setSection("overview"),[mapId]);
@@ -1006,8 +1007,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected}: {
           <div className="warning-inline"><Shield size={17}/> Valódi ASA Start/Stop/Restart és RCON írás csak sikeres izolált hitelesítési és életciklus-tesztek után engedhető.</div>
         </Panel>
       </div>
+      {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={onConfigured}/>}
     </>}
-    {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
+    {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>} 
     {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="backups" && <BackupCenter mapId={mapId}/>}
@@ -1067,7 +1069,7 @@ export function App() {
         {!snapshot && !error && <div className="loading"><RefreshCw className="spin"/> Valós helyi állapot betöltése...</div>}
         {snapshot && <>
           {page === "dashboard" && <Dashboard snapshot={snapshot} onPage={setPage} onSelect={selectMap}/>}
-          {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")}/>}
+          {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")} onConfigured={refresh}/>}
           {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap} onImported={refresh}/>} 
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
