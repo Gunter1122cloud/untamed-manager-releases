@@ -64,6 +64,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopSteamFreshInstallBridge _freshInstall;
     private readonly DesktopInitialMapSetupBridge _initialMapSetup;
     private readonly DesktopHistoricalStoreImportBridge _historicalStore;
+    private readonly DesktopUpdateStatusBridge _updates = new();
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -194,6 +195,7 @@ public sealed class ObsidianWindow : Form
                 bool initialRoute = false;
                 bool historicalRoute = false;
                 bool pluginStateRoute = false;
+                bool updateRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -205,6 +207,7 @@ public sealed class ObsidianWindow : Form
                             "curseforge.credentialStatus" or
                             "curseforge.credentialSave" or
                             "curseforge.credentialClear";
+                        updateRoute = name is "updates.status" or "updates.check";
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         draftRoute = name is
@@ -233,8 +236,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = credentialRoute
-                        ? await _credentials.HandleAsync(incoming)
+                    string response = updateRoute ? await _updates.HandleAsync(incoming)
+                        : credentialRoute ? await _credentials.HandleAsync(incoming)
                         : pluginStateRoute ? await _pluginState.HandleAsync(incoming)
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
                             : iniRoute ? await _iniEditor.HandleAsync(incoming)
