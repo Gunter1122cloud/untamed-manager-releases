@@ -509,6 +509,16 @@ try
         Check(IsError(staleReplay,"UM-PLUGIN-PREVIEW-EXPIRED"),
             "failed plugin confirmation cannot reuse stale approval");
         peerRunning=false;
+        var membershipPreview=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
+            new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
+        string memberToken=membershipPreview.GetProperty("data").GetProperty("token").GetString()!;
+        var third=new LocalMap{Name="Late shared map",InstallationPath=install};
+        pluginCluster.Config.LocalMaps.Add(third);
+        var changedGroup=await Call(pluginBridge.HandleAsync,"plugins.toggleApply",
+            new{token=memberToken,confirm=true});
+        Check(IsError(changedGroup,"UM-PLUGIN-STATE-CHANGED") && Directory.Exists(active),
+            "adding a shared-install map after approval forces fresh plugin preflight");
+        pluginCluster.Config.LocalMaps.Remove(third);
         var rootPreview=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
             new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
         string rootToken=rootPreview.GetProperty("data").GetProperty("token").GetString()!;
