@@ -260,3 +260,22 @@ button,select,input {accent-color:#2cbf91;}
   .brand-symbol img{width:37px;height:37px;}
   .brand:after{display:none;}
 }
+
+/* Approved dashboard places the primary title in the chrome header.
+   A narrow context strip replaces the redundant second full-size hero. */
+.topbar-title h1 {font-size:27px;font-weight:760;letter-spacing:-.035em;line-height:1.2;
+  margin:0;color:#f2f8f5;}
+.premium-dashboard .premium-dashboard-banner.hero {height:53px;border-radius:10px;margin-bottom:13px;}
+.premium-dashboard-banner .premium-banner-content {padding:8px 18px;display:flex;
+  align-items:center;gap:16px;min-height:51px;flex-wrap:wrap;}
+.premium-dashboard-banner .premium-kicker {font-size:10px;}
+.premium-dashboard-banner .premium-overview-subtitle {margin:0;font-size:11.5px;color:#bfdbd6;}
+.premium-dashboard-banner .premium-banner-mark {bottom:17px;font-size:9px;}
+@media(max-width:1170px){
+  .premium-dashboard-banner .premium-banner-mark{display:none;}
+}
+@media(max-width:830px){
+  .topbar-title h1{font-size:21px;}
+  .premium-dashboard .premium-dashboard-banner.hero{height:auto;min-height:53px;}
+  .premium-dashboard-banner .premium-banner-content{gap:4px;align-items:flex-start;flex-direction:column;}
+}
