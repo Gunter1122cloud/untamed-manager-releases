@@ -15,7 +15,11 @@ namespace UntamedManager.Core;
 // Read-only CurseForge Core API client. Requires a user-provided, approved x-api-key.
 // Mod downloads, subscriptions and installation are intentionally not implemented.
 public sealed record CurseForgeMod(int Id,string Name,string Summary,string? Website,
-    string? LatestFile,DateTimeOffset? ModifiedUtc);
+    string? LatestFile,DateTimeOffset? ModifiedUtc)
+{
+    // Provider supplied, HTTPS-only, allowlisted artwork. Null never implies a missing mod.
+    public string? ThumbnailUrl { get; init; }
+}
 public sealed record CurseForgeSearchResult(int GameId,IReadOnlyList<CurseForgeMod> Mods,
     int TotalCount,int Index,bool HasMore);
 public enum CurseForgeRelationType
@@ -85,7 +89,18 @@ public sealed class CurseForgeCatalog
             DateTimeOffset? date=null;
             if(DateTimeOffset.TryParse(Str(item,"dateModified"),out var parsedDate))
                 date=parsedDate;
-            mods.Add(new(id,name,Str(item,"summary")??"",url,file,date));
+            string? thumbnail=null;
+            if(item.TryGetProperty("logo",out var logo) && logo.ValueKind==JsonValueKind.Object)
+            {
+                string? offered=Str(logo,"thumbnailUrl")??Str(logo,"url");
+                if(Uri.TryCreate(offered,UriKind.Absolute,out var picture) &&
+                   picture.Scheme==Uri.UriSchemeHttps &&
+                   (picture.Host.Equals("media.forgecdn.net",StringComparison.OrdinalIgnoreCase) ||
+                    picture.Host.EndsWith(".forgecdn.net",StringComparison.OrdinalIgnoreCase)))
+                    thumbnail=picture.ToString();
+            }
+            mods.Add(new(id,name,Str(item,"summary")??"",url,file,date)
+                {ThumbnailUrl=thumbnail});
         }
         int total=0;
         if(root.TryGetProperty("pagination",out var pagination) &&
