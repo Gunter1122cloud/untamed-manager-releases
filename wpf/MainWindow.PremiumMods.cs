@@ -18,6 +18,15 @@ internal sealed record PremiumModRow(string Id, string State, int Position, stri
     public string? DisplayTitle { get; init; }
     public string DisplayName => string.IsNullOrWhiteSpace(DisplayTitle) ? "Modprojekt · "+Id : DisplayTitle;
     public string ProjectLabel => "CURSEFORGE ID  "+Id;
+    // Images only appear once a real, authenticated CurseForge catalog result
+    // supplied a validated HTTPS thumbnail; unverified project IDs keep a glyph.
+    public string? ImageUrl { get; init; }
+    public Brush StateBrush => State switch {
+        "Aktív" => Brushes.MediumAquamarine,
+        "Passzív" => Brushes.Goldenrod,
+        "Letiltva" => Brushes.IndianRed,
+        _ => Brushes.LightGray
+    };
     public bool IsActive => State=="Aktív";
     public ICommand? ToggleCommand { get; init; }
     public bool CanToggle => ToggleCommand is not null;
@@ -40,13 +49,18 @@ public partial class MainWindow
     // Display names are added only after an actual authenticated CurseForge catalog read.
     // No hard-coded IDs/names are substituted for the real local profile.
     private readonly Dictionary<string,string> _trustedModNames=new(StringComparer.Ordinal);
+    private readonly Dictionary<string,string> _trustedModArt=new(StringComparer.Ordinal);
+    private Action? _catalogMetadataUpdated;
     private string? VerifiedModName(string projectId)=>
         _trustedModNames.TryGetValue(projectId,out var name)?name:null;
+    private string? VerifiedModArt(string projectId)=>
+        _trustedModArt.TryGetValue(projectId,out var url)?url:null;
 
     private void ShowPremiumMods()
     {
         Header("Modok","Maponkénti modlista, állapot és sorrend – előnézet után, biztonságos helyi mentéssel.");
         _catalogSelectForMod=null;
+        _catalogMetadataUpdated=null;
         var maps=_cluster.Config.LocalMaps.ToArray();
         if(maps.Length==0)
         {
@@ -134,6 +148,7 @@ public partial class MainWindow
                     draft.TouchedModIds.Contains(id)?"Függőben lévő módosítás":"Csak Manager-profil")))
                 .Select(x=>x with {
                     DisplayTitle=VerifiedModName(x.Id),
+                    ImageUrl=VerifiedModArt(x.Id),
                     ToggleCommand=new PremiumUiCommand(()=>Safely(()=>Stage(x.Id,
                         x.IsActive?ModMode.Disabled:ModMode.Active)))
                 }).ToArray();
@@ -352,6 +367,9 @@ public partial class MainWindow
         Add(Box(V(Label("Függőben lévő változások",16,Mint,true),
             status,actionBar,preview)));
 
+        // Catalog updates refresh the existing live list, without changing a
+        // single configured ID, order, saved draft or server process.
+        _catalogMetadataUpdated=()=>Safely(Render);
         // The catalog selection stages the found project instead of asking for hand-entered IDs.
         _catalogSelectForMod=id=>Safely(()=>{
             addId.Text=id;AddProject(id);
