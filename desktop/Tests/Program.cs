@@ -445,7 +445,7 @@ try
         Check(preview.GetProperty("data").GetProperty("mapId").GetString()==historicalId &&
             !preview.GetProperty("data").GetProperty("fullLaunchArgumentsVerified").GetBoolean(),
             "original GUID preserved while missing complete launch arguments remain explicitly unknown");
-        const string privateLaunch="ArkAscendedServer.exe ScorchedEarth_WP?SessionName=\"PrivateServer\"?ServerAdminPassword=DO_NOT_ECHO -port=7777 -QueryPort=27015 -mods=928548 -clusterid=PRIVATE_CLUSTER -ClusterDirOverride=C:\\private\\cluster -usestore";
+        const string privateLaunch="ArkAscendedServer.exe ScorchedEarth_WP?SessionName=\"PrivateServer\"?ServerAdminPassword=DO_NOT_ECHO -port=7777 -QueryPort=27015 -mods=928548 -clusterid=KovaCluster -ClusterDirOverride=C:\\private\\cluster -usestore";
         var launchEvidence=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
             new{archive=oldArchive,mapId=historicalId,command=privateLaunch});
         IsOk(launchEvidence,"operator-supplied launch text is compared read-only with archived ports and mod order");
@@ -457,7 +457,7 @@ try
               !assessed.GetProperty("serverStartAllowed").GetBoolean(),
             "matching text is never certified as launch permission");
         Check(!launchEvidence.GetRawText().Contains("DO_NOT_ECHO",StringComparison.Ordinal) &&
-              !launchEvidence.GetRawText().Contains("PRIVATE_CLUSTER",StringComparison.Ordinal) &&
+              !launchEvidence.GetRawText().Contains("KovaCluster",StringComparison.Ordinal) &&
               !launchEvidence.GetRawText().Contains("private",StringComparison.OrdinalIgnoreCase),
             "raw command, secrets and cluster path never return to WebView");
         var conversion=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
