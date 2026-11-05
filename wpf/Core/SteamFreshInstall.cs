@@ -62,7 +62,7 @@ public static class SteamFreshInstall
                     @"progress:\s*(?<pct>\d+(?:\.\d+)?)",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 if(matches.Count>0 &&
-                   double.TryParse(matches[^1].Groups["pct"].Value,
+                   double.TryParse(matches[matches.Count-1].Groups["pct"].Value,
                        System.Globalization.NumberStyles.Float,
                        System.Globalization.CultureInfo.InvariantCulture,
                        out var percent) && percent is >=0 and <=100)
