@@ -4,6 +4,7 @@ import {
   HardDrive, Map as MapIcon, Monitor, Search, Server, Shield, Users, WifiOff
 } from "lucide-react";
 import type {DashboardSnapshot,PublicMap} from "./bridge";
+import {MapCover} from "./MapArtwork";
 
 type Props={
   snapshot:DashboardSnapshot;
