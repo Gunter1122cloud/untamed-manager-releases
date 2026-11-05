@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 
 namespace UntamedManager;
 
@@ -15,6 +16,20 @@ public partial class MainWindow
         SupervisorContainer.Visibility=width<1180?Visibility.Collapsed:Visibility.Visible;
         DashboardHeroActions.Visibility=width<1160?Visibility.Collapsed:Visibility.Visible;
         DashboardKpis.Columns=width<1180?2:4;
+    }
+
+    /// <summary>
+    /// The illustrated dashboard uses real WPF content; avoid narrow clipped
+    /// image tiles at 1366x768 and 125-150% DPI by adapting to available DIPs.
+    /// The containing Dashboard ScrollViewer owns the mouse wheel.
+    /// </summary>
+    private void DashboardMapTiles_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (sender is not UniformGrid tiles || e.NewSize.Width <= 0)
+            return;
+        int columns = e.NewSize.Width >= 720 ? 2 : 1;
+        if (tiles.Columns != columns)
+            tiles.Columns = columns;
     }
 
     /// <summary>
