@@ -7,6 +7,9 @@ export type PublicMap = {
   gamePort: number;
   steamBuildId: string | null;
   steamUpdateState: string;
+  storeProtected?: boolean;  // only populated for locally owned maps
+  maintenance?: boolean;     // local configuration, not runtime health
+  rconConfigured?: boolean;  // credentials set, not connection verification
 };
 
 export type LocalHost = {
