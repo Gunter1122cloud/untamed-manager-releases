@@ -88,6 +88,10 @@ public sealed class PublicMapStatus
     public bool Running { get; set; }
     public string Status { get; set; } = "leállítva";
     public int GamePort { get; set; }
+    // Authenticated LAN telemetry only: no install paths, credentials or
+    // remote commands; older Managers safely ignore these optional fields.
+    public string? SteamBuildId { get; set; }
+    public string SteamUpdateState { get; set; } = "Nem ellenőrizhető";
 }
 public sealed class HostStatus
 {
@@ -655,8 +659,26 @@ public sealed class ClusterService : IAsyncDisposable
             HostId=Config.LocalHostId,HostName=Config.LocalHostName,ObservedUtc=DateTimeOffset.UtcNow,
             Maps=Config.LocalMaps.Select(map=>{
                 var c=Check(map);
+                string? build=null;
+                string steamState="Nem ellenőrizhető";
+                try
+                {
+                    build=AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath);
+                    var recorded=new SteamBuildStatusStore(Store.Root).Read(map);
+                    steamState=recorded.State switch {
+                        AsaSteamBuildState.Current=>"Naprakész",
+                        AsaSteamBuildState.UpdateAvailable=>"Frissítés elérhető",
+                        AsaSteamBuildState.Checking=>"Ellenőrzés folyamatban",
+                        AsaSteamBuildState.Installing=>"Frissítés folyamatban",
+                        AsaSteamBuildState.Restarting=>"Újraindítás folyamatban",
+                        AsaSteamBuildState.Failed=>"Hiba történt",
+                        _=>"Nem ellenőrizhető"
+                    };
+                }
+                catch(Exception){/* peer observation cannot invent Steam evidence */}
                 return new PublicMapStatus {Id=map.Id.ToString("N"), Name=map.Name,
-                    Running=c.Running,Status=c.Status,GamePort=map.GamePort};
+                    Running=c.Running,Status=c.Status,GamePort=map.GamePort,
+                    SteamBuildId=build,SteamUpdateState=steamState};
             }).ToList()
         };
     }
