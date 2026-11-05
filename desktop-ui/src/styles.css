@@ -80,3 +80,15 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 .ini-preview span{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;font-size:12px;color:#afd0c5}
 .ini-preview b{color:#81edc1}.ini-preview code{font-size:11px;color:#d5f0e3}
 @media(max-width:830px){.ini-toolbar label{flex:1;min-width:155px}.ini-preview{grid-template-columns:1fr}.ini-editor{height:330px}}
+
+/* All navigation destinations remain reachable at 720px window height.
+   Scroll the nav pane rather than clipping lower entries or swallowing wheel events. */
+.sidebar{overflow:hidden}
+.sidebar .brand{flex-shrink:0}
+.sidebar nav{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:#456961 transparent;padding-right:4px}
+.sidebar .sidebar-bottom{flex-shrink:0}
+@media(max-height:800px){
+  .sidebar .brand{min-height:119px;margin-bottom:7px}
+  .sidebar .sidebar-bottom{padding-top:10px}
+}
