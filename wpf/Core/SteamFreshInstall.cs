@@ -20,6 +20,8 @@ public sealed record SteamFreshInstallRequest(Guid MapId,string MapName,string S
 public sealed record SteamFreshInstallReceipt(Guid MapId,string InstallationRoot,
     string ServerExecutable,string? BuildId,DateTimeOffset InstalledUtc,
     string SteamCmdExecutable,string MapLevel);
+public sealed record InterruptedSteamInstall(Guid MapId,string MapName,
+    string InstallRoot,string SteamCmdExecutable,string Phase,DateTimeOffset ChangedUtc);
 
 public static class SteamFreshInstall
 {
@@ -89,7 +91,33 @@ public static class SteamFreshInstall
         return Path.Combine(folder,key+".json");
     }
     private sealed record Journal(Guid MapId,string InstallRoot,string SteamExe,
-        string Phase,DateTimeOffset ChangedUtc);
+        string Phase,DateTimeOffset ChangedUtc,string? MapName=null);
+
+    /// <summary>
+    /// Read an interrupted SteamCMD transaction without mutating files.
+    /// A new wizard can recover the original map ID only after the operator
+    /// explicitly confirms the same root, map name and SteamCMD executable.
+    /// </summary>
+    public static InterruptedSteamInstall? InspectIncomplete(string chosenRoot)
+    {
+        string root=Canonical(chosenRoot);
+        string file=OperationPath(root);
+        if(!File.Exists(file))return null;
+        if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0 ||
+           new FileInfo(file).Length is <=0 or >16384)
+            throw new InvalidDataException("Steam installation journal is corrupt");
+        var entry=JsonSerializer.Deserialize<Journal>(File.ReadAllText(file)) ??
+            throw new InvalidDataException("Steam installation journal is invalid");
+        if(entry.MapId==Guid.Empty || !Same(entry.InstallRoot,root) ||
+           entry.Phase is not ("prepared" or "mutating" or "complete"))
+            throw new InvalidDataException("Steam installation journal has invalid state");
+        if(entry.Phase=="complete")return null;
+        if(string.IsNullOrWhiteSpace(entry.MapName))
+            throw new InvalidDataException(
+                "Legacy unfinished Steam journal has no map name; review manually");
+        return new(entry.MapId,entry.MapName,root,entry.SteamExe,
+            entry.Phase,entry.ChangedUtc);
+    }
 
     private static void SaveJournal(string file,Journal value)
     {
@@ -248,6 +276,8 @@ public static class SteamFreshInstall
             {
                 if(previous.MapId!=request.MapId || !Same(previous.InstallRoot,root)||
                    !Same(previous.SteamExe,steam) || previous.Phase=="complete" ||
+                   !string.Equals(previous.MapName,request.MapName,
+                       StringComparison.OrdinalIgnoreCase) ||
                    !request.ExplicitRetry)
                     throw new InvalidOperationException(
                         "Incomplete Steam install needs explicit review/retry for the same local map");
@@ -259,7 +289,8 @@ public static class SteamFreshInstall
             }
             cancellationToken.ThrowIfCancellationRequested();
             _=AsaSteamMapCatalog.LaunchArguments(request.MapName,request.SessionName,7777,27015);
-            SaveJournal(journal,new(request.MapId,root,steam,"prepared",DateTimeOffset.UtcNow));
+            SaveJournal(journal,new(request.MapId,root,steam,"prepared",DateTimeOffset.UtcNow,
+                request.MapName));
             steam=await PrepareSteamCmdAsync(steam,request.DownloadSteamCmd,progress,cancellationToken);
             Directory.CreateDirectory(root);
             // Test that the exact new root is writable; never touch a historical install.
@@ -267,7 +298,8 @@ public static class SteamFreshInstall
             try{File.WriteAllText(probe,"write-check");}
             finally{if(File.Exists(probe))File.Delete(probe);}
             cancellationToken.ThrowIfCancellationRequested();
-            SaveJournal(journal,new(request.MapId,root,steam,"mutating",DateTimeOffset.UtcNow));
+            SaveJournal(journal,new(request.MapId,root,steam,"mutating",DateTimeOffset.UtcNow,
+                request.MapName));
             progress?.Report(new("download","ASA 2430930 telepítése / ellenőrzése",null));
             var psi=new ProcessStartInfo(fakeExecutable??steam)
             {
@@ -311,7 +343,8 @@ public static class SteamFreshInstall
             var build=AsaSteamBuildCatalog.InstalledBuild(root);
             if(!probeInstall.HasServerExecutable || build==null)
                 throw new InvalidDataException("SteamCMD exited but ASA EXE / appmanifest is not verified");
-            SaveJournal(journal,new(request.MapId,root,steam,"complete",DateTimeOffset.UtcNow));
+            SaveJournal(journal,new(request.MapId,root,steam,"complete",DateTimeOffset.UtcNow,
+                request.MapName));
             progress?.Report(new("complete","ASA szerverfájlok ellenőrizve; szerver nincs elindítva",100));
             return new(request.MapId,root,probeInstall.ServerExecutable!,build,
                 DateTimeOffset.UtcNow,steam,level);
