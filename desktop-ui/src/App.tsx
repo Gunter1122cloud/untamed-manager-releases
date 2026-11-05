@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   Cpu, Database, FileText, HardDrive, LayoutDashboard, Layers3, Monitor,
@@ -1031,17 +1031,38 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
-  const refresh = useCallback(async () => {
-    setLoading(true); setError("");
-    try {
-      const response = await managerBridge.dashboard();
-      setSnapshot(response);
-      setSelected(old => response.local.maps.some(m => m.id === old) ? old : (response.local.maps[0]?.id ?? ""));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE");
-    } finally { setLoading(false); }
+  const snapshotFlight = useRef<Promise<void> | null>(null);
+  const refresh = useCallback(async (background = false) => {
+    // Manual profile changes must not be lost if a background LAN poll is
+    // already in progress; wait for that poll and read the newly saved config.
+    if (snapshotFlight.current) {
+      if (background) return;
+      await snapshotFlight.current;
+    }
+    const task = (async () => {
+      if (!background) setLoading(true);
+      setError("");
+      try {
+        const response = await managerBridge.dashboard();
+        setSnapshot(response);
+        setSelected(old => response.local.maps.some(m => m.id === old)
+          ? old : (response.local.maps[0]?.id ?? ""));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE");
+      } finally {
+        if (!background) setLoading(false);
+      }
+    })();
+    snapshotFlight.current = task;
+    try { await task; } finally {
+      if (snapshotFlight.current === task) snapshotFlight.current = null;
+    }
   }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(true); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
   const title = useMemo(() => page==="map" ? "Map részletei" :
     tabs.find(t => t.page === page)?.label ?? "Áttekintés", [page]);
   const selectMap = (id: string) => { setSelected(id); setPage("map"); };
