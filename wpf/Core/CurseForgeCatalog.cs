@@ -50,23 +50,19 @@ public sealed class CurseForgeCatalog
     public CurseForgeCatalog(HttpClient httpClient) =>
         http=httpClient??throw new ArgumentNullException(nameof(httpClient));
 
-    // Syntactic preflight only; only the authenticated official API can confirm a key.
-    // A bcrypt hash (such as a license-service token) or a copied JSON response is
-    // never a CurseForge Core API credential. Do not log or echo raw input.
+    // Do not guess an API credential's validity from its shape. Operators may
+    // provision the exact value supplied by their provider, including strings
+    // resembling a password hash. Only a real CurseForge API request can verify
+    // acceptance. Never echo the credential in logs, UI or repository content.
     public static void ValidateApiKey(string? key)
     {
         if(string.IsNullOrWhiteSpace(key) || key.Length>512 ||
            key.Any(char.IsControl))
-            throw new ArgumentException("An approved CurseForge API key is required",nameof(key));
+            throw new ArgumentException("A CurseForge credential is required",nameof(key));
         var candidate=key.Trim();
-        if((candidate.StartsWith("$2a$",StringComparison.Ordinal) ||
-            candidate.StartsWith("$2b$",StringComparison.Ordinal) ||
-            candidate.StartsWith("$2y$",StringComparison.Ordinal)) &&
-           candidate.Length==60)
-            throw new ArgumentException("A bcrypt hash is not a CurseForge API key",nameof(key));
         if(candidate.StartsWith("{",StringComparison.Ordinal) ||
            candidate.StartsWith("[",StringComparison.Ordinal))
-            throw new ArgumentException("A JSON response is not a CurseForge API key",nameof(key));
+            throw new ArgumentException("Paste only the credential value, not a JSON document",nameof(key));
     }
 
     // The connection test queries game metadata only: no downloads and no ASA changes.
