@@ -130,10 +130,34 @@
        </Grid>
       </Border>
       <UniformGrid Columns="4" Margin="0,10,0,0">
-       <Border Style="{StaticResource NeonStatPanel}"><StackPanel><TextBlock Text="◇  TÉRKÉPEK" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterMapCount" Text="0" Foreground="#A6F873" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Regisztrált / utoljára látott" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
-       <Border Style="{StaticResource NeonStatPanel}"><StackPanel><TextBlock Text="▤  GAZDAGÉPEK" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterHostCount" Text="1" Foreground="White" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="Külön Windows gépek" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
-       <Border Style="{StaticResource NeonStatPanel}"><StackPanel><TextBlock Text="⬡  HELYI MODOK" Foreground="#9DB7B2"/><TextBlock x:Name="ConfiguredModCount" Text="—" Foreground="#73DDC8" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock x:Name="ModReadingCoverage" Text="Nincs még mérés" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
-       <Border Style="{StaticResource AmberStatPanel}"><StackPanel><TextBlock Text="◉  FRISS LAN-PEER" Foreground="#9DB7B2"/><TextBlock x:Name="ClusterOnlineCount" Text="0" Foreground="#F4BB78" FontSize="31" FontWeight="Bold" Margin="0,4,0,3"/><TextBlock Text="0, ha nincs hiteles peer-mérés" FontSize="11" Foreground="#9DB7B2"/></StackPanel></Border>
+       <Border Style="{StaticResource NeonStatPanel}">
+        <StackPanel>
+         <TextBlock Text="◇  TÉRKÉPEK" Foreground="{StaticResource TextSoft}" FontSize="11"/>
+         <TextBlock x:Name="ClusterMapCount" Text="0" Foreground="{StaticResource TextStrong}" FontSize="29" FontWeight="SemiBold" Margin="0,5,0,3"/>
+         <TextBlock Text="Regisztrált / utoljára látott" FontSize="10" Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+       </Border>
+       <Border Style="{StaticResource NeonStatPanel}">
+        <StackPanel>
+         <TextBlock Text="▶  FUTÓ SZERVEREK" Foreground="{StaticResource TextSoft}" FontSize="11"/>
+         <TextBlock x:Name="RunningServerKpi" Text="—" Foreground="{StaticResource AccentLight}" FontSize="29" FontWeight="SemiBold" Margin="0,5,0,3"/>
+         <TextBlock Text="Igazolt helyi / DEMO-futás" FontSize="10" Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+       </Border>
+       <Border Style="{StaticResource NeonStatPanel}">
+        <StackPanel>
+         <TextBlock Text="♙  JÁTÉKOSOK" Foreground="{StaticResource TextSoft}" FontSize="11"/>
+         <TextBlock x:Name="PlayersKpi" Text="—" Foreground="{StaticResource TextStrong}" FontSize="29" FontWeight="SemiBold" Margin="0,5,0,3"/>
+         <TextBlock Text="Csak hiteles adat / DEMO-minta" FontSize="10" Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+       </Border>
+       <Border Style="{StaticResource NeonStatPanel}">
+        <StackPanel>
+         <TextBlock Text="▤  GAZDAGÉPEK" Foreground="{StaticResource TextSoft}" FontSize="11"/>
+         <TextBlock x:Name="ClusterHostCount" Text="1" Foreground="{StaticResource TextStrong}" FontSize="29" FontWeight="SemiBold" Margin="0,5,0,3"/>
+         <TextBlock Text="Helyi és megfigyelt LAN" FontSize="10" Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+       </Border>
       </UniformGrid>
 
       <Grid Margin="0,15,0,18">
@@ -290,6 +314,20 @@
          <StackPanel>
           <TextBlock Text="Legutóbbi állapot / biztonság" FontSize="16"
                      FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" Margin="0,0,0,7"/>
+          <Grid Margin="0,0,0,10">
+           <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+           <TextBlock Text="Konfigurált modok" FontSize="11" Foreground="{StaticResource TextSoft}"/>
+           <TextBlock Grid.Column="1" x:Name="ConfiguredModCount" Text="—" FontSize="12"
+                      FontWeight="SemiBold" Foreground="{StaticResource AccentLight}"/>
+          </Grid>
+          <TextBlock x:Name="ModReadingCoverage" Text="Nincs még mérés" FontSize="10"
+                     Foreground="{StaticResource TextSoft}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+          <Grid Margin="0,0,0,8">
+           <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+           <TextBlock Text="Friss, hiteles LAN-peer" FontSize="11" Foreground="{StaticResource TextSoft}"/>
+           <TextBlock Grid.Column="1" x:Name="ClusterOnlineCount" Text="0" FontSize="12"
+                      FontWeight="SemiBold" Foreground="{StaticResource AccentLight}"/>
+          </Grid>
       <Border Background="#14272B" BorderBrush="#354E51" BorderThickness="1"
               CornerRadius="11" Padding="13,11" Margin="0,6,12,10">
         <DockPanel LastChildFill="True">

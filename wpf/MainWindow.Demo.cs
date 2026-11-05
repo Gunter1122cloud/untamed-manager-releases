@@ -88,6 +88,9 @@ public partial class MainWindow
                 ?100d*host.UsedRamGiB/host.TotalRamGiB:null
         }).ToArray();
         ClusterMapCount.Text=demo.Maps.Count.ToString();
+        RunningServerKpi.Text=demo.Maps.Count(m=>m.Running&&demo.FindHost(m.Host).Online).ToString()+" DEMO";
+        PlayersKpi.Text=demo.Maps.Where(m=>m.Running&&demo.FindHost(m.Host).Online)
+            .Sum(m=>m.Players).ToString()+" DEMO";
         ClusterHostCount.Text=demo.Hosts.Count.ToString();
         ClusterOnlineCount.Text=demo.Hosts.Count(h=>h.Online).ToString()+
             " DEMO";
@@ -144,8 +147,10 @@ public partial class MainWindow
             "recovery"=>"Recovery Center · OFFLINE DEMO",
             _=>"Untamed Manager · OFFLINE DEMO"
         },"Az alábbi adatok és gombok teljes egészében szimuláltak. Nincs ASA-, LAN-, Store- vagy adatbázismódosítás.");
-        Add(Box(V(Label("◆  SZIMULÁCIÓ – NEM ÉLES ÁLLAPOT",17,Brushes.Gold,true),
-            Label("Három fiktív gép és tíz map; minden adat és művelet kizárólag a memóriában él. A DEMO elhagyásával a módosítások eltűnnek.",12,Soft))));
+        var simulationNotice=V(
+            Label("◆  OFFLINE DEMO · CSAK SZIMULÁLT ADAT",13,Brushes.Gold,true),
+            Label("Nincs ASA-, Store-, SQL- vagy LAN-művelet. A DEMO elhagyásával a változások eltűnnek.",11,Soft));
+        Add(Box(simulationNotice));
         switch(page)
         {
             case "servers": DemoServers();break;
@@ -182,7 +187,10 @@ public partial class MainWindow
             content.Children.Add(paneFactory(map));
         }
         chooser.SelectionChanged+=(_,_)=>Display();
-        Add(Box(V(Label(title,19,Mint,true),chooser,content)));
+        var titleBar=new WrapPanel {Margin=new Thickness(0,1,0,9)};
+        titleBar.Children.Add(Label(title,17,Mint,true));
+        titleBar.Children.Add(chooser);
+        Add(V(titleBar,content));
         Display();
     }
 
@@ -200,7 +208,7 @@ public partial class MainWindow
             operations.Children.Add(Btn("■  Leállítás",()=>Act(()=>demo.SetRunning(map.Id,false),"Stop")));
             operations.Children.Add(Btn("↻  Restart + SaveWorld",()=>Act(()=>demo.Restart(map.Id),"Restart")));
             operations.Children.Add(Btn("▣  Mentés",()=>Act(()=>demo.Backup(map.Id),"Backup")));
-            var tabs=new TabControl{MinHeight=390,Foreground=Brushes.White,Background=Panel};
+            var tabs=new TabControl{Foreground=Brushes.White,Background=Panel};
             void Tab(string name,UIElement content)=>
                 tabs.Items.Add(new TabItem{Header=name,Content=new ScrollViewer{
                     Content=content,Padding=new Thickness(12),
@@ -345,13 +353,12 @@ public partial class MainWindow
 
         var leftToolbar=new WrapPanel {Margin=new Thickness(0,0,0,7)};
         leftToolbar.Children.Add(search);
-        var addRow=new WrapPanel {Margin=new Thickness(0,9,0,0)};
-        addRow.Children.Add(project);
-        addRow.Children.Add(Btn("Mod hozzáadása",()=>Attempt(()=>
+        leftToolbar.Children.Add(project);
+        leftToolbar.Children.Add(Btn("＋ Mod hozzáadása",()=>Attempt(()=>
             Stage(project.Text.Trim(),DemoModMode.Active))));
-        var left=V(Label("DEMO modlista",18,Mint,true),
-            Label("Keresés projektazonosító szerint",12,Soft),
-            leftToolbar,summary,list,addRow);
+        var left=V(Label("MOD CENTER  /  KONFIGURÁLT MODOK",16,Mint,true),
+            Label("DEMO mintamodok · sorrend · állapot · jóváhagyott szimulált mentés",12,Soft),
+            leftToolbar,summary,list);
         var right=V(Label("Mod részletei",17,Mint,true),selected,details,
             Label("Állapot",12,Aqua),mode,
             Btn("Állapot módosítása",()=>Attempt(()=>{
@@ -476,8 +483,8 @@ public partial class MainWindow
         var toolbar=new WrapPanel{Margin=new Thickness(0,4,0,10)};
         toolbar.Children.Add(search);
         toolbar.Children.Add(filter);
-        var left=Box(V(Label("DEMO pluginlista",18,Mint,true),
-            Label("Keresés · szűrés · állapot",12,Soft),
+        var left=Box(V(Label("PLUGIN CENTER  /  ASA API",16,Mint,true),
+            Label("DEMO mintapluginok · a kapcsolók kizárólag memóriát módosítanak",12,Soft),
             toolbar,summary,list));
         var commands=new WrapPanel{Margin=new Thickness(0,3,0,8)};
         commands.Children.Add(enable);

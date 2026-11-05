@@ -130,6 +130,8 @@ public partial class MainWindow
         ServerCards.ItemsSource=active;
         MapListEmpty.Visibility=active.Count==0?Visibility.Visible:Visibility.Collapsed;
         ClusterMapCount.Text=summary.MapCount.ToString();
+        RunningServerKpi.Text=runningProcesses.ToString();
+        PlayersKpi.Text="—"; // no trusted live player count is available here
         ClusterHostCount.Text=summary.HostCount.ToString();
         ClusterOnlineCount.Text=summary.FreshLanPeers.ToString();
         DashboardOperationsLine.Text="Helyi folyamatok: "+runningProcesses+" igazolt futó · "+
@@ -304,7 +306,7 @@ public partial class MainWindow
         var search=new TextBox {Width=208,Height=36,
             ToolTip="Keresés a regisztrált mapok nevére"};
         var list=new ListBox {
-            MinHeight=430,MaxHeight=700,Margin=new Thickness(0,8,0,0),
+            MinHeight=165,MaxHeight=480,Margin=new Thickness(0,8,0,0),
             ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumServerRow")
         };
         var sidebar=Box(V(Label("Maplista",17,Mint,true),search,list));
@@ -366,7 +368,7 @@ public partial class MainWindow
         }));
         parent.Children.Add(quick);
         parent.Children.Add(controls);
-        var tabs=new TabControl { Margin=new Thickness(0,8,0,0),MinHeight=380,
+        var tabs=new TabControl { Margin=new Thickness(0,8,0,0),
             Background=Panel,Foreground=Brushes.White,BorderBrush=Aqua };
         void Tab(string title,UIElement body)
         {
@@ -449,7 +451,7 @@ public partial class MainWindow
     }
     private UIElement MapModPane(LocalMap map)
     {
-        var list=new ListBox{Height=225,Background=Panel,Foreground=Brushes.White};
+        var list=new ListBox{MinHeight=90,MaxHeight=260,Background=Panel,Foreground=Brushes.White};
         var status=Label("Helyi modparaméterek ellenőrzése...",12,Soft);
         void Refresh()
         {
@@ -485,7 +487,7 @@ public partial class MainWindow
 
     private UIElement MapPluginPane(LocalMap map)
     {
-        var list=new ListBox{Height=215,Background=Panel,Foreground=Brushes.White};
+        var list=new ListBox{MinHeight=90,MaxHeight=260,Background=Panel,Foreground=Brushes.White};
         var status=Label("Helyi ASA API és pluginok ellenőrzése...",12,Soft);
         void Refresh()
         {
