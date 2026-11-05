@@ -43,6 +43,19 @@ if(Environment.GetEnvironmentVariable("FAKE_STEAM_NEW_INSTALL")=="1")
     File.WriteAllText(Path.Combine(steamApps,"appmanifest_2430930.acf"),
         "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
 }
+if(Environment.GetEnvironmentVariable("FAKE_STEAM_REFRESH_BUILD")=="1")
+{
+    // Never copy, delete or scan protected production files. This fixture
+    // changes only the synthetic appmanifest inside the temporary test root.
+    var manifest=Path.Combine(root,"steamapps","appmanifest_2430930.acf");
+    if(!File.Exists(manifest))return 14;
+    string original=File.ReadAllText(manifest);
+    if(!original.Contains("\"buildid\" \"123456\"",
+        StringComparison.Ordinal))return 15;
+    File.WriteAllText(manifest,original.Replace(
+        "\"buildid\" \"123456\"",
+        "\"buildid\" \"123457\"",StringComparison.Ordinal));
+}
 if(Environment.GetEnvironmentVariable("FAKE_STEAM_TOUCH_INI")=="1")
 {
     string ini=Path.Combine(root,"ShooterGame","Saved","Config","WindowsServer","Game.ini");
