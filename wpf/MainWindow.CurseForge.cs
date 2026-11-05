@@ -522,7 +522,7 @@ public partial class MainWindow
         var inspectSharedModUsage=Btn("Közös és eltérő modok a helyi mapokon",()=>{
             try
             {
-                var report=LocalModInventory.Read(_cluster.Config.LocalMaps);
+                var report=LocalModUsageInventory.Read(_cluster.Config.LocalMaps);
                 var shared=report.SharedProjects.OrderByDescending(p=>p.EnabledMapCount)
                     .ThenBy(p=>p.ProjectId,StringComparer.Ordinal)
                     .Take(60).Select(p=>p.ProjectId+" · "+p.EnabledMapCount+
