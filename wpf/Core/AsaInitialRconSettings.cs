@@ -33,7 +33,7 @@ public static class AsaInitialRconSettings
             "WindowsServer","GameUserSettings.ini");
     }
 
-    private static void ValidatePassword(string password)
+    public static void ValidateAdminPassword(string password)
     {
         if(password.Length is <12 or >128 ||
            password.Any(c=>char.IsControl(c) || c is '=' or ';' or '[' or ']' or '"' or '\''))
@@ -53,7 +53,7 @@ public static class AsaInitialRconSettings
         if(rconPort is <1 or >65535)
             throw new InvalidDataException("Invalid ASA RCON TCP port");
         ArgumentNullException.ThrowIfNull(adminPassword);
-        ValidatePassword(adminPassword);
+        ValidateAdminPassword(adminPassword);
         string path=NewIniPath(installRoot);
         string directory=Path.GetDirectoryName(path)!;
         if(Directory.Exists(directory) &&
