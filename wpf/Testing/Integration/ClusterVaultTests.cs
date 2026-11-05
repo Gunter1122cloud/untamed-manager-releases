@@ -30,6 +30,7 @@ public static class ClusterVaultTests
         var mapRyzen=new[]{"TheCenter_WP","LostColony_WP","Ragnarok_WP","Aberration_WP","ScorchedEarth_WP"};
         string deviceHp=Guid.NewGuid().ToString(),deviceRyzen=Guid.NewGuid().ToString();
         string session=Guid.NewGuid().ToString(),backupId=Guid.NewGuid().ToString();
+        string hpBackupId=Guid.NewGuid().ToString();
         string sharedPath=@"\\192.0.2.1\synthetic";
         var idsHp=mapHp.Select(_=>Guid.NewGuid().ToString()).ToArray();
         var idsRyzen=mapRyzen.Select(_=>Guid.NewGuid().ToString()).ToArray();
@@ -62,7 +63,7 @@ public static class ClusterVaultTests
             ["SHARED/.kova-store-v1/"+deviceHp+".json"]=JsonSerializer.Serialize(
                 new{session,id=deviceHp,phase="done",config=configHp,configHash=hHash,
                     members=membersHp,selected=idsHp,
-                    backup=new{id=Guid.NewGuid().ToString()}},Compact),
+                    backup=new{id=hpBackupId}},Compact),
             ["SHARED/.kova-store-v1/"+deviceRyzen+".json"]=JsonSerializer.Serialize(
                 new{session,id=deviceRyzen,phase="done",config=configRyzen,configHash=rHash,
                     members=membersRyzen,selected=idsRyzen,
@@ -90,6 +91,30 @@ public static class ClusterVaultTests
             }
             return file;
         }
+
+        // The complementary HP reference is four local metadata JSONs only.
+        // Neither ZIP contains live credentials, profiles, transfer contents
+        // or real host identifiers; all bytes are synthesized under TEMP.
+        var hpLocal=new Dictionary<string,string>{
+            ["cluster-v1.json"]=JsonSerializer.Serialize(configHp,Compact),
+            ["shared-store-device-v1.json"]=JsonSerializer.Serialize(
+                new{schema=1,id=deviceHp},Compact),
+            ["shared-store-lock-v1.json"]=JsonSerializer.Serialize(
+                new{schema=1,session,config=configHp,configHash=hHash,selected=idsHp},Compact),
+            ["cluster-store-v1.json"]=JsonSerializer.Serialize(new{
+                schema=1,maps=idsHp.Select((id,i)=>(id,i)).ToDictionary(x=>x.id,
+                    x=>(object)new{root=membersHp[x.i].root,map=membersHp[x.i].map,
+                        phase="active",backupId=hpBackupId,sharedSession=session,
+                        preparedAt="2026-11-03T18:00:00Z"})},Compact)
+        };
+        string hpCopy=Path.Combine(dir,"Synthetic-HP-Local-v1.zip");
+        using(var hpZip=ZipFile.Open(hpCopy,ZipArchiveMode.Create))
+            foreach(var file in hpLocal)
+            {
+                var entry=hpZip.CreateEntry(file.Key,CompressionLevel.Optimal);
+                using var writer=new StreamWriter(entry.Open(),new UTF8Encoding(false));
+                writer.Write(file.Value);
+            }
         string original=CreateArchive("Untamed-Cluster-Vault.zip",items);
         string before=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(original)));
         var result=ClusterVaultArchiveInspector.Inspect(original);
@@ -97,6 +122,29 @@ public static class ClusterVaultTests
             result.SessionConsistent&&result.ConfigHashesVerified&&
             result.LocalHostMapRecordsActive&&!result.CompleteTwoHostEvidence,
             "ZIP manifest, peer session, ten map IDs and live-ineligible safety flags");
+        string originalHpSha=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(hpCopy)));
+        var together=ClusterVaultArchiveInspector.InspectPairedCopies(original,hpCopy);
+        Assert(together.VerifiedFiles==12 && together.Peers==2 && together.Maps==10 &&
+            together.CompleteTwoHostEvidence && together.ConfigHashesVerified &&
+            together.SessionConsistent && together.LocalHostMapRecordsActive &&
+            !together.ProductionUseAllowed,
+            "pairing genuine-shaped eight-file coordination and four-file HP copy proves only historical metadata, never production ownership");
+        Assert(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(original)))==before &&
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(hpCopy)))==originalHpSha,
+            "paired historical ZIP inspection changes neither copied source");
+        var invalidHp=Path.Combine(dir,"Synthetic-HP-Incomplete.zip");
+        using(var hpMissing=ZipFile.Open(invalidHp,ZipArchiveMode.Create))
+            foreach(var file in hpLocal.Where(x=>x.Key!="shared-store-lock-v1.json"))
+            {
+                var entry=hpMissing.CreateEntry(file.Key,CompressionLevel.Optimal);
+                using var writer=new StreamWriter(entry.Open(),new UTF8Encoding(false));
+                writer.Write(file.Value);
+            }
+        bool missingLockDenied=false;
+        try{ClusterVaultArchiveInspector.InspectPairedCopies(original,invalidHp);}
+        catch(InvalidDataException){missingLockDenied=true;}
+        Assert(missingLockDenied,
+            "incomplete second host local Store metadata cannot become a complete pair");
         Assert(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(original)))==before,
             "Vault inspection is byte-preserving and does not extract or modify input");
         Assert(result.MapNames.Distinct(StringComparer.OrdinalIgnoreCase).Count()==10,
