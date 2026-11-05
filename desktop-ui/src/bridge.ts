@@ -145,7 +145,7 @@ export type HistoricalLaunchEvidence = {
   gamePortStatus: "MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT";
   queryPortStatus: "MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT";
   modOrderStatus: "MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT"|"LEGACY_SYNTAX";
-  clusterIdPresent:boolean; clusterPathPresent:boolean;
+  clusterIdPresent:boolean; clusterIdStatus:"MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT"; clusterPathPresent:boolean;
   useStorePresent:boolean; conversionFlagPresent:boolean;
   findings:string[]; sourceAuthenticated:false;
   fullLaunchArgumentsVerified:false; peerWriterVerified:false;
