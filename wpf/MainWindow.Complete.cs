@@ -81,7 +81,7 @@ public partial class MainWindow
         if(navigation.Length!=primary.Length ||
            !primary.All(p=>navigation.Count(b=>(string)b.Tag==p)==1))
             throw new InvalidOperationException("Premium navigation must have exactly eight usable primary entries");
-        foreach(string page in primary.Concat(new[]{"rcon","ini","steam","monitoring","recovery","data","license","lan"}))
+        foreach(string page in primary.Concat(new[]{"rcon","ini","steam","monitoring","logs","recovery","data","license","lan"}))
         {
             Navigate(page);
             string expected=primary.Contains(page)?page:"operations";
