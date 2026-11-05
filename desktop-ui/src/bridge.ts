@@ -54,6 +54,7 @@ export type CurseForgeFile = {
   sizeBytes: number; gameVersions: string[];
   dependencies: Array<{ modId: number; type: string }>; distributionState: string;
 };
+export type CurseForgeSummary = {mod:CurseForgeMod; evidence:"OFFICIAL_ASA_PROJECT_SUMMARY_ONLY"};
 export type CurseForgeProject = {
   mod: CurseForgeMod; description: string; files: CurseForgeFile[];
   filesTotal: number; filesHasMore: boolean;
@@ -279,7 +280,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
   "servers.inspectLocal" | "servers.importLocal" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
-  "curseforge.project" | "curseforge.files" |
+  "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
   "steam.freshRegister" |
@@ -368,6 +369,7 @@ export const managerBridge = {
   catalogCategories: () => request<CurseForgeCategories>("curseforge.categories"),
   catalogFeatured: () => request<CurseForgeFeatured>("curseforge.featured"),
   catalogBrowse: (options: CurseForgeBrowseOptions) => request<CurseForgeResult>("curseforge.browse", options),
+  catalogSummary: (modId: number) => request<CurseForgeSummary>("curseforge.summary", { modId }),
   catalogProject: (modId: number) => request<CurseForgeProject>("curseforge.project", { modId }),
   catalogFiles: (modId: number, page: number) => request<CurseForgeFilePage>("curseforge.files", { modId, page }),
   freshPreflight: (args: {
