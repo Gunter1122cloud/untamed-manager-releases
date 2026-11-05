@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using UntamedDesktop;
 using UntamedManager.Core;
@@ -175,6 +178,69 @@ try
             "duplicate local map name or overlapping install is rejected");
     }
 
+    // Validate real native CurseForge provider response handling without
+    // network access or exposing the DPAPI credential to any JavaScript reply.
+    const string fakeKey="SYNTHETIC_CURSEFORGE_NATIVE_BRIDGE_TEST_KEY";
+    cluster.UpdateSettings(settings =>
+        settings.CurseForgeApiKeyProtected=SecureStore.Protect(fakeKey));
+    var provider=new FakeCatalogProvider(fakeKey);
+    using(var fakeHttp=new HttpClient(provider))
+    using(var discovery=new DesktopCurseForgeDiscoveryBridge(cluster,fakeHttp))
+    {
+        var invalidSort=await Call(discovery.HandleAsync,"curseforge.browse",
+            new{term="Creators",sort=700});
+        Check(IsError(invalidSort,"UM-INVALID-SORT"),
+            "invalid official CurseForge sort is rejected before API calls");
+        Check(provider.Requests==0,"invalid browse request never reaches provider");
+
+        var categories=await Call(discovery.HandleAsync,"curseforge.categories");
+        IsOk(categories,"official ASA category endpoint returns sanitized metadata");
+        Check(categories.GetProperty("data").GetProperty("categories")[0]
+            .GetProperty("name").GetString()=="Structures",
+            "ASA categories are correctly delivered through native bridge");
+
+        var feeds=await Call(discovery.HandleAsync,"curseforge.featured");
+        IsOk(feeds,"official featured/popular/recently-updated endpoint");
+        Check(feeds.GetProperty("data").GetProperty("popular").GetArrayLength()==1,
+            "featured categories preserve distinct provider grouping");
+
+        var browse=await Call(discovery.HandleAsync,"curseforge.browse",
+            new{term="Creator",categoryId=100,sort=2,descending=true,page=0});
+        IsOk(browse,"provider-backed filtered browse succeeds");
+        Check(browse.GetProperty("data").GetProperty("mods")[0]
+            .GetProperty("id").GetInt32()==928548 &&
+            provider.LastQuery.Contains("categoryId=100") &&
+            provider.LastQuery.Contains("sortField=2"),
+            "category and sort options reach exact official ASA search");
+        Check(!browse.GetRawText().Contains(fakeKey,StringComparison.Ordinal),
+            "browse result never serializes the protected API credential");
+
+        var project=await Call(discovery.HandleAsync,"curseforge.project",
+            new{modId=928548});
+        IsOk(project,"provider-backed project description and exact files");
+        var meta=project.GetProperty("data");
+        Check(meta.GetProperty("description").GetString()=="Synthetic safe description" &&
+            meta.GetProperty("files")[0].GetProperty("dependencies")[0]
+                .GetProperty("type").GetString()=="RequiredDependency",
+            "plain-text official project description and file relation type preserved");
+
+        var filePage=await Call(discovery.HandleAsync,"curseforge.files",
+            new{modId=928548,page=0});
+        IsOk(filePage,"version files paginated without downloads");
+        Check(provider.DownloadRequests==0 &&
+            !filePage.GetRawText().Contains(fakeKey,StringComparison.Ordinal),
+            "native files endpoint cannot request file binaries or leak key");
+
+        var invalidProject=await Call(discovery.HandleAsync,"curseforge.project",
+            new{modId=7});
+        Check(IsError(invalidProject,"UM-INVALID-PROJECT"),
+            "too-small project ID is rejected before HTTP");
+        var forbidden=await Call(discovery.HandleAsync,"curseforge.install",
+            new{modId=928548});
+        Check(IsError(forbidden,"UM-METHOD-DENIED"),
+            "no mod install method is exposed to JavaScript");
+    }
+
     // A new, deliberately untrusted process observer must not write INI.
     await using var running=new ClusterService("obsidian-running",Path.Combine(root,"running-profile"),
         _=>new ProcessCheck(true,"Synthetic running map",null,false));
@@ -196,4 +262,41 @@ finally
 {
     try{Directory.Delete(root,true);}
     catch(IOException){/* test cleanup not part of production path */}
+}
+
+
+sealed class FakeCatalogProvider : HttpMessageHandler
+{
+    private readonly string expectedKey;
+    public int Requests {get;private set;}
+    public int DownloadRequests {get;private set;}
+    public string LastQuery {get;private set;}="";
+    public FakeCatalogProvider(string key)=>expectedKey=key;
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,CancellationToken cancellationToken)
+    {
+        Requests++;
+        if(request.RequestUri?.Host!="api.curseforge.com" ||
+           !request.Headers.TryGetValues("x-api-key",out var values) ||
+           values.Single()!=expectedKey)
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+        string path=request.RequestUri.AbsolutePath;
+        if(path.Contains("/download-url",StringComparison.OrdinalIgnoreCase) ||
+           path.EndsWith(".zip",StringComparison.OrdinalIgnoreCase))
+            DownloadRequests++;
+        if(path=="/v1/mods/search")LastQuery=request.RequestUri.Query;
+        string json=path switch {
+            "/v1/games" => """{"data":[{"id":4418,"slug":"ark-survival-ascended"}]}""",
+            "/v1/categories" => """{"data":[{"id":100,"name":"Structures","isClass":false,"gameId":4418,"parentCategoryId":0}]}""",
+            "/v1/mods/featured" => """{"data":{"featured":[{"id":928548,"gameId":4418,"name":"Featured"}],"popular":[{"id":928548,"gameId":4418,"name":"Popular"}],"recentlyUpdated":[{"id":928548,"gameId":4418,"name":"Recent"}]}}""",
+            "/v1/mods/search" => """{"data":[{"id":928548,"gameId":4418,"name":"Synthetic mod","authors":[{"name":"Creator"}],"categories":[{"name":"Structures"}],"downloadCount":23}],"pagination":{"totalCount":1}}""",
+            "/v1/mods/928548" => """{"data":{"id":928548,"gameId":4418,"name":"Synthetic mod","summary":"Safe description"}}""",
+            "/v1/mods/928548/description" => """{"data":"Synthetic safe description"}""",
+            "/v1/mods/928548/files" => """{"data":[{"id":45001,"modId":928548,"displayName":"v1.0","isAvailable":true,"fileLength":1024,"gameVersions":["ASA"],"dependencies":[{"modId":912345,"relationType":3}]}],"pagination":{"totalCount":1}}""",
+            _ => """{"data":[]}"""
+        };
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK){
+            Content=new StringContent(json,Encoding.UTF8,"application/json")
+        });
+    }
 }
