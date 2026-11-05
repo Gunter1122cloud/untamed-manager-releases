@@ -57,6 +57,7 @@ try
     await SteamCmdIsolatedUpdaterTests.Run(root,args.Length>3?args[3]:null);
     await SteamFreshInstallTests.Run(root,args.Length>3?args[3]:null);
     AsaSteamBuildCatalogTests.Run(root);
+    SteamBuildStatusStoreTests.Run(root);
     await SteamSerialQueueTests.Run(root);
     await SteamVerifiedMaintenancePipelineTests.Run(root);
     await ModDependencyPlannerTests.Run();
