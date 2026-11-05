@@ -146,9 +146,32 @@ public static class SteamFreshInstall
     /// Manager config until both executable and manifest are verified.
     /// It NEVER starts the ASA dedicated server.
     /// </summary>
-    public static async Task<SteamFreshInstallReceipt> InstallAsync(
+    public static Task<SteamFreshInstallReceipt> InstallAsync(
         SteamFreshInstallRequest request,LocalMap[] registeredLocalMaps,
-        IProgress<SteamInstallProgress>? progress=null,CancellationToken cancellationToken=default)
+        IProgress<SteamInstallProgress>? progress=null,CancellationToken cancellationToken=default) =>
+        RunCoreAsync(request,registeredLocalMaps,progress,null,cancellationToken);
+
+    // Isolated real-child CI adapter. It cannot execute arbitrary files or be
+    // invoked through the WPF Manager production button.
+    internal static Task<SteamFreshInstallReceipt> RunFakeFixtureAsync(
+        SteamFreshInstallRequest request,LocalMap[] registeredLocalMaps,
+        string fakeSteamCmd,IProgress<SteamInstallProgress>? progress=null,
+        CancellationToken cancellationToken=default)
+    {
+        string root=Path.GetFullPath(request.InstallRoot);
+        if(!root.StartsWith(Path.GetFullPath(Path.GetTempPath()),
+            StringComparison.OrdinalIgnoreCase) ||
+           !root.Contains("Untamed-Integration-",StringComparison.OrdinalIgnoreCase) ||
+           !Path.GetFileName(fakeSteamCmd).Equals("FakeSteamCMD.exe",
+               StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Fake Steam fresh installation must be isolated");
+        return RunCoreAsync(request,registeredLocalMaps,progress,fakeSteamCmd,cancellationToken);
+    }
+
+    private static async Task<SteamFreshInstallReceipt> RunCoreAsync(
+        SteamFreshInstallRequest request,LocalMap[] registeredLocalMaps,
+        IProgress<SteamInstallProgress>? progress,string? fakeExecutable,
+        CancellationToken cancellationToken)
     {
         if(request.MapId==Guid.Empty)throw new InvalidDataException("Missing local map ID");
         string level=AsaSteamMapCatalog.LevelFor(request.MapName);
@@ -213,7 +236,7 @@ public static class SteamFreshInstall
             cancellationToken.ThrowIfCancellationRequested();
             SaveJournal(journal,new(request.MapId,root,steam,"mutating",DateTimeOffset.UtcNow));
             progress?.Report(new("download","ASA 2430930 telepítése / ellenőrzése",null));
-            var psi=new ProcessStartInfo(steam)
+            var psi=new ProcessStartInfo(fakeExecutable??steam)
             {
                 WorkingDirectory=Path.GetDirectoryName(steam)!,
                 UseShellExecute=false,CreateNoWindow=true,
@@ -224,6 +247,11 @@ public static class SteamFreshInstall
                 psi.ArgumentList.Add(arg);
             using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             deadline.CancelAfter(TimeSpan.FromHours(5));
+            if(fakeExecutable!=null)
+            {
+                psi.Environment["FAKE_STEAM_NEW_INSTALL"]="1";
+                progress?.Report(new("test","Izolált FakeSteamCMD teszt, nem éles Steam",null));
+            }
             using var process=Process.Start(psi)??throw new IOException("SteamCMD launch failed");
             Task<string> stdout=process.StandardOutput.ReadToEndAsync(deadline.Token);
             Task<string> stderr=process.StandardError.ReadToEndAsync(deadline.Token);
