@@ -19,6 +19,16 @@ and updater rollback tests pass. SHA256SUMS.txt identifies every binary exactly.
   and the gallery tests a WPF MouseWheel event on the illustrated Dashboard.
 - Password boxes (RCON, LAN pairing, CurseForge API key) share the dark accessible
   graphite theme; no unstyled white password field should remain.
+- The live Mod Center can request one configured CurseForge project by its
+  exact ID; the returned project is rejected unless the authenticated API
+  confirms it belongs to ARK: Survival Ascended. No download occurs.
+- Map add, remove and edit now restore the original in-memory map list on
+  ConfigStore optimistic-lock (CAS) or I/O failure; the five-step wizard
+  stages a complete copy rather than mutating the live profile before Save.
+- The Dashboard and other long workspaces now have opt-in real WPF wheel
+  forwarding. The top-level page only takes over when a nested list cannot
+  scroll in the requested direction. Both top-level wheel routes have
+  Windows runtime screenshot tests.
 - The CurseForge catalog now displays allowlisted HTTPS artwork; configured mods
   only receive a name and thumbnail after an authenticated provider response.
   These are display metadata, not proof of installation or crossplay compatibility.
