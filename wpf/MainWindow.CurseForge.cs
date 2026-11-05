@@ -184,18 +184,64 @@ public partial class MainWindow
                 "Nem tölt le vagy telepít modot, és nem indít újra szervert.",12,Soft),
             Label("API-kulcs (Windows DPAPI-val helyileg védve, nem kerül a GitHubra)",12,Aqua),
             key,
+            Btn("CurseForge API-kapcsolat ellenőrzése",async ()=>{
+                if(busy)return;
+                string candidate=key.Password;
+                if(string.IsNullOrWhiteSpace(candidate))
+                {
+                    var stored=_cluster.Config.CurseForgeApiKeyProtected;
+                    if(string.IsNullOrWhiteSpace(stored))
+                    {
+                        status.Text="Előbb add meg a valódi CurseForge API-kulcsot.";
+                        return;
+                    }
+                    try { candidate=SecureStore.Unprotect(stored); }
+                    catch
+                    {
+                        status.Text="A korábban elmentett kulcs nem olvasható ebben a Windows-profilban.";
+                        return;
+                    }
+                }
+                busy=true;
+                status.Text="Hivatalos CurseForge ASA-katalógus ellenőrzése...";
+                try
+                {
+                    int gameId=await catalog.VerifyAsaKeyAsync(candidate);
+                    status.Text="CurseForge kapcsolat sikeres. ASA katalógus ID: "+
+                        gameId+". Csak metaadatot kértünk le, modot nem telepítettünk.";
+                }
+                catch(ArgumentException)
+                {
+                    status.Text="A megadott érték nem API-kulcs (például bcrypt-hash vagy JSON). "+
+                        "A CurseForge fejlesztői felületén kiadott valódi kulcs szükséges.";
+                }
+                catch(UnauthorizedAccessException)
+                {
+                    status.Text="CurseForge 401/403: a kulcsot a szolgáltató nem fogadta el.";
+                }
+                catch(Exception)
+                {
+                    status.Text="A CurseForge API ellenőrzése nem sikerült. "+
+                        "Ellenőrizd az internetkapcsolatot és a jóváhagyott hozzáférést.";
+                }
+                finally { busy=false; }
+            }),
             Btn("API-kulcs mentése helyileg",()=>{
                 try
                 {
-                    if(string.IsNullOrWhiteSpace(key.Password) || key.Password.Length>512)
-                        throw new InvalidDataException("Érvénytelen kulcs");
+                    CurseForgeCatalog.ValidateApiKey(key.Password);
                     var protectedValue=SecureStore.Protect(key.Password);
                     _cluster.UpdateSettings(c=>c.CurseForgeApiKeyProtected=protectedValue);
                     key.Clear();
                     last=null;
                     previous.IsEnabled=false;
                     next.IsEnabled=false;
-                    status.Text="Kulcs titkosítva elmentve a helyi Windows-profilban.";
+                    status.Text="A kulcs helyileg titkosítva tárolva. "+
+                        "Érvényességét az API-kapcsolat ellenőrzésével igazolhatod.";
+                }
+                catch(ArgumentException)
+                {
+                    status.Text="Nem menthető: bcrypt-hash és JSON válasz nem CurseForge API-kulcs.";
                 }
                 catch(Exception e){status.Text="Kulcs nem menthető: "+e.GetType().Name;}
             }),
