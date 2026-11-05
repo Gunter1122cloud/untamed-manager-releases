@@ -329,6 +329,7 @@ public partial class MainWindow
                 catch(Exception ex){status.Text="SteamCMD szimuláció sikertelen: "+ex.Message;}
                 finally{if(fixture!=null)try{Directory.Delete(fixture,true);}catch{}}
             }),status)));
+        ShowSteamPremiumCenter();
     }
 
     private void ShowSafeProfileTransfer()
