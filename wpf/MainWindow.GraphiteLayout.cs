@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 using UntamedManager.Core;
 
 namespace UntamedManager;
@@ -26,6 +27,36 @@ public partial class MainWindow
         e.Handled=true;
     }
 
+    /// <summary>
+    /// Other pages often contain their own ScrollViewer, TextBox, ListBox and
+    /// plugin/mod inventory. Keep the wheel in the innermost viewer while that
+    /// viewer can scroll; only at its edge forward to the page. This avoids
+    /// stealing ComboBox/list navigation and remains opt-in to this page.
+    /// </summary>
+    private void OtherPage_PreviewMouseWheel(object sender,MouseWheelEventArgs e)
+    {
+        if(e.Handled || e.Delta==0 || sender is not ScrollViewer page)return;
+        DependencyObject? node=e.OriginalSource as DependencyObject;
+        while(node is not null && !ReferenceEquals(node,page))
+        {
+            if(node is ScrollViewer inner)
+            {
+                if(!ScrollBoundaryPolicy.ShouldChain(
+                    inner.VerticalOffset,inner.ScrollableHeight,e.Delta))
+                    return;
+                break;
+            }
+            var parent=node is Visual ? VisualTreeHelper.GetParent(node) : null;
+            node=parent ?? LogicalTreeHelper.GetParent(node);
+        }
+        double next=ScrollBoundaryPolicy.ForwardOffset(
+            page.VerticalOffset,page.ScrollableHeight,page.ViewportHeight,
+            e.Delta,SystemParameters.WheelScrollLines);
+        if(Math.Abs(next-page.VerticalOffset)<0.01)return;
+        page.ScrollToVerticalOffset(next);
+        e.Handled=true;
+    }
+
     private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         // WPF widths here are logical DIPs. Do not hide content off-screen at 150% DPI.
@@ -33,8 +64,7 @@ public partial class MainWindow
         SidebarColumn.Width=new GridLength(width<1080?184:224);
         VersionContainer.Visibility=width<940?Visibility.Collapsed:Visibility.Visible;
         SupervisorContainer.Visibility=width<1180?Visibility.Collapsed:Visibility.Visible;
-        // Content sizing is based on its measured DIPs below, not Window.Width.
-        // Content sizing is based on its measured DIPs below, not Window.Width.
+        // Child cards adjust to their actual WPF rendered DIPs.
     }
 
     /// <summary>
