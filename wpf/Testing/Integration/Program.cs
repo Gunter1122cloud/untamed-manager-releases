@@ -1038,11 +1038,13 @@ try
     hp.UpdateSettings(c=>{
         c.LocalHostName="UK-HOME-01-TEST";c.ListenPort=hpPort;
         c.PeerAddress="127.0.0.1";c.PeerPort=ryzenPort;
+        c.ExpectedPeerHostId=ryzen.Config.LocalHostId;
         c.PairingKeyProtected=SecureStore.Protect(key);
     });
     ryzen.UpdateSettings(c=>{
         c.LocalHostName="UK-HOME-02-TEST";c.ListenPort=ryzenPort;
         c.PeerAddress="127.0.0.1";c.PeerPort=hpPort;
+        c.ExpectedPeerHostId=hp.Config.LocalHostId;
         c.PairingKeyProtected=SecureStore.Protect(key);
     });
     var mapA=new LocalMap{
@@ -1076,6 +1078,15 @@ try
     Assert(hpRemote?.HostName=="UK-HOME-02-TEST" && hpRemote.Maps.Single().Name=="Ragnarok" &&
            ryzenRemote?.HostName=="UK-HOME-01-TEST",
            "Both Managers see authenticated read-only peer map lists");
+    // A third host that knows the shared symmetric key must still fail
+    // the pinned peer identity check; no remote map data becomes trusted.
+    string pinned=hp.Config.ExpectedPeerHostId;
+    hp.UpdateSettings(c=>c.ExpectedPeerHostId=Guid.NewGuid().ToString("N"));
+    Assert(await hp.PollPeerAsync()==null && !hp.RemoteIsFresh,
+        "A valid HMAC response from another HostId is rejected by peer pinning");
+    hp.UpdateSettings(c=>c.ExpectedPeerHostId=pinned);
+    Assert(await hp.PollPeerAsync()!=null,
+        "Restoring the exact pinned HostId restores authenticated read-only status");
     mapA.Maintenance=true;
     bool maintenanceBlocked=false;
     try{hp.LaunchLocal(mapA.Id);}catch(InvalidOperationException){maintenanceBlocked=true;}
