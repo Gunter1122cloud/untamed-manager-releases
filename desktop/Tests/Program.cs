@@ -1362,6 +1362,52 @@ try
             "empty verified native GetChat is successful, not a false protocol failure");
     }
 
+    // Independent ASA SaveWorld proof: stale log lines, mere TCP dispatch,
+    // or an unchanged .ark world are NEVER success. This fixture never
+    // executes a real ASA server or writes to production paths.
+    {
+        string witnessRoot=Path.Combine(root,"synthetic-save-proof");
+        string witnessLog=Path.Combine(witnessRoot,"ShooterGame","Saved","Logs","ShooterGame.log");
+        string witnessWorld=Path.Combine(witnessRoot,"ShooterGame","Saved",
+            "SavedArks","TheIsland_WP","TheIsland_WP.ark");
+        Directory.CreateDirectory(Path.GetDirectoryName(witnessLog)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(witnessWorld)!);
+        File.WriteAllText(witnessLog,
+            "Saving world...\\nWorld Save Complete. Took: 1.0\\n");
+        File.WriteAllText(witnessWorld,"SYNTHETIC-WORLD-BEFORE");
+        File.SetLastWriteTimeUtc(witnessWorld,DateTime.UtcNow.AddSeconds(-30));
+        var boundary=AsaWorldSaveEvidence.BeginFromPaths(Guid.NewGuid(),
+            32654,DateTimeOffset.UtcNow,witnessRoot,witnessLog,witnessWorld)!;
+        var staleWitness=await AsaWorldSaveEvidence.ObserveAsync(boundary,()=>true);
+        Check(!staleWitness.LogStarted&&!staleWitness.LogCompleted &&
+              !staleWitness.CompletionObserved,
+            "older logged World Save Complete before command boundary is not accepted");
+        File.AppendAllText(witnessLog,"World Save Complete. Took: 0.8\\n");
+        File.WriteAllText(witnessWorld,"SYNTHETIC-WORLD-AFTER");
+        File.SetLastWriteTimeUtc(witnessWorld,DateTime.UtcNow.AddSeconds(1));
+        var noStartWitness=await AsaWorldSaveEvidence.ObserveAsync(boundary,()=>true);
+        Check(!noStartWitness.CompletionObserved&&!noStartWitness.LogStarted,
+            "new SaveComplete without ordered post-boundary Saving world stays unverified");
+        File.AppendAllText(witnessLog,
+            "Saving world...\\nWorld Save Complete. Took: 0.5\\n");
+        var observedWitness=await AsaWorldSaveEvidence.ObserveAsync(boundary,()=>true);
+        Check(observedWitness.CompletionObserved &&
+              observedWitness.LogStarted&&observedWitness.LogCompleted &&
+              observedWitness.WorldUpdated&&observedWitness.WorldStable &&
+              !observedWitness.RestoreOrClientJoinVerified,
+            "fresh ASA log sequence plus changed stable world is separate evidence, not restored survivor proof");
+        bool changedPidDenied=false;
+        try{await AsaWorldSaveEvidence.ObserveAsync(boundary,()=>false);}
+        catch(InvalidOperationException){changedPidDenied=true;}
+        Check(changedPidDenied,
+            "ASA save evidence is discarded when the owned server process identity changes");
+        File.WriteAllText(witnessLog,"new log session");
+        var rotatedWitness=await AsaWorldSaveEvidence.ObserveAsync(boundary,()=>true);
+        Check(!rotatedWitness.CompletionObserved &&
+              !rotatedWitness.LogIdentityValid,
+            "log truncation or rotation cannot reuse SaveComplete evidence");
+    }
+
     // Read-only RCON uses an isolated synthetic process identity and injected
     // fake ListPlayers response. This must never reach live ASA or real SQL.
     {
