@@ -250,7 +250,8 @@ public sealed class ObsidianWindow : Form
                         rconRoute = name is "rcon.status" or "rcon.listPlayers" or "rcon.saveWorld";
                         rconAdminRoute = name is "rcon.adminPreview" or "rcon.adminSend";
                         rconConfigRoute = name is "rcon.configStatus" or "rcon.configPreview" or "rcon.configApply";
-                        freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or "servers.freshStartStatus";
+                        freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or
+                            "servers.freshStartStatus" or "servers.freshReadiness";
                         freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or "servers.gracefulStopStatus";
                         lifecycleJournalRoute = name is "servers.lifecycleJournal";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
