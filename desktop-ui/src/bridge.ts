@@ -104,6 +104,26 @@ export type PluginInventory = {
     binaries: Array<{ name: string; version: string; bytes: number }> }>;
 };
 
+export type TravelMapProof = {
+  mapId:string;mapName:string;confirmedStopped:boolean;
+  saveDirectoryFound:boolean;ambiguousLayout:boolean;
+  profiles:number;tribes:number;zeroByteDetected:boolean;unstable:boolean;
+  profiles:Array<{id:string;bytes:number}>;
+};
+export type TravelCapture = {
+  snapshot:string;hostId:string;maps:TravelMapProof[];
+  complete:boolean;writerCertified:false;readOnly:true;
+  evidence:"LOCAL_QUIESCENT_FILE_HASH_SNAPSHOT_ONLY";
+};
+export type TravelComparison = {
+  passed:boolean;maps:10;hosts:2;
+  beforeOnSource:boolean;afterOnTarget:boolean;uniqueDestination:boolean;
+  zeroByteFiles:number;findings:string[];
+  liveStoreWriterCertified:false;asaSaveCompleteCertified:false;
+  productionUnlockAllowed:false;
+  evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY";
+};
+
 export type RconStatus = {
   mapId:string;mapName:string;configured:boolean;processVerified:boolean;
   permitted:boolean;maintenance:boolean;allowedCommands:["ListPlayers"];
@@ -317,7 +337,8 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" |
-  "updates.status" | "updates.check" | "rcon.status" | "rcon.listPlayers";
+  "updates.status" | "updates.check" | "rcon.status" | "rcon.listPlayers" |
+  "travel.capture" | "travel.compare";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
@@ -328,7 +349,9 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   confirm?: boolean; jobId?: string; sessionName?: string;
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
-  plugin?: string; enabled?: boolean; channel?: "stable"|"preview" };
+  plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
+  beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
+  sourceMap?: string;destinationMap?: string; profileId?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -365,6 +388,11 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
 
 export const managerBridge = {
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
+  travelCapture: () => request<TravelCapture>("travel.capture"),
+  travelCompare: (p:{
+    beforeA:string;beforeB:string;afterA:string;afterB:string;
+    sourceMap:string;destinationMap:string;profileId:string
+  }) => request<TravelComparison>("travel.compare",p),
   updateStatus: () => request<UpdateStatus>("updates.status"),
   rconStatus: (mapId:string) => request<RconStatus>("rcon.status",{mapId}),
   rconListPlayers: (mapId:string) => request<RconPlayers>("rcon.listPlayers",{mapId}),
