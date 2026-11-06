@@ -44,25 +44,8 @@ public sealed class DesktopWorldBackupBridge
            state.Identity!=null||state.LoaderIdentity!=null)
             throw new InvalidOperationException("UM-BACKUP-CONFIRMED-STOP-REQUIRED");
     }
-    private void UniqueWorldDirectory(LocalMap map)
-    {
-        // Multiple map instances may share the same SteamCMD installation.
-        // Only a collision of the actual SavedArks/map-key folder is unsafe.
-        // The backup lock remains installation-wide, so even independent map
-        // directories cannot be renamed concurrently by this Manager.
-        string root=Path.GetFullPath(map.InstallationPath)
-            .TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar);
-        string key=KovaCompatibleWorldBackup.MapKey(map);
-        foreach(var other in cluster.Config.LocalMaps.Where(m=>m.Id!=map.Id))
-        {
-            string candidate=Path.GetFullPath(other.InstallationPath)
-                .TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar);
-            if(!string.Equals(root,candidate,StringComparison.OrdinalIgnoreCase))continue;
-            if(string.Equals(key,KovaCompatibleWorldBackup.MapKey(other),
-                StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("UM-BACKUP-SHARED-MAP-DIRECTORY-COLLISION");
-        }
-    }
+    private void UniqueWorldDirectory(LocalMap map)=>
+        AsaSaveLayoutResolver.DemandUniqueOwner(map,cluster.Config.LocalMaps);
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
@@ -138,8 +121,7 @@ public sealed class DesktopWorldBackupBridge
                     {
                         // Read the actual saved world file, not a dashboard
                         // state inferred from the presence of a process.
-                        string world=Path.Combine(map.InstallationPath,"ShooterGame",
-                            "Saved","SavedArks",key,key+".ark");
+                        string world=AsaSaveLayoutResolver.Resolve(map).WorldFile;
                         if(!File.Exists(world)||new FileInfo(world).Length==0)
                             return Fail(id,"UM-BACKUP-SAVED-WORLD-MISSING");
                     }
