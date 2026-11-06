@@ -6,8 +6,8 @@ import {managerBridge,type FreshAsaStopPreview,type FreshAsaStopStatus} from "./
 // Never store a password, launch command or character metadata in the browser.
 const recentStopReceipts=new Map<string,string>();
 
-export function FreshAsaStopPanel({mapId,running,onStopped}:{
-  mapId:string;running:boolean;onStopped:()=>Promise<void>
+export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
+  mapId:string;running:boolean;onStopped:()=>Promise<void>;journalBlocked:boolean
 }){
   const [preview,setPreview]=useState<FreshAsaStopPreview|null>(null);
   const [approved,setApproved]=useState(false);
@@ -52,14 +52,14 @@ export function FreshAsaStopPanel({mapId,running,onStopped}:{
   },[jobId,mapId,onStopped]);
 
   const check=async()=>{
-    if(!running||busy||jobId)return;
+    if(!running||busy||jobId||journalBlocked)return;
     setBusy(true);setPreview(null);setApproved(false);setError("");setMessage("");
     try{setPreview(await managerBridge.freshAsaStopPreview(mapId));}
     catch{setError("A leállítás előellenőrzése sikertelen: csak saját helyi, pontosan azonosított RCON-os, nem Store-v1 szerver állítható le.");}
     finally{setBusy(false);}
   };
   const stop=async()=>{
-    if(!preview||!approved||busy||jobId)return;
+    if(!preview||!approved||busy||jobId||journalBlocked)return;
     const token=preview.token;
     setBusy(true);setError("");setPreview(null);setApproved(false);
     try{
@@ -76,7 +76,7 @@ export function FreshAsaStopPanel({mapId,running,onStopped}:{
   return <section className="premium-panel" aria-label="Valódi ASA biztonságos leállítása" style={{marginBlock:18,padding:20}}>
     <header className="premium-panel-heading"><h2><Octagon size={18}/> ASA szerver normál leállítása</h2></header>
     <p>A helyi C# Manager tényleges RCON SaveWorld és DoExit műveletet küld, megvárja a Windows-folyamat kilépését. A folyamatot nem lövi ki.</p>
-    <button type="button" className="secondary" disabled={!running||busy||!!jobId}
+    <button type="button" className="secondary" disabled={!running||busy||!!jobId||journalBlocked}
       onClick={()=>{void check();}}><Shield size={16}/> Normál leállítás előellenőrzése</button>
     {preview&&<div className="historical-preview" role="region" aria-label="ASA leállítás jóváhagyása">
       <h3>{preview.mapName} – PID: {preview.pid}</h3>
@@ -85,7 +85,7 @@ export function FreshAsaStopPanel({mapId,running,onStopped}:{
         disabled={busy} onChange={e=>setApproved(e.target.checked)}/>
         Jóváhagyom a kiválasztott helyi ASA szerver tényleges leállítását.
       </label>
-      <button type="button" className="primary" disabled={!approved||busy}
+      <button type="button" className="primary" disabled={!approved||busy||journalBlocked}
         onClick={()=>{void stop();}}>Szerver szabályos leállítása</button>
       <button type="button" className="secondary" disabled={busy}
         onClick={()=>setPreview(null)}>Mégsem</button>
