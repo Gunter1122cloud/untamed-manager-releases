@@ -688,7 +688,7 @@ test("local map card opens map-specific details, functional tabs, back navigatio
   await expect(page.locator(".map-detail-hero .premium-map-cover")).toBeVisible();
   await page.screenshot({path:"test-results/map-detail-premium-1600.png",fullPage:false});
   await page.getByRole("tab",{name:"RCON / Konzol"}).click();
-  await expect(page.getByRole("heading",{name:"RCON konzol"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"RCON konzol",exact:true})).toBeVisible();
   await expect(page.getByRole("button",{name:"Játékoslista lekérdezése"})).toBeDisabled();
   await expect(page.getByText(/Nem küldhető RCON parancs/)).toBeVisible();
   await page.getByRole("tab",{name:"Áttekintés"}).click();
