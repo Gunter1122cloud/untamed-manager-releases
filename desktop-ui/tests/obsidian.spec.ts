@@ -64,6 +64,8 @@ test.beforeEach(async ({ page }) => {
         Object.assign(state.local.maps[1],{storeProtected:true});
         localBackupMap=two;localBackupSaved=true;
       };
+    let lanListen=0,lanPeer="",lanPeerPort=0,lanConfigured=false;
+    let lanApproval="";
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
@@ -75,7 +77,7 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; point?: string; action?: string; message?: string; typedApproval?: string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string }) => {
       switch (m.method) {
         case "travel.capture": {
           const names=["Astraeos","Genesis Part 1","Valguero","The Island","Extinction"];
@@ -365,6 +367,34 @@ test.beforeEach(async ({ page }) => {
             }],schedulingIsReadOnly:true,remoteCommandsAllowed:false,
             evidence:"LOCAL_OS_PROCESS_AND_SAVED_SCHEDULE_READ_ONLY"};
         }
+        case "lan.status": return {
+          hostName:state.local.hostName,listenPort:lanListen,
+          peerAddress:lanPeer,peerPort:lanPeerPort,
+          pairingKeyConfigured:lanConfigured,remoteFresh:false,
+          remoteState:"Nem érhető el friss, hitelesített peer-állapot",
+          secretReturned:false,peerWritesAllowed:false,
+          evidence:"DPAPI_LOCAL_LAN_SETTINGS_READ_ONLY"
+        };
+        case "lan.preview":
+          if(m.peerAddress!=="192.168.1.200" || (m.pairingKey||"").length<24)
+            throw new Error("UM-LAN-INVALID-PRIVATE-PEER");
+          lanApproval="00000000-0000-4000-8000-000000000955";
+          return {token:lanApproval,listenPort:m.listenPort,
+            peerAddress:m.peerAddress,peerPort:m.peerPort,
+            pairingKeyWillChange:true,requiresManagerRestart:true,
+            remoteWritesAllowed:false,
+            evidence:"LOCAL_LAN_PAIRING_PREFLIGHT_NO_NETWORK_OR_FILE_WRITE"};
+        case "lan.apply":
+          if(m.token!==lanApproval||m.confirm!==true)
+            throw new Error("UM-LAN-EXPLICIT-APPROVAL-REQUIRED");
+          lanApproval="";
+          lanListen=39290;lanPeer="192.168.1.200";lanPeerPort=39291;
+          lanConfigured=true;
+          return {saved:true,listenPort:lanListen,
+            peerAddress:lanPeer,peerPort:lanPeerPort,
+            requiresManagerRestart:true,secretReturned:false,
+            remoteWritesAllowed:false,
+            evidence:"ATOMIC_LOCAL_LAN_PAIRING_DPAPI_PROFILE_ONLY"};
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
         case "ini.open": return {token:iniToken,mapId:one,file:m.file||"Game.ini",content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
@@ -629,6 +659,27 @@ test("native Operations Center displays local PID RAM uptime and saved schedules
   await expect(page.locator(".ops-map")).toHaveCount(1);
   await expect(page.locator(".ops-map").first()).toContainText("12345");
   await expect(page.locator(".ops-schedules")).toHaveCount(0);
+});
+
+test("two-host LAN pairing is guarded, native-only, private and never exposes key",async({page})=>{
+  await page.setViewportSize({width:1366,height:768});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Beállítások"}).click();
+  await expect(page.getByRole("heading",{name:"Kétgépes LAN-párosítás"})).toBeVisible();
+  await expect(page.getByText("nincs beállítva",{exact:true})).toBeVisible();
+  await page.getByRole("textbox",{name:"Helyi LAN port"}).fill("39290");
+  await page.getByRole("textbox",{name:"Másik LAN cím"}).fill("192.168.1.200");
+  await page.getByRole("textbox",{name:"Távoli LAN port"}).fill("39291");
+  await page.getByRole("textbox",{name:"LAN közös kulcs"}).fill("SYNTHETIC-ONLY-LAN-SHARED-KEY-36");
+  await page.getByRole("button",{name:"LAN beállítások ellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"LAN párosítás jóváhagyása"})).toBeVisible();
+  await expect(page.getByRole("textbox",{name:"LAN közös kulcs"})).toHaveValue("");
+  await page.getByRole("button",{name:"Párosítás helyi mentése"}).click();
+  await expect(page.getByText(/A helyi párosítás mentve/)).toBeVisible();
+  await expect(page.getByText(/helyileg, védetten beállítva/)).toBeVisible();
+  await expect(page.getByRole("textbox",{name:"LAN közös kulcs"})).toHaveValue("");
+  await expect(page.locator(".lan-pairing-panel")).not.toContainText("SYNTHETIC-ONLY-LAN-SHARED-KEY-36");
+  await page.screenshot({path:"test-results/uk-two-host-lan-pairing-1366.png",fullPage:false});
 });
 
 test("two-host character travel workbench captures exactly five local maps without unlocking Store",async({page})=>{
