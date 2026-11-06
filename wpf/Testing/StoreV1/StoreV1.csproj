@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <DefineConstants>$(DefineConstants);STORE_V1_ISOLATED</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Core/VaultProtocol.cs" Link="Core/VaultProtocol.cs" />
+    <Compile Include="../../Core/StoreV1Fingerprint.cs" Link="Core/StoreV1Fingerprint.cs" />
+    <Compile Include="../../Core/VaultReadSnapshot.cs" Link="Core/VaultReadSnapshot.cs" />
+    <Compile Include="../../Core/LegacyStoreV1ActiveLaunch.cs" Link="Core/LegacyStoreV1ActiveLaunch.cs" />
+    <Compile Include="../../Core/LegacyStoreV1LocalReader.cs" Link="Core/LegacyStoreV1LocalReader.cs" />
+    <Compile Include="../../Core/LegacyStoreV1PhaseGate.cs" Link="Core/LegacyStoreV1PhaseGate.cs" />
+    <Compile Include="../../Core/LegacyStoreV1PeerProof.cs" Link="Core/LegacyStoreV1PeerProof.cs" />
+    <Compile Include="../../Core/ClusterVaultArchiveInspector.cs" Link="Core/ClusterVaultArchiveInspector.cs" />
+    <Compile Include="../../Core/VaultCompatibilityReader.cs" Link="Core/VaultCompatibilityReader.cs" />
+    <Compile Include="../../Core/UntamedManagerArchiveInspector.cs" Link="Core/UntamedManagerArchiveInspector.cs" />
+    <Compile Include="../../Core/HistoricalLaunchProfileReader.cs" Link="Core/HistoricalLaunchProfileReader.cs" />
+    <Compile Include="../Integration/ClusterVaultTests.cs" Link="Existing/ClusterVaultTests.cs" />
+    <Compile Include="../Integration/ManagerMigrationArchiveTests.cs" Link="Existing/ManagerMigrationArchiveTests.cs" />
+  </ItemGroup>
+</Project>

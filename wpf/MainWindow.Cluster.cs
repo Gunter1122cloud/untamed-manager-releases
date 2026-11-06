@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -14,6 +15,11 @@ using UntamedManager.Core;
 using WinMessageBox = System.Windows.MessageBox;
 
 namespace UntamedManager;
+
+internal sealed record PremiumLocalServerRow(LocalMap Map,string Name,string State,string Detail)
+{
+    public ImageSource? CoverImage { get; init; }
+}
 
 public partial class MainWindow
 {
@@ -28,7 +34,7 @@ public partial class MainWindow
     {
         // No automatic map discovery or import. Only local maps explicitly saved by the user.
         RefreshDashboardMapCards();
-        if (!App.IsSmokeTest && !App.IsSupervisionTest) _ = BeginClusterNetworkingAsync();
+        if (!App.IsSmokeTest && !App.IsSupervisionTest && !App.IsDemoStart) _ = BeginClusterNetworkingAsync();
     }
     private async Task BeginClusterNetworkingAsync()
     {
@@ -38,6 +44,11 @@ public partial class MainWindow
             while(!_peerCts.IsCancellationRequested)
             {
                 try {
+                    if(_demo!=null)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(12),_peerCts.Token);
+                        continue;
+                    }
                     bool wasFresh=_cluster.RemoteIsFresh;
                     await _cluster.PollPeerAsync(_peerCts.Token);
                     if(wasFresh!=_cluster.RemoteIsFresh)try{_events?.Append(_cluster.Config.LocalHostName,null,_cluster.RemoteIsFresh?"Information":"Warning",_cluster.RemoteIsFresh?"lan-peer-connected":"lan-peer-stale");}catch{}
@@ -61,15 +72,43 @@ public partial class MainWindow
     }
     private void RefreshDashboardMapCards()
     {
+        if(_demo!=null)return; // keep production observations off the DEMO dashboard
         // Preserve the existing visual template, replacing only the data source and status.
         var images=_maps.ToDictionary(x=>x.Name,StringComparer.OrdinalIgnoreCase);
         var active = new List<MapInfo>();
+        int knownModAssignments=0, readableModMaps=0;
+        int runningProcesses=0, stoppedProcesses=0, unverifiedProcesses=0;
         foreach(var m in _cluster.Config.LocalMaps)
         {
             images.TryGetValue(m.Name,out var art);
+            int? configuredMods=null;
+            string status="Állapot ismeretlen";
+            try
+            {
+                var mods=ModStateController.Read(m);
+                configuredMods=mods.Active.Count+mods.Passive.Count;
+                knownModAssignments+=configuredMods.Value;
+                readableModMaps++;
+            }
+            catch(Exception ex){WriteLog("dashboard-mod-observation",ex);}
+            try
+            {
+                var check=_cluster.Check(m);
+                status=check.Status;
+                if(check.Running && check.Identity!=null)runningProcesses++;
+                else if(check.ConfirmedStopped)stoppedProcesses++;
+                else unverifiedProcesses++;
+            }
+            catch(Exception ex)
+            {
+                unverifiedProcesses++;
+                WriteLog("dashboard-process-observation",ex);
+            }
             active.Add(new MapInfo {
                 Id=m.Id,Name=m.Name,Host=_cluster.Config.LocalHostName,
-                ModCount=0,GamePort=m.GamePort,
+                ModCount=configuredMods,GamePort=m.GamePort>0?m.GamePort:null,
+                QueryPort=m.QueryPort>0?m.QueryPort:null,RconPort=m.RconPort>0?m.RconPort:null,
+                Status=status,
                 CoverImage=art?.CoverImage, CoverBrush=art?.CoverBrush ?? Panel,
                 IsRemote=false
             });
@@ -80,107 +119,325 @@ public partial class MainWindow
             {
                 images.TryGetValue(m.Name,out var art);
                 active.Add(new MapInfo {
-                    Name=m.Name,Host=_cluster.RemoteSnapshot.HostName,ModCount=0,
-                    GamePort=m.GamePort,CoverImage=art?.CoverImage,
-                    CoverBrush=art?.CoverBrush ?? Panel,IsRemote=true
+                    Name=m.Name,Host=_cluster.RemoteSnapshot.HostName,
+                    ModCount=null,GamePort=m.GamePort>0?m.GamePort:null,
+                    Status=_cluster.RemoteIsFresh?m.Status:"ELAVULT / NEM HITELESÍTHETŐ",
+                    CoverImage=art?.CoverImage,
+                    CoverBrush=art?.CoverBrush ?? Panel,IsRemote=true,IsFresh=_cluster.RemoteIsFresh
                 });
             }
         }
+        var remote=_cluster.RemoteSnapshot;
+        var summary=new DashboardSummary(_cluster.Config.LocalMaps.Count,
+            remote?.Maps.Count,knownModAssignments,readableModMaps,
+            remote!=null && _cluster.RemoteIsFresh);
         ServerCards.ItemsSource=active;
-        if(ClusterMapCount!=null) ClusterMapCount.Text=active.Count.ToString();
-        if(ClusterHostCount!=null) ClusterHostCount.Text=_cluster.RemoteSnapshot==null?"1":"2";
-        if(ClusterOnlineCount!=null) ClusterOnlineCount.Text=_cluster.RemoteIsFresh?"2 / 2":"1 / 2";
+        MapListEmpty.Visibility=active.Count==0?Visibility.Visible:Visibility.Collapsed;
+        ClusterMapCount.Text=summary.MapCount.ToString();
+        RunningServerKpi.Text=runningProcesses.ToString();
+        PlayersKpi.Text="—"; // no trusted live player count is available here
+        ClusterHostCount.Text=summary.HostCount.ToString();
+        ClusterOnlineCount.Text=summary.FreshLanPeers.ToString();
+        DashboardOperationsLine.Text="Helyi folyamatok: "+runningProcesses+" igazolt futó · "+
+            stoppedProcesses+" igazolt leállított · "+unverifiedProcesses+" bizonytalan. "+
+            "Játékosok/RCON: nincs hitelesített aktuális adat · Mentések: ellenőrizd a Mentések oldalon.";
+        ConfiguredModCount.Text=summary.ModCountDisplay;
+        ModReadingCoverage.Text=summary.ModCoverageDisplay;
+        var hosts=new List<HostCardInfo>{
+            new() {
+                Name=_cluster.Config.LocalHostName,
+                Description=summary.LocalMaps+" helyi map · "+App.ProfileName+" profil",
+                TrustState="HELYI PROFIL · nincs feltételezett LAN-kapcsolat",
+                Accent=Aqua,
+                CpuPercent=_latestLocalResource?.CpuPercent,
+                RamPercent=_latestLocalResource?.UsedMemoryKiB is ulong used &&
+                           _latestLocalResource.TotalMemoryKiB is ulong total && total>0
+                           ?Math.Clamp(used*100d/total,0,100):null
+            }
+        };
+        if(remote!=null)hosts.Add(new HostCardInfo {
+            Name=remote.HostName,
+            Description=remote.Maps.Count+" utoljára megfigyelt távoli map",
+            TrustState=_cluster.RemoteIsFresh
+                ?"HITelesített LAN · friss, csak olvasás"
+                :"ELAVULT LAN-ADAT · nincs élő állapotbizonyíték",
+            Accent=_cluster.RemoteIsFresh?Mint:Brushes.Orange
+        });
+        HostCards.ItemsSource=hosts;
         if(ClusterStatusText!=null) ClusterStatusText.Text=
             $"{_cluster.Config.LocalHostName}: {_cluster.Config.LocalMaps.Count} helyi map · "+
             (_cluster.RemoteSnapshot==null?_cluster.RemoteMessage:
              $"{_cluster.RemoteSnapshot.HostName}: {_cluster.RemoteSnapshot.Maps.Count} távoli map · "+(_cluster.RemoteIsFresh?"friss, csak olvasás":"ELAVULT / OFFLINE"));
     }
+    private async void DashboardRefresh_Click(object sender,RoutedEventArgs e)
+    {
+        if(sender is not Button button || !button.IsEnabled)return;
+        if(_demo!=null){RenderDemoDashboard();return;}
+        button.IsEnabled=false;
+        try
+        {
+            // Read-only: no remote lifecycle, Store, SQL, plugin or configuration mutation.
+            await _cluster.PollPeerAsync();
+        }
+        catch(Exception ex)
+        {
+            WriteLog("dashboard-refresh",ex);
+        }
+        finally
+        {
+            RefreshDashboardMapCards();
+            button.IsEnabled=true;
+        }
+    }
+
+    public void VerifyDashboardUiCiSmoke()
+    {
+        RefreshDashboardMapCards();
+        var remote=_cluster.RemoteSnapshot;
+        var registered=_cluster.Config.LocalMaps.Count+(remote?.Maps.Count??0);
+        if(ServerCards.ItemsSource is not IEnumerable<MapInfo> cards ||
+           cards.Count()!=registered ||
+           ClusterMapCount.Text!=registered.ToString() ||
+           (MapListEmpty.Visibility==Visibility.Visible)!=(registered==0))
+            throw new InvalidOperationException("Dashboard map cards do not reflect the registered map inventory");
+        int knownHosts=remote==null?1:2;
+        if(HostCards.ItemsSource is not IEnumerable<HostCardInfo> hosts ||
+           hosts.Count()!=knownHosts || ClusterHostCount.Text!=knownHosts.ToString() ||
+           ClusterOnlineCount.Text!=(_cluster.RemoteIsFresh && remote!=null?"1":"0"))
+            throw new InvalidOperationException("Dashboard host and LAN counters imply unobserved hosts");
+    }
+
     private void ShowClusterPage()
     {
-        Header("Cluster · két Manager, két gép",
-            "A helyi gépen teljes kezelés; a LAN-peer gép állapota kizárólag olvasható. "+
-            "Internet és külső vezérlőszerver nélkül.");
-        PageBody.Children.Clear();
-        Add(Box(Label("Alapértelmezett kiosztás (nem automatikus import): UK-HOME-01 / HP: Astraeos, Genesis 1, Valguero, Island, Extinction. UK-HOME-02 / Ryzen: Scorched, Lost Colony, Ragnarok, Center, Aberration.",12,Soft)));
-        var local = _cluster.LocalStatus();
-        Add(Box(V(Label($"◉  HELYI · {local.HostName}",20,Mint,true),
-            Label($"{local.Maps.Count} manuálisan regisztrált map · írási jog kizárólag ezen a gépen",12,Soft))));
+        Header("Cluster","Helyi mapok kezelése és a párosított LAN-gazdagép megfigyelése. A távoli konfiguráció nem szerkeszthető.");
+        var local=_cluster.LocalStatus();
+        var hosts=new Grid { Margin=new Thickness(0,0,0,10) };
+        hosts.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
+        hosts.ColumnDefinitions.Add(new ColumnDefinition {Width=new GridLength(1,GridUnitType.Star)});
+        var localList=new StackPanel { Margin=new Thickness(0,8,0,0) };
+        if(local.Maps.Count==0)
+            localList.Children.Add(Label("Nincs regisztrált helyi map. A Szerverek oldalon tudsz hozzáadni.",12,Soft));
         foreach(var map in local.Maps)
         {
-            var b=Btn($"{(map.Running?"●":"○")}  {map.Name} · {map.Status} · UDP {map.GamePort} · KEZELÉS",()=>{
+            var entry=Btn(map.Name+"  ·  "+map.Status+
+                "  · Steam "+(map.SteamBuildId??"ismeretlen")+
+                "  · "+map.SteamUpdateState,()=>{
                 _selected=_maps.FirstOrDefault(x=>x.Name==map.Name);
                 Navigate("servers");
             });
-            Add(Box(b));
+            entry.HorizontalAlignment=HorizontalAlignment.Stretch;
+            entry.HorizontalContentAlignment=HorizontalAlignment.Left;
+            entry.ToolTip="Helyi szerver – részletek megnyitása";
+            localList.Children.Add(entry);
         }
-        Add(Box(V(Label("◉  TÁVOLI MANAGER",20,Aqua,true),
-            Label(_cluster.RemoteSnapshot==null?_cluster.RemoteMessage:
-                $"{_cluster.RemoteSnapshot.HostName} · {_cluster.RemoteSnapshot.Maps.Count} map · "+
-                $"adatok: {_cluster.RemoteSnapshot.ObservedUtc.LocalDateTime:HH:mm:ss} · "+(_cluster.RemoteIsFresh?"FRISS":"ELAVULT / OFFLINE"),12,Soft))));
-        if(_cluster.RemoteSnapshot is { } remote)
-        {
-            foreach(var m in remote.Maps)
-                Add(Box(V(Label($"{(_cluster.RemoteIsFresh && m.Running?"●":"○")}  {m.Name}",16,Brushes.White,true),
-                    Label($"{(_cluster.RemoteIsFresh?m.Status:"ELAVULT MÉRÉS · "+m.Status)} · UDP {m.GamePort} · CSAK MEGFIGYELÉS",12,Aqua))));
-        }
-        Add(Btn("Peer állapot frissítése",async()=>{
+        var localInfo=V(Label(local.HostName+" · HELYI",18,Mint,true),
+            Label(local.Maps.Count+" regisztrált map · ezen a gépen szerkeszthető",12,Soft),
+            localList);
+        var left=Box(localInfo);
+        Grid.SetColumn(left,0);
+        hosts.Children.Add(left);
+
+        var remoteList=new StackPanel { Margin=new Thickness(0,8,0,0) };
+        var remote=_cluster.RemoteSnapshot;
+        string remoteTitle=remote?.HostName??"LAN-peer nincs csatlakoztatva";
+        string remoteStatus=remote==null ? _cluster.RemoteMessage :
+            remote.Maps.Count+" ismert távoli map · "+
+            ( _cluster.RemoteIsFresh ? "friss, hitelesített mérés" : "elavult / nem hitelesíthető mérés" );
+        if(remote?.Maps is { } peerMaps)
+            foreach(var map in peerMaps)
+            {
+                remoteList.Children.Add(Label(map.Name+"  ·  "+
+                    (_cluster.RemoteIsFresh?map.Status:"ELAVULT · "+map.Status)+
+                    "\nSteam Build: "+
+                    (_cluster.RemoteIsFresh?(map.SteamBuildId??"ismeretlen"):"ELAVULT / NEM HITELES")+
+                    " · "+(_cluster.RemoteIsFresh?map.SteamUpdateState:"NEM IGAZOLT"),
+                    12,_cluster.RemoteIsFresh?Aqua:Soft));
+            }
+        else remoteList.Children.Add(Label(
+            "A távoli szerverek adatai csak hitelesített peer-kapcsolatból származhatnak.",12,Soft));
+        var remoteInfo=V(Label(remoteTitle+" · CSAK OLVASÁS",18,Aqua,true),
+            Label(remoteStatus,12,Soft),remoteList);
+        var right=Box(remoteInfo);
+        Grid.SetColumn(right,1);
+        hosts.Children.Add(right);
+        Add(hosts);
+
+        var actions=new WrapPanel { Margin=new Thickness(0,4,0,0) };
+        actions.Children.Add(Btn("Peer állapot frissítése",async()=>{
             await _cluster.PollPeerAsync();
             RefreshDashboardMapCards();
-            if(_page=="cluster") ShowClusterPage();
+            if(_page=="cluster")ShowClusterPage();
         }));
+        actions.Children.Add(Btn("Helyi szerverek",()=>Navigate("servers")));
+        actions.Children.Add(Btn("LAN beállítások",()=>Navigate("lan")));
+        Add(Box(V(Label("Cluster kapcsolat",16,Mint,true),
+            Label("A LAN-peer soha nem kap helyi íróműveletet ezen a nézeten.",12,Soft),
+            actions)));
     }
+
     private void ShowLocalServerPage()
     {
-        Header("Szerverek · csak ez a Windows gép",
-            "A távoli szerverek itt nem kezelhetők. A felvett mapok a helyi profilban tárolódnak; "+
-            "nincs automatikus mapkeresés vagy importálás.");
-        Add(Box(V(Label($"Gép: {_cluster.Config.LocalHostName} · Profil: {App.ProfileName}",18,Mint,true),
-            Label($"{_cluster.Config.LocalMaps.Count} helyi map · A Manager bezárása/frissítése soha nem állítja le a futó szervereket.",12,Soft),
-            Btn("+ Map manuális hozzáadása",()=>ShowMapEditor(null)))));
-        if(_cluster.Config.LocalMaps.Count==0)
+        Header("Szerverek","Helyi ASA mapok · aktuálisan megfigyelt folyamatazonosság és maponkénti kezelés.");
+        var rows=new List<PremiumLocalServerRow>();
+        foreach(var map in _cluster.Config.LocalMaps)
         {
-            Add(Box(Label("Nincs helyi map hozzáadva. Az első mapot a fenti gombbal regisztrálhatod.",15,Soft)));
+            string state;
+            try
+            {
+                var check=_cluster.Check(map);
+                state=check.Running&&check.Identity!=null?
+                    "Igazolt futó":check.ConfirmedStopped?"Leállítva":"Nem igazolt";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("server-list-observation",ex);
+                state="Állapot ismeretlen";
+            }
+            var mapArtwork=_maps.FirstOrDefault(x=>
+                x.Name.Equals(map.Name,StringComparison.OrdinalIgnoreCase))?.CoverImage;
+            rows.Add(new PremiumLocalServerRow(map,map.Name,state,
+                "Helyi konfiguráció · "+_cluster.Config.LocalHostName){CoverImage=mapArtwork});
+        }
+        var count=Label(rows.Count+" helyi map · "+_cluster.Config.LocalHostName+
+            " · "+App.ProfileName+" profil",12,Soft);
+        var toolbar=new WrapPanel{Margin=new Thickness(0,2,0,4)};
+        toolbar.Children.Add(Btn("+ Map hozzáadása",()=>ShowMapEditor(null)));
+        toolbar.Children.Add(Btn("Cluster nézet",()=>Navigate("cluster")));
+        var header=Box(V(Label("Helyi szerverek",19,Mint,true),
+            count,
+            Label("A távoli mapok itt csak megfigyelhetők a Cluster nézetben. Az ismeretlen állapot nem számít leállítottnak.",12,Soft),
+            toolbar));
+        Add(header);
+        if(rows.Count==0)
+        {
+            Add(Box(V(Label("Még nincs regisztrált map",17,Mint,true),
+                Label("Az első mapot manuálisan add hozzá. A program nem importál vagy indít automatikusan szervereket.",12,Soft))));
             return;
         }
-        var layout=new Grid();
-        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(245)});
-        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
-        var list=new ListBox { ItemsSource=_cluster.Config.LocalMaps, DisplayMemberPath="Name",
-            Foreground=Brushes.White, Background=Panel, BorderBrush=Aqua,
-            FontSize=15,Padding=new Thickness(8),MinHeight=425,Margin=new Thickness(0,0,15,0)};
+        var search=new TextBox {Width=208,Height=36,
+            Tag="Map keresése",
+            ToolTip="Keresés a regisztrált mapok nevére"};
+        var list=new ListBox {
+            MinHeight=165,MaxHeight=480,Margin=new Thickness(0,8,0,0),
+            ItemTemplate=(DataTemplate)System.Windows.Application.Current.FindResource("PremiumServerRow")
+        };
+        NestedWheelScroll.SetChainToParent(list,true);
+        var sidebar=Box(V(Label("Maplista",17,Mint,true),search,list));
         var details=new StackPanel();
-        Grid.SetColumn(details,1);
-        layout.Children.Add(list);layout.Children.Add(details);
+        var detailSurface=Box(details);
+        var layout=new Grid {Margin=new Thickness(0,1,0,8)};
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(265)});
+        layout.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        Grid.SetColumn(sidebar,0);Grid.SetColumn(detailSurface,1);
+        layout.Children.Add(sidebar);layout.Children.Add(detailSurface);
+        BindResponsiveServerDetails(layout,sidebar,detailSurface);
+        void Filter()
+        {
+            string id=(list.SelectedItem as PremiumLocalServerRow)?.Map.Id.ToString("N")
+                ??_selected?.Id.ToString("N")??"";
+            var term=search.Text.Trim();
+            var visible=rows.Where(x=>term.Length==0||
+                x.Name.Contains(term,StringComparison.OrdinalIgnoreCase)).ToArray();
+            list.ItemsSource=visible;
+            list.SelectedItem=visible.FirstOrDefault(x=>x.Map.Id.ToString("N")==id)
+                ??visible.FirstOrDefault();
+        }
         list.SelectionChanged+=(_,_)=>{
             details.Children.Clear();
-            if(list.SelectedItem is LocalMap map) DisplayLocalMapDetails(details,map);
+            if(list.SelectedItem is PremiumLocalServerRow selected)
+            {
+                _selected=_maps.FirstOrDefault(x=>x.Name.Equals(selected.Name,StringComparison.OrdinalIgnoreCase))
+                    ??new MapInfo{Id=selected.Map.Id,Name=selected.Name};
+                DisplayLocalMapDetails(details,selected.Map);
+            }
+            else details.Children.Add(Label("A maplista szűrője nem adott találatot.",13,Soft));
         };
-        list.SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(x=>x.Id==_selected?.Id)
-                         ?? _cluster.Config.LocalMaps.First();
+        search.TextChanged+=(_,_)=>Filter();
         Add(layout);
+        Filter();
     }
     private void DisplayLocalMapDetails(StackPanel parent,LocalMap map)
     {
         var result=_cluster.Check(map);
-        parent.Children.Add(Label(map.Name,25,Brushes.White,true));
-        parent.Children.Add(Label(result.Status,14,result.Running?Mint:Soft));
-        var controls=new StackPanel{Orientation=Orientation.Horizontal};
+        // Reuse the dashboard's original map artwork on the LIVE server-detail page.
+        // No invented status or fake process telemetry is drawn over this image.
+        var mapArtwork=_maps.FirstOrDefault(x=>
+            x.Name.Equals(map.Name,StringComparison.OrdinalIgnoreCase))?.CoverImage;
+        var cover=new Grid{Height=168,ClipToBounds=true};
+        if(mapArtwork is not null)
+            cover.Children.Add(new Image{Source=mapArtwork,Stretch=Stretch.UniformToFill,
+                Opacity=0.81,IsHitTestVisible=false});
+        var shade=new LinearGradientBrush{
+            StartPoint=new Point(0,0.5),EndPoint=new Point(1,0.5)
+        };
+        shade.GradientStops.Add(new GradientStop(Color.FromArgb(242,10,25,28),0));
+        shade.GradientStops.Add(new GradientStop(Color.FromArgb(175,12,35,36),0.62));
+        shade.GradientStops.Add(new GradientStop(Color.FromArgb(112,13,28,31),1));
+        cover.Children.Add(new System.Windows.Shapes.Rectangle{
+            Fill=shade,IsHitTestVisible=false});
+        var heading=new StackPanel{Margin=new Thickness(21,17,21,17),
+            VerticalAlignment=VerticalAlignment.Center};
+        heading.Children.Add(Label("ASA  /  LOCAL MAP COMMAND",11,Aqua,true));
+        heading.Children.Add(Label(map.Name,27,Mint,true));
+        heading.Children.Add(Label(_cluster.Config.LocalHostName+"  •  "+
+            result.Status,12,result.Running?Aqua:Soft));
+        cover.Children.Add(heading);
+        parent.Children.Add(new Border{
+            Background=Panel,BorderBrush=Aqua,BorderThickness=new Thickness(1),
+            CornerRadius=new CornerRadius(12),ClipToBounds=true,
+            Child=cover,Margin=new Thickness(0,0,12,17)
+        });
+        // Identity, ports and configuration are distinct from live process/API readiness.
+        var indicators=new WrapPanel {Margin=new Thickness(0,3,0,12)};
+        Border Metric(string caption,string value)
+        {
+            return new Border {
+                Background=new SolidColorBrush(Color.FromRgb(36,47,53)),
+                BorderBrush=new SolidColorBrush(Color.FromRgb(53,64,72)),
+                BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(7),
+                Padding=new Thickness(11,8,11,8),Margin=new Thickness(0,0,9,7),
+                Child=V(Label(caption,10,Soft,true),Label(value,14,Mint,true))
+            };
+        }
+        indicators.Children.Add(Metric("GAME / UDP",map.GamePort.ToString()));
+        indicators.Children.Add(Metric("QUERY / UDP",map.QueryPort.ToString()));
+        indicators.Children.Add(Metric("RCON / TCP (KONFIG.)",map.RconPort.ToString()));
+        indicators.Children.Add(Metric("ASA API / KONFIG.",map.StartWithAsaApi?"BE":"KI"));
+        parent.Children.Add(indicators);
+        // Wrap long actions instead of clipping them on 1366px / high-DPI desktops.
+        var controls=new WrapPanel{Margin=new Thickness(0,0,0,10)};
         controls.Children.Add(Btn("Beállítások szerkesztése",()=>ShowMapEditor(map)));
         controls.Children.Add(Btn("Eltávolítás a Managerből",()=>{
             if(WinMessageBox.Show($"Eltávolítod ezt a mapot a listából? A játékfájlok és a futó szerver változatlan marad.\n{map.Name}",
                 "Map eltávolítása",MessageBoxButton.YesNo,MessageBoxImage.Question)==MessageBoxResult.Yes)
             { _cluster.RemoveMap(map.Id);RefreshDashboardMapCards();ShowLocalServerPage(); }
         }));
+        var quick=new WrapPanel{Margin=new Thickness(0,1,0,9)};
+        quick.Children.Add(Btn("Mod Center",()=>{
+            _preferredModMapId=map.Id;Navigate("mods");
+        }));
+        quick.Children.Add(Btn("Plugin Center",()=>{
+            _preferredPluginMapId=map.Id;Navigate("plugins");
+        }));
+        quick.Children.Add(Btn("Mentések",()=>{
+            _preferredBackupMapId=map.Id;
+            Navigate("backups");
+        }));
+        parent.Children.Add(quick);
         parent.Children.Add(controls);
-        var tabs=new TabControl { Margin=new Thickness(0,14,0,0),MinHeight=380,
+        var tabs=new TabControl { Margin=new Thickness(0,8,0,0),
             Background=Panel,Foreground=Brushes.White,BorderBrush=Aqua };
         void Tab(string title,UIElement body)
         {
-            tabs.Items.Add(new TabItem{Header=title,Content=new ScrollViewer{
+            var viewer=new ScrollViewer {
                 VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Content=body,
-                Padding=new Thickness(12)}});
+                Padding=new Thickness(12)
+            };
+            NestedWheelScroll.SetChainToParent(viewer,true);
+            tabs.Items.Add(new TabItem{Header=title,Content=viewer});
         }
-        var startStop=new StackPanel{Orientation=Orientation.Horizontal};
+        var startStop=new WrapPanel{Margin=new Thickness(0,4,0,8)};
+        var readiness=Label("ASA / Loader / RCON Ready: még nincs ellenőrizve. API és csatlakozás külön igazolandó.",12,Soft);
         startStop.Children.Add(Btn("Indítás (csak FakeAsa teszt)",()=>{
             try{
                 ReleaseCapabilityGate.DemandFakeAsaStart(_cluster,map);
@@ -198,6 +455,40 @@ public partial class MainWindow
             var x=_cluster.Check(map);
             Notice(x.Status);
         }));
+        bool readinessBusy=false;
+        startStop.Children.Add(Btn("ASA Ready vizsgálat",async()=>{
+            if(readinessBusy)return;
+            readinessBusy=true;
+            readiness.Text="ASA/Loader folyamat és helyi RCON ellenőrzés...";
+            try
+            {
+                var result=await AsaReadyProbe.ProbeAsync(_cluster,map.Id);
+                readiness.Text="ASA Ready: "+result.Stage+" · "+result.Explanation+
+                    " · API initialized: "+(result.ApiInitialized?"IGEN":"NEM IGAZOLT")+
+                    " · JOIN: "+(result.JoinAdvertised?"IGEN":"NEM IGAZOLT");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("asa-readiness",ex);
+                readiness.Text="ASA Ready vizsgálat sikertelen. Hitelesítési adat nem jeleníthető meg.";
+            }
+            finally{readinessBusy=false;}
+        }));
+        startStop.Children.Add(Btn("Folyamatazonosság rögzítése",()=>{
+            try
+            {
+                var observed=_cluster.Check(map);
+                bool changed=_cluster.RecordObservedIdentity(map.Id,observed);
+                Notice(changed
+                    ? "Ellenőrzött folyamatazonosság rögzítve a helyi profilban."
+                    : "A folyamatazonosság változatlan; nem történt konfigurációírás.");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("process-identity-capture",ex);
+                Notice("Az azonosító rögzítése elutasítva. Ellenőrizd a folyamatot és a műveleti naplót.");
+            }
+        }));
         var stopUnavailable=Btn("Stop / Restart – mentésigazolás hiányzik",()=>{});
         stopUnavailable.IsEnabled=false;
         stopUnavailable.ToolTip="Az ASA mentés befejezését igazoló adapter még nincs validálva. RCON-válasz önmagában nem elég.";
@@ -205,51 +496,197 @@ public partial class MainWindow
         Tab("Áttekintés",V(
             Label("Végrehajtható fájl: "+map.ExecutablePath,12,Soft),
             Label("Indítási argumentumok: "+map.Arguments,12,Soft),
+            Label("Indítás ASA API-val: "+(map.StartWithAsaApi?"BE (előfeltételek ellenőrzendők)":"KI"),12,Aqua),
             Label($"Game {map.GamePort} / Query {map.QueryPort} / RCON {map.RconPort}",12,Aqua),
             Label(result.Running?"Futó szerver visszacsatlakoztatva":result.ConfirmedStopped?
                 "Leállítva; automatikus indítás nincs":"Ismeretlen folyamatállapot; indítás tiltva",13,result.Running?Mint:Soft),
-            startStop));
-        Tab("Modok / CurseForge",V(
-            Label("Helyi map modok",17,Mint,true),
-            Label("A globális Mod Center megmarad; csak a helyi map indítási beállításai módosíthatók.",12,Soft),
-            List(_modNames,230)));
-        Tab("Pluginok / ASA API",V(Label("Helyi ASA API pluginok",17,Mint,true),
-            Label("A telepítési mappát manuálisan állíthatod be. Távoli DLL-eket nem szerkesztünk.",12,Soft),
-            List(_plugins,240)));
+            startStop,readiness));
+        Tab("Modok / CurseForge",MapModPane(map));
+        Tab("Pluginok / ASA API",MapPluginPane(map));
         Tab("INI",MapIniPane(map));
         Tab("RCON / Konzol",MapRconPane(map));
         Tab("Mentések",MapBackupPane(map));
         Tab("Naplók",MapLogPane(map));
+        Tab("Steam / Frissítések",SteamMapVersionPane(map));
         parent.Children.Add(tabs);
     }
+    private UIElement MapModPane(LocalMap map)
+    {
+        var list=new ListBox{MinHeight=90,MaxHeight=260,Background=Panel,Foreground=Brushes.White};
+        var status=Label("Helyi modparaméterek ellenőrzése...",12,Soft);
+        void Refresh()
+        {
+            try
+            {
+                var set=ModStateController.Read(map);
+                var rows=set.Active.Select((id,i)=>"ACTIVE  "+(i+1)+".  "+id)
+                    .Concat(set.Passive.Select((id,i)=>"PASSIVE  "+(i+1)+".  "+id))
+                    .Concat(set.Disabled.Select((id,i)=>"DISABLED  "+(i+1)+".  "+id))
+                    .ToArray();
+                RefreshModList(list,rows.Length==0?new[]{"Nincs konfigurált mod ezen a mapon."}:rows);
+                status.Text=map.Name+" · "+set.Active.Count+" aktív · "+
+                    set.Passive.Count+" passzív · "+set.Disabled.Count+" letiltott"+
+                    (set.Pending?" · INDÍTÁSKOR ÉRVÉNYESÜLŐ VÁLTOZÁS":"");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-mod-list",ex);
+                list.ItemsSource=Array.Empty<string>();
+                status.Text="A modlista nem olvasható. Ellenőrizd a helyi indítási paramétereket.";
+            }
+        }
+        var view=V(
+            Label("Helyi map · valódi -mods és -passivemods paraméterek",17,Mint,true),
+            Label("Ez nem történeti auditlista. Csak a kiválasztott helyi map konfigurációja látszik; nincs automatikus restart.",12,Soft),
+            Btn("Modlista újraolvasása",Refresh),
+            Btn("Mod Center – ennek a mapnak a szerkesztése",()=>{
+                _preferredModMapId=map.Id;
+                Navigate("mods");
+            }),list,status);
+        Refresh();return view;
+    }
+
+    private UIElement MapPluginPane(LocalMap map)
+    {
+        var list=new ListBox{MinHeight=90,MaxHeight=260,Background=Panel,Foreground=Brushes.White};
+        var status=Label("Helyi ASA API és pluginok ellenőrzése...",12,Soft);
+        void Refresh()
+        {
+            try
+            {
+                var observed=_cluster.Check(map);
+                var api=AsaApiInspector.Inspect(map.InstallationPath,observed);
+                var items=PluginStateManager.Inventory(map);
+                list.ItemsSource=items.Count==0
+                    ?new[]{"Nincs megfigyelhető pluginmappa ezen a telepítésen."}
+                    :items.Select(x=>(x.Enabled?"AKTÍV  ":"LETILTVA  ")+x.Name+
+                        " · lemezállapot, futásidejű betöltés nem igazolt").ToArray();
+                status.Text="ASA API fájlok: "+(api.Complete?"ellenőrizhetők":"hiányosak")+
+                    " · loader beállítás: "+(map.StartWithAsaApi?"BE":"KI")+
+                    " · "+items.Count+" helyi plugin könyvtár";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-plugin-list",ex);
+                list.ItemsSource=Array.Empty<string>();
+                status.Text="A helyi ASA API/pluginleltár nem olvasható; a szerver futása nem következtethető a fájlokból.";
+            }
+        }
+        var view=V(
+            Label("Helyi map · ASA API és pluginleltár",17,Mint,true),
+            Label("A lista tényleges telepítési könyvtárakból készül. A DLL jelenléte nem igazolja az ASA API runtime-betöltését.",12,Soft),
+            Btn("Indítás ASA API-val – beállítás szerkesztése",()=>ShowMapEditor(map)),
+            Btn("API és pluginleltár újraolvasása",Refresh),
+            Btn("Plugin Center – ennek a mapnak a kezelése",()=>{
+                _preferredPluginMapId=map.Id;
+                Navigate("plugins");
+            }),list,status);
+        Refresh();return view;
+    }
+
     private UIElement MapIniPane(LocalMap map)
     {
-        string iniRoot=Path.Combine(map.InstallationPath,"ShooterGame","Saved","Config","WindowsServer");
-        var options=new[]{Path.Combine(iniRoot,"Game.ini"),Path.Combine(iniRoot,"GameUserSettings.ini")};
-        var choice=new ComboBox{ItemsSource=options,SelectedIndex=0,Margin=new Thickness(0,6,0,9),
-            Foreground=Brushes.White,Background=Panel};
-        var editor=new TextBox {Height=240,AcceptsReturn=true,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
-            FontFamily=new FontFamily("Consolas"),TextWrapping=TextWrapping.NoWrap,IsReadOnly=true};
-        string? current=null;
-        var load=Btn("Helyi INI beolvasása",()=>{
-            var path=choice.SelectedItem as string;
-            if(path==null||!File.Exists(path)){Notice("A kiválasztott INI nem található.");return;}
-            if(!IsUnderRoot(path,map.InstallationPath)){Notice("INI elérési út kívül esik a helyi mapon.");return;}
-            editor.Text=File.ReadAllText(path);current=path;editor.IsReadOnly=false;
+        var choice=new ComboBox {
+            ItemsSource=new[]{"Game.ini","GameUserSettings.ini"},SelectedIndex=0,
+            Margin=new Thickness(0,6,0,9),Foreground=Brushes.White,Background=Panel
+        };
+        var editor=new TextBox {
+            Height=260,AcceptsReturn=true,AcceptsTab=true,
+            VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,
+            FontFamily=new FontFamily("Consolas"),TextWrapping=TextWrapping.NoWrap,
+            Foreground=Brushes.White,Background=Panel,IsEnabled=false
+        };
+        var status=Label("Az INI szerkesztéshez igazoltan leállított helyi map kell. "+
+            "Kötelező az eredeti fájl hash-ellenőrzése és védőmentése.",12,Soft);
+        ConfigSnapshot? baseline=null;
+        void Reset()
+        {
+            baseline=null;editor.Text="";editor.IsEnabled=false;
+            status.Text="Új fájl kiválasztva: nyisd meg a biztonságos szerkesztőben.";
+        }
+        choice.SelectionChanged+=(_,_)=>Reset();
+        void EnsureLocal()
+        {
+            if(!_cluster.Config.LocalMaps.Contains(map))
+                throw new UnauthorizedAccessException("Only the owned local map can be edited");
+        }
+        string SelectedFile()
+        {
+            if(choice.SelectedItem is not string name ||
+               name is not ("Game.ini" or "GameUserSettings.ini"))
+                throw new InvalidDataException("Válassz támogatott helyi INI fájlt");
+            return Path.Combine(map.InstallationPath??"",
+                "ShooterGame","Saved","Config","WindowsServer",name);
+        }
+        var load=Btn("INI biztonságos megnyitása",()=>{
+            try
+            {
+                EnsureLocal();
+                baseline=SafeConfigEditor.Read(SelectedFile(),map.InstallationPath,
+                    ConfigKind.GameIni,_cluster.Check(map),map.Maintenance);
+                editor.Text=baseline.Text;editor.IsEnabled=true;
+                status.Text="Fájl: "+Path.GetFileName(baseline.Path)+
+                    " · SHA-256: "+baseline.Sha256+
+                    " · Kódolás: "+baseline.EncodingId+
+                    " · BOM: "+baseline.HasBom+
+                    "\nCsak a szerkesztőben módosult; lemezen még változatlan.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-ini-read",ex);
+                baseline=null;editor.Text="";editor.IsEnabled=false;
+                status.Text="INI megnyitás megtagadva: "+ex.Message;
+            }
         });
-        var save=Btn("Biztonsági mentés + mentés",()=>{
-            if(current==null || !IsUnderRoot(current,map.InstallationPath))return;
-            try{
-                if(WinMessageBox.Show($"Helyi INI mentése? A futó szerver csak újraindításkor olvashatja be.\n{current}",
-                    "INI mentése",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
-                var backup=current+".untamed."+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".bak";
-                File.Copy(current,backup,false);
-                var temp=current+".untamed.tmp";File.WriteAllText(temp,editor.Text,Encoding.UTF8);File.Move(temp,current,true);
-                Notice("INI mentve; az eredeti fájlról másolat készült.");
-            }catch(Exception ex){WriteLog("ini",ex);Notice(ex.Message);}
+        var preview=Btn("INI változásainak ellenőrzése",()=>{
+            try
+            {
+                EnsureLocal();
+                if(baseline==null)throw new InvalidOperationException("Előbb nyisd meg a helyi INI fájlt");
+                var check=SafeConfigEditor.Preview(baseline,editor.Text);
+                status.Text=(check.Changed?"MÓDOSULT":"VÁLTOZATLAN")+
+                    " · "+check.OldLines+" → "+check.NewLines+" sor"+
+                    "\nEredeti SHA-256: "+check.OldSha256+
+                    "\nTervezett SHA-256: "+check.NewSha256+
+                    "\nA fájl még nincs mentve.";
+            }
+            catch(Exception ex){status.Text="INI előnézet sikertelen: "+ex.Message;}
         });
-        return V(Label("Csak a helyi map WindowsServer/Game.ini vagy GameUserSettings.ini fájlja.",12,Soft),
-            choice,load,save,editor);
+        var save=Btn("Ellenőrzött INI mentése és .bak védőmásolat",()=>{
+            try
+            {
+                EnsureLocal();
+                if(baseline==null || !string.Equals(
+                    baseline.Path,Path.GetFullPath(SelectedFile()),StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Újra meg kell nyitnod a kiválasztott INI fájlt");
+                var check=SafeConfigEditor.Preview(baseline,editor.Text);
+                if(!check.Changed){status.Text="Az INI változatlan; mentés nem szükséges.";return;}
+                if(WinMessageBox.Show(map.Name+" / "+Path.GetFileName(baseline.Path)+
+                    "\nA fájl csak igazoltan leállított mapon módosítható. "+
+                    "Ellenőrzött védőmásolat készül, a restart külön művelet. Folytatod?",
+                    "INI mentése",MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                string backup=SafeConfigEditor.Save(baseline,editor.Text,
+                    map.InstallationPath,_cluster.Check(map),map.Maintenance,
+                    ()=>_cluster.Check(map));
+                baseline=SafeConfigEditor.Read(baseline.Path,map.InstallationPath,
+                    ConfigKind.GameIni,_cluster.Check(map),map.Maintenance);
+                editor.Text=baseline.Text;
+                status.Text="INI ellenőrzötten mentve. Védőmásolat: "+backup+
+                    "\nÚj SHA-256: "+baseline.Sha256+
+                    "\nNem történt automatikus szerver-újraindítás.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-ini-save",ex);
+                status.Text="INI mentés megtagadva: "+ex.Message;
+            }
+        });
+        return V(Label("Helyi map INI · SHA-256 / ETag / atomikus csere / .bak",16,Mint,true),
+            Label("A megszakított vagy kívülről módosított fájlt a rendszer nem írja felül. "+
+                "A Manager a karakter- és Store-fájlokat nem szerkeszti.",12,Soft),
+            choice,load,preview,save,status,editor);
     }
     private static bool IsUnderRoot(string path,string root)
     {
@@ -257,7 +694,7 @@ public partial class MainWindow
         string parent=Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar;
         string full=Path.GetFullPath(path);
         return full.StartsWith(parent,StringComparison.OrdinalIgnoreCase) &&
-            !full.Contains("KovaCluster",StringComparison.OrdinalIgnoreCase);
+            !full.Contains(VaultProtocol.ClusterId,StringComparison.OrdinalIgnoreCase);
     }
     private UIElement MapRconPane(LocalMap map)
     {
@@ -282,102 +719,695 @@ public partial class MainWindow
     }
     private UIElement MapLogPane(LocalMap map)
     {
-        var output=new TextBox{Height=290,IsReadOnly=true,TextWrapping=TextWrapping.NoWrap,
-            VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,
-            FontFamily=new FontFamily("Consolas")};
-        return V(Label("Helyi naplónézet · csak olvasás",16,Mint,true),
-            Label(map.LogFilePath,12,Soft),
-            Btn("Napló újratöltése",()=>{
-                try{
-                    if(!IsUnderRoot(map.LogFilePath,map.InstallationPath))throw new InvalidOperationException("Érvénytelen naplóútvonal");
-                    using var fs=new FileStream(map.LogFilePath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite);
-                    fs.Seek(-Math.Min(100_000,fs.Length),SeekOrigin.End);
-                    using var sr=new StreamReader(fs,Encoding.UTF8);
-                    output.Text=sr.ReadToEnd();
-                }catch(Exception e){output.Text=e.Message;}
-            }),output);
+        var output=new TextBox{Height=260,IsReadOnly=true,TextWrapping=TextWrapping.Wrap,
+            VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
+            FontFamily=new FontFamily("Consolas"),
+            Foreground=Brushes.White,Background=Panel};
+        var message=Label("Csak a map saját helyi naplófájljának utolsó, korlátozott részét olvassuk.",12,Soft);
+        void Refresh()
+        {
+            try
+            {
+                if(!_cluster.Config.LocalMaps.Contains(map))
+                    throw new UnauthorizedAccessException("Csak saját helyi map naplója");
+                var result=LocalLogCenter.Read(map);
+                output.Text=string.Join("\n",result.Lines.Select(x=>x.Content));
+                message.Text=result.FileName+" · "+result.Lines.Count+
+                    " titokszűrt sor · "+(result.Truncated?"csak naplóvég":"teljes fájlrész");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("map-log-read",ex);
+                output.Text="";
+                message.Text="A helyi napló nem nyitható meg: "+ex.GetType().Name;
+            }
+        }
+        return V(Label("ASA napló · csak olvasás",16,Mint,true),
+            message,
+            Btn("Napló végének betöltése",Refresh),
+            Btn("Teljes Naplóközpont megnyitása",()=>{
+                _preferredLogMapId=map.Id;
+                Navigate("logs");
+            }),
+            output);
     }
-    private void ShowMapEditor(LocalMap? existing)
+    /// <summary>
+    /// Fully live WPF map editor; this is not a demo or independent profile writer.
+    /// Keep the original API-launch, root-path and port validations in Save.
+    /// Fixed footer + per-step ScrollViewer support 1366x768 and 150% DPI.
+    /// </summary>
+    private Window? _editorScreenshotWindow;
+
+    // Screenshot-only hook: opens the real, unmodified WPF editor with empty
+    // local test inputs. No configuration writes or server operations.
+    internal Window PrepareMapEditorScreenshot()
+    {
+        if (!App.IsSmokeTest)
+            throw new InvalidOperationException("Editor screenshots require the isolated smoke mode");
+        ShowMapEditor(null,true);
+        return _editorScreenshotWindow ??
+            throw new InvalidOperationException("Map editor did not open");
+    }
+
+    private void ShowMapEditor(LocalMap? existing,bool screenshotOnly=false)
     {
         var map=existing ?? new LocalMap();
+        var desktop=SystemParameters.WorkArea;
         var dialog=new Window {
-            Title=existing==null?"Map hozzáadása":"Map szerkesztése",
-            Owner=this,Width=720,Height=790,MinWidth=620,MinHeight=620,
+            Title=existing==null?"Új ASA szerver hozzáadása":"ASA szerver szerkesztése",
+            Owner=this,Width=Math.Min(880,Math.Max(530,desktop.Width-28)),
+            Height=Math.Min(735,Math.Max(420,desktop.Height-28)),
+            MinWidth=530,MinHeight=420,ResizeMode=ResizeMode.CanResize,
             WindowStartupLocation=WindowStartupLocation.CenterOwner,
-            Background=new SolidColorBrush(Color.FromRgb(8,28,29)),Foreground=Brushes.White
+            Background=new SolidColorBrush(Color.FromRgb(12,20,24)),Foreground=Brushes.White
         };
-        var form=new StackPanel{Margin=new Thickness(23)};
         var fields=new Dictionary<string,TextBox>();
-        TextBox Field(string caption,string initial)
+        var steps=new List<StackPanel>();
+        StackPanel MakeStep(string title,string description)
         {
-            form.Children.Add(Label(caption,13,Aqua,true));
-            var t=new TextBox{Text=initial,Margin=new Thickness(0,0,0,11)};
-            fields[caption]=t;form.Children.Add(t);return t;
+            var section=new StackPanel{Margin=new Thickness(22,19,22,22)};
+            section.Children.Add(Label(title,23,Mint,true));
+            section.Children.Add(Label(description,13,Soft));
+            section.Children.Add(new Border{Background=Aqua,Height=2,Opacity=0.45,Margin=new Thickness(0,7,0,18)});
+            steps.Add(section);
+            return section;
         }
-        form.Children.Add(Label("Kizárólag erre a Windows gépre felvett map",22,Mint,true));
-        var names=new ComboBox{ItemsSource=KnownMaps,IsEditable=true,Text=map.Name,
-            Foreground=Brushes.White,Background=Panel,Margin=new Thickness(0,0,0,12)};
-        form.Children.Add(Label("Map neve",13,Aqua,true));form.Children.Add(names);
-        Field("Map telepítési gyökérkönyvtára",map.InstallationPath);
-        Field("Szerver EXE teljes elérési útja",map.ExecutablePath);
-        Field("Indítási paraméterek (pontos egyezés)",map.Arguments);
-        Field("API-loader EXE (opcionális)",map.ApiLoaderPath);
-        Field("API-loader argumentumok",map.ApiLoaderArguments);
-        var maintenance=new CheckBox{Content="Maintenance – helyi indítás tiltva",IsChecked=map.Maintenance,Foreground=Brushes.White};
-        form.Children.Add(maintenance);
-        var monitorRcon=new CheckBox{Content="Hitelesített RCON-monitoring (ListPlayers)",IsChecked=map.MonitorRcon,Foreground=Brushes.White};
-        form.Children.Add(monitorRcon);
-        Field("Watchdog ellenőrzés másodpercben (5–3600)",map.WatchdogIntervalSeconds.ToString());
-        Field("Game UDP port",map.GamePort==0?"":map.GamePort.ToString());
-        Field("Query UDP port",map.QueryPort==0?"":map.QueryPort.ToString());
-        Field("RCON TCP port",map.RconPort==0?"":map.RconPort.ToString());
-        Field("RCON host (helyi IP)",map.RconHost);
-        Field("Helyi naplófájl",map.LogFilePath);
-        form.Children.Add(Label("RCON jelszó (Windows DPAPI-val titkosítva)",13,Aqua,true));
-        var password=new PasswordBox{Margin=new Thickness(0,0,0,13)};
-        form.Children.Add(password);
-        var actions=new StackPanel{Orientation=Orientation.Horizontal};
-        actions.Children.Add(Btn("Mentés",()=>{
-            try{
-                var name=names.Text.Trim();
-                if(!KnownMaps.Contains(name,StringComparer.OrdinalIgnoreCase))
-                    throw new InvalidDataException("Válassz egy ismert mapot a listából");
-                var root=Path.GetFullPath(fields["Map telepítési gyökérkönyvtára"].Text.Trim());
-                var exe=Path.GetFullPath(fields["Szerver EXE teljes elérési útja"].Text.Trim());
-                if(!Directory.Exists(root)||!File.Exists(exe)||!IsUnderRoot(exe,root))
-                    throw new InvalidDataException("Az EXE-nek a megadott helyi telepítési könyvtárban kell lennie");
-                if(!int.TryParse(fields["Game UDP port"].Text,out var game)||game is < 1 or > 65535)
-                    throw new InvalidDataException("Érvénytelen Game port");
-                if(!int.TryParse(fields["Query UDP port"].Text,out var query)||query is < 1 or > 65535)
-                    throw new InvalidDataException("Érvénytelen Query port");
-                if(!int.TryParse(fields["RCON TCP port"].Text,out var rcon)||rcon is < 1 or > 65535)
-                    throw new InvalidDataException("Érvénytelen RCON port");
-                string loader=fields["API-loader EXE (opcionális)"].Text.Trim();
-                if(loader.Length>0 && (!File.Exists(loader)||!IsUnderRoot(loader,root)))
-                    throw new InvalidDataException("A loader EXE-nek a helyi mapgyökérben kell lennie");
-                if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,out var interval)||interval<5||interval>3600)throw new InvalidDataException("Érvénytelen watchdog-időköz");
-                var target=existing??new LocalMap();
-                target.Name=name;target.InstallationPath=root;target.ExecutablePath=exe;
-                target.Arguments=fields["Indítási paraméterek (pontos egyezés)"].Text.Trim();
-                target.ApiLoaderPath=loader.Length==0?"":Path.GetFullPath(loader);
-                target.ApiLoaderArguments=fields["API-loader argumentumok"].Text.Trim();
-                target.Maintenance=maintenance.IsChecked==true;
-                target.MonitorRcon=monitorRcon.IsChecked==true;
-                target.WatchdogIntervalSeconds=interval;
-                target.GamePort=game;target.QueryPort=query;target.RconPort=rcon;
-                target.RconHost=fields["RCON host (helyi IP)"].Text.Trim();
-                target.LogFilePath=fields["Helyi naplófájl"].Text.Trim();
-                if(password.Password.Length>0)target.RconPasswordProtected=SecureStore.Protect(password.Password);
-                if(existing==null)_cluster.AddMap(target);
-                else _cluster.Save();
-                RefreshDashboardMapCards();dialog.DialogResult=true;
-                ShowLocalServerPage();
-            }catch(Exception e){Notice("Nem sikerült menteni: "+e.Message);}
-        }));
-        actions.Children.Add(Btn("Mégse",()=>dialog.DialogResult=false));
-        form.Children.Add(actions);
-        dialog.Content=new ScrollViewer{Content=form,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
-        dialog.ShowDialog();
+        void BrowseFolder(TextBox input)
+        {
+            using var picker=new System.Windows.Forms.FolderBrowserDialog{
+                Description="Válaszd ki a helyi ASA telepítési gyökérkönyvtárát",
+                ShowNewFolderButton=true
+            };
+            if(Directory.Exists(input.Text))picker.SelectedPath=input.Text;
+            if(picker.ShowDialog()==System.Windows.Forms.DialogResult.OK)
+                input.Text=picker.SelectedPath;
+        }
+        void BrowseFile(TextBox input,string title,string filter)
+        {
+            var picker=new Microsoft.Win32.OpenFileDialog{Title=title,Filter=filter,CheckFileExists=true};
+            var folder=Path.GetDirectoryName(input.Text);
+            if(!string.IsNullOrWhiteSpace(folder)&&Directory.Exists(folder))
+                picker.InitialDirectory=folder;
+            if(picker.ShowDialog(dialog)==true)input.Text=picker.FileName;
+        }
+        TextBox Field(StackPanel step,string caption,string initial,string browse="")
+        {
+            step.Children.Add(Label(caption,13,Aqua,true));
+            var t=new TextBox{Text=initial,MinHeight=38,
+                Margin=new Thickness(0,0,browse.Length==0?0:12,12)};
+            fields[caption]=t;
+            if(browse.Length==0)
+                step.Children.Add(t);
+            else
+            {
+                var line=new DockPanel{LastChildFill=true};
+                var button=Btn("Tallózás…",()=>{
+                    if(browse=="folder")BrowseFolder(t);
+                    else BrowseFile(t,caption,browse=="log"?
+                        "Log files (*.log;*.txt)|*.log;*.txt|All files (*.*)|*.*":
+                        "Executable (*.exe)|*.exe|All files (*.*)|*.*");
+                });
+                button.MinWidth=112;button.MinHeight=38;
+                DockPanel.SetDock(button,Dock.Right);
+                line.Children.Add(button);
+                line.Children.Add(t);
+                step.Children.Add(line);
+            }
+            return t;
+        }
+
+        var location=MakeStep("01  /  Térkép és telepítés",
+            "Új map esetén előbb letöltheted az ASA 2430930 szervert. EXE és portok csak később kellenek.");
+        var names=new ComboBox{ItemsSource=KnownMaps,IsEditable=true,Text=existing==null?"The Island":map.Name,
+            Margin=new Thickness(0,0,0,18),MinHeight=39};
+        location.Children.Add(Label("ASA map neve",13,Aqua,true));
+        location.Children.Add(names);
+        var installMode=new ComboBox {
+            ItemsSource=new[]{"Meglévő ASA-szerver felvétele (adatmegőrző)",
+                "Új ASA-szerver automatikus telepítése SteamCMD-vel"},
+            SelectedIndex=existing==null?1:0,IsEnabled=existing==null,
+            Margin=new Thickness(0,7,0,14),MinHeight=38
+        };
+        location.Children.Add(Label("Telepítési mód",13,Aqua,true));
+        location.Children.Add(installMode);
+        bool Fresh()=>existing==null && installMode.SelectedIndex==1;
+        var defaultFreshRoot=Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "UntamedManager","ASA-Servers",map.Id.ToString("N"));
+        var installRoot=Field(location,"Map telepítési gyökérkönyvtára",
+            existing==null?defaultFreshRoot:map.InstallationPath,"folder");
+        var serverExe=Field(location,"Szerver EXE teljes elérési útja",map.ExecutablePath,"exe");
+        // New SteamCMD installs have no EXE yet: hide the entire input,
+        // including its caption and Browse action, until importing an existing map.
+        var serverExeRow=(UIElement)serverExe.Parent;
+        var serverExeCaption=location.Children[location.Children.IndexOf(serverExeRow)-1];
+        var steamCmdExe=Field(location,"SteamCMD EXE (új telepítés esetén)",
+            string.IsNullOrWhiteSpace(_cluster.Config.SteamCmdExecutable)?
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "UntamedManager","SteamCMD","steamcmd.exe"):
+                _cluster.Config.SteamCmdExecutable,"exe");
+        var downloadSteam=new CheckBox{
+            Content="Ha hiányzik, hivatalos Valve SteamCMD ZIP letöltése (HTTPS)",
+            Margin=new Thickness(0,1,0,12),IsChecked=existing==null
+        };
+        location.Children.Add(downloadSteam);
+        var retryFresh=new CheckBox{
+            Content="Korábbi, kizárólag ezen maphoz tartozó félbeszakadt telepítés kézi újrapróbálása",
+            Margin=new Thickness(0,1,0,12),IsChecked=false
+        };
+        location.Children.Add(retryFresh);
+        var sessionBox=Field(location,"Új szerver nyilvános neve",
+            "Untamed Kingdom - "+(map.Name.Length==0?"The Island":map.Name));
+        names.SelectionChanged+=(_,_)=>{
+            if(Fresh() && sessionBox.Text.StartsWith("Untamed Kingdom - ",StringComparison.Ordinal))
+                sessionBox.Text="Untamed Kingdom - "+names.Text;
+        };
+        var installStatus=Label("SteamCMD nincs elindítva; az új mapnak külön, üres könyvtár szükséges.",12,Soft);
+        location.Children.Add(installStatus);
+        var recover=Btn("Megszakadt Steam-telepítés visszaállítása (csak ellenőrzés)",()=>{
+            try
+            {
+                if(!Fresh() || retryFresh.IsChecked!=true)
+                    throw new InvalidOperationException(
+                        "Válaszd az új telepítést, majd hagyd jóvá a kézi újrapróbálást.");
+                var record=SteamFreshInstall.InspectIncomplete(installRoot.Text.Trim()) ??
+                    throw new InvalidDataException(
+                        "Ehhez a gyökérhez nincs félbeszakadt telepítési napló.");
+                if(!string.Equals(record.MapName,names.Text,
+                       StringComparison.OrdinalIgnoreCase) ||
+                   !string.Equals(Path.GetFullPath(record.SteamCmdExecutable),
+                       Path.GetFullPath(steamCmdExe.Text.Trim()),
+                       StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(
+                        "A napló mapneve vagy SteamCMD-elérési útja nem egyezik.");
+                if(_cluster.Config.LocalMaps.Any(m=>m.Id==record.MapId))
+                    throw new InvalidDataException(
+                        "Az eredeti map már regisztrált: új telepítés helyett meglévőként kezeld.");
+                map.Id=record.MapId;
+                installStatus.Text="Ellenőrzött, megszakadt telepítés: "+record.Phase+
+                    ". A korábbi mapazonosítót visszaállítottuk. "+
+                    "A Mentés csak a kifejezetten jóváhagyott újrapróbálást indíthatja.";
+            }
+            catch(Exception ex)
+            {
+                installStatus.Text="Újrapróbálás nem engedélyezhető: "+
+                    UntamedPresentation.Redact(ex.Message);
+            }
+        });
+        location.Children.Add(recover);
+        void ChangeMode()
+        {
+            bool fresh=Fresh();
+            if(fresh && string.IsNullOrWhiteSpace(installRoot.Text))
+                installRoot.Text=defaultFreshRoot;
+            steamCmdExe.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            downloadSteam.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            retryFresh.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            recover.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            sessionBox.Visibility=fresh?Visibility.Visible:Visibility.Collapsed;
+            serverExeRow.Visibility=fresh?Visibility.Collapsed:Visibility.Visible;
+            serverExeCaption.Visibility=fresh?Visibility.Collapsed:Visibility.Visible;
+            serverExe.IsReadOnly=fresh;
+            serverExe.ToolTip=fresh?"Telepítés után a SteamCMD által létrehozott EXE automatikusan kitöltődik.":
+                "Létező szerver EXE kijelölése";
+            installStatus.Text=fresh?
+                "Új, külön ASA gyökér: a map kiválasztása után 2430930 települ, adatokat nem importálunk.":
+                "Meglévő szerver: nincs letöltés, a világok és INI-k érintetlenek.";
+        }
+        installMode.SelectionChanged+=(_,_)=>ChangeMode();
+        ChangeMode();
+        var locateResult=Label("Válaszd ki a telepítési mappát az ASA-fájlok felismeréséhez.",12,Soft);
+        var detect=Btn("ASA szerver EXE + API loader felismerése",()=>{
+            try
+            {
+                // Exact local folder probe only. No SteamCMD, file writes,
+                // server start, disk traversal or remote Manager operations.
+                var probe=LocalAsaInstallLocator.Probe(installRoot.Text);
+                if(!probe.HasServerExecutable)
+                {
+                    locateResult.Text="Az ArkAscendedServer.exe nem található a szabványos "+
+                        "ShooterGame\\Binaries\\Win64 mappában. Válassz másik gyökérmappát, "+
+                        "vagy add meg az EXE teljes helyi útvonalát.";
+                    return;
+                }
+                serverExe.Text=probe.ServerExecutable!;
+                if(probe.ApiLoaderExecutable!=null &&
+                   fields.TryGetValue("API-loader EXE (opcionális)",out var loaderBox) &&
+                   string.IsNullOrWhiteSpace(loaderBox.Text))
+                    loaderBox.Text=probe.ApiLoaderExecutable;
+                locateResult.Text="Helyi ASA EXE megtalálva. "+
+                    (probe.HasApiLoader?"API loader is található.":"API loader nem található.")+
+                    " Az indítási mód és az argumentumok változatlanok.";
+            }
+            catch(Exception ex)
+            {
+                locateResult.Text="Az ASA-fájlok nem ellenőrizhetők: "+
+                    UntamedPresentation.Display(ex.Message);
+            }
+        });
+        detect.ToolTip="A kijelölt helyi gyökérkönyvtárból csak a szabványos EXE-útvonalakat ellenőrzi.";
+        location.Children.Add(detect);
+        location.Children.Add(locateResult);
+
+        var launch=MakeStep("02  /  Indítás és portok",
+            "Új telepítéskor a valódi ASA mapazonosítóval generálunk indítást. Meglévő profilnál a paraméterek megmaradnak.");
+        Field(launch,"Indítási paraméterek (pontos egyezés)",map.Arguments);
+        Field(launch,"Game UDP port",map.GamePort==0?"":map.GamePort.ToString());
+        Field(launch,"Query UDP port",map.QueryPort==0?"":map.QueryPort.ToString());
+        Field(launch,"RCON TCP port",map.RconPort==0?"":map.RconPort.ToString());
+
+        var api=MakeStep("03  /  ASA API loader",
+            "Normál és loaderes indítás külön kezelve. Az API-mód váltása leállított szervert igényel.");
+        Field(api,"API-loader EXE (opcionális)",map.ApiLoaderPath,"exe");
+        Field(api,"API-loader argumentumok",map.ApiLoaderArguments);
+        var apiStart=new CheckBox {
+            Content="Indítás ASA API-val (alapesetben ArkAscendedServer.exe)",
+            IsChecked=map.StartWithAsaApi,Margin=new Thickness(0,8,0,14)
+        };
+        api.Children.Add(apiStart);
+        api.Children.Add(Label("API módban a loader az eredeti szerverargumentumokat kapja. "+
+            "Csak helyileg telepített loaderrel használható. Az éles ASA indítás biztonsági korlátja változatlan.",
+            12,Soft));
+
+        var monitoring=MakeStep("04  /  RCON és felügyelet",
+            "A jelszó Windows DPAPI-val védett, üresen hagyva a meglévő érték változatlan.");
+        var maintenance=new CheckBox {Content="Maintenance – helyi indítás tiltva",
+            IsChecked=map.Maintenance,Margin=new Thickness(0,0,0,11)};
+        var monitorRcon=new CheckBox {Content="Hitelesített RCON-monitoring (ListPlayers)",
+            IsChecked=map.MonitorRcon,Margin=new Thickness(0,0,0,14)};
+        monitoring.Children.Add(maintenance);
+        monitoring.Children.Add(monitorRcon);
+        Field(monitoring,"Watchdog ellenőrzés másodpercben (5–3600)",
+            map.WatchdogIntervalSeconds.ToString());
+        Field(monitoring,"RCON host (helyi IP)",map.RconHost);
+        Field(monitoring,"Helyi naplófájl",map.LogFilePath,"log");
+        monitoring.Children.Add(Label("RCON jelszó (Windows DPAPI-val titkosítva)",13,Aqua,true));
+        var password=new PasswordBox{MinHeight=37,Margin=new Thickness(0,0,0,13)};
+        monitoring.Children.Add(password);
+        monitoring.Children.Add(Label("Új SteamCMD-telepítésnél a megadott admin jelszó "+
+            "a frissen létrehozott GameUserSettings.ini fájlba kerül, nem az "+
+            "indítási parancssorba. Meglévő INI-t nem írunk felül. "+
+            "Üres jelszó esetén az RCON kikapcsolva marad.",12,Soft));
+
+        var review=MakeStep("05  /  Ellenőrzés és mentés",
+            "A Mentés teljes útvonal-, port- és ASA API-ellenőrzést végez. Nem indít vagy állít le szervert.");
+        var summary=Label("",13,Mint);
+        var validationHints=Label("",12,Soft);
+        review.Children.Add(new Border{Background=Panel,BorderBrush=Aqua,
+            BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(10),
+            Padding=new Thickness(17),Child=summary});
+        review.Children.Add(validationHints);
+        var steamProgress=new ProgressBar {
+            Height=12,Minimum=0,Maximum=100,Value=0,
+            Visibility=Visibility.Collapsed,Margin=new Thickness(0,12,0,8),
+            IsIndeterminate=true,
+            Foreground=Aqua,Background=Panel
+        };
+        review.Children.Add(steamProgress);
+        review.Children.Add(Label("A konfiguráció kizárólag az Untamed Manager helyi profiljába kerül. "+
+            "A meglévő karakterek, Store-v1, SQL és mentések érintetlenek.",12,Soft));
+
+        var wizardGrid=new Grid();
+        wizardGrid.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+        wizardGrid.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
+        wizardGrid.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+        var header=new StackPanel{Margin=new Thickness(22,15,22,14)};
+        header.Children.Add(Label("UNTAMED KINGDOM  /  MAP SETUP",12,Aqua,true));
+        var currentStep=Label("",13,Soft);
+        header.Children.Add(currentStep);
+        var headerPanel=new Border{Background=new SolidColorBrush(Color.FromRgb(19,42,44)),
+            BorderBrush=new SolidColorBrush(Color.FromRgb(54,100,87)),
+            BorderThickness=new Thickness(0,0,0,1),Child=header};
+        Grid.SetRow(headerPanel,0);wizardGrid.Children.Add(headerPanel);
+        var body=new StackPanel();
+        foreach(var step in steps)body.Children.Add(step);
+        var scroll=new ScrollViewer{Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
+        Grid.SetRow(scroll,1);wizardGrid.Children.Add(scroll);
+        var errorMessage=Label("",12,Brushes.OrangeRed);
+        var footer=new Grid{Margin=new Thickness(18,13,18,8)};
+        footer.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        footer.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
+        errorMessage.MaxWidth=330;errorMessage.VerticalAlignment=VerticalAlignment.Center;
+        footer.Children.Add(errorMessage);
+        var buttons=new WrapPanel{HorizontalAlignment=HorizontalAlignment.Right};
+        int stepIndex=0;
+        Action<int>? showStep=null;
+        var previous=Btn("← Előző",()=>showStep?.Invoke(stepIndex-1));
+        var next=Btn("Következő →",()=>showStep?.Invoke(stepIndex+1));
+        var cancel=Btn("Mégse",()=>dialog.DialogResult=false);
+        Button saveButton=null!;
+        bool installInProgress=false;
+        SteamFreshInstallReceipt? downloadedInstall=null;
+        dialog.Closing+=(_,e)=>{
+            // A multi-GB SteamCMD child must not keep writing after the
+            // operator closes the WPF dialog without a recoverable journal.
+            // The window stays open until the bounded installer exits.
+            if(installInProgress) { e.Cancel=true; return; }
+        };
+        saveButton=Btn("Mentés",async()=>{
+                    saveButton.IsEnabled=false;
+                    try{
+                        var name=LocalMapNameRules.Normalize(names.Text);
+                        var root=Path.GetFullPath(fields["Map telepítési gyökérkönyvtára"].Text.Trim());
+                        var exeText=fields["Szerver EXE teljes elérési útja"].Text.Trim();
+                        if(Fresh())
+                        {
+                            // Registering a downloaded ASA profile requires ports; downloading itself does not.
+                            if(downloadedInstall==null)
+                                throw new InvalidOperationException("Előbb az 1. lépésben töltsd le a szervert SteamCMD-vel.");
+                            if(!int.TryParse(fields["Game UDP port"].Text,out int preGame) ||
+                               !int.TryParse(fields["Query UDP port"].Text,out int preQuery) ||
+                               !int.TryParse(fields["RCON TCP port"].Text,out int preRcon) ||
+                               preGame is <1 or >65535 || preQuery is <1 or >65535 ||
+                               preRcon is <1 or >65535)
+                                throw new InvalidDataException("Telepítés előtt érvényes portok szükségesek.");
+                            LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
+                                Id=map.Id,Name=name,GamePort=preGame,QueryPort=preQuery,RconPort=preRcon},
+                                _cluster.Config.LocalMaps);
+                            if(apiStart.IsChecked==true)
+                                throw new InvalidDataException(
+                                    "Új telepítésnél az ASA API loader külön, ellenőrzött lépésben engedélyezhető.");
+                            if(password.Password.Length>0)
+                                AsaInitialRconSettings.ValidateAdminPassword(password.Password);
+                            else if(monitorRcon.IsChecked==true)
+                                throw new InvalidDataException(
+                                    "Új szerveren az RCON-monitoringhoz admin jelszó szükséges.");
+                            var args=AsaSteamMapCatalog.LaunchArguments(
+                                name,sessionBox.Text.Trim(),preGame,preQuery);
+                            var receipt=downloadedInstall!;
+                            if(receipt.MapId!=map.Id ||
+                               !string.Equals(receipt.InstallationRoot,root,StringComparison.OrdinalIgnoreCase) ||
+                               !string.Equals(receipt.SteamCmdExecutable,Path.GetFullPath(steamCmdExe.Text.Trim()),StringComparison.OrdinalIgnoreCase) ||
+                               !string.Equals(receipt.MapLevel,AsaSteamMapCatalog.LevelFor(name),StringComparison.Ordinal))
+                                throw new InvalidDataException("A letöltés óta megváltozott a map, a SteamCMD vagy a telepítési mappa. Importáld a már letöltött szervert.");
+                            // SteamCMD has exited and all install receipts are
+                            // verified; no further background filesystem writer exists.
+                            installInProgress=false;
+                            exeText=receipt.ServerExecutable;
+                            serverExe.Text=exeText;
+                            fields["Indítási paraméterek (pontos egyezés)"].Text=args;
+                            if(password.Password.Length>0)
+                            {
+                                var created=AsaInitialRconSettings.CreateForNewServer(
+                                    receipt.InstallationRoot,preRcon,password.Password);
+                                monitorRcon.IsChecked=true;
+                                installStatus.Text="RCON konfiguráció létrehozva: "+created+
+                                    " (új INI, felülírás nélkül).";
+                            }
+                            else
+                            {
+                                monitorRcon.IsChecked=false;
+                                installStatus.Text="Az új szerveren az RCON kikapcsolva marad.";
+                            }
+                            installStatus.Text+="\nSteam Build ID: "+
+                                (receipt.BuildId??"ismeretlen")+"; ASA szerver még NEM indult el.";
+                        }
+                        var exe=Path.GetFullPath(exeText);
+                        if(!Directory.Exists(root)||!File.Exists(exe)||!IsUnderRoot(exe,root))
+                            throw new InvalidDataException("Az EXE-nek a megadott helyi telepítési könyvtárban kell lennie");
+                        if(!int.TryParse(fields["Game UDP port"].Text,out var game)||game is < 1 or > 65535)
+                            throw new InvalidDataException("Érvénytelen Game port");
+                        if(!int.TryParse(fields["Query UDP port"].Text,out var query)||query is < 1 or > 65535)
+                            throw new InvalidDataException("Érvénytelen Query port");
+                        if(!int.TryParse(fields["RCON TCP port"].Text,out var rcon)||rcon is < 1 or > 65535)
+                            throw new InvalidDataException("Érvénytelen RCON port");
+                        string loader=fields["API-loader EXE (opcionális)"].Text.Trim();
+                        bool enableApi=apiStart.IsChecked==true;
+                        string serverArguments=fields["Indítási paraméterek (pontos egyezés)"].Text.Trim();
+                        string loaderArguments=fields["API-loader argumentumok"].Text.Trim();
+                        if(enableApi && loader.Length==0)
+                            loader=Path.Combine(root,"ShooterGame","Binaries","Win64","AsaApiLoader.exe");
+                        if(loader.Length>0 && (!File.Exists(loader)||!IsUnderRoot(loader,root)))
+                            throw new InvalidDataException("A loader EXE-nek a helyi mapgyökérben kell lennie");
+                        if(existing!=null && existing.StartWithAsaApi!=enableApi &&
+                           !_cluster.Check(existing).ConfirmedStopped)
+                            throw new InvalidOperationException("Az API-indítási módot csak igazoltan leállított mapon változtathatod meg");
+                        if(enableApi)
+                        {
+                            if(loaderArguments.Length>0 && loaderArguments!=serverArguments)
+                                throw new InvalidDataException("API módban a loader paraméterei nem térhetnek el a szerver paramétereitől");
+                            // Validate before mutating the registered map.
+                            _=AsaApiLaunchPolicy.Resolve(new LocalMap{
+                                InstallationPath=root,ExecutablePath=exe,Arguments=serverArguments,
+                                ApiLoaderPath=loader,ApiLoaderArguments=serverArguments,
+                                StartWithAsaApi=true
+                            });
+                            loaderArguments=serverArguments;
+                        }
+                        if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,out var interval)||interval<5||interval>3600)throw new InvalidDataException("Érvénytelen watchdog-időköz");
+                        // Stage a full candidate without mutating the registered map.
+                        // This preserves all process and Store-v1 identity fields.
+                        var target=existing==null?map:
+                            JsonSerializer.Deserialize<LocalMap>(
+                                JsonSerializer.Serialize(existing)) ??
+                            throw new InvalidDataException("Map profile cannot be staged");
+                        target.Name=name;target.InstallationPath=root;target.ExecutablePath=exe;
+                        target.Arguments=serverArguments;
+                        target.ApiLoaderPath=loader.Length==0?"":Path.GetFullPath(loader);
+                        target.ApiLoaderArguments=loaderArguments;
+                        target.StartWithAsaApi=enableApi;
+                        target.Maintenance=maintenance.IsChecked==true;
+                        target.MonitorRcon=monitorRcon.IsChecked==true;
+                        target.WatchdogIntervalSeconds=interval;
+                        target.GamePort=game;target.QueryPort=query;target.RconPort=rcon;
+                        target.RconHost=fields["RCON host (helyi IP)"].Text.Trim();
+                        target.LogFilePath=fields["Helyi naplófájl"].Text.Trim();
+                        if(password.Password.Length>0)target.RconPasswordProtected=SecureStore.Protect(password.Password);
+                        // UDP Game+Query collisions and TCP RCON collisions are
+                        // checked against local, registered maps only; never
+                        // treat a remote LAN snapshot as a locally owned map.
+                        LocalMapPortPolicy.RequireNoConflicts(target,_cluster.Config.LocalMaps);
+                        if(existing==null)_cluster.AddMap(target);
+                        else _cluster.ReplaceMap(existing,target);
+                        RefreshDashboardMapCards();dialog.DialogResult=true;
+                        ShowLocalServerPage();
+                    }catch(Exception e){
+                        WriteLog("steam-map-wizard",e);
+                        errorMessage.Text="Nem menthető: "+UntamedPresentation.Display(e.Message);
+                        saveButton.IsEnabled=true;
+                    }
+                    finally
+                    {
+                        installInProgress=false;
+                        previous.IsEnabled=stepIndex>0;
+                        next.IsEnabled=true;
+                        cancel.IsEnabled=true;
+                        steamProgress.IsIndeterminate=false;
+                        steamProgress.Visibility=Visibility.Collapsed;
+                    }
+                });
+        // Download from step 1, without the EXE or any Game/Query/RCON ports.
+        // Registration remains a separate operator action on step 5.
+        var downloadProgress=new ProgressBar{
+            Height=12,Minimum=0,Maximum=100,IsIndeterminate=true,
+            Visibility=Visibility.Collapsed,Margin=new Thickness(0,6,0,9),
+            Foreground=Aqua,Background=Panel};
+        Button downloadButton=null!;
+        downloadButton=Btn("ASA szerverfájlok letöltése SteamCMD-vel",async()=>{
+            if(!Fresh() || installInProgress || downloadedInstall!=null)return;
+            string name,root,steamExe;
+            try
+            {
+                name=LocalMapNameRules.Normalize(names.Text);
+                _=AsaSteamMapCatalog.LevelFor(name);
+                root=Path.GetFullPath(installRoot.Text.Trim());
+                steamExe=Path.GetFullPath(steamCmdExe.Text.Trim());
+                if(WinMessageBox.Show(
+                    "Valódi ASA 2430930 letöltés indulhat (több GB).\\nMap: "+name+
+                    "\\nMappa: "+root+"\\nSteamCMD: "+steamExe+
+                    "\\nA szerver nem indul el. A portokat később kell megadni.",
+                    "ASA telepítés",MessageBoxButton.YesNo,
+                    MessageBoxImage.Question)!=MessageBoxResult.Yes)return;
+            }
+            catch(Exception ex)
+            {
+                installStatus.Text="Nem indítható a letöltés: "+
+                    UntamedPresentation.Redact(ex.Message);
+                return;
+            }
+            installInProgress=true;
+            downloadButton.IsEnabled=false;
+            previous.IsEnabled=false;next.IsEnabled=false;
+            cancel.IsEnabled=false;saveButton.IsEnabled=false;
+            downloadProgress.Visibility=Visibility.Visible;
+            try
+            {
+                var request=new SteamFreshInstallRequest(
+                    map.Id,name,sessionBox.Text.Trim(),root,steamExe,
+                    downloadSteam.IsChecked==true,retryFresh.IsChecked==true);
+                var progress=new Progress<SteamInstallProgress>(info=>{
+                    installStatus.Text=info.Stage+" · "+info.Detail;
+                    downloadProgress.IsIndeterminate=info.Percent==null;
+                    if(info.Percent is double pct)
+                        downloadProgress.Value=Math.Clamp(pct,0,100);
+                });
+                var receipt=await SteamFreshInstall.InstallAsync(
+                    request,_cluster.Config.LocalMaps.ToArray(),progress);
+                downloadedInstall=receipt;
+                serverExe.Text=receipt.ServerExecutable;
+                // Port values are only suggested AFTER download. Nothing is
+                // bound or forwarded on the router by this offline operation.
+                var suggested=LocalMapPortPolicy.Suggest(_cluster.Config.LocalMaps);
+                if(string.IsNullOrWhiteSpace(fields["Game UDP port"].Text))
+                    fields["Game UDP port"].Text=suggested.Game.ToString();
+                if(string.IsNullOrWhiteSpace(fields["Query UDP port"].Text))
+                    fields["Query UDP port"].Text=suggested.Query.ToString();
+                if(string.IsNullOrWhiteSpace(fields["RCON TCP port"].Text))
+                    fields["RCON TCP port"].Text=suggested.Rcon.ToString();
+                installStatus.Text="ASA letöltve; Steam Build: "+
+                    (receipt.BuildId??"ismeretlen")+
+                    ". A szerver még nem indult el. Folytasd a portbeállításokkal.";
+                showStep?.Invoke(1);
+            }
+            catch(Exception ex)
+            {
+                WriteLog("steam-fresh-download",ex);
+                installStatus.Text="A telepítés nem igazolható: "+
+                    UntamedPresentation.Redact(ex.Message)+
+                    ". Félbeszakadt telepítésnél kézi újrapróbálás szükséges.";
+            }
+            finally
+            {
+                installInProgress=false;
+                previous.IsEnabled=stepIndex>0;
+                next.IsEnabled=true;cancel.IsEnabled=true;
+                downloadButton.IsEnabled=downloadedInstall==null;
+                downloadProgress.Visibility=Visibility.Collapsed;
+            }
+        });
+        // Keep the primary download action above the fold at 1366x768;
+        // advanced paths and loader options remain available by scrolling.
+        var rootRow=(UIElement)installRoot.Parent;
+        int insertion=location.Children.IndexOf(rootRow)+1;
+        location.Children.Insert(insertion,downloadProgress);
+        location.Children.Insert(insertion+1,downloadButton);
+        downloadButton.Visibility=Fresh()?Visibility.Visible:Visibility.Collapsed;
+        installMode.SelectionChanged+=(_,_)=>{
+            downloadButton.Visibility=Fresh()?Visibility.Visible:Visibility.Collapsed;
+        };
+        saveButton.Style=(Style)System.Windows.Application.Current.Resources["PrimaryAction"];
+        saveButton.MinWidth=112;
+        buttons.Children.Add(previous);
+        buttons.Children.Add(next);
+        buttons.Children.Add(saveButton);
+        buttons.Children.Add(cancel);
+        Grid.SetColumn(buttons,1);footer.Children.Add(buttons);
+        var footerPanel=new Border{Background=new SolidColorBrush(Color.FromRgb(18,33,36)),
+            BorderBrush=new SolidColorBrush(Color.FromRgb(52,79,76)),
+            BorderThickness=new Thickness(0,1,0,0),Child=footer};
+        Grid.SetRow(footerPanel,2);wizardGrid.Children.Add(footerPanel);
+        showStep=index=>{
+            if(index<0||index>=steps.Count)return;
+            stepIndex=index;
+            for(int i=0;i<steps.Count;i++)
+                steps[i].Visibility=i==index?Visibility.Visible:Visibility.Collapsed;
+            currentStep.Text=$"Lépés {index+1} / {steps.Count}  •  "+
+                (existing==null?"Új helyi szerver":"Meglévő konfiguráció");
+            previous.IsEnabled=index>0;
+            next.Visibility=index<steps.Count-1?Visibility.Visible:Visibility.Collapsed;
+            saveButton.Visibility=index==steps.Count-1?Visibility.Visible:Visibility.Collapsed;
+            saveButton.Content=Fresh()?"Letöltött map regisztrálása":"Mentés";
+            errorMessage.Text="";
+            if(index==steps.Count-1)
+            {
+                summary.Text="Map: "+names.Text+
+                    "\nTelepítés: "+fields["Map telepítési gyökérkönyvtára"].Text+
+                    "\nEXE: "+fields["Szerver EXE teljes elérési útja"].Text+
+                    "\nGame / Query / RCON port: "+
+                    fields["Game UDP port"].Text+" / "+fields["Query UDP port"].Text+" / "+
+                    fields["RCON TCP port"].Text+
+                    "\nASA API: "+(apiStart.IsChecked==true?"bekapcsolva":"kikapcsolva")+
+                    "\nMaintenance: "+(maintenance.IsChecked==true?"bekapcsolva":"kikapcsolva");
+                // All these checks are read-only. Save repeats every check
+                // and may still fail if files or a peer configuration change.
+                var problems=new List<string>();
+                try{LocalMapNameRules.Normalize(names.Text);}
+                catch(Exception){problems.Add("Érvénytelen vagy üres mapnév.");}
+                string chosenRoot=installRoot.Text.Trim();
+                string chosenExe=serverExe.Text.Trim();
+                if(!Fresh() && (chosenRoot.Length==0 || !Directory.Exists(chosenRoot)))
+                    problems.Add("A meglévő ASA gyökérkönyvtár nem létezik.");
+                if(!Fresh() && (chosenExe.Length==0 || !File.Exists(chosenExe)))
+                    problems.Add("A meglévő szerver EXE nem található.");
+                else if(!Fresh() && chosenRoot.Length>0 && Directory.Exists(chosenRoot))
+                {
+                    try{
+                        if(!IsUnderRoot(Path.GetFullPath(chosenExe),Path.GetFullPath(chosenRoot)))
+                            problems.Add("A szerver EXE nincs a megadott telepítési gyökérben.");
+                    }catch(Exception){problems.Add("Az EXE útvonala nem ellenőrizhető.");}
+                }
+                bool goodGame=int.TryParse(fields["Game UDP port"].Text,out int gp) && gp>0 && gp<=65535;
+                bool goodQuery=int.TryParse(fields["Query UDP port"].Text,out int qp) && qp>0 && qp<=65535;
+                bool goodRcon=int.TryParse(fields["RCON TCP port"].Text,out int rp) && rp>0 && rp<=65535;
+                if(Fresh() && downloadedInstall==null)
+                    problems.Add("Előbb az 1. lépésben töltsd le az ASA szerverfájlokat.");
+                if(!goodGame || !goodQuery || !goodRcon)
+                    problems.Add("A regisztrációhoz 1–65535 közötti Game, Query és RCON port kell; letöltéshez nem.");
+                else
+                {
+                    var previewMap=new LocalMap{Id=map.Id,Name=names.Text,
+                        GamePort=gp,QueryPort=qp,RconPort=rp};
+                    problems.AddRange(LocalMapPortPolicy.Conflicts(previewMap,
+                        _cluster.Config.LocalMaps));
+                }
+                if(!int.TryParse(fields["Watchdog ellenőrzés másodpercben (5–3600)"].Text,
+                    out int seconds) || seconds<5 || seconds>3600)
+                    problems.Add("Watchdog: 5–3600 másodperc közötti egész szám szükséges.");
+                var loaderPath=fields["API-loader EXE (opcionális)"].Text.Trim();
+                if(Fresh())
+                {
+                    try
+                    {
+                        _=AsaSteamMapCatalog.LevelFor(names.Text);
+                        _=AsaSteamMapCatalog.LaunchArguments(names.Text,
+                            sessionBox.Text.Trim(),gp,qp);
+                        if(chosenRoot.Length==0 || !Path.IsPathFullyQualified(chosenRoot))
+                            problems.Add("Új ASA gyökér: teljes helyi elérési út szükséges.");
+                        else if(downloadedInstall==null && Directory.Exists(chosenRoot) &&
+                                Directory.EnumerateFileSystemEntries(chosenRoot).Any() &&
+                                retryFresh.IsChecked!=true)
+                            problems.Add("Új szerver könyvtára nem üres; importáld meglévőként, vagy ellenőrizd a félbeszakadt telepítést.");
+                        if(steamCmdExe.Text.Length==0)
+                            problems.Add("SteamCMD teljes elérési útja szükséges.");
+                        else if(downloadedInstall==null && !File.Exists(steamCmdExe.Text) && downloadSteam.IsChecked!=true)
+                            problems.Add("SteamCMD hiányzik; pipáld be a hivatalos letöltést vagy válassz meglévőt.");
+                        if(apiStart.IsChecked==true)
+                            problems.Add("Friss telepítésnél az ASA API loader csak utólag, ellenőrzés után engedélyezhető.");
+                    }
+                    catch(Exception){problems.Add("Ismeretlen mapazonosító vagy hibás indítási adatok.");}
+                }
+                if(apiStart.IsChecked==true && !Fresh())
+                {
+                    if(loaderPath.Length==0 && chosenRoot.Length>0)
+                        loaderPath=Path.Combine(chosenRoot,
+                            "ShooterGame","Binaries","Win64","AsaApiLoader.exe");
+                    if(loaderPath.Length==0 || !File.Exists(loaderPath))
+                        problems.Add("Bekapcsolt ASA API indításhoz loader EXE szükséges.");
+                }
+                if(problems.Count==0)
+                {
+                    validationHints.Foreground=Aqua;
+                    validationHints.Text="✓ A helyi fájlok, portok és az alapbeállítások előzetes ellenőrzése sikeres. "+
+                        "Mentéskor újra ellenőrzünk. ASA-indítás nem történik.";
+                }
+                else
+                {
+                    validationHints.Foreground=Brushes.OrangeRed;
+                    validationHints.Text="Mentés előtt javítandó:\n• "+string.Join("\n• ",problems);
+                }
+                saveButton.IsEnabled=problems.Count==0;
+            }
+            scroll.ScrollToTop();
+        };
+        dialog.Content=wizardGrid;
+        showStep(0);
+        if (screenshotOnly)
+        {
+            _editorScreenshotWindow=dialog;
+            dialog.Show();
+        }
+        else dialog.ShowDialog();
     }
     private void ShowLanSettings()
     {
@@ -385,11 +1415,15 @@ public partial class MainWindow
         var host=new TextBox{Text=_cluster.Config.LocalHostName};
         var listen=new TextBox{Text=_cluster.Config.ListenPort.ToString()};
         var remote=new TextBox{Text=_cluster.Config.PeerAddress};
+        var peerHostId=new TextBox{Text=_cluster.Config.ExpectedPeerHostId};
         var remotePort=new TextBox{Text=_cluster.Config.PeerPort.ToString()};
         var key=new PasswordBox();
         Add(Box(V(Label("Saját gép neve",13,Aqua),host,
             Label("LAN figyelőport (0 = kikapcsolva)",13,Aqua),listen,
-            Label("Peer helyi IP / hostnév",13,Aqua),remote,
+            Label("Saját Host ID (a másik Managerben kell megadni)",13,Aqua),
+            new TextBox{Text=_cluster.Config.LocalHostId,IsReadOnly=true},
+            Label("Peer helyi IPv4",13,Aqua),remote,
+            Label("Elvárt távoli Host ID (kötelező)",13,Aqua),peerHostId,
             Label("Peer TCP port",13,Aqua),remotePort,
             Label("Közös párosítási titok · min. 24 karakter · mindkét gépen azonos",13,Aqua),
             key,
@@ -399,10 +1433,21 @@ public partial class MainWindow
                         throw new InvalidDataException("Érvénytelen listen port");
                     if(!int.TryParse(remotePort.Text,out int peer)||peer is < 0 or >65535)
                         throw new InvalidDataException("Érvénytelen peer port");
+                    if(port>0||peer>0)
+                    {
+                        if(port==0||peer<1024 ||
+                           !System.Net.IPAddress.TryParse(remote.Text.Trim(),out var peerIp)||
+                           peerIp.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork ||
+                           !Guid.TryParse(peerHostId.Text,out var pinnedId)||
+                           pinnedId==Guid.Empty ||
+                           pinnedId==Guid.Parse(_cluster.Config.LocalHostId))
+                            throw new InvalidDataException("LAN peer IPv4 és a másik gép Host ID-ja kötelező");
+                    }
                     _cluster.UpdateSettings(config=>{
                         config.LocalHostName=host.Text.Trim();
                         config.ListenPort=port; config.PeerAddress=remote.Text.Trim();
                         config.PeerPort=peer;
+                        config.ExpectedPeerHostId=peerHostId.Text.Trim();
                         if(key.Password.Length>0)
                         {
                             if(key.Password.Length<24)throw new InvalidDataException("A párosítási kulcs túl rövid");
@@ -419,3 +1464,4 @@ public partial class MainWindow
             }))));
     }
 }
+

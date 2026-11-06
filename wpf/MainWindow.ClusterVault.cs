@@ -14,6 +14,55 @@ namespace UntamedManager;
 // external implementation.
 public partial class MainWindow
 {
+    private static string FormatVaultReport(ClusterVaultArchiveReport result)
+    {
+        string Flag(bool value)=>value?"IGAZOLT A MÁSOLATBAN":"HIÁNYZIK / ELTÉR";
+        return (result.HistoricalConsistent?"TELJES TÖRTÉNETI METADATAEGYEZÉS":
+                "RÉSZLEGES VAGY ELLENTMONDÁSOS TÖRTÉNETI MINTA")+
+            "\nSHA-256 ellenőrzött fájlok: "+result.VerifiedFiles+
+            "\nMapok: "+result.Maps+" · Peerek: "+result.Peers+
+            "\nKét host helyi bizonyítéka: "+Flag(result.CompleteTwoHostEvidence)+
+            "\nMunkamenet és koordináció: "+Flag(result.SessionConsistent)+
+            "\nKonfigurációlenyomatok: "+Flag(result.ConfigHashesVerified)+
+            "\n"+string.Join("\n",result.Hosts.Select(h=>
+                "Host "+h.Number+": "+h.Maps+" map · helyi metadata: "+Flag(h.LocalEvidence)+
+                " · session: "+Flag(h.SessionMatches)+" · hash: "+Flag(h.ConfigHashMatches)+
+                " · lock: "+Flag(h.LockMatches)+" · ACTIVE: "+Flag(h.ActiveMaps)))+
+            "\n"+string.Join("\n",result.Findings.Select(f=>f.Code+": "+f.Message))+
+            "\nÉLES HASZNÁLAT / ÍRÓJOG: TILTVA. Nem élő állapot, nem karaktertranszfer-bizonyíték.";
+    }
+    private void ShowStoreAliasProof()
+    {
+        var first=new TextBox{Height=34,Background=Panel,Foreground=Brushes.White};
+        var second=new TextBox{Height=34,Background=Panel,Foreground=Brushes.White};
+        var status=Label("Két helyi/UNC Store-mappa azonosítására használható; semmit nem ír vagy konvertál.",12,Soft);
+        Button? check=null;
+        check=Btn("UNC mappaazonosság vizsgálata (csak olvasás)",async()=>{
+            if(check!=null)check.IsEnabled=false;
+            try
+            {
+                string pathA=first.Text.Trim(),pathB=second.Text.Trim();
+                var decision=await Task.Run(()=>
+                    StorePathIdentity.CompareDirectories(pathA,pathB));
+                status.Text=decision.Reason+
+                    (decision.AliasEvidence?
+                        "\nWindows fájlrendszer-azonosság igazolt. A Store session/hash és writer ownership még külön bizonyítandó.":
+                        "\nKétgépes Store-írás ettől nem engedélyezhető.");
+            }
+            catch(Exception ex)
+            {
+                WriteLog("store-path-identity",ex);
+                status.Text="Az UNC-azonosság nem igazolható. Store írás tiltva.";
+            }
+            finally{if(check!=null)check.IsEnabled=true;}
+        });
+        Add(Box(V(Label("HP / Ryzen · Store UNC aliasazonosság",19,Mint,true),
+            Label("A történeti Store-v1 azonosítókat, hash-eket és sessionadatokat nem módosítja.",12,Soft),
+            Label("1. ellenőrizendő Store-mappa",12,Aqua),first,
+            Label("2. ellenőrizendő Store-mappa",12,Aqua),second,
+            check,status)));
+    }
+
     private void ShowClusterVaultArchiveCenter()
     {
         var zip=new TextBox{Height=34,IsReadOnly=true,
@@ -28,25 +77,11 @@ public partial class MainWindow
                 string input=zip.Text.Trim();
                 status.Text="Vault-archívum és a mentett cluster-kapcsolatok ellenőrzése...";
                 var result=await Task.Run(()=>ClusterVaultArchiveInspector.Inspect(input));
-                string issues=result.Warnings.Length==0?"Nincs figyelmeztetés.":
-                    string.Join("\n",result.Warnings.Select(x=>"• "+x));
-                status.Text=(result.SessionConsistent&&result.ConfigHashesVerified&&
-                        result.LocalHostMapRecordsActive?
-                        "ELLENŐRZÖTT TÖRTÉNETI CLUSTER VAULT ARCHÍVUM":
-                        "VAULT ARCHÍVUM ELLENŐRZÉSE: KORLÁTOZÁS / ELTÉRÉS")+
-                    "\nFájlok SHA-256: "+result.VerifiedFiles+
-                    "\nMapok: "+result.Maps+" · Kapcsolódó hostok: "+result.Peers+
-                    "\nConfig hash: "+(result.ConfigHashesVerified?"EGYEZIK":"ELTÉR")+
-                    "\nMentett helyi mapállapot: "+(result.LocalHostMapRecordsActive?"ACTIVE":"ELTÉR")+
-                    "\nMapok: "+string.Join(", ",result.MapNames)+
-                    "\n"+issues+
-                    "\nNEM ÉLŐ ÁLLAPOT. Nem igazolja a másik gép helyi adatait, "+
-                    "a karaktertranszfert vagy a működő Store-átvételt.";
+                status.Text=FormatVaultReport(result);
             }
-            catch(Exception ex)
+            catch(Exception)
             {
-                status.Text="Cluster Vault archívum visszautasítva: "+ex.Message;
-                WriteLog("untamed-vault-archive-inspect",ex);
+                status.Text="VAULT_INPUT: az archívum hiányos, hibás, változó vagy nem biztonságos. Éles használat tiltva.";
             }
             finally{if(inspect!=null)inspect.IsEnabled=true;}
         });
@@ -65,3 +100,4 @@ public partial class MainWindow
             inspect,status)));
     }
 }
+

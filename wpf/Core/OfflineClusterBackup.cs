@@ -20,7 +20,8 @@ public sealed record OfflineClusterBackupMember(string Host,Guid Owner,string Na
 public sealed record OfflineClusterBackupManifest(
     int Schema,Guid Batch,DateTimeOffset CreatedUtc,
     OfflineClusterBackupMember[] Items,bool RealAsaConsistencyProven,
-    bool KovaStoreIncluded,bool MariaDbSnapshotConsistencyProven,string Disclaimer);
+    [property:System.Text.Json.Serialization.JsonPropertyName("KovaStoreIncluded")]
+    bool VaultStoreIncluded,bool MariaDbSnapshotConsistencyProven,string Disclaimer);
 public static class OfflineClusterBackup
 {
     // Four-folder Windows wizard: select previously copied, independently
@@ -76,7 +77,7 @@ public static class OfflineClusterBackup
     }
 
     private const string Warning="Complete 10-map/3-SQL OFFLINE FILE INTEGRITY COPY. "+
-        "Not a consistent live ASA snapshot, not a Kova Store backup and not an SQL transaction.";
+        "Not a consistent live ASA snapshot, not a Untamed Cluster Vault backup and not an SQL transaction.";
     public static OfflineClusterBackupManifest Build(OfflineClusterBackupRequest request,
         string destination)
     {
@@ -178,7 +179,7 @@ public static class OfflineClusterBackup
             File.ReadAllText(manifestFile))??throw new InvalidDataException("Broken archive index");
         if(report.Schema!=1||report.Batch==Guid.Empty ||report.Items==null||
            report.Items.Length!=13 ||report.RealAsaConsistencyProven||
-           report.KovaStoreIncluded||report.MariaDbSnapshotConsistencyProven ||
+           report.VaultStoreIncluded||report.MariaDbSnapshotConsistencyProven ||
            report.Disclaimer!=Warning)
             throw new InvalidDataException("Offline archive must not claim certified live backup");
         var maps=report.Items.Where(e=>e.Host is "HP" or "RYZEN").ToArray();
@@ -285,3 +286,4 @@ public static class OfflineClusterBackup
         child.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,
             StringComparison.OrdinalIgnoreCase);
 }
+

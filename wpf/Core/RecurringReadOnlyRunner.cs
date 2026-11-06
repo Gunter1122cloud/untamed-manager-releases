@@ -114,9 +114,10 @@ public sealed class RecurringReadOnlyRunner
                 }
                 if(!job.Enabled||cursor.NextDueUtc>now)continue;
                 var due=cursor.NextDueUtc;
-                // Subsequent recurrence is computed from its previous slot,
-                // not the current clock. Skipped slots cannot replay.
-                cursor.NextDueUtc=OperationalScheduler.Next(job,due).DueUtc;
+                // Skip ALL obsolete slots after an outage or long-running
+                // task. Computing only from 'due' leaves past slots pending
+                // and can replay them one by one after a Manager restart.
+                cursor.NextDueUtc=OperationalScheduler.Next(job,now).DueUtc;
                 if(cursor.NextDueUtc<=due)
                     throw new InvalidDataException("Non-advancing recurring job cursor");
                 string status=!owned.Contains(job.Map)?"foreign-map-blocked":

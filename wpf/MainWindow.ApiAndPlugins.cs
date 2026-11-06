@@ -14,9 +14,18 @@ public partial class MainWindow
     {
         var mapList=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
             DisplayMemberPath="Name",SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
+        if(_preferredPluginMapId is Guid selectedPluginMap)
+            mapList.SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(x=>x.Id==selectedPluginMap)
+                ??mapList.SelectedItem;
         var plugin=new ComboBox{IsEditable=true,Height=34,Background=Panel,
             Foreground=Brushes.White};
         var status=Label("Válassz helyi mapot. PE64 fájlok és pluginállapotok csak lemezről igazolhatók.",12,Soft);
+        AsaApiReleaseInfo? approvedRelease=null;
+        string? stagedPackage=null;
+        string? lastApiTransaction=null;
+        bool apiInstallBusy=false;
+        var releaseAsset=new ComboBox{Background=Panel,Foreground=Brushes.White,
+            DisplayMemberPath="Name",SelectedIndex=-1};
         LocalMap Selected()
         {
             if(mapList.SelectedItem is not LocalMap m ||
@@ -46,7 +55,7 @@ public partial class MainWindow
             }
             catch(Exception ex){status.Text="API/Plugin leltár sikertelen: "+ex.Message;}
         }
-        Add(Box(V(Label("v1.5 · ASA API és pluginállapot",20,Mint,true),
+        Add(Box(V(Label("v"+UiVersion+" · ASA API és pluginállapot",20,Mint,true),
             Label("PE64 loader/DLL-ellenőrzés, config validálás, lemezen lévő pluginok. "+
                 "Kikapcsoláskor teljes pluginmappa kerül külön gyökérbe; SHA-256 "+
                 "védőmásolat szükséges. Betöltött futásidejű modul nem következtethető a lemezről.",12,Soft),
@@ -57,6 +66,11 @@ public partial class MainWindow
                 {
                     status.Text="Hivatalos ArkServerApi GitHub-verzió lekérdezése...";
                     var release=await AsaApiReleaseCatalog.FetchLatestAsync(_http);
+                    approvedRelease=release;
+                    var verified=release.Assets.Where(a=>a.OfficialSha256!=null &&
+                        a.Name.EndsWith(".zip",StringComparison.OrdinalIgnoreCase)).ToArray();
+                    releaseAsset.ItemsSource=verified;
+                    releaseAsset.SelectedIndex=verified.Length>0?0:-1;
                     status.Text="ASA API hivatalos upstream: "+release.Tag+
                         "\nKiadás (UTC): "+(release.PublishedUtc?.ToString("O")??"ismeretlen")+
                         "\nFájlok: "+string.Join(", ",release.Assets.Select(x=>x.Name+
@@ -66,9 +80,88 @@ public partial class MainWindow
                 }
                 catch(Exception ex)
                 {
-                    status.Text="ASA API verzió lekérdezése sikertelen: "+ex.Message;
                     WriteLog("asa-api-release",ex);
+                    status.Text="UM-API-UPSTREAM: a hivatalos verzióadatok nem ellenőrizhetők.";
                 }
+            }),
+            Label("Hivatalos ASA API ZIP-fájl – csak kiadói SHA-256-tal",12,Aqua),
+            releaseAsset,
+            Btn("Hivatalos ASA API ZIP letöltése és integritásellenőrzése (TEMP)",async ()=>{
+                if(approvedRelease==null||releaseAsset.SelectedItem is not AsaApiReleaseAsset asset)
+                {status.Text="Előbb válassz SHA-256-tal igazolható hivatalos kiadási ZIP-et.";return;}
+                string output=Path.Combine(Path.GetTempPath(),
+                    "Untamed-ApiLab-"+Guid.NewGuid().ToString("N"));
+                if(WinMessageBox.Show(
+                    "A hivatalos ASA API release ZIP-et letölti az izolált TEMP-mappába "+
+                    "és ellenőrzi a kiadói SHA-256-ot.\n"+
+                    "Nem csomagolja ki ASA-ba, nem módosít loadert/DLL-t, nem "+
+                    "indít újra mapot.\nCél: "+output+"\nFolytatod?",
+                    "Untamed ASA API – elkülönített ZIP",
+                    MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                status.Text="ASA API: hivatalos ZIP letöltése és hash-ellenőrzése...";
+                try
+                {
+                    var result=await AsaApiReleaseStaging.StageLatestAsync(
+                        _http,asset.Name,output);
+                    stagedPackage=output;
+                    status.Text="HIVATALOS ZIP INTEGRITÁSA IGAZOLT"+
+                        "\nKiadás: "+result.Tag+" · ZIP: "+result.AssetName+
+                        "\nSHA-256: "+result.OfficialSha256+
+                        "\nMéret: "+result.Bytes+" bájt"+
+                        "\nCsomag: "+output+
+                        "\nLoader/plugin telepítés és éles restart NEM történt.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("asa-api-release-download",ex);
+                    status.Text="UM-API-PACKAGE: a ZIP hitelesítése sikertelen. "+
+                        "Az esetleges .incomplete mappa operátori vizsgálatot igényel.";
+                }
+            }),
+            Btn("Ellenőrzött API ZIP telepítése – kizárólag elkülönített tesztmap",async ()=>{
+                if(apiInstallBusy)return;
+                apiInstallBusy=true;
+                try
+                {
+                    var map=Selected();
+                    if(stagedPackage==null)throw new InvalidOperationException("Előbb tölts le ellenőrzött API-csomagot.");
+                    string package=stagedPackage;
+                    if(WinMessageBox.Show("A kiválasztott elkülönített tesztmap API-binárisait cseréli. "+
+                        "Előtte teljes visszaállítási másolat készül; a konfiguráció, pluginadatok és licenc megmarad. "+
+                        "Minden közös telepítésű mapnak leállítva kell lennie. Éles telepítési útvonalat nem fogad el.\nFolytatod?",
+                        "Untamed API – teszttelepítés",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                    var fresh=await AsaApiReleaseCatalog.FetchLatestAsync(_http);
+                    var manifest=AsaApiReleaseStaging.Verify(package);
+                    var asset=fresh.Assets.SingleOrDefault(x=>x.Name==manifest.AssetName)??
+                        throw new InvalidOperationException("A kiadási csomag már nem ellenőrizhető az aktuális kiadóval.");
+                    status.Text="API-teszttelepítés: snapshot, bináriscsere és integritásellenőrzés...";
+                    var result=await System.Threading.Tasks.Task.Run(()=>AsaApiIsolatedInstaller.Install(
+                        _cluster,map.Id,package,fresh,asset));
+                    lastApiTransaction=result.Transaction;
+                    status.Text="Az API-fájlok telepítve és ellenőrizve. Futásidejű betöltés még nem igazolt.\nTranzakció: "+result.Transaction+
+                        "\nCsomagban talált, változatlanul hagyott beépített pluginok: "+
+                        (result.BundledPluginsUntouched is {Length:>0}
+                            ?string.Join(", ",result.BundledPluginsUntouched):"nincs");
+                }
+                catch(Exception ex){WriteLog("api-isolated-install",ex);status.Text="UM-API-INSTALL: a teszttelepítés nem fejeződött be. A tranzakció megőrzött állapota ellenőrizendő.";}
+                finally{apiInstallBusy=false;}
+            }),
+            Btn("Félbeszakadt API-teszttelepítés védett helyreállítása",()=>{
+                if(apiInstallBusy)return;
+                try
+                {
+                    var map=Selected();
+                    using var picker=new System.Windows.Forms.FolderBrowserDialog{
+                        Description="A teszttelepítés transactions mappájából válassz félbeszakadt tranzakciót",
+                        SelectedPath=lastApiTransaction??""};
+                    if(picker.ShowDialog()!=System.Windows.Forms.DialogResult.OK)return;
+                    if(WinMessageBox.Show("A kiválasztott félbeszakadt teszttelepítés teljes API-könyvtárát állítja vissza a hiteles snapshotból. "+
+                        "Csak igazoltan leállított tesztmapon folytatható.\nFolytatod?","API-teszt helyreállítás",
+                        MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                    AsaApiIsolatedInstaller.RecoverSnapshot(_cluster,map.Id,picker.SelectedPath);
+                    status.Text="A snapshot visszaállítva. Az eredeti félbeszakadt művelet naplója megmaradt operátori ellenőrzésre.";
+                }
+                catch(Exception ex){WriteLog("api-isolated-recovery",ex);status.Text="UM-API-RECOVERY: a helyreállítás megtagadva vagy sikertelen; a naplót megőriztük.";}
             }),
             Label("Plugin mappaneve",12,Aqua),plugin,
             Btn("Kijelölt plugin KIKAPCSOLÁSA – csak igazoltan leállított map",()=>{
@@ -83,21 +176,24 @@ public partial class MainWindow
             {
                 var map=Selected();
                 var name=plugin.Text?.Trim()??"";
+                var preflight=PluginStateManager.InspectLocalToggle(_cluster,map.Id,name,enabling);
+                if(!preflight.Allowed)
+                    throw new InvalidOperationException(preflight.Reason);
                 if(WinMessageBox.Show(map.Name+" / "+name+"\n"+
                     (enabling?"Plugin engedélyezése":"Plugin letiltása")+
                     " – teljes pluginmappa és tartós adatok áthelyezése, "+
                     "előtte SHA-256 védőmásolat. A map nem indul újra.\nFolytatod?",
                     "Plugin állapotváltás",
                     MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-                var result=PluginStateManager.Toggle(map,_cluster.Check(map),name,
-                    enabling,_cluster.Store.Root);
+                var result=PluginStateManager.ToggleLocalChecked(
+                    _cluster,map.Id,name,enabling);
+                Inspect();
                 status.Text="Plugin tranzakció kész: "+result.Plugin+
                     (result.Enabled?" ENABLED":" DISABLED")+
                     "\nVédőmásolat: "+result.BackupPackage+
                     "\nKövetkező indításhoz restart szükséges (automatikus restart NINCS).";
-                Inspect();
             }
-            catch(Exception ex){status.Text="Plugin állapotváltás megtagadva: "+ex.Message;
+            catch(Exception ex){status.Text="Plugin állapotváltás megtagadva: "+UntamedPresentation.Redact(ex.Message);
                 WriteLog("plugin-toggle",ex);}
         }
     }

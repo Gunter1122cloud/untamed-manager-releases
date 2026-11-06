@@ -25,9 +25,9 @@ public static class OfflineSqlArchive
         string profile=Fixed(profileRoot),source=Fixed(sqlFile);
         if(!File.Exists(source) || !source.EndsWith(".sql",StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Select an existing offline .sql export");
-        if(source.Contains("Kova",StringComparison.OrdinalIgnoreCase) ||
+        if(source.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase) ||
            source.Contains("Store",StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("KovaCluster/Store paths are not SQL fixture sources");
+            throw new InvalidDataException("Untamed Cluster Vault paths are not SQL fixture sources");
         if(!string.Equals(Path.GetFileNameWithoutExtension(source),database,StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Offline SQL fixture filename must match selected database");
         var sourceInfo=new FileInfo(source);
@@ -116,3 +116,4 @@ public static class OfflineSqlArchive
         return full;
     }
 }
+

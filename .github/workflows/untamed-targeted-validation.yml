@@ -1,0 +1,60 @@
+name: T11-T13 Isolated Windows Test
+on:
+  push:
+    branches: ['chatgpt/untamed-manager-p0-fixes-20261104']
+    paths:
+      - '.github/workflows/untamed-targeted-validation.yml'
+      - 'wpf/Core/SteamCmdIsolatedUpdater.cs'
+      - 'wpf/Core/CurseForgeCatalog.cs'
+      - 'wpf/Core/CurseForgeDependencyResolver.cs'
+      - 'wpf/Core/ModDependencyPlanner.cs'
+      - 'wpf/Core/AsaApiReleaseStaging.cs'
+      - 'wpf/Core/RconProtocol.cs'
+      - 'wpf/Testing/Integration/*Tests.cs'
+      - 'wpf/Testing/Targeted/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore project-owned artwork required by WPF project reference
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force wpf/Assets | Out-Null
+          $items = @(
+            @('21f8154d985845935a30bac3a33914ab7c449575','kingdom-hero.jpg'),
+            @('0e482cc9b6389908588d11846789ec8fbd434320','map-atlas.jpg'),
+            @('7d6fa69a40eac8b7cf343e0f39223d776d4131c2','UntamedManager.ico')
+          )
+          foreach($item in $items) {
+            $blob = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/$($item[0])" | ConvertFrom-Json
+            if ($blob.encoding -ne 'base64') { throw 'Project artwork blob invalid' }
+            [IO.File]::WriteAllBytes("wpf/Assets/$($item[1])",[Convert]::FromBase64String(($blob.content -replace '\s','')))
+          }
+          ./wpf/PrepareArtwork.ps1
+      - name: Compile actual Windows WPF backend and targeted test assembly
+        shell: pwsh
+        run: |
+          dotnet build wpf/Testing/Targeted/Targeted.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'Untamed T11-T13 Windows compilation failed' }
+      - name: Build real isolated FakeSteamCMD Windows child fixture
+        shell: pwsh
+        run: |
+          dotnet publish wpf/Testing/FakeSteamCMD/FakeSteamCMD.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP/FakeSteamCMD" --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'FakeSteamCMD fixture build failed' }
+          dotnet publish wpf/Testing/FakeAsa/FakeAsa.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP/FakeAsa" --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'FakeAsa fixture build failed' }
+      - name: Run T11/T12/T13 actual Windows regression suite
+        shell: pwsh
+        run: |
+          dotnet run --project wpf/Testing/Targeted/Targeted.csproj -c Release --no-build -- "$env:RUNNER_TEMP/FakeSteamCMD/FakeSteamCMD.exe" "$env:RUNNER_TEMP/FakeAsa/FakeAsa.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Untamed T11-T13 targeted regressions failed' }

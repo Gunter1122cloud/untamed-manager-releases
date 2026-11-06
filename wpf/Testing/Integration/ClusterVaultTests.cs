@@ -30,6 +30,7 @@ public static class ClusterVaultTests
         var mapRyzen=new[]{"TheCenter_WP","LostColony_WP","Ragnarok_WP","Aberration_WP","ScorchedEarth_WP"};
         string deviceHp=Guid.NewGuid().ToString(),deviceRyzen=Guid.NewGuid().ToString();
         string session=Guid.NewGuid().ToString(),backupId=Guid.NewGuid().ToString();
+        string hpBackupId=Guid.NewGuid().ToString();
         string sharedPath=@"\\192.0.2.1\synthetic";
         var idsHp=mapHp.Select(_=>Guid.NewGuid().ToString()).ToArray();
         var idsRyzen=mapRyzen.Select(_=>Guid.NewGuid().ToString()).ToArray();
@@ -62,7 +63,7 @@ public static class ClusterVaultTests
             ["SHARED/.kova-store-v1/"+deviceHp+".json"]=JsonSerializer.Serialize(
                 new{session,id=deviceHp,phase="done",config=configHp,configHash=hHash,
                     members=membersHp,selected=idsHp,
-                    backup=new{id=Guid.NewGuid().ToString()}},Compact),
+                    backup=new{id=hpBackupId}},Compact),
             ["SHARED/.kova-store-v1/"+deviceRyzen+".json"]=JsonSerializer.Serialize(
                 new{session,id=deviceRyzen,phase="done",config=configRyzen,configHash=rHash,
                     members=membersRyzen,selected=idsRyzen,
@@ -90,6 +91,107 @@ public static class ClusterVaultTests
             }
             return file;
         }
+
+        // The complementary HP reference is four local metadata JSONs only.
+        // Neither ZIP contains live credentials, profiles, transfer contents
+        // or real host identifiers; all bytes are synthesized under TEMP.
+        var hpLocal=new Dictionary<string,string>{
+            ["cluster-v1.json"]=JsonSerializer.Serialize(configHp,Compact),
+            ["shared-store-device-v1.json"]=JsonSerializer.Serialize(
+                new{schema=1,id=deviceHp},Compact),
+            ["shared-store-lock-v1.json"]=JsonSerializer.Serialize(
+                new{schema=1,session,config=configHp,configHash=hHash,selected=idsHp},Compact),
+            ["cluster-store-v1.json"]=JsonSerializer.Serialize(new{
+                schema=1,maps=idsHp.Select((id,i)=>(id,i)).ToDictionary(x=>x.id,
+                    x=>(object)new{root=membersHp[x.i].root,map=membersHp[x.i].map,
+                        phase="active",backupId=hpBackupId,sharedSession=session,
+                        preparedAt="2026-11-03T18:00:00Z"})},Compact)
+        };
+        string hpCopy=Path.Combine(dir,"Synthetic-HP-Local-v1.zip");
+        using(var hpZip=ZipFile.Open(hpCopy,ZipArchiveMode.Create))
+            foreach(var file in hpLocal)
+            {
+                var entry=hpZip.CreateEntry(file.Key,CompressionLevel.Optimal);
+                using var writer=new StreamWriter(entry.Open(),new UTF8Encoding(false));
+                writer.Write(file.Value);
+            }
+        // On-demand, read-only original local four-file inspection. A valid
+        // copied host does NOT infer that the other host owns the same writer.
+        string copiedLocal=Path.Combine(dir,"Synthetic-HP-Local-Copy");
+        ZipFile.ExtractToDirectory(hpCopy,copiedLocal);
+        var localRead=LegacyStoreV1LocalReader.Inspect(copiedLocal);
+        Assert(localRead.LocalFilesVerified&&localRead.ClusterHashVerified &&
+            localRead.LocalLockVerified&&localRead.AllLocalMapsActive &&
+            localRead.LocalSnapshotReady && localRead.Maps.Length==5 &&
+            !localRead.LiveTwoHostVerified&&!localRead.CharacterTravelVerified,
+            "read-only original local four Store-v1 files identify five active records without remote claims");
+        // Authenticated Manager LAN reports opaque tags, not original
+        // session IDs, UNC paths or device GUIDs. Both host copies MUST
+        // belong to the same prior shared Store session and different PCs.
+        string copiedRyzen=Path.Combine(dir,"Synthetic-Ryzen-Local-Copy");
+        Directory.CreateDirectory(copiedRyzen);
+        foreach(string sourceName in new[]{
+            "cluster-v1.json","cluster-store-v1.json",
+            "shared-store-device-v1.json","shared-store-lock-v1.json"})
+            File.WriteAllText(Path.Combine(copiedRyzen,sourceName),
+                items["Ryzen-Kova/"+sourceName],new UTF8Encoding(false));
+        var hpPeer=LegacyStoreV1PeerProof.FromLocal(copiedLocal);
+        var ryzenPeer=LegacyStoreV1PeerProof.FromLocal(copiedRyzen);
+        var historicalPair=LegacyStoreV1PairComparison.Compare(hpPeer,ryzenPeer,true);
+        Assert(historicalPair.CopiedMetadataPairMatches &&
+            historicalPair.SameSharedSession &&
+            historicalPair.SameSharedPath &&
+            historicalPair.DistinctDeviceIds &&
+            historicalPair.BothHaveFiveActiveMaps &&
+            !historicalPair.LiveWriterCertified &&
+            !historicalPair.CharacterTravelVerified,
+            "two original five-map local copies exchange matching Store session/share hashes without writer authority");
+        Assert(hpPeer.SessionTag.Length==64 &&
+            hpPeer.SharedPathTag.Length==64 &&
+            hpPeer.DeviceTag.Length==64 &&
+            !JsonSerializer.Serialize(hpPeer).Contains(sharedPath,StringComparison.OrdinalIgnoreCase) &&
+            !JsonSerializer.Serialize(hpPeer).Contains(session,StringComparison.OrdinalIgnoreCase),
+            "LAN Store peer proof redacts original session, UNC and device identity");
+        var stalePair=LegacyStoreV1PairComparison.Compare(hpPeer,ryzenPeer,false);
+        Assert(!stalePair.CopiedMetadataPairMatches &&
+            stalePair.StatusCode=="STORE_PEER_NOT_FRESH",
+            "stale remote LAN observation cannot certify paired Store files");
+        var selfPair=LegacyStoreV1PairComparison.Compare(hpPeer,hpPeer,true);
+        Assert(!selfPair.CopiedMetadataPairMatches &&
+            selfPair.StatusCode=="STORE_PEER_SAME_DEVICE",
+            "duplicate device identity never masquerades as two original Store hosts");
+        var badPair=LegacyStoreV1PairComparison.Compare(hpPeer,
+            LegacyStoreV1PeerProof.Invalid,true);
+        Assert(!badPair.CopiedMetadataPairMatches &&
+            badPair.StatusCode=="STORE_PEER_METADATA_INVALID",
+            "corrupted opposite host Store metadata never becomes two-host proof");
+#if STORE_V1_ISOLATED
+        var transmittedProof=JsonSerializer.Deserialize<LegacyStoreV1PeerProof>(
+            JsonSerializer.Serialize(ryzenPeer));
+        Assert(transmittedProof?.SessionTag==ryzenPeer.SessionTag,
+            "isolated Store-v1 proof survives redacted JSON serialization");
+#else
+        var transmitted=JsonSerializer.Deserialize<HostStatus>(
+            JsonSerializer.Serialize(new HostStatus{
+                HostId=Guid.NewGuid().ToString(),HostName="Synthetic-Ryzen",
+                OriginalStoreV1=ryzenPeer
+            }));
+        Assert(transmitted?.OriginalStoreV1?.SessionTag==ryzenPeer.SessionTag,
+            "original source tag survives backwards-compatible LAN status serialization");
+#endif
+
+        string copiedStorePath=Path.Combine(copiedLocal,"cluster-store-v1.json");
+        string beforeTemporary=File.ReadAllText(copiedStorePath);
+        File.WriteAllText(copiedStorePath,
+            beforeTemporary.Replace("\"active\"","\"prepared\"",StringComparison.Ordinal));
+        var incompleteLocal=LegacyStoreV1LocalReader.Inspect(copiedLocal);
+        Assert(!incompleteLocal.LocalSnapshotReady && !incompleteLocal.AllLocalMapsActive,
+            "prepared historical map in local copy never becomes an active Store-v1 launch");
+        File.WriteAllText(copiedStorePath,beforeTemporary);
+        var recoveredLocal=LegacyStoreV1LocalReader.Inspect(copiedLocal);
+        Assert(recoveredLocal.LocalSnapshotReady,
+            "unchanged synthetic active local copy passes verification after isolated test mutation");
+
         string original=CreateArchive("Untamed-Cluster-Vault.zip",items);
         string before=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(original)));
         var result=ClusterVaultArchiveInspector.Inspect(original);
@@ -97,6 +199,31 @@ public static class ClusterVaultTests
             result.SessionConsistent&&result.ConfigHashesVerified&&
             result.LocalHostMapRecordsActive&&!result.CompleteTwoHostEvidence,
             "ZIP manifest, peer session, ten map IDs and live-ineligible safety flags");
+        string originalHpSha=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(hpCopy)));
+        var together=ClusterVaultArchiveInspector.InspectPairedCopies(original,hpCopy);
+        Assert(together.VerifiedFiles==12 && together.Peers==2 && together.Maps==10 &&
+            together.CompleteTwoHostEvidence && together.ConfigHashesVerified &&
+            together.SessionConsistent && together.LocalHostMapRecordsActive &&
+            together.HistoricalActiveProtocolShape &&
+            together.HistoricalStartBlockers.Length==0 &&
+            !together.ProductionUseAllowed,
+            "pairing genuine-shaped eight-file coordination and four-file HP copy proves only historical metadata, never production ownership");
+        Assert(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(original)))==before &&
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(hpCopy)))==originalHpSha,
+            "paired historical ZIP inspection changes neither copied source");
+        var invalidHp=Path.Combine(dir,"Synthetic-HP-Incomplete.zip");
+        using(var hpMissing=ZipFile.Open(invalidHp,ZipArchiveMode.Create))
+            foreach(var file in hpLocal.Where(x=>x.Key!="shared-store-lock-v1.json"))
+            {
+                var entry=hpMissing.CreateEntry(file.Key,CompressionLevel.Optimal);
+                using var writer=new StreamWriter(entry.Open(),new UTF8Encoding(false));
+                writer.Write(file.Value);
+            }
+        bool missingLockDenied=false;
+        try{ClusterVaultArchiveInspector.InspectPairedCopies(original,invalidHp);}
+        catch(InvalidDataException){missingLockDenied=true;}
+        Assert(missingLockDenied,
+            "incomplete second host local Store metadata cannot become a complete pair");
         Assert(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(original)))==before,
             "Vault inspection is byte-preserving and does not extract or modify input");
         Assert(result.MapNames.Distinct(StringComparer.OrdinalIgnoreCase).Count()==10,
@@ -114,7 +241,7 @@ public static class ClusterVaultTests
         missing.Remove("SHARED/.kova-store-v1/attempted.json");
         string missingZip=CreateArchive("missing.json.zip",missing);
         bool missingRefused=false;
-        try{ClusterVaultArchiveInspector.Inspect(missingZip);}
+        try{missingRefused=!ClusterVaultArchiveInspector.Inspect(missingZip).SessionConsistent;}
         catch(InvalidDataException){missingRefused=true;}
         Assert(missingRefused,"Incomplete Vault ZIP is rejected");
         var malicious=new Dictionary<string,string>(items);
@@ -136,3 +263,4 @@ public static class ClusterVaultTests
             "Peer hash mismatch is reported and not considered transfer-compatible");
     }
 }
+

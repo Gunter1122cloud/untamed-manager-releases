@@ -1,0 +1,495 @@
+/* OBSIDIAN COMMAND / DESIGN FIDELITY v2
+   Reference: previously approved graphite Mod Center and Rex Dashboard.
+   This sheet owns the shared composition, not backend state. */
+
+:root {
+  --uk-void:#0b1116; --uk-shell:#101a21; --uk-panel:#18252d;
+  --uk-panel-raised:#202d35; --uk-border:#35474d;
+  --uk-mint:#50dda9; --uk-forest:#13765d; --uk-cyan:#51dce8;
+  --uk-gold:#e6b45d; --uk-text:#f2f6f5; --uk-muted:#a2b8bc;
+  --uk-radius:12px;
+}
+body {background:var(--uk-void); color:var(--uk-text); font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif;}
+.app-layout {grid-template-columns:235px minmax(0,1fr); background:linear-gradient(140deg,#111b21,#0b141a);}
+.sidebar {padding:0 13px 16px;background:linear-gradient(180deg,#111b20 0%,#10191f 58%,#0a171c 100%);border-right:1px solid #354c4f;}
+.sidebar:before {content:"";position:absolute;inset:0 0 auto;height:255px;pointer-events:none;background:
+  linear-gradient(180deg,transparent,#10191f 97%), url('/kingdom-hero.jpg') center 10% / auto 265px no-repeat;opacity:.27;}
+.sidebar>* {position:relative;z-index:1;}
+.brand {min-height:180px;margin:0 0 11px;padding:25px 3px 10px;position:relative;justify-content:flex-end;}
+.brand-symbol {width:65px;height:65px;margin-bottom:13px;background:#10251fbe;box-shadow:0 0 0 1px #8bd7ac1b,0 0 27px #39ce9b24;border-color:#44786e;border-radius:14px;}
+.brand-symbol img {width:54px;height:54px;}
+.brand strong {font-size:24px;letter-spacing:.045em;font-weight:850;text-shadow:0 2px 6px #000a;}
+.brand span {color:#60dea9;font-size:15px;letter-spacing:.36em;}
+.brand small {letter-spacing:.15em;color:#92aba9;font-size:9px;}
+.sidebar-label {border-top:1px solid #2b3d43;padding-top:20px;margin:10px 8px 11px;color:#84999c;font-size:10px;}
+.sidebar nav {gap:5px;overflow:auto;scrollbar-width:thin;scrollbar-color:#44645b transparent;min-height:0;}
+.nav-link {min-height:46px;border-radius:7px;gap:14px;padding:10px 13px;transition:background .16s ease,color .16s ease;}
+.nav-link span {font-size:13.5px;}
+.nav-link.active {background:linear-gradient(108deg,#217962,#154635);border-color:#368b72;box-shadow:inset 4px 0 #54efb4,0 4px 12px #0002;}
+.nav-link:hover:not(.active) {background:#22353b;color:#fff;}
+.sidebar-bottom {margin-top:auto;padding:15px 8px 0;border-top:1px solid #344c4f;line-height:1.45;}
+.sidebar-bottom p {font-size:10.5px;}
+.main-area {background:radial-gradient(ellipse at 85% 1%,#17403931,transparent 39%),#101b21;}
+.topbar {height:84px;min-height:84px;padding:11px 25px 11px 26px;background:
+  linear-gradient(90deg,#141f26 0%,#15262ccf 64%,#10272acc 100%),
+  url('/kingdom-hero.jpg') right 44% / 720px auto no-repeat;
+  border-bottom:1px solid #324950;}
+.topbar-title {gap:5px;}
+.topbar-kicker {color:#6cc9b7;letter-spacing:.15em;font-size:10px;}
+.topbar-title b {font-size:27px;font-weight:760;letter-spacing:-.035em;}
+.topbar-right {gap:11px;}
+.pill {border-radius:7px;font-size:11px;padding:8px 10px;background:#192a30;}
+.pill.amber {background:#3b3225ad;border-color:#876b3c;color:#f8d897;}
+.main-content {padding:20px 22px 32px;max-width:none;}
+.glass,.panel,.premium-panel {background:linear-gradient(155deg,#1b2931,#15222a);border:1px solid var(--uk-border);box-shadow:0 4px 14px #0000001c;border-radius:var(--uk-radius);}
+.panel-head {background:linear-gradient(180deg,#263741,#1c2e36);border-bottom:1px solid #3a5056;min-height:53px;padding:13px 18px;}
+.panel h2 {font-size:15.5px;}
+.panel-inner {padding:13px 15px;}
+.primary {background:linear-gradient(135deg,#26a880,#168467);border:1px solid #45be98;font-size:12px;line-height:1.25;padding:10px 14px;border-radius:8px;}
+.primary:hover:not(:disabled) {background:linear-gradient(135deg,#39bd95,#198768);}
+.primary:disabled,.secondary:disabled {opacity:.48;}
+.secondary {background:linear-gradient(180deg,#2a3c43,#1c2d35);border:1px solid #5c7478;color:#e3f2ef;box-shadow:inset 0 1px #ffffff0b;}
+.secondary:hover:not(:disabled) {background:#2e494c;}
+.page-intro {border-bottom:1px solid #33494d;padding:9px 0 16px;margin-bottom:18px;}
+.page-intro h1 {font-size:30px;letter-spacing:-.028em;}
+.page-intro p {font-size:13px;max-width:960px;}
+.toolbar {background:#1d3036;border-color:#42585d;}
+.toolbar input:focus-visible,.toolbar select:focus-visible {outline:0;}
+.footer {background:#102128;border-top:1px solid #3b5855;min-height:43px;}
+:focus-visible {outline-color:#65e5bc!important;}
+button,select,input {accent-color:#2cbf91;}
+
+/* DASHBOARD  — the reference is a dense command board, not a giant empty hero. */
+.premium-dashboard .premium-dashboard-banner.hero {
+  height:130px;margin:0 0 16px;border-radius:12px;
+  background:linear-gradient(90deg,#11232bee 0%,#112b31c7 47%,#092a2c54 100%),
+    url('/kingdom-hero.jpg') right 36% / cover no-repeat;
+  border:1px solid #3a6461;box-shadow:inset 0 1px #a0fff10d;
+}
+.premium-dashboard-banner:after {display:none;}
+.premium-banner-content {position:relative;z-index:1;padding:19px 25px;}
+.premium-kicker {font-size:10px;color:#76dfc5;letter-spacing:.18em;font-weight:800;}
+.premium-dashboard-banner h1 {margin:5px 0 4px;font-size:34px;letter-spacing:-.04em;color:#fff;}
+.premium-dashboard-banner p {font-size:12px;color:#b8dcda;letter-spacing:.012em;}
+.premium-banner-mark {position:absolute;right:27px;bottom:15px;font-size:10px;letter-spacing:.17em;font-weight:800;color:#e6fffa8c;z-index:1;}
+.premium-banner-mark b {color:#73e8bf;}
+.premium-metrics {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:17px;}
+.premium-metric {min-height:99px;position:relative;display:flex;align-items:center;gap:16px;overflow:hidden;
+  padding:14px 16px;border:1px solid #3a5860;border-radius:12px;
+  background:linear-gradient(128deg,#21313a,#162831);
+  box-shadow:inset 3px 0 #37d49b,0 5px 16px #0003;}
+.premium-metric:after {content:"";position:absolute;inset:5px -4px -8px auto;width:50%;opacity:.12;
+  background:linear-gradient(160deg,#6bf1d8,#20474c);clip-path:polygon(0 100%,18% 61%,28% 73%,47% 17%,64% 64%,81% 36%,100% 100%);}
+.premium-metric.tone-cyan {box-shadow:inset 3px 0 #4bcfe1,0 5px 16px #0003;}
+.premium-metric.tone-gold {box-shadow:inset 3px 0 #edbd5d,0 5px 16px #0003;}
+.premium-metric-symbol {flex:0 0 46px;color:#55e7ae;display:grid;place-items:center;z-index:1;}
+.tone-cyan .premium-metric-symbol {color:#51d7e1;}
+.premium-metric-copy {min-width:0;z-index:1;}
+.premium-metric-copy strong {display:inline-block;font-size:27px;line-height:1;font-weight:820;margin-right:9px;}
+.premium-metric-copy>span {font-size:15px;font-weight:750;color:#e5f6f1;white-space:nowrap;}
+.premium-metric-copy small {display:block;margin-top:7px;color:#9fb7b5;font-size:10.5px;line-height:1.4;}
+.premium-dashboard-grid {display:grid;grid-template-columns:minmax(0,1.72fr) minmax(322px,1fr);gap:15px;align-items:start;}
+.premium-dashboard-aside {display:flex;flex-direction:column;gap:13px;min-width:0;}
+.premium-panel {min-width:0;overflow:hidden;}
+.premium-panel-heading {padding:13px 15px;background:linear-gradient(180deg,#26383e,#192e35);min-height:51px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #40565b;}
+.premium-panel-heading h2 {display:flex;align-items:center;gap:10px;font-size:16px;font-weight:720;margin:0;min-width:0;}
+.premium-panel-heading h2 svg {color:#a5e1d6;}
+.premium-panel-heading h2 span {color:#96b8b4;font-weight:550;}
+.premium-panel-controls {display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.premium-panel-controls button {white-space:nowrap;}
+.premium-search {display:flex;align-items:center;gap:8px;border:1px solid #52696c;background:#152831;border-radius:8px;padding:8px 10px;min-width:150px;max-width:220px;}
+.premium-search svg {color:#9cc3bf;flex:none;}
+.premium-search input {border:0;outline:0;min-width:0;width:100%;background:transparent;color:#eaf4f1;font-size:12px;}
+.premium-search input::placeholder {color:#91a8ab;}
+.premium-server-list {background:#16252c;}
+.premium-server-table-head,.premium-server-row {display:grid;
+  grid-template-columns:minmax(178px,2.3fr) minmax(85px,1.02fr) minmax(73px,.9fr) 78px 75px;
+  gap:12px;align-items:center;}
+.premium-server-table-head {padding:9px 14px;font-size:10px;font-weight:750;color:#b1c6c3;border-bottom:1px solid #394f55;}
+.premium-server-row {padding:10px 14px;min-height:74px;border-bottom:1px solid #31474b;transition:background .15s;}
+.premium-server-row:last-child {border-bottom:0;}
+.premium-server-row:hover {background:#224138;}
+.premium-server-identity {display:flex;align-items:center;gap:11px;min-width:0;}
+.premium-server-identity>div {min-width:0;}
+.premium-server-identity b {display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.premium-server-identity small {display:block;font-size:10.5px;color:#a4b9bb;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.premium-server-host,.premium-server-port {font-size:11px;color:#d3e0df;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.premium-server-port {font-variant-numeric:tabular-nums;color:#9bcfc4;}
+.premium-server-state {font-size:12px;color:#bfc8c9;display:flex;align-items:center;gap:7px;white-space:nowrap;}
+.premium-server-state i {width:9px;height:9px;border-radius:50%;background:#8498a1;flex:none;}
+.premium-server-state.is-running {color:#65e7a4;}
+.premium-server-state.is-running i {background:#34e877;box-shadow:0 0 12px #35e68565;}
+.premium-server-action {display:flex;justify-content:flex-end;}
+.premium-icon-action {display:grid;place-items:center;width:34px;height:32px;border-radius:8px;background:#1a3135;color:#aaf3d7;border:1px solid #557875;}
+.premium-icon-action:hover {background:#22644e;}
+.premium-remote-lock {font-size:10px;color:#8fa9aa;display:inline-flex;gap:4px;align-items:center;}
+.premium-panel-footnote {display:flex;gap:8px;align-items:center;font-size:10.5px;color:#94b4b1;padding:11px 15px;border-top:1px solid #33484b;}
+.premium-panel-footnote svg {color:#65cda8;flex:none;}
+.premium-dashboard-empty {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:27px 18px 30px;min-height:176px;text-align:center;}
+.premium-dashboard-empty svg {color:#4fba99;}
+.premium-dashboard-empty b {font-size:15px;}
+.premium-dashboard-empty p {max-width:440px;color:#a4b8b7;font-size:12px;line-height:1.6;margin:0;}
+.premium-dashboard-empty .secondary {display:flex;align-items:center;gap:7px;padding:8px 11px;font-size:11px;}
+.premium-host-body {padding:10px;}
+.premium-host-record {background:linear-gradient(110deg,#1b343a,#173039);border:1px solid #3c6260;border-radius:9px;margin-bottom:9px;padding:10px;}
+.premium-host-record:last-child {margin-bottom:0;}
+.premium-host-heading {display:flex;align-items:center;gap:10px;min-width:0;}
+.premium-host-device {width:35px;height:36px;border-radius:7px;background:#24534e;color:#9ce8d6;display:grid;place-items:center;flex:none;}
+.premium-host-heading>div {flex:1;min-width:0;}
+.premium-host-heading b {display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.premium-host-heading small {display:block;color:#9dc3b9;margin-top:4px;font-size:10px;}
+.online-indicator {display:inline-block;width:7px;height:7px;border-radius:50%;background:#43e884;margin-right:3px;}
+.premium-count-pill {padding:4px 8px;border:1px solid #49685f;color:#6febba;background:#19362f;border-radius:6px;white-space:nowrap;font-size:10px;}
+.premium-resources {display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:9px;}
+.premium-resources>div {min-width:0;}
+.premium-resources label {display:flex;align-items:center;gap:5px;font-size:10px;color:#a6c4bf;}
+.premium-resources label b {margin-left:auto;color:#e9f7f2;font-size:11px;}
+.premium-bar {display:block;background:#0d1f27;border:1px solid #3b5659;border-radius:999px;height:7px;margin-top:6px;overflow:hidden;}
+.premium-bar>span {display:block;height:100%;background:linear-gradient(90deg,#2ba879,#71edac);border-radius:inherit;}
+.premium-bar.cyan>span {background:linear-gradient(90deg,#27a8c1,#69e2e8);}
+.premium-host-offline {display:flex;align-items:center;gap:8px;background:#302b24;color:#e3c385;border:1px solid #685c42;padding:12px;border-radius:8px;font-size:11px;}
+.premium-small-muted {font-size:10.5px;color:#95acae;margin:6px 2px 2px;line-height:1.45;}
+.premium-events {padding-bottom:8px;}
+.premium-events .premium-small-muted {margin:8px 16px 5px;}
+.premium-event-row {display:flex;gap:10px;align-items:center;padding:11px 14px;margin:0 10px;border-bottom:1px solid #31494d;font-size:11.5px;}
+.premium-event-row:last-of-type {border-bottom:0;}
+.premium-event-row>svg {color:#6ae6ad;flex:none;}
+.premium-event-row span {flex:1;color:#d4dfdd;}
+.premium-event-row b {font-size:11px;color:#aee7d8;text-align:right;}
+.premium-security {padding-bottom:10px;}
+.premium-security-line {display:flex;gap:9px;align-items:center;padding:9px 13px;font-size:11.5px;color:#c4d9d5;}
+.premium-security-line svg {color:#62e1a4;flex:none;}
+.premium-security-line.caution svg {color:#e6b45d;}
+/* Map artwork: use the project's own bundled hero; distinct map treatments
+   remain decorative and must never be mistaken for fetched map imagery. */
+.premium-map-cover {--scene:linear-gradient(155deg,#437a88,#233c54);width:94px;height:52px;flex:0 0 94px;position:relative;display:block;overflow:hidden;border:1px solid #597a80;border-radius:7px;background:
+  linear-gradient(150deg,#07222b10,#031c1b88),var(--scene),
+  url('/kingdom-hero.jpg') center/cover no-repeat;isolation:isolate;box-shadow:0 2px 7px #0005;}
+.premium-map-cover:before {content:"";position:absolute;inset:0;background:url('/kingdom-hero.jpg') center/cover no-repeat;mix-blend-mode:overlay;opacity:.45;filter:saturate(1.2);}
+.premium-cover-ridge {position:absolute;inset:0;background:linear-gradient(180deg,transparent 30%,#081b1fdb 100%);
+  clip-path:polygon(0 100%,0 73%,12% 48%,20% 67%,38% 16%,58% 70%,72% 39%,86% 63%,100% 36%,100% 100%);}
+.premium-cover-light {position:absolute;width:80px;height:70px;left:-18px;top:-34px;border-radius:50%;background:#bdfff457;filter:blur(18px);}
+.premium-map-island {--scene:linear-gradient(150deg,#267ca7,#2c6b4b 80%);}
+.premium-map-center {--scene:linear-gradient(140deg,#3e7088,#344f77 80%);}
+.premium-map-desert {--scene:linear-gradient(150deg,#d79758,#7d4738 75%);}
+.premium-map-aberration {--scene:linear-gradient(145deg,#64468a,#1f2649 75%);}
+.premium-map-extinction {--scene:linear-gradient(145deg,#697a81,#373d47 75%);}
+.premium-map-genesis {--scene:linear-gradient(145deg,#2e81aa,#354a87 75%);}
+.premium-map-valguero {--scene:linear-gradient(145deg,#428f8e,#41645a 75%);}
+.premium-map-ragnarok {--scene:linear-gradient(145deg,#46739d,#394b70 75%);}
+.premium-map-astraeos {--scene:linear-gradient(145deg,#72a99f,#51616c 75%);}
+.premium-map-colony {--scene:linear-gradient(145deg,#bc8850,#683d59 75%);}
+.premium-map-unknown {--scene:linear-gradient(145deg,#3e727d,#2c5057 75%);}
+.premium-map-aberration .premium-cover-light {background:#bf85f985;}
+.premium-map-desert .premium-cover-light,.premium-map-colony .premium-cover-light {background:#fbc97773;}
+.premium-map-ragnarok .premium-cover-ridge,.premium-map-center .premium-cover-ridge {clip-path:polygon(0 100%,0 67%,24% 40%,35% 62%,52% 8%,72% 69%,89% 26%,100% 49%,100% 100%);}
+/* Shared list visuals on Servers / Cluster / Map details */
+.map-row {min-height:69px;}
+.map-row .premium-map-cover {width:67px;height:41px;flex-basis:67px;}
+.map-row .map-name b {font-size:13px;}
+.map-row .map-name small {font-size:10px;}
+.map-row:not(.map-heading):hover:not(:disabled) {background:#204239;}
+@media(max-width:1480px){
+  .premium-dashboard-grid{grid-template-columns:minmax(0,1.48fr) minmax(290px,1fr);}
+  .premium-server-table-head,.premium-server-row{gap:8px;grid-template-columns:minmax(158px,2fr) minmax(78px,.92fr) minmax(70px,.8fr) 61px 61px;}
+  .premium-map-cover{width:78px;height:48px;flex-basis:78px;}
+  .premium-metric-copy strong{font-size:23px;}
+  .premium-metric-copy>span{font-size:13px;}
+}
+@media(max-width:1200px){
+  .premium-dashboard-grid{grid-template-columns:minmax(0,1fr);}
+  .premium-dashboard-aside{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
+  .premium-dashboard-aside .premium-security{grid-column:1/-1;}
+}
+@media(max-width:1049px){
+  .app-layout{grid-template-columns:74px minmax(0,1fr);}
+  .sidebar{padding:0 10px 15px;}
+  .brand{min-height:100px;padding:11px 0 5px;}
+  .brand-symbol{width:43px;height:43px;margin:0;}
+  .brand-symbol img{width:36px;height:36px;}
+  .brand strong,.brand span,.brand small,.sidebar-label,.nav-link span,.sidebar-bottom p,.sidebar-shield span{display:none;}
+  .nav-link{justify-content:center;padding:11px 0;}
+  .topbar{padding:10px 18px;}
+}
+@media(max-width:860px){
+  .premium-metrics{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .premium-servers-heading{align-items:flex-start;flex-direction:column;}
+  .premium-dashboard-aside{grid-template-columns:1fr;}
+  .premium-server-table-head,.premium-server-row{grid-template-columns:minmax(140px,2.1fr) 74px 55px;gap:8px;}
+  .premium-server-table-head>span:nth-child(2),.premium-server-table-head>span:nth-child(4),
+  .premium-server-host,.premium-server-port {display:none;}
+  .premium-server-row .premium-map-cover{flex-basis:60px;width:60px;height:39px;}
+  .premium-server-action{justify-content:flex-end;}
+}
+@media(prefers-reduced-motion:reduce){.premium-server-row,.nav-link{transition:none;}}
+
+/* Empty test-PC workspaces stay visually useful without inventing server
+   state or fake players. These are selectable map names, not installed maps. */
+.premium-onboarding-maps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;width:100%;max-width:710px;margin:10px 0 12px;}
+.premium-onboarding-maps button{display:flex;min-width:0;align-items:center;flex-direction:column;
+  padding:9px 6px;gap:8px;background:linear-gradient(140deg,#22353d,#17272f);
+  border:1px solid #42595d;border-radius:9px;color:#e1f3ed;font-size:11px;}
+.premium-onboarding-maps button:hover{border-color:#66cca0;background:#214d40;}
+.premium-onboarding-maps .premium-map-cover{width:100%;height:52px;flex-basis:52px;}
+.premium-onboarding-maps button>span:nth-child(2){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+.premium-onboarding-maps button>svg{color:#79dcac;}
+@media(max-width:800px){.premium-onboarding-maps{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+/* Reference identity: Rex artwork belongs in the left masthead as well as
+   the scene banner. The existing offline bundled asset is used without
+   loading images from an external network. */
+.sidebar:before {
+  height:235px;opacity:.74;
+  background:linear-gradient(180deg,#0b161b18 5%,#0f191f22 49%,#10191f 97%),
+    url('/kingdom-hero.jpg') right -7px top -6px / auto 250px no-repeat;
+}
+.brand {min-height:205px;padding-top:52px;padding-bottom:10px;justify-content:flex-end;}
+.brand-symbol {width:47px;height:47px;position:absolute;top:13px;left:12px;border:1px solid #5f947b;
+  background:#101b20b8;box-shadow:0 0 14px #0009;border-radius:11px;}
+.brand-symbol img {width:41px;height:41px;}
+.brand strong {font-size:23px;line-height:1.04;text-shadow:0 3px 8px #000,0 1px 2px #000;}
+.brand span {color:#7ce6b5;text-shadow:0 2px 6px #000;font-size:14px;}
+.brand small {color:#d4e9e5;text-shadow:0 2px 5px #000;}
+.brand:after {content:"";width:90%;height:1px;background:linear-gradient(90deg,transparent,#4a997f77,transparent);
+  position:absolute;bottom:0;left:5%;}
+@media(max-width:1049px){
+  .sidebar:before {height:100px;background-position:right center;background-size:auto 115px;}
+  .brand {min-height:100px;padding:13px 0 5px;}
+  .brand-symbol {left:5px;top:12px;width:43px;height:43px;}
+  .brand-symbol img{width:37px;height:37px;}
+  .brand:after{display:none;}
+}
+
+/* Approved dashboard places the primary title in the chrome header.
+   A narrow context strip replaces the redundant second full-size hero. */
+.topbar-title h1 {font-size:27px;font-weight:760;letter-spacing:-.035em;line-height:1.2;
+  margin:0;color:#f2f8f5;}
+.premium-dashboard .premium-dashboard-banner.hero {height:53px;border-radius:10px;margin-bottom:13px;}
+.premium-dashboard-banner .premium-banner-content {padding:8px 18px;display:flex;
+  align-items:center;gap:16px;min-height:51px;flex-wrap:wrap;}
+.premium-dashboard-banner .premium-kicker {font-size:10px;}
+.premium-dashboard-banner .premium-overview-subtitle {margin:0;font-size:11.5px;color:#bfdbd6;}
+.premium-dashboard-banner .premium-banner-mark {bottom:17px;font-size:9px;}
+@media(max-width:1170px){
+  .premium-dashboard-banner .premium-banner-mark{display:none;}
+}
+@media(max-width:830px){
+  .topbar-title h1{font-size:21px;}
+  .premium-dashboard .premium-dashboard-banner.hero{height:auto;min-height:53px;}
+  .premium-dashboard-banner .premium-banner-content{gap:4px;align-items:flex-start;flex-direction:column;}
+}
+
+/* Unified premium map browser for Servers and Cluster.
+   Local rows are keyboard-activatable; authenticated LAN rows are inert. */
+.premium-map-table {width:100%;background:#16272e;border-radius:8px;overflow:hidden;}
+.premium-map-table-heading,.premium-map-line {
+  display:grid;grid-template-columns:minmax(170px,2.3fr) minmax(90px,1.0fr)
+    minmax(92px,.9fr) 75px minmax(82px,.82fr);
+  gap:10px;align-items:center;}
+.premium-map-table-heading {min-height:42px;padding:10px 13px;
+  border-bottom:1px solid #39545a;color:#a9c3c1;font-size:10px;font-weight:800;letter-spacing:.045em;}
+.premium-map-line {min-height:72px;padding:9px 13px;
+  border-bottom:1px solid #334a4f;color:#e9f7f2;
+  transition:background-color .14s ease,box-shadow .14s ease;}
+.premium-map-line:last-child {border-bottom:0;}
+.premium-map-line.is-local {cursor:pointer;}
+.premium-map-line.is-local:hover,.premium-map-line.is-local:focus-visible {
+  background:linear-gradient(90deg,#265645a5,#1b3637);}
+.premium-map-line.is-local:focus-visible {outline:2px solid #68e6b7;outline-offset:-3px;}
+.premium-map-title {display:flex;align-items:center;gap:11px;min-width:0;}
+.premium-map-title .premium-map-cover {flex:0 0 89px;width:89px;height:50px;}
+.premium-map-title>span:last-child {min-width:0;}
+.premium-map-title b {display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.premium-map-title small {display:block;font-size:10.3px;color:#a3c1bd;margin-top:6px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.premium-map-host,.premium-map-port {font-size:11.5px;color:#c8d9d6;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.premium-map-port {font-weight:700;color:#9bdfcc;}
+.premium-map-actions {display:flex;justify-content:flex-end;min-width:0;}
+.premium-map-action-symbol {width:35px;height:34px;display:grid;place-items:center;
+  border:1px solid #4f7975;background:#1a383b;border-radius:7px;color:#a5f0d5;}
+.premium-map-line:hover .premium-map-action-symbol {background:#286d53;color:#effff5;}
+.premium-map-readonly {display:flex;gap:5px;align-items:center;white-space:nowrap;
+  color:#9dbab6;font-size:10px;}
+.premium-map-empty {min-height:160px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:10px;text-align:center;
+  padding:30px 16px;color:#a8c3bc;}
+.premium-map-empty svg {color:#72ddba;}
+.premium-map-empty b {font-size:13px;color:#ebf5ef;}
+.premium-map-empty span {max-width:460px;font-size:11px;line-height:1.5;}
+@media(max-width:1200px) {
+  .premium-map-table-heading,.premium-map-line{
+    grid-template-columns:minmax(160px,2.2fr) minmax(84px,.8fr) 84px 70px 72px;gap:7px;}
+  .premium-map-title .premium-map-cover {flex-basis:72px;width:72px;height:45px;}
+}
+@media(max-width:850px){
+  .premium-map-table-heading,.premium-map-line{
+    grid-template-columns:minmax(150px,2.3fr) 86px 55px;gap:7px;}
+  .premium-map-table-heading>span:nth-child(2),.premium-map-table-heading>span:nth-child(4),
+  .premium-map-host,.premium-map-port {display:none;}
+  .premium-map-actions {justify-content:flex-end;}
+  .premium-map-readonly {font-size:0;}
+}
+@media(prefers-reduced-motion:reduce){.premium-map-line{transition:none;}}
+
+.premium-onboarding-actions {display:flex;justify-content:center;align-items:center;
+  flex-wrap:wrap;gap:9px;margin:3px 0 0;}
+.premium-onboarding-actions button {display:flex;align-items:center;justify-content:center;
+  gap:8px;font-size:11px;min-height:39px;white-space:nowrap;}
+@media(max-width:700px){
+  .premium-onboarding-actions{flex-direction:column;align-items:stretch;}
+  .premium-onboarding-actions button{width:100%;}
+}
+
+/* Real approved map illustrations. The original 1200x530 atlas is included
+   offline from wpf/Assets/reference-atlas.jpg without redrawing or replacing
+   any installed ASA files. Ten distinct 200x100 reference tiles occupy
+   x=0..1000, y≈260 and y≈365. This is artwork, not measured game data. */
+.premium-map-cover {
+  background-image:url('/uk-reference-map-atlas.jpg');
+  background-repeat:no-repeat;
+  background-size:600% 530%;
+  background-position:60% 85%;
+  background-color:#122c35;
+  border-color:#557c78;
+}
+.premium-map-cover:before,.premium-cover-ridge,.premium-cover-light {display:none!important;}
+.premium-map-cover:after {content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,transparent 62%,#06191a3b 100%);}
+.premium-map-island {background-position:60% 85%;}
+.premium-map-astraeos {background-position:0% 60.5%;}
+.premium-map-ragnarok {background-position:80% 60.5%;}
+.premium-map-aberration {background-position:20% 85%;}
+.premium-map-desert {background-position:40% 85%;}
+.premium-map-extinction {background-position:60% 60.5%;}
+.premium-map-genesis {background-position:20% 60.5%;}
+.premium-map-valguero {background-position:40% 60.5%;}
+.premium-map-center {background-position:80% 85%;}
+.premium-map-colony {background-position:0% 85%;}
+.premium-map-unknown {background:
+  linear-gradient(145deg,#22574e77,#132d36a8),
+  url('/kingdom-hero.jpg') center/cover no-repeat;}
+
+/* BACKUP CENTER / design-fidelity
+   Metrics and illustrations report verified local data only; never suggest
+   that file hashes prove ASA save completion or Store-v1 travel safety. */
+.premium-backup-metrics {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px;}
+.premium-backup-metrics>div {display:flex;align-items:center;gap:10px;min-height:93px;
+  padding:13px;background:linear-gradient(130deg,#21343d,#15292f);
+  border:1px solid #3c5b5e;border-radius:10px;box-shadow:inset 3px 0 #54d9ac;}
+.premium-backup-metrics>div:nth-child(3) {box-shadow:inset 3px 0 #e5c179;}
+.premium-backup-metrics>div.has-errors {border-color:#a27757;}
+.premium-backup-icon {color:#77e5c4;display:grid;place-items:center;flex:0 0 36px;}
+.premium-backup-metrics>div:nth-child(3) .premium-backup-icon {color:#ebc37e;}
+.premium-backup-metrics b {font-size:25px;font-weight:800;font-variant-numeric:tabular-nums;}
+.premium-backup-metrics span:not(.premium-backup-icon) {font-weight:650;color:#e6f6f2;font-size:12px;}
+.premium-backup-metrics small {color:#95b9b4;font-size:10px;display:block;}
+.premium-backup-grid {display:grid;grid-template-columns:minmax(0,1.55fr) minmax(310px,1fr);gap:14px;align-items:start;}
+.premium-backup-controls {display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.premium-backup-controls .secondary {display:flex;align-items:center;gap:6px;white-space:nowrap;min-height:37px;}
+.premium-backup-row {display:flex;align-items:center;justify-content:space-between;
+  gap:14px;padding:12px 15px;min-height:83px;border-bottom:1px solid #314d51;background:#192b32;}
+.premium-backup-row:hover {background:#203a39;}
+.premium-backup-row:last-of-type {border-bottom:0;}
+.premium-backup-map {display:flex;align-items:center;gap:12px;min-width:0;}
+.premium-backup-map .premium-map-cover {width:91px;height:51px;flex-basis:91px;}
+.premium-backup-map>div {min-width:0;}
+.premium-backup-map b {display:block;font-size:13.5px;color:#f2fff7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.premium-backup-map small {display:block;font-size:10.5px;color:#9cbab5;line-height:1.45;margin-top:6px;}
+.premium-backup-row-status {display:flex;flex-direction:column;align-items:flex-end;
+  gap:5px;white-space:nowrap;font-size:11px;}
+.premium-backup-row-status strong {font-size:12px;color:#70e5af;}
+.premium-backup-row-status .premium-backup-bad {color:#eec17a;}
+.premium-backup-row-status small {font-size:10px;color:#9bb4b2;}
+.premium-backup-integrity-body {padding:15px;}
+.premium-backup-evidence {display:flex;align-items:center;gap:12px;padding:13px;
+  border:1px solid #427761;background:#1a4136;border-radius:9px;margin-bottom:11px;}
+.premium-backup-evidence>svg {color:#6ae7b3;flex:none;}
+.premium-backup-evidence b {display:block;font-size:13px;}
+.premium-backup-evidence span {display:block;font-size:11px;color:#b7d7c8;line-height:1.4;margin-top:4px;}
+.premium-backup-fact {display:flex;align-items:center;justify-content:space-between;
+  gap:10px;padding:12px 0;border-bottom:1px solid #344d50;font-size:11px;}
+.premium-backup-fact span {color:#adcbc4;}
+.premium-backup-fact strong {color:#e6f4ef;font-size:11px;text-align:right;}
+.premium-backup-caution {display:flex;align-items:flex-start;gap:9px;border:1px solid #766141;
+  border-radius:9px;background:#342c24;padding:12px;margin-top:15px;
+  color:#e4c69b;font-size:11.5px;line-height:1.6;}
+.premium-backup-caution>svg {flex:none;margin-top:2px;}
+@media(max-width:1220px){
+ .premium-backup-grid{grid-template-columns:1fr;}
+ .premium-backup-integrity-body{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+ .premium-backup-evidence,.premium-backup-caution{grid-column:1/-1;margin:0;}
+}
+@media(max-width:900px){
+ .premium-backup-metrics{grid-template-columns:repeat(2,minmax(0,1fr));}
+ .premium-backup-integrity-body{grid-template-columns:1fr;}
+ .premium-backup-fact{grid-column:1/-1;}
+ .premium-backup-row{flex-wrap:wrap;}
+}
+
+/* LOG CENTER — a real, redacted diagnostic console with derived counters.
+   Preserve native secret masking, per-map scoping and 300-line cap. */
+.premium-log-metrics {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;margin-bottom:15px;}
+.premium-log-metrics>div {min-height:76px;padding:14px;
+  display:flex;align-items:center;gap:10px;background:linear-gradient(115deg,#20343a,#152a32);
+  border:1px solid #395a5a;border-radius:10px;box-shadow:inset 3px 0 #4bd2a4;}
+.premium-log-metrics>div:nth-child(3) {box-shadow:inset 3px 0 #d9bd73;}
+.premium-log-metrics>div:nth-child(4) {box-shadow:inset 3px 0 #ca807c;}
+.premium-log-metrics>div>span {color:#6fe6bd;display:grid;place-items:center;flex:0 0 32px;}
+.premium-log-metrics>div:nth-child(3)>span {color:#edce87;}
+.premium-log-metrics>div:nth-child(4)>span {color:#d69a9d;}
+.premium-log-metrics b {font-size:24px;color:#f2fcf6;font-variant-numeric:tabular-nums;}
+.premium-log-metrics small {font-size:10.5px;color:#9ebdb8;line-height:1.4;}
+.premium-log-toolbar {border:1px solid #3d5d60;background:linear-gradient(105deg,#233940,#182d34);
+  border-radius:10px;padding:13px;margin-bottom:15px;display:flex;
+  align-items:flex-end;gap:11px;flex-wrap:wrap;}
+.premium-log-toolbar .log-select-label {flex:1 1 135px;min-width:130px;}
+.premium-log-toolbar .log-search-label {flex:2 1 250px;}
+.premium-log-toolbar .log-select-label select,
+.premium-log-toolbar .log-select-label input {background:#14272e;border:1px solid #4c6969;
+  border-radius:7px;color:#e8f7f1;min-height:40px;width:100%;padding:8px 11px;}
+.premium-log-toolbar .log-select-label select:focus-visible,
+.premium-log-toolbar .log-select-label input:focus-visible {outline:2px solid #5ce2b0;outline-offset:1px;}
+.premium-log-toolbar .icon-button {min-height:40px;min-width:43px;border:1px solid #4c6969;
+  border-radius:8px;background:#24423e;color:#a9f0d5;}
+.premium-log-view>.panel {overflow:hidden;}
+.premium-log-list {min-height:130px;max-height:min(64vh,640px);overflow-y:auto;
+  overflow-x:auto;background:#0e1d25;scrollbar-width:thin;
+  scrollbar-color:#457368 #15272d;}
+.premium-log-list .log-row {min-height:31px;border-bottom:1px solid #263d42;
+  font-family:Consolas,"Cascadia Mono",monospace;font-size:11.5px;
+  line-height:1.5;padding:6px 10px;gap:10px;}
+.premium-log-list .log-row:nth-child(2n) {background:#11242b;}
+.premium-log-list .log-row.log-error {background:#4d2d302e;}
+.premium-log-list .log-row.log-warning {background:#5b49282e;}
+.premium-log-list .log-number {font-variant-numeric:tabular-nums;color:#6fa39d;}
+.premium-log-list .log-level {font-size:10px;font-weight:800;text-transform:uppercase;}
+.premium-log-list .log-message {white-space:pre-wrap;overflow-wrap:anywhere;
+  color:#d6e5dd;min-width:0;}
+@media(max-width:850px){
+  .premium-log-metrics{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .premium-log-toolbar .log-select-label {flex-basis:100%;}
+  .premium-log-toolbar .icon-button {flex:1 1 auto;}
+}
+
+/* Badge-free artwork crops from the original 1200x530 visual reference.
+   Draw the 128px LEFT slice of every 200px tile and the 95px art row.
+   This deliberately excludes baked gold badges/WPF UI controls on the
+   right edge. It is a visual crop only; the reference JPEG is unchanged. */
+.premium-map-cover {
+  background-image:url('/uk-reference-map-atlas.jpg');
+  background-repeat:no-repeat;
+  background-size:937.5% 558%;
+}
+.premium-map-astraeos {background-position:0% 59.77%;}
+.premium-map-genesis {background-position:18.66% 59.77%;}
+.premium-map-valguero {background-position:37.31% 59.77%;}
+.premium-map-extinction {background-position:55.97% 59.77%;}
+.premium-map-ragnarok {background-position:74.63% 59.77%;}
+.premium-map-center {background-position:0% 84.14%;}
+.premium-map-aberration {background-position:18.66% 84.14%;}
+.premium-map-desert {background-position:37.31% 84.14%;}
+.premium-map-island {background-position:55.97% 84.14%;}
+.premium-map-colony {background-position:74.63% 84.14%;}

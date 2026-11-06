@@ -46,8 +46,9 @@ public static class SafeConfigEditor
     }
 
     public static string Save(ConfigSnapshot baseline,string edited,string mapInstallation,
-        ProcessCheck current,bool maintenance=false)
+        ProcessCheck current,bool maintenance=false,Func<ProcessCheck>? recheck=null)
     {
+        using var operation=new UntamedOperationCoordinator().Acquire(mapInstallation,UntamedOperationKind.Configuration);
         ValidatePath(baseline.Path,mapInstallation,baseline.Kind,current,maintenance);
         var preview=Preview(baseline,edited);
         if(!preview.Changed)return "";
@@ -60,15 +61,22 @@ public static class SafeConfigEditor
         string backup=target+".untamed-"+token+".bak";
         try
         {
+            operation.MarkMutationStarted();
             var data=Encode(baseline,Normalize(edited,baseline.LineEnding));
             File.WriteAllBytes(tmp,data);
             if(!Hex(File.ReadAllBytes(tmp)).Equals(preview.NewSha256,StringComparison.Ordinal))
                 throw new IOException("Staged config checksum mismatch");
             if(!Hex(File.ReadAllBytes(target)).Equals(baseline.Sha256,StringComparison.Ordinal))
                 throw new IOException("Config changed during staging");
+            // The UI passes a fresh OS process inspection here, immediately
+            // before the atomic replacement. An externally started map must
+            // not inherit the earlier 'stopped' decision from editor opening.
+            if(recheck!=null)
+                ValidatePath(target,mapInstallation,baseline.Kind,recheck(),maintenance);
             File.Replace(tmp,target,backup,true);
             if(!Hex(File.ReadAllBytes(target)).Equals(preview.NewSha256,StringComparison.Ordinal))
                 throw new IOException("Applied config checksum mismatch; manual recovery required: "+backup);
+            operation.Complete();
             return backup;
         }
         finally{if(File.Exists(tmp))File.Delete(tmp);}
@@ -131,6 +139,7 @@ public static class SafeConfigEditor
     private static void ValidatePath(string path,string root,ConfigKind kind,
         ProcessCheck state,bool maintenance)
     {
+        if(!Enum.IsDefined(kind))throw new InvalidDataException("Unsupported configuration kind");
         if(state==null || !state.ConfirmedStopped || state.Running || maintenance)
             throw new InvalidOperationException("Config editing requires confirmed stopped local map");
         if(string.IsNullOrWhiteSpace(path)||string.IsNullOrWhiteSpace(root) ||
@@ -141,10 +150,10 @@ public static class SafeConfigEditor
         if(!p.StartsWith(r+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase) ||
            new DriveInfo(Path.GetPathRoot(r)!).DriveType!=DriveType.Fixed)
             throw new UnauthorizedAccessException("Config must be inside registered local map root");
-        if(p.Contains("Kova",StringComparison.OrdinalIgnoreCase) ||
+        if(p.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase) ||
            p.Contains(".kova-store",StringComparison.OrdinalIgnoreCase) ||
            p.Contains("ClusterRoot",StringComparison.OrdinalIgnoreCase))
-            throw new UnauthorizedAccessException("KovaCluster metadata/config modification prohibited");
+            throw new UnauthorizedAccessException("Untamed Cluster Vault metadata/config modification prohibited");
         for(var d=new DirectoryInfo(Path.GetDirectoryName(p)!);d!=null;d=d.Parent)
             if(d.Exists&&(d.Attributes&FileAttributes.ReparsePoint)!=0)
                 throw new InvalidDataException("Junction or linked config directory");
@@ -161,6 +170,7 @@ public static class SafeConfigEditor
 
     private static void ValidateContent(string value,ConfigKind kind)
     {
+        if(!Enum.IsDefined(kind))throw new InvalidDataException("Unsupported configuration kind");
         if(value==null || value.Length>2_000_000 || value.Contains('\0'))
             throw new InvalidDataException("Invalid text length or NUL");
         if(kind==ConfigKind.PluginJson)
@@ -169,7 +179,25 @@ public static class SafeConfigEditor
                 AllowTrailingCommas=true,CommentHandling=JsonCommentHandling.Skip});
             if(parsed.RootElement.ValueKind!=JsonValueKind.Object)
                 throw new InvalidDataException("Plugin JSON root must be object");
+            RejectDuplicateProperties(parsed.RootElement);
         }
+    }
+    private static void RejectDuplicateProperties(JsonElement element)
+    {
+        if(element.ValueKind==JsonValueKind.Object)
+        {
+            var names=new HashSet<string>(StringComparer.Ordinal);
+            foreach(var property in element.EnumerateObject())
+            {
+                // JsonElement decodes escaped property names. A second
+                // \u0061 therefore conflicts with a literal a as well.
+                if(!names.Add(property.Name))
+                    throw new InvalidDataException("Duplicate plugin JSON property");
+                RejectDuplicateProperties(property.Value);
+            }
+        }
+        else if(element.ValueKind==JsonValueKind.Array)
+            foreach(var value in element.EnumerateArray())RejectDuplicateProperties(value);
     }
     private static string Normalize(string content,string newline)
     {
@@ -198,3 +226,4 @@ public static class SafeConfigEditor
     }
     private static string Hex(byte[] data)=>Convert.ToHexString(SHA256.HashData(data));
 }
+

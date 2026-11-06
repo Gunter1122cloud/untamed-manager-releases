@@ -37,7 +37,7 @@ public partial class MainWindow
         Add(Box(V(Label(kind==ConfigKind.GameIni?"INI Editor 2.0":"Plugin JSON Editor",
                 20,Mint,true),
             Label("Kódolás/BOM, sorvégek, kommentek és ismeretlen mezők megőrzése. "+
-                "Kizárólag igazoltan leállított map fájljait módosítja; nem olvas Kova Store-t.",12,Soft),
+                "Kizárólag igazoltan leállított map fájljait módosítja; nem olvas Untamed Cluster Vault-t.",12,Soft),
             maps,
             Btn(kind==ConfigKind.GameIni?"Helyi Game.ini / GameUserSettings.ini megnyitása":
                 "Helyi plugin JSON megnyitása",()=>{
@@ -83,7 +83,8 @@ public partial class MainWindow
                         "Konfiguráció mentése",MessageBoxButton.YesNo,
                         MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
                     string backup=SafeConfigEditor.Save(snapshot,editor.Text,
-                        map.InstallationPath,_cluster.Check(map),map.Maintenance);
+                        map.InstallationPath,_cluster.Check(map),map.Maintenance,
+                        ()=>_cluster.Check(map));
                     snapshot=SafeConfigEditor.Read(snapshot.Path,map.InstallationPath,
                         kind,_cluster.Check(map),map.Maintenance);
                     status.Text=backup.Length==0?"Nem volt változás.":
@@ -115,3 +116,4 @@ public partial class MainWindow
         }
     }
 }
+

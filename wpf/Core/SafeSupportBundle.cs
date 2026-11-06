@@ -31,19 +31,19 @@ public static class ManagerFeatureMatrix
             "No live host editing acceptance"),
         new("steam","SteamCMD staging and test runner","SIMULATED",false,
             "Only FakeSteamCMD executes; no live server update"),
-        new("api","ASA API inventory and official release metadata","READ_ONLY",false,
-            "No live loader install/update and runtime verification"),
-        new("backup","Verified local/offline 10-map and SQL archive","OFFLINE",false,
+        new("api","Verified API staging and isolated snapshot-backed binary installation","LOCAL",false,
+            "Production loader/API initialization and runtime compatibility remain unverified"),
+        new("backup","Local file archives and MariaDB logical dump","LOCAL",false,
             "No coordinated live 2-host + Store + MariaDB snapshot"),
-        new("restore","Data restore","BLOCKED",false,
-            "Live Kova, ASA and SQL restore disabled until isolated acceptance"),
+        new("restore","SQL restore to an empty target","LOCAL",false,
+            "Existing databases cannot be replaced; coordinated ASA and Store recovery remains unverified"),
         new("lifecycle","ASA Start/Save/Stop/Restart and Watchdog recovery","SIMULATED",false,
             "Only real Windows FakeAsa process; no validated live ASA SaveWorld proof"),
         new("scheduler","Supervisor read-only recurring inspections","READ_ONLY",false,
             "Automatic live Restart/Wipe/Backup disabled"),
-        new("rcon","RCON ListPlayers and mutating command previews","READ_ONLY",false,
+        new("rcon","Read-only RCON and isolated one-shot authenticated admin queue","LOCAL",false,
             "No production mutating command authorization"),
-        new("monitor","Local Supervisor CPU/RAM, event history","READ_ONLY",false,
+        new("monitor","Opt-in bounded Supervisor CPU/RAM history and events","READ_ONLY",false,
             "Manual ICMP jitter/loss check available; verified player count, uplink and real ASA readiness incomplete"),
         new("updater","Windows updater and local rollback","TEST",false,
             "Published signed Preview/Stable releases and test-PC acceptance missing"),
@@ -55,6 +55,10 @@ public static class ManagerFeatureMatrix
             "No verified activation/Ed25519 offline ticket integration"),
         new("ups","UPS shutdown monitoring","BLOCKED",false,
             "Manual ICMP router/external latency available; no UPS provider integration or tested save/stop safety"),
+        new("retention","Owned local backup protection and reversible quarantine","LOCAL",false,
+            "Coordinated cluster recovery requires separate validation"),
+        new("extensions","Signed allowlisted declarative Manager panels","LOCAL",false,
+            "Schema v1: read-only metrics and allowlisted navigation; publisher and exact payload require approval"),
         new("wan","WAN/DDNS observation","READ_ONLY",false,
             "Opt-in observation only; no automatic IP-triggered restart")
     };
@@ -128,7 +132,7 @@ public static class SafeSupportBundle
             .OrderByDescending(e=>e.Utc).Take(100)
             .Select(e=>new PublicEvent(e.Utc,e.Severity,e.Code)).ToArray()
             ??Array.Empty<PublicEvent>();
-        var summary=new PublicSummary(1,"Untamed Kingdom ASA Manager",
+        var summary=new PublicSummary(1,"Untamed Manager",
             typeof(SafeSupportBundle).Assembly.GetName().Version?.ToString(3)??"unknown",
             createdUtc,"ISOLATED_TEST",config.LocalMaps.Count,
             config.ScheduledTasks.Count,config.RecurringSchedules.Count,
@@ -142,7 +146,7 @@ public static class SafeSupportBundle
                 Add(archive,"features.json",JsonSerializer.Serialize(ManagerFeatureMatrix.Current));
                 Add(archive,"events-redacted.json",JsonSerializer.Serialize(valid));
                 Add(archive,"README.txt",
-                    "Untamed Kingdom ASA Manager - explicit redacted support report\n"+
+                    "Untamed Manager - explicit redacted support report\n"+
                     "No raw logs, credentials, IP addresses, host names, player data, "+
                     "full file paths, process arguments or Store records are exported.\n"+
                     "No production lifecycle or character-transfer compatibility is proven.\n");
@@ -163,3 +167,4 @@ public static class SafeSupportBundle
         writer.Write(text);
     }
 }
+

@@ -52,14 +52,14 @@ public partial class MainWindow
             }
             catch(Exception ex)
             {
-                status.Text="Offline archívum nem készült el: "+ex.Message+
+                status.Text="UM-OFFLINE-BACKUP: a másolás nem fejeződött be."+
                     "\nFélbemaradt .incomplete könyvtárat kézzel kell megvizsgálni.";
                 WriteLog("offline-cluster-archive",ex);
             }
             finally{if(build!=null)build.IsEnabled=true;}
         });
         Add(Box(V(
-            Label("v1.6 · Kétgépes OFFLINE archívum / 10 map + 3 SQL",20,Mint,true),
+            Label("v"+UiVersion+" · Kétgépes OFFLINE archívum / 10 map + 3 SQL",20,Mint,true),
             Label("Másolt backup-csomagok: HP mappában 5 mapcsomag, Ryzen mappában 5; "+
                 "SQL mappában arkshop / arkpermissions / lethalquests almappák. "+
                 "Minden mappának korábban elkészített Untamed manifest.json + data + complete "+
@@ -73,6 +73,42 @@ public partial class MainWindow
             Label("Célkönyvtár a külön tesztgépen",12,Aqua),target,
             Btn("Célkönyvtár kijelölése",()=>Pick(target,"Üres hely külön a forrásoktól")),
             build,
+            Btn("37 komponenses teljes OFFLINE batch – katalógus alapján",async ()=>{
+                using var input=new Forms.OpenFileDialog{
+                    Filter="Untamed offline batch JSON (*.json)|*.json",
+                    Title="37 ellenőrzött fájl és 5+5 map tulajdonosi katalógusa",
+                    CheckFileExists=true};
+                if(input.ShowDialog()!=Forms.DialogResult.OK)return;
+                using var output=new Forms.FolderBrowserDialog{
+                    Description="Új OFFLINE batch szülőmappája (a forrásfájloktól külön)"};
+                if(output.ShowDialog()!=Forms.DialogResult.OK)return;
+                string catalog=input.FileName;
+                string destination=Path.Combine(output.SelectedPath,
+                    "Untamed-Batch-"+Guid.NewGuid().ToString("N"));
+                if(WinMessageBox.Show(
+                    "A helyi katalógusban felsorolt 37 fájlt ellenőrzi és ÚJ offline "+
+                    "könyvtárba másolja. Nem végez éles Store/ASA/SQL műveletet "+
+                    "és nem bizonyít karaktertranszfer-konzisztenciát.\n\n"+
+                    "Cél: "+destination+"\n\nFolytatod?",
+                    "Untamed offline 37-komponenses batch",
+                    MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                status.Text="37 komponens ellenőrzése és tartós offline másolása...";
+                try
+                {
+                    var result=await Task.Run(()=>
+                        ClusterBatchCatalogImport.BuildFromCatalog(catalog,destination));
+                    status.Text="OFFLINE BATCH ELKÉSZÜLT · "+result.Components.Length+
+                        " fájl SHA-256 ellenőrzött"+
+                        "\nCsomag: "+destination+
+                        "\nASA/STORE/SQL konzisztencia: ÉLESBEN NEM IGAZOLT.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("offline-37-catalog",ex);
+                    status.Text="UM-37-BATCH: nem készült teljes batch. "+
+                        "Az esetleges .incomplete mappa külön vizsgálandó.";
+                }
+            }),
             Btn("Meglévő OFFLINE clusterarchívum ellenőrzése",async ()=>{
                 using var dialog=new Forms.FolderBrowserDialog{
                     Description="Korábban létrehozott Untamed-Offline-Cluster mappa"};
@@ -84,7 +120,66 @@ public partial class MainWindow
                         " csomag, batch "+result.Batch+
                         "\n"+result.Disclaimer;
                 }
-                catch(Exception ex){status.Text="Archívum nem ellenőrizhető: "+ex.Message;}
+                catch(Exception ex){status.Text="Archívum nem ellenőrizhető: "+
+                    UntamedPresentation.Redact(ex.Message);}
+            }),
+            Btn("Félbeszakadt 37-elemes backupnapló ellenőrzése",async ()=>{
+                using var picker=new Forms.FolderBrowserDialog{
+                    Description="Válaszd ki a félbeszakadt .incomplete offline batch mappát"};
+                if(picker.ShowDialog()!=Forms.DialogResult.OK)return;
+                string selected=picker.SelectedPath;
+                string original=selected.EndsWith(".incomplete",
+                    StringComparison.OrdinalIgnoreCase)?
+                    selected[..^".incomplete".Length]:selected;
+                try
+                {
+                    var progress=await Task.Run(()=>
+                        ClusterBatchArchive.InspectInterrupted(original));
+                    status.Text=(progress.NeedsOperator?
+                        "T07 BACKUP – OPERÁTORI VIZSGÁLAT SZÜKSÉGES":
+                        "Nincs befejezetlen másolás")+
+                        "\nEllenőrzött fájlok: "+progress.VerifiedFiles+
+                        "\nBatch: "+(progress.BatchId?.ToString("N")??"nem igazolt")+
+                        "\n"+progress.Reason+
+                        "\nAutomatikus újraindítás vagy törlés: NINCS.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("offline-batch-progress",ex);
+                    status.Text="UM-BACKUP-JOURNAL: a másolás naplója nem ellenőrizhető. "+
+                        "Automatikus folytatás nincs.";
+                }
+            }),
+            Btn("10 map + 3 SQL visszaállítási PRÓBA – kizárólag izolált TEMP",async ()=>{
+                using var dialog=new Forms.FolderBrowserDialog{
+                    Description="Válassz hitelesített offline clusterarchívumot (13 csomag)"};
+                if(dialog.ShowDialog()!=Forms.DialogResult.OK)return;
+                string archive=dialog.SelectedPath;
+                string destination=Path.Combine(Path.GetTempPath(),
+                    "Untamed-Isolated-Restore-"+Guid.NewGuid().ToString("N"));
+                if(WinMessageBox.Show(
+                    "A 10 map játékfájljait és 3 SQL-exportját egy ÚJ, elkülönített "+
+                    "TEMP könyvtárba másolja. Nem állít vissza valódi ASA/Store/SQL "+
+                    "szolgáltatást és nem írja felül a meglévő fájlokat.\n"+
+                    "Cél: "+destination+"\n\nFolytatod?",
+                    "Izolált offline restore-próba",MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                status.Text="Izolált restore fájlmásolás és SHA-256 ellenőrzés...";
+                try
+                {
+                    var result=await Task.Run(()=>
+                        ClusterRestoreCoordinator.MaterializeToLab(archive,destination));
+                    status.Text="IZOLÁLT RESTORE-FÁJLOK ELKÉSZÜLTEK\n"+
+                        "Mapok: "+result.Maps.Length+" · SQL-exportok: "+result.Sql.Length+
+                        "\nKönyvtár: "+destination+
+                        "\nÉLES ASA/SQL/STORE VISSZAÁLLÍTÁS NEM TÖRTÉNT.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("isolated-cluster-restore",ex);
+                    status.Text="UM-RESTORE-LAB: visszaállítási próba elutasítva. "+
+                        "Az esetleges .incomplete mappa külön operátori vizsgálatot igényel.";
+                }
             }),status)));
     }
 }

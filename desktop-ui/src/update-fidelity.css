@@ -1,0 +1,79 @@
+/* Untamed Update Center. Native read-only release discovery, not an installer. */
+.uk-updates-page {min-width:0;}
+.uk-updates-hero {display:flex;align-items:center;gap:22px;min-height:128px;
+  border:1px solid #467967;border-radius:12px;overflow:hidden;margin-bottom:16px;
+  padding:21px 24px;background:
+    linear-gradient(93deg,#092b2fe8 0%,#143d3abb 50%,#102a2852 100%),
+    url("/kingdom-hero.jpg") right 37%/cover no-repeat;
+  box-shadow:0 9px 23px #0004;}
+.uk-updates-symbol {flex:0 0 70px;height:70px;display:grid;place-items:center;
+  background:#135746b3;border:1px solid #59b193;border-radius:16px;color:#8cf7cf;}
+.uk-updates-kicker {font-size:10px;letter-spacing:.16em;font-weight:850;color:#7ce8bb;}
+.uk-updates-hero h2 {font-size:clamp(22px,2.6vw,34px);font-weight:850;
+  margin:7px 0 6px;color:#f7fff8;letter-spacing:-.025em;}
+.uk-updates-hero p {font-size:12px;color:#b4d9d1;max-width:690px;
+  margin:0;line-height:1.55;}
+.uk-update-grid {display:grid;grid-template-columns:1fr 1.1fr;align-items:start;gap:15px;}
+.uk-updates-inner {padding:17px;}
+.uk-updates-info-row {display:flex;justify-content:space-between;align-items:center;
+  gap:13px;padding:14px 3px;border-bottom:1px solid #3b5150;
+  font-size:12px;color:#b0d3c9;}
+.uk-updates-info-row>span {display:flex;align-items:center;gap:9px;}
+.uk-updates-info-row>span svg {color:#71dcb6;}
+.uk-updates-info-row strong {font-size:11.5px;text-align:right;color:#ecfff5;
+  overflow-wrap:anywhere;}
+.uk-updates-checkbox {display:flex;align-items:flex-start;gap:9px;
+  color:#9cd8b4;font-size:11.5px;line-height:1.5;
+  margin:16px 0 2px;padding:12px;
+  background:#204539;border:1px solid #477b64;border-radius:8px;}
+.uk-updates-checkbox svg {flex:none;}
+.uk-updates-channel {display:flex;flex-direction:column;gap:8px;
+  color:#b4d8ca;font-size:11.5px;font-weight:700;}
+.uk-updates-channel select {width:100%;padding:12px 13px;color:#f0fbf6;
+  background:#192e35;border:1px solid #4b6b65;border-radius:8px;min-height:45px;}
+.uk-updates-check {display:flex;align-items:center;justify-content:center;
+  gap:10px;min-height:45px;margin:13px 0;width:100%;}
+.uk-updates-detail {font-size:11px;color:#a3c2b8;
+  display:block;margin-top:14px;line-height:1.6;}
+.uk-updates-release {background:#19372f;border:1px solid #4a9572;
+  border-radius:9px;padding:13px;margin:14px 0;}
+.uk-updates-release>strong {display:block;color:#a4ffd0;font-size:14px;
+  margin-bottom:13px;}
+.uk-updates-release>div:not(.uk-updates-install-lock) {
+  display:flex;justify-content:space-between;align-items:center;
+  gap:13px;border-bottom:1px solid #395c4d;padding:9px 0;
+  font-size:11.5px;}
+.uk-updates-release>div>span {color:#a6cec0;}
+.uk-updates-release>div>b {color:#ebf8ee;word-break:break-all;text-align:right;}
+.uk-updates-release .uk-updates-hash {display:block!important;}
+.uk-updates-hash code {display:block;color:#b5f7ce;font-size:10px;
+  word-break:break-all;margin-top:7px;line-height:1.5;}
+.uk-updates-release-notes {font-size:11px;white-space:pre-wrap;
+  color:#c9e5d7;max-height:150px;overflow:auto;line-height:1.6;
+  margin:12px 0;}
+.uk-updates-install-lock {display:flex;align-items:flex-start;gap:9px;
+  font-size:11.5px;color:#e7c28e;background:#4b3b29a6;
+  border:1px solid #917048;border-radius:7px;
+  padding:11px;margin-top:13px;line-height:1.5;}
+.uk-updates-install-lock svg {flex:none;}
+@media(max-width:1050px){
+  .uk-update-grid{grid-template-columns:1fr;}
+  .uk-updates-hero{padding:14px 18px;}
+}
+@media(max-width:760px){
+  .uk-updates-hero{gap:12px;}
+  .uk-updates-symbol{width:49px;height:49px;flex-basis:49px;}
+  .uk-updates-hero h2{font-size:21px;}
+  .uk-updates-info-row{align-items:flex-start;flex-direction:column;}
+}
+
+.uk-updates-ready{margin:13px 0;padding:14px;background:#173d31;
+  border:1px solid #52a480;border-radius:9px;color:#d4ffe5;}
+.uk-updates-ready>div:first-child{display:flex;align-items:center;gap:8px;
+  font-size:13px;font-weight:750;color:#a6ffd2;}
+.uk-updates-ready>span{display:block;color:#b7dac9;font-size:11px;margin:9px 0;}
+.uk-updates-ready code{display:block;overflow-wrap:anywhere;font-size:10px;color:#8fe9ca;}
+.uk-updates-ready label{display:flex;align-items:flex-start;gap:11px;
+  margin:14px 0 4px;padding:12px;border:1px solid #5d9c7e;border-radius:8px;
+  background:#184c39;color:#e8fff2;font-size:11.5px;line-height:1.6;}
+.uk-updates-ready label input{width:18px;height:18px;flex:0 0 18px;margin-top:2px;}

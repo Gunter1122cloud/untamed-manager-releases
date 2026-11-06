@@ -18,7 +18,7 @@ public partial class MainWindow
         var project=new TextBox{Text="928548",Height=34,Background=Panel,
             Foreground=Brushes.White};
         var status=Label("CurseForge-fájlverziók még nem lettek lekérdezve.",12,Soft);
-        Add(Box(V(Label("v1.5 · Telepített modok és CurseForge fájlfrissítések",19,Mint,true),
+        Add(Box(V(Label("v"+UiVersion+" · Telepített modok és CurseForge fájlfrissítések",19,Mint,true),
             Label("Hivatalos fájlazonosítók, dátumok és függőségek. A helyi "+
                 "modkönyvtár jelenléte NEM bizonyítja a telepített fájlverziót, "+
                 "crossplay-t vagy vásárlási jogosultságot.",12,Soft),
@@ -47,17 +47,42 @@ public partial class MainWindow
                     string encrypted=_cluster.Config.CurseForgeApiKeyProtected;
                     if(string.IsNullOrWhiteSpace(encrypted))
                         throw new InvalidOperationException("Előbb add meg az engedélyezett CurseForge API-kulcsot");
-                    var files=await new CurseForgeCatalog(_http).GetModFilesAsync(
+                    // Full, validated ASA file pagination is required
+                    // before claiming a local file is current or newer.
+                    var files=await new CurseForgeCatalog(_http).GetCompleteAsaModFilesAsync(
                         SecureStore.Unprotect(encrypted),id);
                     var local=ModUpdatePlanner.InspectCandidate(map.InstallationPath,id.ToString());
                     var state=ModUpdatePlanner.Assess(local,files);
+                    var latest=files.Files.Where(x=>x.Available)
+                        .OrderByDescending(x=>x.Published??DateTimeOffset.MinValue)
+                        .ThenByDescending(x=>x.FileId).FirstOrDefault();
+                    var localModes=ModStateController.Read(map);
+                    var review=latest==null?null:ModDependencyPlanner.Review(id,
+                        new[]{latest},localModes.Active.Concat(localModes.Passive));
+                    string RelationName(CurseForgeRelationType type)=>type switch{
+                        CurseForgeRelationType.EmbeddedLibrary=>"beágyazott könyvtár",
+                        CurseForgeRelationType.RequiredDependency=>"kötelező",
+                        CurseForgeRelationType.OptionalDependency=>"opcionális",
+                        CurseForgeRelationType.Incompatible=>"ütköző",
+                        CurseForgeRelationType.Tool=>"segédeszköz",
+                        CurseForgeRelationType.Include=>"csomagolt tartalom",
+                        _=>"ismeretlen – ellenőrzendő"
+                    };
                     status.Text="MOD "+id+" · "+state.State+"\n"+state.Reason+
-                        "\nFájlok az első oldalon: "+files.Files.Count+
+                        "\nEllenőrzött teljes fájllista: "+files.Files.Count+
                         " / "+files.Total+"\n"+
                         string.Join("\n",files.Files.Take(8).Select(x=>"#"+x.FileId+" "+x.Name+
                             " · "+(x.Published?.ToString("yyyy-MM-dd")??"dátum ismeretlen")+
-                            " · függőségek: "+string.Join(",",x.Dependencies)))+
-                        "\nNincs automatikus letöltés vagy szerverrestart.";
+                            " · kapcsolatok: "+string.Join(", ",x.Relations.Select(r=>
+                                r.ModId+" ("+RelationName(r.Type)+")"))))+
+                        (review==null?"\nNincs elérhető fájlmetaadat a függőségi előnézethez.":
+                            "\nKötelező függőségek ellenőrizetlen fájljai: "+
+                            (review.MissingRequired.Count==0?"nincs":string.Join(",",review.MissingRequired))+
+                            "\nOpcionális kiegészítők: "+
+                            (review.OptionalMods.Count==0?"nincs":string.Join(",",review.OptionalMods))+
+                            "\nEltérés/ütközés: "+
+                            (review.IncompatibleEnabled.Count==0?"nincs":string.Join(",",review.IncompatibleEnabled)))+
+                        "\nFüggőségi előnézet ≠ telepítési jogosultság; nincs automatikus letöltés vagy restart.";
                     // File IDs and verified observation time only: no API secrets.
                     var location=Path.Combine(_cluster.Store.Root,"mod-update-checks.jsonl");
                     File.AppendAllText(location,
@@ -65,12 +90,56 @@ public partial class MainWindow
                             map=map.Id,modId=id,utc=DateTimeOffset.UtcNow,
                             state=state.State.ToString(),latestFileId=state.LatestFileId})+"\n");
                 }
-                catch(Exception ex){status.Text="CurseForge-verzióellenőrzés sikertelen: "+ex.Message;}
+                catch(Exception ex){
+                    WriteLog("mod-file-preview",ex);
+                    status.Text="UM-CURSEFORGE-META: nem sikerült ellenőrizni a modfájlokat.";
+                }
+            }),
+            Btn("Teljes kötelező modfüggőségi lánc ellenőrzése (csak API)",async ()=>{
+                if(maps.SelectedItem is not LocalMap localMap ||
+                   !_cluster.Config.LocalMaps.Contains(localMap))
+                {status.Text="Válassz helyi mapot.";return;}
+                if(!int.TryParse(project.Text.Trim(),out int selectedId) || selectedId<10000)
+                {status.Text="Érvénytelen projektazonosító.";return;}
+                string keyEncrypted=_cluster.Config.CurseForgeApiKeyProtected;
+                if(string.IsNullOrWhiteSpace(keyEncrypted))
+                {status.Text="Előbb állíts be jóváhagyott CurseForge API-kulcsot.";return;}
+                status.Text="CurseForge API: kötelező fájlok és kapcsolatok bejárása...";
+                try
+                {
+                    var local=ModStateController.Read(localMap);
+                    var result=await new CurseForgeDependencyResolver(
+                        new CurseForgeCatalog(_http)).ResolveAsync(
+                            SecureStore.Unprotect(keyEncrypted),selectedId,
+                            local.Active.Concat(local.Passive));
+                    status.Text="CurseForge függőségi ellenőrzés: "+
+                        (result.FullMetadataRetrieved?"TELJES METAADAT":"HIÁNYOS / BLOKKOLVA")+
+                        "\nLekérdezett API-oldalak: "+result.HttpPagesRead+
+                        "\nKötelező betöltési sorrend: "+
+                        (result.Preview==null?"nem igazolható":
+                            string.Join(" → ",result.Preview.DependencyFirstOrder))+
+                        "\nHiányzó kötelező projektek: "+
+                        (result.Preview==null?"ismeretlen":
+                            string.Join(", ",result.Preview.MissingRequired))+
+                        "\nOpcionális modok: "+
+                        (result.Preview==null?"ismeretlen":
+                            string.Join(", ",result.Preview.OptionalMods))+
+                        "\n"+result.Reason+
+                        "\nAutomatikus telepítés/éles restart: NINCS.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("mod-dependency-chain",ex);
+                    status.Text="UM-CURSEFORGE-CHAIN: a függőségi lánc nem igazolható. "+
+                        "Nem történt módosítás.";
+                }
             }),status)));
     }
 
     private void ShowRconActionPreviews()
     {
+        bool adminBusy=false;
+        System.Threading.CancellationTokenSource? adminCancellation=null;
         var mapBox=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
             DisplayMemberPath="Name",SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
         var actions=new ComboBox{ItemsSource=new[]{
@@ -88,10 +157,10 @@ public partial class MainWindow
             return RconCommandPolicy.Preview(map.Id,(RconAction)actions.SelectedItem,
                 message.Text,true,map.Maintenance,state.Running);
         }
-        Add(Box(V(Label("v1.5 · RCON Adminpanel – ellenőrzött előnézet",19,Mint,true),
+        Add(Box(V(Label("v"+UiVersion+" · RCON Adminpanel – ellenőrzött előnézet",19,Mint,true),
             Label("ListPlayers, Broadcast, ServerChat, SaveWorld, Wild Dino Wipe. "+
-                "A tesztek a valódi parancsszöveget állítják elő, de csak FakeRcon-adapterrel "+
-                "küldik el. SaveWorld válasza NEM mentésigazolás.",12,Soft),
+                "Az egyszeri TCP-adminművelet csak külön teszttelepítést és igazolt porttulajdonost fogad el. "+
+                "Éles módosító küldés tiltott. SaveWorld válasza NEM mentésigazolás.",12,Soft),
             mapBox,actions,message,
             Btn("Parancs előnézete",()=>{
                 try
@@ -119,7 +188,74 @@ public partial class MainWindow
                         "\n"+draft.Command+"\nMűvelet: "+receipt.Operation+
                         "\nHálózati RCON-kapcsolat nem történt.";
                 }
-                catch(Exception ex){status.Text="FakeRcon művelet megtagadva: "+ex.Message;}
+                catch(Exception ex){status.Text="FakeRcon művelet megtagadva: "+
+                    UntamedPresentation.Redact(ex.Message);}
+            }),
+            Btn("Egyszeri hitelesített RCON adminparancs – csak elkülönített tesztmap",async ()=>{
+                if(adminBusy)return;adminBusy=true;
+                try
+                {
+                    var draft=Draft();
+                    if(System.Windows.MessageBox.Show("Kijelölt helyi tesztmap: "+
+                        ((LocalMap)mapBox.SelectedItem).Name+"\nParancs: "+draft.Command+
+                        "\nA jóváhagyás 60 másodpercig, egyetlen küldésre érvényes. "+
+                        "Bizonytalan válasznál nincs automatikus ismétlés.\nFolytatod?",
+                        draft.Destructive?"Veszélyes RCON tesztművelet":"Egyszeri RCON-jóváhagyás",
+                        MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                    var permit=IsolatedRconAdminQueue.Approve(_cluster,draft.Map,draft.Action,
+                        draft.Action is RconAction.Broadcast or RconAction.ServerChat?message.Text:null);
+                    adminCancellation=new System.Threading.CancellationTokenSource();
+                    status.Text="Teszt-RCON: hitelesítés, folyamat- és portazonosság, egyszeri küldés...";
+                    var receipt=await IsolatedRconAdminQueue.ExecuteOnceAsync(_cluster,permit,adminCancellation.Token);
+                    status.Text="RCON-válasz igazolva: "+receipt.Action+"\nMűvelet: "+receipt.Operation+
+                        "\nEz nem igazol mentésbefejezést vagy éles ASA-kompatibilitást.";
+                }
+                catch(Exception ex){WriteLog("rcon-isolated-admin",ex);status.Text="UM-RCON-ADMIN: a küldés nem igazolható. "+
+                    "A művelet nem ismétlődik automatikusan; bizonytalan küldésnél operátori ellenőrzés szükséges.";}
+                finally{adminCancellation?.Dispose();adminCancellation=null;adminBusy=false;}
+            }),
+            Btn("Folyamatban lévő RCON-teszt megszakítása",()=>adminCancellation?.Cancel()),
+            Btn("Valódi GetGameLog (csak olvasás, saját helyi map)",async ()=>{
+                await ReadOnly("GetGameLog");
+            }),
+            Btn("Valódi GetChat (csak olvasás, saját helyi map)",async ()=>{
+                await ReadOnly("GetChat");
             }),status)));
+        async Task ReadOnly(string command)
+        {
+            if(mapBox.SelectedItem is not LocalMap local ||
+               !_cluster.Config.LocalMaps.Contains(local))
+            {status.Text="Nincs regisztrált helyi map kiválasztva.";return;}
+            try
+            {
+                var before=_cluster.Check(local);
+                if(before.Identity==null||!before.Running||local.Maintenance||
+                   !ReleaseCapabilityGate.Check(ManagerOperation.LocalReadOnlyRcon,
+                       true,local.Maintenance,before.ConfirmedStopped,before.Running).Allowed)
+                    throw new InvalidOperationException("RCON process identity unverified");
+                var response=await RconProtocol.Execute(local.RconHost,local.RconPort,
+                    SecureStore.Unprotect(local.RconPasswordProtected),command);
+                var after=_cluster.Check(local);
+                bool same=after.Running&&after.Identity!=null&&
+                    after.Identity.Pid==before.Identity.Pid&&
+                    after.Identity.StartedUtc==before.Identity.StartedUtc&&
+                    string.Equals(after.Identity.ExecutablePath,before.Identity.ExecutablePath,
+                        StringComparison.OrdinalIgnoreCase)&&
+                    string.Equals(after.Identity.Arguments,before.Identity.Arguments,
+                        StringComparison.Ordinal);
+                if(!same)throw new InvalidOperationException(
+                    "Local RCON process replaced during read-only request");
+                status.Text=command+" · "+local.Name+"\n"+
+                    UntamedPresentation.Redact(response.Length>6000?
+                        response[..6000]+"\n[megjelenítés korlátozva]":response)+
+                    "\nA RCON-lekérdezés nem küldött módosító adminparancsot.";
+            }
+            catch(Exception ex)
+            {
+                WriteLog("rcon-readonly-history",ex);
+                status.Text="UM-RCON-READ: nem sikerült igazolni a helyi "+
+                    command+" válaszát. Módosító parancs nem történt.";
+            }
+        }
     }
 }

@@ -14,10 +14,11 @@ public partial class MainWindow
     private void ShowPluginRollbackControls()
     {
         var mapBox=new ComboBox{
-            ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",SelectedIndex=0,
+            ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",
+            SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==_preferredPluginMapId)??_cluster.Config.LocalMaps.FirstOrDefault(),
             Foreground=Brushes.White,Background=Panel};
         var pluginName=new TextBox{Height=34,Foreground=Brushes.White,Background=Panel,
-            ToolTip="Exact installed plugin directory name (Kova plugins forbidden)"};
+            ToolTip="Exact installed plugin directory name (Untamed Cluster Vault plugins forbidden)"};
         var previous=new TextBox{Height=34,IsReadOnly=true,
             Foreground=Brushes.White,Background=Panel};
         var status=Label("Válassz ellenőrzött helyi DLL-mentést. Minden Store/SQL művelet tiltott.",12,Soft);
@@ -71,7 +72,7 @@ public partial class MainWindow
                         "A mapnak igazoltan leállítottnak kell lennie. Folytatod?",
                         "Plugin rollback – helyi map",MessageBoxButton.YesNo,
                         MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-                    var result=SafePluginZip.Rollback(map,_cluster.Check(map),
+                    var result=SafePluginZip.RollbackGuarded(_cluster,map.Id,
                         preview.PluginName,preview.BackupFolder,BackupRoot());
                     status.Text="HELYI DLL-ROLLBACK kész: "+result.PluginName+
                         "\nVisszaállított bináris fájlok: "+result.RestoredBinaryCount+
@@ -82,3 +83,4 @@ public partial class MainWindow
             }),status)));
     }
 }
+

@@ -1,0 +1,50 @@
+/* Native operator-controlled admin RCON. One preview then one dispatch. */
+.uk-rcon-admin-panel{background:#152e32;border-top:1px solid #3c645d;border-bottom:1px solid #3c645d;padding:14px;margin:0;}
+.uk-rcon-admin-title{display:flex;align-items:center;gap:10px;margin-bottom:13px;color:#ddffec;flex-wrap:wrap;}
+.uk-rcon-admin-title svg{color:#83edbd;}
+.uk-rcon-admin-title b{font-weight:800;font-size:12.5px;}
+.uk-rcon-admin-title span{color:#8eada4;font-size:10px;margin-left:auto;}
+.uk-rcon-admin-grid{display:grid;grid-template-columns:1fr minmax(180px,1.1fr);gap:10px;align-items:end;}
+.uk-rcon-admin-grid label,.uk-rcon-admin-danger label,.uk-rcon-admin-review label{
+ display:flex;flex-direction:column;gap:7px;font-size:11px;font-weight:750;color:#abcfc2;min-width:0;}
+.uk-rcon-admin-grid input,.uk-rcon-admin-grid select,
+.uk-rcon-admin-danger input:not([type=checkbox]),
+.uk-rcon-admin-review input:not([type=checkbox]){
+ width:100%;min-width:0;box-sizing:border-box;min-height:39px;padding:8px 11px;
+ border:1px solid #50786b;border-radius:8px;color:#f2fff9;background:#0d232b;
+ font-size:12px;}
+.uk-rcon-admin-grid select:disabled,.uk-rcon-admin-grid input:disabled{opacity:.5;}
+.uk-rcon-admin-preview{display:inline-flex;align-items:center;gap:8px;
+ padding:8px 12px;min-height:39px;margin-top:11px;}
+.uk-rcon-admin-review,.uk-rcon-admin-danger{border:1px solid #55856f;background:#1d483b;
+ color:#d9f7e6;border-radius:9px;padding:12px;margin-top:13px;}
+.uk-rcon-admin-danger{background:#473023;border-color:#a56e48;color:#ffe6b9;}
+.uk-rcon-admin-review>b,.uk-rcon-admin-danger>b{font-size:12px;display:block;margin-bottom:10px;}
+.uk-rcon-admin-review code,.uk-rcon-admin-danger code{
+ display:block;background:#091b22;color:#c7ffdc;border:1px solid #44665b;
+ border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere;
+ padding:10px 12px;font-family:Consolas,'Cascadia Mono',monospace;font-size:11px;}
+.uk-rcon-admin-review p,.uk-rcon-admin-danger p{font-size:11px;line-height:1.6;
+ margin:10px 0;color:inherit;}
+.uk-rcon-admin-review label,.uk-rcon-admin-danger label{margin-top:11px;}
+.uk-rcon-admin-review .uk-rcon-approve-check,.uk-rcon-admin-danger .uk-rcon-approve-check{
+ flex-direction:row;align-items:flex-start;gap:10px;font-size:11px;line-height:1.6;}
+.uk-rcon-approve-check input{width:16px;height:16px;accent-color:#68e0ad;flex:none;margin-top:2px;}
+.uk-rcon-admin-actions{display:flex;align-items:center;gap:9px;margin-top:13px;}
+.uk-rcon-admin-actions button{padding:9px 14px;min-height:39px;}
+.uk-rcon-admin-actions button.danger{background:#a1453d;border:1px solid #c17465;
+ border-radius:8px;color:#fff;font-weight:800;}
+.uk-rcon-admin-actions button.danger:hover:not(:disabled){background:#bc564a;}
+.uk-rcon-admin-actions button:disabled{opacity:.43;cursor:not-allowed;}
+.uk-rcon-admin-success{display:flex;align-items:flex-start;gap:10px;color:#a4e8c5;
+ border:1px solid #478566;background:#163d32;border-radius:8px;
+ padding:11px;margin-top:12px;}
+.uk-rcon-admin-success svg{flex:none;}
+.uk-rcon-admin-success b{font-size:12px;}
+.uk-rcon-admin-success small{display:block;margin-top:6px;font-size:10px;}
+.uk-rcon-admin-success pre{white-space:pre-wrap;overflow-wrap:anywhere;
+ color:#def5e4;font:11px/1.6 Consolas,monospace;margin:9px 0 0;}
+@media(max-width:870px){
+ .uk-rcon-admin-grid{grid-template-columns:1fr;}
+ .uk-rcon-admin-title span{margin-left:0;width:100%;}
+}

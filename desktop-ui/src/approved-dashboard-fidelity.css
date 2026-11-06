@@ -1,0 +1,137 @@
+/* UNTAMED KINGDOM: approved original Dashboard fidelity pass.
+   The original accepted Dashboard is a compact monitoring workspace:
+   KPI 4-across; 68–70% server table LEFT and 30–32% host/events RIGHT.
+   The ten-map gallery is optional, NOT a substitute for this layout. */
+
+:root{--uk-sidebar:225px;--uk-toolbar:62px;--uk-table-row:59px;}
+.app-layout{grid-template-columns:var(--uk-sidebar) minmax(0,1fr);}
+.topbar{height:var(--uk-toolbar);min-height:var(--uk-toolbar);
+  padding:8px 22px;background:linear-gradient(90deg,#16262b,#192d32);
+  border-bottom:1px solid #41615d;}
+.topbar-title b,.topbar-title h1{font-size:26px;font-weight:760;
+  letter-spacing:-.027em;}
+.topbar-kicker{font-size:9px;letter-spacing:.17em;color:#6ed9b1;}
+.topbar-right{gap:7px;}
+.topbar-right .pill{font-size:10px;min-height:31px;display:inline-flex;align-items:center;}
+.sidebar{padding-left:10px;padding-right:10px;}
+.brand{min-height:178px;padding-bottom:5px;}
+.brand-symbol{top:11px;}
+.sidebar-label{margin:7px 7px 9px;padding-top:10px;}
+.sidebar nav{gap:3px;}
+.nav-link{min-height:42px;padding:8px 10px;}
+.nav-link svg{width:19px;height:19px;}
+.nav-link span{font-size:12.5px;}
+.main-content{padding:17px 20px 26px;}
+.page-intro h1{font-size:28px;}
+.premium-dashboard .premium-dashboard-banner.hero {
+  height:107px;min-height:107px;overflow:hidden;border-radius:10px;margin-bottom:12px;
+  box-shadow:0 6px 17px #0003;border:1px solid #457568;}
+.premium-dashboard .premium-dashboard-banner .premium-banner-content{
+  padding:12px 22px;gap:2px;}
+.premium-dashboard-banner .uk-hero-title{font-size:26px;}
+.premium-dashboard .premium-dashboard-banner .premium-kicker{font-size:9px;}
+.premium-dashboard .premium-dashboard-banner .premium-overview-subtitle{font-size:11px;}
+.premium-dashboard .premium-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:11px;margin-bottom:12px;}
+.premium-dashboard .premium-metric{min-height:80px;padding:11px 13px;gap:11px;box-sizing:border-box;}
+.premium-dashboard .premium-metric-symbol{flex-basis:34px;}
+.premium-dashboard .premium-metric-symbol svg{width:24px;height:24px;}
+.premium-dashboard .premium-metric-copy strong{font-size:24px;}
+.premium-dashboard .premium-metric-copy>span{font-size:12.5px;}
+.premium-dashboard .premium-metric-copy small{font-size:10px;margin-top:4px;}
+.premium-dashboard .premium-dashboard-grid{display:grid;grid-template-columns:minmax(0,2.12fr) minmax(290px,1fr);
+  gap:13px;align-items:start;}
+.premium-dashboard .premium-dashboard-aside{display:flex;flex-direction:column;gap:12px;
+  align-items:stretch;min-width:0;}
+.premium-dashboard .premium-dashboard-aside .premium-security{grid-column:auto;}
+.premium-dashboard .premium-server-panel{width:auto;min-width:0;}
+.premium-dashboard .premium-panel-heading{min-height:49px;padding:10px 13px;gap:9px;}
+.premium-dashboard .premium-panel-heading h2{font-size:16px;}
+.premium-dashboard .premium-panel-controls{gap:5px;flex-wrap:wrap;justify-content:flex-end;}
+.premium-dashboard .premium-search{padding:6px 8px;min-width:115px;max-width:165px;min-height:31px;}
+.premium-dashboard .premium-view-switcher{padding:2px;gap:1px;}
+.premium-dashboard .premium-view-switcher button{font-size:10px;padding:5px 7px;min-height:29px;}
+.premium-dashboard .premium-panel-controls>.primary{padding:7px 10px;font-size:10px;}
+.premium-dashboard .premium-server-table-head,.premium-dashboard .premium-server-row{
+  grid-template-columns:minmax(140px,2.6fr) minmax(74px,1.12fr)
+    minmax(74px,1fr) 65px 63px 40px;
+  align-items:center;gap:8px;}
+.premium-dashboard .premium-server-table-head{padding:10px 12px;font-size:9px;}
+.premium-dashboard .premium-server-row{min-height:var(--uk-table-row);padding:7px 12px;}
+.premium-dashboard .premium-server-identity{gap:8px;}
+.premium-dashboard .premium-server-identity .premium-map-cover{width:66px;height:40px;flex-basis:66px;}
+.premium-dashboard .premium-server-identity b{font-size:12px;}
+.premium-dashboard .premium-server-identity small{font-size:9.5px;margin-top:3px;}
+.premium-dashboard .premium-server-host{font-size:10px;}
+.premium-dashboard .premium-server-state{font-size:10.5px;}
+.premium-dashboard .premium-server-players{font-size:11px;color:#a2c9b6;text-align:center;}
+.premium-dashboard .premium-server-port{font-size:10.5px;}
+.premium-dashboard .premium-server-action{justify-content:flex-end;}
+.premium-dashboard .premium-icon-action{width:30px;height:30px;}
+.premium-dashboard .premium-remote-lock{font-size:0;}
+.premium-dashboard .premium-remote-lock svg{height:15px;width:15px;}
+.premium-dashboard .premium-host-body{padding:9px;}
+.premium-dashboard .premium-host-record{padding:9px;margin-bottom:8px;}
+.premium-dashboard .premium-host-heading b{font-size:11.5px;}
+.premium-dashboard .premium-resources{gap:7px;}
+.premium-dashboard .premium-host-heading .premium-count-pill{padding:3px 6px;font-size:9px;}
+.premium-dashboard .premium-event-row{padding:9px 11px;margin:0 7px;font-size:11px;}
+.premium-dashboard .premium-security-line{padding:8px 11px;font-size:10.5px;line-height:1.4;}
+.premium-dashboard .premium-panel-footnote{font-size:10px;padding:9px 12px;}
+/* The original matte graphite Mod Center is ~69% list / 31% details.
+   Stop splitting into equal columns at normal 1600px desktop width. */
+.premium-mod-grid{grid-template-columns:minmax(0,2.15fr) minmax(288px,1fr);}
+.premium-mod-row{min-height:58px;}
+.premium-mod-thumb{width:41px;height:41px;flex-basis:41px;}
+.premium-mod-bottom-bar{min-height:64px;box-sizing:border-box;bottom:8px;}
+.premium-mod-page .premium-editor-area,.premium-mod-page .premium-catalog-area{
+  scroll-margin-top:72px;}
+/* Plugin Center and map detail share the same restrained row/toolbar rhythm. */
+.premium-plugin-grid{grid-template-columns:minmax(0,2.15fr) minmax(288px,1fr);}
+.map-detail-tabs{min-height:44px;}
+.map-detail-tab{min-height:39px;}
+/* Keep original approved 1366 x 768 compact table without crushing the info column. */
+@media(max-width:1420px) {
+  .premium-dashboard .premium-dashboard-grid{
+    grid-template-columns:minmax(0,1.85fr) minmax(265px,1fr);}
+  .premium-dashboard .premium-server-table-head,.premium-dashboard .premium-server-row{
+    grid-template-columns:minmax(132px,2.4fr) minmax(62px,1fr)
+      minmax(62px,.9fr) 48px 45px 30px;gap:5px;}
+  .premium-dashboard .premium-search{max-width:135px;}
+  .premium-dashboard .premium-server-identity .premium-map-cover{
+    width:58px;flex-basis:58px;height:36px;}
+  .premium-dashboard .premium-panel-controls>.primary{padding:6px 8px;}
+  .premium-dashboard .premium-panel-heading{align-items:center;flex-wrap:wrap;}
+}
+@media(max-width:1160px) {
+  .premium-dashboard .premium-dashboard-grid{grid-template-columns:minmax(0,1fr);}
+  .premium-dashboard .premium-dashboard-aside{display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;}
+  .premium-dashboard .premium-dashboard-aside .premium-security{grid-column:1/-1;}
+  .premium-dashboard .premium-server-table-head,.premium-dashboard .premium-server-row{
+    grid-template-columns:minmax(160px,2.3fr) minmax(90px,1.1fr)
+      minmax(75px,1fr) 68px 64px 36px;}
+}
+@media(max-width:1049px){
+  .app-layout{grid-template-columns:74px minmax(0,1fr);}
+  .brand{min-height:94px;padding:12px 0;}
+  .sidebar nav{gap:4px;}
+  .topbar{padding:7px 16px;}
+}
+@media(max-width:780px) {
+  .premium-dashboard .premium-metrics{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .premium-dashboard .premium-dashboard-aside{display:flex;flex-direction:column;}
+  .premium-dashboard .premium-server-table-head,.premium-dashboard .premium-server-row{
+    grid-template-columns:minmax(160px,2.2fr) minmax(66px,1fr) 45px 32px;gap:7px;}
+  .premium-dashboard .premium-server-table-head>span:nth-child(2),
+  .premium-dashboard .premium-server-table-head>span:nth-child(5),
+  .premium-dashboard .premium-server-host,.premium-dashboard .premium-server-port {display:none;}
+  .premium-dashboard .premium-remote-lock{font-size:0;}
+  .premium-mod-grid,.premium-plugin-grid{grid-template-columns:1fr;}
+  .premium-dashboard .premium-dashboard-banner.hero{height:100px;min-height:100px;}
+  .premium-dashboard .premium-dashboard-banner .premium-banner-content{padding:10px 15px;}
+  .premium-dashboard-banner .uk-hero-title{font-size:20px;}
+}
+@media(prefers-reduced-motion:reduce){
+  .premium-dashboard .premium-dashboard-banner.hero::before{animation:none!important;}
+}

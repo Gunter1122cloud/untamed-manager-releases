@@ -32,7 +32,7 @@ A korábbi megbeszélések, a TELJES-KEZELOFULET-TERV-HU.md, a 2026.11.02-i audi
 - Teljes, forrásokra és valódi kódra alapozott összevetés: [REQUIREMENTS-AUDIT-2026-11-03.md](../REQUIREMENTS-AUDIT-2026-11-03.md).
 - Az új funkciók a meglévő Neon Kingdom felületen működnek, nem készült külön alkalmazás.
 
-## A teljes ASA/Kova-helyettesítéshez hátralévő kemény feltételek
+## A teljes ASA-helyettesítéshez hátralévő kemény feltételek
 - A valós ASA/API Loader Start, SaveWorld befejezés, DoExit, Restart és állapottal bizonyított felügyelet tesztje.
 - A két host 1:1 karakter/tribe/clustertransfer Store-v1 kompatibilitása és peer-zárolása másolt tesztclusteren; semmilyen konverzió vagy régi lock automatikus törlése.
 - Teljes, konzisztens 2-host SavedArks/SaveGames/SQL/transfer/Vault backup és elkülönített restore; a jelenlegi 10 map+3 SQL OFFLINE archívum nem ilyen.
@@ -41,5 +41,6 @@ A korábbi megbeszélések, a TELJES-KEZELOFULET-TERV-HU.md, a 2026.11.02-i audi
 - Authenticode kiadói tanúsítvány; a jelenlegi SHA-256 nem digitális aláírás.
 
 ## Teszt és kiadás
-GitHub Windows Actions: build Windows Desktop+Updater+Supervisor; két FakeAsa-Manager, FakeSteamCMD, lifecycle és Kova/Cluster Vault mesterséges ZIP, Discord HTTP mock, titokszűrt ZIP privacy, WPF GUI render, Windows Inno Setup + updater recovery E2E.
+GitHub Windows Actions: build Windows Desktop+Updater+Supervisor; két FakeAsa-Manager, FakeSteamCMD, lifecycle és Untamed Cluster Vault mesterséges ZIP, Discord HTTP mock, titokszűrt ZIP privacy, WPF GUI render, Windows Inno Setup + updater recovery E2E.
 A sikeres CI **TEST PREVIEW**, kizárólag harmadik Windows tesztgépen. Éles UK-HOME-01 vagy UK-HOME-02 gépen nincs engedélyezett telepítés, futtatás vagy adatírás.
+

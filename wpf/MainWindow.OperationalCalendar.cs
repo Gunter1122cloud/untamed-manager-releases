@@ -152,11 +152,21 @@ public partial class MainWindow
 
     private void ShowTelemetryHistoryControls()
     {
+        var enabled=new CheckBox{Content="CPU/RAM előzmények gyűjtése a helyi Supervisorral",IsChecked=_cluster.Config.TelemetryHistoryEnabled,Foreground=Brushes.White};
+        enabled.Click+=(_,_)=>{
+            bool previous=_cluster.Config.TelemetryHistoryEnabled;
+            try{
+                using var operation=_cluster.Operations.Acquire(_cluster.Store.Root,UntamedOperationKind.Configuration);
+                _cluster.Config.TelemetryHistoryEnabled=enabled.IsChecked==true;operation.MarkMutationStarted();
+                _cluster.Save();operation.Complete();
+            }catch(Exception e){_cluster.Config.TelemetryHistoryEnabled=previous;enabled.IsChecked=previous;WriteLog("telemetry-optin",e);}
+        };
         var maps=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
             DisplayMemberPath="Name",SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
         var status=Label("Nincs kiválasztott történeti adat.",12,Soft);
         var canvas=new Canvas{Height=130,Background=Panel};
-        Add(Box(V(Label("v1.5 · CPU/RAM/játékos történet (7 nap)",19,Mint,true),
+        Add(Box(V(Label("CPU/RAM/játékos történet – legfeljebb 7 nap / 2000 minta",19,Mint,true),
+            enabled,
             Label("A Supervisor a mért értékeket tárolja, nem talál ki "+
                 "játékosszámot/RCON-latenciát/hálózati terhelést. "+
                 "Az elavult minták nem valós idejű adatok.",12,Soft),
@@ -196,14 +206,14 @@ public partial class MainWindow
             }),canvas,status)));
     }
 
-    private void ShowKovaProfilePreviewControls()
+    private void ShowVaultProfilePreviewControls()
     {
         var source=new TextBox{Height=32,IsReadOnly=true,
             Background=Panel,Foreground=Brushes.White};
         var store=new TextBox{Height=32,IsReadOnly=true,
             Background=Panel,Foreground=Brushes.White};
         var status=Label("Csak korábban kimásolt helyi JSON-adatokat olvas. Nem kapcsolódik az élő szerverfolyamatokhoz.",12,Soft);
-        KovaProfileReport? report=null;
+        VaultProfileReport? report=null;
         Add(Box(V(Label("Untamed Cluster Vault · Profilátvételi előnézet",19,Mint,true),
             Label("Korábban készített profil-JSON és opcionális cluster-metaadatmásolat. "+
                 "Az eredeti profil, közös adatfájlok, transzferadatok és jelszavak változatlanok "+
@@ -223,7 +233,7 @@ public partial class MainWindow
             Btn("Vault profilok elemzése – kizárólag olvasás",()=>{
                 try
                 {
-                    report=KovaProfileImporter.InspectCopy(source.Text.Trim(),
+                    report=VaultProfileImporter.InspectCopy(source.Text.Trim(),
                         store.Text.Trim().Length==0?null:store.Text.Trim());
                     status.Text="Forrás SHA-256: "+report.SourceHash+
                         "\nHelyi profilok: "+report.Maps.Count+
@@ -246,7 +256,7 @@ public partial class MainWindow
                     if(picker.ShowDialog()!=Forms.DialogResult.OK)return;
                     if(File.Exists(picker.FileName))
                         throw new IOException("Csak új célfájl engedélyezett");
-                    var inert=KovaProfileImporter.BuildInertLocalDraft(report,
+                    var inert=VaultProfileImporter.BuildInertLocalDraft(report,
                         _cluster.Config.LocalHostId);
                     File.WriteAllText(picker.FileName,
                         System.Text.Json.JsonSerializer.Serialize(inert,
@@ -287,3 +297,4 @@ public partial class MainWindow
             }),status)));
     }
 }
+

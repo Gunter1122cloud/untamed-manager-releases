@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Windows.Controls;
@@ -8,15 +9,31 @@ using UntamedManager.Core;
 namespace UntamedManager;
 public partial class MainWindow
 {
+    private static string ModItemId(string value)=>value.Split(' ',StringSplitOptions.RemoveEmptyEntries).LastOrDefault()??"";
+    internal static void RefreshModList(ListBox list,string[] items)
+    {
+        var selected=list.SelectedItem is string text?ModItemId(text):null;
+        if(list.ItemsSource is not ObservableCollection<string> rows)
+        {rows=new ObservableCollection<string>();list.ItemsSource=rows;}
+        if(rows.SequenceEqual(items))return;
+        for(int i=0;i<items.Length;i++)
+            if(i>=rows.Count)rows.Add(items[i]);else if(rows[i]!=items[i])rows[i]=items[i];
+        while(rows.Count>items.Length)rows.RemoveAt(rows.Count-1);
+        if(selected!=null)list.SelectedItem=rows.FirstOrDefault(x=>ModItemId(x)==selected);
+        // Never steal keyboard focus or leave a captured mouse after refresh.
+    }
     private void ShowModStateEditor()
     {
         var mapBox=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,
             DisplayMemberPath="Name",SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
+        if(_preferredModMapId is Guid selectedModMap)
+            mapBox.SelectedItem=_cluster.Config.LocalMaps.FirstOrDefault(x=>x.Id==selectedModMap)
+                ??mapBox.SelectedItem;
         var modId=new TextBox{Height=34,Text="928548",Background=Panel,Foreground=Brushes.White};
         var mode=new ComboBox{ItemsSource=new[]{"ACTIVE","PASSIVE","DISABLED","REMOVE"},
             SelectedIndex=0,Background=Panel,Foreground=Brushes.White};
         var order=new TextBox{Text="",Height=30,Background=Panel,Foreground=Brushes.White};
-        var list=new ListBox{Height=180,Background=Panel,Foreground=Brushes.White};
+        var list=new ListBox{MaxHeight=180,MinHeight=52,Background=Panel,Foreground=Brushes.White};
         var status=Label("A módosítás kizárólag a helyi indítási konfigurációt érinti; nincs restart.",12,Soft);
         LocalMap Selected()
         {
@@ -47,10 +64,10 @@ public partial class MainWindow
             {
                 var map=Selected();
                 var state=ModStateController.Read(map);
-                list.ItemsSource=state.Active.Select((id,i)=>"ACTIVE   "+(i+1)+".  "+id)
+                RefreshModList(list,state.Active.Select((id,i)=>"ACTIVE   "+(i+1)+".  "+id)
                     .Concat(state.Passive.Select((id,i)=>"PASSIVE  "+(i+1)+".  "+id))
                     .Concat(state.Disabled.Select((id,i)=>"DISABLED "+(i+1)+".  "+id))
-                    .ToArray();
+                    .ToArray());
                 status.Text=map.Name+" · ACTIVE: "+state.Active.Count+
                     " · PASSIVE: "+state.Passive.Count+
                     " · DISABLED: "+state.Disabled.Count+
@@ -60,9 +77,15 @@ public partial class MainWindow
             catch(Exception ex){status.Text="Modállapot nem olvasható: "+ex.Message;}
         }
         mapBox.SelectionChanged+=(_,_)=>Refresh();
-        Add(Box(V(Label("v1.5 · ACTIVE / PASSIVE / DISABLED Mod Editor",20,Mint,true),
-            Label("Az ASA -mods= és -passivemods= listái külön kezelve. DISABLED csak a "+
-                "Manager helyi profiljában szerepel. Ismeretlen indítási kapcsolók változatlanok.",12,Soft),
+        list.SelectionChanged+=(_,_)=>{
+            if(list.SelectedItem is not string row)return;
+            modId.Text=ModItemId(row);
+            mode.SelectedItem=row.StartsWith("PASSIVE",StringComparison.Ordinal)?"PASSIVE":
+                row.StartsWith("DISABLED",StringComparison.Ordinal)?"DISABLED":"ACTIVE";
+        };
+        Add(Box(V(Label("v"+UiVersion+" · ACTIVE / PASSIVE / DISABLED Mod Editor",20,Mint,true),
+            Label("A PASSIVE modok a -mods= és -passivemods= kapcsolóban is szerepelnek. "+
+                "DISABLED csak a Manager helyi profiljában szerepel. Az ismeretlen kapcsolók megmaradnak.",12,Soft),
             mapBox,modId,mode,Label("Opcionális pozíció: 1, 2, 3... (üres = lista vége)",12,Aqua),
             order,
             Btn("Modállapot előnézete – írás nélkül",()=>{
@@ -70,8 +93,8 @@ public partial class MainWindow
                 {
                     var map=Selected();var preview=ModStateController.Preview(map,EditFor(map));
                     status.Text="ELŐNÉZET · "+map.Name+
-                        "\nEredeti argumentumok: "+preview.PreviousArguments+
-                        "\nÚj argumentumok: "+preview.NewArguments+
+                        "\nEredeti argumentumok: "+UntamedPresentation.Redact(preview.PreviousArguments)+
+                        "\nÚj argumentumok: "+UntamedPresentation.Redact(preview.NewArguments)+
                         "\nDISABLED: "+string.Join(",",preview.Updated.Disabled)+
                         "\nVáltozás: "+(preview.Changed?"IGEN":"NINCS")+
                         "\nSzerverindítás és RCON: NEM TÖRTÉNT.";
@@ -84,7 +107,7 @@ public partial class MainWindow
                     var map=Selected();var preview=ModStateController.Preview(map,EditFor(map));
                     if(System.Windows.MessageBox.Show(
                         map.Name+" indítási modparaméterei módosulnak; szerver nem indul újra.\n"+
-                        preview.NewArguments,
+                        UntamedPresentation.Redact(preview.NewArguments),
                         "Modlista mentése",System.Windows.MessageBoxButton.YesNo,
                         System.Windows.MessageBoxImage.Question)!=
                         System.Windows.MessageBoxResult.Yes)return;
@@ -119,3 +142,4 @@ public partial class MainWindow
         Refresh();
     }
 }
+

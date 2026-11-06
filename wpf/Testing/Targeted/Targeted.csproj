@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>UntamedIntegration</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../UntamedManager.csproj" />
+    <Compile Include="../Integration/SteamCmdIsolatedUpdaterTests.cs" Link="SteamCmdIsolatedUpdaterTests.cs" />
+    <Compile Include="../Integration/ModDependencyPlannerTests.cs" Link="ModDependencyPlannerTests.cs" />
+    <Compile Include="../Integration/CurseForgeDependencyResolverTests.cs" Link="CurseForgeDependencyResolverTests.cs" />
+    <Compile Include="../Integration/AsaApiReleaseStagingTests.cs" Link="AsaApiReleaseStagingTests.cs" />
+    <Compile Include="../Integration/AsaApiIsolatedInstallerTests.cs" Link="AsaApiIsolatedInstallerTests.cs" />
+    <Compile Include="../Integration/RconTransportTests.cs" Link="RconTransportTests.cs" />
+    <Compile Include="../Integration/DurableWatchdogTrackerTests.cs" Link="DurableWatchdogTrackerTests.cs" />
+    <Compile Include="../Integration/SafeConfigRecheckTests.cs" Link="SafeConfigRecheckTests.cs" />
+    <Compile Include="../Integration/ModArgumentSafetyTests.cs" Link="ModArgumentSafetyTests.cs" />
+    <Compile Include="../Integration/ModDraftSessionTests.cs" Link="ModDraftSessionTests.cs" />
+    <Compile Include="../Integration/PluginCenterTests.cs" Link="PluginCenterTests.cs" />
+    <Compile Include="../Integration/ScrollBoundaryTests.cs" Link="ScrollBoundaryTests.cs" />
+    <Compile Include="../Integration/PremiumBackupWorkflowTests.cs" Link="PremiumBackupWorkflowTests.cs" />
+    <Compile Include="../Integration/LocalLogCenterTests.cs" Link="LocalLogCenterTests.cs" />
+    <Compile Include="../Integration/DemoWorkspaceTests.cs" Link="DemoWorkspaceTests.cs" />
+    <Compile Include="../Integration/GuardedPluginUpdateTests.cs" Link="GuardedPluginUpdateTests.cs" />
+    <Compile Include="../Integration/IsolatedRconAdminQueueTests.cs" Link="IsolatedRconAdminQueueTests.cs" />
+    <Compile Include="../Integration/SchedulerConcurrencyTests.cs" Link="SchedulerConcurrencyTests.cs" />
+    <Compile Include="../Integration/UpdateOwnershipTests.cs" Link="UpdateOwnershipTests.cs" />
+    <Compile Include="../Integration/ManagedBackupRetentionTests.cs" Link="ManagedBackupRetentionTests.cs" />
+    <Compile Include="../Integration/SignedManagerPanelTests.cs" Link="SignedManagerPanelTests.cs" />
+    <Compile Include="../Integration/TelemetrySafetyTests.cs" Link="TelemetrySafetyTests.cs" />
+    <Compile Include="../Integration/ProfileInitializationTests.cs" Link="ProfileInitializationTests.cs" />
+  </ItemGroup>
+</Project>

@@ -8,13 +8,18 @@ namespace UntamedManager.Core;
 
 public enum ModMode { Active, Passive, Disabled }
 public sealed record ModSet(IReadOnlyList<string> Active,IReadOnlyList<string> Passive,
-    IReadOnlyList<string> Disabled,bool Pending);
+    IReadOnlyList<string> Disabled,bool Pending)
+{
+    // Preserve the original interleaved -mods sequence. Passive is a SUBSET
+    // switch, not a separate group that must be moved to the front.
+    public IReadOnlyList<string> EnabledOrder {get;init;}=Array.Empty<string>();
+}
 public sealed record ModEdit(Guid Map,string ModId,ModMode? Target,int? Position=null);
 public sealed record ModPreview(Guid Map,string PreviousArguments,string NewArguments,
     ModSet Previous,ModSet Updated,bool Changed);
 
-// Active and passive are distinct ASA switches; disabled IDs are owned only by
-// the local Manager and must never appear in its launch arguments.
+// The ASA -mods switch includes both passive and active projects. -passivemods
+// is a subset of -mods; disabled projects never enter launch arguments.
 public static class ModStateController
 {
     private static readonly Regex Param=new(
@@ -24,13 +29,61 @@ public static class ModStateController
         @"(?<!\S)-(?:mods|passivemods)=",
         RegexOptions.IgnoreCase|RegexOptions.Compiled|RegexOptions.CultureInvariant);
 
+    // Locate complete command-line tokens, not substrings inside a quoted
+    // SessionName/password/unknown argument. Preserve all original text outside
+    // the two owned switches, including spaces and escaped quotation marks.
+    private static IReadOnlyList<(int Start,int Length,Match Value)> Switches(string args)
+    {
+        if(args.Length>32767||args.Contains('\0')||args.Contains('\r')||args.Contains('\n'))
+            throw new InvalidDataException("Invalid mod launch argument frame");
+        var result=new List<(int,int,Match)>();int cursor=0;
+        while(cursor<args.Length)
+        {
+            if(char.IsWhiteSpace(args[cursor])){cursor++;continue;}
+            int start=cursor;bool quoted=false;
+            while(cursor<args.Length)
+            {
+                char c=args[cursor];
+                if(c=='"')
+                {
+                    int slashes=0;
+                    for(int at=cursor-1;at>=start&&args[at]=='\\';at--)slashes++;
+                    if(slashes%2==0)quoted=!quoted;
+                }
+                if(char.IsWhiteSpace(c)&&!quoted)break;
+                cursor++;
+            }
+            if(quoted)throw new InvalidDataException("Unterminated quoted launch argument");
+            string token=args[start..cursor];
+            if(token.Length>1&&token[0]=='"'&&token[^1]=='"')token=token[1..^1];
+            if(token.Equals("-mods",StringComparison.OrdinalIgnoreCase)||
+               token.Equals("-passivemods",StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Mod launch switch requires an explicit list");
+            var looks=LooksLikeParam.Match(token);
+            if(!looks.Success||looks.Index!=0)
+            {
+                string joined=token.Replace("\"","");
+                if(joined.StartsWith("-mods=",StringComparison.OrdinalIgnoreCase)||
+                   joined.StartsWith("-passivemods=",StringComparison.OrdinalIgnoreCase)||
+                   joined.Equals("-mods",StringComparison.OrdinalIgnoreCase)||
+                   joined.Equals("-passivemods",StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Fragmented quoted mod switch is ambiguous");
+                continue;
+            }
+            var match=Param.Match(token);
+            if(!match.Success||match.Index!=0||match.Length!=token.Length)
+                throw new InvalidDataException("Malformed mod launch switch");
+            result.Add((start,cursor-start,match));
+        }
+        return result;
+    }
+
     public static ModSet Read(LocalMap map)
     {
         if(map==null || map.Id==Guid.Empty)throw new InvalidDataException("Local map identity missing");
         var args=map.Arguments??"";
-        var matches=Param.Matches(args).Cast<Match>().ToArray();
-        if(matches.Length!=LooksLikeParam.Matches(args).Count ||
-           matches.GroupBy(m=>m.Groups["kind"].Value,StringComparer.OrdinalIgnoreCase)
+        var matches=Switches(args).Select(x=>x.Value).ToArray();
+        if(matches.GroupBy(m=>m.Groups["kind"].Value,StringComparer.OrdinalIgnoreCase)
                .Any(g=>g.Count()!=1))
             throw new InvalidDataException("Malformed or repeated -mods/-passivemods argument");
         string[] ReadSwitch(string kind)
@@ -44,13 +97,19 @@ public static class ModStateController
                 throw new InvalidDataException("Mod launch parameter cannot be empty");
             return CheckList(raw.Split(',',StringSplitOptions.None));
         }
-        var active=ReadSwitch("mods");
+        var enabled=ReadSwitch("mods");
         var passive=ReadSwitch("passivemods");
         var disabled=CheckList((map.DisabledModIds??new()).ToArray());
-        if(active.Concat(passive).Concat(disabled).Distinct(StringComparer.Ordinal).Count()!=
-           active.Length+passive.Length+disabled.Length)
-            throw new InvalidDataException("Mod ID cannot appear in multiple states");
-        return new(active,passive,disabled,map.ModChangesPending);
+        var enabledSet=new HashSet<string>(enabled,StringComparer.Ordinal);
+        if(passive.Any(id=>!enabledSet.Contains(id)) ||
+           disabled.Any(id=>enabledSet.Contains(id)))
+            throw new InvalidDataException(
+                "Passive mods must be a subset of -mods and disabled mods cannot be enabled");
+        var passiveSet=new HashSet<string>(passive,StringComparer.Ordinal);
+        var active=enabled.Where(id=>!passiveSet.Contains(id)).ToArray();
+        return new(active,passive,disabled,map.ModChangesPending){
+            EnabledOrder=enabled
+        };
     }
 
     private static string[] CheckList(IEnumerable<string> ids)
@@ -72,7 +131,20 @@ public static class ModStateController
         var active=before.Active.ToList();
         var passive=before.Passive.ToList();
         var disabled=before.Disabled.ToList();
+        var originalOrder=before.EnabledOrder.ToList();
+        int formerLoadIndex=originalOrder.IndexOf(edit.ModId);
+        ModMode? formerMode=before.Active.Contains(edit.ModId)?ModMode.Active:
+            before.Passive.Contains(edit.ModId)?ModMode.Passive:
+            before.Disabled.Contains(edit.ModId)?ModMode.Disabled:null;
+        int oldModePosition=formerMode switch{
+            ModMode.Active=>active.IndexOf(edit.ModId),
+            ModMode.Passive=>passive.IndexOf(edit.ModId),
+            ModMode.Disabled=>disabled.IndexOf(edit.ModId),
+            _=>-1
+        };
         active.Remove(edit.ModId);passive.Remove(edit.ModId);disabled.Remove(edit.ModId);
+        IReadOnlyList<string>? selectedMode=null;
+        int newModeIndex=-1;
         if(edit.Target.HasValue)
         {
             var selected=edit.Target.Value switch{
@@ -82,41 +154,106 @@ public static class ModStateController
             if(edit.Position.HasValue &&
                (edit.Position<0 || edit.Position>selected.Count))
                 throw new ArgumentOutOfRangeException(nameof(edit.Position));
-            selected.Insert(edit.Position??selected.Count,edit.ModId);
+            // An unchanged mode with no explicit position is a no-op for
+            // that mode's ordering. New/moved mods append by default.
+            newModeIndex=edit.Position ??
+                (formerMode==edit.Target && oldModePosition>=0?
+                    Math.Min(oldModePosition,selected.Count):selected.Count);
+            selected.Insert(newModeIndex,edit.ModId);
+            selectedMode=selected;
         }
         CheckList(active);CheckList(passive);CheckList(disabled);
         var arg=(map.Arguments??"").Trim();
         // Remove only the two canonical switches, keep cluster, port, loader
         // and every other unknown argument in original order and form.
-        var remaining=Param.Replace(arg,"").Trim();
-        remaining=Regex.Replace(remaining,@"[ \t]{2,}"," ");
+        string remaining=arg;
+        foreach(var token in Switches(arg).Reverse())
+            remaining=remaining.Remove(token.Start,token.Length);
+        remaining=remaining.Trim();
+        // Preserve every untouched -mods item's global position. Moving a mod
+        // between Active and Passive is a mode change, NOT a load-order change.
+        var enabled=originalOrder.ToList();
+        enabled.Remove(edit.ModId);
+        if(edit.Target is ModMode.Active or ModMode.Passive)
+        {
+            int insertAt=formerLoadIndex>=0?
+                Math.Min(formerLoadIndex,enabled.Count):enabled.Count;
+            if(edit.Position.HasValue && selectedMode!=null)
+            {
+                // An EXPLICIT reorder is anchored against the next or previous
+                // project in the same mode. Unrelated passive/active items
+                // retain their relative ordering as much as possible.
+                var nextModeItem=newModeIndex+1<selectedMode.Count?
+                    selectedMode[newModeIndex+1]:null;
+                var previousModeItem=newModeIndex>0?
+                    selectedMode[newModeIndex-1]:null;
+                if(nextModeItem!=null && enabled.Contains(nextModeItem))
+                    insertAt=enabled.IndexOf(nextModeItem);
+                else if(previousModeItem!=null && enabled.Contains(previousModeItem))
+                    insertAt=enabled.IndexOf(previousModeItem)+1;
+            }
+            enabled.Insert(insertAt,edit.ModId);
+        }
         var next=remaining+
-            (active.Count>0?(remaining.Length>0?" ":"")+"-mods="+string.Join(",",active):"");
+            (enabled.Count>0?(remaining.Length>0?" ":"")+"-mods="+string.Join(",",enabled):"");
         next+=(passive.Count>0?(next.Length>0?" ":"")+"-passivemods="+
             string.Join(",",passive):"");
         bool changed=!string.Equals(next,arg,StringComparison.Ordinal) ||
             !disabled.SequenceEqual(before.Disabled);
         return new(map.Id,map.Arguments??"",next,before,
-            new(active,passive,disabled,before.Pending||changed),changed);
+            new ModSet(active,passive,disabled,before.Pending||changed){
+                EnabledOrder=enabled
+            },changed);
     }
 
     public static IReadOnlyList<ModPreview> ApplyLocalBatch(ClusterService cluster,
-        IEnumerable<ModEdit> edits)
+        IEnumerable<ModEdit> edits,
+        IReadOnlyDictionary<Guid,ModEditBaseline>? expectedBaselines=null)
     {
         if(cluster==null||edits==null)throw new ArgumentNullException();
         var requests=edits.ToArray();
-        if(requests.Length==0 || requests.Length>100)throw new InvalidDataException("Invalid batch size");
+        // One local Manager may copy up to five ~500-mod map configurations
+        // atomically. Never accept an unbounded batch from the UI.
+        if(requests.Length==0 || requests.Length>2500)
+            throw new InvalidDataException("Invalid batch size");
         var originals=new Dictionary<Guid,(string Args,List<string> Disabled,bool Pending)>();
         var previews=new List<ModPreview>();
+        using var operation=cluster.Operations.AcquireMany(new[]{cluster.Store.Root}.Concat(
+            requests.Select(e=>cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==e.Map))
+                .Where(m=>m!=null&&!string.IsNullOrWhiteSpace(m.InstallationPath))
+                .Select(m=>m!.InstallationPath)),UntamedOperationKind.Configuration);
         try
         {
+            // Validate ALL baselines (including an optional source-only map)
+            // under the same operation lease. A changed source must not
+            // silently provide an obsolete multi-map replacement.
+            if(expectedBaselines!=null)
+            foreach(var (baselineId,baseline) in expectedBaselines)
+            {
+                var observed=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==baselineId);
+                if(observed==null || !baseline.Matches(observed))
+                    throw new IOException("Mod copy baseline changed; reload required");
+            }
             foreach(var edit in requests)
             {
                 var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==edit.Map);
                 if(map==null)throw new UnauthorizedAccessException("Cannot edit a peer map");
+                if(map.HistoricalStoreProtected ||
+                   UntamedWorldBackup.HasLiveOrHistoricalStore(map) || map.Maintenance)
+                    throw new UnauthorizedAccessException("Store-v1 or maintenance mods are protected");
                 if(!originals.ContainsKey(map.Id))
+                {
+                    // Verify the editor snapshot while the configuration lease is
+                    // held, before any staging or disk write. Never silently
+                    // overwrite a concurrent INI/mod editor change.
+                    if(expectedBaselines!=null &&
+                       (!expectedBaselines.TryGetValue(map.Id,out var expected) ||
+                        !expected.Matches(map)))
+                        throw new InvalidOperationException(
+                            "Mod configuration changed outside this draft; reload is required");
                     originals.Add(map.Id,(map.Arguments,
                         (map.DisabledModIds??new()).ToList(),map.ModChangesPending));
+                }
                 // Staged in-memory edits; no server restart and no file writes yet.
                 var preview=Preview(map,edit);
                 map.Arguments=preview.NewArguments;
@@ -124,7 +261,9 @@ public static class ModStateController
                 map.ModChangesPending=preview.Updated.Pending;
                 previews.Add(preview);
             }
+            operation.MarkMutationStarted();
             cluster.Save();
+            operation.Complete();
             return previews;
         }
         catch
@@ -150,3 +289,4 @@ public static class ModStateController
             "A confirmed real ASA restart and loaded-mod reconciliation are not yet certified");
     }
 }
+

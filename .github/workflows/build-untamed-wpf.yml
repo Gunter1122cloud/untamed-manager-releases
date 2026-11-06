@@ -1,11 +1,20 @@
 name: Untamed Manager WPF Windows Build
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/store-lifecycle-evidence-parity-20261103', 'codex/**', 'chatgpt/**']
     paths:
       - 'wpf/**'
+      - 'tools/lab/**'
+      - 'docs/development/WORK-LEDGER.json'
       - '.github/workflows/build-untamed-wpf.yml'
   workflow_dispatch:
+  pull_request:
+    branches: ['feature/store-lifecycle-evidence-parity-20261103']
+    paths:
+      - 'wpf/**'
+      - 'tools/lab/**'
+      - 'docs/development/WORK-LEDGER.json'
+      - '.github/workflows/build-untamed-wpf.yml'
 concurrency:
   group: untamed-wpf-${{ github.ref }}
   cancel-in-progress: true
@@ -50,6 +59,10 @@ jobs:
           if (!(Test-Path 'wpf/UntamedManager.csproj')) { throw "Missing WPF project" }
           if (!(Test-Path 'wpf/MainWindow.xaml')) { throw "Missing window" }
           if (!(Test-Path 'wpf/MainWindow.xaml.cs')) { throw "Missing codebehind" }
+      - name: Isolated lab path policy and native resource caps (no guest boot)
+        shell: pwsh
+        run: |
+          ./tools/lab/Test-IsolatedLab.ps1
       - name: Compile WPF for Windows x64
         shell: pwsh
         run: |
@@ -58,6 +71,11 @@ jobs:
           if (!(Test-Path "dist/UntamedManager.exe")) { throw "EXE not produced" }
           Get-Item "dist/UntamedManager.exe" | Select-Object Name,Length
           Get-FileHash "dist/UntamedManager.exe" -Algorithm SHA256
+      - name: Read-only Store-v1 metadata regressions (synthetic inputs only)
+        shell: pwsh
+        run: |
+          dotnet run --project wpf/Testing/StoreV1/StoreV1.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Store-v1 read-only regressions failed" }
       - name: Build independent Windows updater
         shell: pwsh
         run: |
@@ -111,21 +129,71 @@ jobs:
           if (Test-Path "$logDir/crash.log") { Get-Content "$logDir/crash.log" -Tail 50 }
           if (-not $finished) { $p.Kill(); throw "WPF smoke test timed out" }
           if ($p.ExitCode -ne 0) { throw "WPF initialization failed with exit code $($p.ExitCode)" }
-      - name: Render actual WPF dashboard screenshot
+      - name: Render actual WPF dashboard and key pages
         shell: pwsh
         env:
           UNTAMED_SCREENSHOT_PATH: ${{ github.workspace }}/dist/UntamedManager-preview.png
+          UNTAMED_SCREENSHOT_GALLERY: '1'
         run: |
           $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--screenshot-test" -PassThru
-          if (-not $p.WaitForExit(45000)) { $p.Kill(); throw "WPF screenshot render timeout" }
-          if ($p.ExitCode -ne 0) { throw "WPF screenshot generation failed" }
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "WPF screenshot render timeout" }
+          if ($p.ExitCode -ne 0) {
+            $logDir=Join-Path $env:LOCALAPPDATA "UntamedManager/WPF"
+            if(Test-Path "$logDir/crash.log"){Get-Content "$logDir/crash.log" -Tail 35}
+            throw "WPF screenshot generation failed"
+          }
           if (!(Test-Path "$env:UNTAMED_SCREENSHOT_PATH")) { throw "WPF screenshot output missing" }
           if ((Get-Item "$env:UNTAMED_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF screenshot unexpectedly small" }
-      - name: Save verified GUI screenshot
+          foreach ($page in @("servers","mods","plugins","cluster","backups","settings","ini","logs",
+            "rcon","monitoring","schedules","recovery","operations","network","data",
+            "steam","license","lan","readiness","extensions","setup",
+            "demo-dashboard","demo-servers","demo-cluster","demo-mods","demo-plugins","demo-logs",
+            "demo-ini","demo-rcon","demo-backups","demo-schedules","demo-monitoring",
+            "demo-recovery","demo-settings")) {
+            $file = Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-$page.png"
+            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 8000) { throw "Missing or invalid WPF screenshot: $page" }
+          }
+          foreach ($step in 1..5) {
+            $file=Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-map-setup-step$step.png"
+            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 8000) {
+              throw "Map setup wizard screenshot missing or invalid: step $step"
+            }
+          }
+      - name: Test 1366, 1600 and 1920 desktop layouts with WPF render
+        shell: pwsh
+        run: |
+          foreach ($size in @("910x512","1366x768","1600x900","1920x1080")) {
+            $parts=$size.Split("x")
+            $env:UNTAMED_CAPTURE_WIDTH=$parts[0]
+            $env:UNTAMED_CAPTURE_HEIGHT=$parts[1]
+            $env:UNTAMED_SCREENSHOT_GALLERY="0"
+            $env:UNTAMED_SCREENSHOT_PATH=Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-layout-$size.png"
+            $p=Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--screenshot-test" -PassThru
+            if(-not $p.WaitForExit(50000)){ $p.Kill(); throw "WPF layout rendering timeout: $size" }
+            if($p.ExitCode -ne 0){ throw "WPF layout rendering failed: $size" }
+            if(!(Test-Path $env:UNTAMED_SCREENSHOT_PATH) -or
+                (Get-Item $env:UNTAMED_SCREENSHOT_PATH).Length -lt 8000){
+                throw "WPF layout screenshot invalid: $size"
+            }
+            Write-Output "PASS WPF rendered layout $size"
+          }
+      - name: Render actual WPF splash screen
+        shell: pwsh
+        env:
+          UNTAMED_SPLASH_SCREENSHOT_PATH: ${{ github.workspace }}/dist/UI-Screenshots/UntamedManager-splash.png
+        run: |
+          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--splash-screenshot-test" -PassThru
+          if (-not $p.WaitForExit(45000)) { $p.Kill(); throw "WPF splash render timeout" }
+          if ($p.ExitCode -ne 0) { throw "WPF splash render failed" }
+          if (!(Test-Path "$env:UNTAMED_SPLASH_SCREENSHOT_PATH") -or
+              (Get-Item "$env:UNTAMED_SPLASH_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF splash screenshot missing" }
+      - name: Save verified GUI screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: UntamedManager-WPF-v1.6.1-actual-screenshot
-          path: dist/UntamedManager-preview.png
+          name: UntamedManager-WPF-UI-gallery
+          path: |
+            dist/UntamedManager-preview.png
+            dist/UI-Screenshots/*.png
           if-no-files-found: error
       - name: Package complete portable test build
         shell: pwsh
@@ -175,16 +243,66 @@ jobs:
             dist/SHA256SUMS.txt
           if-no-files-found: error
       - name: Create test-only GitHub release
-        if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release v1.6.1 TEST preview') }} # A clearly intentional preview publication, only after every CI step passes.
+        if: ${{ github.ref == 'refs/heads/chatgpt/untamed-manager-unified-20261105' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release-test premium') }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.6.1-wpf-preview.1"
-          gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" 2>$null
+          $tag = "v1.6.1-premium-test.12"
+          $repo = "$env:GITHUB_REPOSITORY"
+          $files = @(
+            "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-unified-test12.exe",
+            "dist/UntamedManager-1.6.1-win-x64.zip#UntamedManager-1.6.1-unified-test12-portable.zip",
+            "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-unified-test12-SETUP.exe",
+            "dist/SHA256SUMS.txt#SHA256SUMS.txt",
+            "dist/UntamedManager-preview.png#UntamedManager-premium-dashboard.png",
+            "dist/UI-Screenshots/UntamedManager-demo-mods.png#UntamedManager-premium-demo-mods.png",
+            "dist/UI-Screenshots/UntamedManager-demo-plugins.png#UntamedManager-premium-demo-plugins.png",
+            "dist/UI-Screenshots/UntamedManager-demo-servers.png#UntamedManager-premium-demo-servers.png",
+            "dist/UI-Screenshots/UntamedManager-backups.png#UntamedManager-premium-backup-center.png",
+            "dist/UI-Screenshots/UntamedManager-demo-backups.png#UntamedManager-premium-demo-backups.png",
+            "dist/UI-Screenshots/UntamedManager-logs.png#UntamedManager-premium-log-center.png",
+            "dist/UI-Screenshots/UntamedManager-demo-logs.png#UntamedManager-premium-demo-logs.png",
+            "dist/UI-Screenshots/UntamedManager-cluster.png#UntamedManager-premium-cluster.png",
+            "dist/UI-Screenshots/UntamedManager-steam.png#UntamedManager-steamcmd-update-center.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step1.png#UntamedManager-map-wizard-1.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step2.png#UntamedManager-map-wizard-2.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step3.png#UntamedManager-map-wizard-3.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step4.png#UntamedManager-map-wizard-4.png",
+            "dist/UI-Screenshots/UntamedManager-map-setup-step5.png#UntamedManager-map-wizard-5.png",
+            "dist/UI-Screenshots/UntamedManager-layout-1366x768.png#UntamedManager-layout-1366x768.png"
+          )
+          gh release view $tag --repo $repo --json tagName 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1.exe" "dist/UntamedManager-1.6.1-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-SETUP.exe" --clobber --repo "$env:GITHUB_REPOSITORY"
+            gh release upload $tag @files --repo $repo --clobber
           } else {
-            gh release create "$tag" "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1.exe" "dist/UntamedManager-1.6.1-win-x64.zip" "dist/SHA256SUMS.txt" "dist/UntamedManager-preview.png#UntamedManager-preview.png" "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-SETUP.exe" --target "$env:GITHUB_SHA" --title "Untamed Manager v1.6.1 - Professional Operations TEST preview" --prerelease --notes-file wpf/RELEASE-1.6.1.md --repo "$env:GITHUB_REPOSITORY"
+            gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
+              --title "Untamed Manager v1.6.1 · Unified CurseForge TEST 12" --prerelease `
+              --notes "Neon Kingdom Unified TEST 12 - isolated Windows TEST PC ONLY. PR #7 SteamCMD and ASA manager plus PR #9 CurseForge DPAPI key import are integrated on PR #10 without embedding or exposing approved secrets. The Premium WPF Mod Center includes official ASA category/sort, featured/popular/recent, descriptions, gallery, strict file-ID and dependency metadata, local Active/Passive/Disabled inventory and cancellable HTTP. NEW TEST 12: for mod-version decisions, verify exact ASA game ID and ALL CurseForge file pages (max 16x25) before deciding Current/Newer; reject inconsistent pagination, duplicate file IDs, equal-date ambiguity and unproven local mod folder identity. Preserve interleaved -mods order across mode changes; reorder only on explicit user action, preserve -passivemods semantics. Windows CI tests mod list order, fake CurseForge pagination, protected Store-v1, updater/installer recovery, SQL restore and real WPF screenshots. Manual SteamCMD update only for VERIFIED STOPPED local ASA maps, with verified backup; live SaveComplete/automatic restart and authorized mod downloads remain blocked until independently proven. UK-HOME-01 and UK-HOME-02 operate independent one-at-a-time LOCAL maintenance queues; no cluster-wide lock. NEVER install this TEST build on either production ASA machine."
           }
-          if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
+          if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
+          # A cancelled prior CI can leave an unpublished draft with the same tag.
+          # Updating assets is not enough: explicitly publish and point the tag
+          # to the successful, verified HEAD of THIS build.
+          $allReleases = gh api "repos/$repo/releases?per_page=100" | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0){ throw "Could not inspect premium release" }
+          $matches = @($allReleases | Where-Object { $_.tag_name -eq $tag })
+          if($matches.Count -ne 1){ throw "Expected exactly one premium release for $tag" }
+          $releaseId = $matches[0].id
+          gh api -X PATCH "repos/$repo/releases/$releaseId" -f "tag_name=$tag" -f "target_commitish=$env:GITHUB_SHA" -F "draft=false" -F "prerelease=true" --silent
+          if($LASTEXITCODE -ne 0){ throw "Premium release could not be published" }
+          gh release view $tag --repo $repo --json isDraft,isPrerelease,tagName --jq '{draft: .isDraft, prerelease: .isPrerelease, tag: .tagName}'
+          if($LASTEXITCODE -ne 0){ throw "Published premium release is not readable" }
+
+  real-sql:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Real isolated MariaDB logical dump and empty-target restore
+        shell: pwsh
+        run: ./wpf/Testing/MariaDb/Run-RealSql.ps1
+

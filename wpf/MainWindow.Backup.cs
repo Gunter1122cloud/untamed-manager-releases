@@ -92,6 +92,6 @@ public partial class MainWindow
                 using var pick=new Forms.FolderBrowserDialog{Description="Válassz a map gyökerétől különálló helyi mentési mappát"};
                 if(pick.ShowDialog()==Forms.DialogResult.OK)folder.Text=pick.SelectedPath;
             }),
-            create,verify,history,status);
+            create,verify,history,status,BackupRetentionPane(map));
     }
 }

@@ -17,12 +17,12 @@ public partial class MainWindow
     private void InitializeAutomaticUpdates()
     {
         _updateTimer.Tick+=async(_,_)=>await AutomaticUpdateCheck();
-        Loaded+=async(_,_)=>{if(!App.IsSmokeTest&&!App.IsSupervisionTest){_updateTimer.Start();await AutomaticUpdateCheck();}};
+        Loaded+=async(_,_)=>{if(!App.IsSmokeTest&&!App.IsSupervisionTest&&!App.IsDemoStart&&_demo==null){_updateTimer.Start();await AutomaticUpdateCheck();}};
         Closed+=(_,_)=>_updateTimer.Stop();
     }
     private async Task AutomaticUpdateCheck()
     {
-        if(_checkingUpdates)return;
+        if(_checkingUpdates || _demo!=null || App.IsDemoStart)return;
         _checkingUpdates=true;
         try
         {
@@ -56,14 +56,23 @@ public partial class MainWindow
             Label("Opcionális kiadói Authenticode tanúsítvány SHA1 ujjlenyomat",13,Soft),
             publisher,
             Btn("Frissítési beállítások mentése",()=>{
-                if(!UpdateCenter.ValidRepository(repository.Text.Trim()))
-                {Notice("Érvénytelen owner/repository.");return;}
-                _cluster.UpdateSettings(c=>{
-                    c.GitHubRepository=repository.Text.Trim();
-                    c.UpdateChannel=(UpdateChannel)channel.SelectedItem;
-                    c.PublisherCertificateThumbprint=publisher.Text.Trim();
-                });
-                Notice("Beállítások mentve. A profilok és szervermentések érintetlenek.");
+                try
+                {
+                    if(!UpdateCenter.ValidRepository(repository.Text.Trim()))
+                        throw new InvalidDataException("Érvénytelen owner/repository.");
+                    _cluster.UpdateSettings(c=>{
+                        c.GitHubRepository=repository.Text.Trim();
+                        c.UpdateChannel=(UpdateChannel)channel.SelectedItem;
+                        c.PublisherCertificateThumbprint=publisher.Text.Trim();
+                    });
+                    Notice("Beállítások mentve. A profilok és szervermentések érintetlenek.");
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("update-settings",ex);
+                    Notice("Nem sikerült menteni a frissítési beállításokat: "+
+                        UntamedPresentation.Redact(ex.Message));
+                }
             }))));
         Add(Box(V(Label("GitHub frissítések ellenőrzése",19,Mint,true),
             Label("Hiteles forrás: api.github.com + az engedélyezett repository, HTTPS, a GitHub asset SHA-256 digestje.",12,Soft),

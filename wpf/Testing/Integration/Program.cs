@@ -8,6 +8,18 @@ static void Assert(bool condition,string reason)
     if(!condition)throw new Exception("INTEGRATION TEST FAILED: "+reason);
     Console.WriteLine("PASS "+reason);
 }
+static void CheckFutureMapNames()
+{
+    Assert(LocalMapNameRules.Normalize("Future Map 2030")=="Future Map 2030",
+        "Newly released ASA maps are not blocked by a hard-coded ten-map name list");
+    foreach(string bad in new[]{"", "    ", "../Map", "Bad\\Map", new string('X',101)})
+    {
+        bool refused=false;
+        try{LocalMapNameRules.Normalize(bad);}
+        catch(InvalidDataException){refused=true;}
+        Assert(refused,"Invalid local map names are refused");
+    }
+}
 static int FreePort()
 {
     var listener=new TcpListener(IPAddress.Loopback,0);
@@ -15,6 +27,14 @@ static int FreePort()
     int port=((IPEndPoint)listener.LocalEndpoint).Port;
     listener.Stop();return port;
 }
+if(args.Length==4&&args[0]=="--coordinator-hold")
+{
+    using var lease=new UntamedOperationCoordinator(args[1]).Acquire(args[2],UntamedOperationKind.Update);
+    lease.MarkMutationStarted();File.WriteAllText(args[3],"ready");
+    await Task.Delay(Timeout.Infinite);return;
+}
+if(args.Length==3&&args[0]=="--scheduler-claim-child")
+{await SchedulerConcurrencyTests.Hold(args[1],args[2]);return;}
 if(args.Length==0||!File.Exists(args[0]))
     throw new ArgumentException("First argument must be the built FakeAsa.exe");
 string fake=Path.GetFullPath(args[0]);
@@ -34,12 +54,73 @@ try
     string steamFixture=Path.Combine(root,"steamcmd.exe");
     File.WriteAllText(steamFixture,"offline synthetic steamcmd file");
     await OperationalFeaturesTests.Run(root,fake,args.Length>3?args[3]:null);
+    await SteamCmdIsolatedUpdaterTests.Run(root,args.Length>3?args[3]:null);
+    await SteamStoppedMapUpdaterTests.Run(root,args.Length>3?args[3]:null);
+    await SteamStoppedBulkUpdateTests.Run(root,args.Length>3?args[3]:null);
+    await SteamFreshInstallTests.Run(root,args.Length>3?args[3]:null);
+    AsaInitialRconSettingsTests.Run(root);
+    await SteamCmdZipValidatorTests.Run();
+    AsaSteamBuildCatalogTests.Run(root);
+    SteamBuildStatusStoreTests.Run(root);
+    await SteamSerialQueueTests.Run(root);
+    await IndependentManagerSteamTests.Run(root);
+    await SteamVerifiedMaintenancePipelineTests.Run(root);
+    await ModDependencyPlannerTests.Run();
+    await CurseForgeDependencyResolverTests.Run();
+    await CurseForgeExactLookupTests.Run();
+    await CurseForgeApiKeyValidationTests.Run();
+    await CurseForgeProjectDetailsTests.Run();
+    await CurseForgeBrowseApiTests.Run();
+    LocalModInventoryTests.Run();
+    ModUpdatePlannerTests.Run();
+    ModLoadOrderPreservationTests.Run();
+    await CurseForgeCompleteFilesTests.Run();
+    await MapProfileAtomicityTests.Run(root);
+    await ManagerSettingsAtomicityTests.Run(root);
+    LocalAsaWizardTests.Run(root);
+    await AsaApiReleaseStagingTests.Run();
+    await AsaApiIsolatedInstallerTests.Run();
+    AsaApiLaunchPolicyTests.Run(root,fake);
+    CheckFutureMapNames();
+    ScrollBoundaryTests.Run();
+    LocalContentSnapshotTests.Run(root);
+    DashboardSummaryTests.Run();
+    LocalHostResourceTests.Run();
+    DemoWorkspaceTests.Run();
+    await ModArgumentSafetyTests.Run(root);
+    await ModDraftSessionTests.Run(root);
+    await PluginCenterTests.Run(root);
+    await PremiumBackupWorkflowTests.Run(root);
+    await LocalLogCenterTests.Run(root);
+    await GuardedPluginUpdateTests.Run(root);
+    await IsolatedRconAdminQueueTests.Run(fake);
+    await SchedulerConcurrencyTests.Run(root);
+    UpdateOwnershipTests.Run(root);
+    await ManagedBackupRetentionTests.Run(root);
+    SignedManagerPanelTests.Run(root);
+    await TelemetrySafetyTests.Run(root);
+    await ProfileInitializationTests.Run(root);
+    if(args.Length<3)throw new ArgumentException("Shipped Supervisor and Manager paths required for version validation");
+    UpdateOwnershipTests.VerifyToolVersions(args[1],Path.Combine(Path.GetDirectoryName(args[2])!,"UntamedUpdater.exe"));
     await ProfessionalOperationsTests.Run(root,fake);
+    await OperationSafetyTests.Run(root);
+    DurableWatchdogTrackerTests.Run(root);
+    SafeConfigRecheckTests.Run(root);
+    RecurringReadOnlyRecoveryTests.Run(root);
+    await AsaReadyProbeTests.Run(root);
+    StorePathIdentityTests.Run(root);
+    await VerifiedRestartTests.Run();
+    ClusterTransferConsistencyTests.Run();
+    ClusterBackupInventoryTests.Run();
+    ClusterBatchArchiveTests.Run(root);
+    ClusterRestoreCoordinatorTests.Run(root);
     ClusterVaultTests.Run(root);
     ManagerMigrationArchiveTests.Run(root);
     SafeSupportBundleTests.Run(root);
     await DiscordStatusTests.Run();
     NetworkLatencyTests.Run();
+    AsaHistoricalEvidenceTests.Run();
+    await RconTransportTests.Run();
     var steam=SteamCmdPreflight.Inspect(steamFixture);
     Assert(steam.LengthBytes==new FileInfo(steamFixture).Length &&
         steam.Sha256==Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
@@ -59,7 +140,7 @@ try
     foreach(var denied in new[]{ManagerOperation.RealAsaStart,
         ManagerOperation.RealAsaStop,ManagerOperation.RealAsaRestart,
         ManagerOperation.RealAsaKill,ManagerOperation.LiveSteamUpdate,
-        ManagerOperation.LiveSqlRestore,ManagerOperation.LiveKovaStoreWrite})
+        ManagerOperation.LiveSqlRestore,ManagerOperation.LiveVaultStoreWrite})
     {
         var decision=ReleaseCapabilityGate.Check(denied,true,
             confirmedStopped:true,realSaveWorldProof:true,storeVerified:true);
@@ -150,24 +231,24 @@ try
         "Original user-supplied offline SQL fixture remains untouched");
 
     string kovaFixture=Path.Combine(Path.GetTempPath(),
-        "Untamed-Kova-Fixture-"+Guid.NewGuid().ToString("N"));
+        "Untamed-Vault-Fixture-"+Guid.NewGuid().ToString("N"));
     Directory.CreateDirectory(kovaFixture);
     File.WriteAllText(Path.Combine(kovaFixture,"synthetic.fixture"),
         "NOT A REAL KOVA STORE OR CHARACTER");
     var kovaOwner=Guid.NewGuid();
-    var audited=KovaFixtureAudit.Inspect(kovaFixture,kovaOwner);
+    var audited=VaultFixtureAudit.Inspect(kovaFixture,kovaOwner);
     Assert(!audited.FormatCompatible && audited.Files==1,
-        "Kova synthetic fixture can be SHA-audited without claiming unknown Store schema support");
+        "Untamed Cluster Vault synthetic fixture can be SHA-audited without claiming unknown Store schema support");
     string kovaArchivePath=Path.Combine(root,"synthetic-kova-backup");
-    KovaFixtureAudit.Snapshot(kovaFixture,kovaOwner,kovaArchivePath);
+    VaultFixtureAudit.Snapshot(kovaFixture,kovaOwner,kovaArchivePath);
     Assert(TestBackupPackage.Verify(kovaArchivePath,kovaOwner).Files.Count==1 &&
         File.ReadAllText(Path.Combine(kovaFixture,"synthetic.fixture"))==
         "NOT A REAL KOVA STORE OR CHARACTER",
-        "Kova byte-preserving synthetic backup leaves source file unchanged");
+        "Untamed Cluster Vault byte-preserving synthetic backup leaves source file unchanged");
     bool liveStoreDenied=false;
-    try{KovaFixtureAudit.Inspect(Path.Combine(root,"actual-KovaCluster"),kovaOwner);}
+    try{VaultFixtureAudit.Inspect(Path.Combine(root,"actual-KovaCluster"),kovaOwner);}
     catch(UnauthorizedAccessException){liveStoreDenied=true;}
-    Assert(liveStoreDenied,"Kova fixture audit refuses arbitrary non-TEMP live Store paths");
+    Assert(liveStoreDenied,"Untamed Cluster Vault fixture audit refuses arbitrary non-TEMP live Store paths");
 
     string steamInstall=Path.Combine(root,"shared-asa-installation");
     string steamBin=Path.Combine(steamInstall,"ShooterGame","Binaries","Win64");
@@ -382,7 +463,7 @@ try
             writer.Write("synthetic forbidden DLL");
     bool protectedZipBlocked=false;
     try{SafePluginZip.Inspect(kovaZip);}catch(InvalidDataException){protectedZipBlocked=true;}
-    Assert(protectedZipBlocked,"Kova plugin ZIP rejected before any installation or backup writes");
+    Assert(protectedZipBlocked,"Untamed Cluster Vault plugin ZIP rejected before any installation or backup writes");
     var installed=SafePluginZip.Install(offline,stoppedMap,packageZip,Path.Combine(root,"plugin-backups"));
     Assert(File.ReadAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"))=="new-binary",
         "Plugin ZIP replaces binary on confirmed stopped map");
@@ -458,7 +539,7 @@ try
     Assert(localInventory.Any(p=>p.PluginName=="KovaCluster" &&
         p.Protected && p.Binaries.Count==0) &&
         File.ReadAllText(Path.Combine(syntheticKova,"store.db"))=="do not inspect this",
-        "Kova plugin is protected and store files remain unchanged");
+        "Untamed Cluster Vault plugin is protected and store files remain unchanged");
 
     string sharedAsa=Path.Combine(root,"shared-asa");
     string asaExe=Path.Combine(sharedAsa,"ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
@@ -545,7 +626,10 @@ try
     var familyService=new ClusterService("family-test",familyRoot);
     var familyMap=new LocalMap{Name="Family",InstallationPath=Path.GetDirectoryName(fake)!,ExecutablePath=fake,Arguments="--child-fixture",ApiLoaderPath=fake,ApiLoaderArguments="--loader-fixture"};
     familyService.AddMap(familyMap);
-    Assert(familyService.Check(familyMap).Running,"Manager integrates WMI family validation");
+    var familyObservation=familyService.Check(familyMap);
+    Assert(familyObservation.Running,"Manager integrates WMI family validation");
+    Assert(familyService.RecordObservedIdentity(familyMap.Id,familyObservation),
+        "Operator-confirmed family identity persists without poll-time writes");
     bool familyDuplicate=false;
     try{familyService.LaunchLocal(familyMap.Id);}catch(InvalidOperationException){familyDuplicate=true;}
     Assert(familyDuplicate,"Family launch gate rejects duplicate start");
@@ -639,12 +723,16 @@ try
         if(mode=="no-save-proof" || mode=="rcon-failure")
             Assert(!session.Commands.Contains("DoExit"),"No DoExit without save evidence: "+mode);
     }
+    bool refusedLiveWrite=false;
+    try { await RconProtocol.Execute("127.0.0.1",12345,"fixture","SaveWorld"); }
+    catch(InvalidOperationException){refusedLiveWrite=true;}
+    Assert(refusedLiveWrite,"Production RCON SaveWorld remains blocked before verified SaveComplete capability");
     var stalled=new TcpListener(IPAddress.Loopback,0);stalled.Start();
     try
     {
         using var deadline=new CancellationTokenSource(200);
         bool timedOut=false;
-        try { await RconProtocol.Execute("127.0.0.1",((IPEndPoint)stalled.LocalEndpoint).Port,"fixture","SaveWorld",deadline.Token); }
+        try { await RconProtocol.Execute("127.0.0.1",((IPEndPoint)stalled.LocalEndpoint).Port,"fixture","ListPlayers",deadline.Token); }
         catch(OperationCanceledException) { timedOut=true; }
         Assert(timedOut,"Real RCON socket cancellation on silent endpoint");
     }
@@ -878,16 +966,16 @@ try
     Assert(privateWan.State=="Uncertain" && !privateWan.ConfirmedChange,
         "Private/LAN IP addresses are not mistaken for valid external WAN measurements");
     // The synthetic Store and SQL fixture contents never change in recovery tests.
-    string safeStore=Path.Combine(syntheticRecoveryProfile,"KovaStore.fixture");
+    string safeStore=Path.Combine(syntheticRecoveryProfile,"Untamed Cluster VaultStore.fixture");
     string safeSql=Path.Combine(syntheticRecoveryProfile,"database.fixture");
-    File.WriteAllText(safeStore,"original Kova synthetic fixture");
+    File.WriteAllText(safeStore,"original Untamed Cluster Vault synthetic fixture");
     File.WriteAllText(safeSql,"original SQL synthetic fixture");
     var untouchedMap=Guid.NewGuid();
     RecoverySimulator.Run(recoveryJournal,syntheticScenario with {
         Map=untouchedMap,SaveSignals=savedSignals.Select(x=>x with{Map=untouchedMap}).ToArray()});
-    Assert(File.ReadAllText(safeStore)=="original Kova synthetic fixture" &&
+    Assert(File.ReadAllText(safeStore)=="original Untamed Cluster Vault synthetic fixture" &&
            File.ReadAllText(safeSql)=="original SQL synthetic fixture",
-        "Fake recovery never modifies synthetic Kova Store or SQL data");
+        "Fake recovery never modifies synthetic Untamed Cluster Vault or SQL data");
 
     var policy=new SupervisorPolicy();Guid monitored=Guid.NewGuid();var now=DateTimeOffset.UtcNow;
     var unknown=new ProcessCheck(false,"unknown",null);
@@ -950,11 +1038,13 @@ try
     hp.UpdateSettings(c=>{
         c.LocalHostName="UK-HOME-01-TEST";c.ListenPort=hpPort;
         c.PeerAddress="127.0.0.1";c.PeerPort=ryzenPort;
+        c.ExpectedPeerHostId=ryzen.Config.LocalHostId;
         c.PairingKeyProtected=SecureStore.Protect(key);
     });
     ryzen.UpdateSettings(c=>{
         c.LocalHostName="UK-HOME-02-TEST";c.ListenPort=ryzenPort;
         c.PeerAddress="127.0.0.1";c.PeerPort=hpPort;
+        c.ExpectedPeerHostId=hp.Config.LocalHostId;
         c.PairingKeyProtected=SecureStore.Protect(key);
     });
     var mapA=new LocalMap{
@@ -988,6 +1078,15 @@ try
     Assert(hpRemote?.HostName=="UK-HOME-02-TEST" && hpRemote.Maps.Single().Name=="Ragnarok" &&
            ryzenRemote?.HostName=="UK-HOME-01-TEST",
            "Both Managers see authenticated read-only peer map lists");
+    // A third host that knows the shared symmetric key must still fail
+    // the pinned peer identity check; no remote map data becomes trusted.
+    string pinned=hp.Config.ExpectedPeerHostId;
+    hp.UpdateSettings(c=>c.ExpectedPeerHostId=Guid.NewGuid().ToString("N"));
+    Assert(await hp.PollPeerAsync()==null && !hp.RemoteIsFresh,
+        "A valid HMAC response from another HostId is rejected by peer pinning");
+    hp.UpdateSettings(c=>c.ExpectedPeerHostId=pinned);
+    Assert(await hp.PollPeerAsync()!=null,
+        "Restoring the exact pinned HostId restores authenticated read-only status");
     mapA.Maintenance=true;
     bool maintenanceBlocked=false;
     try{hp.LaunchLocal(mapA.Id);}catch(InvalidOperationException){maintenanceBlocked=true;}
@@ -1022,6 +1121,11 @@ try
     var authenticatedWorker=new SupervisorChannel(aRoot).Read(hp.Config.LocalHostId);
     Assert(authenticatedWorker.Maps.Single().Map==mapA.Id&&authenticatedWorker.Maps.Single().MemoryBytes>0&&authenticatedWorker.Maps.Single().Players==null,
         "Real supervisor publishes measured RAM and unknown player count through authenticated IPC");
+    var persistedWatchdog=new DurableWatchdogTracker(
+        Path.Combine(aRoot,"supervision")).ReadLocal(mapA.Id);
+    Assert(persistedWatchdog!=null && persistedWatchdog.PreviouslyRunning &&
+        !persistedWatchdog.Attention && !persistedWatchdog.AutoRecoveryAuthorized,
+        "actual independent Windows Supervisor persists read-only map Watchdog identity without intervening");
     Assert(!p.HasExited,"Independent supervisor observation leaves FakeAsa alive");
     if(args.Length<3||!File.Exists(args[2]))throw new ArgumentException("Actual Manager EXE required for GUI lifetime test");
     async Task RunManagerLifetime()
@@ -1179,3 +1283,4 @@ sealed class SimulatedCurseForgeHttp : HttpMessageHandler
         return Task.FromResult(response);
     }
 }
+

@@ -1,0 +1,129 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+
+namespace UntamedDesktop;
+
+/// <summary>
+/// Read-only assessment of an OPERATOR-SUPPLIED historical launch line.
+/// It is not authenticated provenance, and must never unlock a historical map.
+/// No command line, password, cluster name or path is retained or returned.
+/// </summary>
+public static class HistoricalLaunchEvidenceInspector
+{
+    private static readonly TimeSpan MatchTimeout=TimeSpan.FromMilliseconds(100);
+    private static MatchCollection Matches(string source,string pattern)=>
+        Regex.Matches(source,pattern,RegexOptions.IgnoreCase|RegexOptions.CultureInvariant,MatchTimeout);
+
+    private static string[] Values(string source,string name,bool query=false)
+    {
+        string prefix=query?@"\?":@"(?:^|\s)-";
+        string pattern=prefix+Regex.Escape(name)+@"=(?:""(?<value>[^""]*)""|(?<value>[^\s?]*))";
+        return Matches(source,pattern).Cast<Match>().Select(m=>m.Groups["value"].Value).ToArray();
+    }
+
+    private static int FlagCount(string source,string name)=>
+        Matches(source,@"(?:^|\s)-"+Regex.Escape(name)+@"(?=\s|$)").Count;
+    private static bool Flag(string source,string name)=>FlagCount(source,name)>0;
+
+    private static string PortStatus(string[] observed,int archived)
+    {
+        if(observed.Length==0)return "UNKNOWN";
+        if(observed.Length!=1)return "CONFLICT";
+        return int.TryParse(observed[0],out int port)&&port==archived?"MATCH":"MISMATCH";
+    }
+
+    public static object Inspect(string source,string expectedMap,int gamePort,int queryPort,
+        IReadOnlyList<string> expectedMods,IReadOnlyList<string> expectedPassiveMods)
+    {
+        if(string.IsNullOrWhiteSpace(source)||source.Length>3072||
+           source.Any(c=>char.IsControl(c)&&c!='\t'))
+            throw new ArgumentException("Invalid historical command input");
+
+        // The mandatory map token follows the optional executable name.
+        // A textual match is NOT proof of an original process command line.
+        bool mapFound=Matches(source,@"(?:^|\s)"+Regex.Escape(expectedMap)+@"(?=\?|\s|$)").Count==1;
+        // ASA installations can place these options in the map query string
+        // or as process switches. Duplicate/conflicting declarations fail closed.
+        var game=Values(source,"port").Concat(Values(source,"port",true)).ToArray();
+        var query=Values(source,"QueryPort").Concat(Values(source,"QueryPort",true)).ToArray();
+        var mods=Values(source,"mods");
+        var passive=Values(source,"passivemods");
+        var deprecatedMods=Values(source,"GameModIds",true);
+        var cluster=Values(source,"clusterid");
+        // Verified Untamed Kingdom Store-v1 internal identity. Never rename this
+        // to the product/display name while retaining historical data.
+        const string historicalClusterId="KovaCluster";
+        string clusterStatus=cluster.Length==0?"UNKNOWN":
+            cluster.Length!=1?"CONFLICT":
+            string.Equals(cluster[0],historicalClusterId,StringComparison.Ordinal)?"MATCH":"MISMATCH";
+        var transfer=Values(source,"ClusterDirOverride");
+        int storeFlags=FlagCount(source,"usestore");
+        var useStore=storeFlags>0;
+        // The historical source adds -converttostore only during the first
+        // prepared migration and never during active Store-v1 operation.
+        // Reject reverse-conversion and repeated store flags as well.
+        var convert=Flag(source,"converttostore")||
+            Flag(source,"convertfromstore");
+        bool canonicalMap=Matches(source,@"(?:^|\s)"+
+            Regex.Escape(expectedMap)+@"\?listen(?=\s|$)").Count==1;
+        bool canonicalSourceFlags=canonicalMap &&
+            Values(source,"Port").Length==1 &&
+            Values(source,"QueryPort").Length==1 &&
+            Values(source,"Port",true).Length==0 &&
+            Values(source,"QueryPort",true).Length==0 &&
+            FlagCount(source,"log")==1 &&
+            storeFlags==1 &&
+            !convert;
+        string modStatus;
+        if(mods.Length==0) modStatus=deprecatedMods.Length>0?"LEGACY_SYNTAX":expectedMods.Count==0?"MATCH":"UNKNOWN";
+        else if(mods.Length!=1)modStatus="CONFLICT";
+        else
+        {
+            var found=mods[0].Split(',',StringSplitOptions.TrimEntries);
+            modStatus=found.SequenceEqual(expectedMods,StringComparer.Ordinal)?"MATCH":"MISMATCH";
+        }
+        string passiveStatus;
+        if(passive.Length==0)passiveStatus=expectedPassiveMods.Count==0?"MATCH":"UNKNOWN";
+        else if(passive.Length!=1)passiveStatus="CONFLICT";
+        else
+        {
+            var found=passive[0].Split(',',StringSplitOptions.TrimEntries);
+            passiveStatus=found.SequenceEqual(expectedPassiveMods,StringComparer.Ordinal)?"MATCH":"MISMATCH";
+        }
+        var codes=new List<string>();
+        if(!mapFound)codes.Add("MAP_NOT_CONFIRMED");
+        if(PortStatus(game,gamePort)!="MATCH")codes.Add("GAME_PORT_NOT_CONFIRMED");
+        if(PortStatus(query,queryPort)!="MATCH")codes.Add("QUERY_PORT_NOT_CONFIRMED");
+        if(modStatus!="MATCH")codes.Add("MOD_ORDER_NOT_CONFIRMED");
+        if(passiveStatus!="MATCH")codes.Add("PASSIVE_MOD_ORDER_NOT_CONFIRMED");
+        if(clusterStatus!="MATCH")codes.Add("CLUSTER_ID_NOT_CONFIRMED");
+        if(transfer.Length!=1||string.IsNullOrWhiteSpace(transfer[0]))codes.Add("CLUSTER_PATH_NOT_CONFIRMED");
+        if(!useStore)codes.Add("USESTORE_NOT_CONFIRMED");
+        if(storeFlags>1)codes.Add("DUPLICATE_USESTORE_FLAG");
+        if(convert)codes.Add("CONVERSION_FLAG_PRESENT");
+        if(!canonicalSourceFlags)codes.Add("HISTORICAL_SOURCE_LAUNCH_SHAPE_UNVERIFIED");
+        // Return only classifications, never original input, original IDs,
+        // admin credentials, SessionName or any source path.
+        return new {
+            mapStatus=mapFound?"MENTIONED":"UNKNOWN",
+            gamePortStatus=PortStatus(game,gamePort),
+            queryPortStatus=PortStatus(query,queryPort),
+            modOrderStatus=modStatus,passiveModOrderStatus=passiveStatus,
+            clusterIdPresent=cluster.Length==1&&!string.IsNullOrWhiteSpace(cluster[0]),
+            clusterIdStatus=clusterStatus,
+            clusterPathPresent=transfer.Length==1&&!string.IsNullOrWhiteSpace(transfer[0]),
+            clusterPathVerified=false,
+            useStorePresent=useStore,storeFlagCount=storeFlags,
+            conversionFlagPresent=convert,
+            // This describes syntax only. It is NEVER source authentication,
+            // ASA process identity, remote Store writer proof or launch consent.
+            canonicalSourceFlagsObserved=canonicalSourceFlags,
+            findings=codes.ToArray(),sourceAuthenticated=false,
+            fullLaunchArgumentsVerified=false,peerWriterVerified=false,
+            productionUseAllowed=false,serverStartAllowed=false,
+            evidence="OPERATOR_TEXT_READ_ONLY_UNAUTHENTICATED"
+        };
+    }
+}

@@ -1,0 +1,224 @@
+name: Obsidian React Desktop Preview (Windows)
+on:
+  push:
+    branches:
+      - chatgpt/obsidian-react-desktop-20261105
+      - main
+      - 'release/**'
+    paths:
+      - "desktop/**"
+      - "desktop-ui/**"
+      - "wpf/Core/**"
+      - "docs/release/**"
+      - ".github/workflows/build-obsidian-desktop.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "desktop-ui/**"
+      - "wpf/Core/**"
+      - "docs/release/**"
+      - ".github/workflows/build-obsidian-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-preview:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retain original approved visual reference for fidelity QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Obsidian-Approved-Reference-Atlas
+          path: wpf/Assets/reference-atlas.jpg
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Use .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Validate bundled offline Rex hero and app icon
+        shell: pwsh
+        run: |
+          if ((Get-Item desktop-ui/public/kingdom-hero.jpg).Length -lt 1000) { throw "Original Rex hero missing" }
+          if ((Get-Item desktop-ui/public/UntamedManager.ico).Length -lt 800) { throw "Original icon missing" }
+          if ((Get-FileHash desktop-ui/public/UntamedManager.ico -Algorithm SHA256).Hash -ne
+              (Get-FileHash wpf/Assets/UntamedManager.ico -Algorithm SHA256).Hash) {
+            throw "UI and native icons must remain identical"
+          }
+      - name: Build offline React assets (no CDN runtime)
+        shell: pwsh
+        working-directory: desktop-ui
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          if (!(Test-Path dist/index.html)) { throw "Missing offline UI" }
+      - name: Install Playwright Chromium for isolated browser UI tests
+        shell: pwsh
+        working-directory: desktop-ui
+        run: npx playwright install chromium
+      - name: Test dashboard, Mod Center, navigation and 1366px wheel scroll
+        shell: pwsh
+        working-directory: desktop-ui
+        run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Obsidian-React-UI-Smoke-Screenshots
+          path: desktop-ui/test-results/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Compile and publish real .NET 10 + WebView2 Windows host
+        shell: pwsh
+        run: |
+          dotnet restore desktop/UntamedDesktop.csproj -r win-x64
+          dotnet publish desktop/UntamedDesktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o desktop/publish
+          if (!(Test-Path desktop/publish/ui/index.html)) { throw "React assets not packaged into Windows host" }
+          $sourceAtlas = "wpf/Assets/reference-atlas.jpg"
+          $packagedAtlas = "desktop/publish/ui/uk-reference-map-atlas.jpg"
+          if (!(Test-Path $packagedAtlas)) { throw "Approved offline 10-map reference art missing" }
+          if ((Get-FileHash $sourceAtlas -Algorithm SHA256).Hash -ne
+              (Get-FileHash $packagedAtlas -Algorithm SHA256).Hash) {
+            throw "Packaged map illustration differs from approved original asset"
+          }
+
+          if (!(Test-Path desktop/publish/ui/kingdom-hero.jpg) -or
+              !(Test-Path desktop/publish/ui/UntamedManager.ico)) {
+            throw "Branded offline UI asset missing in Windows publish"
+          }
+          if ((Get-FileHash desktop-ui/public/kingdom-hero.jpg -Algorithm SHA256).Hash -ne
+              (Get-FileHash desktop/publish/ui/kingdom-hero.jpg -Algorithm SHA256).Hash) {
+            throw "Bundled Rex background altered during publish"
+          }
+          if (!(Test-Path desktop/publish/UntamedDesktop.exe)) { throw "Windows host missing" }
+          # Portable must run on a fresh Windows test PC without preinstalled .NET 10.
+          if (!(Test-Path desktop/publish/coreclr.dll) -or
+              !(Test-Path desktop/publish/hostfxr.dll) -or
+              !(Test-Path desktop/publish/hostpolicy.dll)) {
+            throw "Desktop must be self-contained: .NET runtime missing from portable output"
+          }
+      - name: Publish isolated self-contained external rollback updater
+        shell: pwsh
+        run: |
+          dotnet publish wpf/Updater/UntamedUpdater.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o desktop/updater-publish
+          if ($LASTEXITCODE -ne 0) { throw "External rollback updater build failed" }
+          $updater = "desktop/updater-publish/UntamedUpdater.exe"
+          if (!(Test-Path $updater)) { throw "External rollback updater not produced" }
+          Copy-Item $updater desktop/publish/UntamedUpdater.exe -Force
+          if ((Get-Item desktop/publish/UntamedUpdater.exe).Length -lt 1000000) {
+            throw "Updater is not a self-contained single-file executable"
+          }
+      - name: Run real native C# bridge integration tests (isolated synthetic Windows files)
+        shell: pwsh
+        run: |
+          dotnet run --project desktop/Tests/DesktopBridgeTests.csproj -c Release -r win-x64
+          if ($LASTEXITCODE -ne 0) { throw "Native ModDraft/INI bridge tests failed" }
+      - name: Launch actual Windows WebView2 and capture packaged React
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force desktop-artifacts | Out-Null
+          $env:UNTAMED_OBSIDIAN_CAPTURE_PATH = Join-Path $env:RUNNER_TEMP "Obsidian-Native-WebView2.png"
+          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/desktop/publish/UntamedDesktop.exe" -ArgumentList "--smoke-test" -PassThru
+          if (-not $p.WaitForExit(90000)) {
+            try { $p.Kill() } catch {}
+            if (Test-Path $env:UNTAMED_OBSIDIAN_CAPTURE_PATH) {
+              Copy-Item $env:UNTAMED_OBSIDIAN_CAPTURE_PATH desktop-artifacts/Untamed-Obsidian-Native-Preview.png -Force
+            }
+            throw "Native WebView2 startup timed out"
+          }
+          if (Test-Path $env:UNTAMED_OBSIDIAN_CAPTURE_PATH) {
+            Copy-Item $env:UNTAMED_OBSIDIAN_CAPTURE_PATH desktop-artifacts/Untamed-Obsidian-Native-Preview.png -Force
+          }
+          if ($p.ExitCode -ne 0) { throw "Native WebView2 failed to render the live local dashboard" }
+          if (!(Test-Path desktop-artifacts/Untamed-Obsidian-Native-Preview.png) -or
+              (Get-Item desktop-artifacts/Untamed-Obsidian-Native-Preview.png).Length -lt 8000) {
+            throw "Real WebView2 screenshot missing"
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Obsidian-Native-WebView2-Diagnostic
+          path: desktop-artifacts/Untamed-Obsidian-Native-Preview.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Build portable ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path desktop-artifacts | Out-Null
+          Compress-Archive -Path desktop/publish/* -DestinationPath desktop-artifacts/Untamed_Obsidian_Desktop_Preview_Portable.zip -Force
+      - name: Build separate preview Setup (never overwrites WPF installation)
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          if (!$iscc) {
+            $candidate = Join-Path "${env:ProgramFiles(x86)}" "Inno Setup 6/ISCC.exe"
+            if (Test-Path $candidate) { $iscc = $candidate }
+          }
+          if (!$iscc) {
+            choco install innosetup --no-progress -y
+            $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+            if (!$iscc) {
+              $candidate = Join-Path "${env:ProgramFiles(x86)}" "Inno Setup 6/ISCC.exe"
+              if (Test-Path $candidate) { $iscc = $candidate }
+            }
+          }
+          if (!$iscc) { throw "ISCC not found" }
+          $publish = (Resolve-Path desktop/publish).Path
+          & $iscc "/DBuildDir=$publish" desktop/installer/ObsidianPreview.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+      - name: SHA-256 checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem desktop-artifacts -File | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash *$($_.Name)"
+          } | Set-Content desktop-artifacts/SHA256SUMS.txt
+      - name: Upload Windows preview only
+        uses: actions/upload-artifact@v4
+        with:
+          name: Obsidian-Desktop-TEST-ONLY
+          path: desktop-artifacts/*
+          if-no-files-found: error
+          retention-days: 10
+
+  # Publishing is deliberately a PRE-RELEASE until live 5+5 ASA Store-v1
+  # and character travel are verified on a separately isolated test cluster.
+  # This job runs ONLY after the complete Windows build and all tests passed
+  # on a protected main push. PR code never gets release write permission.
+  publish-windows-prerelease:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: windows-preview
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download tested Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Obsidian-Desktop-TEST-ONLY
+          path: release-assets
+      - name: Verify release inputs against tested SHA-256 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum -c SHA256SUMS.txt
+          test -s Untamed_Obsidian_Desktop_Preview_Portable.zip
+          test -s Untamed_Obsidian_Desktop_Preview_Setup.exe
+      - name: Publish opt-in test release without claiming Store-v1 certification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v1.4.0-obsidian-preview.${{ github.run_number }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG"             release-assets/Untamed_Obsidian_Desktop_Preview_Portable.zip             release-assets/Untamed_Obsidian_Desktop_Preview_Setup.exe             release-assets/SHA256SUMS.txt             --repo "$GH_REPO" --target "$COMMIT"             --title "Untamed Manager 1.4.0 – Windows test release ($TAG)"             --notes "Windows CI / native bridge / Playwright / WebView2 smoke passed. Not an approved live Store-v1 5+5 migration or character-travel release. SQL is excluded from the desktop assembly; original Store/session and production ASA machines remain untouched. Install on a separate Windows test PC."             --prerelease

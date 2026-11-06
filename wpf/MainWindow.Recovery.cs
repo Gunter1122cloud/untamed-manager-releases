@@ -20,19 +20,20 @@ public partial class MainWindow
     {
         Navigate("recovery");
         UpdateLayout();
-        if(PageTitle.Text!="Recovery Center – v1.3.7 TEST")
+        if(PageTitle.Text!="Recovery Center – v"+UiVersion+" (Read-only)")
             throw new InvalidOperationException("Recovery Center navigation failed");
         Navigate("dashboard");
     }
 
     private void ShowRecoveryCenter()
     {
-        Header("Recovery Center – v1.3.7 TEST",
+        Header("Recovery Center – v"+UiVersion+" (Read-only)",
             "Watchdog 2.0, szimulált SaveWorld/Restart, WAN/DDNS megfigyelés. Éles szerverműveletek tiltva.");
         Add(Box(V(
             Label("RECOVERY ENGINE: KIZÁRÓLAG SZIMULÁCIÓ",21,Mint,true),
             Label("Sem SaveWorld, sem DoExit, sem Kill, sem szerverindítás nem hajtható végre ezen a felületen. "+
                 "A Cluster Vault és SQL adatok változatlanok maradnak.",13,Soft))));
+        ShowHistoricalLogEvidencePanel();
         var maps=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",
             SelectedIndex=_cluster.Config.LocalMaps.Count>0?0:-1,
             Foreground=Brushes.White,Background=Panel};
@@ -67,6 +68,30 @@ public partial class MainWindow
             Label("Helyi mapok – felügyelet csak olvasásra",18,Mint,true),
             maps,Btn("Állapot újraellenőrzése (Supervisor)",()=>{
                 Refresh();
+            }),
+            Btn("Watchdog bizonyíték tartós rögzítése (csak megfigyelés)",()=>{
+                var selected=SelectedLocal();
+                if(selected==null){state.Text="Előbb válassz helyi, regisztrált mapot.";return;}
+                try
+                {
+                    var observation=_cluster.Check(selected);
+                    var watchdog=new DurableWatchdogTracker(_cluster.Store.Root);
+                    var result=watchdog.Observe(selected.Id,observation,
+                        RconSignal.NotConfigured,selected.Maintenance,
+                        DateTimeOffset.UtcNow);
+                    state.Text=selected.Name+" · Watchdog napló rögzítve\n"+
+                        "Folyamatellenőrzési hibák: "+result.ConsecutiveProcessFailures+
+                        "\nFigyelmeztetés: "+(result.Attention?
+                            "OPERÁTORI VIZSGÁLAT SZÜKSÉGES":"nem igazolt ismétlődő probléma")+
+                        "\nÁllapot: "+result.Reason+
+                        "\nRCON külön nem vizsgált; SaveWorld, Kill, Start és Restart nem történt.";
+                }
+                catch(Exception ex)
+                {
+                    WriteLog("recovery-durable-watchdog",ex);
+                    state.Text="UM-WATCHDOG: a tartós állapot rögzítése nem ellenőrizhető. "+
+                        "Szerverművelet nem történt.";
+                }
             }),state,
             Btn("Helyreállítási előnézet (művelet nélkül)",()=>{
                 Refresh();

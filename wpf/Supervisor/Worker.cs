@@ -8,7 +8,7 @@ public static class SupervisorWorker
     {
         string Value(string key,string fallback){int i=Array.IndexOf(args,key);return i<0?fallback:i+1<args.Length?args[i+1]:throw new ArgumentException(key);}
         string profile=Value("--profile","default"),overrideRoot=Value("--root","");
-        var store=new ConfigStore(profile,overrideRoot.Length==0?null:overrideRoot);
+        var store=new ConfigStore(profile,overrideRoot.Length==0?null:overrideRoot);store.EnsureInitialized();
         using var gate=new Semaphore(1,1,"Global\\UntamedSupervisor-"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(store.Root).ToUpperInvariant()))));
         bool entered=false;
         try
@@ -19,6 +19,8 @@ public static class SupervisorWorker
             var scheduler=new PersistentScheduler(channel.Root);var inspector=new WindowsProcessInspector();var policy=new SupervisorPolicy();
             var telemetry=new TelemetryHistory(channel.Root);
             var recurring=new RecurringReadOnlyRunner(channel.Root);
+            var durableWatchdog=new DurableWatchdogTracker(channel.Root);
+            var durableStates=new Dictionary<Guid,DurableWatchdogState>();
             using var self=Process.GetCurrentProcess();var started=new DateTimeOffset(self.StartTime.ToUniversalTime());
             var watchdogStates=new Dictionary<Guid,SupervisionState>();
             var advancedWatchdog=new WatchdogDiagnostics();
@@ -76,6 +78,28 @@ public static class SupervisorWorker
                                 RconSignal.Unreachable:
                                 rcon.StartsWith("Hitelesített válasz",StringComparison.Ordinal)?
                                 RconSignal.Responding:RconSignal.NotConfigured;
+                            // This durable per-map threshold survives a Supervisor/
+                            // WPF restart, and never dispatches any lifecycle action.
+                            if(!durableStates.TryGetValue(map.Id,out var lastDurable) ||
+                               now-lastDurable.LastObservationUtc>=TimeSpan.FromSeconds(
+                                   Math.Clamp(map.WatchdogIntervalSeconds,5,3600)) ||
+                               lastDurable.Maintenance!=maintenance)
+                            {
+                                try
+                                {
+                                    var current=durableWatchdog.Observe(
+                                        map.Id,state,rconSignal,maintenance,now);
+                                    if(current.Attention && lastDurable?.Attention!=true)
+                                        events.Append(config.LocalHostName,map.Id,"Warning",
+                                            "watchdog-persistent-operator-review");
+                                    durableStates[map.Id]=current;
+                                }
+                                catch(Exception)
+                                {
+                                    events.Append(config.LocalHostName,map.Id,"Warning",
+                                        "watchdog-persistent-state-unavailable");
+                                }
+                            }
                             bool previouslyRunning=previous.TryGetValue(map.Id,out var previousMap)&&
                                 previousMap.Running==true;
                             var diagnosis=advancedWatchdog.Observe(new WatchdogEvidence(
@@ -96,7 +120,12 @@ public static class SupervisorWorker
                             string advancedStatus=diagnosis.Recommendation+
                                 (diagnosis.FailureCounts.Count==0?"":
                                     " · "+string.Join(", ",diagnosis.FailureCounts
-                                        .Select(x=>x.Key+":"+x.Value)));
+                                        .Select(x=>x.Key+":"+x.Value)))+
+                                (durableStates.TryGetValue(map.Id,out var retained)?
+                                    " · Tartós Watchdog: "+
+                                    retained.ConsecutiveProcessFailures+" folyamat / "+
+                                    retained.ConsecutiveRconFailures+" RCON"+
+                                    (retained.Attention?" · KÉZI VIZSGÁLAT":""):"");
                             string log="Nem elérhető";
                             try
                             {
@@ -110,7 +139,7 @@ public static class SupervisorWorker
                             if(!previous.TryGetValue(map.Id,out var oldObservation)||oldObservation.Running!=observation.Running||oldObservation.Loader!=observation.Loader)
                                 events.Append(config.LocalHostName,map.Id,state.Running?"Information":"Warning","process-observation-changed");
                             if(oldObservation==null||oldObservation.Rcon!=rcon)events.Append(config.LocalHostName,map.Id,"Information","rcon-observation-changed");
-                            try{telemetry.Observe(observation,now);}catch{events.Append(config.LocalHostName,map.Id,"Warning","telemetry-write-rejected");}
+                            try{if(config.TelemetryHistoryEnabled)telemetry.Observe(observation,now);}catch{events.Append(config.LocalHostName,map.Id,"Warning","telemetry-write-rejected");}
                             previous[map.Id]=observation;observations.Add(observation);
                         }
                         int receiptCount=scheduler.Receipts.Length;
@@ -124,7 +153,7 @@ public static class SupervisorWorker
                             }
                             events.Append(config.LocalHostName,task.Map,"Information","scheduled-"+task.Kind.ToString().ToLowerInvariant());
                             return Task.CompletedTask;
-                        });
+                        },mapId=>config.LocalMaps.Any(m=>m.Id==mapId&&m.Maintenance));
                         foreach(var receipt in scheduler.Receipts.Skip(receiptCount))events.Append(config.LocalHostName,null,receipt.Status=="succeeded"?"Information":"Warning","schedule-"+receipt.Status);
                         // Background recurring schedules are independent of the WPF window.
                         // Only bounded read-only inspections can execute. All restart,

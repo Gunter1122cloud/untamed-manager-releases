@@ -1,46 +1,217 @@
 <Application x:Class="UntamedManager.App"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:UntamedManager"
  StartupUri="MainWindow.xaml">
   <Application.Resources>
-    <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#F0F9F5"/><Setter Property="FontFamily" Value="Segoe UI"/></Style>
-    <Style TargetType="TextBox">
-      <Setter Property="Background" Value="#102F30"/>
-      <Setter Property="Foreground" Value="#ECFFF8"/>
-      <Setter Property="BorderBrush" Value="#2F8176"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="12,10"/>
-      <Setter Property="CaretBrush" Value="#9AFFDC"/>
-      <Setter Property="FontFamily" Value="Segoe UI"/>
-      <Setter Property="FontSize" Value="14"/>
-      <Setter Property="SelectionBrush" Value="#267D6F"/>
-      <Style.Triggers>
-       <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter Property="BorderBrush" Value="#8AFFD1"/>
-       </Trigger>
-      </Style.Triggers>
-    </Style>
-    <Style TargetType="ListBox">
-      <Setter Property="Background" Value="#0B282A"/>
-      <Setter Property="Foreground" Value="#ECFFF8"/>
-      <Setter Property="BorderBrush" Value="#2A7770"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="7"/>
-      <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
-    </Style>
-    <Style TargetType="CheckBox">
-      <Setter Property="Foreground" Value="#E3FFF5"/>
-      <Setter Property="FontFamily" Value="Segoe UI"/>
-      <Setter Property="FontSize" Value="14"/>
-      <Setter Property="Cursor" Value="Hand"/>
-    </Style>
-    <Style TargetType="ListBoxItem">
-      <Setter Property="Foreground" Value="#E8FFF8"/><Setter Property="Padding" Value="10,7"/>
-      <Style.Triggers>
-        <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#205746"/></Trigger>
-        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#21443E"/></Trigger>
-      </Style.Triggers>
-    </Style>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+       <ResourceDictionary Source="Styles/GraphiteTokens.xaml"/>
+       <ResourceDictionary Source="Styles/PremiumTheme.xaml"/>
+       <ResourceDictionary Source="Styles/GraphiteChrome.xaml"/>
+      </ResourceDictionary.MergedDictionaries>
+    <DataTemplate x:Key="PremiumLogRow">
+      <Grid Margin="4,5">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="105"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Background="{StaticResource SurfaceRaised}"
+          Padding="6,4" Margin="0,0,10,0" CornerRadius="5" VerticalAlignment="Top">
+          <TextBlock Text="{Binding Level}" Foreground="{Binding LevelBrush}"
+            FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"
+            HorizontalAlignment="Center"/>
+        </Border>
+        <TextBlock Grid.Column="1" Text="{Binding Content}" FontFamily="Consolas"
+          FontSize="12" Foreground="{StaticResource TextStrong}"
+          TextWrapping="Wrap" TextTrimming="None"/>
+      </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="PremiumBackupRow">
+      <Grid Height="58" Margin="5,5">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="28"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="99"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Text="▣" FontSize="15"
+          VerticalAlignment="Center" Foreground="{StaticResource AccentLight}"/>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+            Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Text="{Binding Description}" FontSize="11"
+            Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"
+            Margin="0,5,0,0"/>
+        </StackPanel>
+        <Border Grid.Column="2" Background="{StaticResource SurfaceRaised}" CornerRadius="6"
+          Padding="6,5" Margin="5,0,0,0" VerticalAlignment="Center">
+          <TextBlock x:Name="IntegrityStatus" Text="{Binding Quality}"
+            Foreground="{StaticResource AccentLight}" FontSize="10"
+            HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        </Border>
+      </Grid>
+      <DataTemplate.Triggers>
+        <DataTrigger Binding="{Binding Entry.Valid}" Value="False">
+          <Setter TargetName="IntegrityStatus" Property="Foreground"
+            Value="{StaticResource ErrorBrush}"/>
+        </DataTrigger>
+      </DataTemplate.Triggers>
+    </DataTemplate>
+    <DataTemplate x:Key="CurseForgeSearchRow">
+       <Grid Height="72" Margin="4,4">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="68"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <Border Grid.Column="0" Width="60" Height="60" CornerRadius="8"
+                 BorderBrush="#46776D" BorderThickness="1" Background="#1B3F3B"
+                 ClipToBounds="True" VerticalAlignment="Center">
+           <Grid>
+             <TextBlock Text="⬡" Foreground="{StaticResource AccentLight}" FontSize="28"
+                HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+             <Image Source="{Binding ThumbnailUrl}" Stretch="UniformToFill" IsHitTestVisible="False"
+                RenderOptions.BitmapScalingMode="HighQuality"/>
+           </Grid>
+         </Border>
+         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,6,0">
+           <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+             Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+           <TextBlock Text="{Binding Id, StringFormat='CURSEFORGE ID  {0}'}" FontSize="10"
+             Foreground="{StaticResource AccentLight}" Margin="0,5,0,0"/>
+           <TextBlock Text="{Binding Summary}" FontSize="11" Margin="0,5,0,0"
+             Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+         </StackPanel>
+       </Grid>
+     </DataTemplate>
+     <DataTemplate x:Key="PremiumServerRow">
+       <Grid Height="78" Margin="4,4">
+        <Grid.ColumnDefinitions>
+         <ColumnDefinition Width="70"/><ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Width="62" Height="62" VerticalAlignment="Center"
+          Background="#19393A" BorderBrush="#47776E" BorderThickness="1"
+          CornerRadius="8" ClipToBounds="True">
+         <Grid>
+          <Image Source="{Binding CoverImage}" Stretch="UniformToFill" Opacity="0.9"
+                 RenderOptions.BitmapScalingMode="HighQuality"/>
+          <Rectangle Fill="#4E071B20" IsHitTestVisible="False"/>
+         </Grid>
+        </Border>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0">
+         <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+          Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="{Binding State}" FontSize="11" Margin="0,6,0,0"
+          Foreground="{StaticResource AccentLight}" TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="{Binding Detail}" FontSize="10" Margin="0,4,0,0"
+          Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+       </Grid>
+     </DataTemplate>
+    <DataTemplate x:Key="PremiumPluginRow">
+      <Grid Height="72" Margin="6,3" ToolTip="{Binding Hint}">
+       <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="60"/><ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="110"/><ColumnDefinition Width="60"/>
+       </Grid.ColumnDefinitions>
+       <Border Grid.Column="0" Width="52" Height="52"
+        Background="#1E393B" BorderBrush="#46726D" BorderThickness="1"
+        CornerRadius="9" VerticalAlignment="Center">
+        <Grid>
+         <Ellipse Stroke="#4C9F8B" StrokeThickness="1.3" Width="34" Height="34" />
+         <TextBlock Text="✳" Foreground="{StaticResource AccentLight}"
+           FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Grid>
+       </Border>
+       <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,7,0">
+        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+         Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+        <TextBlock Text="{Binding Hint}" FontSize="11" Margin="0,6,0,0"
+         Foreground="{StaticResource TextSoft}" TextTrimming="CharacterEllipsis"/>
+        <TextBlock Text="ASA API  /  HELYI DLL-LELTÁR" FontSize="9" Margin="0,5,0,0"
+         Foreground="{StaticResource AccentLight}"/>
+       </StackPanel>
+       <Border Grid.Column="2" VerticalAlignment="Center" Margin="0,0,7,0"
+        Background="#19342F" BorderBrush="#41675B" BorderThickness="1"
+        CornerRadius="6" Padding="5,6">
+        <TextBlock Text="{Binding State}" Foreground="{Binding StateBrush}"
+         FontSize="10" FontWeight="SemiBold" TextAlignment="Center"
+         TextTrimming="CharacterEllipsis"/>
+       </Border>
+       <ToggleButton Grid.Column="3" Style="{StaticResource PremiumSwitch}"
+        IsChecked="{Binding Enabled,Mode=OneWay}" Command="{Binding ToggleCommand}"
+        IsEnabled="{Binding CanToggle}" HorizontalAlignment="Center"
+        VerticalAlignment="Center"
+        AutomationProperties.Name="Plugin engedélyezése vagy letiltása"
+        ToolTip="Csak igazolt leállítás után, biztonsági másolattal"/>
+      </Grid>
+     </DataTemplate>
+    <DataTemplate x:Key="PremiumModRow">
+       <Grid Height="72" Margin="6,3" ToolTip="{Binding Information}">
+        <Grid.ColumnDefinitions>
+         <ColumnDefinition Width="64"/><ColumnDefinition Width="*"/>
+         <ColumnDefinition Width="44"/><ColumnDefinition Width="76"/>
+         <ColumnDefinition Width="56"/>
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Width="54" Height="54" Background="#193B3B"
+          BorderBrush="#416961" BorderThickness="1" CornerRadius="9"
+          VerticalAlignment="Center" ClipToBounds="True">
+         <Grid>
+          <TextBlock Text="⬡" FontSize="22" Foreground="{StaticResource AccentLight}"
+            HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+          <Image Source="{Binding ImageUrl}" Stretch="UniformToFill"
+            IsHitTestVisible="False" RenderOptions.BitmapScalingMode="HighQuality"/>
+         </Grid>
+        </Border>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="3,0,8,0">
+         <TextBlock Text="{Binding DisplayName}" FontSize="14" FontWeight="SemiBold"
+          Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="{Binding ProjectLabel}" FontSize="10"
+          Foreground="{StaticResource TextSoft}" Margin="0,6,0,0"
+          TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="{Binding Information}" FontSize="10"
+          Foreground="{StaticResource TextSoft}" Margin="0,4,0,0"
+          TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+        <TextBlock Grid.Column="2" Text="{Binding Position,StringFormat='#{0}'}"
+          Foreground="{StaticResource TextSoft}" FontSize="12"
+          TextAlignment="Center" VerticalAlignment="Center"/>
+        <Border Grid.Column="3" Background="#19342F" BorderBrush="#355850"
+          BorderThickness="1" CornerRadius="6" Margin="0,0,7,0"
+          Padding="4,5" VerticalAlignment="Center">
+         <TextBlock Text="{Binding State}" Foreground="{Binding StateBrush}"
+          FontSize="10" FontWeight="SemiBold" TextAlignment="Center"
+          TextTrimming="CharacterEllipsis"/>
+        </Border>
+        <ToggleButton Grid.Column="4" IsChecked="{Binding IsActive,Mode=OneWay}"
+          Command="{Binding ToggleCommand}" IsEnabled="{Binding CanToggle}"
+          Style="{StaticResource PremiumSwitch}" HorizontalAlignment="Center"
+          VerticalAlignment="Center" ToolTip="Állapotváltás csak piszkozatként"
+          AutomationProperties.Name="Mod aktiválása vagy letiltása"/>
+       </Grid>
+      </DataTemplate>
+    <DataTemplate x:Key="PremiumModInventoryCard">
+      <Border Background="#192B30" BorderBrush="#35525A" BorderThickness="0,0,0,1"
+              Padding="12,9" Margin="0,0,0,3" CornerRadius="6">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="31"/><ColumnDefinition Width="*"/><ColumnDefinition Width="110"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock Grid.Column="0" Text="⬡" FontSize="20" Foreground="#65C5B5"
+                     VerticalAlignment="Center"/>
+          <StackPanel Grid.Column="1">
+            <TextBlock Text="{Binding Id, StringFormat='Modprojekt {0}'}"
+                       FontSize="13" FontWeight="SemiBold" Foreground="#F0FFFA"/>
+            <TextBlock Text="{Binding Detail}" Foreground="#AAC2C5"
+                       FontSize="11" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Text="{Binding Map, StringFormat='Map: {0}'}" Foreground="#81B9B1"
+                       FontSize="11"/>
+          </StackPanel>
+          <StackPanel Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Mode}" FontSize="11" FontWeight="Bold"
+                       Foreground="{Binding Accent}" TextAlignment="Right"/>
+            <TextBlock Text="{Binding Order, StringFormat='Pozíció: {0}'}"
+                       Foreground="#A9C0C1" FontSize="10" TextAlignment="Right"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
         <LinearGradientBrush x:Key="MetalTitleBrush" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FFFFFF" Offset="0"/>
       <GradientStop Color="#E8F7F4" Offset="0.35"/>
@@ -53,112 +224,158 @@
       <GradientStop Color="#00342F" Offset="1"/>
     </LinearGradientBrush>
     <Style x:Key="SectionHeading" TargetType="TextBlock">
-      <Setter Property="Foreground" Value="#F6FFF9"/>
-      <Setter Property="FontSize" Value="21"/>
-      <Setter Property="FontWeight" Value="Bold"/>
-      <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#9ACCC4" BlurRadius="4" ShadowDepth="0" Opacity="0.38"/></Setter.Value></Setter>
+      <Setter Property="Foreground" Value="{StaticResource GraphitePrimary}"/>
+      <Setter Property="FontSize" Value="19"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style x:Key="HeroIcon" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="26"/>
-      <Setter Property="Foreground" Value="#4CF6DB"/>
-      <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#1BFFE2" BlurRadius="13" ShadowDepth="0" Opacity="0.78"/></Setter.Value></Setter>
+      <Setter Property="FontSize" Value="23"/>
+      <Setter Property="Foreground" Value="{StaticResource GraphiteAccent}"/>
     </Style>
-    <SolidColorBrush x:Key="Accent" Color="#A6F873"/>
-    <SolidColorBrush x:Key="Teal" Color="#72DED0"/>
+    <SolidColorBrush x:Key="Accent" Color="#71C6B9"/>
+    <SolidColorBrush x:Key="Teal" Color="#71C6B9"/>
     <SolidColorBrush x:Key="Muted" Color="#9DB7B2"/>
-    <Style TargetType="Button" x:Key="NavButton">
-  <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="#E3F9F1"/>
-  <Setter Property="BorderThickness" Value="0"/><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="Cursor" Value="Hand"/>
-  <Setter Property="FontFamily" Value="Segoe UI"/><Setter Property="FontSize" Value="14"/>
-  <Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Padding" Value="18,12"/>
-  <Setter Property="Margin" Value="12,2"/>
-  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-    <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="10" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}" RenderTransformOrigin="0.5,0.5">
-      <Border.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Border.RenderTransform>
-      <Grid><Border x:Name="Glow" Background="#3375FFCA" CornerRadius="9" Opacity="0"/>
-        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/></Grid>
-    </Border>
-    <ControlTemplate.Triggers>
-      <Trigger Property="IsMouseOver" Value="True">
-        <Setter TargetName="Surface" Property="BorderBrush" Value="#68D8B6"/>
-        <Trigger.EnterActions><BeginStoryboard><Storyboard>
-          <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity" To="0.7" Duration="0:0:0.18"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.025" Duration="0:0:0.18"/>
-        </Storyboard></BeginStoryboard></Trigger.EnterActions>
-        <Trigger.ExitActions><BeginStoryboard><Storyboard>
-          <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.19"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.19"/>
-        </Storyboard></BeginStoryboard></Trigger.ExitActions>
-      </Trigger>
-      <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.65"/></Trigger>
-      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value="0.4"/></Trigger>
-    </ControlTemplate.Triggers>
-  </ControlTemplate></Setter.Value></Setter>
-</Style>
-    <Style TargetType="Button" x:Key="ActionButton">
-  <Setter Property="Background" Value="#123B3D"/><Setter Property="Foreground" Value="White"/>
-  <Setter Property="FontFamily" Value="Segoe UI"/><Setter Property="FontSize" Value="14"/>
-  <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="BorderThickness" Value="1"/>
-  <Setter Property="BorderBrush" Value="#3CDACB"/><Setter Property="Padding" Value="21,13"/>
-  <Setter Property="Cursor" Value="Hand"/><Setter Property="Margin" Value="0,0,12,0"/>
-  <Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#00D6C1" BlurRadius="10" Opacity="0.27" ShadowDepth="0"/></Setter.Value></Setter>
-  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-    <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10" RenderTransformOrigin="0.5,0.5">
-      <Border.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Border.RenderTransform>
-      <Grid><Border x:Name="Glow" Background="#39A0FFE9" CornerRadius="9" Opacity="0"/>
-      <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/></Grid>
-    </Border>
-    <ControlTemplate.Triggers>
-      <Trigger Property="IsMouseOver" Value="True">
-        <Trigger.EnterActions><BeginStoryboard><Storyboard>
-          <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity" To="0.43" Duration="0:0:0.17"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.04" Duration="0:0:0.18"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.04" Duration="0:0:0.18"/>
-        </Storyboard></BeginStoryboard></Trigger.EnterActions>
-        <Trigger.ExitActions><BeginStoryboard><Storyboard>
-          <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.2"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.2"/>
-          <DoubleAnimation Storyboard.TargetName="Surface" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.2"/>
-        </Storyboard></BeginStoryboard></Trigger.ExitActions>
-      </Trigger>
-      <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.72"/></Trigger>
-    </ControlTemplate.Triggers>
-  </ControlTemplate></Setter.Value></Setter>
-</Style>
-    <Style TargetType="Button" x:Key="PrimaryAction" BasedOn="{StaticResource ActionButton}">
-      <Setter Property="Background" Value="#087848"/><Setter Property="BorderBrush" Value="#7AFFB7"/>
-    </Style>
-    <Style TargetType="Button" x:Key="GoldAction" BasedOn="{StaticResource ActionButton}">
-      <Setter Property="Background" Value="#503C18"/><Setter Property="BorderBrush" Value="#EFC26C"/>
-    </Style>
-    <Style TargetType="Border" x:Key="Panel">
-      <Setter Property="Background" Value="#0C302D"/>
-      <Setter Property="BorderBrush" Value="#357970"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="14"/>
-      <Setter Property="Padding" Value="17"/>
-      <Setter Property="Margin" Value="0,0,12,12"/>
-    </Style>
-
-    <Style TargetType="Border" x:Key="NeonStatPanel" BasedOn="{StaticResource Panel}">
-      <Setter Property="Background">
+    <!-- Premium navigation: state owned by one attached DP, never by mutable local brushes. -->
+    <Style x:Key="NavKeyboardFocus" TargetType="{x:Type Control}">
+      <Setter Property="Template">
         <Setter.Value>
-          <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#0D3431" Offset="0"/>
-            <GradientStop Color="#062521" Offset="1"/>
-          </LinearGradientBrush>
+          <ControlTemplate>
+            <Border BorderBrush="#5BC4B7" BorderThickness="2" CornerRadius="11"
+                    Margin="1" SnapsToDevicePixels="True"/>
+          </ControlTemplate>
         </Setter.Value>
       </Setter>
-      <Setter Property="BorderBrush" Value="#249D82"/>
-      <Setter Property="Effect">
-        <Setter.Value><DropShadowEffect Color="#00E8C2" BlurRadius="16" ShadowDepth="0" Opacity="0.17"/></Setter.Value>
+    </Style>
+    <Style TargetType="Button" x:Key="NavButton">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#A9BBBD"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FocusVisualStyle" Value="{StaticResource NavKeyboardFocus}"/>
+      <Setter Property="FontFamily" Value="Segoe UI"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontWeight" Value="Medium"/>
+      <Setter Property="MinHeight" Value="43"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="Padding" Value="15,8,12,8"/>
+      <Setter Property="Margin" Value="10,2,10,2"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Surface" Background="{TemplateBinding Background}"
+                    BorderBrush="Transparent" BorderThickness="1"
+                    CornerRadius="9" SnapsToDevicePixels="True">
+              <Grid ClipToBounds="True">
+                <Border x:Name="SelectionRail" Width="3" HorizontalAlignment="Left"
+                        Background="#6AF1C4" CornerRadius="2" Opacity="0"/>
+                <ContentPresenter Margin="{TemplateBinding Padding}"
+                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                    RecognizesAccessKey="True"/>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Surface" Property="Background" Value="#243139"/>
+                <Setter Property="Foreground" Value="#F1FFFA"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Surface" Property="Background" Value="#295248"/>
+                <Setter Property="Foreground" Value="White"/>
+              </Trigger>
+              <Trigger Property="local:NavSelection.IsCurrent" Value="True">
+                <Setter TargetName="Surface" Property="Background" Value="#24443C"/>
+                <Setter TargetName="Surface" Property="BorderBrush" Value="#346F60"/>
+                <Setter TargetName="SelectionRail" Property="Opacity" Value="1"/>
+                <Setter Property="Foreground" Value="#E9FFF6"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+              </Trigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="local:NavSelection.IsCurrent" Value="True"/>
+                  <Condition Property="IsMouseOver" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="Surface" Property="Background" Value="#2B4C44"/>
+                <Setter TargetName="Surface" Property="BorderBrush" Value="#5BC4B7"/>
+              </MultiTrigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Surface" Property="Opacity" Value="0.38"/>
+                <Setter Property="Cursor" Value="Arrow"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
       </Setter>
     </Style>
+    <!-- Premium low-motion buttons: no focus jumps or scaling. -->
+    <Style TargetType="Button" x:Key="ActionButton">
+      <Setter Property="Background" Value="#233037"/>
+      <Setter Property="Foreground" Value="#E7F7F3"/>
+      <Setter Property="FontFamily" Value="Segoe UI"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="BorderBrush" Value="#334249"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="12,7"/>
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0,0,8,5"/>
+      <Setter Property="FocusVisualStyle" Value="{StaticResource NavKeyboardFocus}"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Surface" Background="{TemplateBinding Background}"
+             BorderBrush="{TemplateBinding BorderBrush}"
+             BorderThickness="{TemplateBinding BorderThickness}"
+             CornerRadius="8" SnapsToDevicePixels="True">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+               RecognizesAccessKey="True" Margin="{TemplateBinding Padding}"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Surface" Property="BorderBrush" Value="#53756E"/>
+              <Setter TargetName="Surface" Property="Background" Value="#304149"/>
+              <Setter Property="Foreground" Value="White"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Surface" Property="Background" Value="#2B5950"/>
+              <Setter TargetName="Surface" Property="BorderBrush" Value="#5BC4B7"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="Surface" Property="Opacity" Value="0.4"/>
+              <Setter Property="Cursor" Value="Arrow"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
+    <Style TargetType="Button" x:Key="PrimaryAction" BasedOn="{StaticResource ActionButton}">
+      <Setter Property="Background" Value="#2B7368"/><Setter Property="BorderBrush" Value="#468F83"/>
+    </Style>
+    <Style TargetType="Button" x:Key="GoldAction" BasedOn="{StaticResource ActionButton}">
+      <Setter Property="Background" Value="#35322D"/><Setter Property="BorderBrush" Value="#72654B"/>
+    </Style>
+    <Style TargetType="Border" x:Key="Panel">
+      <Setter Property="Background" Value="{StaticResource SurfacePanel}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource SurfaceLine}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="16,14"/>
+      <Setter Property="Margin" Value="0,0,12,12"/>
+    </Style>
+    <Style TargetType="Border" x:Key="NeonStatPanel" BasedOn="{StaticResource Panel}">
+      <Setter Property="Background">
+       <Setter.Value><LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#203E3D" Offset="0"/>
+        <GradientStop Color="#15262B" Offset="0.55"/>
+        <GradientStop Color="#122124" Offset="1"/>
+       </LinearGradientBrush></Setter.Value>
+      </Setter>
+      <Setter Property="BorderBrush" Value="#42675F"/>
+      <Setter Property="CornerRadius" Value="12"/>
+      <Setter Property="Padding" Value="17,15"/>
+     </Style>
     <Style TargetType="Border" x:Key="AmberStatPanel" BasedOn="{StaticResource NeonStatPanel}">
-      <Setter Property="BorderBrush" Value="#C28A38"/>
-      <Setter Property="Effect">
-        <Setter.Value><DropShadowEffect Color="#FFB33C" BlurRadius="16" ShadowDepth="0" Opacity="0.16"/></Setter.Value>
-      </Setter>
+      <Setter Property="BorderBrush" Value="#63523A"/>
     </Style>
+  </ResourceDictionary>
   </Application.Resources>
 </Application>

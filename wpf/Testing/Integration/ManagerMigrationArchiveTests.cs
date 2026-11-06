@@ -22,7 +22,7 @@ public static class ManagerMigrationArchiveTests
     private static string Hash(byte[] data)=>
         Convert.ToHexString(SHA256.HashData(data));
 
-    public static void Run(string integrationRoot)
+    public static void Run(string integrationRoot,string? firstLocalRoot=null)
     {
         // Entirely fabricated configuration data. No private uploaded ZIP bytes
         // or real tokens, IPs, host paths, player details or credentials here.
@@ -38,7 +38,7 @@ public static class ManagerMigrationArchiveTests
         var localIds=maps.Select(_=>Guid.NewGuid().ToString()).ToArray();
         var foreignIds=foreign.Select(_=>Guid.NewGuid().ToString()).ToArray();
         var members=maps.Select((m,i)=>new{
-            id=localIds[i],map=m,root=@"C:\synthetic\map-"+i}).ToArray();
+            id=localIds[i],map=m,root=i==0 && firstLocalRoot!=null ? firstLocalRoot : @"C:\synthetic\map-"+i}).ToArray();
         var other=foreign.Select((m,i)=>new{
             id=foreignIds[i],map=m,root=@"D:\synthetic\map-"+i}).ToArray();
         var config=new{id="KovaCluster",mode="shared",path=shared,
@@ -184,6 +184,14 @@ public static class ManagerMigrationArchiveTests
             result.DiscordControlsConfigured&&result.EmbeddedSensitiveState&&
             !result.ProductionImportAllowed,
             "process identity unknown, missing backup policies, disabled bot with controls and private browser state are flagged");
+        var historical=HistoricalLaunchProfileReader.Inspect(path);
+        Check(!historical.ReadyForLiveControl &&historical.Maps.Length==5 &&
+            historical.Maps.All(m=>m.ExistingStoreActive&&m.EnabledMods==1&&
+                m.PassiveMods==0&&m.ArgumentsPreview.StartsWith(m.MapId+"?listen -Port=")&&
+                m.ArgumentsPreview.EndsWith(" -usestore -log")&&
+                !m.ArgumentsPreview.Contains("-converttostore",StringComparison.OrdinalIgnoreCase)) &&
+            historical.Maps.Select(m=>m.MapId).Distinct().Count()==5,
+            "historical Manager launch profiles preserve five-map Store mode, no live control");
         Check(result.SourceSha256==originalSha&&
             Hash(File.ReadAllBytes(path))==originalSha&&
             result.Findings.All(x=>!x.Contains("SYNTHETIC_NOT_A_REAL_CREDENTIAL")&&

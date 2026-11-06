@@ -30,6 +30,32 @@ if(Environment.GetEnvironmentVariable("FAKE_STEAM_FAIL")=="1")
     return 7;
 }
 Directory.CreateDirectory(root);
+// CI-only fresh installer fixture: create exactly the harmless binary + manifest
+// that the real installer verifies. Never download the actual ASA server.
+if(Environment.GetEnvironmentVariable("FAKE_STEAM_NEW_INSTALL")=="1")
+{
+    var executable=Path.Combine(root,"ShooterGame","Binaries","Win64",
+        "ArkAscendedServer.exe");
+    Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
+    File.WriteAllText(executable,"CI fixture; this is not an ASA executable");
+    var steamApps=Path.Combine(root,"steamapps");
+    Directory.CreateDirectory(steamApps);
+    File.WriteAllText(Path.Combine(steamApps,"appmanifest_2430930.acf"),
+        "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
+}
+if(Environment.GetEnvironmentVariable("FAKE_STEAM_REFRESH_BUILD")=="1")
+{
+    // Never copy, delete or scan protected production files. This fixture
+    // changes only the synthetic appmanifest inside the temporary test root.
+    var manifest=Path.Combine(root,"steamapps","appmanifest_2430930.acf");
+    if(!File.Exists(manifest))return 14;
+    string original=File.ReadAllText(manifest);
+    if(!original.Contains("\"buildid\" \"123456\"",
+        StringComparison.Ordinal))return 15;
+    File.WriteAllText(manifest,original.Replace(
+        "\"buildid\" \"123456\"",
+        "\"buildid\" \"123457\"",StringComparison.Ordinal));
+}
 if(Environment.GetEnvironmentVariable("FAKE_STEAM_TOUCH_INI")=="1")
 {
     string ini=Path.Combine(root,"ShooterGame","Saved","Config","WindowsServer","Game.ini");

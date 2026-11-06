@@ -27,6 +27,8 @@ public partial class MainWindow
                 string selected=source.Text.Trim();
                 var audit=await Task.Run(()=>
                     UntamedManagerArchiveInspector.Inspect(selected));
+                var launch=await Task.Run(()=>
+                    HistoricalLaunchProfileReader.Inspect(selected));
                 result.Text="UNTAMED MANAGER · MIGRÁCIÓS ELLENŐRZÉS"+
                     "\nFájlok SHA-256: "+audit.VerifiedFiles+
                     "\nHelyi mapok: "+audit.LocalMaps+
@@ -47,6 +49,12 @@ public partial class MainWindow
                     " · távoli vezérlési szabályok: "+
                     (audit.DiscordControlsConfigured?"TALÁLHATÓK":"NINCSENEK")+
                     "\nMapok: "+string.Join(", ",audit.MapNames)+
+                    "\nTörténeti indítási profilok (csak előnézet): "+
+                    launch.Maps.Length+
+                    "\n"+string.Join("\n",launch.Maps.Select(m=>
+                        m.MapId+" · UDP "+m.GamePort+" · Query "+m.QueryPort+
+                        " · mod "+m.EnabledMods+" (passzív "+m.PassiveMods+")"+
+                        " · meglévő Store active: "+(m.ExistingStoreActive?"IGEN":"NEM")))+
                     "\n"+string.Join("\n",audit.Findings.Select(x=>"• "+x))+
                     "\nForrás SHA-256: "+audit.SourceSha256+
                     "\nIMPORTÁLÁS / START / RESTORE: TILTVA. "+

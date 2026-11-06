@@ -1,0 +1,186 @@
+/* Reference-driven premium Mod Center.
+   Left: ordered mod table. Right: inspected CurseForge project.
+   Bottom: real, non-mutating draft status and navigation to native approval. */
+.premium-mod-page {min-width:0;position:relative;}
+.premium-mod-intro {margin-bottom:13px;}
+.premium-mod-intro h1 {font-size:29px;margin:9px 0 5px;}
+.premium-mod-map-picker {display:flex;align-items:center;gap:9px;color:#8ce8cb;margin:0 0 14px;
+  background:#142831;border:1px solid #43625f;border-radius:9px;padding:9px 12px;width:max-content;max-width:100%;}
+.premium-mod-map-picker select {background:transparent;border:0;color:#edfff8;outline:0;
+  padding:2px 30px 2px 6px;max-width:230px;font-size:12.5px;font-weight:700;}
+.premium-mod-map-picker select option {background:#172b33;color:#eff9f6;}
+.premium-mod-toolbar {display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:15px;}
+.premium-mod-toolbar .secondary,.premium-mod-toolbar .primary {white-space:nowrap;display:flex;align-items:center;gap:9px;font-size:12px;min-height:42px;}
+.premium-mod-search {display:flex;align-items:center;gap:9px;border:1px solid #55736f;border-radius:9px;background:linear-gradient(180deg,#23323b,#172930);
+  min-height:44px;padding:0 12px;flex:1 1 225px;max-width:420px;color:#a4d7d0;}
+.premium-mod-search input {background:transparent;color:#eefcf7;border:0;outline:0;width:100%;min-width:0;font-size:12.5px;}
+.premium-mod-search input::placeholder {color:#93b1b0;}
+.premium-mod-count {display:flex;align-items:center;gap:9px;color:#8de8c0;background:#21493e;
+  border:1px solid #438b72;border-radius:8px;padding:11px 13px;white-space:nowrap;font-size:12px;font-weight:700;}
+.premium-mod-filter {display:flex;align-items:center;gap:4px;padding:10px 9px;min-height:43px;
+  border:1px solid #506569;border-radius:8px;color:#cce9e3;background:#26353d;white-space:nowrap;}
+.premium-mod-filter select {color:#ecf5f0;background:transparent;border:0;outline:0;max-width:124px;font-size:12px;appearance:none;padding:0 3px;cursor:pointer;}
+.premium-mod-filter select option {background:#172830;color:#f0f8f5;}
+.premium-mod-add {margin-left:auto;}
+.premium-mod-grid {display:grid;grid-template-columns:minmax(0,1.9fr) minmax(300px,.9fr);gap:15px;align-items:stretch;}
+.premium-mod-list-panel,.premium-mod-details {min-width:0;}
+.premium-mod-column-head,.premium-mod-row {display:grid;grid-template-columns:minmax(208px,2.9fr) minmax(65px,.8fr) minmax(65px,.7fr) minmax(90px,.9fr);gap:10px;align-items:center;}
+.premium-mod-column-head {padding:9px 12px;border-bottom:1px solid #385159;color:#c9d5d5;font-size:10.5px;font-weight:700;}
+.premium-mod-column-head>button {display:flex;align-items:center;gap:4px;font-size:10.5px;color:#c9d5d5;background:none;border:0;text-align:left;padding:0;}
+.premium-mod-row {min-height:67px;padding:7px 12px;border-bottom:1px solid #34494d;transition:background .15s ease;}
+.premium-mod-row:last-child {border-bottom:0;}
+.premium-mod-row:hover {background:#223b38;}
+.premium-mod-row.selected {background:linear-gradient(90deg,#28644d88,#1a3b3888);box-shadow:inset 3px 0 #72eabc;}
+.premium-mod-pick {display:flex;align-items:center;gap:9px;background:transparent;border:0;color:#ebf8f4;min-width:0;padding:0;text-align:left;}
+.premium-mod-drag {color:#93b5b3;display:grid;place-items:center;flex:0 0 12px;}
+.premium-mod-ordinal {font-size:11px;color:#b3cfcb;width:13px;flex:0 0 13px;text-align:center;font-variant-numeric:tabular-nums;}
+.premium-mod-thumb {width:45px;height:45px;flex:0 0 45px;object-fit:cover;border-radius:8px;border:1px solid #486a64;box-shadow:0 2px 6px #0007;}
+.premium-mod-thumb.placeholder {display:grid;place-items:center;
+  background:radial-gradient(ellipse at 23% 17%,#397963,#1b353b 67%);color:#8ce6ce;}
+.premium-mod-identity {display:block;min-width:0;overflow:hidden;}
+.premium-mod-identity b {display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;}
+.premium-mod-identity small {display:block;font-size:10.3px;color:#a0bdb9;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.premium-mod-status {font-size:10.5px;border-radius:6px;display:inline-block;width:max-content;max-width:100%;
+  padding:6px 9px;white-space:nowrap;}
+.premium-mod-status.mode-active {background:#184d38;color:#83f0b0;}
+.premium-mod-status.mode-passive {background:#3d454d;color:#c5d2d3;}
+.premium-mod-status.mode-disabled {background:#4d3136;color:#e6a5a9;}
+.premium-mod-position {font-size:12px;color:#e0ebe8;background:#1c3038;
+  padding:8px 11px;border:1px solid #40575d;border-radius:7px;width:max-content;min-width:37px;text-align:center;font-variant-numeric:tabular-nums;}
+.premium-mod-state-trigger {border:0;background:transparent;color:#a4b8b5;cursor:pointer;display:flex;align-items:center;gap:7px;font-size:10px;padding:7px 0;text-align:left;white-space:nowrap;}
+.premium-mod-state-trigger:hover {color:#f0fff8;}
+.premium-toggle {width:40px;height:22px;border-radius:99px;background:#5c686f;border:1px solid #6d8085;display:flex;align-items:center;padding:2px;flex:0 0 40px;transition:background .17s;}
+.premium-toggle>span {width:16px;height:16px;background:#e9eeee;border-radius:50%;box-shadow:0 1px 3px #0008;transition:transform .17s;}
+.premium-mod-state-trigger.enabled .premium-toggle {background:#1cba88;border-color:#55e0b3;}
+.premium-mod-state-trigger.enabled .premium-toggle>span {transform:translateX(17px);}
+.premium-mod-state-trigger.enabled {color:#bce9d4;}
+.premium-mod-details {display:flex;flex-direction:column;}
+.premium-mod-details .premium-panel-heading h2 {font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.premium-mod-details-body {padding:18px 16px;flex:1;display:flex;flex-direction:column;}
+.premium-mod-feature {display:flex;align-items:center;gap:14px;}
+.premium-mod-feature>img,.premium-mod-feature-icon {width:73px;height:73px;object-fit:cover;flex:0 0 73px;border:1px solid #4c7374;border-radius:10px;}
+.premium-mod-feature-icon {display:grid;place-items:center;background:radial-gradient(circle at 25% 20%,#38866a,#172e36 65%);color:#9df3d1;}
+.premium-mod-feature h3 {font-size:20px;letter-spacing:-.025em;margin:0 0 7px;color:#f3fbfa;overflow-wrap:anywhere;}
+.premium-mod-feature small {color:#abc3be;font-size:11px;line-height:1.45;}
+.premium-mod-description {color:#d0dcda;font-size:12.5px;line-height:1.7;min-height:83px;margin:17px 0;}
+.premium-mod-advisory {display:flex;align-items:center;gap:7px;font-size:10.5px;color:#e1bd86;padding:9px 0;}
+.premium-mod-mode-heading {font-size:11px;color:#dbeae4;border-top:1px solid #405159;padding:15px 0 10px;font-weight:750;}
+.premium-mod-mode-pills {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;}
+.premium-mod-mode-pills button {background:#233640;border:1px solid #405a5c;border-radius:7px;
+  color:#d5e7e2;padding:10px 5px;min-width:0;font-size:11px;}
+.premium-mod-mode-pills button.active {background:#23896a;border-color:#4ecc9f;color:#fff;}
+.premium-mod-mode-pills button:hover {border-color:#70e3b6;}
+.premium-mod-facts {border-top:1px solid #405159;margin:17px 0 16px;}
+.premium-mod-facts>div {padding:11px 0;display:flex;justify-content:space-between;
+  align-items:center;gap:9px;border-bottom:1px solid #31484c;font-size:11.5px;}
+.premium-mod-facts span {color:#b1c7c2;}
+.premium-mod-facts b {color:#dcebe5;text-align:right;font-weight:650;}
+.premium-details-action {margin-top:auto;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px;}
+.premium-mod-empty {display:flex;flex-direction:column;gap:12px;align-items:center;
+  padding:35px 18px;text-align:center;color:#aabcb9;font-size:12px;min-height:160px;justify-content:center;}
+.premium-mod-bottom-bar {display:flex;justify-content:space-between;align-items:center;
+  gap:12px;background:linear-gradient(115deg,#21343b,#19312f);
+  border:1px solid #466f67;box-shadow:0 12px 20px #0005;
+  border-radius:10px;padding:13px 16px;margin:15px 0 18px;position:sticky;bottom:10px;z-index:3;flex-wrap:wrap;}
+.premium-draft-indicator {display:flex;align-items:center;gap:12px;}
+.premium-draft-indicator>svg {color:#53e3b1;flex:none;}
+.premium-draft-indicator b {font-size:13px;display:block;}
+.premium-draft-indicator small {font-size:11px;color:#a2bab5;display:block;margin-top:5px;}
+.premium-draft-buttons {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.premium-draft-buttons button {display:flex;align-items:center;justify-content:center;gap:9px;min-height:42px;}
+.premium-editor-area,.premium-catalog-area {scroll-margin-top:90px;}
+.premium-mod-page .premium-editor-area>.panel {border-color:#395756;}
+.premium-mod-page .premium-editor-area .panel-head {background:linear-gradient(90deg,#274b41,#1b3439);}
+.premium-mod-page .premium-catalog-area>.panel {border-color:#426665;}
+.premium-mod-page .premium-catalog-area .panel-head {background:linear-gradient(90deg,#24483c,#1c3139);}
+@media(max-width:1340px){
+  .premium-mod-grid {grid-template-columns:minmax(0,1.4fr) minmax(280px,1fr);}
+  .premium-mod-column-head,.premium-mod-row {grid-template-columns:minmax(170px,2fr) 64px 53px 72px;gap:6px;}
+  .premium-mod-state-trigger>span:last-child {display:none;}
+  .premium-mod-thumb {width:39px;height:39px;flex-basis:39px;}
+  .premium-mod-toolbar .premium-mod-add {margin-left:0;}
+}
+@media(max-width:1130px){
+  .premium-mod-grid{grid-template-columns:1fr;}
+  .premium-mod-details-body {min-height:350px;}
+  .premium-mod-mode-pills {max-width:480px;}
+  .premium-mod-facts {max-width:640px;}
+}
+@media(max-width:850px){
+  .premium-mod-map-picker {width:100%;flex-wrap:wrap;}
+  .premium-mod-map-picker .premium-small-muted {display:none;}
+  .premium-mod-toolbar {align-items:stretch;}
+  .premium-mod-toolbar .premium-mod-add {margin-left:0;}
+  .premium-mod-column-head,.premium-mod-row{grid-template-columns:minmax(170px,2fr) 60px 50px 48px;}
+  .premium-mod-column-head>span:nth-child(4) {font-size:0;}
+  .premium-mod-thumb{width:34px;height:34px;flex-basis:34px;}
+  .premium-mod-identity small{font-size:9px;}
+  .premium-mod-bottom-bar {bottom:0;border-radius:0;}
+  .premium-draft-buttons{width:100%;}
+}
+
+/* The same two-pane hierarchy extends to Plugin Center; all native safety
+   gates and protected profile behavior are unchanged. */
+.premium-plugin-page>.page-intro {margin-bottom:14px;}
+.premium-plugin-page>.premium-mod-map-picker {margin-bottom:16px;}
+.premium-plugin-grid {display:grid;grid-template-columns:minmax(0,1.22fr) minmax(320px,1fr);gap:16px;align-items:start;}
+.premium-plugin-grid .panel {height:auto;min-width:0;}
+.premium-plugin-grid .panel-inner {padding:14px 16px;}
+.premium-plugin-inventory .plugin-row {min-height:76px;border-bottom-color:#354d50;}
+.premium-plugin-inventory .plugin-copy b {font-size:13px;color:#f3fff8;}
+.premium-plugin-actions .plugin-row {padding:11px 2px;gap:9px;flex-wrap:wrap;}
+.premium-plugin-actions .plugin-row button {margin-left:auto;min-width:118px;padding:8px 9px;font-size:11px;}
+.premium-plugin-actions .historical-preview {border:1px solid #5f8a70;background:#1a3934;
+  padding:14px;border-radius:10px;margin-top:18px;}
+.premium-plugin-actions .historical-preview h3 {font-size:16px;color:#e2faf0;margin:0 0 10px;}
+.premium-plugin-actions .historical-approval {display:flex;align-items:center;gap:10px;margin:16px 0;padding:12px;
+  border:1px solid #5a786e;border-radius:8px;color:#d4f2e6;font-size:12px;line-height:1.4;}
+.premium-plugin-actions .historical-approval input {width:18px;height:18px;flex:none;}
+.premium-plugin-actions .historical-preview .primary {width:100%;justify-content:center;}
+.map-detail-hero {background:linear-gradient(104deg,#0d2129eb,#11343da8 65%,#09272f69),
+  url('/kingdom-hero.jpg') right 38%/cover no-repeat;box-shadow:0 5px 17px #0003;}
+.map-detail-hero h1 {font-size:33px;letter-spacing:-.035em;}
+.map-detail-tabs {background:#15262b;border:1px solid #344d50;border-radius:10px;
+  padding:4px;margin-bottom:18px;overflow-x:auto;}
+.map-detail-tab {border-radius:7px;font-size:12px;min-height:43px;padding:9px 13px;}
+.map-detail-tab.selected {background:linear-gradient(120deg,#246e57,#1a523f);color:#eafff4;border-color:#4da980;}
+.server-toolbar {align-items:stretch;margin-bottom:18px;}
+.server-toolbar .toolbar {border-radius:8px;background:#1c3138;}
+.server-import-buttons {display:flex;align-items:stretch;gap:9px;flex-wrap:wrap;}
+.server-import-buttons button {min-height:45px;}
+@media(max-width:1180px){
+  .premium-plugin-grid{grid-template-columns:1fr;}
+  .premium-plugin-actions .plugin-row{flex-wrap:nowrap;}
+}
+@media(max-width:750px){
+  .premium-plugin-actions .plugin-row{flex-wrap:wrap;}
+  .premium-plugin-actions .plugin-row button{width:100%;}
+}
+
+/* Keep the approved Mod Center inside one clear workspace. Advanced native
+   editors, shared-map inventory and full CurseForge catalog are real tabs,
+   not permanently stacked four screens below the mod list. */
+.premium-workspace-tabs {display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding:5px;border:1px solid #37575a;border-radius:10px;
+  background:linear-gradient(110deg,#1a3036,#13242c);margin:0 0 13px;}
+.premium-workspace-tabs>button {display:flex;align-items:center;justify-content:center;gap:8px;
+  min-height:40px;background:transparent;border:1px solid transparent;border-radius:7px;
+  color:#afc7c3;font-size:12px;font-weight:650;padding:9px 14px;}
+.premium-workspace-tabs>button:hover:not(.active) {background:#25423b;color:#eafff7;}
+.premium-workspace-tabs>button.active {background:linear-gradient(115deg,#246b54,#19503e);
+  border-color:#54b18e;color:#edfff6;box-shadow:inset 0 1px #b2ffe51a;}
+.premium-tab-count {display:grid;place-items:center;min-width:20px;height:20px;
+  background:#e1b45d;color:#26332e;font-size:10px;font-weight:800;border-radius:99px;}
+.premium-tab-surface.is-hidden {display:none!important;}
+.premium-tab-surface:not(.is-hidden) {animation:premium-workspace-enter .17s ease-out;}
+@keyframes premium-workspace-enter {from{opacity:.72;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:900px){
+  .premium-workspace-tabs {gap:3px;}
+  .premium-workspace-tabs>button {padding:9px 10px;flex:1 1 auto;font-size:11px;}
+}
+@media(prefers-reduced-motion:reduce){.premium-tab-surface:not(.is-hidden){animation:none;}}
+
+.premium-mod-save-toast {margin:0 0 12px;padding:10px 12px;display:flex;
+  align-items:center;gap:10px;border-radius:9px;background:#193f34;
+  border:1px solid #4e9d79;color:#d7ffe6;line-height:1.45;font-size:12px;}
+.premium-mod-save-toast .quiet {margin-left:auto;white-space:nowrap;color:#acf2d3;}

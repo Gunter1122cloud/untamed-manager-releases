@@ -26,26 +26,52 @@ public sealed class MapInfo
 {
     public Guid Id { get; init; }
     public bool IsRemote { get; init; }
+    public bool IsDemo { get; init; }
+    public bool IsFresh { get; init; }
+    public string SourceBadge => IsDemo ? "DEMO" : !IsRemote ? "HELYI" : IsFresh ? "LAN · FRISS" : "LAN · ELAVULT";
+    public Brush BadgeForeground => IsDemo ? Brushes.Gold : IsRemote && !IsFresh ? Brushes.Orange : Brushes.Aquamarine;
     public string Name { get; init; } = "";
     public string Host { get; init; } = "";
-    public int ModCount { get; init; }
-    public int GamePort { get; init; }
-    public int QueryPort { get; init; }
-    public int RconPort { get; init; }
-    public string Caption => $"{Host} · {ModCount} mod · UDP {GamePort}";
+    public int? ModCount { get; init; }
+    public int? PlayerCount { get; init; }
+    public string PlayerDisplay => PlayerCount.HasValue ? PlayerCount.Value.ToString() : "—";
+    public int? GamePort { get; init; }
+    public int? QueryPort { get; init; }
+    public int? RconPort { get; init; }
+    public string Status { get; init; } = "Állapot ismeretlen";
+    public string Caption => $"{Host} · "+(ModCount.HasValue?$"{ModCount} konfigurált mod":"modszám ismeretlen")+
+        " · "+(GamePort.HasValue&&GamePort>0?$"UDP {GamePort}":"port ismeretlen")+" · "+Status;
     public Brush CoverBrush { get; init; } = Brushes.DarkSlateGray;
     public ImageSource? CoverImage { get; init; }
 }
 
+public sealed class HostCardInfo
+{
+    public string Name { get; init; } = "";
+    public string Description { get; init; } = "";
+    public string TrustState { get; init; } = "";
+    public Brush Accent { get; init; } = Brushes.Aquamarine;
+    public double? CpuPercent { get; init; }
+    public double? RamPercent { get; init; }
+    public string CpuLabel => CpuPercent.HasValue ? CpuPercent.Value.ToString("0")+"%" : "—";
+    public string RamLabel => RamPercent.HasValue ? RamPercent.Value.ToString("0")+"%" : "—";
+    public bool HasTelemetry => CpuPercent.HasValue || RamPercent.HasValue;
+}
+
 public partial class MainWindow : Window
 {
+    private static string UiVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     private readonly ObservableCollection<MapInfo> _maps = new();
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(12) };
     private readonly Forms.NotifyIcon _tray = new();
     private bool _exit;
+    private bool _trayReady;
     private MapInfo? _selected;
+    private Guid? _preferredModMapId;
+    private Guid? _preferredPluginMapId;
+    private Guid? _preferredBackupMapId;
     private string _page = "dashboard";
-    private bool _animationsEnabled = true;
+    private bool _animationsEnabled = false;
     private string SettingsFile => Path.Combine(App.LogDir,"visual-settings.json");
     private readonly string[] _modNames = {
         "S-Dino Variants (912815)", "Shiny! Dinos (928548)",
@@ -63,27 +89,39 @@ public partial class MainWindow : Window
         "CousinCustomRates 1.5", "ImplantFix",
         "Unicode RCON ASA", "Lethal Quests Ascended"
     };
-    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(17,45,44));
-    private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(166,248,115));
-    private static readonly Brush Aqua = new SolidColorBrush(Color.FromRgb(108,225,203));
-    private static readonly Brush Soft = new SolidColorBrush(Color.FromRgb(159,190,183));
+    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(27,36,41));
+    private static readonly Brush Mint = new SolidColorBrush(Color.FromRgb(234,243,241));
+    private static readonly Brush Aqua = new SolidColorBrush(Color.FromRgb(113,198,185));
+    private static readonly Brush Soft = new SolidColorBrush(Color.FromRgb(167,180,183));
 
     public MainWindow()
     {
         InitializeComponent();
+        // Fit a normal Manager session inside the current desktop working area.
+        // Screenshot/CI capture deliberately supplies its own exact viewport.
+        if(!App.IsSmokeTest)
+        {
+            Rect desktop=SystemParameters.WorkArea;
+            Width=Math.Min(Width,Math.Max(MinWidth,desktop.Width-20));
+            Height=Math.Min(Height,Math.Max(MinHeight,desktop.Height-20));
+        }
+        VersionBadge.Text="WPF "+UiVersion;
         InitializeAutomaticUpdates();
         InitializeSupervision();
-        var rows = new (string name, string host, int mods, int game, int query, int rcon, string a, string b)[] {
-            ("Astraeos","HP",30,7847,27016,27021,"#244A57","#4B8C72"),
-            ("Genesis Part 1","HP",29,7867,27018,27023,"#2B255E","#7053A9"),
-            ("The Island","HP",29,7777,27015,27020,"#28606B","#4F9274"),
-            ("Extinction","HP",30,7817,27017,27022,"#4A464C","#7C7D62"),
-            ("Valguero","HP",29,7837,27019,27024,"#165579","#559AB7"),
-            ("Ragnarok","Ryzen",29,7827,27025,27030,"#554046","#A16A43"),
-            ("Lost Colony","Ryzen",30,7857,27028,27033,"#4C2858","#8A5A96"),
-            ("Scorched Earth","Ryzen",29,7787,27026,27031,"#6A4826","#B47D3D"),
-            ("The Center","Ryzen",29,7797,27027,27032,"#245E58","#4D9B72"),
-            ("Aberration","Ryzen",30,7807,27029,27034,"#2F295E","#8B4FA2")
+        InitializeLocalResourceTelemetry();
+        // Only artwork mapping is static; actual map/port/host/mod data comes from
+        // registered local profiles and authenticated, fresh LAN peer snapshots.
+        var rows = new (string name, string a, string b)[] {
+            ("Astraeos","#244A57","#4B8C72"),
+            ("Genesis Part 1","#2B255E","#7053A9"),
+            ("The Island","#28606B","#4F9274"),
+            ("Extinction","#4A464C","#7C7D62"),
+            ("Valguero","#165579","#559AB7"),
+            ("Ragnarok","#554046","#A16A43"),
+            ("Lost Colony","#4C2858","#8A5A96"),
+            ("Scorched Earth","#6A4826","#B47D3D"),
+            ("The Center","#245E58","#4D9B72"),
+            ("Aberration","#2F295E","#8B4FA2")
         };
         var referenceAtlas = new BitmapImage(new Uri("pack://application:,,,/Assets/reference-atlas.jpg",UriKind.Absolute));
         referenceAtlas.Freeze();
@@ -98,7 +136,7 @@ public partial class MainWindow : Window
         heroCrop.Freeze();
         HeroImage.Source = heroCrop;
         int mapIndex = 0;
-        foreach (var (name,host,mods,game,query,rcon,a,b) in rows)
+        foreach (var (name,a,b) in rows)
         {
             var gradient = new LinearGradientBrush(
                 (Color)ColorConverter.ConvertFromString(a),
@@ -107,19 +145,21 @@ public partial class MainWindow : Window
             var photo = new CroppedBitmap(referenceAtlas,new Int32Rect((mapIndex % 5)*200,260+(mapIndex/5)*104,200,96));
             photo.Freeze();
             mapIndex++;
-            _maps.Add(new MapInfo { Name=name, Host=host, ModCount=mods, GamePort=game,
-                QueryPort=query, RconPort=rcon, CoverBrush=gradient, CoverImage=photo });
+            _maps.Add(new MapInfo { Name=name, CoverBrush=gradient, CoverImage=photo });
         }
         ServerCards.ItemsSource = _maps;
         try {
             if(File.Exists(SettingsFile)) {
                 using var doc=JsonDocument.Parse(File.ReadAllText(SettingsFile));
-                if(doc.RootElement.TryGetProperty("animations",out var a) && a.ValueKind==JsonValueKind.False) _animationsEnabled=false;
+                if(doc.RootElement.TryGetProperty("animations",out var a) &&
+                   a.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                    _animationsEnabled=a.GetBoolean();
             }
         } catch (Exception e) { WriteLog("settings",e); }
         UpdateNavSelection("dashboard");
         if (!App.IsSmokeTest) SetupTray();
         StartClusterUi();
+        if(App.IsDemoStart)EnterDemoMode();
     }
 
     private void SetupTray()
@@ -128,7 +168,7 @@ public partial class MainWindow : Window
         {
             var exe = Environment.ProcessPath;
             _tray.Icon = exe is not null ? System.Drawing.Icon.ExtractAssociatedIcon(exe) : System.Drawing.SystemIcons.Application;
-            _tray.Text = "Untamed Kingdom Manager";
+            _tray.Text = "Untamed Manager";
             var menu = new Forms.ContextMenuStrip();
             menu.Items.Add("Megnyitás",null,(_,_)=>Dispatcher.Invoke(Restore));
             menu.Items.Add("Frissítések",null,(_,_)=>Dispatcher.Invoke(()=>{Restore();Navigate("license");}));
@@ -136,8 +176,9 @@ public partial class MainWindow : Window
             _tray.ContextMenuStrip = menu;
             _tray.DoubleClick += (_,_)=>Dispatcher.Invoke(Restore);
             _tray.Visible = true;
+            _trayReady = true;
         }
-        catch(Exception ex) { WriteLog("tray",ex); }
+        catch(Exception ex) { _trayReady = false; WriteLog("tray",ex); }
     }
     private void Restore() { Show(); WindowState=WindowState.Normal; Activate(); }
     private void Exit()
@@ -149,7 +190,19 @@ public partial class MainWindow : Window
     }
     private void Window_Closing(object? sender,CancelEventArgs e)
     {
-        if (!_exit) {e.Cancel=true;Hide();}
+        if(_exit)return;
+        if(_trayReady)
+        {
+            e.Cancel=true;
+            Hide();
+            return;
+        }
+        // Never hide the last visible window if the tray icon could not
+        // initialize (or in isolated CI smoke mode without a tray icon).
+        _exit=true;
+        EndClusterUi();
+        _http.Dispose();
+        _tray.Dispose();
     }
     private void Window_Loaded(object sender,RoutedEventArgs e)
     {
@@ -158,6 +211,10 @@ public partial class MainWindow : Window
             Dashboard.ScrollToVerticalOffset(0);
         }), System.Windows.Threading.DispatcherPriority.ContextIdle);
         if(_animationsEnabled) try { AnimateBackground(); } catch(Exception ex) { WriteLog("animation",ex); }
+        // Dismiss only after the actual WPF window has loaded and rendered.
+        Dispatcher.BeginInvoke(new Action(() => {
+            if(System.Windows.Application.Current is App app)app.NotifyMainUiReady(this);
+        }), System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
     private void AnimateBackground()
     {
@@ -183,12 +240,12 @@ public partial class MainWindow : Window
         {
             Directory.CreateDirectory(App.LogDir);
             File.AppendAllText(Path.Combine(App.LogDir,"operations.log"),
-                $"{DateTimeOffset.Now:O} [{area}] {ex}\n");
+                UntamedPresentation.Redact($"{DateTimeOffset.Now:O} [{area}] {ex}\n"));
         }
         catch { }
     }
     private static void Notice(string message) =>
-        WinMessageBox.Show(message,"Untamed Kingdom Manager",MessageBoxButton.OK,MessageBoxImage.Information);
+        WinMessageBox.Show(UntamedPresentation.Redact(message),"Untamed Manager",MessageBoxButton.OK,MessageBoxImage.Information);
 
     private void Navigate_Click(object sender,RoutedEventArgs e)
     {
@@ -198,6 +255,12 @@ public partial class MainWindow : Window
     {
         if (sender is Button button && button.Tag is MapInfo map)
         {
+            if(_demo!=null)
+            {
+                _demoSelectedId=map.Id;
+                Navigate("servers");
+                return;
+            }
             _selected = map;
             Navigate(map.IsRemote ? "cluster" : "servers");
         }
@@ -207,11 +270,12 @@ public partial class MainWindow : Window
         foreach(var element in NavigationMenu.Children)
         {
             if (element is not Button button || button.Tag is not string tag) continue;
-            bool active=tag==page;
-            button.Background=active?new SolidColorBrush(Color.FromRgb(13,91,68)):Brushes.Transparent;
-            button.BorderBrush=active?new SolidColorBrush(Color.FromRgb(108,243,174)):Brushes.Transparent;
-            button.Foreground=active?new SolidColorBrush(Color.FromRgb(208,255,223)):new SolidColorBrush(Color.FromRgb(224,246,238));
-            button.Effect=active?new DropShadowEffect { Color=Color.FromRgb(12,242,158), BlurRadius=13, Opacity=.43, ShadowDepth=0 }:null;
+            NavSelection.SetIsCurrent(button,tag==(page switch {
+                "ini" or "rcon" or "data" or "steam" or "monitoring" or "network"
+                or "discord" or "recovery" or "schedules" or "license" or "readiness"
+                or "extensions" or "setup" or "lan" or "logs" => "operations",
+                _ => page
+            }));
         }
     }
     private void SetAnimations(bool enabled)
@@ -241,12 +305,19 @@ public partial class MainWindow : Window
         UpdateNavSelection(page);
         Dashboard.Visibility=page=="dashboard" ? Visibility.Visible : Visibility.Collapsed;
         OtherPage.Visibility=page=="dashboard" ? Visibility.Collapsed : Visibility.Visible;
-        if (page=="dashboard") { Dashboard.ScrollToTop(); return; }
+        if (page=="dashboard")
+        {
+            if(_demo!=null)RenderDemoDashboard();
+            Dashboard.ScrollToTop();
+            return;
+        }
         PageBody.Children.Clear();
         OtherPage.ScrollToTop();
+        if(_demo!=null){ShowDemoPage(page);return;}
         switch(page)
         {
             case "servers": ShowLocalServerPage(); break;
+            case "operations": ShowOperationsHub(); break;
             case "cluster": ShowClusterPage(); break;
             case "lan": ShowLanSettings(); break;
             case "mods": Mods(); break;
@@ -258,27 +329,84 @@ public partial class MainWindow : Window
             case "rcon": Rcon(); break;
             case "schedules": ShowBackgroundSchedules(); break;
             case "monitoring": ShowMonitoring(); break;
+            case "logs": ShowPremiumLogs(); break;
             case "network": ShowNetworkDiagnostics(); break;
             case "discord": ShowDiscordStatusPage(); break;
             case "recovery": ShowRecoveryCenter(); break;
             case "license": ShowUpdateCenter(); break;
             case "readiness": ShowReleaseReadiness(); break;
+            case "extensions": ShowManagerExtensions(); break;
             case "settings": Settings(); break;
             case "setup": ShowSetupWizard(); break;
         }
     }
+    private void ShowOperationsHub()
+    {
+        Header(_demo==null?"Műveletek":"Műveletek · OFFLINE DEMO",
+            "Üzemeltetés, karbantartás és biztonság egy helyen. Minden művelet a meglévő ellenőrzött backendhez kapcsolódik.");
+
+        // Three true functional workspaces, not one giant list of buttons.
+        Border Area(string title,string eyebrow,string description,(string Name,string Page)[] links)
+        {
+            var linksPanel=new StackPanel {Margin=new Thickness(0,9,0,0)};
+            foreach(var link in links)
+            {
+                var action=Btn(link.Name,()=>Navigate(link.Page));
+                action.HorizontalAlignment=HorizontalAlignment.Stretch;
+                action.HorizontalContentAlignment=HorizontalAlignment.Left;
+                action.Margin=new Thickness(0,0,0,7);
+                linksPanel.Children.Add(action);
+            }
+            return Box(V(
+                Label(eyebrow,10,Aqua,true),
+                Label(title,19,Mint,true),
+                Label(description,12,Soft),
+                linksPanel));
+        }
+        var areas=new Grid {Margin=new Thickness(0,3,0,4)};
+        for(int i=0;i<3;i++)
+            areas.ColumnDefinitions.Add(new ColumnDefinition {
+                Width=new GridLength(1,GridUnitType.Star),MinWidth=245
+            });
+        var monitoring=Area("Üzemeltetés","01 / OBSERVE",
+            "Állapotok, események, watchdog és ütemezett ellenőrzések.",new[]{
+                ("Monitoring és események","monitoring"),("ASA Naplóközpont","logs"),
+                ("Watchdog és helyreállítás","recovery"),("Ütemezések","schedules"),
+                ("Hálózati diagnosztika","network"),("Discord státusz","discord")
+            });
+        var maintenance=Area("Karbantartás","02 / CONTROL",
+            "Csak jogosult, ellenőrzött műveletek; nem automatikus éles szerverindítás.",new[]{
+                ("SteamCMD frissítés","steam"),("INI szerkesztő","ini"),
+                ("RCON konzol","rcon"),("Manager frissítések","license")
+            });
+        var storage=Area("Biztonság és adatok","03 / PROTECT",
+            "Store-v1 kompatibilitás, mentések, LAN és helyi konfiguráció.",new[]{
+                ("Cluster Vault / SQL","data"),("LAN párosítás","lan"),
+                ("Release readiness","readiness"),("Manager-panelek","extensions"),
+                ("Beállítóvarázsló","setup")
+            });
+        Grid.SetColumn(monitoring,0);
+        Grid.SetColumn(maintenance,1);
+        Grid.SetColumn(storage,2);
+        areas.Children.Add(monitoring);
+        areas.Children.Add(maintenance);
+        areas.Children.Add(storage);
+        BindResponsiveOperationsHub(areas);
+        Add(areas);
+    }
+
     private void Header(string title,string description)
     {
         PageTitle.Text=title;PageDescription.Text=description;
     }
     private static TextBlock Label(string text,int size=14,Brush? color=null,bool bold=false) =>
-       new() { Text=text,Foreground=color??Brushes.White,FontSize=size,
-           TextWrapping=TextWrapping.Wrap,FontWeight=bold?FontWeights.Bold:FontWeights.Normal,
-           Margin=new Thickness(0,0,0,10) };
+       new() { Text=UntamedPresentation.Display(text),Foreground=color??Mint,FontSize=size,
+           TextWrapping=TextWrapping.Wrap,FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal,
+           Margin=new Thickness(0,0,0,8) };
     private static Border Box(UIElement child) =>
-       new() { Background=Panel,BorderBrush=new SolidColorBrush(Color.FromRgb(55,97,85)),
-           BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(12),
-           Padding=new Thickness(18),Margin=new Thickness(0,0,0,12),Child=child };
+       new() { Background=Panel,BorderBrush=new SolidColorBrush(Color.FromRgb(53,64,72)),
+           BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(10),
+           Padding=new Thickness(16,14,16,14),Margin=new Thickness(0,0,12,12),Child=child };
     private static StackPanel V(params UIElement[] elements)
     {
         var p=new StackPanel();
@@ -287,13 +415,14 @@ public partial class MainWindow : Window
     }
     private static Button Btn(string text, Action action)
     {
-        var b=new Button { Content=text,Style=(Style)System.Windows.Application.Current.Resources["ActionButton"] };
+        var b=new Button { Content=UntamedPresentation.Display(text),Style=(Style)System.Windows.Application.Current.Resources["ActionButton"] };
         b.Click+=(_,_)=>action();return b;
     }
     private void Add(UIElement e) => PageBody.Children.Add(e);
     private static ListBox List(IEnumerable<string> entries,int height=310) =>
-       new(){ ItemsSource=entries.ToArray(),Height=height,Foreground=Brushes.White,
-             Background=Panel,BorderThickness=new Thickness(0),FontSize=13,
+       new(){ ItemsSource=entries.ToArray(),MaxHeight=height,MinHeight=42,
+             Foreground=Brushes.White,Background=Panel,
+             BorderThickness=new Thickness(0),FontSize=12,
              Padding=new Thickness(8)};
 
     private void Servers()
@@ -325,67 +454,17 @@ public partial class MainWindow : Window
         list.SelectedItem=_selected??_maps.FirstOrDefault();
         Add(grid);
     }
-    private void Mods()
-    {
-        Header("Mod Center","CurseForge-tartalom és maponkénti modhozzárendelések. A jelenlegi nézet történeti auditot mutat.");
-        Add(Box(V(Label("10 map  ·  294 modhozzárendelés",21,Mint,true),
-            Label("A szervereken megfigyelt modok egy része; a teljes élő telepítés még nincs engedélyezve.",12,Soft))));
-        var input=new TextBox{Height=40,Background=Panel,Foreground=Brushes.White,
-            BorderBrush=Aqua,FontSize=15,Padding=new Thickness(10),ToolTip="Modkeresés"};
-        var results=List(_modNames,340);
-        input.TextChanged+=(_,_)=>results.ItemsSource=_modNames.Where(m=>m.Contains(input.Text,StringComparison.OrdinalIgnoreCase)).ToArray();
-        Add(Label("Keresés a leltárban",13,Soft));Add(input);Add(results);
-        Add(Label("CurseForge online telepítés: az ügynök és a telepítő tesztelése után kapcsolható be.",12,Soft));
-        ShowLocalModAssignmentInventory();
-        ShowModStateEditor();
-        ShowBulkModsControls();
-        ShowSteamCmdPreflightControls();
-        ShowAsaInstallationPreflightControls();
-        ShowCurseForgeSearchControls();
-        ShowModUpdateCenter();
-    }
-    private void Plugins()
-    {
-        Header("ASA API / pluginok","A két gazdagépen összegyűjtött pluginnevek. A fájl jelenléte nem bizonyítja a futás közbeni betöltést.");
-        Add(Box(V(Label("ASA API pluginleltár",20,Mint,true),
-            Label("Az auditált pluginrekordok száma 100. Itt a közös pluginfajták láthatók.",12,Soft))));
-        Add(List(_plugins,380));
-        Add(Label("A maponkénti DLL-állapotok végleges kezelése külön agentintegrációt igényel.",12,Soft));
-        ShowLocalPluginInventoryControls();
-        ShowBulkPluginsControls();
-        ShowPluginRollbackControls();
-        ShowAsaApiAndPluginStates();
-        ShowSafeTextEditor(ConfigKind.PluginJson);
-    }
+    private void Mods()=>ShowPremiumMods();
+
+    private void Plugins()=>ShowPremiumPlugins();
+
     private void Ini()
     {
         Header("INI Editor 2.0","SHA-256 ellenőrzés, BOM/sorvégek megőrzése, atomikus mentés és .bak védőmásolat.");
         ShowSafeTextEditor(ConfigKind.GameIni);
     }
-    private void Backups()
-    {
-        Header("Mentések","Helyi, leállított map fájlszintű mentése; Cluster Vault, SQL és éles restore letiltva.");
-        Add(Box(V(Label("Untamed Cluster Vault · védett",19,Mint,true),
-            Label("Csak a kiválasztott helyi map fájljairól készül ellenőrzött másolat. "+
-                  "A közös Cluster Vault és SQL adatait nem módosítjuk.",12,Soft))));
-        if(_cluster.Config.LocalMaps.Count==0)
-        {
-            Add(Label("Nincs kézzel regisztrált helyi map. Előbb a Szerverek nézetben adj hozzá egyet.",13,Soft));
-            return;
-        }
-        ShowMultiMapBackupOverview();
-        var choice=new ComboBox{ItemsSource=_cluster.Config.LocalMaps,DisplayMemberPath="Name",SelectedIndex=0};
-        var pane=new StackPanel();
-        void SelectMap()
-        {
-            pane.Children.Clear();
-            if(choice.SelectedItem is LocalMap map)pane.Children.Add(MapBackupPane(map));
-        }
-        choice.SelectionChanged+=(_,_)=>SelectMap();
-        Add(Box(V(Label("Helyi map kiválasztása",13,Aqua),choice,pane)));
-        SelectMap();
-        ShowRetentionPreviewControls();
-    }
+    private void Backups()=>ShowPremiumBackups();
+
     private void Rcon()
     {
         Header("RCON konzol","A távoli parancsküldés a külön tesztgépen nincs engedélyezve.");
@@ -443,3 +522,4 @@ public partial class MainWindow : Window
         ShowSafeSupportCenter();
     }
 }
+

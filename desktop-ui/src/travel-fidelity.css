@@ -1,0 +1,63 @@
+/* Five-plus-five host Store-v1 acceptance: consistent with matte graphite,
+   not a second dashboard. All source data stays on the operator's devices. */
+.uk-travel-page{min-width:0;}
+.uk-travel-hero{display:flex;align-items:center;gap:17px;margin-bottom:16px;
+  padding:19px 20px;border:1px solid #428b71;border-radius:11px;
+  background:linear-gradient(95deg,#122e2dea,#153d34c9,#102c306f),
+    url('/kingdom-hero.jpg') right center/cover no-repeat;}
+.uk-travel-hero-icon{width:54px;height:54px;flex:0 0 54px;display:grid;place-items:center;
+  background:#1b6950a9;border:1px solid #5fbe92;border-radius:12px;color:#92ffd2;}
+.uk-travel-hero span{color:#89f5c8;font-size:10px;font-weight:850;letter-spacing:.14em;}
+.uk-travel-hero h2{font-size:20px;margin:5px 0 6px;color:#f0fff8;}
+.uk-travel-hero p{font-size:11.5px;color:#bde3d4;line-height:1.55;margin:0;max-width:830px;}
+.uk-travel-grid{display:grid;grid-template-columns:minmax(310px,.94fr) minmax(400px,1.2fr);gap:14px;align-items:start;}
+.uk-travel-inner{padding:16px;min-width:0;}
+.uk-travel-inner>p.muted{font-size:12px;line-height:1.7;margin:0 0 13px;}
+.uk-travel-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;}
+.uk-travel-capture .uk-travel-primary{width:100%;}
+.uk-travel-capture textarea,.uk-travel-snapshot-grid textarea {width:100%;box-sizing:border-box;
+  padding:9px 11px;color:#bdd5cc;background:#091c23;border:1px solid #446965;
+  border-radius:7px;resize:vertical;min-height:56px;font-size:10px;
+  font-family:Consolas,'Cascadia Mono',monospace;line-height:1.55;}
+.uk-travel-capture textarea:focus-visible,.uk-travel-snapshot-grid textarea:focus-visible{
+  outline:2px solid #7af0c0;outline-offset:1px;}
+.uk-travel-capture textarea{margin-top:10px;max-height:190px;}
+.uk-travel-pass,.uk-travel-warning{display:flex;align-items:flex-start;gap:10px;
+  border:1px solid #4f9b76;background:#163c32;color:#b8f4d0;
+  padding:12px;border-radius:8px;margin:13px 0;font-size:12px;line-height:1.55;}
+.uk-travel-warning{background:#443424;border-color:#947442;color:#f5d5aa;}
+.uk-travel-pass>svg,.uk-travel-warning>svg{flex:none;}
+.uk-travel-pass p,.uk-travel-warning p{margin:5px 0 0;}
+.uk-travel-map-results{display:flex;flex-direction:column;gap:0;margin:11px 0;
+  background:#122831;border:1px solid #365c5b;border-radius:9px;overflow:hidden;}
+.uk-travel-map-results>div{display:flex;align-items:center;gap:10px;
+  padding:10px 11px;border-bottom:1px solid #325351;font-size:10.5px;}
+.uk-travel-map-results>div:last-child{border-bottom:0;}
+.uk-travel-map-results>div>span:first-child{display:flex;align-items:center;gap:7px;flex:1;min-width:0;}
+.uk-travel-map-results>div>span:nth-child(2){color:#a5c4b9;}
+.uk-travel-map-results .uk-good{color:#70e7b4;flex:none;}
+.uk-travel-map-results .uk-bad{color:#eabb7b;flex:none;}
+.uk-travel-snapshot-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
+.uk-travel-snapshot-grid label{display:flex;flex-direction:column;gap:5px;min-width:0;
+  background:#1d3337;padding:9px;border:1px solid #3e6760;border-radius:8px;}
+.uk-travel-snapshot-grid label strong{font-size:11px;color:#ddf8e9;}
+.uk-travel-snapshot-grid label small{font-size:10px;color:#abcfc3;}
+.uk-travel-snapshot-grid label>span{color:#d8b684;font-size:10px;}
+.uk-travel-snapshot-grid label>span.is-validated{color:#8feac2;}
+.uk-travel-targets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:14px 0;}
+.uk-travel-targets label{display:flex;flex-direction:column;gap:6px;font-size:11px;
+  font-weight:750;color:#b0d2c7;}
+.uk-travel-targets label:last-child{grid-column:1/-1;}
+.uk-travel-targets select{width:100%;min-height:41px;padding:9px;color:#e8f5ed;
+  border:1px solid #486b63;border-radius:8px;background:#172c33;font-size:11px;}
+.uk-travel-targets select option{background:#172c33;}
+.uk-travel-lock{display:flex;align-items:flex-start;gap:12px;
+  border:1px solid #987248;border-radius:9px;background:#433324;
+  padding:14px 16px;margin:15px 0;color:#f0ce9c;line-height:1.6;font-size:11.5px;}
+.uk-travel-lock svg{flex:none;}
+@media(max-width:1150px){.uk-travel-grid{grid-template-columns:1fr;}}
+@media(max-width:690px){
+  .uk-travel-snapshot-grid{grid-template-columns:1fr;}
+  .uk-travel-targets{grid-template-columns:1fr;}
+  .uk-travel-targets label:last-child{grid-column:auto;}
+}
