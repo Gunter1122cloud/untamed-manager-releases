@@ -542,6 +542,14 @@ try
         IsOk(status,"local ASA process can be reobserved without starting it");
         Check(!status.GetProperty("data").GetProperty("readyCertified").GetBoolean(),
             "process observation never implies game-client readiness");
+        var earlyReadiness=await Call(starter.HandleAsync,
+            "servers.freshReadiness",new{mapId=fresh.Id});
+        Check(IsError(earlyReadiness,"UM-FRESH-READINESS-NOT-RUNNING"),
+            "ASA RCON readiness requires a real OS-verified local server process");
+        var foreignReadiness=await Call(starter.HandleAsync,
+            "servers.freshReadiness",new{mapId=Guid.NewGuid()});
+        Check(IsError(foreignReadiness,"UM-MAP-NOT-OWNED"),
+            "unregistered map cannot query native ASA/RCON readiness");
     }
 
     // Actual SteamCMD entry point uses Core's stopped-map update and per-host
