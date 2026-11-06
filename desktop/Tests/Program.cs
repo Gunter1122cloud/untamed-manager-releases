@@ -712,6 +712,34 @@ try
             "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
         Check(IsError(protectedMap,"UM-ASA-STOP-FAILED")&&sends==1,
             "historical Store protection blocks all new graceful Stop operations");
+
+        // A Manager crash after real Start/Stop mutation leaves a durable
+        // operator-review journal. Native/UI observation must not clear it.
+        var journalBridge=new DesktopAsaLifecycleJournalBridge(lab);
+        var beforeJournal=await Call(journalBridge.HandleAsync,
+            "servers.lifecycleJournal",new{mapId=stopLabMap.Id});
+        IsOk(beforeJournal,"native lifecycle journal can be observed read-only");
+        Check(!beforeJournal.GetProperty("data")
+                  .GetProperty("needsOperatorReview").GetBoolean(),
+            "completed graceful stop has no pending operator review");
+        using(var lease=lab.Operations.Acquire(stopRoot,UntamedOperationKind.Launch))
+        {
+            lease.MarkMutationStarted();
+        }
+        var interrupted=await Call(journalBridge.HandleAsync,
+            "servers.lifecycleJournal",new{mapId=stopLabMap.Id});
+        IsOk(interrupted,"interrupted native ASA lifecycle survives manager UI restart");
+        Check(interrupted.GetProperty("data")
+                  .GetProperty("needsOperatorReview").GetBoolean() &&
+              interrupted.GetProperty("data").GetProperty("phase")
+                  .GetString()=="NeedsOperator" &&
+              !interrupted.GetProperty("data")
+                  .GetProperty("autoResumeAllowed").GetBoolean(),
+            "interrupted ASA operation is visible but never auto-resumed");
+        var unknownJournal=await Call(journalBridge.HandleAsync,
+            "servers.lifecycleJournal",new{mapId=Guid.NewGuid()});
+        Check(IsError(unknownJournal,"UM-MAP-NOT-OWNED"),
+            "foreign map cannot query native operation journal");
     }
 
     // Native cross-map Mod Center inventory: real Core parser, read-only
