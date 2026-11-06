@@ -406,6 +406,25 @@ test.beforeEach(async ({ page }) => {
             createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
             readyCertified:false,requiresRconReadiness:true,storeTouched:false,
             evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"};
+        case "servers.restartPreview": return {
+          token:"00000000-0000-4000-8000-000000009666",
+          mapId:m.mapId,mapName:"The Island",currentPid:44117,
+          saveWorldBeforeExit:true,verifiesOldProcessExit:true,
+          autoRetry:false,killPerformed:false,storeTouched:false,
+          evidence:"REAL_LOCAL_NONSTORE_RESTART_PREVIEW_NO_WRITES"
+        };
+        case "servers.restartApply":
+          if(!m.confirm)throw new Error("Approval required");
+          return {jobId:"00000000-0000-4000-8000-000000009777",
+            started:true,autoRetry:false,killPerformed:false,
+            storeTouched:false,evidence:"REAL_LOCAL_ASA_RESTART_JOB_QUEUED"};
+        case "servers.restartStatus": return {
+          jobId:"00000000-0000-4000-8000-000000009777",
+          state:"completed",stage:"New Windows process started; readiness unverified",
+          oldPid:44117,newPid:44118,changedUtc:"2026-11-06T11:30:00Z",
+          saveCompleteProven:false,readinessCertified:false,
+          killPerformed:false,storeTouched:false,autoRetry:false
+        };
         case "servers.gracefulStopPreview": return {
           token:"00000000-0000-4000-8000-000000009444",
           mapId:m.mapId,mapName:"The Island",pid:44117,
@@ -1271,4 +1290,22 @@ test("interrupted lifecycle journal disables fresh ASA Start and Stop in map Ove
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
+});
+
+test("real ASA manual Restart waits for approval and reports old and new PIDs",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
+  await page.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"ASA újraindítás jóváhagyása"})).toBeVisible();
+  const start=page.getByRole("button",{name:"Szerver újraindítása",exact:true});
+  await expect(start).toBeDisabled();
+  await page.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(page.locator(".success-inline").filter({hasText:"44117 → 44118"}))
+    .toBeVisible({timeout:12000});
+  await expect(page.getByText(/nem végez kényszerített Kill-t/)).toBeVisible();
+  await expect(page.getByRole("region",{name:"ASA újraindítás jóváhagyása"})).toHaveCount(0);
 });
