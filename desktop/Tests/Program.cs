@@ -1307,6 +1307,19 @@ try
               chatLog.GetProperty("data").GetProperty("response")
                   .GetString()=="Synthetic chat message",
             "GetChat reads chat without arbitrary browser command dispatch");
+        var rconPendingJournal=new AsaManualRestartJournal(fakeMap.InstallationPath);
+        var pendingRconRestart=rconPendingJournal.Begin(fakeMap.Id,identity.Pid);
+        var noSecondSave=await Call(rcon.HandleAsync,"rcon.saveWorld",
+            new{mapId=fakeMap.Id,confirm=true});
+        Check(IsError(noSecondSave,"UM-RCON-READONLY-UNAVAILABLE")&&
+              dispatched==4,
+            "pending manual Restart blocks standalone SaveWorld before any RCON bytes");
+        var diagnosticDuringRestart=await Call(rcon.HandleAsync,
+            "rcon.chatLog",new{mapId=fakeMap.Id});
+        Check(diagnosticDuringRestart.GetProperty("ok").GetBoolean()&&
+              dispatched==5,
+            "read-only GetChat remains available for operator diagnostics during restart");
+        rconPendingJournal.Change(pendingRconRestart.Id,AsaRestartPhase.NeedsOperator);
     }
 
     // Two independent 5-map hosts; never use UK-HOME-01/02 or the live
