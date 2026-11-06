@@ -133,7 +133,9 @@ export function ClusterMapGallery({snapshot,query,onSelect,onImport,onInstall}:P
         </button>
       </div>}
     </div>}
-    {all.length===0&&!query&&<div className="uk-gallery-catalog">
+    {/* Keep uninstalled cluster maps selectable after the first local map
+        has been registered. Remote-only filtering never offers local writes. */}
+    {catalog.length>0&&!query.trim()&&state==="all"&&host!=="remote"&&<div className="uk-gallery-catalog">
       <div className="uk-gallery-catalog-heading">
         <span><Grid2X2 size={17}/> AZ UNTAMED KINGDOM 10 MAPJA</span>
         <small>Választék · nem regisztrált szerverállapot</small>
