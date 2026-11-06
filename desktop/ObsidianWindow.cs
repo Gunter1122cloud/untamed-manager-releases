@@ -289,7 +289,8 @@ public sealed class ObsidianWindow : Form
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";
-                        apiCoreRoute = name is "api.coreRelease" or "api.corePreview" or "api.coreApply";
+                        apiCoreRoute = name is "api.coreRelease" or "api.corePreview" or "api.coreApply" or
+                            "api.coreRollbackCandidates" or "api.coreRollbackPreview" or "api.coreRollbackApply";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
