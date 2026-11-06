@@ -630,10 +630,10 @@ try
         string arkFile=Path.Combine(localWorld,"TheIsland_WP.ark");
         string charFile=Path.Combine(localWorld,"76561198000000001.arkprofile");
         string tribeFile=Path.Combine(localWorld,"4411.arktribe");
-        byte[] oldWorld=Encoding.UTF8.GetBytes("SYNTHETIC WORLD V1");
-        byte[] oldChar=Encoding.UTF8.GetBytes("SYNTHETIC PROFILE V1");
-        File.WriteAllBytes(arkFile,oldWorld);
-        File.WriteAllBytes(charFile,oldChar);
+        byte[] worldBeforeBackup=Encoding.UTF8.GetBytes("SYNTHETIC WORLD V1");
+        byte[] survivorBeforeBackup=Encoding.UTF8.GetBytes("SYNTHETIC PROFILE V1");
+        File.WriteAllBytes(arkFile,worldBeforeBackup);
+        File.WriteAllBytes(charFile,survivorBeforeBackup);
         File.WriteAllText(tribeFile,"TEST TRIBE");
         string localProfile=Path.Combine(root,"world-backup-ci-profile");
         bool stopped=true;
@@ -685,8 +685,8 @@ try
         Check(saved.GetProperty("data").GetProperty("backupVerified").GetBoolean() &&
               saved.GetProperty("data").GetProperty("characters").GetInt32()==1 &&
               saved.GetProperty("data").GetProperty("tribes").GetInt32()==1 &&
-              File.ReadAllBytes(arkFile).SequenceEqual(oldWorld) &&
-              File.ReadAllBytes(charFile).SequenceEqual(oldChar),
+              File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup) &&
+              File.ReadAllBytes(charFile).SequenceEqual(survivorBeforeBackup),
             "actual save package includes world/profile/tribe and leaves source bytes unchanged");
         var replay=await Call(worldBridge.HandleAsync,"backup.create",
             new{token=ticket,confirm=true});
@@ -694,7 +694,7 @@ try
             "backup creation token cannot replay");
         var pointProof=KovaCompatibleWorldBackup.Verify(localMap,localProfile,point);
         Check(pointProof.Files==3 &&
-              pointProof.Bytes==oldWorld.Length+oldChar.Length+"TEST TRIBE".Length,
+              pointProof.Bytes==worldBeforeBackup.Length+survivorBeforeBackup.Length+"TEST TRIBE".Length,
             "saved manifest contents are cryptographically re-verified from disk");
         File.WriteAllBytes(arkFile,Encoding.UTF8.GetBytes("SYNTHETIC WORLD V2"));
         File.WriteAllBytes(charFile,Encoding.UTF8.GetBytes("SYNTHETIC PROFILE V2"));
@@ -718,8 +718,8 @@ try
         restored=await Call(worldBridge.HandleAsync,"backup.restore",
             new{token=restoreToken,mapName="The Island",confirm=true});
         IsOk(restored,"real map world restore finishes with protective backup");
-        Check(File.ReadAllBytes(arkFile).SequenceEqual(oldWorld) &&
-              File.ReadAllBytes(charFile).SequenceEqual(oldChar) &&
+        Check(File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup) &&
+              File.ReadAllBytes(charFile).SequenceEqual(survivorBeforeBackup) &&
               restored.GetProperty("data").GetProperty("oldWorldRetained").GetBoolean(),
             "restored world/profile exact bytes match and preceding world remains preserved");
         string protective=restored.GetProperty("data").GetProperty("protectiveBackup").GetString()!;
