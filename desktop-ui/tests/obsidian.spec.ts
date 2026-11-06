@@ -50,6 +50,41 @@ test.beforeEach(async ({ page }) => {
     const iniToken="00000000-0000-4000-8000-000000003333";
     const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string }) => {
       switch (m.method) {
+        case "travel.capture": {
+          const names=["Astraeos","Genesis Part 1","Valguero","The Island","Extinction"];
+          const list=names.map((name,i)=>({
+            mapId:i===3?one:"00000000-0000-4000-8000-00000000001"+i,
+            name,confirmedStopped:true,saveDirectoryFound:true,
+            ambiguousLayout:false,profiles:i===3?1:0,tribes:0,
+            zeroByteDetected:false,unstable:false,
+            files:i===3?[{id:"a".repeat(64),kind:"profile",bytes:1240,
+              sha256:"b".repeat(64)}]:[]
+          }));
+          return {
+            hostId:"00000000-0000-4000-8000-000000008881",
+            snapshot:JSON.stringify({
+              schema:1,hostId:"00000000-0000-4000-8000-000000008881",
+              utc:"2026-11-06T07:00:00Z",
+              nonce:"00000000000040008000000000008889",maps:list
+            }),
+            maps:list.map(x=>({
+              mapId:x.mapId,mapName:x.name,confirmedStopped:true,
+              saveDirectoryFound:true,ambiguousLayout:false,
+              profileCount:x.profiles,tribeCount:x.tribes,
+              zeroByteDetected:false,unstable:false,
+              profileFiles:x.files.filter(y=>y.kind==="profile").map(y=>({id:y.id,bytes:y.bytes}))
+            })),
+            complete:true,readOnly:true,writerCertified:false,
+            evidence:"LOCAL_QUIESCENT_FILE_HASH_SNAPSHOT_ONLY"
+          };
+        }
+        case "travel.compare": return {
+          passed:true,maps:10,hosts:2,beforeOnSource:true,
+          afterOnTarget:true,uniqueDestination:true,zeroByteFiles:0,
+          findings:[],liveStoreWriterCertified:false,asaSaveCompleteCertified:false,
+          productionUnlockAllowed:false,
+          evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"
+        };
         case "rcon.status": return {
           mapId:m.mapId,mapName:"The Island",configured:false,
           processVerified:true,permitted:false,maintenance:false,
@@ -294,6 +329,18 @@ test.beforeEach(async ({ page }) => {
       }}
     });
   }, { one: first, two: second });
+});
+
+test("two-host character travel workbench captures exactly five local maps without unlocking Store",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Karakterutazás teszt"}).click();
+  await expect(page.getByRole("heading",{name:"Karakterutazás tesztközpont"})).toBeVisible();
+  await page.getByRole("button",{name:"Helyi 5 map ellenőrzése"}).click();
+  await expect(page.getByText("Az öt helyi map leltára teljes és nyugalomban készült.")).toBeVisible();
+  await expect(page.locator(".uk-travel-map-results>div")).toHaveCount(5);
+  await expect(page.getByRole("textbox",{name:"Helyi mentéslenyomat JSON"})).not.toBeEmpty();
+  await expect(page.getByText(/nem oldja fel a védett mapok indítási zárolását/)).toBeVisible();
+  await page.screenshot({path:"test-results/untamed-store-travel-workbench-1600.png",fullPage:false});
 });
 
 test("Update Center checks official metadata without exposing installer mutation",async({page})=>{
