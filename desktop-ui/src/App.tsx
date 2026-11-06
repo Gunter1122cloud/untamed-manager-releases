@@ -32,6 +32,7 @@ import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { LocalModCopyPanel } from "./LocalModCopyPanel";
 import { OfflineAsaArchivePanel } from "./OfflineAsaArchivePanel";
+import { OfflineAsaRestorePanel } from "./OfflineAsaRestorePanel";
 import { PluginJsonEditor } from "./PluginJsonEditor";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
@@ -930,6 +931,7 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
     </div>
     <WorldBackupControls maps={snapshot.local.maps} selectedMap={mapId}/>
     <OfflineAsaArchivePanel/>
+    <OfflineAsaRestorePanel/>
     <div className="premium-backup-metrics">
       <div><span className="premium-backup-icon"><Archive size={24}/></span>
         <b>{scope.length}</b><span>Map</span><small>Mentésleltárban</small></div>
