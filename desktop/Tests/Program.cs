@@ -1837,6 +1837,26 @@ try
             "zero-byte local arkprofile prevents corrupt backup publication");
         File.Delete(Path.Combine(localWorld,"broken.arkprofile"));
         localMap.Arguments="-usestore";
+        // Unlike non-Store saves, .arkprofile and .arktribe may be stale or
+        // zero-byte loose leftovers after official ASA -usestore conversion.
+        // Their bytes must be preserved, never automatically repaired/deleted.
+        string zeroLegacy=Path.Combine(localWorld,"converted-empty.arkprofile");
+        File.WriteAllBytes(zeroLegacy,Array.Empty<byte>());
+        var storePoint=KovaCompatibleWorldBackup.Create(localMap,localProfile,
+            ()=>new ProcessCheck(false,"synthetic stopped Store",null,true));
+        var storeVerified=KovaCompatibleWorldBackup.Verify(localMap,localProfile,storePoint.Id);
+        Check(storeVerified.Files==4 && storeVerified.Characters==2 &&
+              File.Exists(zeroLegacy)&&new FileInfo(zeroLegacy).Length==0,
+            "stopped Store-v1 backup preserves zero-byte historical loose profiles byte-for-byte");
+        File.Delete(zeroLegacy);
+        byte[] validWorld=File.ReadAllBytes(arkFile);
+        File.WriteAllBytes(arkFile,Array.Empty<byte>());
+        bool emptyWorldDenied=false;
+        try{KovaCompatibleWorldBackup.Create(localMap,localProfile,
+            ()=>new ProcessCheck(false,"synthetic stopped Store",null,true));}
+        catch(InvalidDataException){emptyWorldDenied=true;}
+        Check(emptyWorldDenied,"zero-byte .ark world hard-blocks even Store-v1 backup publication");
+        File.WriteAllBytes(arkFile,validWorld);
         var unsafeRestore=await Call(worldBridge.HandleAsync,"backup.restorePreview",
             new{mapId=localMap.Id,point});
         Check(IsError(unsafeRestore,"UM-BACKUP-STORE-V1-RESTORE-LOCKED"),
