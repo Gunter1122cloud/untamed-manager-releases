@@ -872,6 +872,50 @@ try
         Check(IsError(historicalRestart,"UM-ASA-RESTART-FAILED"),
             "historical Store provenance denies manual Restart");
         stopLabMap.HistoricalMapKey="";
+        var durableStatus=await Call(restartBridge.HandleAsync,
+            "servers.restartCurrent",new{mapId=stopLabMap.Id});
+        IsOk(durableStatus,"completed manual ASA Restart is readable after UI reload");
+        Check(durableStatus.GetProperty("data").GetProperty("exists").GetBoolean() &&
+              !durableStatus.GetProperty("data")
+                  .GetProperty("needsOperatorReview").GetBoolean(),
+            "completed restart is not falsely considered interrupted");
+        var manualJournal=new AsaManualRestartJournal(stopRoot);
+        var crash=manualJournal.Begin(stopLabMap.Id,44117);
+        Check(crash.Phase==AsaRestartPhase.Stopping,
+            "new restart writes durable journal before sending RCON");
+        manualJournal.DemandAuthorizedStop(crash.Id);
+        bool refusedUnapprovedStart=false;
+        try{manualJournal.DemandAuthorizedStart(null);}
+        catch(InvalidOperationException){refusedUnapprovedStart=true;}
+        Check(refusedUnapprovedStart,
+            "interrupted Stop phase never permits an unrelated ASA Start");
+        manualJournal.Change(crash.Id,AsaRestartPhase.Starting);
+        manualJournal.DemandAuthorizedStart(crash.Id);
+        bool refusedUnapprovedStop=false;
+        try{manualJournal.DemandAuthorizedStop(null);}
+        catch(InvalidOperationException){refusedUnapprovedStop=true;}
+        Check(refusedUnapprovedStop,
+            "Starting phase disallows unrelated local ASA Stop");
+        manualJournal.Change(crash.Id,AsaRestartPhase.NeedsOperator);
+        var interruptedRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartCurrent",new{mapId=stopLabMap.Id});
+        IsOk(interruptedRestart,
+            "interrupted Restart journal survives Manager/UI restart");
+        Check(interruptedRestart.GetProperty("data")
+                  .GetProperty("needsOperatorReview").GetBoolean() &&
+              interruptedRestart.GetProperty("data").GetProperty("phase")
+                  .GetString()=="NeedsOperator" &&
+              !interruptedRestart.GetProperty("data")
+                  .GetProperty("autoResumeAllowed").GetBoolean(),
+            "durable journal refuses automatic restart replay");
+        var blockedRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(blockedRestart,"UM-ASA-RESTART-FAILED"),
+            "unresolved historical Restart prevents another approved job");
+        var foreignRestartJournal=await Call(restartBridge.HandleAsync,
+            "servers.restartCurrent",new{mapId=Guid.NewGuid()});
+        Check(IsError(foreignRestartJournal,"UM-MAP-NOT-OWNED"),
+            "remote maps cannot inspect local Restart journal");
 
         // A Manager crash after real Start/Stop mutation leaves a durable
         // operator-review journal. Native/UI observation must not clear it.
