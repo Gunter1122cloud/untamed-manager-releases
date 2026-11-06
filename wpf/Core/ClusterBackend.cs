@@ -677,6 +677,8 @@ public sealed class ClusterService : IAsyncDisposable
         if(!string.Equals(Path.GetFullPath(map.ExecutablePath),server,
             StringComparison.OrdinalIgnoreCase) || !File.Exists(server))
             throw new InvalidDataException("Expected native ASA executable not found");
+        if(!AsaReadyProbe.IsRegisteredServerBinary(map))
+            throw new InvalidDataException("ASA binary path must be a local fixed drive without symlinks");
         var build=AsaSteamBuildCatalog.InstalledBuild(root);
         if(string.IsNullOrWhiteSpace(build))
             throw new InvalidDataException("Official SteamCMD ASA build manifest is missing");
