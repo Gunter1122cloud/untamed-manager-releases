@@ -63,6 +63,9 @@ public sealed class ManagerConfig
     public string LocalHostName { get; set; } = Environment.MachineName;
     public int ListenPort { get; set; } = 0; // Opt-in; 0 disables LAN listener.
     public string PeerAddress { get; set; } = ""; // IPv4/host, configured explicitly by user.
+    // Mandatory durable identity pin; an IP address or shared secret alone is not a peer identity.
+    // Existing profiles fail closed until the operator explicitly pairs the second host.
+    public string ExpectedPeerHostId { get; set; } = "";
     public int PeerPort { get; set; }
     public string PairingKeyProtected { get; set; } = "";
     // Approved CurseForge key: stored only as Windows-user DPAPI ciphertext.
@@ -329,14 +332,28 @@ public sealed class PeerStatusListener : IAsyncDisposable
     private readonly Func<HostStatus> _status;
     private readonly byte[] _key;
     private readonly CancellationTokenSource _cts=new();
+    private readonly IPAddress? _expectedRemoteIp;
+    private int _activeRequests;
+    private const int MaximumConcurrentRequests=4;
     private readonly Dictionary<string,long> _seen = new();
     private readonly object _lock=new();
     private Task? _loop;
     private int _disposed;
-    public PeerStatusListener(int port, string sharedSecret, Func<HostStatus> getStatus)
+    public PeerStatusListener(int port, string sharedSecret, Func<HostStatus> getStatus,
+        string? expectedRemoteAddress=null)
     {
         if (port is < 1024 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         if (sharedSecret.Length < 24) throw new ArgumentException("Pairing secret must be at least 24 characters");
+        // Reject other LAN hosts before parsing even an authenticated request.
+        // Listening on an explicit local interface / Windows firewall scope is
+        // additionally recommended in production.
+        if(!string.IsNullOrWhiteSpace(expectedRemoteAddress))
+        {
+            if(!IPAddress.TryParse(expectedRemoteAddress,out var remote) ||
+               remote.AddressFamily!=AddressFamily.InterNetwork)
+                throw new InvalidDataException("Expected LAN peer must have a literal IPv4 address");
+            _expectedRemoteIp=remote;
+        }
         _listener=new TcpListener(IPAddress.Any,port);
         _key=SHA256.HashData(Encoding.UTF8.GetBytes(sharedSecret));
         _status=getStatus;
@@ -348,7 +365,26 @@ public sealed class PeerStatusListener : IAsyncDisposable
         {
             try {
                 var socket=await _listener.AcceptTcpClientAsync(_cts.Token);
-                _=Task.Run(async()=> { using(socket) try {await Handle(socket);}catch{} },_cts.Token);
+                // No arbitrary host can reserve the scarce request slots.
+                if(_expectedRemoteIp!=null &&
+                   (socket.Client.RemoteEndPoint is not IPEndPoint source ||
+                    !source.Address.Equals(_expectedRemoteIp)))
+                {
+                    socket.Dispose();
+                    continue;
+                }
+                if(Interlocked.Increment(ref _activeRequests)>MaximumConcurrentRequests)
+                {
+                    Interlocked.Decrement(ref _activeRequests);
+                    socket.Dispose();
+                    continue;
+                }
+                _=Task.Run(async()=>
+                {
+                    try { using(socket) await Handle(socket); }
+                    catch(Exception) { /* Untrusted LAN inputs never escape the listener. */ }
+                    finally { Interlocked.Decrement(ref _activeRequests); }
+                });
             }
             catch (OperationCanceledException) {break;}
             catch (SocketException) when (_cts.IsCancellationRequested) {break;}
@@ -357,8 +393,12 @@ public sealed class PeerStatusListener : IAsyncDisposable
     private async Task Handle(TcpClient socket)
     {
         socket.ReceiveTimeout=4000;socket.SendTimeout=4000;
+        // TCP ReceiveTimeout does not bound asynchronous ReadExactlyAsync:
+        // a malicious slow sender must not pin a request indefinitely.
+        using var deadline=CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
         using var stream=socket.GetStream();
-        var frame=JsonSerializer.Deserialize<WireEnvelope>(await Framing.Read(stream,_cts.Token))
+        var frame=JsonSerializer.Deserialize<WireEnvelope>(await Framing.Read(stream,deadline.Token))
             ?? throw new InvalidDataException("Missing frame");
         if (!Verify(frame)) return;
         byte[] request=Convert.FromBase64String(frame.PayloadBase64);
@@ -368,7 +408,7 @@ public sealed class PeerStatusListener : IAsyncDisposable
         byte[] payload=JsonSerializer.SerializeToUtf8Bytes(_status());
         await Framing.Write(stream,
             JsonSerializer.SerializeToUtf8Bytes(Sign(StatusCipher.Encrypt(_key,payload),frame.Nonce)),
-            _cts.Token);
+            deadline.Token);
     }
     private WireEnvelope Sign(byte[] payload, string requestNonce)
     {
@@ -389,7 +429,7 @@ public sealed class PeerStatusListener : IAsyncDisposable
         if(!CryptographicOperations.FixedTimeEquals(expected,claimed))return false;
         lock(_lock) {
             foreach(var expired in _seen.Where(x=>x.Value<now-60).Select(x=>x.Key).ToArray())_seen.Remove(expired);
-            if (_seen.ContainsKey(f.Nonce))return false;
+            if (_seen.ContainsKey(f.Nonce) || _seen.Count>=4096)return false;
             _seen[f.Nonce]=now;
         }
         return true;
@@ -446,8 +486,21 @@ public static class PeerStatusClient
             $"{response.UnixSeconds}\n{response.Nonce}\n{response.PayloadBase64}"));
         if (!CryptographicOperations.FixedTimeEquals(digest,Convert.FromHexString(response.SignatureHex)))
             throw new InvalidDataException("LAN response signature mismatch");
-        return JsonSerializer.Deserialize<HostStatus>(StatusCipher.Decrypt(key, Convert.FromBase64String(response.PayloadBase64)))
+        var status=JsonSerializer.Deserialize<HostStatus>(
+            StatusCipher.Decrypt(key,Convert.FromBase64String(response.PayloadBase64)))
             ?? throw new InvalidDataException("Invalid status response");
+        // Frame size alone does not validate an authenticated peer's data schema.
+        if(!Guid.TryParse(status.HostId,out var remoteId) || remoteId==Guid.Empty ||
+           string.IsNullOrWhiteSpace(status.HostName) || status.HostName.Length>128 ||
+           status.Maps==null || status.Maps.Count>25 ||
+           status.Maps.Any(m=>m==null || !Guid.TryParse(m.Id,out var id) ||
+               id==Guid.Empty || string.IsNullOrWhiteSpace(m.Name) ||
+               m.Name.Length>160 || m.Status==null || m.Status.Length>512 ||
+               m.GamePort is <0 or >65535) ||
+           status.Maps.Select(m=>m.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+               !=status.Maps.Count)
+            throw new InvalidDataException("LAN status schema invalid");
+        return status;
     }
 }
 public sealed class ClusterService : IAsyncDisposable
@@ -509,6 +562,7 @@ public sealed class ClusterService : IAsyncDisposable
         Config.ListenPort=staged.ListenPort;
         Config.PeerAddress=staged.PeerAddress;
         Config.PeerPort=staged.PeerPort;
+        Config.ExpectedPeerHostId=staged.ExpectedPeerHostId;
         Config.PairingKeyProtected=staged.PairingKeyProtected;
         Config.CurseForgeApiKeyProtected=staged.CurseForgeApiKeyProtected;
         Config.DiscordWebhookProtected=staged.DiscordWebhookProtected;
@@ -806,7 +860,11 @@ public sealed class ClusterService : IAsyncDisposable
         if(Config.ListenPort==0)return;
         string key=SecureStore.Unprotect(Config.PairingKeyProtected);
         if(key.Length<24)throw new InvalidOperationException("Configure shared pairing key first");
-        _listener=new PeerStatusListener(Config.ListenPort,key,LocalStatus);
+        if(string.IsNullOrWhiteSpace(Config.PeerAddress) ||
+           !Guid.TryParse(Config.ExpectedPeerHostId,out var expectedId) ||
+           expectedId==Guid.Empty || Config.ExpectedPeerHostId==Config.LocalHostId)
+            throw new InvalidOperationException("LAN requires an explicitly pinned second host");
+        _listener=new PeerStatusListener(Config.ListenPort,key,LocalStatus,Config.PeerAddress);
         _listener.Start();
         await Task.CompletedTask;
     }
@@ -815,10 +873,16 @@ public sealed class ClusterService : IAsyncDisposable
         if(string.IsNullOrWhiteSpace(Config.PeerAddress)||Config.PeerPort==0){
             RemoteMessage="Peer nincs beállítva";RemoteSnapshot=null;return null;}
         try {
+            if(!Guid.TryParse(Config.ExpectedPeerHostId,out var expectedId) ||
+               expectedId==Guid.Empty ||
+               !Guid.TryParse(Config.LocalHostId,out var localId) ||
+               expectedId==localId)
+                throw new InvalidDataException("LAN peer identity is not pinned");
             var snapshot=await PeerStatusClient.Query(Config.PeerAddress,Config.PeerPort,
                 SecureStore.Unprotect(Config.PairingKeyProtected),ct);
-            if(snapshot.HostId==Config.LocalHostId)
-                throw new InvalidDataException("Peer host ID equals local host ID");
+            if(!Guid.TryParse(snapshot.HostId,out var returnedId) ||
+               returnedId!=expectedId)
+                throw new InvalidDataException("LAN peer HostId does not match the pinned device");
             if(!StatusFreshness.IsFresh(snapshot.ObservedUtc,DateTimeOffset.UtcNow))throw new InvalidDataException("Peer measurement is stale");
             RemoteSnapshot=snapshot;_remoteReachable=true;RemoteMessage="LAN kapcsolat működik";return snapshot;
         }
