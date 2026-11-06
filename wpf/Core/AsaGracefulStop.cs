@@ -30,7 +30,8 @@ public static class AsaGracefulStop
         ClusterService cluster,Guid mapId,ProcessIdentity expected,
         TimeSpan timeout,CancellationToken cancellationToken=default,
         Func<LocalMap,ProcessIdentity,CancellationToken,Task>? sendCommands=null,
-        Func<int,int,bool>? listenerOwner=null)
+        Func<int,int,bool>? listenerOwner=null,
+        Guid? approvedRestartId=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(expected);
@@ -49,6 +50,8 @@ public static class AsaGracefulStop
            string.IsNullOrWhiteSpace(map.RconPasswordProtected))
             throw new InvalidDataException("Local RCON is required for graceful stop");
         FreshAsaInstallationSafety.Demand(cluster,map);
+        var restartJournal=new AsaManualRestartJournal(map.InstallationPath);
+        restartJournal.DemandAuthorizedStop(approvedRestartId);
         var owns=listenerOwner??RconPortOwnership.IsOwnedListener;
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
@@ -71,6 +74,7 @@ public static class AsaGracefulStop
         using var lease=cluster.Operations.Acquire(map.InstallationPath,
             UntamedOperationKind.Launch);
         FreshAsaInstallationSafety.Demand(cluster,map);
+        restartJournal.DemandAuthorizedStop(approvedRestartId);
         if(!AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidOperationException("UM-ASA-STOP-LOCAL-BINARY-CHANGED");
         Verify();
