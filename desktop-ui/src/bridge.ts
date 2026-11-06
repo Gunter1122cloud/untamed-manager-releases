@@ -237,7 +237,7 @@ export type RconConfigReceipt = {
 };
 export type RconStatus = {
   mapId:string;mapName:string;configured:boolean;processVerified:boolean;
-  permitted:boolean;maintenance:boolean;allowedCommands:["ListPlayers","SaveWorld"];
+  permitted:boolean;maintenance:boolean;allowedCommands:["ListPlayers","GetGameLog","GetChat","SaveWorld"];
   evidence:"LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND";
 };
 export type RconAdminPreview = {
@@ -256,6 +256,11 @@ export type RconWorldSave = {
   rconAcknowledged:true;diskSaveCompletionProven:false;
   worldFilesTouchedByManager:false;
   evidence:"REAL_FIXED_RCON_SAVEWORLD_ACK_NOT_DISK_COMPLETION";
+};
+export type RconReadLog = {
+  mapId:string;mapName:string;command:"GetGameLog"|"GetChat";
+  response:string;observedUtc:string;readOnly:true;
+  saveCompleteProven:false;evidence:"LOCAL_VERIFIED_READ_ONLY_RCON";
 };
 export type RconPlayers = {
   mapId:string;mapName:string;response:string;observedUtc:string;
@@ -508,7 +513,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" |
-  "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.saveWorld" | "rcon.adminPreview" | "rcon.adminSend" |
+  "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
   "travel.capture" | "travel.compare";
@@ -610,6 +615,8 @@ export const managerBridge = {
     request<RconConfigReceipt>("rcon.configApply",{token,confirm:true}),
   rconStatus: (mapId:string) => request<RconStatus>("rcon.status",{mapId}),
   rconListPlayers: (mapId:string) => request<RconPlayers>("rcon.listPlayers",{mapId}),
+  rconGameLog: (mapId:string) => request<RconReadLog>("rcon.gameLog",{mapId}),
+  rconChatLog: (mapId:string) => request<RconReadLog>("rcon.chatLog",{mapId}),
   rconSaveWorld: (mapId:string) => request<RconWorldSave>("rcon.saveWorld",{mapId,confirm:true}),
   rconAdminPreview: (mapId:string,action:string,message:string) =>
     request<RconAdminPreview>("rcon.adminPreview",{mapId,action,message}),
