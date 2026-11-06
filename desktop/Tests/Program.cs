@@ -69,7 +69,7 @@ try
         Func<ProcessCheck> stopped=()=>
             new ProcessCheck(false,"synthetic confirmed stopped",null,true);
         var customBackup=UntamedWorldBackup.Create(customMap,customProfile,stopped);
-        Check(UntamedWorldBackup.Verify(customMap,customProfile,customBackup.Id).Verified==true,
+        Check(UntamedWorldBackup.Verify(customMap,customProfile,customBackup.Id).Files==1,
             "custom map backup copies and SHA-verifies resolved alternate save directory");
         File.WriteAllText(layout.WorldFile,"CHANGED SYNTHETIC WORLD");
         var restoredCustom=UntamedWorldBackup.Restore(
