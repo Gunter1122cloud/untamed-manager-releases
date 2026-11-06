@@ -48,7 +48,8 @@ public sealed class DesktopRconReadOnlyBridge
                 return Deny(null,"UM-RCON-INVALID-MESSAGE");
             id=parsed.ToString("D");
             string? method=methodValue.GetString();
-            if(method is not ("rcon.status" or "rcon.listPlayers" or "rcon.saveWorld"))
+            if(method is not ("rcon.status" or "rcon.listPlayers" or "rcon.saveWorld" or
+                "rcon.gameLog" or "rcon.chatLog"))
                 return Deny(id,"UM-METHOD-DENIED");
             if(!root.TryGetProperty("mapId",out var mapValue) ||
                mapValue.ValueKind!=JsonValueKind.String ||
@@ -73,7 +74,7 @@ public sealed class DesktopRconReadOnlyBridge
                     return Ok(id,new {
                         mapId=map.Id,mapName=map.Name,configured,processVerified=observed,
                         permitted=safe,maintenance=map.Maintenance,
-                        allowedCommands=new[]{"ListPlayers","SaveWorld"},
+                        allowedCommands=new[]{"ListPlayers","GetGameLog","GetChat","SaveWorld"},
                         evidence="LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND"
                     });
                 if(!safe)return Deny(id,"UM-RCON-READONLY-PREFLIGHT-DENIED");
@@ -92,7 +93,12 @@ public sealed class DesktopRconReadOnlyBridge
                 using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(9));
                 // The command string is server-owned and fixed. It is never
                 // read from the untrusted WebView request.
-                string command=method=="rcon.saveWorld"?"SaveWorld":"ListPlayers";
+                string command=method switch {
+                    "rcon.saveWorld"=>"SaveWorld",
+                    "rcon.gameLog"=>"GetGameLog",
+                    "rcon.chatLog"=>"GetChat",
+                    _=>"ListPlayers"
+                };
                 string answer=await send("127.0.0.1",map.RconPort,password,command,timeout.Token);
                 var after=cluster.Check(map);
                 if(!after.Running || after.Identity==null ||
@@ -111,10 +117,10 @@ public sealed class DesktopRconReadOnlyBridge
                         evidence="REAL_FIXED_RCON_SAVEWORLD_ACK_NOT_DISK_COMPLETION"
                     });
                 return Ok(id,new {
-                    mapId=map.Id,mapName=map.Name,response=sanitized,
+                    mapId=map.Id,mapName=map.Name,command,response=sanitized,
                     observedUtc=DateTimeOffset.UtcNow,readOnly=true,
                     saveCompleteProven=false,
-                    evidence="LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS"
+                    evidence="LOCAL_VERIFIED_READ_ONLY_RCON"
                 });
             }
             finally{serial.Release();}
