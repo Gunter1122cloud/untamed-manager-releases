@@ -135,6 +135,19 @@ export type RconPlayers = {
   evidence:"LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS";
 };
 
+export type UpdatePrepared = {
+  token:string;version:string;tag:string;assetName:string;
+  sha256:string;fileBytes:number;verified:true;
+  requiresFinalApproval:true;updaterPackaged:true;
+  automaticInstallationStarted:false;
+  evidence:"OBSIDIAN_INSTALLER_SHA256_STAGED_ONLY";
+};
+export type UpdateInstallReceipt = {
+  externalUpdaterStarted:true;needsManagerExit:true;
+  processId:number;tag:string;serverProcessesTouched:false;
+  evidence:"EXTERNAL_ROLLBACK_UPDATER_HANDOFF";
+};
+
 export type UpdateStatus = {
   repository:string; runningVersion:string; installedTag:string;
   provider:"GITHUB_RELEASES";updateCheckPerformed:false;
@@ -337,7 +350,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" |
-  "updates.status" | "updates.check" | "rcon.status" | "rcon.listPlayers" |
+  "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.status" | "rcon.listPlayers" |
   "travel.capture" | "travel.compare";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
@@ -393,6 +406,8 @@ export const managerBridge = {
     beforeA:string;beforeB:string;afterA:string;afterB:string;
     sourceMap:string;destinationMap:string;profileId:string
   }) => request<TravelComparison>("travel.compare",p),
+  updatePrepare: (channel:"stable"|"preview") => request<UpdatePrepared>("updates.prepare",{channel,confirm:true}),
+  updateInstall: (token:string) => request<UpdateInstallReceipt>("updates.install",{token,confirm:true}),
   updateStatus: () => request<UpdateStatus>("updates.status"),
   rconStatus: (mapId:string) => request<RconStatus>("rcon.status",{mapId}),
   rconListPlayers: (mapId:string) => request<RconPlayers>("rcon.listPlayers",{mapId}),
