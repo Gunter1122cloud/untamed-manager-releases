@@ -28,6 +28,7 @@ import { FreshAsaStopPanel } from "./FreshAsaStopPanel";
 import { FreshAsaRestartPanel } from "./FreshAsaRestartPanel";
 import type { AsaLifecycleJournal, AsaRestartJournalStatus } from "./bridge";
 import { PluginZipInstaller } from "./PluginZipInstaller";
+import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
@@ -865,6 +866,7 @@ function PluginCenter({ snapshot, selected, setSelected }: {
       {notice && <div role="status" className="warning-inline"><AlertTriangle size={17}/>{notice}</div>}
     </Panel>
     </div>
+    <AsaApiCoreInstaller mapId={selected} onInstalled={()=>setRevision(n=>n+1)}/>
     <PluginZipInstaller mapId={selected} onInstalled={()=>setRevision(n=>n+1)}/>
   </div>;
 }
