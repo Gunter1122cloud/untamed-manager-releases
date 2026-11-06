@@ -128,7 +128,7 @@ export function ClusterMapGallery({snapshot,query,onSelect,onImport,onInstall}:P
         <button type="button" className="secondary" onClick={onImport}>
           <Plus size={16}/> Meglévő ASA átvétele
         </button>
-        <button type="button" className="primary" onClick={onInstall}>
+        <button type="button" className="primary" onClick={()=>onInstall()}>
           <Plus size={16}/> ASA telepítése
         </button>
       </div>}
