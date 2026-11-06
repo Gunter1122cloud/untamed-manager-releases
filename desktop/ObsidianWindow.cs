@@ -69,6 +69,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopRconReadOnlyBridge _rcon;
     private readonly DesktopRconAdminBridge _rconAdmin;
     private readonly DesktopRconConfigurationBridge _rconConfig;
+    private readonly DesktopStoppedSteamUpdateBridge _steamUpdate;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly DesktopWorldBackupBridge _worldBackup;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
@@ -92,6 +93,7 @@ public sealed class ObsidianWindow : Form
         _rcon = new DesktopRconReadOnlyBridge(_bridge.LocalCluster);
         _rconAdmin = new DesktopRconAdminBridge(_bridge.LocalCluster);
         _rconConfig = new DesktopRconConfigurationBridge(_bridge.LocalCluster);
+        _steamUpdate = new DesktopStoppedSteamUpdateBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
@@ -136,6 +138,7 @@ public sealed class ObsidianWindow : Form
             _browser.Dispose();
             _historicalStore.Dispose();
             _rconConfig.Dispose();
+            _steamUpdate.Dispose();
             _initialMapSetup.Dispose();
             _freshInstall.Dispose();
             _modCatalog.Dispose();
@@ -215,6 +218,7 @@ public sealed class ObsidianWindow : Form
                 bool rconConfigRoute = false;
                 bool travelRoute = false;
                 bool worldBackupRoute = false;
+                bool stoppedSteamRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -231,6 +235,7 @@ public sealed class ObsidianWindow : Form
                         rconRoute = name is "rcon.status" or "rcon.listPlayers" or "rcon.saveWorld";
                         rconAdminRoute = name is "rcon.adminPreview" or "rcon.adminSend";
                         rconConfigRoute = name is "rcon.configStatus" or "rcon.configPreview" or "rcon.configApply";
+                        stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or "steam.stoppedStatus";
                         travelRoute = name is "travel.capture" or "travel.compare";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore";
@@ -262,7 +267,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = rconConfigRoute ? await _rconConfig.HandleAsync(incoming)
+                    string response = stoppedSteamRoute ? await _steamUpdate.HandleAsync(incoming)
+                        : rconConfigRoute ? await _rconConfig.HandleAsync(incoming)
                         : rconAdminRoute ? await _rconAdmin.HandleAsync(incoming)
                         : worldBackupRoute ? await _worldBackup.HandleAsync(incoming)
                         : updateInstallRoute ? await _updateInstall.HandleAsync(incoming)
