@@ -1482,8 +1482,9 @@ try
               !savedWorld.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal),
             "SaveWorld ignores arbitrary command injection, redacts secrets and never fakes SaveComplete");
         var rconWatch=savedWorld.GetProperty("data");
+        Guid watchId=Guid.Empty;
         Check(rconWatch.GetProperty("nativeWitnessAvailable").GetBoolean() &&
-              Guid.TryParse(rconWatch.GetProperty("watchId").GetString(),out var watchId) &&
+              Guid.TryParse(rconWatch.GetProperty("watchId").GetString(),out watchId) &&
               watchId!=Guid.Empty,
             "owned SaveWorld dispatch establishes a private new-log witness boundary");
         var pendingLog=await Call(rcon.HandleAsync,"rcon.saveStatus",new{
