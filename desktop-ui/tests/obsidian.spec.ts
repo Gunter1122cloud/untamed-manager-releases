@@ -66,6 +66,7 @@ test.beforeEach(async ({ page }) => {
         localBackupMap=two;localBackupSaved=true;
       };
     let lanListen=0,lanPeer="",lanPeerPort=0,lanConfigured=false;
+    let lanExpectedId="";
     let lanApproval="";
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
@@ -402,19 +403,23 @@ test.beforeEach(async ({ page }) => {
             liveWriterCertified:false,characterTravelVerified:false,
             statusCode:"STORE_PEER_NOT_FRESH"
           },
-          hostName:state.local.hostName,listenPort:lanListen,
-          peerAddress:lanPeer,peerPort:lanPeerPort,
+          hostName:state.local.hostName,
+          localHostId:"00000000-0000-4000-8000-000000000001",
+          expectedPeerHostId:lanExpectedId,
+          listenPort:lanListen,peerAddress:lanPeer,peerPort:lanPeerPort,
           pairingKeyConfigured:lanConfigured,remoteFresh:false,
           remoteState:"Nem érhető el friss, hitelesített peer-állapot",
           secretReturned:false,peerWritesAllowed:false,
           evidence:"DPAPI_LOCAL_LAN_SETTINGS_READ_ONLY"
         };
         case "lan.preview":
-          if(m.peerAddress!=="192.168.1.200" || (m.pairingKey||"").length<24)
+          if(m.peerAddress!=="192.168.1.200" || (m.pairingKey||"").length<24 ||
+             !m.expectedPeerHostId)
             throw new Error("UM-LAN-INVALID-PRIVATE-PEER");
           lanApproval="00000000-0000-4000-8000-000000000955";
           return {token:lanApproval,listenPort:m.listenPort,
             peerAddress:m.peerAddress,peerPort:m.peerPort,
+            expectedPeerHostId:m.expectedPeerHostId,
             pairingKeyWillChange:true,requiresManagerRestart:true,
             remoteWritesAllowed:false,
             evidence:"LOCAL_LAN_PAIRING_PREFLIGHT_NO_NETWORK_OR_FILE_WRITE"};
@@ -423,9 +428,11 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-LAN-EXPLICIT-APPROVAL-REQUIRED");
           lanApproval="";
           lanListen=39290;lanPeer="192.168.1.200";lanPeerPort=39291;
+          lanExpectedId="00000000-0000-4000-8000-000000000002";
           lanConfigured=true;
           return {saved:true,listenPort:lanListen,
             peerAddress:lanPeer,peerPort:lanPeerPort,
+            expectedPeerHostId:lanExpectedId,
             requiresManagerRestart:true,secretReturned:false,
             remoteWritesAllowed:false,
             evidence:"ATOMIC_LOCAL_LAN_PAIRING_DPAPI_PROFILE_ONLY"};
@@ -730,6 +737,7 @@ test("two-host LAN pairing is guarded, native-only, private and never exposes ke
   await expect(page.getByText(/Közös kulcs: nincs beállítva/)).toBeVisible();
   await page.getByRole("textbox",{name:"Helyi LAN port"}).fill("39290");
   await page.getByRole("textbox",{name:"Másik LAN cím"}).fill("192.168.1.200");
+  await page.getByRole("textbox",{name:"Elvárt távoli Host ID"}).fill("00000000-0000-4000-8000-000000000002");
   await page.getByRole("textbox",{name:"Távoli LAN port"}).fill("39291");
   await page.getByLabel("LAN közös kulcs").fill("SYNTHETIC-ONLY-LAN-SHARED-KEY-36");
   await page.getByRole("button",{name:"LAN beállítások ellenőrzése"}).click();
