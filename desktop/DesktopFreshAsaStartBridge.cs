@@ -68,7 +68,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
             return false;
         if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             return false;
-        if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map))return false;
+        if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
+           !AsaRconConfigurationEvidence.Matches(map))return false;
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
         if(!AsaLocalPortPreflight.CanStart(map))return false;
         AsaApiLaunchPolicy.Resolve(map);
