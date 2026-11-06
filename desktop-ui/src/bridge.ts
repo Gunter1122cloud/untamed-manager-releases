@@ -1,4 +1,20 @@
 /* Explicit allowlisted Windows host contract; only guarded native methods may mutate local Manager configuration. */
+export type LanStatus = {
+  hostName:string; listenPort:number; peerAddress:string; peerPort:number;
+  pairingKeyConfigured:boolean; remoteFresh:boolean; remoteState:string;
+  secretReturned:false; peerWritesAllowed:false; evidence:string;
+};
+export type LanPreview = {
+  token:string;listenPort:number;peerAddress:string;peerPort:number;
+  pairingKeyWillChange:boolean;requiresManagerRestart:true;remoteWritesAllowed:false;
+  evidence:string;
+};
+export type LanSaved = {
+  saved:true;listenPort:number;peerAddress:string;peerPort:number;
+  requiresManagerRestart:true;secretReturned:false;remoteWritesAllowed:false;
+  evidence:string;
+};
+
 export type OperationsMap = {
   mapId:string; mapName:string; running:boolean; confirmedStopped:boolean;
   status:string; pid:number|null; startedUtc:string|null; uptimeSeconds:number|null;
@@ -517,7 +533,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "operations.snapshot" | "operations.map" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
+type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "operations.snapshot" | "operations.map" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
@@ -536,6 +552,7 @@ type WireRequest = { id: string; method: "operations.snapshot" | "operations.map
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
   "travel.capture" | "travel.compare";
+  listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
   token?: string; file?: IniFile; content?: string;
@@ -586,6 +603,10 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
 }
 
 export const managerBridge = {
+  lanStatus: () => request<LanStatus>("lan.status"),
+  lanPreview: (listenPort:number,peerAddress:string,peerPort:number,pairingKey:string) =>
+    request<LanPreview>("lan.preview",{listenPort,peerAddress,peerPort,pairingKey}),
+  lanApply: (token:string) => request<LanSaved>("lan.apply",{token,confirm:true}),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
   operationsMap: (mapId:string) => request<OperationsSnapshot>("operations.map",{mapId}),
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
