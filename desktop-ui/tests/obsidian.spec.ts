@@ -377,7 +377,7 @@ test.beforeEach(async ({ page }) => {
         };
         case "servers.freshStartApply":
           if(!m.confirm)throw new Error("approval required");
-          return {mapId:second,mapName:"Astraeos",pid:45678,
+          return {mapId:two,mapName:"Astraeos",pid:45678,
             createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
             readyCertified:false,requiresRconReadiness:true,storeTouched:false,
             evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"};
