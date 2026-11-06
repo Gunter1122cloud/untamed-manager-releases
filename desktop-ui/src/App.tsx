@@ -862,12 +862,13 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
     .sort((a,b)=>new Date(b.latestVerifiedUtc!).getTime()-
       new Date(a.latestVerifiedUtc!).getTime())[0], [scope]);
   return <div className="premium-backup-page">
-    <WorldBackupControls maps={snapshot.local.maps} selectedMap={mapId}/>
     <div className="page-intro"><span className="eyebrow">BACKUP / FILE INTEGRITY</span>
       <h1>Mentésközpont</h1>
-      <p>Helyi, ellenőrzött mentéscsomagok leltára. Az ASA SaveComplete,
-        a karakterátvitel és a SQL-tranzakciók igazolása ettől külön történik.</p>
+      <p>Valódi, ellenőrzött világ-, karakter- és törzsmentés az adott map leállítása
+        után; külön védőmentéssel és az eredeti világ megőrzésével történő
+        visszaállítás. Az éles Store-v1/SQL konzisztencia ettől külön igazolandó.</p>
     </div>
+    <WorldBackupControls maps={snapshot.local.maps} selectedMap={mapId}/>
     <div className="premium-backup-metrics">
       <div><span className="premium-backup-icon"><Archive size={24}/></span>
         <b>{scope.length}</b><span>Map</span><small>Mentésleltárban</small></div>
@@ -929,7 +930,7 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
           <div className="premium-backup-fact"><span>Mentésállományok</span>
             <strong>{totals.valid+totals.invalid} csomag</strong></div>
           <div className="premium-backup-fact"><span>Visszaállítás</span>
-            <strong>Nem engedélyezett</strong></div>
+            <strong>Leállított, nem Store-v1 mapon · védőmentéssel</strong></div>
           <div className="premium-backup-caution"><AlertTriangle size={18}/>
             <span>Az ellenőrzött fájlméret és hash <b>nem bizonyítja</b> az ASA
               SaveComplete, Store-v1 karakterutazás vagy a MariaDB alkalmazásszintű
