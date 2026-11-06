@@ -759,6 +759,27 @@ try
         Check(IsError(unsafeRestore,"UM-BACKUP-STORE-V1-RESTORE-LOCKED"),
             "live Store-v1 character map cannot be rolled back unilaterally");
         localMap.Arguments="";
+        localMap.HistoricalMapKey="TheIsland_WP";
+        unsafeRestore=await Call(worldBridge.HandleAsync,"backup.restorePreview",
+            new{mapId=localMap.Id,point});
+        Check(IsError(unsafeRestore,"UM-BACKUP-STORE-V1-RESTORE-LOCKED"),
+            "historically imported map cannot evade Store-v1 guard with blank launch arguments");
+        localMap.HistoricalMapKey="";
+        localMap.StoreTestRoot=Path.Combine(root,"historical-store-sandbox");
+        unsafeRestore=await Call(worldBridge.HandleAsync,"backup.restorePreview",
+            new{mapId=localMap.Id,point});
+        Check(IsError(unsafeRestore,"UM-BACKUP-STORE-V1-RESTORE-LOCKED"),
+            "configured Store root prevents unilateral world restore");
+        localMap.StoreTestRoot="";
+        localMap.LastProcess=new ProcessIdentity{
+            Pid=999999,StartedUtc=DateTimeOffset.UtcNow.AddHours(-1),
+            ExecutablePath=localMap.ExecutablePath,Arguments="-usestore"
+        };
+        unsafeRestore=await Call(worldBridge.HandleAsync,"backup.restorePreview",
+            new{mapId=localMap.Id,point});
+        Check(IsError(unsafeRestore,"UM-BACKUP-STORE-V1-RESTORE-LOCKED"),
+            "last observed Store-v1 launch remains protected even if current config was stripped");
+        localMap.LastProcess=null;
         File.WriteAllText(Path.Combine(localWorld,"TheIsland_WP.ark"),"TAMPERED");
         // The archived original is unaffected by source changes.
         Check(KovaCompatibleWorldBackup.Verify(localMap,localProfile,point).Files==3,
