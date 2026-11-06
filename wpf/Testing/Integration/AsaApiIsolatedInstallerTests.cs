@@ -145,6 +145,36 @@ public static class AsaApiIsolatedInstallerTests
                   File.ReadAllText(Path.Combine(transaction,"previous","AsaApiLoader.exe"))==
                     "SYNTHETIC OLD LOADER",
                 "old API binaries protected in durable transaction without copying world or game EXE");
+            // A completed transaction supports a separately approved, byte-
+            // verified rollback; never roll back operator changes over the top.
+            string newApi=Path.Combine(binary,"ArkApi","AsaApi.dll");
+            File.WriteAllText(newApi,"AN OPERATOR HAS MODIFIED THE CORE");
+            Check(Refused(()=>AsaApiOwnedInstaller.RollbackCompletedOwnedStopped(
+                host,owned.Id,receipt.TransactionId,true)),
+                "changed installed CORE DLL blocks rollback before touching other files");
+            Check(File.ReadAllText(oldLoader)!="SYNTHETIC OLD LOADER" &&
+                File.ReadAllText(originalConfig)=="{\\"UserSettings\\":\\"PRESERVED\\"}",
+                "refused rollback neither replaces installed loader nor edits config");
+            File.WriteAllBytes(newApi,pe);
+            Check(Refused(()=>AsaApiOwnedInstaller.RollbackCompletedOwnedStopped(
+                host,owned.Id,receipt.TransactionId,false)),
+                "rollback requires fresh explicit operator approval");
+            var restored=AsaApiOwnedInstaller.RollbackCompletedOwnedStopped(
+                host,owned.Id,receipt.TransactionId,true);
+            Check(restored.ByteVerified&&!restored.Restarted&&
+                restored.FilesRestored==1&&restored.FilesRemoved==3&&
+                File.ReadAllText(oldLoader)=="SYNTHETIC OLD LOADER"&&
+                !File.Exists(newApi)&&
+                !File.Exists(Path.Combine(binary,"libcrypto-3-x64.dll"))&&
+                !File.Exists(Path.Combine(binary,"libssl-3-x64.dll")),
+                "explicit completed CORE rollback restores exact original loader and removes only new binaries");
+            Check(File.Exists(Path.Combine(transaction,"rolled-back"))&&
+                File.ReadAllText(originalConfig)=="{\\"UserSettings\\":\\"PRESERVED\\"}"&&
+                File.ReadAllText(playerDb)=="ORIGINAL PLAYER PLUGIN STATE",
+                "durable rollback receipt and untouched player plugins survive");
+            Check(Refused(()=>AsaApiOwnedInstaller.RollbackCompletedOwnedStopped(
+                host,owned.Id,receipt.TransactionId,true)),
+                "rollback transaction cannot be replayed");
             owned.HistoricalStoreProtected=true;
             Check(Refused(()=>AsaApiOwnedInstaller.ApplyOwnedStopped(
                     host,owned.Id,archive,release,asset,true)),
