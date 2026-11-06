@@ -19,11 +19,14 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
 {
     private sealed record Approval(Guid Token,Guid MapId,string Root,
         string AssetName,string Tag,string Sha256,DateTimeOffset Until);
+    private sealed record RollbackApproval(Guid Token,Guid MapId,string Root,
+        string TransactionId,DateTimeOffset Until);
     private readonly ClusterService cluster;
     private readonly HttpClient http;
     private readonly bool ownsClient;
     private readonly SemaphoreSlim serial=new(1,1);
     private Approval? pending;
+    private RollbackApproval? pendingRollback;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopAsaApiCoreBridge(ClusterService cluster,HttpClient? client=null)
@@ -71,7 +74,8 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                 return Err(null,"UM-API-CORE-INVALID-MESSAGE");
             id=guid.ToString("D");
             var method=action.GetString();
-            if(method is not ("api.coreRelease" or "api.corePreview" or "api.coreApply"))
+            if(method is not ("api.coreRelease" or "api.corePreview" or "api.coreApply" or
+                "api.coreRollbackCandidates" or "api.coreRollbackPreview" or "api.coreRollbackApply"))
                 return Err(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
@@ -92,7 +96,7 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                 }
                 if(method=="api.corePreview")
                 {
-                    pending=null;
+                    pending=null;pendingRollback=null;
                     if(!obj.TryGetProperty("mapId",out var m)||
                        m.ValueKind!=JsonValueKind.String ||
                        !Guid.TryParse(m.GetString(),out var mapId)||
@@ -120,6 +124,75 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                         createsSelectiveRollback=true,
                         restartsServer=false,runtimeLoadCertified=false,
                         evidence="VERIFIED_UPSTREAM_RELEASE_PREFLIGHT_NO_WRITE"
+                    });
+                }
+                if(method=="api.coreRollbackCandidates")
+                {
+                    if(!obj.TryGetProperty("mapId",out var mapArg)||
+                       mapArg.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(mapArg.GetString(),out var mapId))
+                        return Err(id,"UM-API-CORE-ROLLBACK-SELECTION");
+                    var local=Local(mapId);
+                    if(local==null||!Eligible(local))
+                        return Err(id,"UM-API-CORE-ROLLBACK-NOT-STOPPED");
+                    var candidates=AsaApiOwnedInstaller.ListCompletedRollbacks(cluster,mapId);
+                    return Ok(id,new{candidates,restartsServer=false,
+                        evidence="COMMITTED_OWNED_API_CORE_TRANSACTIONS_ONLY"});
+                }
+                if(method=="api.coreRollbackPreview")
+                {
+                    pending=null;pendingRollback=null;
+                    if(!obj.TryGetProperty("mapId",out var mapArg)||
+                       mapArg.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(mapArg.GetString(),out var mapId)||
+                       !obj.TryGetProperty("transactionId",out var txArg)||
+                       txArg.ValueKind!=JsonValueKind.String||
+                       txArg.GetString() is not string transactionId||
+                       transactionId.Length!=32)
+                        return Err(id,"UM-API-CORE-ROLLBACK-SELECTION");
+                    var local=Local(mapId);
+                    if(local==null||!Eligible(local))
+                        return Err(id,"UM-API-CORE-ROLLBACK-NOT-STOPPED");
+                    var candidate=AsaApiOwnedInstaller.ListCompletedRollbacks(cluster,mapId)
+                        .SingleOrDefault(x=>x.TransactionId==transactionId);
+                    if(candidate==null)return Err(id,"UM-API-CORE-ROLLBACK-NOT-COMMITTED");
+                    pendingRollback=new RollbackApproval(Guid.NewGuid(),mapId,
+                        local.InstallationPath,transactionId,
+                        DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new {
+                        token=pendingRollback.Token,mapId,mapName=local.Name,
+                        transactionId,releaseTag=candidate.ReleaseTag,
+                        binaries=candidate.Binaries,
+                        approved=false,doesNotRestart=true,
+                        evidence="STOPPED_OWNED_COMMITTED_ROLLBACK_REQUIRES_BYTE_REVALIDATION"
+                    });
+                }
+                if(method=="api.coreRollbackApply")
+                {
+                    if(!obj.TryGetProperty("token",out var t)||
+                       t.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(t.GetString(),out var token)||
+                       !obj.TryGetProperty("confirm",out var yes)||
+                       yes.ValueKind!=JsonValueKind.True||
+                       pendingRollback==null||pendingRollback.Token!=token)
+                        return Err(id,"UM-API-CORE-ROLLBACK-APPROVAL");
+                    var selected=pendingRollback;pendingRollback=null;
+                    if(selected.Until<DateTimeOffset.UtcNow)
+                        return Err(id,"UM-API-CORE-ROLLBACK-PREVIEW-EXPIRED");
+                    var local=Local(selected.MapId);
+                    if(local==null||local.InstallationPath!=selected.Root||!Eligible(local))
+                        return Err(id,"UM-API-CORE-ROLLBACK-OWNERSHIP-CHANGED");
+                    if(!AsaApiOwnedInstaller.ListCompletedRollbacks(cluster,local.Id)
+                        .Any(x=>x.TransactionId==selected.TransactionId))
+                        return Err(id,"UM-API-CORE-ROLLBACK-TRANSACTION-CHANGED");
+                    var result=await Task.Run(()=>
+                        AsaApiOwnedInstaller.RollbackCompletedOwnedStopped(
+                            cluster,local.Id,selected.TransactionId,true));
+                    return Ok(id,new {
+                        mapId=result.MapId,transactionId=result.TransactionId,
+                        filesRestored=result.FilesRestored,filesRemoved=result.FilesRemoved,
+                        bytesVerified=result.ByteVerified,
+                        serverRestarted=result.Restarted,evidence=result.Evidence
                     });
                 }
                 if(!obj.TryGetProperty("token",out var t)||
