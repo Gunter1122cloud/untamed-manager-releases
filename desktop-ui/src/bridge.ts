@@ -425,7 +425,8 @@ export type HistoricalLaunchEvidence = {
   modOrderStatus: "MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT"|"LEGACY_SYNTAX";
   passiveModOrderStatus:"MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT";
   clusterIdPresent:boolean; clusterIdStatus:"MATCH"|"MISMATCH"|"UNKNOWN"|"CONFLICT"; clusterPathPresent:boolean; clusterPathVerified:false;
-  useStorePresent:boolean; conversionFlagPresent:boolean;
+  useStorePresent:boolean; storeFlagCount:number; conversionFlagPresent:boolean;
+  canonicalSourceFlagsObserved:boolean;
   findings:string[]; sourceAuthenticated:false;
   fullLaunchArgumentsVerified:false; peerWriterVerified:false;
   productionUseAllowed:false; serverStartAllowed:false;
