@@ -51,6 +51,32 @@ public static class RconProtocol
         return new(DateTimeOffset.UtcNow,false);
     }
 
+    // The UI's separately approved Broadcast/ServerChat/custom administrator
+    // command uses this ONLY after a native process-bound approval. Recheck
+    // the exact local RCON listener AFTER successful RCON authentication and
+    // BEFORE sending the command. The result proves one TCP dispatch, not
+    // execution or a complete RCON response. No implicit retries.
+    internal static Task<string> DispatchApprovedAdminAsync(
+        string host,int port,string password,string command,
+        Action authorizeAfterAuthentication,CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(authorizeAfterAuthentication);
+        if(host!="127.0.0.1"||string.IsNullOrWhiteSpace(command)||
+           command.Length>240||command.Any(char.IsControl)||command.Contains(';'))
+            throw new InvalidDataException("UM-ADMIN-RCON-UNSAFE-DISPATCH");
+        string token=command.Split(' ',2,StringSplitOptions.RemoveEmptyEntries)[0];
+        if(token.Equals("SaveWorld",StringComparison.OrdinalIgnoreCase)||
+           token.Equals("DoExit",StringComparison.OrdinalIgnoreCase)||
+           token.Equals("Quit",StringComparison.OrdinalIgnoreCase)||
+           token.Equals("Restart",StringComparison.OrdinalIgnoreCase)||
+           token.Equals("Exit",StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("UM-ADMIN-RCON-LIFECYCLE-SEPARATE");
+        return ExecuteCore("127.0.0.1",port,password,command,false,ct,
+            adminDispatch:true,
+            authorizeAfterAuthentication:authorizeAfterAuthentication,
+            dispatchOnly:true);
+    }
+
     // SaveWorld for the lifecycle path: bind the request to an OS-verified
     // local listener *after* RCON authentication, before dispatching bytes.
     internal static async Task DispatchOwnedSaveWorldAsync(int port,string password,
@@ -75,7 +101,8 @@ public static class RconProtocol
 
     private static async Task<string> ExecuteCore(string host,int port,string password,
         string command,bool allowSaveWorld,CancellationToken cancellationToken,
-        bool adminDispatch=false,Action? authorizeAfterAuthentication=null)
+        bool adminDispatch=false,Action? authorizeAfterAuthentication=null,
+        bool dispatchOnly=false)
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         if (string.IsNullOrEmpty(password)) throw new InvalidOperationException("Missing RCON password");
@@ -116,6 +143,11 @@ public static class RconProtocol
         // TCP flush proves only dispatch to the local socket; the server may not
         // have executed SaveWorld. Never use this result to authorize DoExit.
         if(allowSaveWorld)return "SAVEWORLD_DISPATCHED_NOT_COMPLETED";
+        // Mutating admin commands often return no RCON response. Waiting for
+        // a read-only completion barrier would report a false failure after
+        // the irreversible action already reached ASA. Never claim executed.
+        if(adminDispatch && dispatchOnly)
+            return "ADMIN_RCON_DISPATCHED_EXECUTION_NOT_VERIFIED";
         // The ASA process can close its RCON socket immediately after DoExit.
         // A successful flush proves dispatch, not durable game data. The
         // lifecycle caller verifies process exit separately.
