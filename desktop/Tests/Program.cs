@@ -596,6 +596,88 @@ try
         finally{File.Delete(journalPath);}
     }
 
+    // Graceful RCON SaveWorld/DoExit native bridge: the real Core is tested
+    // with a fake local process/transport and NO network or ASA server.
+    {
+        string stopRoot=Path.Combine(root,"graceful-asa-stop-lab");
+        string binaryDir=Path.Combine(stopRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(binaryDir);
+        string exe=Path.Combine(binaryDir,"ArkAscendedServer.exe");
+        File.WriteAllBytes(exe,new byte[]{0x4d,0x5a,0x90,0x00});
+        var map=new LocalMap {
+            Name="New lab map",InstallationPath=stopRoot,ExecutablePath=exe,
+            Arguments="TheIsland_WP?listen -port=7798 -QueryPort=27048",
+            GamePort=7798,QueryPort=27048,RconPort=37556,
+            RconHost="127.0.0.1",
+            RconPasswordProtected=SecureStore.Protect("SYNTHETIC-LOCAL-STOP-CREDENTIAL")
+        };
+        var identity=new ProcessIdentity {
+            Pid=44117,StartedUtc=DateTimeOffset.UtcNow,
+            ExecutablePath=exe,Arguments=map.Arguments
+        };
+        bool running=true;
+        await using var lab=new ClusterService("graceful-asa-native-test",
+            Path.Combine(root,"graceful-asa-native-profile"),
+            _=>running?
+                new ProcessCheck(true,"synthetic owned local ASA",identity):
+                new ProcessCheck(false,"synthetic stopped",null,true));
+        lab.AddMap(map);
+        int sends=0;
+        bool Owner(int port,int pid)=>port==37556&&pid==44117;
+        using var stopBridge=new DesktopFreshAsaStopBridge(lab,Owner,
+            async(id,expected)=>{
+                var receipt=await AsaGracefulStop.StopAsync(lab,id,expected,
+                    TimeSpan.FromSeconds(6),
+                    sendCommands:(m,p,ct)=>{
+                        sends++;
+                        Check(m.Id==map.Id&&p.Pid==identity.Pid,
+                            "graceful Stop writes only to exact approved process");
+                        running=false;
+                        return Task.CompletedTask;
+                    },listenerOwner:Owner);
+                return receipt;
+            });
+        var unknown=await Call(stopBridge.HandleAsync,"servers.gracefulStopPreview",
+            new{mapId=Guid.NewGuid()});
+        Check(IsError(unknown,"UM-MAP-NOT-OWNED")&&sends==0,
+            "unknown/remote map cannot stop local ASA");
+        var preview=await Call(stopBridge.HandleAsync,"servers.gracefulStopPreview",
+            new{mapId=map.Id});
+        IsOk(preview,"native graceful Stop verifies owned PID and local RCON port");
+        string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var noApproval=await Call(stopBridge.HandleAsync,"servers.gracefulStopApply",
+            new{token,confirm=false});
+        Check(IsError(noApproval,"UM-ASA-STOP-APPROVAL")&&sends==0,
+            "graceful Stop requires explicit operator confirmation");
+        var started=await Call(stopBridge.HandleAsync,"servers.gracefulStopApply",
+            new{token,confirm=true});
+        IsOk(started,"graceful Stop begins without blocking WebView2");
+        string job=started.GetProperty("data").GetProperty("jobId").GetString()!;
+        var replay=await Call(stopBridge.HandleAsync,"servers.gracefulStopApply",
+            new{token,confirm=true});
+        Check(!replay.GetProperty("ok").GetBoolean(),
+            "DoExit approval cannot be replayed");
+        JsonElement result=default;
+        for(int i=0;i<65;i++){
+            result=await Call(stopBridge.HandleAsync,"servers.gracefulStopStatus",
+                new{jobId=job});
+            if(result.GetProperty("data").GetProperty("state").GetString()=="completed")break;
+            await Task.Delay(35);
+        }
+        IsOk(result,"native graceful stop job status remains readable");
+        Check(result.GetProperty("data").GetProperty("state").GetString()=="completed" &&
+              result.GetProperty("data").GetProperty("confirmedStopped").GetBoolean() &&
+              !result.GetProperty("data").GetProperty("saveCompleteProven").GetBoolean() &&
+              !result.GetProperty("data").GetProperty("killPerformed").GetBoolean() &&
+              sends==1,
+            "native DoExit verifies process exit without inventing SaveComplete");
+        map.HistoricalStoreProtected=true;
+        var protectedMap=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=map.Id});
+        Check(IsError(protectedMap,"UM-ASA-STOP-FAILED")&&sends==1,
+            "historical Store protection blocks all new graceful Stop operations");
+    }
+
     // Native cross-map Mod Center inventory: real Core parser, read-only
     // historical Store-v1 metadata, never the quarantined Arguments field.
     {
