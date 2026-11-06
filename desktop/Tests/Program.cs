@@ -1760,6 +1760,15 @@ try
                   "PRIVATE-LICENSE-UNCHANGED" &&
               !updated.GetRawText().Contains("PRIVATE-LICENSE-UNCHANGED"),
             "existing plugin settings/license remain byte-identical and secret");
+        var interruptedPluginRestart=new AsaManualRestartJournal(zipInstall);
+        var pendingRestart=interruptedPluginRestart.Begin(zipMap.Id,44117);
+        int pickerCountBeforeCrash=pickerCalls;
+        var stoppedButRestartPending=await Call(zipBridge.HandleAsync,
+            "plugins.zipSelect",new{mapId=zipMap.Id});
+        Check(IsError(stoppedButRestartPending,"UM-PLUGIN-ZIP-FAILED") &&
+              pickerCalls==pickerCountBeforeCrash,
+            "pending interrupted ASA Restart refuses plugin ZIP writes before picker opens");
+        interruptedPluginRestart.Change(pendingRestart.Id,AsaRestartPhase.NeedsOperator);
         zipMap.HistoricalStoreProtected=true;
         var historicalDenied=await Call(zipBridge.HandleAsync,"plugins.zipSelect",
             new{mapId=zipMap.Id});
