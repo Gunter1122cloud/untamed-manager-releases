@@ -146,6 +146,12 @@ export type AsaLifecycleJournal = {
   needsOperatorReview:boolean;autoResumeAllowed:false;
   storeTouched:false;evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY";
 };
+export type AsaRestartJournalStatus = {
+  exists:boolean;belongsToMap:boolean;phase?:string|null;
+  oldPid?:number|null;newPid?:number|null;changedUtc?:string|null;
+  needsOperatorReview:boolean;autoResumeAllowed:false;
+  evidence:"DURABLE_MACHINE_LOCAL_MANUAL_ASA_RESTART";
+};
 export type FreshAsaRestartPreview = {
   token:string;mapId:string;mapName:string;currentPid:number;
   saveWorldBeforeExit:true;verifiesOldProcessExit:true;
@@ -497,7 +503,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
+  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -573,6 +579,8 @@ export const managerBridge = {
     request<FreshAsaStopQueued>("servers.gracefulStopApply",{token,confirm:true}),
   freshAsaStopStatus: (jobId:string) =>
     request<FreshAsaStopStatus>("servers.gracefulStopStatus",{jobId}),
+  freshAsaRestartCurrent: (mapId:string) =>
+    request<AsaRestartJournalStatus>("servers.restartCurrent",{mapId}),
   freshAsaRestartPreview: (mapId:string) =>
     request<FreshAsaRestartPreview>("servers.restartPreview",{mapId}),
   freshAsaRestartApply: (token:string) =>
