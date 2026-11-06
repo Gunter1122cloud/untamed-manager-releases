@@ -59,6 +59,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopModDraftBridge _modDrafts;
     private readonly DesktopPluginStateBridge _pluginState;
     private readonly DesktopPluginZipBridge _pluginZip;
+    private readonly DesktopAsaApiCoreBridge _apiCore;
     private readonly DesktopIniBridge _iniEditor;
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
     private readonly DesktopCurseForgeDiscoveryBridge _modCatalog;
@@ -92,6 +93,7 @@ public sealed class ObsidianWindow : Form
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
         _pluginState = new DesktopPluginStateBridge(_bridge.LocalCluster);
         _pluginZip = new DesktopPluginZipBridge(_bridge.LocalCluster);
+        _apiCore = new DesktopAsaApiCoreBridge(_bridge.LocalCluster);
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
         _mapRegistry = new DesktopLocalMapRegistryBridge(_bridge.LocalCluster);
         _modCatalog = new DesktopCurseForgeDiscoveryBridge(_bridge.LocalCluster);
@@ -237,6 +239,7 @@ public sealed class ObsidianWindow : Form
                 bool historicalRoute = false;
                 bool pluginStateRoute = false;
                 bool pluginZipRoute = false;
+                bool apiCoreRoute = false;
                 bool updateRoute = false;
                 bool updateInstallRoute = false;
                 bool rconRoute = false;
@@ -285,6 +288,7 @@ public sealed class ObsidianWindow : Form
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";
+                        apiCoreRoute = name is "api.coreRelease" or "api.corePreview" or "api.coreApply";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
@@ -314,7 +318,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = lanRoute ? await _lan.HandleAsync(incoming)
+                    string response = apiCoreRoute ? await _apiCore.HandleAsync(incoming)
+                        : lanRoute ? await _lan.HandleAsync(incoming)
                         : operationsRoute ? await _operations.HandleAsync(incoming)
                         : freshRestartRoute ? await _freshRestart.HandleAsync(incoming)
                         : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
