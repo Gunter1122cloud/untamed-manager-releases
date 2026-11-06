@@ -24,3 +24,16 @@
   .lan-settings-form .lan-secret{grid-column:1/-1}}
 @media(max-width:650px){.lan-settings-form{grid-template-columns:1fr}
   .lan-settings-form .lan-secret{grid-column:1}.lan-settings-form>button{grid-column:1}}
+
+.lan-store-proof{border:1px solid #37635a;border-radius:11px;background:#142c32;padding:15px;margin:12px 0 17px}
+.lan-store-heading{display:flex;align-items:center;gap:9px;color:#b6e9cf;flex-wrap:wrap}
+.lan-store-heading strong{font-size:14px;color:#ecf7f0}
+.lan-store-heading>span{margin-left:auto;color:#aaccc2;font-size:11px}
+.lan-store-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:14px}
+.lan-store-grid>div{display:flex;flex-direction:column;gap:7px;padding:12px;background:#10272c;
+  border:1px solid #365951;border-radius:9px}
+.lan-store-grid span{font-size:11px;color:#a4c7b9}
+.lan-store-grid b{font-size:12px;color:#e0f1e7}
+.lan-store-proof p{margin:12px 0 0;line-height:1.6}
+@media(max-width:900px){.lan-store-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:550px){.lan-store-grid{grid-template-columns:1fr}}
