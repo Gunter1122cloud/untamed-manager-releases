@@ -146,6 +146,14 @@ export type AsaLifecycleJournal = {
   needsOperatorReview:boolean;autoResumeAllowed:false;
   storeTouched:false;evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY";
 };
+export type FreshAsaReadiness = {
+  mapId:string;mapName:string;
+  stage:"Unconfigured"|"ExecutableVerified"|"ProcessVerified"|"RconAuthenticated";
+  observedUtc:string;loaderObserved:boolean;apiInitialized:boolean;
+  joinAdvertised:boolean;rconAuthenticated:boolean;productionReady:boolean;
+  description:string;storeTouched:false;
+  evidence:"READ_ONLY_LOCAL_ASA_PROCESS_AND_RCON_READINESS";
+};
 export type FreshAsaStopPreview = {
   token:string;mapId:string;mapName:string;pid:number;
   usesSaveWorld:true;usesDoExit:true;killPermitted:false;
@@ -473,7 +481,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
+  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -549,6 +557,8 @@ export const managerBridge = {
     request<FreshAsaStopQueued>("servers.gracefulStopApply",{token,confirm:true}),
   freshAsaStopStatus: (jobId:string) =>
     request<FreshAsaStopStatus>("servers.gracefulStopStatus",{jobId}),
+  freshAsaReadiness: (mapId:string) =>
+    request<FreshAsaReadiness>("servers.freshReadiness",{mapId}),
   freshAsaStartPreview: (mapId:string) =>
     request<FreshAsaStartPreview>("servers.freshStartPreview",{mapId}),
   freshAsaStartApply: (token:string) =>
