@@ -2393,6 +2393,31 @@ try
     // Synthetic two-host metadata: common eight-file coordination ZIP plus
     // complementary four-file HP local JSON copy. No live host/SMB or Store writes.
     ClusterVaultTests.Run(root);
+    // The real browser route may only read a known ORIGINAL local metadata
+    // folder. CI injects a self-created copy; it never opens AppData/Kova.
+    string syntheticLegacyLocal=Path.Combine(root,"v16-vault-zip","Synthetic-HP-Local-Copy");
+    using(var localSource=new DesktopHistoricalStoreImportBridge(cluster,
+        null,syntheticLegacyLocal))
+    {
+        var localProof=await Call(localSource.HandleAsync,"historical.localStatus");
+        IsOk(localProof,"native original-profile route reads only four existing copied files");
+        var data=localProof.GetProperty("data");
+        Check(data.GetProperty("localSnapshotReady").GetBoolean() &&
+              data.GetProperty("maps").GetArrayLength()==5 &&
+              !data.GetProperty("liveTwoHostVerified").GetBoolean() &&
+              !data.GetProperty("characterTravelVerified").GetBoolean() &&
+              !data.GetProperty("productionUseAllowed").GetBoolean(),
+            "local active Store-v1 metadata never certifies live writer or character travel");
+        Check(!localProof.ToString().Contains(@"C:\\synthetic",StringComparison.OrdinalIgnoreCase),
+            "legacy local status does not reveal original filesystem roots");
+    }
+    using(var absentSource=new DesktopHistoricalStoreImportBridge(cluster,
+        null,Path.Combine(root,"missing-legacy-copy")))
+    {
+        var absent=await Call(absentSource.HandleAsync,"historical.localStatus");
+        Check(IsError(absent,"UM-LOCAL-STORE-NOT-FOUND"),
+            "missing local Store-v1 metadata produces a bounded error and no regeneration");
+    }
     string peerTestRoot=Path.Combine(root,"v16-vault-zip");
     string coordinationCopy=Path.Combine(peerTestRoot,"Untamed-Cluster-Vault.zip");
     string hpLocalCopy=Path.Combine(peerTestRoot,"Synthetic-HP-Local-v1.zip");
