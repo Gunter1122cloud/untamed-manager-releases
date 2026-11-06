@@ -79,9 +79,14 @@ public static class HistoricalLaunchProfileReader
             // subset. The canonical output places passive first, once.
             var ordered=passive.Concat(enabled.Except(passive,StringComparer.Ordinal))
                 .ToArray();
-            string preview=map+"? -mods="+string.Join(",",ordered)+
-                (passive.Length>0?" -passivemods="+string.Join(",",passive):"")+
-                " -usestore";
+            // Build a SOURCE-ACCURATE active-only argument reference.
+            // The historical ZIP does not contain the installed GUS INI or
+            // process provenance, so this is an unlaunchable syntax preview.
+            var reference=LegacyStoreV1ActiveLaunch.Build(
+                new LegacyStoreV1ActiveLaunch.Input(map,game,query,enabled,passive,
+                    VaultProtocol.ClusterId,Str(cluster.RootElement,"path"),
+                    "active",string.Empty));
+            string preview=string.Join(" ",reference.Arguments);
             previews.Add(new(id,map,game,query,ordered.Length,passive.Length,
                 true,preview));
         }
