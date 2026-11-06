@@ -23,8 +23,9 @@ public static class HistoricalLaunchEvidenceInspector
         return Matches(source,pattern).Cast<Match>().Select(m=>m.Groups["value"].Value).ToArray();
     }
 
-    private static bool Flag(string source,string name)=>
-        Matches(source,@"(?:^|\s)-"+Regex.Escape(name)+@"(?=\s|$)").Count>0;
+    private static int FlagCount(string source,string name)=>
+        Matches(source,@"(?:^|\s)-"+Regex.Escape(name)+@"(?=\s|$)").Count;
+    private static bool Flag(string source,string name)=>FlagCount(source,name)>0;
 
     private static string PortStatus(string[] observed,int archived)
     {
@@ -58,8 +59,23 @@ public static class HistoricalLaunchEvidenceInspector
             cluster.Length!=1?"CONFLICT":
             string.Equals(cluster[0],historicalClusterId,StringComparison.Ordinal)?"MATCH":"MISMATCH";
         var transfer=Values(source,"ClusterDirOverride");
-        var useStore=Flag(source,"usestore");
-        var convert=Flag(source,"converttostore");
+        int storeFlags=FlagCount(source,"usestore");
+        var useStore=storeFlags>0;
+        // The historical source adds -converttostore only during the first
+        // prepared migration and never during active Store-v1 operation.
+        // Reject reverse-conversion and repeated store flags as well.
+        var convert=Flag(source,"converttostore")||
+            Flag(source,"convertfromstore");
+        bool canonicalMap=Matches(source,@"(?:^|\s)"+
+            Regex.Escape(expectedMap)+@"\?listen(?=\s|$)").Count==1;
+        bool canonicalSourceFlags=canonicalMap &&
+            Values(source,"Port").Length==1 &&
+            Values(source,"QueryPort").Length==1 &&
+            Values(source,"Port",true).Length==0 &&
+            Values(source,"QueryPort",true).Length==0 &&
+            FlagCount(source,"log")==1 &&
+            storeFlags==1 &&
+            !convert;
         string modStatus;
         if(mods.Length==0) modStatus=deprecatedMods.Length>0?"LEGACY_SYNTAX":expectedMods.Count==0?"MATCH":"UNKNOWN";
         else if(mods.Length!=1)modStatus="CONFLICT";
@@ -85,7 +101,9 @@ public static class HistoricalLaunchEvidenceInspector
         if(clusterStatus!="MATCH")codes.Add("CLUSTER_ID_NOT_CONFIRMED");
         if(transfer.Length!=1||string.IsNullOrWhiteSpace(transfer[0]))codes.Add("CLUSTER_PATH_NOT_CONFIRMED");
         if(!useStore)codes.Add("USESTORE_NOT_CONFIRMED");
+        if(storeFlags>1)codes.Add("DUPLICATE_USESTORE_FLAG");
         if(convert)codes.Add("CONVERSION_FLAG_PRESENT");
+        if(!canonicalSourceFlags)codes.Add("HISTORICAL_SOURCE_LAUNCH_SHAPE_UNVERIFIED");
         // Return only classifications, never original input, original IDs,
         // admin credentials, SessionName or any source path.
         return new {
@@ -97,7 +115,11 @@ public static class HistoricalLaunchEvidenceInspector
             clusterIdStatus=clusterStatus,
             clusterPathPresent=transfer.Length==1&&!string.IsNullOrWhiteSpace(transfer[0]),
             clusterPathVerified=false,
-            useStorePresent=useStore,conversionFlagPresent=convert,
+            useStorePresent=useStore,storeFlagCount=storeFlags,
+            conversionFlagPresent=convert,
+            // This describes syntax only. It is NEVER source authentication,
+            // ASA process identity, remote Store writer proof or launch consent.
+            canonicalSourceFlagsObserved=canonicalSourceFlags,
             findings=codes.ToArray(),sourceAuthenticated=false,
             fullLaunchArgumentsVerified=false,peerWriterVerified=false,
             productionUseAllowed=false,serverStartAllowed=false,
