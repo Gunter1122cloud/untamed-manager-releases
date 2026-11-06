@@ -409,6 +409,52 @@ try
             "first profile setup preserves original ASA executable and saved data");
     }
 
+    // Real native fresh RCON bootstrap is separate from map first-time
+    // launch settings. No Store, running process or other INI may be modified.
+    {
+        var fresh=cluster.Config.LocalMaps.Single(m=>m.Name=="Valguero");
+        string iniPath=AsaInitialRconSettings.NewIniPath(fresh.InstallationPath);
+        Check(!File.Exists(iniPath),"fresh RCON test starts with no ASA server config");
+        using var rconSetup=new DesktopRconConfigurationBridge(cluster);
+        var status=await Call(rconSetup.HandleAsync,"rcon.configStatus",
+            new{mapId=fresh.Id});
+        IsOk(status,"new stopped non-Store map can configure RCON");
+        Check(status.GetProperty("data").GetProperty("permitted").GetBoolean(),
+            "native RCON configuration is eligible only for safe local map");
+        const string secret="A-strong-unique-test-secret";
+        var preview=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=37555,password=secret,createIni=true});
+        IsOk(preview,"new ASA RCON config is previewed, not applied");
+        Check(!File.Exists(iniPath) && !preview.GetRawText().Contains(secret),
+            "RCON preview leaves disk untouched and hides credential");
+        string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var declined=await Call(rconSetup.HandleAsync,"rcon.configApply",
+            new{token,confirm=false});
+        Check(IsError(declined,"UM-RCON-CONFIG-CONFIRMATION") &&
+              !File.Exists(iniPath),"RCON bootstrap requires explicit confirmation");
+        var configured=await Call(rconSetup.HandleAsync,"rcon.configApply",
+            new{token,confirm=true});
+        IsOk(configured,"native RCON bootstrap creates ASA INI and stores DPAPI credential");
+        Check(File.Exists(iniPath) && File.ReadAllText(iniPath).Contains("RCONEnabled=True") &&
+              cluster.Config.LocalMaps.Single(m=>m.Id==fresh.Id).RconPort==37555 &&
+              SecureStore.Unprotect(cluster.Config.LocalMaps.Single(m=>m.Id==fresh.Id)
+                  .RconPasswordProtected)==secret,
+            "RCON bootstrap persisted correct local ASA setting and encrypted Manager secret");
+        var replay=await Call(rconSetup.HandleAsync,"rcon.configApply",
+            new{token,confirm=true});
+        Check(IsError(replay,"UM-RCON-CONFIG-TOKEN-EXPIRED"),
+            "RCON bootstrap cannot be replayed");
+        var second=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=37556,password=secret,createIni=true});
+        Check(IsError(second,"UM-RCON-CONFIG-STOPPED-NONSTORE-ONLY"),
+            "configured RCON cannot be overwritten by bootstrap");
+        var denied=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=Guid.NewGuid(),rconPort=37556,password=secret,createIni=true});
+        Check(IsError(denied,"UM-MAP-NOT-OWNED"),"foreign map cannot configure RCON");
+        Check(!configured.GetRawText().Contains(secret),
+            "RCON success response contains no plaintext credential");
+    }
+
     // Native cross-map Mod Center inventory: real Core parser, read-only
     // historical Store-v1 metadata, never the quarantined Arguments field.
     {

@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,RefreshCw,Shield,Terminal,Users,Save} from "lucide-react";
-import {managerBridge,type RconStatus,type RconPlayers,type RconWorldSave,type RconAdminPreview,type RconAdminResult} from "./bridge";
+import {managerBridge,type RconStatus,type RconPlayers,type RconWorldSave,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
 
 export function RconReadOnlyPanel({mapId}:{mapId:string}){
   const [status,setStatus]=useState<RconStatus|null>(null);
@@ -13,6 +13,12 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
   const [adminApproved,setAdminApproved]=useState(false);
   const [adminTyped,setAdminTyped]=useState("");
   const [adminReceipt,setAdminReceipt]=useState<RconAdminResult|null>(null);
+  const [config,setConfig]=useState<RconConfigStatus|null>(null);
+  const [rconPort,setRconPort]=useState("37015");
+  const [rconPassword,setRconPassword]=useState("");
+  const [createNewIni,setCreateNewIni]=useState(true);
+  const [configPreview,setConfigPreview]=useState<RconConfigPreview|null>(null);
+  const [configDone,setConfigDone]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const load=useCallback(async()=>{
@@ -20,11 +26,42 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
     setBusy(true);setError("");setStatus(null);setResult(null);
     setSaveReceipt(null);setSaveApproved(false);
     setAdminDraft(null);setAdminApproved(false);setAdminTyped("");setAdminReceipt(null);
-    try{setStatus(await managerBridge.rconStatus(mapId));}
+    try{
+      const [nextStatus,nextConfig]=await Promise.all([
+        managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
+      ]);
+      setStatus(nextStatus);setConfig(nextConfig);
+    }
     catch{setError("A helyi RCON-állapot nem ellenőrizhető. Egyetlen parancs sem került elküldésre.");}
     finally{setBusy(false);}
   },[mapId]);
   useEffect(()=>{void load();},[load]);
+  const previewConfiguration=async()=>{
+    if(busy||!config?.permitted||rconPassword.length<12)return;
+    setBusy(true);setError("");setConfigPreview(null);setConfigDone(false);
+    try{
+      setConfigPreview(await managerBridge.rconConfigPreview(
+        mapId,Number(rconPort),rconPassword,createNewIni));
+    }catch{
+      setError("Az RCON-konfiguráció ellenőrzése sikertelen. A mapnak leállítva kell lennie; meglévő INI esetén az eredeti portnak és jelszónak egyeznie kell.");
+    }finally{setBusy(false);}
+  };
+  const commitConfiguration=async()=>{
+    if(!configPreview||busy)return;
+    const token=configPreview.token;
+    setConfigPreview(null);setRconPassword("");
+    setBusy(true);setError("");
+    try{
+      await managerBridge.rconConfigApply(token);
+      setConfigDone(true);
+      const [nextStatus,nextConfig]=await Promise.all([
+        managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
+      ]);
+      setStatus(nextStatus);setConfig(nextConfig);
+    }catch{
+      setError("A natív RCON-beállítás nem fejeződött be. A szerver nem indult el; ellenőrizd a helyi állapotot.");
+    }finally{setBusy(false);}
+  };
   const list=async()=>{
     if(!status?.permitted||busy)return;
     setBusy(true);setError("");setResult(null);
@@ -63,6 +100,37 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
       <p>Az igazolt helyi ASA-folyamathoz kötött RCON-kapcsolat valódi
         ListPlayers és külön jóváhagyott SaveWorld műveletet kezel.
         Tetszőleges parancs, távoli peer-vezérlés és Store-v1 átírás nincs.</p></div>
+    {!config?.configured&&<section className="premium-panel" aria-label="RCON első beállítása" style={{marginBottom:18,padding:20}}>
+      <header className="premium-panel-heading"><h2><LockKeyhole size={18}/> RCON beállítása a helyi mapon</h2></header>
+      <p>Csak leállított, nem Store-v1 mapon. A jelszó kizárólag a natív Windows részhez kerül; a Manager DPAPI-val titkosítja.</p>
+      <div className="uk-rcon-admin-grid">
+        <label>RCON TCP-port
+          <input aria-label="RCON beállítás port" type="number" min={1024} max={65535} value={rconPort}
+            disabled={!config?.permitted||busy} onChange={e=>{setRconPort(e.target.value);setConfigPreview(null);}}/>
+        </label>
+        <label>Adminjelszó (12–128 karakter)
+          <input aria-label="RCON beállítás jelszó" type="password" autoComplete="new-password"
+            minLength={12} maxLength={128} value={rconPassword} disabled={!config?.permitted||busy}
+            onChange={e=>{setRconPassword(e.target.value);setConfigPreview(null);}}/>
+        </label>
+      </div>
+      <label><input type="checkbox" checked={createNewIni} disabled={!config?.permitted||busy}
+        onChange={e=>{setCreateNewIni(e.target.checked);setConfigPreview(null);}}/>
+        Új, még nem létező GameUserSettings.ini létrehozása. Ha már van működő INI, vedd ki a jelölést: a Manager kizárólag ellenőrzi, nem írja át.
+      </label>
+      <div className="uk-rcon-admin-actions">
+        <button className="secondary" type="button" disabled={!config?.permitted||busy||rconPassword.length<12}
+          onClick={()=>{void previewConfiguration();}}>Beállítás ellenőrzése</button>
+      </div>
+      {configPreview&&<div className="uk-rcon-admin-review" role="region" aria-label="RCON beállítás jóváhagyás">
+        <b>{configPreview.mapName} · TCP {configPreview.rconPort}</b>
+        <p>{configPreview.createsNewIni?"Új helyi ASA INI készül; a szerver nem indul el.":"A meglévő INI változatlan marad; csak a Manager tárolja el a védett kapcsolatot."}</p>
+        <button className="primary" type="button" disabled={busy} onClick={()=>{void commitConfiguration();}}>Beállítás véglegesítése</button>
+        <button className="secondary" type="button" disabled={busy} onClick={()=>setConfigPreview(null)}>Mégsem</button>
+      </div>}
+      {configDone&&<div role="status" className="uk-rcon-admin-success">RCON-konfiguráció mentve. A következő szabályos ASA-indításkor használható.</div>}
+      {!config?.permitted&&<p className="muted">A jelenlegi maphoz a konfigurálás nincs engedélyezve. A történeti Store-v1 mapok írásvédelme megmarad.</p>}
+    </section>}
     <div className="uk-rcon-grid">
       <section className="premium-panel uk-rcon-console">
         <header className="premium-panel-heading">

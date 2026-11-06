@@ -124,6 +124,20 @@ export type TravelComparison = {
   evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY";
 };
 
+export type RconConfigStatus = {
+  mapId:string;mapName:string;configured:boolean;permitted:boolean;
+  evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE";
+};
+export type RconConfigPreview = {
+  token:string;mapId:string;mapName:string;rconPort:number;
+  createsNewIni:boolean;existingIniVerified:boolean;
+  evidence:"STOPPED_LOCAL_RCON_PREVIEW_NO_WRITES";
+};
+export type RconConfigReceipt = {
+  mapId:string;mapName:string;configured:true;rconPort:number;
+  createsNewIni:boolean;serverStarted:false;
+  evidence:"STOPPED_LOCAL_RCON_CONFIG_COMMITTED";
+};
 export type RconStatus = {
   mapId:string;mapName:string;configured:boolean;processVerified:boolean;
   permitted:boolean;maintenance:boolean;allowedCommands:["ListPlayers","SaveWorld"];
@@ -397,7 +411,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" |
-  "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.status" | "rcon.listPlayers" | "rcon.saveWorld" | "rcon.adminPreview" | "rcon.adminSend" |
+  "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.saveWorld" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
   "travel.capture" | "travel.compare";
@@ -413,6 +427,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
   point?:string; action?:string; message?:string; typedApproval?:string;
+  rconPort?:number; password?:string; createIni?:boolean;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
   sourceMap?: string;destinationMap?: string; profileId?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
@@ -459,6 +474,11 @@ export const managerBridge = {
   updatePrepare: (channel:"stable"|"preview") => request<UpdatePrepared>("updates.prepare",{channel,confirm:true}),
   updateInstall: (token:string) => request<UpdateInstallReceipt>("updates.install",{token,confirm:true}),
   updateStatus: () => request<UpdateStatus>("updates.status"),
+  rconConfigStatus: (mapId:string) => request<RconConfigStatus>("rcon.configStatus",{mapId}),
+  rconConfigPreview: (mapId:string,rconPort:number,password:string,createIni:boolean) =>
+    request<RconConfigPreview>("rcon.configPreview",{mapId,rconPort,password,createIni}),
+  rconConfigApply: (token:string) =>
+    request<RconConfigReceipt>("rcon.configApply",{token,confirm:true}),
   rconStatus: (mapId:string) => request<RconStatus>("rcon.status",{mapId}),
   rconListPlayers: (mapId:string) => request<RconPlayers>("rcon.listPlayers",{mapId}),
   rconSaveWorld: (mapId:string) => request<RconWorldSave>("rcon.saveWorld",{mapId,confirm:true}),
