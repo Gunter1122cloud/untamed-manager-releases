@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
-import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLaunchEvidence } from "./bridge";
+import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLaunchEvidence } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -13,6 +13,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [registering,setRegistering]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [localProbe,setLocalProbe]=useState<HistoricalLocalStoreStatus|null>(null);
+  const [localBusy,setLocalBusy]=useState(false);
+  const [localError,setLocalError]=useState("");
   const [coordZip,setCoordZip]=useState("");
   const [localZip,setLocalZip]=useState("");
   const [pairResult,setPairResult]=useState<HistoricalPairEvidence | null>(null);
@@ -86,6 +89,14 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       if(epoch===launchEpoch.current){setLaunchCommand("");setLaunchError("A parancssor csak olvasható összevetése sikertelen.");}
     }finally{if(epoch===launchEpoch.current)setLaunchBusy(false);}
   };
+  const checkOriginalLocal=async()=>{
+    setLocalBusy(true);setLocalError("");setLocalProbe(null);
+    try{setLocalProbe(await managerBridge.historicalLocalStatus());}
+    catch(e){setLocalError((e instanceof Error&&e.message==="UM-LOCAL-STORE-NOT-FOUND")?
+      "Ezen a Windows-fiókon nem található a korábbi kezelő helyi Store-v1 profilja. A ZIP-másolatos ellenőrzés továbbra is használható.":
+      "A négy eredeti Store-v1 fájl nem igazolható. Semmi nem változott az eredeti adatokban.");}
+    finally{setLocalBusy(false);}
+  };
   const comparePeers=async(e:FormEvent)=>{
     e.preventDefault();const epoch=++pairEpoch.current;setPairResult(null);setPairError("");setPairBusy(true);
     try {
@@ -108,9 +119,32 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         A ZIP nem tartalmaz teljes indítási parancssort: emiatt a regisztrált map
         <strong> védett és nem indítható</strong> a további kétgépes ellenőrzésig.
       </p>
+      <section className="historical-peer-check" aria-label="Korábbi helyi Store-v1 állapot">
+        <h3>Eredeti helyi Store-v1 állapot · közvetlen, csak olvasási ellenőrzés</h3>
+        <p className="muted small">A jelenlegi Windows-fiók korábbi kezelőjének négy helyi Store-metaadatfájlját ellenőrzi. Nem olvas SMB-megosztást, nem futtat ASA-parancsot és nem módosít mentéseket.</p>
+        <button type="button" className="secondary" disabled={localBusy} onClick={()=>{void checkOriginalLocal();}}>
+          <Shield size={16}/> {localBusy?"Helyi ellenőrzés...":"Eredeti helyi Store állapotának ellenőrzése"}
+        </button>
+        {localProbe&&<div className="historical-peer-result" role="status">
+          <div className="historical-proof-grid">
+            <span>Helyi öt Store-map</span><strong>{localProbe.maps.length} db</strong>
+            <span>Eredeti konfigurációhash</span><strong>{localProbe.configHashVerified?"Igazolt":"Eltérés"}</strong>
+            <span>Tartós helyi zár</span><strong>{localProbe.localLockVerified?"Egyezik":"Hibás"}</strong>
+            <span>Mind az öt map ACTIVE</span><strong>{localProbe.allLocalMapsActive?"Igen":"Nem igazolt"}</strong>
+            <span>Kétgépes élő állapot / karakterutazás</span><strong>NEM IGAZOLT</strong>
+          </div>
+          <div className="historical-peer-hosts">
+            {localProbe.maps.map(m=><div className="historical-peer-host" key={m.mapKey}>
+              <b>{m.mapKey}</b><span>ACTIVE: {m.active?"igen":"nem"} · session: {m.sessionMatches?"egyező":"eltérő"}</span>
+              <span>Mapgyökér / lock: {m.rootMatches?"OK":"?"} / {m.selected?"OK":"?"}</span>
+            </div>)}
+          </div>
+        </div>}
+        {localError&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{localError}</div>}
+      </section>
       <form className="historical-import-form" onSubmit={e=>{void inspectArchive(e);}}>
         <label>Korábban mentett Manager ZIP (helyi, olvasási célú másolat)
-          <input aria-label="Korábbi Manager archívum" placeholder="D:\Kova-Backups\KovaManager-Fontos.zip"
+          <input aria-label="Korábbi Manager archívum" placeholder="D:\Mentések\Korábbi-Manager.zip"
             value={archive} maxLength={520} disabled={registering} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");invalidateImport();setLaunchCommand("");}} required/>
         </label>
         <button type="submit" className="secondary" disabled={busy||registering||!archive.trim()}>
