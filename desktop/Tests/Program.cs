@@ -1861,8 +1861,13 @@ try
         IsOk(restored,"real map world restore finishes with protective backup");
         Check(File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup) &&
               File.ReadAllBytes(charFile).SequenceEqual(survivorBeforeBackup) &&
-              restored.GetProperty("data").GetProperty("oldWorldRetained").GetBoolean(),
-            "restored world/profile exact bytes match and preceding world remains preserved");
+              restored.GetProperty("data").GetProperty("oldWorldRetained").GetBoolean() &&
+              restored.GetProperty("data").GetProperty("bytesRestoredAndHashesVerified").GetBoolean() &&
+              !restored.GetProperty("data").GetProperty("worldRestoreVerified").GetBoolean() &&
+              !restored.GetProperty("data").GetProperty("gameClientLoadVerified").GetBoolean() &&
+              !restored.GetProperty("data").GetProperty("tribeOwnershipVerified").GetBoolean() &&
+              !restored.GetProperty("data").GetProperty("characterRejoinVerified").GetBoolean(),
+            "restored world/profile bytes match and prior world is preserved; no fictitious ASA game/tribe/client proof");
         string protective=restored.GetProperty("data").GetProperty("protectiveBackup").GetString()!;
         var protectiveProof=KovaCompatibleWorldBackup.Verify(localMap,localProfile,protective);
         Check(protectiveProof.Kind=="protective",
