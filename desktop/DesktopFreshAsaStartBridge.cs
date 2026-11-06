@@ -111,9 +111,9 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                        !AsaReadyProbe.IsRegisteredServerBinary(map)||
                        map.Maintenance)
                         return Error(id,"UM-FRESH-READINESS-PROTECTED");
-                    var current=cluster.Check(map);
-                    if(!current.Running||current.ConfirmedStopped ||
-                       current.Identity is not {Pid:>0} pid)
+                    var runtime=cluster.Check(map);
+                    if(!runtime.Running||runtime.ConfirmedStopped ||
+                       runtime.Identity is not {Pid:>0} pid)
                         return Error(id,"UM-FRESH-READINESS-NOT-RUNNING");
                     if(map.RconPort>0 && !string.IsNullOrWhiteSpace(map.RconPasswordProtected) &&
                        !RconPortOwnership.IsOwnedListener(map.RconPort,pid.Pid))
