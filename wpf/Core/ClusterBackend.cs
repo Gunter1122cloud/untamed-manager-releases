@@ -848,7 +848,7 @@ public sealed class ClusterService : IAsyncDisposable
                     };
                 }
                 catch(Exception){/* peer observation cannot invent Steam evidence */}
-                return new PublicMapStatus {Id=map.Id.ToString("N"), Name=map.Name,
+                return new PublicMapStatus {Id=map.Id.ToString("D"), Name=map.Name,
                     Running=c.Running,Status=c.Status,GamePort=map.GamePort,
                     SteamBuildId=build,SteamUpdateState=steamState};
             }).ToList()
