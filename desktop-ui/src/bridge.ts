@@ -107,8 +107,8 @@ export type PluginInventory = {
 export type TravelMapProof = {
   mapId:string;mapName:string;confirmedStopped:boolean;
   saveDirectoryFound:boolean;ambiguousLayout:boolean;
-  profiles:number;tribes:number;zeroByteDetected:boolean;unstable:boolean;
-  profiles:Array<{id:string;bytes:number}>;
+  profileCount:number;tribeCount:number;zeroByteDetected:boolean;unstable:boolean;
+  profileFiles:Array<{id:string;bytes:number}>;
 };
 export type TravelCapture = {
   snapshot:string;hostId:string;maps:TravelMapProof[];
