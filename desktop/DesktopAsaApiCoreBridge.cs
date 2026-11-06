@@ -169,30 +169,30 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                 }
                 if(method=="api.coreRollbackApply")
                 {
-                    if(!obj.TryGetProperty("token",out var t)||
-                       t.ValueKind!=JsonValueKind.String||
-                       !Guid.TryParse(t.GetString(),out var token)||
+                    if(!obj.TryGetProperty("token",out var rollbackTokenProp)||
+                       rollbackTokenProp.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(rollbackTokenProp.GetString(),out var rollbackToken)||
                        !obj.TryGetProperty("confirm",out var yes)||
                        yes.ValueKind!=JsonValueKind.True||
-                       pendingRollback==null||pendingRollback.Token!=token)
+                       pendingRollback==null||pendingRollback.Token!=rollbackToken)
                         return Err(id,"UM-API-CORE-ROLLBACK-APPROVAL");
-                    var selected=pendingRollback;pendingRollback=null;
-                    if(selected.Until<DateTimeOffset.UtcNow)
+                    var rollbackApproval=pendingRollback;pendingRollback=null;
+                    if(rollbackApproval.Until<DateTimeOffset.UtcNow)
                         return Err(id,"UM-API-CORE-ROLLBACK-PREVIEW-EXPIRED");
-                    var local=Local(selected.MapId);
-                    if(local==null||local.InstallationPath!=selected.Root||!Eligible(local))
+                    var local=Local(rollbackApproval.MapId);
+                    if(local==null||local.InstallationPath!=rollbackApproval.Root||!Eligible(local))
                         return Err(id,"UM-API-CORE-ROLLBACK-OWNERSHIP-CHANGED");
                     if(!AsaApiOwnedInstaller.ListCompletedRollbacks(cluster,local.Id)
-                        .Any(x=>x.TransactionId==selected.TransactionId))
+                        .Any(x=>x.TransactionId==rollbackApproval.TransactionId))
                         return Err(id,"UM-API-CORE-ROLLBACK-TRANSACTION-CHANGED");
-                    var result=await Task.Run(()=>
+                    var rollbackReceipt=await Task.Run(()=>
                         AsaApiOwnedInstaller.RollbackCompletedOwnedStopped(
-                            cluster,local.Id,selected.TransactionId,true));
+                            cluster,local.Id,rollbackApproval.TransactionId,true));
                     return Ok(id,new {
-                        mapId=result.MapId,transactionId=result.TransactionId,
-                        filesRestored=result.FilesRestored,filesRemoved=result.FilesRemoved,
-                        bytesVerified=result.ByteVerified,
-                        serverRestarted=result.Restarted,evidence=result.Evidence
+                        mapId=rollbackReceipt.MapId,transactionId=rollbackReceipt.TransactionId,
+                        filesRestored=rollbackReceipt.FilesRestored,filesRemoved=rollbackReceipt.FilesRemoved,
+                        bytesVerified=rollbackReceipt.ByteVerified,
+                        serverRestarted=rollbackReceipt.Restarted,evidence=rollbackReceipt.Evidence
                     });
                 }
                 if(!obj.TryGetProperty("token",out var t)||
