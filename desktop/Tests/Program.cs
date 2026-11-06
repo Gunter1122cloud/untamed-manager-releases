@@ -507,6 +507,18 @@ try
         Check(IsError(provenance,"UM-FRESH-START-NOT-READY")&&calls==1,
             "historical map key alone blocks an unsafe new-ASA launch");
         fresh.HistoricalMapKey="";
+        var sibling=new LocalMap{
+            Name="Historical sibling same root",
+            InstallationPath=fresh.InstallationPath,
+            HistoricalMapKey="ImportedOriginalMap",
+            HistoricalStoreProtected=false
+        };
+        cluster.AddMap(sibling);
+        var sharedDenied=await Call(starter.HandleAsync,"servers.freshStartPreview",
+            new{mapId=fresh.Id});
+        Check(IsError(sharedDenied,"UM-FRESH-START-NOT-READY")&&calls==1,
+            "foreign historical Store provenance in shared install blocks fresh start");
+        cluster.RemoveMap(sibling.Id);
         Check(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
                 confirmedStopped:true).Allowed &&
               ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
@@ -628,6 +640,17 @@ try
                 new ProcessCheck(true,"synthetic owned local ASA",identity):
                 new ProcessCheck(false,"synthetic stopped",null,true));
         lab.AddMap(stopLabMap);
+        var stopSibling=new LocalMap{
+            Name="Historical Store sibling",
+            InstallationPath=stopRoot,
+            HistoricalArchiveSha256=new string('B',64)
+        };
+        lab.AddMap(stopSibling);
+        Check(!FreshAsaInstallationSafety.IsProvenFresh(lab,stopLabMap),
+            "historical metadata on shared install forbids even new-profile lifecycle");
+        lab.RemoveMap(stopSibling.Id);
+        Check(FreshAsaInstallationSafety.IsProvenFresh(lab,stopLabMap),
+            "clean new local installation passes shared provenance safety");
         int sends=0;
         bool Owner(int port,int pid)=>port==37556&&pid==44117;
         using var stopBridge=new DesktopFreshAsaStopBridge(lab,Owner,
