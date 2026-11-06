@@ -133,7 +133,8 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                             id = m.Id, name = m.Name, running = m.Running,
                             status = m.Status, gamePort = m.GamePort,
                             steamBuildId = m.SteamBuildId, steamUpdateState = m.SteamUpdateState,
-                            storeProtected = config?.HistoricalStoreProtected ?? false,
+                            storeProtected = config != null &&
+                                KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(config),
                             maintenance = config?.Maintenance ?? false,
                             rconConfigured = config != null && config.RconPort > 0 &&
                                 !string.IsNullOrWhiteSpace(config.RconPasswordProtected)
