@@ -79,7 +79,7 @@ jobs:
         shell: pwsh
         run: |
           dotnet restore desktop/UntamedDesktop.csproj -r win-x64
-          dotnet publish desktop/UntamedDesktop.csproj -c Release -r win-x64 --self-contained false -o desktop/publish --no-restore
+          dotnet publish desktop/UntamedDesktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o desktop/publish
           if (!(Test-Path desktop/publish/ui/index.html)) { throw "React assets not packaged into Windows host" }
           $sourceAtlas = "wpf/Assets/reference-atlas.jpg"
           $packagedAtlas = "desktop/publish/ui/uk-reference-map-atlas.jpg"
@@ -98,6 +98,12 @@ jobs:
             throw "Bundled Rex background altered during publish"
           }
           if (!(Test-Path desktop/publish/UntamedDesktop.exe)) { throw "Windows host missing" }
+          # Portable must run on a fresh Windows test PC without preinstalled .NET 10.
+          if (!(Test-Path desktop/publish/coreclr.dll) -or
+              !(Test-Path desktop/publish/hostfxr.dll) -or
+              !(Test-Path desktop/publish/hostpolicy.dll)) {
+            throw "Desktop must be self-contained: .NET runtime missing from portable output"
+          }
       - name: Publish isolated self-contained external rollback updater
         shell: pwsh
         run: |
