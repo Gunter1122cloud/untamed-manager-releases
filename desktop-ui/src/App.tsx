@@ -411,7 +411,7 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
   snapshot: DashboardSnapshot; search: string; setSearch: (v: string) => void; onSelect: (v: string) => void;
   onImported:()=>Promise<void>
 }) {
-  const [importMode,setImportMode]=useState<"none"|"existing"|"store">("none");
+  const [importMode,setImportMode]=useState<"none"|"new"|"existing"|"store">("none");
   return <><div className="page-intro"><span className="eyebrow">LOCAL HOST / LAN</span><h1>Szerverek</h1><p>A helyi mapok megfigyelése; távoli mapok kizárólag olvashatók.</p></div>
     <div className="server-toolbar">
       <div className="toolbar"><Search size={19}/><input aria-label="Map keresése" placeholder="Map keresése..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
@@ -419,11 +419,15 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
         <button className="secondary" onClick={()=>setImportMode(v=>v==="store"?"none":"store")}>
           {importMode==="store"?"Store-v1 import bezárása":"Store-v1 átvétel"}
         </button>
-        <button className="primary" onClick={()=>setImportMode(v=>v==="existing"?"none":"existing")}>
-          {importMode==="existing"?"Map import bezárása":"Új helyi map felvétele"}
+        <button className="secondary" onClick={()=>setImportMode(v=>v==="existing"?"none":"existing")}>
+          {importMode==="existing"?"Import bezárása":"Meglévő ASA importálása"}
+        </button>
+        <button className="primary" onClick={()=>setImportMode(v=>v==="new"?"none":"new")}>
+          {importMode==="new"?"Letöltő bezárása":"Új ASA letöltése"}
         </button>
       </div>
     </div>
+    {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
     {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}
     <Panel title={`Helyi mapok · ${snapshot.local.hostName}`}><MapTable maps={snapshot.local.maps} host={snapshot.local.hostName} filter={search} onPick={onSelect}/></Panel>
