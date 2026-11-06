@@ -12,6 +12,7 @@ const slots:Array<{key:Slot;label:string;subtitle:string}>= [
 ];
 type Snapshot={hostId:string;utc:string;maps:Array<{
   mapId:string;name:string;confirmedStopped:boolean;
+  storeMode:boolean;worldPresent:boolean;worldBytes:number;
   files:Array<{id:string;kind:string;bytes:number}>
 }>};
 function parse(raw:string):Snapshot|null{
@@ -40,6 +41,7 @@ export function StoreTravelWorkbench(){
   const beforeA=useMemo(()=>parse(evidence.beforeA),[evidence.beforeA]);
   const beforeB=useMemo(()=>parse(evidence.beforeB),[evidence.beforeB]);
   const candidates=useMemo(()=>[...(beforeA?.maps??[]),...(beforeB?.maps??[])],[beforeA,beforeB]);
+  const sourceEmbedded=candidates.some(x=>x.mapId===source&&x.storeMode);
   const survivorIds=useMemo(()=>{
     const original=candidates.find(x=>x.mapId===source);
     return (original?.files??[]).filter(f=>f.kind==="profile"&&f.bytes>0);
@@ -64,13 +66,15 @@ export function StoreTravelWorkbench(){
     if(comparing)return;
     setComparing(true);setResult(null);setError("");
     try{setResult(await managerBridge.travelCompare({
-      ...evidence,sourceMap:source,destinationMap:target,profileId:profile
+      ...evidence,sourceMap:source,destinationMap:target,
+      profileId:sourceEmbedded?"embedded":profile
     }));}
     catch{setError("A négy pillanatkép, a gazdagépek vagy a karakterazonosító nem egyeztethető. Nincs éles változtatás.");}
     finally{setComparing(false);}
   };
   const ready=slots.every(slot=>parse(evidence[slot.key])!==null)&&
-    Boolean(source&&target&&source!==target&&profile);
+    Boolean(source&&target&&source!==target&&
+      (sourceEmbedded?profile==="embedded":profile));
   return <div className="uk-travel-page">
     <header className="page-intro">
       <span className="eyebrow">UNTAMED KINGDOM / 5 + 5 MAP / STORE-V1</span>
@@ -102,14 +106,18 @@ export function StoreTravelWorkbench(){
           {local&&<>
             <div className={local.complete?"uk-travel-pass":"uk-travel-warning"}>
               {local.complete?<CheckCircle2 size={18}/>:<AlertTriangle size={18}/>}
-              {local.complete?"Az öt helyi map leltára teljes és nyugalomban készült.":
-                "Hiányzó mentés, futó map vagy sérült/instabil fájl: az elfogadás nem teljes."}
+              {local.complete?"Az öt helyi map fájlleltára nyugalomban készült; ez nem karakterigazolás.":
+                "Hiányzó világmentés, futó map vagy instabil fájl: az elfogadás nem teljes."}
             </div>
             <div className="uk-travel-map-results">
               {local.maps.map(item=><div key={item.mapId}>
                 <span><Server size={14}/><b>{item.mapName}</b></span>
-                <span>{item.profileCount} karakter · {item.tribeCount} tribe</span>
-                {item.confirmedStopped&&item.saveDirectoryFound&&!item.zeroByteDetected&&
+                <span>{item.storeMode?
+                  ("Store-v1 · .ark: "+(item.worldPresent?item.worldBytes+" bájt":"hiányzik")+
+                    " · beágyazott karakterek nem olvashatók"):
+                  (item.profileCount+" külön profil · "+item.tribeCount+" tribe")}</span>
+                {item.confirmedStopped&&item.saveDirectoryFound&&
+                (item.storeMode?item.worldPresent&&!item.worldUnstable:!item.zeroByteDetected)&&
                 !item.unstable&&!item.ambiguousLayout?
                   <CheckCircle2 size={16} className="uk-good"/>:
                   <FileWarning size={16} className="uk-bad"/>}
@@ -156,12 +164,17 @@ export function StoreTravelWorkbench(){
                 {candidates.filter(m=>m.mapId!==source).map(m=><option key={m.mapId}
                   value={m.mapId}>{m.name}</option>)}
               </select></label>
-            <label>Vizsgált karakterfájl
-              <select aria-label="Vizsgált karakterfájl" value={profile}
-                onChange={e=>{setProfile(e.target.value);setResult(null);}}>
-                <option value="">Válassz egy profil-lenyomatot</option>
-                {survivorIds.map(x=><option key={x.id} value={x.id}>
-                  {x.id.slice(0,12)}… · {x.bytes} bájt</option>)}
+            <label>{sourceEmbedded?"Store-v1 vizsgálati mód":"Vizsgált karakterfájl"}
+              <select aria-label="Vizsgált karakterfájl" value={sourceEmbedded?"embedded":profile}
+                onChange={e=>{setProfile(e.target.value);setResult(null);}}
+                disabled={sourceEmbedded}>
+                {sourceEmbedded?<option value="embedded">
+                  Beágyazott világmentés · játékbeli igazolás szükséges
+                </option>:<>
+                  <option value="">Válassz egy profil-lenyomatot</option>
+                  {survivorIds.map(x=><option key={x.id} value={x.id}>
+                    {x.id.slice(0,12)}… · {x.bytes} bájt</option>)}
+                </>}
               </select></label>
           </div>
           <button type="button" className="primary uk-travel-primary"
@@ -170,7 +183,9 @@ export function StoreTravelWorkbench(){
           </button>
           {result&&<div role="status" className={result.passed?"uk-travel-pass":"uk-travel-warning"}>
             {result.passed?<CheckCircle2 size={19}/>:<AlertTriangle size={19}/>}
-            <div><b>{result.passed?"A fájlszintű karakterelhelyezkedés egyezik.":
+            <div><b>{result.storeModeDetected?
+              "Store-v1 világmentések ellenőrizve – a karakterutazás NEM IGAZOLT.":
+              result.passed?"A külön profilfájlok elhelyezkedése egyezik.":
               "A karakterfolytonosság nem igazolt."}</b>
               <p>10 map · 2 gazdagép · {result.zeroByteFiles} nulla bájtos fájl.
                 Ez nem bizonyítja az ASA játékmeneti utazását vagy az egyetlen Store-írót.</p>
