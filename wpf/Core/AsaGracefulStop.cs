@@ -48,6 +48,7 @@ public static class AsaGracefulStop
         if(map.RconHost!="127.0.0.1"||map.RconPort is <1024 or >65535||
            string.IsNullOrWhiteSpace(map.RconPasswordProtected))
             throw new InvalidDataException("Local RCON is required for graceful stop");
+        FreshAsaInstallationSafety.Demand(cluster,map);
         var owns=listenerOwner??RconPortOwnership.IsOwnedListener;
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
