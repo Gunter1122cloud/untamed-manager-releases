@@ -42,6 +42,11 @@ test.beforeEach(async ({ page }) => {
     let pluginEnabled = true;
     let localBackupMap=one;
     let localBackupSaved=false;
+    (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
+      .__UNTAMED_PROTECT_TEST_MAP__=()=>{
+        Object.assign(state.local.maps[1],{storeProtected:true});
+        localBackupMap=two;localBackupSaved=true;
+      };
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
@@ -450,6 +455,20 @@ test("Mentésközpont calls real native preview/create and displays verified cha
   await expect(page.getByText(/4 fájl · 1 karakter · 1 törzs/)).toBeVisible();
   await expect(page.getByText("1 ellenőrzött csomag")).toBeVisible();
   await page.screenshot({path:"test-results/uk-real-world-backup-1600.png",fullPage:false});
+});
+
+test("historical Store-v1 map allows backup inspection but disables unilateral world restore",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
+      .__UNTAMED_PROTECT_TEST_MAP__?.();
+  });
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  await page.getByRole("combobox",{name:"Mentendő helyi map"}).selectOption(second);
+  await expect(page.getByText(/Store-v1 vagy történeti Store-kapcsolat észlelve/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Visszaállítás"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Világmentés készítése"})).toBeEnabled();
 });
 
 test("Update Center verifies Obsidian-only installer and requires explicit two-stage native approval",async({page})=>{
