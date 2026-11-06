@@ -24,7 +24,7 @@ import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
 import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
 import { FreshAsaStopPanel } from "./FreshAsaStopPanel";
 import { FreshAsaRestartPanel } from "./FreshAsaRestartPanel";
-import type { AsaLifecycleJournal } from "./bridge";
+import type { AsaLifecycleJournal, AsaRestartJournalStatus } from "./bridge";
 import { PluginZipInstaller } from "./PluginZipInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
@@ -1269,10 +1269,14 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const [section,setSection]=useState<MapSection>("overview");
   const [initialSetupSaved,setInitialSetupSaved]=useState(false);
   const [lifecycle,setLifecycle]=useState<AsaLifecycleJournal|null>(null);
+  const [restartJournal,setRestartJournal]=useState<AsaRestartJournalStatus|null>(null);
   useEffect(()=>{setSection("overview");setInitialSetupSaved(false);},[mapId]);
   useEffect(()=>{
     let active=true;
-    setLifecycle(null);
+    setLifecycle(null);setRestartJournal(null);
+    managerBridge.freshAsaRestartCurrent(mapId)
+      .then(v=>{if(active)setRestartJournal(v);})
+      .catch(()=>{if(active)setRestartJournal(null);});
     managerBridge.asaLifecycleJournal(mapId)
       .then(v=>{if(active)setLifecycle(v);})
       .catch(()=>{if(active)setLifecycle(null);});
@@ -1299,6 +1303,11 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       </div>
       <State running={map.running} status={map.status}/>
     </div>
+    {restartJournal?.needsOperatorReview&&<div className="warning-inline" role="alert">
+      <Shield size={17}/> A manuális ASA újraindítás megszakadt ({restartJournal.phase??"ismeretlen"}).
+      Régi PID: {restartJournal.oldPid??"?"}; új PID: {restartJournal.newPid||"nem igazolt"}.
+      A korábbi művelet nem folytatódik automatikusan; kézi Windows/RCON ellenőrzés szükséges.
+    </div>}
     {lifecycle?.needsOperatorReview&&<div className="warning-inline" role="alert">
       <Shield size={17}/> Félbeszakadt helyi ASA-művelet ({lifecycle.kind??"ismeretlen"} / {lifecycle.phase??"ismeretlen"}).
       A korábbi művelet naplója megmaradt; automatikus Start, Stop és ismétlés helyett kézi ellenőrzés szükséges.
@@ -1328,9 +1337,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
           <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A történeti Store-v1 átvétel, automatikus restart és nem igazolt SaveComplete utáni leállítás továbbra is külön védelem alatt áll.</div>
         </Panel>
       </div>
-      {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview)}/>}
-      {map.gamePort>0 && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview)}/>}
-      {map.gamePort>0 && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview)}/>}
+      {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview)}/>}
+      {map.gamePort>0 && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview)}/>}
+      {map.gamePort>0 && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview)}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
