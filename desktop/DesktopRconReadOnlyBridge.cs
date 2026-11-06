@@ -18,7 +18,7 @@ public sealed class DesktopRconReadOnlyBridge
 {
     private readonly ClusterService cluster;
     private readonly Func<int,int,bool> ownsPort;
-    private readonly Func<string,int,string,string,CancellationToken,Task<string>> send;
+    private readonly Func<string,int,string,string,Action,CancellationToken,Task<string>> send;
     private readonly SemaphoreSlim serial=new(1,1);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
@@ -28,7 +28,21 @@ public sealed class DesktopRconReadOnlyBridge
     {
         this.cluster=cluster??throw new ArgumentNullException(nameof(cluster));
         ownsPort=portOwner??RconPortOwnership.IsOwnedListener;
-        send=dispatch??RconProtocol.Execute;
+        send=dispatch==null
+            ?async(host,port,password,command,recheck,ct)=>{
+                if(command=="SaveWorld")
+                {
+                    await RconProtocol.DispatchOwnedSaveWorldAsync(
+                        port,password,recheck,ct);
+                    return "SAVEWORLD_DISPATCHED_NOT_COMPLETED";
+                }
+                recheck();
+                return await RconProtocol.Execute(host,port,password,command,ct);
+            }
+            :(host,port,password,command,recheck,ct)=>{
+                recheck();
+                return dispatch(host,port,password,command,ct);
+            };
     }
 
     public async Task<string> HandleAsync(string raw)
@@ -99,7 +113,19 @@ public sealed class DesktopRconReadOnlyBridge
                     "rcon.chatLog"=>"GetChat",
                     _=>"ListPlayers"
                 };
-                string answer=await send("127.0.0.1",map.RconPort,password,command,timeout.Token);
+                void VerifyOwned()
+                {
+                    var live=cluster.Check(map);
+                    if(!live.Running||live.ConfirmedStopped||
+                       live.Identity is not {Pid:>0} active||
+                       active.Pid!=identity.Pid||
+                       active.StartedUtc!=identity.StartedUtc||
+                       !ownsPort(map.RconPort,identity.Pid))
+                        throw new InvalidOperationException(
+                            "UM-RCON-POST-AUTH-OWNER-CHANGED");
+                }
+                string answer=await send("127.0.0.1",map.RconPort,password,command,
+                    VerifyOwned,timeout.Token);
                 var after=cluster.Check(map);
                 if(!after.Running || after.Identity==null ||
                    after.Identity.Pid!=identity.Pid ||
