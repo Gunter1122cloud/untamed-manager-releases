@@ -58,6 +58,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopCredentialBridge _credentials;
     private readonly DesktopModDraftBridge _modDrafts;
     private readonly DesktopPluginStateBridge _pluginState;
+    private readonly DesktopPluginZipBridge _pluginZip;
     private readonly DesktopIniBridge _iniEditor;
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
     private readonly DesktopCurseForgeDiscoveryBridge _modCatalog;
@@ -84,6 +85,7 @@ public sealed class ObsidianWindow : Form
         _updateInstall = new DesktopObsidianUpdateInstallBridge(_bridge.LocalCluster);
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
         _pluginState = new DesktopPluginStateBridge(_bridge.LocalCluster);
+        _pluginZip = new DesktopPluginZipBridge(_bridge.LocalCluster);
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
         _mapRegistry = new DesktopLocalMapRegistryBridge(_bridge.LocalCluster);
         _modCatalog = new DesktopCurseForgeDiscoveryBridge(_bridge.LocalCluster);
@@ -146,6 +148,7 @@ public sealed class ObsidianWindow : Form
             _iniEditor.Dispose();
             _modDrafts.Dispose();
             _pluginState.Dispose();
+            _pluginZip.Dispose();
             _credentials.Dispose();
             _ = _bridge.DisposeAsync();
         };
@@ -211,6 +214,7 @@ public sealed class ObsidianWindow : Form
                 bool initialRoute = false;
                 bool historicalRoute = false;
                 bool pluginStateRoute = false;
+                bool pluginZipRoute = false;
                 bool updateRoute = false;
                 bool updateInstallRoute = false;
                 bool rconRoute = false;
@@ -241,6 +245,7 @@ public sealed class ObsidianWindow : Form
                             "backup.create" or "backup.restorePreview" or "backup.restore";
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
+                        pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
@@ -267,7 +272,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = stoppedSteamRoute ? await _steamUpdate.HandleAsync(incoming)
+                    string response = pluginZipRoute ? await _pluginZip.HandleAsync(incoming)
+                        : stoppedSteamRoute ? await _steamUpdate.HandleAsync(incoming)
                         : rconConfigRoute ? await _rconConfig.HandleAsync(incoming)
                         : rconAdminRoute ? await _rconAdmin.HandleAsync(incoming)
                         : worldBackupRoute ? await _worldBackup.HandleAsync(incoming)
