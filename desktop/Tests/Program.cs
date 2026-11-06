@@ -461,6 +461,18 @@ try
     {
         var fresh=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
         int calls=0;
+        var localGameBind=new[]{
+            new System.Net.IPEndPoint(System.Net.IPAddress.Any,fresh.GamePort)};
+        var localQueryBind=new[]{
+            new System.Net.IPEndPoint(System.Net.IPAddress.IPv6Any,fresh.QueryPort)};
+        var localRconBind=new[]{
+            new System.Net.IPEndPoint(System.Net.IPAddress.Loopback,fresh.RconPort)};
+        var noPorts=Array.Empty<System.Net.IPEndPoint>();
+        Check(!AsaLocalPortPreflight.CanStart(fresh,localGameBind,noPorts) &&
+              !AsaLocalPortPreflight.CanStart(fresh,localQueryBind,noPorts) &&
+              !AsaLocalPortPreflight.CanStart(fresh,noPorts,localRconBind) &&
+              AsaLocalPortPreflight.CanStart(fresh,noPorts,noPorts),
+            "OS game/query UDP or RCON TCP port conflicts deny real ASA start");
         using var starter=new DesktopFreshAsaStartBridge(cluster,(id,approved)=>{
             Check(approved && id==fresh.Id,"native launch receives exact approved local map");
             calls++;
