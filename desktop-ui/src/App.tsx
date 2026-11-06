@@ -23,6 +23,7 @@ import { UpdateCenterPage } from "./UpdateCenterPage";
 import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
 import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
 import { FreshAsaStopPanel } from "./FreshAsaStopPanel";
+import type { AsaLifecycleJournal } from "./bridge";
 import { PluginZipInstaller } from "./PluginZipInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
@@ -1266,7 +1267,16 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
 }) {
   const [section,setSection]=useState<MapSection>("overview");
   const [initialSetupSaved,setInitialSetupSaved]=useState(false);
+  const [lifecycle,setLifecycle]=useState<AsaLifecycleJournal|null>(null);
   useEffect(()=>{setSection("overview");setInitialSetupSaved(false);},[mapId]);
+  useEffect(()=>{
+    let active=true;
+    setLifecycle(null);
+    managerBridge.asaLifecycleJournal(mapId)
+      .then(v=>{if(active)setLifecycle(v);})
+      .catch(()=>{if(active)setLifecycle(null);});
+    return ()=>{active=false;};
+  },[mapId]);
   const map=snapshot.local.maps.find(m=>m.id===mapId);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   const sections: Array<{id:MapSection;name:string}>=[
@@ -1288,6 +1298,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       </div>
       <State running={map.running} status={map.status}/>
     </div>
+    {lifecycle?.needsOperatorReview&&<div className="warning-inline" role="alert">
+      <Shield size={17}/> Félbeszakadt helyi ASA-művelet ({lifecycle.kind??"ismeretlen"} / {lifecycle.phase??"ismeretlen"}).
+      A korábbi művelet naplója megmaradt; automatikus Start, Stop és ismétlés helyett kézi ellenőrzés szükséges.
+    </div>}
     <div className="map-detail-tabs" role="tablist" aria-label="Map funkciói">
       {sections.map(item=><button type="button" key={item.id} role="tab"
         aria-selected={section===item.id}
@@ -1313,8 +1327,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
           <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A történeti Store-v1 átvétel, automatikus restart és nem igazolt SaveComplete utáni leállítás továbbra is külön védelem alatt áll.</div>
         </Panel>
       </div>
-      {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured}/>}
-      {map.gamePort>0 && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
+      {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview)}/>}
+      {map.gamePort>0 && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview)}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
