@@ -176,7 +176,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <span>Aktív modok sorrendje</span><strong>{launchEvidence.modOrderStatus}</strong>
           <span>Passzív modok sorrendje</span><strong>{launchEvidence.passiveModOrderStatus}</strong>
           <span>Eredeti belső clusterazonosító / könyvtár</span><strong>{launchEvidence.clusterIdStatus} / {launchEvidence.clusterPathPresent?"Megadva, nem igazolt":"Nem igazolt"}</strong>
-          <span>-usestore kapcsoló</span><strong>{launchEvidence.useStorePresent?"Megadva":"Nem igazolt"}</strong>
+          <span>-usestore kapcsoló</span><strong>{launchEvidence.useStorePresent?
+            (launchEvidence.storeFlagCount===1?"Pontosan egyszer":"VESZÉLY: többször szerepel"):"Nem igazolt"}</strong>
+          <span>Eredeti forrás szerinti indítási kapcsolók</span>
+          <strong>{launchEvidence.canonicalSourceFlagsObserved?"Szintaxis egyezik – eredet nem igazolt":
+            "Indítási kapcsolók nem teljesen egyeznek a forrásmintával"}</strong>
           <span>-converttostore</span><strong>{launchEvidence.conversionFlagPresent?"VESZÉLY: szerepel":"Nem található"}</strong>
           <span>Éles indítás</span><strong>TILTOTT</strong>
           <span>Hiányosságok</span><strong>{launchEvidence.findings.join(", ")||"Nem észlelt szöveges eltérés – eredet továbbra sem igazolt"}</strong>
