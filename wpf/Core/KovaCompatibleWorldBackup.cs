@@ -316,6 +316,8 @@ public static class KovaCompatibleWorldBackup
             if(!Scan(world,key).SequenceEqual(current))
                 throw new IOException("UM-BACKUP-CURRENT-WORLD-CHANGED");
             beforeSwap?.Invoke();
+            // Crash during the swap must leave a NEEDS_OPERATOR journal.
+            lease.MarkMutationStarted();
             // Durable recovery marker precedes every rename, exactly like Kova.
             WriteDurable(marker,JsonSerializer.Serialize(new{
                 schema=1,owner=map.Id,map=key,point,protective=protective.Id,
