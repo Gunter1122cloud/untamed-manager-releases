@@ -1415,11 +1415,15 @@ public partial class MainWindow
         var host=new TextBox{Text=_cluster.Config.LocalHostName};
         var listen=new TextBox{Text=_cluster.Config.ListenPort.ToString()};
         var remote=new TextBox{Text=_cluster.Config.PeerAddress};
+        var peerHostId=new TextBox{Text=_cluster.Config.ExpectedPeerHostId};
         var remotePort=new TextBox{Text=_cluster.Config.PeerPort.ToString()};
         var key=new PasswordBox();
         Add(Box(V(Label("Saját gép neve",13,Aqua),host,
             Label("LAN figyelőport (0 = kikapcsolva)",13,Aqua),listen,
-            Label("Peer helyi IP / hostnév",13,Aqua),remote,
+            Label("Saját Host ID (a másik Managerben kell megadni)",13,Aqua),
+            new TextBox{Text=_cluster.Config.LocalHostId,IsReadOnly=true},
+            Label("Peer helyi IPv4",13,Aqua),remote,
+            Label("Elvárt távoli Host ID (kötelező)",13,Aqua),peerHostId,
             Label("Peer TCP port",13,Aqua),remotePort,
             Label("Közös párosítási titok · min. 24 karakter · mindkét gépen azonos",13,Aqua),
             key,
@@ -1429,10 +1433,21 @@ public partial class MainWindow
                         throw new InvalidDataException("Érvénytelen listen port");
                     if(!int.TryParse(remotePort.Text,out int peer)||peer is < 0 or >65535)
                         throw new InvalidDataException("Érvénytelen peer port");
+                    if(port>0||peer>0)
+                    {
+                        if(port==0||peer<1024 ||
+                           !System.Net.IPAddress.TryParse(remote.Text.Trim(),out var peerIp)||
+                           peerIp.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork ||
+                           !Guid.TryParse(peerHostId.Text,out var pinnedId)||
+                           pinnedId==Guid.Empty ||
+                           pinnedId==Guid.Parse(_cluster.Config.LocalHostId))
+                            throw new InvalidDataException("LAN peer IPv4 és a másik gép Host ID-ja kötelező");
+                    }
                     _cluster.UpdateSettings(config=>{
                         config.LocalHostName=host.Text.Trim();
                         config.ListenPort=port; config.PeerAddress=remote.Text.Trim();
                         config.PeerPort=peer;
+                        config.ExpectedPeerHostId=peerHostId.Text.Trim();
                         if(key.Password.Length>0)
                         {
                             if(key.Password.Length<24)throw new InvalidDataException("A párosítási kulcs túl rövid");
