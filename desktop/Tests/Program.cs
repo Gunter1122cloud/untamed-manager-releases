@@ -529,6 +529,10 @@ try
                   !status.GetProperty("autoResumeAllowed").GetBoolean() &&
                   status.GetProperty("phase").GetString()=="NeedsOperator",
                 "interrupted per-host Steam update refuses automatic retry");
+            var blocked=await Call(updater.HandleAsync,"steam.stoppedPreview",
+                new{mapId=target.Id});
+            Check(IsError(blocked,"UM-STEAM-JOURNAL-NEEDS-REVIEW"),
+                "native update preflight cannot bypass interrupted persistent queue");
         }
         finally{File.Delete(journalPath);}
     }
