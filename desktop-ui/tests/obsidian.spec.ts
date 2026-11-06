@@ -264,6 +264,8 @@ test.beforeEach(async ({ page }) => {
           files:12,maps:10,peers:2,sessionConsistent:true,
           configHashesVerified:true,activeStoreRecords:true,
           completeTwoHostEvidence:false,historicalConsistent:false,
+          historicalActiveProtocolShape:false,
+          historicalStartBlockers:["STORE_CONFIG_HASH_MISMATCH"],
           findings:["LocalLock"],
           hosts:[{number:1,maps:5,localEvidence:true,sessionMatches:true,
             configHashMatches:false,lockMatches:false,activeMaps:true},
