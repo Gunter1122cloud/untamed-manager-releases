@@ -106,11 +106,42 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             id=requestId.ToString("D");
             string? method=field.GetString();
             if(method is not ("steam.stoppedPreview" or
-                "steam.stoppedApply" or "steam.stoppedStatus"))
+                "steam.stoppedApply" or "steam.stoppedStatus" or "steam.stoppedCurrent"))
                 return Fail(id,"UM-METHOD-DENIED");
             await mutex.WaitAsync();
             try
             {
+                if(method=="steam.stoppedCurrent")
+                {
+                    // Recovery is observational. Only the Core journal can
+                    // establish a completed queue after a Manager UI restart.
+                    var journal=new SteamSerialMaintenanceQueue(
+                        cluster.Store.Root,cluster.Config.LocalHostId).Observe();
+                    if(journal==null)
+                        return Ok(id,new{exists=false,needsOperatorReview=false,
+                            autoResumeAllowed=false});
+                    bool active=false;
+                    if(job!=null)
+                    {
+                        lock(sync)active=job.State is "queued" or "running";
+                    }
+                    bool needsReview=!active && journal.Phase is
+                        (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
+                            or SteamQueuePhase.NeedsOperator);
+                    string? mapName=cluster.Config.LocalMaps.FirstOrDefault(
+                        m=>m.Id==journal.ActiveMap)?.Name;
+                    return Ok(id,new{
+                        exists=true,queueId=journal.QueueId,
+                        phase=journal.Phase.ToString(),
+                        activeMapName=mapName,
+                        nextIndex=journal.NextIndex,total=journal.MapIds.Length,
+                        changedUtc=journal.ChangedUtc,
+                        summary=journal.Summary,
+                        needsOperatorReview=needsReview,autoResumeAllowed=false,
+                        hostName=cluster.Config.LocalHostName,
+                        evidence="DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL"
+                    });
+                }
                 if(method=="steam.stoppedStatus")
                 {
                     if(!GuidField(data,"jobId",out var jobId)||
