@@ -31,6 +31,7 @@ import { PluginZipInstaller } from "./PluginZipInstaller";
 import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { LocalModCopyPanel } from "./LocalModCopyPanel";
+import { OfflineAsaArchivePanel } from "./OfflineAsaArchivePanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
@@ -916,6 +917,7 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
         visszaállítás. Az éles kétgépes Store-v1 konzisztencia ettől külön igazolandó.</p>
     </div>
     <WorldBackupControls maps={snapshot.local.maps} selectedMap={mapId}/>
+    <OfflineAsaArchivePanel/>
     <div className="premium-backup-metrics">
       <div><span className="premium-backup-icon"><Archive size={24}/></span>
         <b>{scope.length}</b><span>Map</span><small>Mentésleltárban</small></div>
