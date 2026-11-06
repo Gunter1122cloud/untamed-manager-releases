@@ -994,6 +994,85 @@ try
             "broken historical metadata is reported without erasing valid local mod assignments");
     }
 
+    // REAL localhost Source RCON wire test: fake isolated TCP server, no ASA.
+    // This catches the old bug where the admin bridge called read-only
+    // RconProtocol.Execute and silently refused Broadcast/wildWipe.
+    {
+        using var socketDeadline=new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        using var listener=new System.Net.Sockets.TcpListener(
+            System.Net.IPAddress.Loopback,0);
+        listener.Start();
+        int rconPort=((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        async Task<(int Id,int Type,string Body)> ReadWire(
+            System.Net.Sockets.NetworkStream stream,CancellationToken ct)
+        {
+            var header=new byte[4];
+            await stream.ReadExactlyAsync(header,ct);
+            int count=System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(header);
+            if(count is <10 or >8192)throw new InvalidDataException("Fake RCON frame length");
+            var payload=new byte[count];
+            await stream.ReadExactlyAsync(payload,ct);
+            int id=System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(
+                payload.AsSpan(0,4));
+            int type=System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(
+                payload.AsSpan(4,4));
+            string message=Encoding.UTF8.GetString(payload,8,count-10);
+            return(id,type,message);
+        }
+        async Task WriteWire(System.Net.Sockets.NetworkStream stream,
+            int id,int type,string body,CancellationToken ct)
+        {
+            byte[] data=Encoding.UTF8.GetBytes(body);
+            byte[] frame=new byte[14+data.Length];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(
+                frame.AsSpan(0,4),10+data.Length);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(
+                frame.AsSpan(4,4),id);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(
+                frame.AsSpan(8,4),type);
+            data.CopyTo(frame.AsSpan(12));
+            await stream.WriteAsync(frame,ct);
+            await stream.FlushAsync(ct);
+        }
+        bool authReceived=false,verifiedAfterAuth=false;
+        string commandReceived="";
+        Task mockServer=Task.Run(async()=>{
+            using var client=await listener.AcceptTcpClientAsync(socketDeadline.Token);
+            using var stream=client.GetStream();
+            var auth=await ReadWire(stream,socketDeadline.Token);
+            Check(auth.Type==3 && auth.Body=="LOCAL-RCON-WIRE-TEST-PASSWORD",
+                "fake Source RCON server receives expected native auth request");
+            authReceived=true;
+            await WriteWire(stream,auth.Id,2,"",socketDeadline.Token);
+            var command=await ReadWire(stream,socketDeadline.Token);
+            Check(command.Type==2 && verifiedAfterAuth,
+                "native permission check runs after authentication and before command bytes");
+            commandReceived=command.Body;
+        });
+        string dispatched=await RconProtocol.DispatchApprovedAdminAsync(
+            "127.0.0.1",rconPort,"LOCAL-RCON-WIRE-TEST-PASSWORD",
+            "Broadcast Untamed native one-shot",
+            ()=>{Check(authReceived,"admin command authorization occurs after RCON login");
+                verifiedAfterAuth=true;},socketDeadline.Token);
+        await mockServer.WaitAsync(socketDeadline.Token);
+        Check(commandReceived=="Broadcast Untamed native one-shot" &&
+              dispatched=="ADMIN_RCON_DISPATCHED_EXECUTION_NOT_VERIFIED",
+            "real localhost RCON Broadcast writes one packet and does not pretend execution succeeded");
+        bool directReadOnlyDenied=false;
+        try{await RconProtocol.Execute("127.0.0.1",rconPort,
+            "LOCAL-RCON-WIRE-TEST-PASSWORD","Broadcast denied",socketDeadline.Token);}
+        catch(InvalidOperationException){directReadOnlyDenied=true;}
+        Check(directReadOnlyDenied,
+            "unapproved read-only RCON endpoint still refuses admin mutations");
+        bool lifecycleDenied=false;
+        try{await RconProtocol.DispatchApprovedAdminAsync("127.0.0.1",rconPort,
+            "LOCAL-RCON-WIRE-TEST-PASSWORD","admincheat DoExit",
+            ()=>{},socketDeadline.Token);}
+        catch(UnauthorizedAccessException){lifecycleDenied=true;}
+        Check(lifecycleDenied,
+            "admincheat-prefixed shutdown cannot bypass separately approved Stop");
+    }
+
     // Read-only RCON uses an isolated synthetic process identity and injected
     // fake ListPlayers response. This must never reach live ASA or real SQL.
     {
