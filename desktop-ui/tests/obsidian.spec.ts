@@ -73,6 +73,9 @@ test.beforeEach(async ({ page }) => {
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
     const pluginJsonToken="00000000-0000-4000-8000-000000001262";
     let pluginJsonModified=false;
+    const restoreLabToken="00000000-0000-4000-8000-000000001263";
+    const restoreLabJob="00000000-0000-4000-8000-000000001264";
+    let restoreLabApproved=false;
     const offlineArchiveToken="00000000-0000-4000-8000-000000001260";
     const offlineArchiveJob="00000000-0000-4000-8000-000000001261";
     let offlineArchiveApproved=false;
@@ -469,6 +472,28 @@ test.beforeEach(async ({ page }) => {
             asaPluginReloaded:false,requiresRestart:true,storeTouched:false,
             sqlUsed:false,evidence:"ATOMIC_STOPPED_LOCAL_PLUGIN_JSON_WITH_PROTECTIVE_BAK"};
         case "plugins.jsonClose":return {closed:true};
+        case "cluster.restoreLabPreview":
+          restoreLabApproved=false;
+          return {token:restoreLabToken,archiveName:"Untamed-ASA-Offline-synthetic",
+            verified:false,requiresExplicitApproval:true,
+            target:"FRESH_ISOLATED_TEMP_FOLDER_ONLY",sqlUsed:false,
+            productionRestoreAllowed:false,evidence:"NATIVE_ARCHIVE_PICKER_NO_DISK_CHANGES"};
+        case "cluster.restoreLabApply":
+          if(m.token!==restoreLabToken||m.confirm!==true||restoreLabApproved)
+            throw new Error("UM-ASARESTORE-APPROVAL-REQUIRED");
+          restoreLabApproved=true;
+          return {jobId:restoreLabJob,started:true,sqlUsed:false,
+            productionRestoreAllowed:false,
+            evidence:"ISOLATED_RESTORE_LAB_JOB_STARTED"};
+        case "cluster.restoreLabStatus":
+          if(m.jobId!==restoreLabJob||!restoreLabApproved)
+            throw new Error("UM-ASARESTORE-JOB-UNKNOWN");
+          return {jobId:restoreLabJob,state:"completed",stage:"LAB_FILE_HASHES_VERIFIED",
+            labName:"Untamed-AsaRestore-Lab-synthetic",maps:10,files:12,
+            changedUtc:"2026-11-07T00:00:00Z",
+            gameplayRestoredVerified:false,storeWriterVerified:false,
+            productionRestoreAllowed:false,sqlUsed:false,
+            evidence:"ISOLATED_TEMP_RESTORE_FILE_INTEGRITY_ONLY"};
         case "cluster.offlinePreview":
           offlineArchiveApproved=false;
           return {token:offlineArchiveToken,hpCopies:5,ryzenCopies:5,
@@ -1573,6 +1598,23 @@ test("Plugin Center uses native stopped-map JSON editing with preview and protec
   await approval.getByRole("checkbox").check();
   await approval.getByRole("button",{name:"Mentés véglegesítése"}).click();
   await expect(editor).toContainText("védőmásolattal");
+});
+
+test("SQL-free restore always targets isolated TEMP lab and requires explicit consent",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const panel=page.getByRole("region",{name:"SQL-mentes próba-visszaállítás"});
+  await expect(panel).toBeVisible();
+  await panel.getByRole("button",{name:"Offline archívum kiválasztása"}).click();
+  const approval=panel.getByRole("region",{name:"Próba-visszaállítás jóváhagyása"});
+  await expect(approval).toContainText("Untamed-ASA-Offline-synthetic");
+  await expect(approval).toContainText("TEMP laborba");
+  await expect(approval.getByRole("button",{name:"Próba-visszaállítás jóváhagyása"})).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"Próba-visszaállítás jóváhagyása"}).click();
+  await panel.getByRole("button",{name:"Státusz frissítése"}).click();
+  await expect(panel).toContainText("10 map, 12 világfájl SHA-256 ellenőrizve");
+  await expect(panel).toContainText("Játékbeli működés nem igazolt");
 });
 
 test("SQL-free offline cluster archive requires four native folders and explicit approval",async ({page})=>{
