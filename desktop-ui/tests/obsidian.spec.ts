@@ -440,7 +440,7 @@ test("Mentésközpont calls real native preview/create and displays verified cha
   await expect(page.getByRole("heading",{name:"Mentésközpont"})).toBeVisible();
   await expect(page.getByRole("heading",{name:"Valódi világmentés és védett visszaállítás"})).toBeVisible();
   await expect(page.getByRole("button",{name:"Világmentés készítése"})).toBeDisabled();
-  await page.getByRole("combobox",{name:"Mentendő helyi map"}).selectOption(two);
+  await page.getByRole("combobox",{name:"Mentendő helyi map"}).selectOption(second);
   await expect(page.getByRole("button",{name:"Világmentés készítése"})).toBeEnabled();
   await page.getByRole("button",{name:"Világmentés készítése"}).click();
   await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toBeVisible();
