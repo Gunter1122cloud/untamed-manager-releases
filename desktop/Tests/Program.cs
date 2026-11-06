@@ -2200,6 +2200,53 @@ try
         "Untamed-Manager-migration-fixture.zip");
     string originalZipSha=Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(oldArchive)));
+    // The verified 39-file historical ZIP must correspond byte-for-byte to
+    // the previous Manager's actual four local Store metadata files. All
+    // writes below affect a disposable synthetic TEST directory only.
+    string parityLocal=Path.Combine(root,"original-local-source-fixture");
+    Directory.CreateDirectory(parityLocal);
+    using(var historicalZip=System.IO.Compression.ZipFile.OpenRead(oldArchive))
+        foreach(string name in new[]{
+            "cluster-v1.json","cluster-store-v1.json",
+            "shared-store-device-v1.json","shared-store-lock-v1.json"})
+        {
+            var entry=historicalZip.Entries.Single(e=>
+                e.FullName.Replace('\\','/').Equals("Kova/"+name,
+                    StringComparison.OrdinalIgnoreCase));
+            using var source=entry.Open();
+            using var target=File.Create(Path.Combine(parityLocal,name));
+            source.CopyTo(target);
+        }
+    var matchingParity=LegacyStoreV1ArchiveParity.Inspect(oldArchive,parityLocal);
+    Check(matchingParity.ArchiveVerified&&matchingParity.AllFourExactlyMatch &&
+          matchingParity.Files.Length==4 && matchingParity.LocalStoreActive &&
+          !matchingParity.LiveTwoHostVerified &&
+          !matchingParity.CharacterTravelVerified,
+        "original four local Store-v1 metadata files match verified 39-file archive without production authority");
+    using(var originalParity=new DesktopHistoricalStoreImportBridge(cluster,
+        _=>new ProcessCheck(false,"Synthetic stopped",null,true),parityLocal))
+    {
+        var ok=await Call(originalParity.HandleAsync,"historical.localParity",
+            new{archive=oldArchive});
+        IsOk(ok,"native historical Store archive parity works through WebView2 boundary");
+        Check(ok.GetProperty("data").GetProperty("allFourExactlyMatch").GetBoolean() &&
+              !ok.GetProperty("data").GetProperty("productionUseAllowed").GetBoolean() &&
+              !ok.ToString().Contains(parityLocal,StringComparison.OrdinalIgnoreCase),
+            "original-vs-local parity does not disclose source roots or grant Store write");
+        var rejected=await Call(originalParity.HandleAsync,"historical.localParity",
+            new{archive=@"\\192.0.2.1\invalid-store.zip"});
+        Check(IsError(rejected,"UM-STORE-PARITY-FAILED"),
+            "remote UNC archive cannot be used for original Store parity");
+    }
+    File.AppendAllText(Path.Combine(parityLocal,"cluster-v1.json")," ");
+    var stale=LegacyStoreV1ArchiveParity.Inspect(oldArchive,parityLocal);
+    Check(!stale.AllFourExactlyMatch&&stale.Files.Count(f=>!f.ExactlySame)==1 &&
+          stale.Files.Single(f=>!f.ExactlySame).Kind=="cluster",
+        "changed local metadata invalidates archive byte parity without altering historic source");
+    Check(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        File.ReadAllBytes(oldArchive)))==originalZipSha,
+        "parity checks never modify original historical ZIP");
+
     using(var generic=new DesktopLocalMapRegistryBridge(cluster))
     {
         var denied=await Call(generic.HandleAsync,"servers.inspectLocal",
