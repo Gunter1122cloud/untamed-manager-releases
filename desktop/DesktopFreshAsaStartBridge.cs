@@ -29,7 +29,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         Func<Guid,bool,ProcessIdentity>? starter=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
-        launch=starter??cluster.LaunchFreshAsa;
+        launch=starter??((mapId,approved)=>cluster.LaunchFreshAsa(mapId,approved));
     }
 
     private LocalMap? Owned(Guid id)=>
