@@ -143,7 +143,7 @@ try
     // protocol must reply to an authenticated peer and reject wrong secrets.
     // This never opens or contacts an actual cluster machine.
     {
-        using var probe=new System.Net.Sockets.TcpListener(
+        var probe=new System.Net.Sockets.TcpListener(
             System.Net.IPAddress.Loopback,0);
         probe.Start();
         int freePort=((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
