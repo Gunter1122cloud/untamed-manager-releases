@@ -44,6 +44,19 @@ var map=new LocalMap{
         "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
 };
 cluster.AddMap(map);
+// The shipping desktop is deliberately SQL-free. Historical WPF sources
+// must never be linked into or activated by the deployed app.
+{
+    var application=typeof(DesktopReadOnlyBridge).Assembly;
+    foreach(string forbidden in new[]{
+        "UntamedManager.Core.MariaDbCompatibility",
+        "UntamedManager.Core.MariaDbDumpAdapter",
+        "UntamedManager.Core.OfflineSqlArchive",
+        "UntamedManager.Core.OfflineClusterBackup",
+        "UntamedManager.Core.ClusterRestoreCoordinator"})
+        Check(application.GetType(forbidden,false)==null,
+            "shipping desktop excludes old SQL and 3-SQL restore: "+forbidden);
+}
 // The real dashboard once compared N-format LAN IDs with D-format owned map
 // IDs and silently hid maintenance / Store protection / RCON flags.
 Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
