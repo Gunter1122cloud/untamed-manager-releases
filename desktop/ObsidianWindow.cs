@@ -58,6 +58,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopCredentialBridge _credentials;
     private readonly DesktopModDraftBridge _modDrafts;
     private readonly DesktopModCopyBridge _modCopy;
+    private readonly DesktopModProfileBridge _modProfiles;
     private readonly DesktopOfflineAsaArchiveBridge _offlineClusterArchive;
     private readonly DesktopOfflineAsaRestoreBridge _offlineRestoreLab;
     private readonly DesktopPluginStateBridge _pluginState;
@@ -96,6 +97,7 @@ public sealed class ObsidianWindow : Form
         _updateInstall = new DesktopObsidianUpdateInstallBridge(_bridge.LocalCluster);
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
         _modCopy = new DesktopModCopyBridge(_bridge.LocalCluster);
+        _modProfiles = new DesktopModProfileBridge(_bridge.LocalCluster);
         _offlineClusterArchive = new DesktopOfflineAsaArchiveBridge();
         _offlineRestoreLab = new DesktopOfflineAsaRestoreBridge();
         _pluginState = new DesktopPluginStateBridge(_bridge.LocalCluster);
@@ -180,6 +182,7 @@ public sealed class ObsidianWindow : Form
             _iniEditor.Dispose();
             _modDrafts.Dispose();
             _modCopy.Dispose();
+            _modProfiles.Dispose();
             _offlineClusterArchive.Dispose();
             _offlineRestoreLab.Dispose();
             _pluginState.Dispose();
@@ -245,6 +248,7 @@ public sealed class ObsidianWindow : Form
                 bool credentialRoute = false;
                 bool draftRoute = false;
                 bool modCopyRoute = false;
+                bool modProfileRoute = false;
                 bool offlineClusterArchiveRoute = false;
                 bool offlineRestoreLabRoute = false;
                 bool iniRoute = false;
@@ -310,6 +314,8 @@ public sealed class ObsidianWindow : Form
                         apiCoreRoute = name is "api.coreRelease" or "api.corePreview" or "api.coreApply" or
                             "api.coreRollbackCandidates" or "api.coreRollbackPreview" or "api.coreRollbackApply";
                         modCopyRoute = name is "mods.copyPreview" or "mods.copyApply";
+                        modProfileRoute = name is "mods.profileExport" or
+                            "mods.profileImportPreview" or "mods.profileImportApply";
                         offlineClusterArchiveRoute = name is "cluster.offlinePreview" or
                             "cluster.offlineApply" or "cluster.offlineStatus";
                         offlineRestoreLabRoute = name is "cluster.restoreLabPreview" or
@@ -364,6 +370,7 @@ public sealed class ObsidianWindow : Form
                         : pluginStateRoute ? await _pluginState.HandleAsync(incoming)
                         : offlineRestoreLabRoute ? await _offlineRestoreLab.HandleAsync(incoming)
                         : offlineClusterArchiveRoute ? await _offlineClusterArchive.HandleAsync(incoming)
+                        : modProfileRoute ? await _modProfiles.HandleAsync(incoming)
                         : modCopyRoute ? await _modCopy.HandleAsync(incoming)
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
                             : iniRoute ? await _iniEditor.HandleAsync(incoming)
