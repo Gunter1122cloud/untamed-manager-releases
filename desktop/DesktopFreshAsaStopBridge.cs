@@ -58,7 +58,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
             StringComparison.OrdinalIgnoreCase)&&a.Arguments==b.Arguments;
     private ProcessIdentity Require(LocalMap map)
     {
-        if(map.HistoricalStoreProtected||map.Maintenance||
+        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||map.Maintenance||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
            (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
                StringComparison.OrdinalIgnoreCase)||
