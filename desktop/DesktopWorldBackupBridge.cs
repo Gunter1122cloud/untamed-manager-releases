@@ -96,7 +96,7 @@ public sealed class DesktopWorldBackupBridge
                         map,cluster.Store.Root));
                     return Ok(id,new{
                         mapId=map.Id,mapName=map.Name,
-                        recoveryRequired=KovaCompatibleWorldBackup.RecoveryRequired(map),
+                        recoveryRequired=KovaCompatibleWorldBackup.InstallationRecoveryRequired(map),
                         points=points.Select(x=>new{
                             id=x.Id,createdUtc=x.CreatedUtc,kind=x.Kind,
                             files=x.Files,bytes=x.Bytes,characters=x.Characters,tribes=x.Tribes,
@@ -117,7 +117,7 @@ public sealed class DesktopWorldBackupBridge
                     var map=Owned(mid);
                     UniqueWorldDirectory(map);
                     Stopped(map);
-                    if(KovaCompatibleWorldBackup.RecoveryRequired(map))
+                    if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
                         return Fail(id,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED");
                     var key=KovaCompatibleWorldBackup.MapKey(map);
                     string point="";
