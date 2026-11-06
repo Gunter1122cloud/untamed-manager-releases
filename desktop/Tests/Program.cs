@@ -1185,7 +1185,8 @@ try
             new{mapId=fakeMap.Id,confirm=true,command="DestroyWildDinos"});
         IsOk(savedWorld,"real fixed SaveWorld dispatch reached verified synthetic ASA RCON");
         Check(dispatched==2 &&
-              savedWorld.GetProperty("data").GetProperty("rconAcknowledged").GetBoolean() &&
+              !savedWorld.GetProperty("data").GetProperty("rconAcknowledged").GetBoolean() &&
+              savedWorld.GetProperty("data").GetProperty("rconCommandDispatched").GetBoolean() &&
               !savedWorld.GetProperty("data").GetProperty("diskSaveCompletionProven").GetBoolean() &&
               !savedWorld.GetProperty("data").GetProperty("worldFilesTouchedByManager").GetBoolean() &&
               !savedWorld.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal),
