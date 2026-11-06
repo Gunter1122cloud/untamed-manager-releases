@@ -110,7 +110,7 @@ try
     rejected=false;try{MariaDbDumpAdapter.Verify(package,owner);}catch(InvalidDataException){rejected=true;}
     Check(rejected,"modified SQL archive is refused before import");
     Check(!Directory.GetFiles(Path.Combine(root,"private-options"),"client.cnf",SearchOption.AllDirectories).Any(),"temporary credential files are removed after SQL operations");
-    Console.WriteLine("PASS REAL MariaDB 10.11.19 dump/empty-target restore; no production database accessed");
+    Console.WriteLine("PASS REAL MariaDB 11.4.13 dump/empty-target restore; no production database accessed");
 }
 finally
 {
