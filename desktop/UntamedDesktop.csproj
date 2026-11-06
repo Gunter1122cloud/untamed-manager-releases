@@ -17,7 +17,12 @@
        This migration does not move or modify production Core or the WPF build. -->
   <ItemGroup>
     <Compile Remove="Tests/**/*.cs" />
-    <Compile Include="../wpf/Core/*.cs" Link="Core/%(Filename)%(Extension)" />
+    <!-- The desktop Manager is database-free. Historical SQL fixtures and
+         the obsolete 10-map+3-SQL archive remain only in the untouched
+         legacy WPF/testing code, not in this desktop executable. -->
+    <Compile Include="../wpf/Core/*.cs"
+             Exclude="../wpf/Core/MariaDb*.cs;../wpf/Core/OfflineSqlArchive.cs;../wpf/Core/OfflineClusterBackup.cs;../wpf/Core/ClusterRestoreCoordinator.cs"
+             Link="Core/%(Filename)%(Extension)" />
     <EmbeddedResource Include="../docs/development/WORK-LEDGER.json" LogicalName="UntamedManager.WorkLedger.json" />
     <PackageReference Include="System.Management" Version="10.0.0" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
