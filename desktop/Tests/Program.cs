@@ -622,30 +622,68 @@ try
     // Update Center: deterministic provider response; no remote download,
     // installer launch or server mutation in this test.
     {
-        var release=new UpdateRelease(new Version(9,0,0),"v9.0.0",
-            "Synthetic test release; do not install.",
-            "https://github.com/Gunter1122cloud/untamed-manager-releases/releases/download/v9.0.0/UntamedManager-9.0.0-SETUP.exe",
-            new string('a',64),"UntamedManager-9.0.0-SETUP.exe");
+        var release=new UpdateRelease(new Version(9,0,0),"v9.0.0-obsidian-preview.2",
+            "Synthetic Obsidian test release; do not install.",
+            "https://github.com/Gunter1122cloud/untamed-manager-releases/releases/download/v9.0.0-obsidian-preview.2/Untamed_Obsidian_Desktop_Preview_Setup.exe",
+            new string('a',64),"Untamed_Obsidian_Desktop_Preview_Setup.exe");
         var update=new DesktopUpdateStatusBridge((_,_)=>Task.FromResult<UpdateRelease?>(release));
         var status=await Call(update.HandleAsync,"updates.status");
         IsOk(status,"local Update Center exposes installed release identity without network");
         Check(!status.GetProperty("data").GetProperty("installationPermitted").GetBoolean() &&
               !status.GetProperty("data").GetProperty("updaterVerified").GetBoolean(),
             "local update status does not invent verified updater privileges");
-        var found=await Call(update.HandleAsync,"updates.check",new{channel="stable"});
+        var found=await Call(update.HandleAsync,"updates.check",new{channel="preview"});
         IsOk(found,"official release metadata checker resolves trusted static repo");
         Check(found.GetProperty("data").GetProperty("found").GetBoolean() &&
-              found.GetProperty("data").GetProperty("tag").GetString()=="v9.0.0" &&
+              found.GetProperty("data").GetProperty("tag").GetString()=="v9.0.0-obsidian-preview.2" &&
               !found.GetProperty("data").GetProperty("installationPermitted").GetBoolean(),
             "update check cannot install even when newer release metadata is present");
         var invalid=await Call(update.HandleAsync,"updates.check",new{channel="invalid"});
         Check(IsError(invalid,"UM-UPDATE-CHECK-FAILED"),
             "malformed release channel is denied, not redirected to untrusted API");
         var untrusted=new DesktopUpdateStatusBridge((_,_)=>Task.FromResult<UpdateRelease?>(
-            release with{AssetUrl="https://example.org/UntamedManager-9.0.0-SETUP.exe"}));
+            release with{AssetUrl="https://example.org/Untamed_Obsidian_Desktop_Preview_Setup.exe"}));
         var blocked=await Call(untrusted.HandleAsync,"updates.check",new{channel="stable"});
         Check(IsError(blocked,"UM-UPDATE-UNTRUSTED-RELEASE"),
             "untrusted release asset domain fails closed without staging an installer");
+    }
+
+    // Obsidian catalog must never accept a WPF binary even if its release
+    // digest, version and GitHub repository are otherwise correct.
+    {
+        string asset=ObsidianReleaseCatalog.Installer;
+        string tag="v8.2.0-obsidian-preview.3";
+        string trustedUrl="https://github.com/"+ObsidianReleaseCatalog.Repository+
+            "/releases/download/"+tag+"/"+asset;
+        string releaseJson=JsonSerializer.Serialize(new[]{
+            new{tag_name="v8.2.0-wpf-preview.1",draft=false,prerelease=true,
+                assets=new[]{new{name="UntamedManager-8.2.0-SETUP.exe",
+                    browser_download_url="https://github.com/"+ObsidianReleaseCatalog.Repository+
+                        "/releases/download/v8.2.0-wpf-preview.1/UntamedManager-8.2.0-SETUP.exe",
+                    digest="sha256:"+new string('1',64)}},body="WRONG WPF INSTALLER"},
+            new{tag_name=tag,draft=false,prerelease=true,
+                assets=new[]{new{name=asset,browser_download_url=trustedUrl,
+                    digest="sha256:"+new string('f',64)}},
+                body="Synthetic preview release"}
+        });
+        var selected=ObsidianReleaseCatalog.Select(releaseJson,UpdateChannel.Preview);
+        Check(selected!=null&&selected.Tag==tag&&
+              selected.AssetName==asset&&ObsidianReleaseCatalog.IsTrusted(selected),
+            "only exact Obsidian AppId installer is eligible for native update discovery");
+        Check(ObsidianReleaseCatalog.Select(releaseJson,UpdateChannel.Stable)==null,
+            "stable update channel cannot automatically select preview releases");
+        Check(!ObsidianReleaseCatalog.IsTrusted(selected with{
+            AssetName="UntamedManager-8.2.0-SETUP.exe"}),
+            "compatible-looking WPF installer is never an Obsidian update");
+        var staging=new DesktopObsidianUpdateInstallBridge();
+        var missingConsent=await Call(staging.HandleAsync,"updates.prepare",
+            new{channel="preview",confirm=false});
+        Check(IsError(missingConsent,"UM-UPDATE-EXPLICIT-CONFIRMATION-REQUIRED"),
+            "updater cannot stage an installation without explicit local approval");
+        var replay=await Call(staging.HandleAsync,"updates.install",
+            new{token=Guid.NewGuid(),confirm=true});
+        Check(IsError(replay,"UM-UPDATE-PREPARE-EXPIRED"),
+            "unapproved or unknown installer staging token is never replayable");
     }
 
     // Real native Plugin Center mutations only in a disposable synthetic
