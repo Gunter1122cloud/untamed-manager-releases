@@ -51,7 +51,23 @@ public sealed class DesktopLanSettingsBridge
         return value.Length<=maximum && !value.Any(char.IsControl);
     }
     private static bool Port(int value)=>value==0 || value is >=1024 and <=65535;
-    private object Status()=>new {
+    private object Status()
+    {
+        var pair=LegacyStoreV1PairComparison.Compare(
+            LegacyStoreV1PeerProof.FromCurrentUserLegacyProfile(),
+            cluster.RemoteIsFresh?cluster.RemoteSnapshot?.OriginalStoreV1:null,
+            cluster.RemoteIsFresh);
+        return new {
+        originalStorePair=new{
+            bothOriginalProfilesPresent=pair.BothOriginalProfilesPresent,
+            sameSharedSession=pair.SameSharedSession,
+            sameSharedPath=pair.SameSharedPath,
+            distinctDeviceIds=pair.DistinctDeviceIds,
+            bothHaveFiveActiveMaps=pair.BothHaveFiveActiveMaps,
+            copiedMetadataPairMatches=pair.CopiedMetadataPairMatches,
+            liveWriterCertified=false,characterTravelVerified=false,
+            statusCode=pair.StatusCode
+        },
         hostName=cluster.Config.LocalHostName,
         listenPort=cluster.Config.ListenPort,
         peerAddress=cluster.Config.PeerAddress,
@@ -63,7 +79,8 @@ public sealed class DesktopLanSettingsBridge
         secretReturned=false,
         peerWritesAllowed=false,
         evidence="DPAPI_LOCAL_LAN_SETTINGS_READ_ONLY"
-    };
+        };
+    }
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
