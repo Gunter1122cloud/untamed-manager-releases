@@ -58,10 +58,9 @@ public static class AsaSaveLayoutResolver
                 throw new InvalidDataException("UM-ASA-SAVE-SYMLINK-OR-JUNCTION");
         return full;
     }
-    public static Layout Resolve(LocalMap map)
+    public static string MapToken(LocalMap map)
     {
         ArgumentNullException.ThrowIfNull(map);
-        string root=LocalDirectory(map.InstallationPath);
         string args=map.Arguments??"";
         var launch=LaunchToken.Match(args);
         string? configured=launch.Success?launch.Groups[1].Value:null;
@@ -82,6 +81,15 @@ public static class AsaSaveLayoutResolver
             token=Token(configured,"UM-ASA-SAVE-CUSTOM-MAP-TOKEN-INVALID");
         else throw new InvalidDataException("UM-ASA-SAVE-CUSTOM-MAP-TOKEN-REQUIRED");
 
+        return token;
+    }
+
+    public static Layout Resolve(LocalMap map)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        string root=LocalDirectory(map.InstallationPath);
+        string args=map.Arguments??"";
+        string token=MapToken(map);
         var alternate=Alternate.Matches(args);
         if(alternate.Count>1 ||
            (alternate.Count==0&&args.Contains("AltSaveDirectoryName",
