@@ -44,6 +44,13 @@ var map=new LocalMap{
         "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
 };
 cluster.AddMap(map);
+// The real dashboard once compared N-format LAN IDs with D-format owned map
+// IDs and silently hid maintenance / Store protection / RCON flags.
+Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
+      DesktopReadOnlyBridge.MatchesPublishedMapId(map.Id,map.Id.ToString("D")) &&
+      DesktopReadOnlyBridge.MatchesPublishedMapId(map.Id,map.Id.ToString("N")) &&
+      !DesktopReadOnlyBridge.MatchesPublishedMapId(map.Id,Guid.NewGuid().ToString("D")),
+    "dashboard map ownership resolves D/N GUID formats but never a foreign map");
 try
 {
     // WebView cannot bypass native approval or introduce arbitrary API CORE
