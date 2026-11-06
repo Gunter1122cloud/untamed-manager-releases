@@ -124,6 +124,16 @@ export type TravelComparison = {
   evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY";
 };
 
+export type PluginZipPreview = {
+  token:string;mapId:string;mapName:string;archiveName:string;plugin:string;
+  binaryCount:number;skippedFiles:number;previousExists:boolean;
+  evidence:"NATIVE_PLUGIN_ZIP_PREFLIGHT_NO_WRITE";
+};
+export type PluginZipInstalled = {
+  mapId:string;plugin:string;installedBinaries:number;backupCreated:boolean;
+  requiresRestart:true;runtimeLoadedVerified:false;
+  evidence:"VERIFIED_GUARDED_PLUGIN_ZIP_INSTALL";
+};
 export type StoppedSteamPreview = {
   token:string;mapId:string;mapName:string;maps:string[];
   installedBuild:string;reserveBytes:number;availableBytes:number;
@@ -420,7 +430,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" |
+  "steam.freshRegister" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -511,6 +521,10 @@ export const managerBridge = {
   sharedModInventory: () => request<SharedModInventory>("mods.sharedInventory"),
   catalogSearch: (term: string, page = 0) => request<CurseForgeResult>("curseforge.search", { term, page }),
   pluginInventory: (mapId: string) => request<PluginInventory>("plugins.inventory", { mapId }),
+  pluginZipSelect: (mapId:string) =>
+    request<PluginZipPreview>("plugins.zipSelect",{mapId}),
+  pluginZipApply: (token:string) =>
+    request<PluginZipInstalled>("plugins.zipApply",{token,confirm:true}),
   pluginStates: (mapId:string) => request<PluginState>("plugins.state",{mapId}),
   pluginTogglePreview: (mapId:string,plugin:string,enabled:boolean) =>
     request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
