@@ -669,7 +669,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
-  position?: number; sourceMapId?:string;targets?:string[];
+  position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
   token?: string; file?: IniFile; content?: string;
   name?: string; root?: string; importToken?: string;
   categoryId?: number; sort?: number; descending?: boolean;
