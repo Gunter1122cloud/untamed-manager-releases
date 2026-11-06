@@ -46,6 +46,50 @@ var map=new LocalMap{
 cluster.AddMap(map);
 try
 {
+    // Original source port: historical active Store-v1 never permits a
+    // fresh conversion, and its mod/port/cluster flags match source grammar.
+    {
+        const string safeIni="[ServerSettings]\\nPort=7777\\nQueryPort=27015\\n";
+        var input=new LegacyStoreV1ActiveLaunch.Input(
+            "ScorchedEarth_WP",7777,27015,
+            new[]{"123456","654321","123456"},new[]{"654321"},
+            "KovaCluster", @"\\\\192.0.2.1\\SyntheticCluster","active",safeIni);
+        var active=LegacyStoreV1ActiveLaunch.Build(input);
+        Check(active.Arguments.SequenceEqual(new[]{
+            "ScorchedEarth_WP?listen","-Port=7777","-QueryPort=27015",
+            "-mods=654321,123456","-passivemods=654321",
+            "-clusterid=KovaCluster",@"-ClusterDirOverride=\\\\192.0.2.1\\SyntheticCluster",
+            "-usestore","-log"})&&!active.ConversionRequested,
+            "original active Store-v1 source grammar preserves passive-first mods and forbids conversion");
+        void Reject(LegacyStoreV1ActiveLaunch.Input changed,string label)
+        {
+            bool denied=false;
+            try{LegacyStoreV1ActiveLaunch.Build(changed);}
+            catch(InvalidDataException){denied=true;}
+            Check(denied,label);
+        }
+        Reject(input with{OriginalPhase="prepared"},
+            "historical prepared phase cannot request a second Store conversion");
+        Reject(input with{OriginalPhase="review"},
+            "incomplete conversion review never qualifies as active Store launch");
+        Reject(input with{ClusterId="UntamedKingdom"},
+            "branding cannot silently change original KovaCluster wire identity");
+        Reject(input with{ClusterPath=@"\\\\?\\C:\\Windows"},
+            "Windows device path cannot replace original shared Store path");
+        Reject(input with{GameUserSettingsIni="[ServerSettings]\\nPort=7778\\nQueryPort=27015"},
+            "INI GamePort mismatch blocks old-store startup before any process spawn");
+        Reject(input with{GameUserSettingsIni="[ServerSettings]\\nQueryPort=27016"},
+            "INI QueryPort mismatch blocks old-store startup");
+        Reject(input with{GamePort=27015},
+            "Game and Query UDP ports cannot collide");
+        Reject(input with{PassiveMods=new[]{"999999"}},
+            "passive mod cannot be newly injected into the original enabled order");
+        Reject(input with{Mods=Enumerable.Repeat("123456",101).ToArray()},
+            "over-limit legacy mod list fails closed");
+        Check(!active.Arguments.Any(x=>x.Contains("converttostore",StringComparison.OrdinalIgnoreCase)),
+            "source-compatible active mode never emits -converttostore");
+    }
+
     // Native operational center must expose only verified local OS evidence.
     // No WebView message may turn a status read into a scheduler or ASA write.
     {
