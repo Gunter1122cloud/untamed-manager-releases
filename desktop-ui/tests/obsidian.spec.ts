@@ -360,9 +360,15 @@ test("Update Center checks official metadata without exposing installer mutation
 test("full-HD premium cluster dashboard fits without horizontal clipping",async({page})=>{
   await page.setViewportSize({width:1920,height:1080});
   await page.goto("/");
-  await expect(page.getByRole("region",{name:"Szervergaléria"})).toBeVisible();
-  await expect(page.getByRole("button",{name:/The Island szerver megnyitása/})).toBeVisible();
+  await expect(page.getByRole("table",{name:"Cluster szerverlista"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"The Island részletei"})).toBeVisible();
   await expect(page.locator(".premium-dashboard-banner.hero")).toBeVisible();
+  const grid=page.locator(".premium-dashboard-grid");
+  const server=page.locator(".premium-server-panel");
+  const aside=page.locator(".premium-dashboard-aside");
+  const widths=await Promise.all([server,aside].map(x=>x.boundingBox()));
+  expect(widths[0]&&widths[1]&&widths[0].x<widths[1].x).toBeTruthy();
+  expect(widths[0]!.width/ (widths[0]!.width+widths[1]!.width)).toBeGreaterThan(0.61);
   const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await page.screenshot({path:"test-results/uk-rex-cluster-fullhd-1920.png",fullPage:false});
@@ -376,6 +382,7 @@ test("first-run premium gallery shows exactly ten discoverable maps with no inve
       .__UNTAMED_EMPTY_FIXTURE__?.();
   });
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Kártyák"}).click();
   const catalog=page.getByLabel("ASA map választék");
   await expect(catalog).toBeVisible();
   await expect(catalog.locator(".uk-gallery-tile")).toHaveCount(10);
@@ -389,6 +396,7 @@ test("first-run premium gallery shows exactly ten discoverable maps with no inve
 test("gallery filters local/remote machines without exposing peer control actions",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
+  await page.getByRole("button",{name:"Kártyák"}).click();
   const gallery=page.getByRole("region",{name:"Szervergaléria"});
   await expect(gallery.locator(".uk-gallery-tile")).toHaveCount(3);
   await expect(gallery.getByLabel(/Ragnarok távoli megfigyelés/)).toBeVisible();
@@ -411,6 +419,10 @@ test("real UI contract renders the synthetic dashboard and responsive navigation
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Áttekintés" })).toBeVisible();
   await expect(page.locator(".premium-metrics .premium-metric")).toHaveCount(4);
+  await expect(page.getByRole("table",{name:"Cluster szerverlista"})).toBeVisible();
+  await expect(page.locator(".premium-dashboard-aside")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Lista"})).toHaveAttribute("aria-pressed","true");
+  await page.getByRole("button",{name:"Kártyák"}).click();
   await expect(page.getByRole("region",{name:"Szervergaléria"})).toBeVisible();
   await expect(page.getByRole("button",{name:/The Island szerver megnyitása/})).toBeVisible();
   await expect(page.getByLabel(/Ragnarok távoli megfigyelés/)).toBeVisible();
@@ -606,7 +618,7 @@ test("720px desktop sidebar scroll reaches Settings and INI without clipping", a
 test("local map card opens map-specific details, functional tabs, back navigation and blocks RCON", async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
-  await page.getByRole("button",{name:/The Island szerver megnyitása/}).click();
+  await page.getByRole("button",{name:"The Island részletei"}).click();
   await expect(page.getByRole("heading",{name:"The Island",exact:true})).toBeVisible();
   await expect(page.getByRole("tablist",{name:"Map funkciói"})).toBeVisible();
   await expect(page.locator(".map-detail-hero .premium-map-cover")).toBeVisible();
