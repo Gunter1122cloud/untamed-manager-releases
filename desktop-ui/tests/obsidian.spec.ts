@@ -290,6 +290,7 @@ test.beforeEach(async ({ page }) => {
             requiresOriginalLaunchVerification:true,serverStarted:false,
             worldFilesChanged:false,evidence:"HISTORICAL_STORE_V1_REGISTERED_QUARANTINED"};
         case "steam.freshCurrent": return {current:null};
+        case "steam.freshBrowse": return {selected:true,installRoot:"D:\\ASA-NEW"};
         case "steam.freshPreflight": return {
           token:"00000000-0000-4000-8000-000000008888",
           mapName:m.mapName||"Valguero",mapLevel:"Valguero_WP",folderName:"ASA-NEW",
@@ -1040,26 +1041,34 @@ test("CurseForge official Galaxy browses categories, projects, versions, and pre
   await page.screenshot({path:"test-results/curseforge-galaxy-1600.png",fullPage:true});
 });
 
-test("SteamCMD new ASA workflow requires approval, follows provider progress, and registers only after verification",async ({page})=>{
+test("SteamCMD new ASA: choose map and Windows folder, one click starts download and registers verified files",async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
   await page.getByRole("button",{name:"SteamCMD"}).click();
   await expect(page.getByText("Új ASA szerver · SteamCMD telepítés")).toBeVisible();
   await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("Valguero");
-  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-NEW");
-  // The Manager-managed SteamCMD executable path is optional.
-  await expect(page.getByRole("textbox",{name:"SteamCMD EXE"})).toHaveValue("");
-  await page.getByRole("button",{name:"Letöltés előtti ellenőrzés"}).click();
-  await expect(page.getByText(/Valguero · Valguero_WP/)).toBeVisible();
-  await expect(page.getByText(/A Manager saját SteamCMD elérési útját használja/)).toBeVisible();
-  await expect(page.getByRole("button",{name:/ASA 2430930 letöltése/})).toBeDisabled();
-  await page.getByText(/Jóváhagyom a valódi SteamCMD-lemezműveletet/).click();
-  await page.getByRole("button",{name:/ASA 2430930 letöltése/}).click();
-  await expect(page.getByText(/ASA EXE és Steam appmanifest ellenőrizve/)).toBeVisible({timeout:10000});
-  await page.getByRole("button",{name:"Ellenőrzött ASA regisztrálása a Managerbe"}).click();
-  await expect(page.getByText(/Valguero regisztrálva/)).toBeVisible();
+  await page.getByRole("button",{name:"Mappa kiválasztása"}).click();
+  await expect(page.getByRole("textbox",{name:"Új ASA célmappa"}))
+    .toHaveValue("D:\\ASA-NEW");
+  await expect(page.getByRole("button",{name:"ASA letöltés indítása"})).toBeEnabled();
+  await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
+  await expect(page.getByText(/ASA EXE és Steam appmanifest ellenőrizve/))
+    .toBeVisible({timeout:10000});
+  await expect(page.getByText(/letöltve és hozzáadva a Managerhez/))
+    .toBeVisible({timeout:10000});
   await expect(page.getByText("Valguero").first()).toBeVisible();
+  await expect(page.getByRole("textbox",{name:"SteamCMD EXE"})).toHaveCount(0);
   await page.screenshot({path:"test-results/steam-fresh-install-1600.png",fullPage:true});
+});
+
+test("SteamCMD simple path entry starts installation without advanced options or extra confirmation",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"SteamCMD"}).click();
+  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Servers\\TheIsland");
+  await expect(page.getByRole("button",{name:"ASA letöltés indítása"})).toBeEnabled();
+  await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
+  await expect(page.getByText(/valódi ASA-letöltés elindult/i)).toBeVisible();
+  await expect(page.getByRole("checkbox",{name:/Korábban megszakadt telepítés/})).toHaveCount(0);
 });
 
 test("Newly imported local map first setup saves session and UDP ports only after preview and confirmation",async ({page})=>{
