@@ -183,6 +183,26 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 @media(max-width:830px){.cf-filters{grid-template-columns:1fr 1fr}.cf-search{grid-column:1/-1}
 .cf-filters>.cf-order,.cf-filters>.primary{width:100%}}
 
+/* Two-step fresh ASA experience: map + destination, one native install. */
+.fresh-wizard-form{grid-template-columns:minmax(200px,.75fr) minmax(420px,2.25fr)}
+.fresh-wizard-form>label:nth-child(2){min-width:0}
+.fresh-folder-row{display:flex;align-items:center;gap:9px;min-width:0}
+.fresh-folder-row>input{flex:1 1 auto;min-width:0}
+.fresh-folder-row>button{white-space:nowrap;display:inline-flex;gap:8px;align-items:center;justify-content:center;min-height:43px}
+.fresh-wizard-form>button.primary{font-size:14px;min-height:45px;padding:0 24px}
+.fresh-wizard-form>p{grid-column:1/-1;margin:0;max-width:85ch}
+.fresh-advanced{grid-column:1/-1;border:1px solid #345c56;border-radius:10px;
+  background:#10242a;padding:12px 15px;color:#c0dcd3}
+.fresh-advanced summary{cursor:pointer;font-size:12px;font-weight:700;list-style-position:inside}
+.fresh-advanced>label{display:flex;align-items:flex-start;gap:9px;margin-top:12px;
+  font-size:12px;line-height:1.5}
+.fresh-advanced>label:has(input:not([type=checkbox])){flex-direction:column}
+.fresh-advanced input[type=checkbox]{accent-color:#4dcfa0;width:16px;height:16px}
+@media(max-width:1000px){.fresh-wizard-form{grid-template-columns:1fr}
+ .fresh-wizard-form>label:first-child{grid-column:auto}}
+@media(max-width:640px){.fresh-folder-row{flex-wrap:wrap}
+ .fresh-folder-row>button{width:100%}}
+ 
 /* Real SteamCMD: visual separation between nonmutating inspection and
    deliberate disk-writing. Progress is never synthetic. */
 .fresh-wizard{border-color:#437663;background:linear-gradient(145deg,#102f33,#11282f)}
