@@ -414,7 +414,10 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
   onImported:()=>Promise<void>
 }) {
   const [importMode,setImportMode]=useState<"none"|"new"|"existing"|"store">("none");
-  const [serverView,setServerView]=useState<"table"|"gallery">("table");
+  // A first-run Windows test machine should show real map choices instead of
+  // a half-page empty table. Existing cluster installs retain compact list.
+  const [serverView,setServerView]=useState<"table"|"gallery">(
+    snapshot.local.maps.length===0?"gallery":"table");
   const [installMap,setInstallMap]=useState("The Island");
   const openInstall=(mapName?:string)=>{if(mapName)setInstallMap(mapName);setImportMode("new");};
   return <><div className="page-intro"><span className="eyebrow">LOCAL HOST / LAN</span><h1>Szerverek</h1><p>A helyi mapok megfigyelése; távoli mapok kizárólag olvashatók.</p></div>
