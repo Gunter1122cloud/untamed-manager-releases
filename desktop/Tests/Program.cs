@@ -580,6 +580,33 @@ try
             "servers.freshReadiness",new{mapId=Guid.NewGuid()});
         Check(IsError(foreignReadiness,"UM-MAP-NOT-OWNED"),
             "unregistered map cannot query native ASA/RCON readiness");
+        // ASA itself downloads the configured CurseForge -mods project IDs
+        // when launched. Confirm that the native bridge uses the exact saved
+        // launch argument list, not a disconnected mock catalog selection.
+        string originalLaunch=fresh.Arguments;
+        try
+        {
+            var withMod=ModStateController.Preview(fresh,
+                new ModEdit(fresh.Id,"1163881",ModMode.Active));
+            fresh.Arguments=withMod.NewArguments;
+            Check(fresh.Arguments.Contains("-mods=1163881",
+                      StringComparison.Ordinal) &&
+                  ModStateController.Read(fresh).Active.Contains("1163881"),
+                "real ASA -mods launch switch uses CurseForge project ID");
+            var planned=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            IsOk(planned,"mod-configured native fresh map can receive Start preview");
+            var startedWithMod=await Call(starter.HandleAsync,
+                "servers.freshStartApply",
+                new{token=planned.GetProperty("data")
+                    .GetProperty("token").GetString(),confirm=true});
+            IsOk(startedWithMod,"approved fresh Start uses configured -mods arguments");
+            Check(calls==2 &&
+                  fresh.Arguments.EndsWith("-mods=1163881",
+                      StringComparison.Ordinal),
+                "native Start preserves ASA mod load/download order in launch args");
+        }
+        finally { fresh.Arguments=originalLaunch; }
     }
 
     // Actual SteamCMD entry point uses Core's stopped-map update and per-host
