@@ -684,6 +684,8 @@ public sealed class ClusterService : IAsyncDisposable
             throw new InvalidDataException("Official SteamCMD ASA build manifest is missing");
         FreshAsaInstallationSafety.Demand(this,map);
         LocalMapPortPolicy.RequireNoConflicts(map,Config.LocalMaps);
+        if(!AsaLocalPortPreflight.CanStart(map))
+            throw new InvalidOperationException("UM-ASA-START-LOCAL-PORT-IN-USE");
         var launch=AsaApiLaunchPolicy.Resolve(map);
         if(!string.Equals(launch.Arguments,map.Arguments,StringComparison.Ordinal))
             throw new InvalidDataException("Unverified server launch argument set");
