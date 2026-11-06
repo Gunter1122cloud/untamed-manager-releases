@@ -60,6 +60,14 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         state.Identity==null&&state.LoaderIdentity==null;
                 });
     }
+    private bool HasBlockedJournal()
+    {
+        var journal=new SteamSerialMaintenanceQueue(
+            cluster.Store.Root,cluster.Config.LocalHostId).Observe();
+        return journal!=null && journal.Phase is
+            (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
+                or SteamQueuePhase.NeedsOperator);
+    }
     private static bool GuidField(JsonElement obj,string key,out Guid value)
     {
         value=Guid.Empty;
@@ -164,6 +172,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     var owned=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId);
                     if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     if(!Stopped(owned))return Fail(id,"UM-STEAM-STOPPED-ONLY");
+                    if(HasBlockedJournal())
+                        return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
                     var steam=SteamCmdPreflight.Inspect(cluster.Config.SteamCmdExecutable);
                     var plan=planner(owned);
                     if(!plan.DryRunAllowed||string.IsNullOrWhiteSpace(plan.InstalledBuild)||
@@ -189,6 +199,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                    confirm.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-STEAM-CONFIRMATION-REQUIRED");
                 var saved=pending;pending=null;
+                if(HasBlockedJournal())
+                    return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
                 var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==saved.MapId);
                 if(map==null||!Stopped(map)||
                    !string.Equals(map.InstallationPath,saved.Root,
