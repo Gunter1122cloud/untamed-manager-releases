@@ -96,6 +96,7 @@ public sealed class DesktopWorldBackupBridge
                         map,cluster.Store.Root));
                     return Ok(id,new{
                         mapId=map.Id,mapName=map.Name,
+                        recoveryRequired=KovaCompatibleWorldBackup.RecoveryRequired(map),
                         points=points.Select(x=>new{
                             id=x.Id,createdUtc=x.CreatedUtc,kind=x.Kind,
                             files=x.Files,bytes=x.Bytes,characters=x.Characters,tribes=x.Tribes,
