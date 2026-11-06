@@ -1,18 +1,25 @@
 import {useCallback,useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,RefreshCw,Shield,Terminal,Users,Save} from "lucide-react";
-import {managerBridge,type RconStatus,type RconPlayers,type RconWorldSave} from "./bridge";
+import {managerBridge,type RconStatus,type RconPlayers,type RconWorldSave,type RconAdminPreview,type RconAdminResult} from "./bridge";
 
 export function RconReadOnlyPanel({mapId}:{mapId:string}){
   const [status,setStatus]=useState<RconStatus|null>(null);
   const [result,setResult]=useState<RconPlayers|null>(null);
   const [saveReceipt,setSaveReceipt]=useState<RconWorldSave|null>(null);
   const [saveApproved,setSaveApproved]=useState(false);
+  const [adminAction,setAdminAction]=useState("broadcast");
+  const [adminMessage,setAdminMessage]=useState("");
+  const [adminDraft,setAdminDraft]=useState<RconAdminPreview|null>(null);
+  const [adminApproved,setAdminApproved]=useState(false);
+  const [adminTyped,setAdminTyped]=useState("");
+  const [adminReceipt,setAdminReceipt]=useState<RconAdminResult|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const load=useCallback(async()=>{
     if(!mapId)return;
     setBusy(true);setError("");setStatus(null);setResult(null);
     setSaveReceipt(null);setSaveApproved(false);
+    setAdminDraft(null);setAdminApproved(false);setAdminTyped("");setAdminReceipt(null);
     try{setStatus(await managerBridge.rconStatus(mapId));}
     catch{setError("A helyi RCON-állapot nem ellenőrizhető. Egyetlen parancs sem került elküldésre.");}
     finally{setBusy(false);}
@@ -30,6 +37,24 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
     setBusy(true);setError("");setSaveReceipt(null);setSaveApproved(false);
     try{setSaveReceipt(await managerBridge.rconSaveWorld(mapId));}
     catch{setError("A SaveWorld RCON-parancs nem lett ellenőrzötten visszaigazolva. A folyamatot és a mentés fájljait ellenőrizd.");}
+    finally{setBusy(false);}
+  };
+  const prepareAdmin=async()=>{
+    if(!status?.permitted||busy||(!adminMessage.trim()&&adminAction!=="wildWipe"))return;
+    setBusy(true);setError("");setAdminDraft(null);setAdminReceipt(null);
+    setAdminApproved(false);setAdminTyped("");
+    try{setAdminDraft(await managerBridge.rconAdminPreview(mapId,adminAction,adminMessage));}
+    catch{setError("A helyi adminparancs ellenőrzése sikertelen: a művelet nincs engedélyezve vagy a RCON-kapcsolat nem igazolt.");}
+    finally{setBusy(false);}
+  };
+  const executeAdmin=async()=>{
+    if(!adminDraft||!adminApproved||busy||
+       (adminDraft.approvalWord!==null&&adminTyped!==adminDraft.approvalWord))return;
+    const token=adminDraft.token;
+    setAdminDraft(null);setAdminApproved(false);setAdminTyped("");
+    setBusy(true);setError("");setAdminReceipt(null);
+    try{setAdminReceipt(await managerBridge.rconAdminSend(token,adminTyped));}
+    catch{setError("A parancs nem kapott ellenőrzött választ. Ismétlés előtt ellenőrizd a szerver állapotát; automatikus újraküldés nincs.");}
     finally{setBusy(false);}
   };
   return <div className="uk-rcon-page">
@@ -60,9 +85,70 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
           <button type="button" className="primary" disabled={!status?.permitted||!saveApproved||busy}
             onClick={()=>{void saveWorld();}}><Save size={16}/> Valódi SaveWorld elküldése</button>
         </div>
+        <section className="uk-rcon-admin-panel" aria-label="Helyi admin RCON parancsok">
+          <div className="uk-rcon-admin-title"><Shield size={18}/><b>Admin RCON – éles parancsküldés</b>
+            <span>Kétlépcsős jóváhagyás · nincs automatikus ismétlés</span></div>
+          <div className="uk-rcon-admin-grid">
+            <label>Parancstípus
+              <select aria-label="Admin RCON parancstípus" disabled={busy||!status?.permitted}
+                value={adminAction} onChange={e=>{
+                  setAdminAction(e.target.value);setAdminDraft(null);setAdminReceipt(null);
+                }}>
+                <option value="broadcast">Közlemény minden játékosnak</option>
+                <option value="serverChat">Szerver-chat üzenet</option>
+                <option value="wildWipe">Vad dinók újragenerálása</option>
+                <option value="custom">Egyedi adminparancs (haladó)</option>
+              </select>
+            </label>
+            {adminAction!=="wildWipe"&&<label>{adminAction==="custom"?"Adminparancs":"Üzenet"}
+              <input aria-label="Admin RCON üzenet vagy parancs" maxLength={240}
+                value={adminMessage} disabled={busy||!status?.permitted}
+                placeholder={adminAction==="custom"?"Pl. GetAllState ...":"Írd be az üzenetet..."}
+                onChange={e=>{setAdminMessage(e.target.value);setAdminDraft(null);
+                  setAdminReceipt(null);}}/>
+            </label>}
+          </div>
+          <button type="button" className="secondary uk-rcon-admin-preview"
+            disabled={!status?.permitted||busy||(!adminMessage.trim()&&adminAction!=="wildWipe")}
+            onClick={()=>{void prepareAdmin();}}>
+            <Shield size={16}/> Éles RCON-parancs ellenőrzése
+          </button>
+          {adminDraft&&<div className={adminDraft.dangerous?"uk-rcon-admin-danger":"uk-rcon-admin-review"}
+            role="region" aria-label="Adminparancs végső jóváhagyása">
+            <b>{adminDraft.dangerous?"Veszélyes adminművelet – végső jóváhagyás":
+              "Ellenőrzött helyi művelet – végső jóváhagyás"}</b>
+            <code>{adminDraft.command}</code>
+            <p>{adminDraft.dangerous?
+              "Ez a parancs tartós módosítást végezhet. Ellenőrizd a mapot és a paramétereket; visszavonás nincs.":
+              "Az üzenet az aktív helyi szerverre kerül, a RCON hitelesítési adatokat nem küldjük a felületre."}</p>
+            <label className="uk-rcon-approve-check">
+              <input type="checkbox" checked={adminApproved}
+                onChange={e=>setAdminApproved(e.target.checked)}/>
+              Jóváhagyom a parancs egyszeri elküldését: {adminDraft.mapName}
+            </label>
+            {adminDraft.approvalWord!==null&&<label>Gépeld be a megerősítő szót: {adminDraft.approvalWord}
+              <input aria-label="Adminparancs megerősítő szó" value={adminTyped}
+                onChange={e=>setAdminTyped(e.target.value)} placeholder={adminDraft.approvalWord}/>
+            </label>}
+            <div className="uk-rcon-admin-actions">
+              <button type="button" className={adminDraft.dangerous?"danger":"primary"}
+                disabled={!adminApproved||busy||
+                  (adminDraft.approvalWord!==null&&adminTyped!==adminDraft.approvalWord)}
+                onClick={()=>{void executeAdmin();}}>Parancs elküldése</button>
+              <button type="button" className="secondary" disabled={busy}
+                onClick={()=>{setAdminDraft(null);setAdminApproved(false);}}>Mégsem</button>
+            </div>
+          </div>}
+          {adminReceipt&&<div className="uk-rcon-admin-success" role="status">
+            <CheckCircle2 size={17}/><div><b>Adminparancs egyszer elküldve</b>
+              <small>{adminReceipt.action} · {new Date(adminReceipt.observedUtc).toLocaleString("hu-HU")}</small>
+              {adminReceipt.response&&<pre>{adminReceipt.response}</pre>}
+            </div>
+          </div>}
+        </section>
         <div className="uk-rcon-terminal" role="log" aria-label="RCON ListPlayers válasz">
           <div className="uk-rcon-terminal-bar"><span aria-hidden="true">●</span>
-            UNTAMED / VERIFIED READ-ONLY
+            UNTAMED / VERIFIED LOCAL RCON
           </div>
           {result?<pre>{result.response||"A helyi RCON nem adott megjeleníthető választ."}</pre>:
             <div className="uk-rcon-placeholder">
