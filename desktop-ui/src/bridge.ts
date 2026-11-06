@@ -129,6 +129,17 @@ export type RconStatus = {
   permitted:boolean;maintenance:boolean;allowedCommands:["ListPlayers","SaveWorld"];
   evidence:"LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND";
 };
+export type RconAdminPreview = {
+  token:string;mapId:string;mapName:string;action:string;command:string;
+  requiresApproval:true;dangerous:boolean;approvalWord:string|null;
+  expiresUtc:string;dispatched:false;credentialExposed:false;
+  evidence:"LOCAL_OS_VERIFIED_ADMIN_RCON_PREVIEW";
+};
+export type RconAdminResult = {
+  mapId:string;mapName:string;action:string;command:string;response:string;
+  commandSent:true;observedUtc:string;oneShot:true;saveCompleteProven:false;
+  storeWriterTouched:false;evidence:"LIVE_LOCAL_ADMIN_RCON_SINGLE_SEND";
+};
 export type RconWorldSave = {
   mapId:string;mapName:string;response:string;observedUtc:string;
   rconAcknowledged:true;diskSaveCompletionProven:false;
@@ -385,7 +396,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" |
-  "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.status" | "rcon.listPlayers" | "rcon.saveWorld" |
+  "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.status" | "rcon.listPlayers" | "rcon.saveWorld" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
   "travel.capture" | "travel.compare";
@@ -400,7 +411,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
-  point?:string;
+  point?:string; action?:string; message?:string; typedApproval?:string;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
   sourceMap?: string;destinationMap?: string; profileId?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
@@ -450,6 +461,10 @@ export const managerBridge = {
   rconStatus: (mapId:string) => request<RconStatus>("rcon.status",{mapId}),
   rconListPlayers: (mapId:string) => request<RconPlayers>("rcon.listPlayers",{mapId}),
   rconSaveWorld: (mapId:string) => request<RconWorldSave>("rcon.saveWorld",{mapId,confirm:true}),
+  rconAdminPreview: (mapId:string,action:string,message:string) =>
+    request<RconAdminPreview>("rcon.adminPreview",{mapId,action,message}),
+  rconAdminSend: (token:string,typedApproval:string) =>
+    request<RconAdminResult>("rcon.adminSend",{token,typedApproval,confirm:true}),
   updateCheck: (channel:"stable"|"preview") => request<UpdateCheck>("updates.check",{channel}),
   configuredMods: (mapId: string) => request<ConfiguredMods>("mods.configured", { mapId }),
   sharedModInventory: () => request<SharedModInventory>("mods.sharedInventory"),
