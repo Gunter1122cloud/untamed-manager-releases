@@ -80,6 +80,13 @@ public sealed class DesktopRconReadOnlyBridge
                 var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
                 if(map==null)return Deny(id,"UM-MAP-NOT-OWNED");
                 if(map.HistoricalStoreProtected)return Deny(id,"UM-HISTORICAL-STORE-LOCKED");
+                // Store-v1 is checked BEFORE ordinary RCON preflight: a
+                // changed historical command line may invalidate the owned
+                // PID check, but it must never hide the stronger Store write
+                // prohibition or permit a retry through another endpoint.
+                if(method=="rcon.saveWorld" &&
+                   KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
+                    return Deny(id,"UM-HISTORICAL-STORE-LOCKED");
                 bool configured=map.RconPort is >=1 and <=65535 &&
                     !string.IsNullOrWhiteSpace(map.RconPasswordProtected);
                 var check=cluster.Check(map);
@@ -140,8 +147,6 @@ public sealed class DesktopRconReadOnlyBridge
                     // character/tribe ownership. A local manual SaveWorld is
                     // a Store write; never treat read-only RCON authentication
                     // as authorization to mutate an unverified old session.
-                    if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
-                        return Deny(id,"UM-HISTORICAL-STORE-LOCKED");
                     // A second SaveWorld while an approved DoExit/Restart is
                     // underway can race the server's final world save.
                     // Read-only log/chat/players remain available for diagnosis.
