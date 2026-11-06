@@ -117,6 +117,8 @@ public sealed class DesktopWorldBackupBridge
                     var map=Owned(mid);
                     UniqueWorldDirectory(map);
                     Stopped(map);
+                    if(KovaCompatibleWorldBackup.RecoveryRequired(map))
+                        return Fail(id,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED");
                     var key=KovaCompatibleWorldBackup.MapKey(map);
                     string point="";
                     if(method=="backup.restorePreview")
