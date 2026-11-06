@@ -481,9 +481,10 @@ try
             (_,pid)=>owner && pid==identity.Pid,
             (host,port,password,command,ct)=>{
                 Check(host=="127.0.0.1"&&port==fakeMap.RconPort &&
-                      password=="test-only-passphrase"&&command=="ListPlayers",
-                    "RCON command is fixed and secret never reaches WebView");
-                dispatched++;return Task.FromResult("Player 1: Synthetic Survivor");
+                      password=="test-only-passphrase"&&command is ("ListPlayers" or "SaveWorld"),
+                    "RCON command is fixed allowlist and secret never reaches WebView");
+                dispatched++;return Task.FromResult(command=="SaveWorld"?
+                    "World save queued":"Player 1: Synthetic Survivor");
             });
         var ready=await Call(rcon.HandleAsync,"rcon.status",new{mapId=fakeMap.Id});
         IsOk(ready,"read-only local RCON status is available on synthetic owned map");
@@ -497,18 +498,35 @@ try
               !players.GetProperty("data").GetProperty("saveCompleteProven").GetBoolean() &&
               players.GetProperty("data").GetProperty("response").GetString()=="Player 1: Synthetic Survivor",
             "arbitrary renderer command is ignored; only read-only ListPlayers is dispatched");
+        var deniedSave=await Call(rcon.HandleAsync,"rcon.saveWorld",
+            new{mapId=fakeMap.Id,confirm=false});
+        Check(IsError(deniedSave,"UM-RCON-SAVE-EXPLICIT-CONFIRMATION-REQUIRED") &&
+              dispatched==1,"real SaveWorld cannot execute without explicit approval");
+        var savedWorld=await Call(rcon.HandleAsync,"rcon.saveWorld",
+            new{mapId=fakeMap.Id,confirm=true,command="DestroyWildDinos"});
+        IsOk(savedWorld,"real fixed SaveWorld dispatch reached verified synthetic ASA RCON");
+        Check(dispatched==2 &&
+              savedWorld.GetProperty("data").GetProperty("rconAcknowledged").GetBoolean() &&
+              !savedWorld.GetProperty("data").GetProperty("diskSaveCompletionProven").GetBoolean() &&
+              !savedWorld.GetProperty("data").GetProperty("worldFilesTouchedByManager").GetBoolean() &&
+              !savedWorld.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal),
+            "SaveWorld ignores arbitrary command injection, redacts secrets and never fakes SaveComplete");
         owner=false;
+        var deniedOwnership=await Call(rcon.HandleAsync,"rcon.saveWorld",
+            new{mapId=fakeMap.Id,confirm=true});
+        Check(IsError(deniedOwnership,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
+              dispatched==2,"SaveWorld denied if native RCON listener ownership changes");
         var refused=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(refused,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
-              dispatched==1,"RCON port ownership loss prevents another dispatch");
+              dispatched==2,"RCON port ownership loss prevents another dispatch");
         owner=true;rconRunning=false;
         var stopped=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(stopped,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
-              dispatched==1,"stopped synthetic process cannot receive RCON");
+              dispatched==2,"stopped synthetic process cannot receive RCON");
         rconRunning=true;fakeMap.HistoricalStoreProtected=true;
         var locked=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(locked,"UM-HISTORICAL-STORE-LOCKED") &&
-              dispatched==1,"historical Store-v1 lock always prevents RCON dispatch");
+              dispatched==2,"historical Store-v1 lock always prevents RCON dispatch");
         var foreign=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=Guid.NewGuid()});
         Check(IsError(foreign,"UM-MAP-NOT-OWNED"),
             "RCON cannot target an unregistered or remote peer map");
