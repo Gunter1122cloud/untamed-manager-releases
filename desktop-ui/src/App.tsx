@@ -866,7 +866,7 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
       <h1>Mentésközpont</h1>
       <p>Valódi, ellenőrzött világ-, karakter- és törzsmentés az adott map leállítása
         után; külön védőmentéssel és az eredeti világ megőrzésével történő
-        visszaállítás. Az éles Store-v1/SQL konzisztencia ettől külön igazolandó.</p>
+        visszaállítás. Az éles kétgépes Store-v1 konzisztencia ettől külön igazolandó.</p>
     </div>
     <WorldBackupControls maps={snapshot.local.maps} selectedMap={mapId}/>
     <div className="premium-backup-metrics">
@@ -933,8 +933,7 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
             <strong>Leállított, nem Store-v1 mapon · védőmentéssel</strong></div>
           <div className="premium-backup-caution"><AlertTriangle size={18}/>
             <span>Az ellenőrzött fájlméret és hash <b>nem bizonyítja</b> az ASA
-              SaveComplete, Store-v1 karakterutazás vagy a MariaDB alkalmazásszintű
-              konzisztenciáját.</span>
+              SaveComplete vagy a kétgépes Store-v1 karakterutazás biztonságát.</span>
           </div>
         </div>
       </aside>
