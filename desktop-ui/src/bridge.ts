@@ -617,6 +617,23 @@ export type SharedModInventory = {
   evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY";
 };
 
+export type ModCopyMode = "merge" | "replace";
+export type ModCopyPreview = {
+  token:string;sourceMapId:string;mode:ModCopyMode;
+  targets:Array<{
+    mapId:string;mapName:string;changed:boolean;
+    before:{active:string[];passive:string[];disabled:string[]};
+    after:{active:string[];passive:string[];disabled:string[]};
+  }>;
+  operationCount:number;changed:boolean;requiresRestart:boolean;
+  remoteWritesAllowed:false;storeWriterTouched:false;evidence:string;
+};
+export type ModCopyApplied = {
+  saved:true;sourceMapId:string;mode:ModCopyMode;changedMaps:string[];
+  operationsApplied:number;requiresRestart:true;modsLoadedVerified:false;
+  remoteWritesAllowed:false;storeWriterTouched:false;evidence:string;
+};
+
 export type ConfiguredMods = {
   mapId: string;
   mapName: string;
@@ -631,6 +648,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
+  "mods.copyPreview" | "mods.copyApply" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
   "servers.inspectLocal" | "servers.importLocal" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
@@ -650,7 +668,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "travel.capture" | "travel.compare";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   mapId?: string; term?: string; page?: number; credential?: string;
-  draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
+  draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
+  position?: number; sourceMapId?:string;targets?:string[];
   token?: string; file?: IniFile; content?: string;
   name?: string; root?: string; importToken?: string;
   categoryId?: number; sort?: number; descending?: boolean;
@@ -815,6 +834,10 @@ export const managerBridge = {
   redoModDraft: (draftId: string) => request<ModDraftState>("mods.draftRedo", { draftId }),
   discardModDraft: (draftId: string) => request<{discarded:true}>("mods.draftDiscard", { draftId }),
   saveModDraft: (draftId: string) => request<ModDraftSave>("mods.draftSave", { draftId }),
+  modCopyPreview: (sourceMapId:string,targets:string[],mode:ModCopyMode) =>
+    request<ModCopyPreview>("mods.copyPreview",{sourceMapId,targets,mode}),
+  modCopyApply: (token:string) =>
+    request<ModCopyApplied>("mods.copyApply",{token,confirm:true}),
   iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
   iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
