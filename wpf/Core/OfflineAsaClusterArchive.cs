@@ -12,6 +12,7 @@ namespace UntamedManager.Core;
 // packages and an operator-created LOCAL COPY of the original shared transfer
 // root. There is no SQL/database, no remote operation, no Kova Store writer,
 // and no claim of a consistent live 10-map snapshot.
+public sealed record AsaOfflineMapInput(string Host,Guid Map,string Name,string Package);
 public sealed record AsaOfflineMap(string Host,Guid Map,string Name,
     string PackageRelativePath,int Files,long Bytes,string ManifestSha256);
 public sealed record AsaOfflineTransfer(string RelativePath,long Bytes,string Sha256);
@@ -117,10 +118,10 @@ public static class OfflineAsaClusterArchive
             throw new InvalidDataException("Offline copy lacks original Store operation metadata");
         return result;
     }
-    private static (OfflineMapBackupInput[] Maps,string[] Roots) ScanMaps(
+    private static (AsaOfflineMapInput[] Maps,string[] Roots) ScanMaps(
         string hpRoot,string ryzenRoot)
     {
-        var inputs=new List<OfflineMapBackupInput>();
+        var inputs=new List<AsaOfflineMapInput>();
         foreach(var (source,host) in new[]{(hpRoot,"HP"),(ryzenRoot,"RYZEN")})
         {
             var dirs=Directory.GetDirectories(source);
