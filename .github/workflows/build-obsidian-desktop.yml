@@ -179,3 +179,38 @@ jobs:
           path: desktop-artifacts/*
           if-no-files-found: error
           retention-days: 10
+
+  # Publishing is deliberately a PRE-RELEASE until live 5+5 ASA Store-v1
+  # and character travel are verified on a separately isolated test cluster.
+  # This job runs ONLY after the complete Windows build and all tests passed
+  # on a protected main push. PR code never gets release write permission.
+  publish-windows-prerelease:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: windows-preview
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download tested Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Obsidian-Desktop-TEST-ONLY
+          path: release-assets
+      - name: Verify release inputs against tested SHA-256 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum -c SHA256SUMS.txt
+          test -s Untamed_Obsidian_Desktop_Preview_Portable.zip
+          test -s Untamed_Obsidian_Desktop_Preview_Setup.exe
+      - name: Publish opt-in test release without claiming Store-v1 certification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v1.4.0-obsidian-preview.${{ github.run_number }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG"             release-assets/Untamed_Obsidian_Desktop_Preview_Portable.zip             release-assets/Untamed_Obsidian_Desktop_Preview_Setup.exe             release-assets/SHA256SUMS.txt             --repo "$GH_REPO" --target "$COMMIT"             --title "Untamed Manager 1.4.0 – Windows test release ($TAG)"             --notes "Windows CI / native bridge / Playwright / WebView2 smoke passed. Not an approved live Store-v1 5+5 migration or character-travel release. SQL is excluded from the desktop assembly; original Store/session and production ASA machines remain untouched. Install on a separate Windows test PC."             --prerelease
