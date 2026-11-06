@@ -73,6 +73,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopStoppedSteamUpdateBridge _steamUpdate;
     private readonly DesktopFreshAsaStartBridge _freshStart;
     private readonly DesktopFreshAsaStopBridge _freshStop;
+    private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly DesktopWorldBackupBridge _worldBackup;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
@@ -100,6 +101,7 @@ public sealed class ObsidianWindow : Form
         _steamUpdate = new DesktopStoppedSteamUpdateBridge(_bridge.LocalCluster);
         _freshStart = new DesktopFreshAsaStartBridge(_bridge.LocalCluster);
         _freshStop = new DesktopFreshAsaStopBridge(_bridge.LocalCluster);
+        _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
@@ -231,6 +233,7 @@ public sealed class ObsidianWindow : Form
                 bool stoppedSteamRoute = false;
                 bool freshStartRoute = false;
                 bool freshStopRoute = false;
+                bool lifecycleJournalRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -249,6 +252,7 @@ public sealed class ObsidianWindow : Form
                         rconConfigRoute = name is "rcon.configStatus" or "rcon.configPreview" or "rcon.configApply";
                         freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or "servers.freshStartStatus";
                         freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or "servers.gracefulStopStatus";
+                        lifecycleJournalRoute = name is "servers.lifecycleJournal";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare";
@@ -283,7 +287,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = freshStopRoute ? await _freshStop.HandleAsync(incoming)
+                    string response = lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
+                        : freshStopRoute ? await _freshStop.HandleAsync(incoming)
                         : freshStartRoute ? await _freshStart.HandleAsync(incoming)
                         : pluginZipRoute ? await _pluginZip.HandleAsync(incoming)
                         : stoppedSteamRoute ? await _steamUpdate.HandleAsync(incoming)
