@@ -1,18 +1,26 @@
 import {useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-react";
-import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus} from "./bridge";
+import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue} from "./bridge";
 
 export function StoppedSteamUpdate({maps}:{maps:PublicMap[]}) {
   const [selected,setSelected]=useState("");
   const [preview,setPreview]=useState<StoppedSteamPreview|null>(null);
   const [job,setJob]=useState<StoppedSteamStatus|null>(null);
   const [jobId,setJobId]=useState<string|null>(null);
+  const [journal,setJournal]=useState<DurableSteamQueue|null>(null);
   const [approved,setApproved]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const mapId=maps.some(m=>m.id===selected)?selected:(maps[0]?.id??"");
 
   useEffect(()=>{setPreview(null);setApproved(false);},[mapId]);
+  useEffect(()=>{
+    let active=true;
+    managerBridge.steamStoppedCurrent()
+      .then(value=>{if(active)setJournal(value);})
+      .catch(()=>{/* Older isolated UI fixtures may lack the journal endpoint. */});
+    return ()=>{active=false;};
+  },[]);
   useEffect(()=>{
     if(!jobId)return;
     let active=true;
@@ -21,7 +29,10 @@ export function StoppedSteamUpdate({maps}:{maps:PublicMap[]}) {
         const status=await managerBridge.steamStoppedStatus(jobId);
         if(!active)return;
         setJob(status);
-        if(status.state==="completed"||status.state==="needsOperator")setJobId(null);
+        if(status.state==="completed"||status.state==="needsOperator"){
+          setJobId(null);
+          managerBridge.steamStoppedCurrent().then(setJournal).catch(()=>{});
+        }
       }catch{
         if(active){
           setError("A helyi frissítési folyamat státusza megszakadt. A SteamCMD újraindítása előtt ellenőrizd a natív naplót.");
@@ -35,7 +46,7 @@ export function StoppedSteamUpdate({maps}:{maps:PublicMap[]}) {
   },[jobId]);
 
   const check=async()=>{
-    if(!mapId||busy||jobId)return;
+    if(!mapId||busy||jobId||journal?.needsOperatorReview)return;
     setBusy(true);setPreview(null);setApproved(false);setError("");
     try{setPreview(await managerBridge.steamStoppedPreview(mapId));}
     catch{setError("Az előellenőrzés sikertelen: minden érintett helyi mapnak igazoltan leállítva kell lennie, és elegendő szabad tárhely szükséges.");}
@@ -69,9 +80,17 @@ export function StoppedSteamUpdate({maps}:{maps:PublicMap[]}) {
           {maps.map(map=><option key={map.id} value={map.id}>{map.name}</option>)}
         </select>
       </label>
-      <button type="button" className="secondary" disabled={!mapId||busy||!!jobId}
+      <button type="button" className="secondary" disabled={!mapId||busy||!!jobId||Boolean(journal?.needsOperatorReview)}
         onClick={()=>{void check();}}><RefreshCw size={16}/> Frissítés előellenőrzése</button>
     </div>
+    {journal?.exists&&<div role="status" className={journal.needsOperatorReview?"warning-inline":"uk-rcon-receipt"}>
+      <Shield size={18}/>
+      <span>Helyi SteamCMD-napló: {journal.phase}
+        {journal.activeMapName&&" · "+journal.activeMapName}
+        {journal.total!==undefined&&" · "+(journal.nextIndex??0)+"/"+journal.total}
+        {journal.needsOperatorReview&&" · korábban félbeszakadt művelet: kézi ellenőrzés szükséges, az automatikus újrakezdés tiltva"}
+      </span>
+    </div>}
     {preview&&<div className="uk-rcon-admin-review" role="region" aria-label="SteamCMD frissítés jóváhagyása">
       <b>{preview.mapName} – jelenlegi build: {preview.installedBuild}</b>
       <p>Érintett mapok: {preview.maps.join(", ")}. Szabad hely:
