@@ -432,6 +432,16 @@ export type HistoricalLaunchEvidence = {
   productionUseAllowed:false; serverStartAllowed:false;
   evidence:"OPERATOR_TEXT_READ_ONLY_UNAUTHENTICATED";
 };
+export type HistoricalLocalStoreStatus = {
+  found:true;localFilesVerified:boolean;configHashVerified:boolean;
+  localLockVerified:boolean;allLocalMapsActive:boolean;
+  localSnapshotReady:boolean;liveTwoHostVerified:false;
+  characterTravelVerified:false;productionUseAllowed:false;
+  maps:Array<{mapKey:string;active:boolean;sessionMatches:boolean;
+    rootMatches:boolean;selected:boolean;backupIdentityPresent:boolean}>;
+  evidence:string;
+};
+
 export type HistoricalPairEvidence = {
   files:number; maps:number; peers:number;
   sessionConsistent:boolean; configHashesVerified:boolean;
@@ -547,7 +557,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
   "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
-  "servers.initialApply" | "historical.list" |
+  "servers.initialApply" | "historical.localStatus" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.adminPreview" | "rcon.adminSend" |
@@ -738,6 +748,7 @@ export const managerBridge = {
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
     request<HistoricalLaunchEvidence>("historical.launchEvidence",{archive,mapId,command}),
+  historicalLocalStatus: () => request<HistoricalLocalStoreStatus>("historical.localStatus"),
   historicalList: (archive:string) => request<HistoricalStoreList>("historical.list", {archive}),
   historicalPreview: (archive:string, mapId:string, root:string) =>
     request<HistoricalStorePreview>("historical.preview", {archive,mapId,root}),
