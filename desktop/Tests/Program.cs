@@ -1430,6 +1430,49 @@ try
               new FileInfo(Path.Combine(destination,"TRANSFER","old-zero.arkprofile")).Length==0 &&
               !Directory.Exists(Path.Combine(destination,"SQL")),
             "verifier preserves historical zero-byte profile and never creates SQL folder");
+        // Native UI uses Windows-only directory selection, not paths from
+        // untrusted React. This injected picker is isolated to this test.
+        string nativeOutput=Path.Combine(archiveLab,"native-output");
+        Directory.CreateDirectory(nativeOutput);
+        var selectedCopies=new Queue<string>(new[]{hp,ryzen,transfer,nativeOutput});
+        using(var archiveBridge=new DesktopOfflineAsaArchiveBridge(
+            _=>selectedCopies.Dequeue()))
+        {
+            var preview=await Call(archiveBridge.HandleAsync,"cluster.offlinePreview");
+            IsOk(preview,"native four-folder offline cluster preview");
+            Check(preview.GetProperty("data").GetProperty("hpCopies").GetInt32()==5 &&
+                  preview.GetProperty("data").GetProperty("ryzenCopies").GetInt32()==5 &&
+                  !preview.ToString().Contains(archiveLab,StringComparison.Ordinal),
+                "native preview redacts original absolute folder paths");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var refused=await Call(archiveBridge.HandleAsync,"cluster.offlineApply",
+                new{token,confirm=false});
+            Check(IsError(refused,"UM-CLUSTER-ARCHIVE-APPROVAL-REQUIRED"),
+                "offline archive needs explicit one-time approval");
+            var started=await Call(archiveBridge.HandleAsync,"cluster.offlineApply",
+                new{token,confirm=true});
+            IsOk(started,"native offline archive job starts only after approval");
+            string job=started.GetProperty("data").GetProperty("jobId").GetString()!;
+            var replay=await Call(archiveBridge.HandleAsync,"cluster.offlineApply",
+                new{token,confirm=true});
+            Check(IsError(replay,"UM-CLUSTER-ARCHIVE-APPROVAL-REQUIRED") ||
+                  IsError(replay,"UM-CLUSTER-ARCHIVE-BUSY"),
+                "original native archive approval cannot start a duplicate copy");
+            JsonElement final=default;
+            for(int i=0;i<400;i++)
+            {
+                final=await Call(archiveBridge.HandleAsync,"cluster.offlineStatus",new{jobId=job});
+                if(final.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(25);
+            }
+            IsOk(final,"native offline archive returns a final verifiable job status");
+            Check(final.GetProperty("data").GetProperty("state").GetString()=="completed" &&
+                  final.GetProperty("data").GetProperty("verifiedMaps").GetInt32()==10 &&
+                  !final.GetProperty("data").GetProperty("sqlUsed").GetBoolean() &&
+                  !final.GetProperty("data").GetProperty("productionRestoreAllowed").GetBoolean(),
+                "native archive completes 10 verified offline map copies without SQL or Store-write permissions");
+        }
         string labDestination=Path.Combine(Path.GetTempPath(),
             "Untamed-AsaRestore-Lab-"+Guid.NewGuid().ToString("N"));
         var labReceipt=OfflineAsaRestoreLab.MaterializeToLab(destination,labDestination);
