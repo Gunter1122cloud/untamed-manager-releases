@@ -724,7 +724,7 @@ test("two-host character travel workbench captures exactly five local maps witho
   await page.getByRole("button",{name:"Karakterutazás teszt"}).click();
   await expect(page.getByRole("heading",{name:"Karakterutazás tesztközpont"})).toBeVisible();
   await page.getByRole("button",{name:"Helyi 5 map ellenőrzése"}).click();
-  await expect(page.getByText("Az öt helyi map leltára teljes és nyugalomban készült.")).toBeVisible();
+  await expect(page.getByText("Az öt helyi map fájlleltára nyugalomban készült; ez nem karakterigazolás.")).toBeVisible();
   await expect(page.locator(".uk-travel-map-results>div")).toHaveCount(5);
   await expect(page.getByRole("textbox",{name:"Helyi mentéslenyomat JSON"})).not.toBeEmpty();
   await expect(page.getByText(/nem oldja fel a védett mapok indítási zárolását/)).toBeVisible();
@@ -1567,7 +1567,7 @@ test("ASA normal Stop requires approval and never force-kills or claims SaveComp
   await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
   await page.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toBeVisible();
-  await expect(page.getByText(/SaveWorld → DoExit → ellenőrzött/)).toBeVisible();
+  await expect(page.getByText(/SaveWorld → új World Save Complete \+ stabil \.ark → DoExit → PID-ellenőrzés/)).toBeVisible();
   const confirm=page.getByRole("button",{name:"Szerver szabályos leállítása"});
   await expect(confirm).toBeDisabled();
   await page.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
