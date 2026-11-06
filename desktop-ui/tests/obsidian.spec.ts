@@ -42,6 +42,11 @@ test.beforeEach(async ({ page }) => {
     let pluginEnabled = true;
     let localBackupMap=one;
     let localBackupSaved=false;
+    let crashRecovery=false;
+    (window as typeof window & {__UNTAMED_CRASH_MARKER_TEST__?:()=>void})
+      .__UNTAMED_CRASH_MARKER_TEST__=()=>{
+        crashRecovery=true;localBackupMap=two;localBackupSaved=true;
+      };
     (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
       .__UNTAMED_PROTECT_TEST_MAP__=()=>{
         Object.assign(state.local.maps[1],{storeProtected:true});
@@ -127,6 +132,7 @@ test.beforeEach(async ({ page }) => {
         case "backup.history": return {
           mapId:m.mapId,
           mapName:m.mapId===two?"Astraeos":"The Island",
+          recoveryRequired:crashRecovery,
           points:localBackupSaved&&m.mapId===localBackupMap?[{
             id:"00000000-0000-4000-8000-00000000b002",
             createdUtc:"2026-11-06T08:12:00Z",kind:"manual",
@@ -469,6 +475,19 @@ test("historical Store-v1 map allows backup inspection but disables unilateral w
   await expect(page.getByText(/Store-v1 vagy történeti Store-kapcsolat észlelve/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Visszaállítás"})).toBeDisabled();
   await expect(page.getByRole("button",{name:"Világmentés készítése"})).toBeEnabled();
+});
+
+test("crash restore marker blocks new snapshot and restore actions in native backed UI",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    (window as typeof window & {__UNTAMED_CRASH_MARKER_TEST__?:()=>void})
+      .__UNTAMED_CRASH_MARKER_TEST__?.();
+  });
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  await page.getByRole("combobox",{name:"Mentendő helyi map"}).selectOption(second);
+  await expect(page.getByText(/Megszakadt világ-visszaállítás jelzője található/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Világmentés készítése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Visszaállítás"})).toBeDisabled();
 });
 
 test("Update Center verifies Obsidian-only installer and requires explicit two-stage native approval",async({page})=>{
