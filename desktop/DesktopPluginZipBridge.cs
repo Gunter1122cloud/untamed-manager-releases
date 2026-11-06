@@ -59,6 +59,7 @@ public sealed class DesktopPluginZipBridge : IDisposable
     }
     private void EnsureStopped(LocalMap map)
     {
+        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
         if(map.HistoricalStoreProtected||map.Maintenance||
            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
             throw new InvalidOperationException("UM-PLUGIN-STORE-PROTECTED");
