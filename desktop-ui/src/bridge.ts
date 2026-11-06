@@ -1,4 +1,22 @@
 /* Explicit allowlisted Windows host contract; only guarded native methods may mutate local Manager configuration. */
+export type OperationsMap = {
+  mapId:string; mapName:string; running:boolean; confirmedStopped:boolean;
+  status:string; pid:number|null; startedUtc:string|null; uptimeSeconds:number|null;
+  memoryMiB:number|null; memoryVerified:boolean; maintenance:boolean;
+  storeProtected:boolean; gamePort:number; queryPort:number; rconConfigured:boolean;
+  rconPort:number|null; autoStartConfigured:boolean; lifecycleActionsVerified:false;
+  evidence:string;
+};
+export type OperationsSchedule = {
+  id:string; mapId:string; mapName:string; kind:string; frequency:string;
+  enabled:boolean; nextUtc:string|null; state:string; autoExecutionPermitted:false;
+};
+export type OperationsSnapshot = {
+  hostName:string; observedUtc:string; maps:OperationsMap[];
+  schedules:OperationsSchedule[]; schedulingIsReadOnly:true;
+  remoteCommandsAllowed:false; evidence:string;
+};
+
 export type PublicMap = {
   id: string;
   name: string;
@@ -499,7 +517,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
+type WireRequest = { id: string; method: "operations.snapshot" | "operations.map" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
@@ -568,6 +586,8 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
 }
 
 export const managerBridge = {
+  operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
+  operationsMap: (mapId:string) => request<OperationsSnapshot>("operations.map",{mapId}),
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
   travelCapture: () => request<TravelCapture>("travel.capture"),
   travelCompare: (p:{
