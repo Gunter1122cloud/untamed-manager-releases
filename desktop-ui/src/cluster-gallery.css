@@ -112,6 +112,9 @@
 .uk-gallery-state>span {width:7px;height:7px;border-radius:50%;background:#939e9e;}
 .uk-gallery-state.is-running{border-color:#4da67b;color:#b4ffcd;background:#0e3227e8;}
 .uk-gallery-state.is-running>span{background:#5eff9f;box-shadow:0 0 8px #55f1b3bb;}
+.uk-gallery-state.is-setup{border-color:#d6a957;color:#ffe4a2;background:#493923e6;}
+.uk-gallery-state.is-setup>span{background:#e8b45e;}
+
 .uk-gallery-tile-body {display:flex;flex-direction:column;gap:5px;
   padding:10px 11px 11px;min-height:77px;box-sizing:border-box;flex:1;width:100%;}
 .uk-gallery-name{font-size:13.5px;font-weight:800;letter-spacing:-.01em;line-height:1.25;
