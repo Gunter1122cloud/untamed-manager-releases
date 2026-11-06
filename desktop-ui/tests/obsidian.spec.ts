@@ -363,6 +363,24 @@ test.beforeEach(async ({ page }) => {
           return {mapId:one,plugin:"SampleZip",installedBinaries:1,
             backupCreated:false,requiresRestart:true,runtimeLoadedVerified:false,
             evidence:"VERIFIED_GUARDED_PLUGIN_ZIP_INSTALL"};
+        case "servers.freshStartStatus": return {
+          mapId:m.mapId,mapName:"Astraeos",running:false,confirmedStopped:true,
+          pid:null,readyCertified:false,status:"Leállítva",
+          evidence:"LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS"
+        };
+        case "servers.freshStartPreview": return {
+          token:"00000000-0000-4000-8000-000000009333",
+          mapId:m.mapId,mapName:"Astraeos",steamBuild:"123456",
+          gamePort:7847,queryPort:27085,rconConfigured:true,
+          confirmedStopped:true,serverStarted:false,
+          evidence:"FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
+        };
+        case "servers.freshStartApply":
+          if(!m.confirm)throw new Error("approval required");
+          return {mapId:second,mapName:"Astraeos",pid:45678,
+            createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
+            readyCertified:false,requiresRconReadiness:true,storeTouched:false,
+            evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"};
         case "steam.stoppedPreview": return {
           token:"00000000-0000-4000-8000-000000006666",mapId:m.mapId,
           mapName:"Astraeos",maps:["Astraeos"],installedBuild:"123456",
@@ -1154,4 +1172,21 @@ test("interrupted SteamCMD queue survives UI restart and blocks accidental retry
   await expect(page.getByText(/Helyi SteamCMD-napló: NeedsOperator/)).toBeVisible();
   await expect(page.getByText(/kézi ellenőrzés szükséges/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+});
+
+test("fresh ASA map starts a real local process only after explicit approval",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
+  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toBeVisible();
+  const start=page.getByRole("button",{name:"ASA szerver indítása",exact:true});
+  await expect(start).toBeDisabled();
+  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(page.getByText(/ASA indítás elindítva, PID: 45678/)).toBeVisible();
+  await expect(page.getByText(/folyamatindítás még nem bizonyítja/)).toBeVisible();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
 });
