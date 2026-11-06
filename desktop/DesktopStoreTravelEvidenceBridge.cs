@@ -193,14 +193,15 @@ public sealed class DesktopStoreTravelEvidenceBridge
                d.Maps.Select(x=>x.MapId).OrderBy(x=>x)))
             throw new InvalidDataException("UM-TRAVEL-IDENTITY-OR-EPOCH-MISMATCH");
         var names=a.Maps.Concat(b.Maps).Select(x=>x.MapId).ToArray();
-        if(names.Distinct().Count()!=10 ||
-           !Guid.TryParse(sourceMap,out var from)||!Guid.TryParse(destinationMap,out var to)||
-           from==to||!names.Contains(from)||!names.Contains(to)||
-           profileId.Length!=64||!profileId.All(Uri.IsHexDigit))
-            throw new InvalidDataException("UM-TRAVEL-INVALID-SELECTION");
         var before=a.Maps.Concat(b.Maps).ToArray();
         var after=c.Maps.Concat(d.Maps).ToArray();
         bool storeInvolved=before.Concat(after).Any(m=>m.StoreMode);
+        bool explicitEmbedded=storeInvolved&&profileId=="embedded";
+        if(names.Distinct().Count()!=10 ||
+           !Guid.TryParse(sourceMap,out var from)||!Guid.TryParse(destinationMap,out var to)||
+           from==to||!names.Contains(from)||!names.Contains(to)||
+           !(explicitEmbedded||(profileId.Length==64&&profileId.All(Uri.IsHexDigit))))
+            throw new InvalidDataException("UM-TRAVEL-INVALID-SELECTION");
         bool healthy=before.Concat(after).All(m=>m.ConfirmedStopped&&
             m.SaveDirectoryFound&&!m.AmbiguousLayout&&!m.Unstable&&
             (m.StoreMode ? m.WorldPresent&&!m.WorldUnstable :
