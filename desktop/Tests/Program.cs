@@ -733,6 +733,79 @@ try
         Check(IsError(protectedMap,"UM-ASA-STOP-FAILED")&&sends==1,
             "historical Store protection blocks all new graceful Stop operations");
 
+        // The manual Restart uses a separate, one-shot approval. This fixture
+        // injects a deterministic native runner; no real ASA process starts.
+        stopLabMap.HistoricalStoreProtected=false;
+        stopLabRunning=true;
+        string manifests=Path.Combine(stopRoot,"steamapps");
+        Directory.CreateDirectory(manifests);
+        File.WriteAllText(Path.Combine(manifests,"appmanifest_2430930.acf"),
+            "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
+        int restartCalls=0;
+        using var restartBridge=new DesktopFreshAsaRestartBridge(lab,Owner,
+            async (id,old,progress)=>{
+                restartCalls++;
+                progress("Synthetic SaveWorld then DoExit");
+                await Task.Delay(55);
+                progress("Synthetic fresh ASA process");
+                var stopped=new AsaGracefulStopReceipt(id,old.Pid,
+                    true,false,true,DateTimeOffset.UtcNow,
+                    "SYNTHETIC_OLD_PROCESS_STOPPED");
+                var replacement=new ProcessIdentity {
+                    Pid=old.Pid+1,
+                    StartedUtc=old.StartedUtc.AddSeconds(5),
+                    ExecutablePath=old.ExecutablePath,
+                    Arguments=old.Arguments
+                };
+                return (stopped,replacement);
+            });
+        var foreignRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=Guid.NewGuid()});
+        Check(IsError(foreignRestart,"UM-MAP-NOT-OWNED")&&restartCalls==0,
+            "remote or unknown map cannot schedule local ASA restart");
+        var restartPreview=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(restartPreview,"verified local non-Store process allows Restart preview");
+        string restartToken=restartPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var declinedRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartApply",new{token=restartToken,confirm=false});
+        Check(IsError(declinedRestart,"UM-ASA-RESTART-APPROVAL")&&restartCalls==0,
+            "Restart never sends SaveWorld without explicit operator approval");
+        var restartStarted=await Call(restartBridge.HandleAsync,
+            "servers.restartApply",new{token=restartToken,confirm=true});
+        IsOk(restartStarted,"one-shot restart dispatches native coordinator");
+        string restartJob=restartStarted.GetProperty("data")
+            .GetProperty("jobId").GetString()!;
+        var doubleRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartApply",new{token=restartToken,confirm=true});
+        Check(!doubleRestart.GetProperty("ok").GetBoolean(),
+            "Restart token cannot be replayed");
+        JsonElement finalRestart=default;
+        for(int i=0;i<65;i++){
+            finalRestart=await Call(restartBridge.HandleAsync,
+                "servers.restartStatus",new{jobId=restartJob});
+            if(finalRestart.GetProperty("data")
+                .GetProperty("state").GetString()=="completed")break;
+            await Task.Delay(30);
+        }
+        IsOk(finalRestart,"manual Restart reports real async progress");
+        var restartData=finalRestart.GetProperty("data");
+        Check(restartCalls==1 &&
+              restartData.GetProperty("state").GetString()=="completed" &&
+              restartData.GetProperty("oldPid").GetInt32()==44117 &&
+              restartData.GetProperty("newPid").GetInt32()==44118 &&
+              !restartData.GetProperty("saveCompleteProven").GetBoolean() &&
+              !restartData.GetProperty("readinessCertified").GetBoolean() &&
+              !restartData.GetProperty("autoRetry").GetBoolean(),
+            "one verified old process exits before single replacement, no false readiness");
+        stopLabMap.HistoricalMapKey="TheIsland_WP";
+        var historicalRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(historicalRestart,"UM-ASA-RESTART-FAILED"),
+            "historical Store provenance denies manual Restart");
+        stopLabMap.HistoricalMapKey="";
+
         // A Manager crash after real Start/Stop mutation leaves a durable
         // operator-review journal. Native/UI observation must not clear it.
         var journalBridge=new DesktopAsaLifecycleJournalBridge(lab);
