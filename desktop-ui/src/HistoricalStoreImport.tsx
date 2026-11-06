@@ -214,6 +214,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <span>Azonos Store-session</span><strong>{pairResult.sessionConsistent?"Egyező":"Eltérés vagy hiány"}</strong>
             <span>Konfigurációhash-ek</span><strong>{pairResult.configHashesVerified?"Egyező":"Eltérés vagy hiány"}</strong>
             <span>Aktív Store rekordok</span><strong>{pairResult.activeStoreRecords?"Másolatban igazolt":"NEM IGAZOLT"}</strong>
+            <span>Eredeti kétgépes állapotgép</span><strong>{pairResult.historicalActiveProtocolShape?
+              "Történeti másolat szerint DONE/ACTIVE – élő állapot ismeretlen":
+              "Nem teljesült a DONE/ACTIVE feltétel"}</strong>
             <span>Éles írási jogosultság</span><strong>TILTOTT</strong>
           </div>
           {pairResult.findings.length>0 && <p className="muted small">Ellenőrzési kódok: {pairResult.findings.join(", ")}</p>}
