@@ -89,6 +89,56 @@ try
             "map inspection is bounded and never creates recurring jobs");
     }
 
+    // Two hosts must each persist only their own LAN profile and DPAPI key.
+    // No network listener or remote command runs during the isolated fixture.
+    {
+        var lan=new DesktopLanSettingsBridge(cluster);
+        var status=await Call(lan.HandleAsync,"lan.status");
+        IsOk(status,"LAN pairing reads actual local settings");
+        Check(!status.GetProperty("data").GetProperty("pairingKeyConfigured").GetBoolean(),
+            "new isolated Manager starts with no invented LAN pairing");
+        var publicPeer=await Call(lan.HandleAsync,"lan.preview",
+            new{listenPort=39290,peerAddress="8.8.8.8",peerPort=39291,
+                pairingKey="0123456789abcdef0123456789abcdef"});
+        Check(IsError(publicPeer,"UM-LAN-INVALID-PRIVATE-PEER"),
+            "LAN pairing refuses a public IPv4 destination");
+        var before=File.ReadAllBytes(cluster.Store.FilePath);
+        const string pairSecret="SYNTHETIC-SHARED-PAIR-SECRET-NEVER-LOG";
+        var prepared=await Call(lan.HandleAsync,"lan.preview",
+            new{listenPort=39290,peerAddress="192.168.1.200",peerPort=39291,
+                pairingKey=pairSecret});
+        IsOk(prepared,"RFC1918 peer passes local-only pairing preview");
+        Check(File.ReadAllBytes(cluster.Store.FilePath).SequenceEqual(before),
+            "LAN preview leaves persisted configuration untouched");
+        var approval=prepared.GetProperty("data").GetProperty("token").GetString()!;
+        Check(!prepared.ToString().Contains(pairSecret,StringComparison.Ordinal),
+            "LAN preview does not expose shared secret to React");
+        var notConfirmed=await Call(lan.HandleAsync,"lan.apply",
+            new{token=approval,confirm=false});
+        Check(IsError(notConfirmed,"UM-LAN-EXPLICIT-APPROVAL-REQUIRED"),
+            "LAN save requires final explicit approval");
+        var saved=await Call(lan.HandleAsync,"lan.apply",
+            new{token=approval,confirm=true});
+        IsOk(saved,"LAN profile saved through atomic Manager config transaction");
+        Check(cluster.Config.ListenPort==39290 &&
+              cluster.Config.PeerAddress=="192.168.1.200" &&
+              cluster.Config.PeerPort==39291 &&
+              !string.IsNullOrWhiteSpace(cluster.Config.PairingKeyProtected),
+            "LAN settings retain local port, private peer address and DPAPI ciphertext");
+        Check(SecureStore.Unprotect(cluster.Config.PairingKeyProtected)==pairSecret &&
+              !File.ReadAllText(cluster.Store.FilePath).Contains(pairSecret,StringComparison.Ordinal),
+            "LAN secret is DPAPI protected and absent as plaintext on disk");
+        var replay=await Call(lan.HandleAsync,"lan.apply",
+            new{token=approval,confirm=true});
+        Check(IsError(replay,"UM-LAN-EXPLICIT-APPROVAL-REQUIRED"),
+            "LAN preview token cannot be replayed");
+        var current=await Call(lan.HandleAsync,"lan.status");
+        IsOk(current,"LAN status reports persisted settings without secret");
+        Check(current.GetProperty("data").GetProperty("pairingKeyConfigured").GetBoolean() &&
+              !current.ToString().Contains(pairSecret,StringComparison.Ordinal),
+            "read-only LAN status never returns pairing secret");
+    }
+
     using(var drafts=new DesktopModDraftBridge(cluster))
     {
         IsOk(await Call(drafts.HandleAsync,"mods.draftStart",new{mapId=map.Id}),
