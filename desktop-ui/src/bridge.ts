@@ -126,8 +126,14 @@ export type TravelComparison = {
 
 export type RconStatus = {
   mapId:string;mapName:string;configured:boolean;processVerified:boolean;
-  permitted:boolean;maintenance:boolean;allowedCommands:["ListPlayers"];
+  permitted:boolean;maintenance:boolean;allowedCommands:["ListPlayers","SaveWorld"];
   evidence:"LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND";
+};
+export type RconWorldSave = {
+  mapId:string;mapName:string;response:string;observedUtc:string;
+  rconAcknowledged:true;diskSaveCompletionProven:false;
+  worldFilesTouchedByManager:false;
+  evidence:"REAL_FIXED_RCON_SAVEWORLD_ACK_NOT_DISK_COMPLETION";
 };
 export type RconPlayers = {
   mapId:string;mapName:string;response:string;observedUtc:string;
@@ -379,7 +385,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" |
-  "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.status" | "rcon.listPlayers" |
+  "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.status" | "rcon.listPlayers" | "rcon.saveWorld" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
   "travel.capture" | "travel.compare";
@@ -443,6 +449,7 @@ export const managerBridge = {
   updateStatus: () => request<UpdateStatus>("updates.status"),
   rconStatus: (mapId:string) => request<RconStatus>("rcon.status",{mapId}),
   rconListPlayers: (mapId:string) => request<RconPlayers>("rcon.listPlayers",{mapId}),
+  rconSaveWorld: (mapId:string) => request<RconWorldSave>("rcon.saveWorld",{mapId,confirm:true}),
   updateCheck: (channel:"stable"|"preview") => request<UpdateCheck>("updates.check",{channel}),
   configuredMods: (mapId: string) => request<ConfiguredMods>("mods.configured", { mapId }),
   sharedModInventory: () => request<SharedModInventory>("mods.sharedInventory"),
