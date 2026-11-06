@@ -28,7 +28,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     }
     private readonly ClusterService cluster;
     private readonly Func<int,int,bool> portOwner;
-    private readonly Func<Guid,ProcessIdentity,Action<string>,
+    private readonly Func<Guid,ProcessIdentity,Guid,Action<string>,
         Task<(AsaGracefulStopReceipt Stop,ProcessIdentity Started)>> execute;
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly object sync=new();
@@ -38,19 +38,22 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
 
     public DesktopFreshAsaRestartBridge(ClusterService service,
         Func<int,int,bool>? ownsPort=null,
-        Func<Guid,ProcessIdentity,Action<string>,
+        Func<Guid,ProcessIdentity,Guid,Action<string>,
             Task<(AsaGracefulStopReceipt Stop,ProcessIdentity Started)>>? runner=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         portOwner=ownsPort??RconPortOwnership.IsOwnedListener;
-        execute=runner??(async(mapId,old,progress)=>{
+        execute=runner??(async(mapId,old,journalId,progress)=>{
             progress("SaveWorld → DoExit");
             var stopped=await AsaGracefulStop.StopAsync(cluster,mapId,old,
-                TimeSpan.FromMinutes(2));
+                TimeSpan.FromMinutes(2),approvedRestartId:journalId);
             if(!stopped.ConfirmedStopped||stopped.MapId!=mapId)
                 throw new InvalidOperationException("ASA old process did not stop");
             progress("Starting new ASA process");
-            var started=cluster.LaunchFreshAsa(mapId,true);
+            var map=Owned(mapId)??throw new InvalidDataException("ASA local map disappeared");
+            new AsaManualRestartJournal(map.InstallationPath).Change(
+                journalId,AsaRestartPhase.Starting);
+            var started=cluster.LaunchFreshAsa(mapId,true,journalId);
             return(stopped,started);
         });
     }
@@ -65,6 +68,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
            !AsaRconConfigurationEvidence.Matches(map) ||
            string.IsNullOrWhiteSpace(AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)))
             throw new InvalidOperationException("Restart requires a new local non-Store ASA installation");
+        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
         var state=cluster.Check(map);
         if(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaRestart,true,
             map.Maintenance,state.ConfirmedStopped,state.Running,
@@ -172,13 +176,15 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                 if(observed.Pid!=approved.Pid||
                    observed.StartedUtc!=approved.StartedUtc)
                     return Fail(id,"UM-ASA-RESTART-PROCESS-CHANGED");
+                var restartJournal=new AsaManualRestartJournal(currentMap.InstallationPath);
+                var persisted=restartJournal.Begin(currentMap.Id,approved.Pid);
                 var job=new Job{OldPid=approved.Pid};
                 current=job;
                 _=Task.Run(async()=>{
                     Change(job,"running","SaveWorld → DoExit");
                     try
                     {
-                        var receipt=await execute(currentMap.Id,observed,
+                        var receipt=await execute(currentMap.Id,observed,persisted.Id,
                             stage=>Change(job,"running",stage));
                         if(!receipt.Stop.ConfirmedStopped||
                            receipt.Stop.MapId!=currentMap.Id ||
@@ -186,11 +192,15 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                            receipt.Started.Pid<=0 ||
                            receipt.Started.StartedUtc<=approved.StartedUtc)
                             throw new InvalidDataException("UM-ASA-RESTART-RECEIPT-INVALID");
+                        restartJournal.Change(persisted.Id,AsaRestartPhase.Completed,
+                            receipt.Started.Pid);
                         Change(job,"completed","New Windows process started; readiness unverified",
                             receipt.Started.Pid);
                     }
                     catch(Exception)
                     {
+                        try{restartJournal.Change(persisted.Id,AsaRestartPhase.NeedsOperator);}
+                        catch{/* Keep the original pending journal; never clear it. */}
                         Change(job,"needsOperator",
                             "Interrupted restart: inspect local process and operation journal");
                     }
