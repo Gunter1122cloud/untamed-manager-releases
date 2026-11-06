@@ -46,6 +46,46 @@ var map=new LocalMap{
 cluster.AddMap(map);
 try
 {
+    // The original shared-store.mjs coordinator is fail-closed:
+    // permanent local lock + 2 DONE peers + ACTIVE Store record,
+    // no orphaned running or mutation markers and no TTL auto-release.
+    {
+        var valid=new LegacyStoreV1PhaseGate.Evidence(
+            MapPhase:"active",LocalPeerPhase:"done",OtherPeerPhase:"done",
+            LocalLockPresent:true,LocalLockMatchesSession:true,
+            PeerSessionsMatch:true,ConfigurationHashesMatch:true,
+            MapIdentityAndRootMatch:true,SelectedByLocalPeer:true,
+            RunningMarkerPresent:false,MutationLockPresent:false,
+            CancelledMarkerPresent:false,AttemptedMarkerPresent:true);
+        var healthy=LegacyStoreV1PhaseGate.Evaluate(valid);
+        Check(healthy.HistoricalNormalStartShape && !healthy.MaintenanceLocked &&
+              !healthy.AutoRecoveryAllowed && !healthy.LiveWriterCertified &&
+              !healthy.ConvertToStoreAllowed && !healthy.ConvertFromStoreAllowed,
+            "two DONE peers and ten active worlds reconstruct only the historical source guard");
+        void Block(LegacyStoreV1PhaseGate.Evidence changed,string expected)
+        {
+            var verdict=LegacyStoreV1PhaseGate.Evaluate(changed);
+            Check(!verdict.HistoricalNormalStartShape && verdict.MaintenanceLocked &&
+                  !verdict.AutoRecoveryAllowed && !verdict.ConvertToStoreAllowed &&
+                  !verdict.LiveWriterCertified && verdict.Blockers.Contains(expected),
+                "durable Store-v1 source phase denies unsafe operation: "+expected);
+        }
+        Block(valid with{MapPhase="review"},"STORE_MAP_NOT_ACTIVE");
+        Block(valid with{MapPhase="prepared"},"STORE_MAP_NOT_ACTIVE");
+        Block(valid with{OtherPeerPhase="backed"},"STORE_BOTH_PEERS_NOT_DONE");
+        Block(valid with{LocalPeerPhase="frozen"},"STORE_BOTH_PEERS_NOT_DONE");
+        Block(valid with{LocalLockPresent=false},"STORE_LOCAL_LOCK_MISSING");
+        Block(valid with{LocalLockMatchesSession=false},"STORE_LOCAL_LOCK_SESSION_MISMATCH");
+        Block(valid with{PeerSessionsMatch=false},"STORE_PEER_SESSION_MISMATCH");
+        Block(valid with{ConfigurationHashesMatch=false},"STORE_CONFIG_HASH_MISMATCH");
+        Block(valid with{MapIdentityAndRootMatch=false},"STORE_MAP_BINDING_MISMATCH");
+        Block(valid with{SelectedByLocalPeer=false},"STORE_MAP_NOT_SELECTED");
+        Block(valid with{RunningMarkerPresent=true},"STORE_RUNNING_MARKER");
+        Block(valid with{MutationLockPresent=true},"STORE_DURABLE_MUTATION_LOCK");
+        Block(valid with{CancelledMarkerPresent=true},"STORE_CANCELLED_MARKER");
+        Block(valid with{AttemptedMarkerPresent=false},"STORE_ATTEMPTED_MARKER_MISSING");
+    }
+
     // Original source port: historical active Store-v1 never permits a
     // fresh conversion, and its mod/port/cluster flags match source grammar.
     {
