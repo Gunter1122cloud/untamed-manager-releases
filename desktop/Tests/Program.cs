@@ -46,6 +46,65 @@ var map=new LocalMap{
 cluster.AddMap(map);
 try
 {
+    // Real-world save discovery is shared by backup/restore/travel/RCON.
+    // Custom ASA map names are NOT tied to a ten-map hardcoded list.
+    {
+        string alternateRoot=Path.Combine(root,"custom-save-layout");
+        var customMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Synthetic Custom Biome",
+            InstallationPath=alternateRoot,
+            Arguments="CustomBiome_WP?listen?AltSaveDirectoryName=AlternativeSlot"
+        };
+        var layout=AsaSaveLayoutResolver.Resolve(customMap);
+        Check(layout.MapToken=="CustomBiome_WP"&&
+              layout.SaveDirectoryName=="AlternativeSlot"&&
+              layout.ExplicitAlternate&&
+              layout.WorldFile.EndsWith(
+                  Path.Combine("AlternativeSlot","CustomBiome_WP.ark"),
+                  StringComparison.OrdinalIgnoreCase),
+            "custom ASA mod map resolves AltSaveDirectoryName without hardcoding");
+        Directory.CreateDirectory(layout.WorldDirectory);
+        File.WriteAllText(layout.WorldFile,"ORIGINAL SYNTHETIC CUSTOM ASA WORLD");
+        string customProfile=Path.Combine(root,"custom-save-profile");
+        Func<ProcessCheck> stopped=()=>
+            new ProcessCheck(false,"synthetic confirmed stopped",null,true);
+        var customBackup=UntamedWorldBackup.Create(customMap,customProfile,stopped);
+        Check(UntamedWorldBackup.Verify(customMap,customProfile,customBackup.Id).Verified==true,
+            "custom map backup copies and SHA-verifies resolved alternate save directory");
+        File.WriteAllText(layout.WorldFile,"CHANGED SYNTHETIC WORLD");
+        var restoredCustom=UntamedWorldBackup.Restore(
+            customMap,customProfile,customBackup.Id,stopped);
+        Check(restoredCustom.Restored&&restoredCustom.OldWorldRetained&&
+              File.ReadAllText(layout.WorldFile)=="ORIGINAL SYNTHETIC CUSTOM ASA WORLD",
+            "custom map restores exactly the verified alternate-folder world bytes");
+        var duplicate=new LocalMap{
+            Id=Guid.NewGuid(),Name="Another synthetic map",
+            InstallationPath=alternateRoot,
+            Arguments="AnotherMap_WP?listen?AltSaveDirectoryName=AlternativeSlot"
+        };
+        bool overlapRefused=false;
+        try{AsaSaveLayoutResolver.DemandUniqueOwner(customMap,new[]{customMap,duplicate});}
+        catch(InvalidOperationException){overlapRefused=true;}
+        Check(overlapRefused,"two maps cannot claim the same alternate save folder");
+        var traversal=new LocalMap{
+            Id=Guid.NewGuid(),Name="bad custom",
+            InstallationPath=alternateRoot,
+            Arguments="CustomBiome_WP?listen?AltSaveDirectoryName=../other"
+        };
+        bool traversalRefused=false;
+        try{AsaSaveLayoutResolver.Resolve(traversal);}
+        catch(InvalidDataException){traversalRefused=true;}
+        Check(traversalRefused,"malformed or path-traversing ASA alternate save folder is refused");
+        var mismatch=new LocalMap{
+            Id=Guid.NewGuid(),Name="The Island",InstallationPath=alternateRoot,
+            Arguments="Ragnarok_WP?listen"
+        };
+        bool conflictingMapRefused=false;
+        try{AsaSaveLayoutResolver.Resolve(mismatch);}
+        catch(InvalidDataException){conflictingMapRefused=true;}
+        Check(conflictingMapRefused,"registered map name cannot silently save into a different map token");
+    }
+
     // The original shared-store.mjs coordinator is fail-closed:
     // permanent local lock + 2 DONE peers + ACTIVE Store record,
     // no orphaned running or mutation markers and no TTL auto-release.
