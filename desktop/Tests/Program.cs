@@ -1312,6 +1312,87 @@ try
             "broken historical metadata is reported without erasing valid local mod assignments");
     }
 
+    // Copy To / Merge / Replace is a REAL atomic local Manager-config write,
+    // not a Store-v1 migration, network command or active ASA mod installation.
+    {
+        string modProfile=Path.Combine(root,"mod-copy-profile");
+        await using var modLab=new ClusterService("mod-copy-lab",modProfile,
+            _=>new ProcessCheck(false,"synthetic stopped",null,true));
+        var source=new LocalMap{Id=Guid.NewGuid(),Name="The Island",
+            InstallationPath=Path.Combine(root,"mod-copy-island"),
+            Arguments="TheIsland_WP?listen -Port=7777 -mods=928548,940975 -passivemods=940975"};
+        var target=new LocalMap{Id=Guid.NewGuid(),Name="Ragnarok",
+            InstallationPath=Path.Combine(root,"mod-copy-ragnarok"),
+            Arguments="Ragnarok_WP?listen -Port=7827 -mods=928548,666666"};
+        var other=new LocalMap{Id=Guid.NewGuid(),Name="Valguero",
+            InstallationPath=Path.Combine(root,"mod-copy-valguero"),
+            Arguments="Valguero_WP?listen -Port=7837 -mods=555555 -passivemods=555555"};
+        var historic=new LocalMap{Id=Guid.NewGuid(),Name="Aberration",
+            InstallationPath=Path.Combine(root,"mod-copy-protected"),
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=new string('A',64),
+            HistoricalMapKey="Aberration_WP"};
+        foreach(var item in new[]{source,target,other,historic})
+            modLab.AddMap(item);
+        using var copy=new DesktopModCopyBridge(modLab);
+        var refused=await Call(copy.HandleAsync,"mods.copyPreview",new{
+            sourceMapId=source.Id,targets=new[]{historic.Id},mode="replace"});
+        Check(IsError(refused,"UM-MOD-COPY-SAFETY-CHECK-FAILED"),
+            "Copy To refuses historic Store-v1 maps without touching metadata");
+        string beforeTarget=target.Arguments;
+        var merge=await Call(copy.HandleAsync,"mods.copyPreview",new{
+            sourceMapId=source.Id,targets=new[]{target.Id,other.Id},mode="merge"});
+        IsOk(merge,"native multi-map Merge preview returns two local targets");
+        Check(merge.GetProperty("data").GetProperty("changed").GetBoolean() &&
+              merge.GetProperty("data").GetProperty("targets").GetArrayLength()==2 &&
+              target.Arguments==beforeTarget,
+            "Merge preview does not write configuration");
+        string firstToken=merge.GetProperty("data").GetProperty("token").GetString()!;
+        var applied=await Call(copy.HandleAsync,"mods.copyApply",
+            new{token=firstToken,confirm=true});
+        IsOk(applied,"one approval commits both local map mod lists atomically");
+        var targetMods=ModStateController.Read(target);
+        var otherMods=ModStateController.Read(other);
+        Check(targetMods.Active.SequenceEqual(new[]{"928548","666666"}) &&
+              targetMods.Passive.Contains("940975") &&
+              otherMods.Active.Contains("928548") &&
+              otherMods.Passive.Contains("940975") &&
+              otherMods.Passive.Contains("555555") &&
+              target.Arguments.Contains("-Port=7827",StringComparison.Ordinal) &&
+              historic.Arguments.Length==0 &&
+              !applied.GetProperty("data").GetProperty("modsLoadedVerified").GetBoolean(),
+            "Merge preserves target-specific mods/ports, retains ASA passive subset and never claims runtime load");
+        var replay=await Call(copy.HandleAsync,"mods.copyApply",
+            new{token=firstToken,confirm=true});
+        Check(IsError(replay,"UM-MOD-COPY-APPROVAL-REQUIRED"),
+            "Copy To approval cannot be replayed");
+        var replace=await Call(copy.HandleAsync,"mods.copyPreview",new{
+            sourceMapId=source.Id,targets=new[]{other.Id},mode="replace"});
+        IsOk(replace,"native Replace previews full mod list replacement");
+        var secondToken=replace.GetProperty("data").GetProperty("token").GetString()!;
+        IsOk(await Call(copy.HandleAsync,"mods.copyApply",
+            new{token=secondToken,confirm=true}),
+            "confirmed Replace commits only selected local target");
+        otherMods=ModStateController.Read(other);
+        Check(otherMods.EnabledOrder.SequenceEqual(new[]{"928548","940975"}) &&
+              otherMods.Passive.SequenceEqual(new[]{"940975"}) &&
+              !otherMods.Disabled.Any() &&
+              !other.Arguments.Contains("555555",StringComparison.Ordinal) &&
+              other.Arguments.Contains("-Port=7837",StringComparison.Ordinal),
+            "Replace preserves non-mod ASA launch flags and source mod order");
+        var stale=await Call(copy.HandleAsync,"mods.copyPreview",new{
+            sourceMapId=source.Id,targets=new[]{target.Id},mode="replace"});
+        IsOk(stale,"stale-copy fixture preview prepared");
+        source.Arguments+=" -log";
+        var noStaleApply=await Call(copy.HandleAsync,"mods.copyApply",
+            new{token=stale.GetProperty("data").GetProperty("token").GetString(),confirm=true});
+        Check(IsError(noStaleApply,"UM-MOD-COPY-SAFETY-CHECK-FAILED"),
+            "changed source invalidates previously approved multi-map replacement");
+        Check(historic.HistoricalStoreProtected &&
+              !applied.GetProperty("data").GetProperty("remoteWritesAllowed").GetBoolean(),
+            "original Store protection and remote read-only ownership survive the batch");
+    }
+
     // REAL localhost Source RCON wire test: fake isolated TCP server, no ASA.
     // This catches the old bug where the admin bridge called read-only
     // RconProtocol.Execute and silently refused Broadcast/wildWipe.
