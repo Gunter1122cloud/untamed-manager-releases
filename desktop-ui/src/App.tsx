@@ -32,6 +32,7 @@ import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { LocalModCopyPanel } from "./LocalModCopyPanel";
 import { OfflineAsaArchivePanel } from "./OfflineAsaArchivePanel";
+import { PluginJsonEditor } from "./PluginJsonEditor";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
@@ -771,7 +772,9 @@ function PluginCenter({ snapshot, selected, setSelected }: {
   const [working,setWorking]=useState(false);
   const [notice,setNotice]=useState("");
   const [revision,setRevision]=useState(0);
+  const [jsonPlugin,setJsonPlugin]=useState("");
   const actionEpoch=useRef(0);
+  useEffect(()=>{setJsonPlugin("");},[selected]);
   useEffect(() => {
     let active = true;
     setInfo(null); setError("");
@@ -834,6 +837,12 @@ function PluginCenter({ snapshot, selected, setSelected }: {
         <span className="plugin-symbol"><Plug size={21}/></span>
         <div className="plugin-copy"><b>{plugin.name}</b><small>{plugin.binaries.map(b => b.name + " · " + (b.version || "verzió nélkül")).join(", ") || "Nincs DLL-adat"}</small></div>
         <span className={plugin.protectedData ? "mod-tag amber" : "mod-tag green"}>{plugin.protectedData ? "Védett" : "Helyi leltár"}</span>
+        <button type="button" className="secondary" disabled={working||
+          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.running)||
+          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.storeProtected)}
+          onClick={()=>setJsonPlugin(plugin.name)}>
+          config.json szerkesztése
+        </button>
       </div>)}
       <div className="warning-inline"><Shield size={17}/> Csak fájlleltár. Nem bizonyítja, hogy a futó ASA betöltötte a plugint.</div>
     </Panel>
@@ -880,6 +889,9 @@ function PluginCenter({ snapshot, selected, setSelected }: {
     </div>
     <AsaApiCoreInstaller mapId={selected} onInstalled={()=>setRevision(n=>n+1)}/>
     <PluginZipInstaller mapId={selected} onInstalled={()=>setRevision(n=>n+1)}/>
+    {jsonPlugin&&<PluginJsonEditor key={selected+"-"+jsonPlugin} mapId={selected}
+      plugin={jsonPlugin} onClose={()=>setJsonPlugin("")}
+      onSaved={()=>setRevision(n=>n+1)}/>} 
   </div>;
 }
 function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot}) {
