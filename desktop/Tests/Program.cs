@@ -1393,6 +1393,64 @@ try
             "original Store protection and remote read-only ownership survive the batch");
     }
 
+    // SQL-free, COPY-ONLY cluster archive: ten verified map packages and the
+    // original shared transfer directory copied to an isolated test machine.
+    // It cannot authorize a consistent live Store restore or new Store writer.
+    {
+        string archiveLab=Path.Combine(root,"asa-offline-archive-lab");
+        string hp=Path.Combine(archiveLab,"HP-copies");
+        string ryzen=Path.Combine(archiveLab,"RYZEN-copies");
+        string transfer=Path.Combine(archiveLab,"transfer-copy");
+        Directory.CreateDirectory(hp);Directory.CreateDirectory(ryzen);
+        Directory.CreateDirectory(Path.Combine(transfer,".kova-store-v1"));
+        File.WriteAllText(Path.Combine(transfer,".kova-store-v1","operation.json"),
+            "{\"schema\":1,\"session\":\"synthetic-only\"}");
+        File.WriteAllBytes(Path.Combine(transfer,"old-zero.arkprofile"),Array.Empty<byte>());
+        Guid[] ids=new Guid[10];
+        for(int i=0;i<10;i++)
+        {
+            ids[i]=Guid.NewGuid();
+            string local=Path.Combine(archiveLab,"synthetic-save-"+i);
+            Directory.CreateDirectory(local);
+            File.WriteAllText(Path.Combine(local,"World"+i+".ark"),
+                "SYNTHETIC-TEST-WORLD-"+i);
+            string container=i<5?hp:ryzen;
+            TestBackupPackage.Create(local,Path.Combine(container,"map"+i),
+                ids[i],"Stopped offline synthetic ASA map "+i);
+        }
+        string destination=Path.Combine(archiveLab,"verified-asa-package");
+        var report=OfflineAsaClusterArchive.BuildFromFolders(hp,ryzen,transfer,destination);
+        Check(report.Schema==2&&report.Maps.Length==10&&
+              report.Maps.Count(m=>m.Host=="HP")==5&&
+              report.Maps.Count(m=>m.Host=="RYZEN")==5&&
+              report.Transfer.Length==2&&!report.LiveConsistencyCertified&&
+              !report.LiveStoreWriterCertified&&!report.RestoreToProductionAllowed,
+            "SQL-free ten-map Store-copy archive verified without false production consistency");
+        Check(OfflineAsaClusterArchive.Verify(destination).Batch==report.Batch &&
+              new FileInfo(Path.Combine(destination,"TRANSFER","old-zero.arkprofile")).Length==0 &&
+              !Directory.Exists(Path.Combine(destination,"SQL")),
+            "verifier preserves historical zero-byte profile and never creates SQL folder");
+        string marker=Path.Combine(destination,"TRANSFER","old-zero.arkprofile");
+        File.WriteAllBytes(marker,new byte[]{7});
+        bool rejected=false;
+        try{OfflineAsaClusterArchive.Verify(destination);}
+        catch(InvalidDataException){rejected=true;}
+        Check(rejected,"modified transfer data invalidates verified ASA-only cluster package");
+        File.Delete(marker);
+        rejected=false;
+        try{OfflineAsaClusterArchive.Verify(destination);}
+        catch(InvalidDataException){rejected=true;}
+        Check(rejected,"missing transfer data invalidates verified ASA-only package");
+        string noStore=Path.Combine(archiveLab,"transfer-no-store");
+        Directory.CreateDirectory(noStore);
+        File.WriteAllText(Path.Combine(noStore,"some-transfer.bin"),"synthetic");
+        rejected=false;
+        try{OfflineAsaClusterArchive.BuildFromFolders(
+            hp,ryzen,noStore,Path.Combine(archiveLab,"unsafe-package"));}
+        catch(InvalidDataException){rejected=true;}
+        Check(rejected,"ASA-only cluster archive refuses absent original Store coordination metadata");
+    }
+
     // REAL localhost Source RCON wire test: fake isolated TCP server, no ASA.
     // This catches the old bug where the admin bridge called read-only
     // RconProtocol.Execute and silently refused Broadcast/wildWipe.
