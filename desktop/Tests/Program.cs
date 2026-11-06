@@ -619,6 +619,138 @@ try
             "all acceptance probes remain read-only to synthetic character bytes");
     }
 
+    // Kova-compatible *real file operations* against a disposable stopped
+    // fake-map installation. These mutate only CI TEMP data, never the
+    // production 10-map cluster, Store-v1 UNC or any MariaDB database.
+    {
+        string localInstall=Path.Combine(root,"world-backup-ci-install");
+        string localWorld=Path.Combine(localInstall,"ShooterGame","Saved",
+            "SavedArks","TheIsland_WP");
+        Directory.CreateDirectory(localWorld);
+        string arkFile=Path.Combine(localWorld,"TheIsland_WP.ark");
+        string charFile=Path.Combine(localWorld,"76561198000000001.arkprofile");
+        string tribeFile=Path.Combine(localWorld,"4411.arktribe");
+        byte[] oldWorld=Encoding.UTF8.GetBytes("SYNTHETIC WORLD V1");
+        byte[] oldChar=Encoding.UTF8.GetBytes("SYNTHETIC PROFILE V1");
+        File.WriteAllBytes(arkFile,oldWorld);
+        File.WriteAllBytes(charFile,oldChar);
+        File.WriteAllText(tribeFile,"TEST TRIBE");
+        string localProfile=Path.Combine(root,"world-backup-ci-profile");
+        bool stopped=true;
+        await using var backupHost=new ClusterService("world-backup-ci",
+            localProfile,_=>new ProcessCheck(!stopped,
+                stopped?"synthetic stopped":"synthetic running",
+                stopped?null:new ProcessIdentity{
+                    Pid=23563,ExecutablePath="synthetic.exe",
+                    StartedUtc=DateTimeOffset.UtcNow
+                },stopped));
+        var localMap=new LocalMap {Id=Guid.NewGuid(),Name="The Island",
+            InstallationPath=localInstall,
+            ExecutablePath=Path.Combine(localInstall,"fake.exe")};
+        backupHost.AddMap(localMap);
+        var worldBridge=new DesktopWorldBackupBridge(backupHost,
+            _=>new ProcessCheck(!stopped,
+                stopped?"synthetic stopped":"synthetic running",
+                stopped?null:new ProcessIdentity{
+                    Pid=23563,ExecutablePath="synthetic.exe",
+                    StartedUtc=DateTimeOffset.UtcNow
+                },stopped));
+        var empty=await Call(worldBridge.HandleAsync,"backup.history",
+            new{mapId=localMap.Id});
+        IsOk(empty,"initial genuine map backup archive is readable");
+        Check(empty.GetProperty("data").GetProperty("points").GetArrayLength()==0,
+            "world backup history starts empty");
+        var impossible=await Call(worldBridge.HandleAsync,"backup.preview",
+            new{mapId=Guid.NewGuid()});
+        Check(IsError(impossible,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+            "foreign map does not receive backup capability");
+        stopped=false;
+        var busy=await Call(worldBridge.HandleAsync,"backup.preview",
+            new{mapId=localMap.Id});
+        Check(IsError(busy,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+            "running map cannot be snapshotted as stopped world");
+        stopped=true;
+        var preview=await Call(worldBridge.HandleAsync,"backup.preview",
+            new{mapId=localMap.Id});
+        IsOk(preview,"real stopped-world backup preview prepared");
+        string ticket=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var noConfirm=await Call(worldBridge.HandleAsync,"backup.create",
+            new{token=ticket,confirm=false});
+        Check(IsError(noConfirm,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),
+            "native creation demands explicit operator confirmation");
+        var saved=await Call(worldBridge.HandleAsync,"backup.create",
+            new{token=ticket,confirm=true});
+        IsOk(saved,"Kova-style local world backup created and verified");
+        string point=saved.GetProperty("data").GetProperty("point").GetString()!;
+        Check(saved.GetProperty("data").GetProperty("backupVerified").GetBoolean() &&
+              saved.GetProperty("data").GetProperty("characters").GetInt32()==1 &&
+              saved.GetProperty("data").GetProperty("tribes").GetInt32()==1 &&
+              File.ReadAllBytes(arkFile).SequenceEqual(oldWorld) &&
+              File.ReadAllBytes(charFile).SequenceEqual(oldChar),
+            "actual save package includes world/profile/tribe and leaves source bytes unchanged");
+        var replay=await Call(worldBridge.HandleAsync,"backup.create",
+            new{token=ticket,confirm=true});
+        Check(IsError(replay,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),
+            "backup creation token cannot replay");
+        var pointProof=KovaCompatibleWorldBackup.Verify(localMap,localProfile,point);
+        Check(pointProof.Files==3 &&
+              pointProof.Bytes==oldWorld.Length+oldChar.Length+"TEST TRIBE".Length,
+            "saved manifest contents are cryptographically re-verified from disk");
+        File.WriteAllBytes(arkFile,Encoding.UTF8.GetBytes("SYNTHETIC WORLD V2"));
+        File.WriteAllBytes(charFile,Encoding.UTF8.GetBytes("SYNTHETIC PROFILE V2"));
+        var restorePreview=await Call(worldBridge.HandleAsync,"backup.restorePreview",
+            new{mapId=localMap.Id,point});
+        IsOk(restorePreview,"selected verified world backup can be restored under stopped local profile");
+        string restoreToken=restorePreview.GetProperty("data").GetProperty("token").GetString()!;
+        var wrongName=await Call(worldBridge.HandleAsync,"backup.restore",
+            new{token=restoreToken,mapName="Aberration",confirm=true});
+        Check(IsError(wrongName,"UM-BACKUP-MAP-NAME-CONFIRMATION-REQUIRED"),
+            "map-name confirmation required for world-changing restore");
+        var restored=await Call(worldBridge.HandleAsync,"backup.restore",
+            new{token=restoreToken,mapName="The Island",confirm=true});
+        // Explicit preview is one-use even if operator first typed a wrong
+        // map name: this must be repeated before real restore.
+        Check(IsError(restored,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),
+            "invalid confirmation consumes a restore ticket");
+        restorePreview=await Call(worldBridge.HandleAsync,"backup.restorePreview",
+            new{mapId=localMap.Id,point});
+        restoreToken=restorePreview.GetProperty("data").GetProperty("token").GetString()!;
+        restored=await Call(worldBridge.HandleAsync,"backup.restore",
+            new{token=restoreToken,mapName="The Island",confirm=true});
+        IsOk(restored,"real map world restore finishes with protective backup");
+        Check(File.ReadAllBytes(arkFile).SequenceEqual(oldWorld) &&
+              File.ReadAllBytes(charFile).SequenceEqual(oldChar) &&
+              restored.GetProperty("data").GetProperty("oldWorldRetained").GetBoolean(),
+            "restored world/profile exact bytes match and preceding world remains preserved");
+        string protective=restored.GetProperty("data").GetProperty("protectiveBackup").GetString()!;
+        var protectiveProof=KovaCompatibleWorldBackup.Verify(localMap,localProfile,protective);
+        Check(protectiveProof.Kind=="protective",
+            "old live world is preserved in a separately verified protected snapshot");
+        File.WriteAllBytes(Path.Combine(localWorld,"broken.arkprofile"),Array.Empty<byte>());
+        preview=await Call(worldBridge.HandleAsync,"backup.preview",
+            new{mapId=localMap.Id});
+        ticket=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var blocked=await Call(worldBridge.HandleAsync,"backup.create",
+            new{token=ticket,confirm=true});
+        Check(IsError(blocked,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+            "zero-byte local arkprofile prevents corrupt backup publication");
+        File.Delete(Path.Combine(localWorld,"broken.arkprofile"));
+        localMap.Arguments="-usestore";
+        var unsafeRestore=await Call(worldBridge.HandleAsync,"backup.restorePreview",
+            new{mapId=localMap.Id,point});
+        Check(IsError(unsafeRestore,"UM-BACKUP-STORE-V1-RESTORE-LOCKED"),
+            "live Store-v1 character map cannot be rolled back unilaterally");
+        localMap.Arguments="";
+        File.WriteAllText(Path.Combine(localWorld,"TheIsland_WP.ark"),"TAMPERED");
+        // The archived original is unaffected by source changes.
+        Check(KovaCompatibleWorldBackup.Verify(localMap,localProfile,point).Files==3,
+            "source tampering cannot modify verified archive bytes");
+        var forged=await Call(worldBridge.HandleAsync,"backup.restorePreview",
+            new{mapId=localMap.Id,point=Guid.NewGuid().ToString("D")});
+        Check(IsError(forged,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+            "unknown archive ID is rejected without writing world or Store");
+    }
+
     // Update Center: deterministic provider response; no remote download,
     // installer launch or server mutation in this test.
     {
