@@ -71,6 +71,8 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
         jobId:job.jobId,state:"queued",stage:"preflight",
         oldPid:preview.currentPid,newPid:0,changedUtc:new Date().toISOString(),
         saveCompleteProven:false,readinessCertified:false,
+        preExitSaveEvidenceObserved:false,finalDoExitSaveCertified:false,
+        gameClientRejoinVerified:false,
         killPerformed:false,storeTouched:false,autoRetry:false
       });
     }catch{setError("A helyi újraindítás nem indult el. A szerverállapot megváltozhatott.");}
@@ -81,7 +83,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     <header className="premium-panel-heading">
       <h2><RotateCcw size={19}/> ASA normál újraindítása</h2>
     </header>
-    <p>A C# Manager a régi szervert SaveWorld → DoExit művelettel leállítja, megvárja a pontos Windows-folyamat kilépését, majd egyszer indítja el az új folyamatot. Csak az új, helyi, nem Store-v1 mapokhoz.</p>
+    <p>A C# Manager a régi szerver SaveWorld naplójelzését és stabil .ark mentését ellenőrzi, majd DoExit után egyszer indítja el az új folyamatot. Hiányzó mentési bizonyítéknál nincs DoExit vagy automatikus ismétlés. Csak új, helyi, nem Store-v1 mapokhoz.</p>
     <button type="button" className="secondary"
       disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview}
       onClick={()=>{void check();}}><RefreshCw size={16}/> Újraindítás előellenőrzése</button>
