@@ -102,7 +102,9 @@ public static class ObsidianReleaseCatalog
         var incoming=Order(release.Tag);
         if(incoming==null)return false;
         var old=Order(installedTag);
-        if(old==null)return incoming.Value.version>current;
+        if(old==null)
+            return incoming.Value.version>current ||
+                (incoming.Value.version==current && incoming.Value.preview>0);
         int v=incoming.Value.version.CompareTo(old.Value.version);
         return v>0||(v==0&&incoming.Value.preview>old.Value.preview);
     }
