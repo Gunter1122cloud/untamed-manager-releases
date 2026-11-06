@@ -115,7 +115,7 @@ test.beforeEach(async ({ page }) => {
         case "rcon.status": return {
           mapId:m.mapId,mapName:"The Island",configured:rconAllowed,
           processVerified:true,permitted:rconAllowed,maintenance:false,
-          allowedCommands:["ListPlayers","SaveWorld"],
+          allowedCommands:["ListPlayers","GetGameLog","GetChat","SaveWorld"],
           evidence:"LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND"
         };
         case "rcon.adminPreview": return {
@@ -139,6 +139,22 @@ test.beforeEach(async ({ page }) => {
           oneShot:true,saveCompleteProven:false,storeWriterTouched:false,
           evidence:"LIVE_LOCAL_ADMIN_RCON_SINGLE_SEND"
         };
+        case "rcon.gameLog":
+          if(!rconAllowed)throw new Error("RCON requires owned local process");
+          return {
+            mapId:one,mapName:"The Island",command:"GetGameLog",
+            response:"Synthetic ASA GameLog entry",observedUtc:"2026-11-06T09:00:00Z",
+            readOnly:true,saveCompleteProven:false,
+            evidence:"LOCAL_VERIFIED_READ_ONLY_RCON"
+          };
+        case "rcon.chatLog":
+          if(!rconAllowed)throw new Error("RCON requires owned local process");
+          return {
+            mapId:one,mapName:"The Island",command:"GetChat",
+            response:"Synthetic ASA chat entry",observedUtc:"2026-11-06T09:00:00Z",
+            readOnly:true,saveCompleteProven:false,
+            evidence:"LOCAL_VERIFIED_READ_ONLY_RCON"
+          };
         case "rcon.listPlayers":
           throw new Error("Only verified local process/port can query players");
         case "backup.history": return {
@@ -956,6 +972,32 @@ test("real admin RCON UI requires two-stage approval and exact typed phrase for 
   await page.getByRole("textbox",{name:"Adminparancs megerősítő szó"}).fill("DINÓTÖRLÉS");
   await expect(page.getByRole("button",{name:"Parancs elküldése"})).toBeEnabled();
   await page.screenshot({path:"test-results/untamed-admin-rcon-confirm-1600.png",fullPage:true});
+});
+
+test("real local RCON game and chat log buttons are read-only and show separate responses",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  await expect(page.getByRole("button",{name:"ASA játéknapló (GetGameLog)"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"ASA chat (GetChat)"})).toBeDisabled();
+  await page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void}
+  ).__UNTAMED_RCON_ENABLE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  const game=page.getByRole("button",{name:"ASA játéknapló (GetGameLog)"});
+  const chat=page.getByRole("button",{name:"ASA chat (GetChat)"});
+  await expect(game).toBeEnabled();
+  await game.click();
+  await expect(page.getByRole("log",{name:"RCON ListPlayers válasz"}))
+    .toContainText("Synthetic ASA GameLog entry");
+  await expect(page.getByText(/GetGameLog – olvasási válasz/)).toBeVisible();
+  await chat.click();
+  await expect(page.getByRole("log",{name:"RCON ListPlayers válasz"}))
+    .toContainText("Synthetic ASA chat entry");
+  await expect(page.getByText(/GetChat – olvasási válasz/)).toBeVisible();
+  await expect(page.getByRole("log",{name:"RCON ListPlayers válasz"}))
+    .not.toContainText("Synthetic ASA GameLog entry");
 });
 
 test("local ASA import wizard requires preview and confirmation, then refreshes registered maps",async ({page})=>{
