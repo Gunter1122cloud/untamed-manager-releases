@@ -139,6 +139,32 @@ try
             "read-only LAN status never returns pairing secret");
     }
 
+    // Two-host transport proof on loopback only: the real AES/HMAC LAN
+    // protocol must reply to an authenticated peer and reject wrong secrets.
+    // This never opens or contacts an actual cluster machine.
+    {
+        using var probe=new System.Net.Sockets.TcpListener(
+            System.Net.IPAddress.Loopback,0);
+        probe.Start();
+        int freePort=((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        await using var peerListener=new PeerStatusListener(freePort,
+            "SYNTHETIC-SHARED-PAIR-SECRET-NEVER-LOG",cluster.LocalStatus);
+        peerListener.Start();
+        var response=await PeerStatusClient.Query("127.0.0.1",freePort,
+            "SYNTHETIC-SHARED-PAIR-SECRET-NEVER-LOG");
+        Check(response.HostId==cluster.Config.LocalHostId &&
+              response.Maps.Any(x=>x.Name=="The Island"),
+            "authenticated real local TCP peer returns native map observation");
+        bool wrongSecretDenied=false;
+        try {
+            await PeerStatusClient.Query("127.0.0.1",freePort,
+                "INVALID-SYNTHETIC-SHARED-SECRET-12345");
+        } catch(Exception) {wrongSecretDenied=true;}
+        Check(wrongSecretDenied,
+            "LAN transport rejects HMAC and encryption with incorrect shared key");
+    }
+
     using(var drafts=new DesktopModDraftBridge(cluster))
     {
         IsOk(await Call(drafts.HandleAsync,"mods.draftStart",new{mapId=map.Id}),
