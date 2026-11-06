@@ -302,6 +302,7 @@ public sealed class ObsidianWindow : Form
                         initialRoute = name is "servers.initialStatus" or
                             "servers.initialPreview" or "servers.initialApply";
                         historicalRoute = name is "historical.localStatus" or
+                            "historical.localParity" or
                             "historical.list" or
                             "historical.preview" or "historical.register" or
                             "historical.pairedEvidence" or "historical.launchEvidence";
