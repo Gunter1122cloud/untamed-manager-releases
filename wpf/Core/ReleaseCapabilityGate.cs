@@ -45,6 +45,15 @@ public static class ReleaseCapabilityGate
                     running && !maintenance && !confirmedStopped?
                     "Explicit SaveWorld on exact owned local process":
                     "Local owned running server required for explicit SaveWorld");
+            case ManagerOperation.RealAsaStop:
+                // Operator-authorized, non-Store DoExit is implemented by
+                // AsaGracefulStop, which binds every RCON write to an exact
+                // Windows process identity and local port listener. No
+                // readiness or independently witnessed SaveComplete is implied.
+                return new(operation,verifiedFreshInstall &&
+                    explicitOperatorApproval && running &&
+                    !confirmedStopped && !maintenance,
+                    "Local non-Store ASA graceful DoExit requires exact process ownership");
             case ManagerOperation.RealAsaStart:
                 // The only authorized real start in this stage is a newly
                 // installed, non-Store ASA map after an explicit UI approval.
