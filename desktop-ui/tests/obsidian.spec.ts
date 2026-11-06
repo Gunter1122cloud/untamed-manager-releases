@@ -1281,6 +1281,7 @@ test("Newly imported local map first setup saves session and UDP ports only afte
 
 test("original local Store-v1 five-map source proof is explicit and never enables launch",async({page})=>{
   await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
   await expect(page.getByRole("heading",{name:"Eredeti helyi Store-v1 állapot · közvetlen, csak olvasási ellenőrzés"})).toBeVisible();
   await page.getByRole("button",{name:"Eredeti helyi Store állapotának ellenőrzése"}).click();
