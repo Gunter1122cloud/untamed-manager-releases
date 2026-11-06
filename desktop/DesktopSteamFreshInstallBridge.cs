@@ -145,8 +145,31 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     }
                     mapName=LocalMapNameRules.Normalize(mapName);
                     string level=AsaSteamMapCatalog.LevelFor(mapName);
-                    installRoot=Canonical(installRoot);
-                    steamExe=Canonical(steamExe);
+                    try { installRoot=Canonical(installRoot); }
+                    catch(Exception ex) when(ex is InvalidDataException or IOException or
+                        UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                    {
+                        return Error(id,"UM-FRESH-INVALID-PATH");
+                    }
+                    try { steamExe=Canonical(steamExe); }
+                    catch(Exception ex) when(ex is InvalidDataException or IOException or
+                        UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                    {
+                        return Error(id,"UM-FRESH-INVALID-STEAMCMD");
+                    }
+                    // Report disk issues BEFORE scheduling a multi-GB Steam
+                    // download. Core enforces the same reserve again under
+                    // its exclusive installation lock.
+                    try {
+                        if(new DriveInfo(Path.GetPathRoot(installRoot)!).AvailableFreeSpace <
+                            35L*1024*1024*1024)
+                            return Error(id,"UM-FRESH-LOW-DISK-SPACE");
+                    }
+                    catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+                        ArgumentException or NotSupportedException)
+                    {
+                        return Error(id,"UM-FRESH-INVALID-PATH");
+                    }
                     if(!Path.GetFileName(steamExe).Equals("steamcmd.exe",StringComparison.OrdinalIgnoreCase))
                         return Error(id,"UM-FRESH-INVALID-STEAMCMD");
                     if(Overlap(installRoot,Path.GetDirectoryName(steamExe)!))
