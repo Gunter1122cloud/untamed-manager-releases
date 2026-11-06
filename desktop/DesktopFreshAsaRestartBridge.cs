@@ -196,7 +196,22 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                    observed.StartedUtc!=approved.StartedUtc)
                     return Fail(id,"UM-ASA-RESTART-PROCESS-CHANGED");
                 var restartJournal=new AsaManualRestartJournal(currentMap.InstallationPath);
-                var persisted=restartJournal.Begin(currentMap.Id,approved.Pid);
+                // Establish the persistent restart boundary while holding the
+                // SAME installation lease used by ordinary Start/Stop. A
+                // concurrent independent Start cannot pass its under-lease
+                // journal check between approval and Begin().
+                AsaRestartRecord persisted;
+                using(var prepareLease=cluster.Operations.Acquire(
+                    currentMap.InstallationPath,UntamedOperationKind.Configuration))
+                {
+                    var onceMore=Eligible(currentMap);
+                    if(onceMore.Pid!=approved.Pid ||
+                       onceMore.StartedUtc!=approved.StartedUtc)
+                        return Fail(id,"UM-ASA-RESTART-PROCESS-CHANGED");
+                    prepareLease.MarkMutationStarted();
+                    persisted=restartJournal.Begin(currentMap.Id,approved.Pid);
+                    prepareLease.Complete();
+                }
                 var job=new Job{OldPid=approved.Pid};
                 current=job;
                 _=Task.Run(async()=>{
