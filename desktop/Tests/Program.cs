@@ -1430,6 +1430,20 @@ try
               new FileInfo(Path.Combine(destination,"TRANSFER","old-zero.arkprofile")).Length==0 &&
               !Directory.Exists(Path.Combine(destination,"SQL")),
             "verifier preserves historical zero-byte profile and never creates SQL folder");
+        string labDestination=Path.Combine(Path.GetTempPath(),
+            "Untamed-AsaRestore-Lab-"+Guid.NewGuid().ToString("N"));
+        var labReceipt=OfflineAsaRestoreLab.MaterializeToLab(destination,labDestination);
+        Check(labReceipt.SourceBatch==report.Batch &&
+              labReceipt.MapFiles.Length==10 &&
+              !labReceipt.ProductionRestoreAllowed &&
+              OfflineAsaRestoreLab.VerifyLab(labDestination).SourceBatch==report.Batch,
+            "SQL-free archive materializes to isolated TEMP restore lab with 10 hashed worlds");
+        string world=Path.Combine(labDestination,"HP",ids[0].ToString("N"),"World0.ark");
+        File.AppendAllText(world,"CORRUPTION");
+        bool worldRejected=false;
+        try{OfflineAsaRestoreLab.VerifyLab(labDestination);}
+        catch(InvalidDataException){worldRejected=true;}
+        Check(worldRejected,"offline restore verifier rejects modified world after completed lab restore");
         string marker=Path.Combine(destination,"TRANSFER","old-zero.arkprofile");
         File.WriteAllBytes(marker,new byte[]{7});
         bool rejected=false;
