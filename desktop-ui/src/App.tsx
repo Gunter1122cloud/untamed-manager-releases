@@ -31,6 +31,7 @@ import { PluginZipInstaller } from "./PluginZipInstaller";
 import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { LocalModCopyPanel } from "./LocalModCopyPanel";
+import { PortableModProfilePanel } from "./PortableModProfilePanel";
 import { OfflineAsaArchivePanel } from "./OfflineAsaArchivePanel";
 import { OfflineAsaRestorePanel } from "./OfflineAsaRestorePanel";
 import { PluginJsonEditor } from "./PluginJsonEditor";
@@ -663,7 +664,7 @@ function Mods({ snapshot, selected, setSelected }: {
   const [prefillMode,setPrefillMode]=useState<ModDraftMode>("active");
   const [draftChanges,setDraftChanges]=useState(0);
   const [inventoryRevision,setInventoryRevision]=useState(0);
-  const [workspaceTab,setWorkspaceTab]=useState<"installed"|"draft"|"galaxy"|"shared"|"copy">("installed");
+  const [workspaceTab,setWorkspaceTab]=useState<"installed"|"draft"|"galaxy"|"shared"|"copy"|"profile">("installed");
   const [savedNotice,setSavedNotice]=useState("");
   const currentName=info?.mapName||
     snapshot.local.maps.find(m=>m.id===selected)?.name||"Helyi map";
@@ -714,7 +715,8 @@ function Mods({ snapshot, selected, setSelected }: {
         {id:"draft",name:"Modpiszkozat",icon:FileText},
         {id:"galaxy",name:"CurseForge katalógus",icon:Search},
         {id:"shared",name:"Közös modok",icon:Layers3},
-        {id:"copy",name:"Másolás több mapra",icon:Copy}
+        {id:"copy",name:"Másolás több mapra",icon:Copy},
+        {id:"profile",name:"Modprofilok HP / Ryzen",icon:Layers3}
       ] as const).map(tab=><button type="button" key={tab.id} role="tab"
         aria-selected={workspaceTab===tab.id}
         className={workspaceTab===tab.id?"active":""}
@@ -752,6 +754,15 @@ function Mods({ snapshot, selected, setSelected }: {
         onApplied={()=>{
           setInventoryRevision(n=>n+1);
           setSavedNotice("A kijelölt helyi mapok modkonfigurációja mentve; tényleges betöltésük még nem igazolt.");
+          managerBridge.configuredMods(selected).then(setInfo).catch(()=>setInfo(null));
+        }}/>
+    </div>
+    <div className={workspaceTab==="profile"?"premium-tab-surface":"premium-tab-surface is-hidden"}
+      aria-hidden={workspaceTab!=="profile"}>
+      <PortableModProfilePanel maps={snapshot.local.maps} sourceMapId={selected}
+        onApplied={()=>{
+          setInventoryRevision(n=>n+1);
+          setSavedNotice("A modprofil importja mentve. A tényleges ASA modbetöltés nem igazolt.");
           managerBridge.configuredMods(selected).then(setInfo).catch(()=>setInfo(null));
         }}/>
     </div>
