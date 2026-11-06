@@ -260,6 +260,14 @@ test.beforeEach(async ({ page }) => {
           peerWriterVerified:false,productionUseAllowed:false,serverStartAllowed:false,
           evidence:"OPERATOR_TEXT_READ_ONLY_UNAUTHENTICATED"
         };
+        case "historical.localParity": return {
+          archiveVerified:true,localStoreActive:true,
+          allFourExactlyMatch:true,liveTwoHostVerified:false,
+          characterTravelVerified:false,productionUseAllowed:false,
+          files:["cluster","cluster-store","shared-store-device","shared-store-lock"]
+            .map(kind=>({kind,exactlySame:true})),
+          evidence:"ORIGINAL_LOCAL_FOUR_FILE_BYTE_PARITY_OFFLINE_NO_LIVE_WRITER"
+        };
         case "historical.localStatus": return {
           found:true,localFilesVerified:true,configHashVerified:true,
           localLockVerified:true,allLocalMapsActive:true,
@@ -1292,6 +1300,25 @@ test("original local Store-v1 five-map source proof is explicit and never enable
   await expect(proof).toContainText("Kétgépes élő állapot / karakterutazás");
   await expect(proof).toContainText("NEM IGAZOLT");
   await expect(proof.getByRole("button",{name:/regisztrálása/})).toHaveCount(0);
+});
+
+test("verified historical archive and original local four Store files show byte parity only",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const source=page.getByRole("textbox",{name:"Korábbi Manager archívum"});
+  const match=page.getByRole("button",{name:"Helyi Store és archivált ZIP egyeztetése"});
+  await expect(match).toBeDisabled();
+  await source.fill("C:\\Backups\\OriginalSource.zip");
+  await expect(match).toBeEnabled();
+  await match.click();
+  const panel=page.getByRole("region",{name:"Korábbi helyi Store-v1 állapot"});
+  await expect(panel).toContainText("BÁJT-PONTOSAN EGYEZIK");
+  await expect(panel).toContainText("39 fájl ellenőrizve");
+  await expect(panel).toContainText("Éles karakterutazás");
+  await expect(panel).toContainText("NEM IGAZOLT");
+  await source.fill("C:\\Backups\\ChangedArchive.zip");
+  await expect(panel.getByText("BÁJT-PONTOSAN EGYEZIK")).toHaveCount(0);
 });
 
 test("Store-v1 historic import preserves map identity and never permits launch before real validation",async ({page})=>{
