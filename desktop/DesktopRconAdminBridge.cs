@@ -186,7 +186,8 @@ public sealed class DesktopRconAdminBridge
         catch(Exception ex) when(ex is InvalidDataException or InvalidOperationException or
             UnauthorizedAccessException or IOException or JsonException or ArgumentException or
             System.Net.Sockets.SocketException or TaskCanceledException or
-            OperationCanceledException or System.Security.Cryptography.CryptographicException or\n            TimeoutException or RegexMatchTimeoutException)
+            OperationCanceledException or System.Security.Cryptography.CryptographicException or
+            TimeoutException or RegexMatchTimeoutException)
         {
             return Fail(id,"UM-RCON-ADMIN-SAFETY-CHECK-FAILED_NO_AUTO_RETRY");
         }
