@@ -825,6 +825,15 @@ try
         var protectiveProof=KovaCompatibleWorldBackup.Verify(localMap,localProfile,protective);
         Check(protectiveProof.Kind=="protective",
             "old live world is preserved in a separately verified protected snapshot");
+        var retainedWorlds=Directory.EnumerateDirectories(
+            Path.Combine(localInstall,"ShooterGame","Saved","SavedArks"),
+            ".untamed-previous-TheIsland_WP-*").ToArray();
+        Check(retainedWorlds.Length==1 &&
+              File.ReadAllText(Path.Combine(retainedWorlds[0],"TheIsland_WP.ark"))==
+                  "SYNTHETIC WORLD V2" &&
+              File.ReadAllText(Path.Combine(retainedWorlds[0],"76561198000000001.arkprofile"))==
+                  "SYNTHETIC PROFILE V2",
+            "restored older world keeps a directly accessible byte-for-byte previous world and profile");
         var recentWorldPoints=KovaCompatibleWorldBackup.List(localMap,localProfile,2);
         Check(recentWorldPoints.Length==2 &&
               recentWorldPoints[0].Id==protective &&
