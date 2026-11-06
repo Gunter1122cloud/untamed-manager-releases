@@ -19,6 +19,7 @@ namespace UntamedDesktop;
 public sealed class DesktopSteamFreshInstallBridge : IDisposable
 {
     private readonly ClusterService cluster;
+    private readonly Func<string?> folderPicker;
     private readonly Func<SteamFreshInstallRequest,LocalMap[],
         IProgress<SteamInstallProgress>?,CancellationToken,Task<SteamFreshInstallReceipt>> runner;
     private readonly SemaphoreSlim serial = new(1,1);
@@ -53,11 +54,22 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
 
     public DesktopSteamFreshInstallBridge(ClusterService source,
         Func<SteamFreshInstallRequest,LocalMap[],IProgress<SteamInstallProgress>?,
-            CancellationToken,Task<SteamFreshInstallReceipt>>? runner=null)
+            CancellationToken,Task<SteamFreshInstallReceipt>>? runner=null,
+        Func<string?>? folderPicker=null)
     {
         cluster=source ?? throw new ArgumentNullException(nameof(source));
+        this.folderPicker=folderPicker??PickWindowsFolder;
         this.runner=runner ?? ((request,maps,progress,ct) =>
             SteamFreshInstall.InstallAsync(request,maps,progress,ct));
+    }
+
+    private static string? PickWindowsFolder()
+    {
+        using var dialog=new FolderBrowserDialog {
+            Description="Untamed Kingdom – új ASA-szerver célmappája",
+            ShowNewFolderButton=true,UseDescriptionForTitle=true
+        };
+        return dialog.ShowDialog()==DialogResult.OK?dialog.SelectedPath:null;
     }
 
     public async Task<string> HandleAsync(string raw)
@@ -89,14 +101,10 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     // browser-supplied shell path is executed or opened.
                     // The normal preflight still rejects nonempty, linked,
                     // historical or shared ASA roots before any download.
-                    using var picker=new FolderBrowserDialog{
-                        Description="Untamed Kingdom – új ASA-szerver célmappája",
-                        ShowNewFolderButton=true,UseDescriptionForTitle=true
-                    };
-                    if(picker.ShowDialog()!=DialogResult.OK ||
-                       string.IsNullOrWhiteSpace(picker.SelectedPath))
+                    string? picked=folderPicker();
+                    if(string.IsNullOrWhiteSpace(picked))
                         return Ok(id,new{selected=false});
-                    string selection=Canonical(picker.SelectedPath);
+                    string selection=Canonical(picked);
                     return Ok(id,new{selected=true,installRoot=selection});
                 }
                 if(method=="steam.freshCurrent")
