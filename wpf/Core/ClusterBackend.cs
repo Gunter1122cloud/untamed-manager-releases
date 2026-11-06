@@ -661,6 +661,8 @@ public sealed class ClusterService : IAsyncDisposable
         if(map.HistoricalStoreProtected)
             throw new InvalidOperationException("Historical Store-v1 profile is locked until full launch parity validation");
         ReleaseCapabilityGate.DemandFakeAsaStart(this,map);
+        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+            throw new InvalidOperationException("UM-ASA-START-BLOCKED-BY-RESTORE-RECOVERY");
         using var operation=Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch);
             if(map.Maintenance)throw new InvalidOperationException("Maintenance mode blocks launch");
             if (!Check(map).ConfirmedStopped)
