@@ -70,6 +70,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
             return false;
         if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
            !AsaRconConfigurationEvidence.Matches(map))return false;
+        var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
+        if(restart!=null&&restart.Phase!=AsaRestartPhase.Completed)return false;
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
         if(!AsaLocalPortPreflight.CanStart(map))return false;
         AsaApiLaunchPolicy.Resolve(map);
