@@ -29,7 +29,8 @@ public sealed class DesktopStoreTravelEvidenceBridge
     internal sealed record Proof(string Id,string Kind,long Bytes,string Sha256);
     internal sealed record MapProof(Guid MapId,string Name,bool ConfirmedStopped,
         bool SaveDirectoryFound,bool AmbiguousLayout,int Profiles,int Tribes,
-        bool ZeroByteDetected,bool Unstable,Proof[] Files);
+        bool ZeroByteDetected,bool Unstable,Proof[] Files,
+        bool StoreMode,bool WorldPresent,long WorldBytes,bool WorldUnstable);
     internal sealed record Capture(int Schema,string HostId,DateTimeOffset Utc,
         string Nonce,MapProof[] Maps);
     public DesktopStoreTravelEvidenceBridge(ClusterService service)=>
@@ -91,6 +92,14 @@ public sealed class DesktopStoreTravelEvidenceBridge
             before.Identity==null&&before.LoaderIdentity==null;
         var proofs=new List<Proof>();
         bool zero=false,unstable=false;
+        // The official ASA 57.12 -usestore format embeds player and tribe
+        // records inside the world .ark. Loose profiles may be stale or empty.
+        // We inspect world existence/size/stability WITHOUT hashing the huge
+        // world (the manager must remain low I/O on live hardware).
+        bool storeMode=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
+        bool worldPresent=false,worldUnstable=false;
+        long worldBytes=0;
+        string world=Path.Combine(folder,MapKey(map)+".ark");
         long total=0;
         if(!missing&&!ambiguous)
         {
@@ -120,12 +129,25 @@ public sealed class DesktopStoreTravelEvidenceBridge
                 proofs.Add(new(Identity(Path.GetFileNameWithoutExtension(file)),kind,start.Length,sha));
             }
         }
+        if(storeMode&&!missing&&!ambiguous && File.Exists(world))
+        {
+            if((File.GetAttributes(world)&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("UM-TRAVEL-WORLD-SYMLINK");
+            var first=new FileInfo(world);
+            worldBytes=first.Length;
+            worldPresent=worldBytes>0;
+            var touched=first.LastWriteTimeUtc;
+            var second=new FileInfo(world);
+            worldUnstable=first.Length!=second.Length||touched!=second.LastWriteTimeUtc;
+        }
         var after=cluster.Check(map);
         if(quiescent&&(after.Running||!after.ConfirmedStopped||
             after.Identity!=null||after.LoaderIdentity!=null))unstable=true;
+        if(worldUnstable)unstable=true;
         return new(map.Id,map.Name,quiescent&&!unstable,!missing,ambiguous,
             proofs.Count(p=>p.Kind=="profile"),proofs.Count(p=>p.Kind=="tribe"),
-            zero,unstable,proofs.ToArray());
+            zero,unstable,proofs.ToArray(),storeMode,worldPresent,
+            worldBytes,worldUnstable);
     }
     private Capture CaptureLocal()
     {
@@ -135,7 +157,7 @@ public sealed class DesktopStoreTravelEvidenceBridge
             throw new InvalidOperationException("UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS");
         if(!Guid.TryParse(cluster.Config.LocalHostId,out var host)||host==Guid.Empty)
             throw new InvalidDataException("UM-TRAVEL-HOST-ID-INVALID");
-        return new(1,host.ToString("D"),DateTimeOffset.UtcNow,
+        return new(2,host.ToString("D"),DateTimeOffset.UtcNow,
             Guid.NewGuid().ToString("N"),maps.Select(Scan).ToArray());
     }
     private static Capture Read(string json)
@@ -143,11 +165,13 @@ public sealed class DesktopStoreTravelEvidenceBridge
         if(json.Length is <20 or >Limit)throw new InvalidDataException("UM-TRAVEL-INVALID-EVIDENCE");
         var snapshot=JsonSerializer.Deserialize<Capture>(json,Json)??
             throw new InvalidDataException("UM-TRAVEL-INVALID-EVIDENCE");
-        if(snapshot.Schema!=1||!Guid.TryParse(snapshot.HostId,out var host)||host==Guid.Empty||
+        if(snapshot.Schema!=2||!Guid.TryParse(snapshot.HostId,out var host)||host==Guid.Empty||
            !Guid.TryParseExact(snapshot.Nonce,"N",out var nonce)||nonce==Guid.Empty||
            snapshot.Maps?.Length!=5||snapshot.Maps.Select(m=>m.MapId).Distinct().Count()!=5||
            snapshot.Maps.Any(m=>m.MapId==Guid.Empty||m.Files==null||
-               m.Files.Length>1500||m.Files.Any(p=>p.Bytes<0||
+               m.Files.Length>1500||m.WorldBytes<0||
+               (m.StoreMode&&m.WorldPresent!=(m.WorldBytes>0))||
+               m.Files.Any(p=>p.Bytes<0||
                    p.Kind is not ("profile" or "tribe")||
                    p.Id.Length!=64||p.Sha256.Length!=64||
                    !p.Id.All(Uri.IsHexDigit)||!p.Sha256.All(Uri.IsHexDigit)))||
@@ -176,8 +200,11 @@ public sealed class DesktopStoreTravelEvidenceBridge
             throw new InvalidDataException("UM-TRAVEL-INVALID-SELECTION");
         var before=a.Maps.Concat(b.Maps).ToArray();
         var after=c.Maps.Concat(d.Maps).ToArray();
+        bool storeInvolved=before.Concat(after).Any(m=>m.StoreMode);
         bool healthy=before.Concat(after).All(m=>m.ConfirmedStopped&&
-            m.SaveDirectoryFound&&!m.AmbiguousLayout&&!m.ZeroByteDetected&&!m.Unstable);
+            m.SaveDirectoryFound&&!m.AmbiguousLayout&&!m.Unstable&&
+            (m.StoreMode ? m.WorldPresent&&!m.WorldUnstable :
+                !m.ZeroByteDetected));
         var beforeSource=before.Single(m=>m.MapId==from).Files
             .Where(p=>p.Kind=="profile"&&p.Id==profileId).ToArray();
         var afterTarget=after.Single(m=>m.MapId==to).Files
@@ -189,21 +216,33 @@ public sealed class DesktopStoreTravelEvidenceBridge
         bool unique=afterAll.Length==1&&afterAll[0]==to;
         int zeroBytes=before.Concat(after).Sum(m=>m.Files.Count(p=>p.Bytes==0));
         var findings=new List<string>();
-        if(!healthy)findings.Add("Leállított állapot, könyvtár, reparse-mentesség vagy nulla bájtos fájl nem igazolt.");
-        if(!beforeOnSource)findings.Add("A karakter az induló mapon nem szerepel egyetlen érvényes fájlként.");
-        if(!afterOnTarget)findings.Add("A célmapon hiányzik az érvényes karakterfájl.");
-        if(!unique)findings.Add("A karakter nem egyetlen célmapon szerepel: hiány vagy duplikáció.");
+        if(!healthy)findings.Add("Leállított map, érvényes világmentés, fájlkönyvtár vagy stabil fájlállapot nem igazolt.");
+        if(storeInvolved)findings.Add("ASA -usestore: a karakter/tribe a .ark világban lehet; külön .arkprofile elhelyezkedés nem bizonyítja az átutazást. Játékbeli visszabelépés kötelező.");
+        if(!storeInvolved)
+        {
+            if(!beforeOnSource)findings.Add("A karakter az induló mapon nem szerepel egyetlen érvényes fájlként.");
+            if(!afterOnTarget)findings.Add("A célmapon hiányzik az érvényes karakterfájl.");
+            if(!unique)findings.Add("A karakter nem egyetlen célmapon szerepel: hiány vagy duplikáció.");
+        }
         // File placement alone does not prove biological/imprint/tribe data
         // semantics, MariaDB transactions, Store-v1 exclusive multiwriter,
         // user join or real ASA SaveComplete. Keep the production gate closed.
         return new{
-            passed=healthy&&beforeOnSource&&afterOnTarget&&unique,
+            // 'passed' means loose-file placement ONLY for non-Store mode.
+            // Never infer embedded survivor continuity from .ark timestamps.
+            passed=!storeInvolved&&healthy&&beforeOnSource&&afterOnTarget&&unique,
+            storeModeDetected=storeInvolved,
+            embeddedSurvivorVerified=false,gameClientRejoinVerified=false,
+            worldFilesPresentForStore=storeInvolved&&before.Concat(after)
+                .Where(m=>m.StoreMode).All(m=>m.WorldPresent&&!m.WorldUnstable),
             maps=10,hosts=2,beforeOnSource,afterOnTarget,uniqueDestination=unique,
             zeroByteFiles=zeroBytes,
             findings=findings.ToArray(),
             liveStoreWriterCertified=false,asaSaveCompleteCertified=false,
             productionUnlockAllowed=false,
-            evidence="FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"
+            evidence=storeInvolved?
+                "STORE_V1_EMBEDDED_WORLD_METADATA_NO_CHARACTER_CONTENT_PROOF":
+                "FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"
         };
     }
     public async Task<string> HandleAsync(string raw)
@@ -238,12 +277,16 @@ public sealed class DesktopStoreTravelEvidenceBridge
                             x.ConfirmedStopped,x.SaveDirectoryFound,x.AmbiguousLayout,
                             profileCount=x.Profiles,tribeCount=x.Tribes,
                             x.ZeroByteDetected,x.Unstable,
+                            x.StoreMode,x.WorldPresent,x.WorldBytes,x.WorldUnstable,
+                            embeddedSurvivorVerified=false,
                             profileFiles=x.Files.Where(f=>f.Kind=="profile").Select(f=>
                                 new{id=f.Id,bytes=f.Bytes}).ToArray()
                         }).ToArray(),
                         complete=snapshot.Maps.All(m=>m.ConfirmedStopped&&
                             m.SaveDirectoryFound&&!m.AmbiguousLayout&&
-                            !m.ZeroByteDetected&&!m.Unstable),
+                            !m.Unstable &&
+                            (m.StoreMode?m.WorldPresent&&!m.WorldUnstable:
+                                !m.ZeroByteDetected)),
                         writerCertified=false,readOnly=true,
                         evidence="LOCAL_QUIESCENT_FILE_HASH_SNAPSHOT_ONLY"
                     });
