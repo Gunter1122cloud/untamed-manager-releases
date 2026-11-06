@@ -42,6 +42,9 @@ test.beforeEach(async ({ page }) => {
     let pluginEnabled = true;
     let pluginZipInstalled = false;
     let steamUpdateStarted = false;
+    let steamInterrupted=false;
+    (window as typeof window & {__UNTAMED_STEAM_INTERRUPTED__?:()=>void})
+      .__UNTAMED_STEAM_INTERRUPTED__=()=>{steamInterrupted=true;};
     let localBackupMap=one;
     let localBackupSaved=false;
     let crashRecovery=false;
@@ -372,6 +375,14 @@ test.beforeEach(async ({ page }) => {
           return {jobId:"00000000-0000-4000-8000-000000007777",started:true,
             restartPerformed:false,remoteHostTouched:false,
             evidence:"REAL_LOCAL_STOPPED_STEAM_UPDATE_STARTED"};
+        case "steam.stoppedCurrent": return steamInterrupted?{
+          exists:true,queueId:"00000000-0000-4000-8000-000000008888",
+          phase:"NeedsOperator",activeMapName:"Astraeos",
+          nextIndex:0,total:1,changedUtc:"2026-11-06T09:10:00Z",
+          summary:"Interrupted fixture",needsOperatorReview:true,
+          autoResumeAllowed:false,hostName:"LAB-WIN-01",
+          evidence:"DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL"
+        }:{exists:false,needsOperatorReview:false,autoResumeAllowed:false};
         case "steam.stoppedStatus":
           return {jobId:"00000000-0000-4000-8000-000000007777",
             state:steamUpdateStarted?"completed":"queued",
@@ -1132,4 +1143,15 @@ test("real stopped-map SteamCMD update is opt-in and reports verified outcome",a
   await start.click();
   await expect(page.getByText(/Build 123456 → 123457/)).toBeVisible({timeout:15000});
   await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
+});
+
+test("interrupted SteamCMD queue survives UI restart and blocks accidental retry",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STEAM_INTERRUPTED__?:()=>void
+  }).__UNTAMED_STEAM_INTERRUPTED__?.());
+  await page.getByRole("button",{name:"SteamCMD"}).click();
+  await expect(page.getByText(/Helyi SteamCMD-napló: NeedsOperator/)).toBeVisible();
+  await expect(page.getByText(/kézi ellenőrzés szükséges/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
 });
