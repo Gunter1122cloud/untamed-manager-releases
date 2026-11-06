@@ -123,7 +123,7 @@ public static class KovaCompatibleWorldBackup
             1024*1024,FileOptions.SequentialScan);
         return Convert.ToHexString(SHA256.HashData(stream));
     }
-    private static Entry[] Scan(string root,string map)
+    private static Entry[] Scan(string root,string map,bool allowHistoricalEmptyProfiles=false)
     {
         root=Guard(root);
         if(!Directory.Exists(root))
@@ -140,10 +140,15 @@ public static class KovaCompatibleWorldBackup
                     throw new InvalidDataException("UM-BACKUP-LINKED-FILE-DENIED");
                 string relative=SafeRelative(Path.GetRelativePath(root,file));
                 var info=new FileInfo(file);
-                if(info.Length==0 &&
-                    (relative.EndsWith(".arkprofile",StringComparison.OrdinalIgnoreCase)||
-                     relative.EndsWith(".arktribe",StringComparison.OrdinalIgnoreCase)||
-                     relative.Equals(map+".ark",StringComparison.OrdinalIgnoreCase)))
+                // ASA's documented -usestore mode embeds survivor/tribe data
+                // in the .ark world. Former loose .arkprofile/.arktribe files
+                // may linger after conversion and can even be empty during a
+                // transfer. Preserve their exact bytes; NEVER erase or repair
+                // them on a backup. A zero-byte world remains hard-invalid.
+                bool worldFile=relative.Equals(map+".ark",StringComparison.OrdinalIgnoreCase);
+                bool looseProfile=relative.EndsWith(".arkprofile",StringComparison.OrdinalIgnoreCase)||
+                    relative.EndsWith(".arktribe",StringComparison.OrdinalIgnoreCase);
+                if(info.Length==0 && (worldFile || (looseProfile&&!allowHistoricalEmptyProfiles)))
                     throw new InvalidDataException("UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE");
                 entries.Add(new(relative,info.Length,Hash(file)));
                 if(entries.Count>MaxFiles)throw new InvalidDataException("UM-BACKUP-TOO-MANY-FILES");
@@ -216,7 +221,7 @@ public static class KovaCompatibleWorldBackup
                SafeRelative(x.Relative).Length==0)||
            m.Files.Select(x=>x.Relative).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=m.Files.Length)
             throw new InvalidDataException("UM-BACKUP-MANIFEST-OWNER-MISMATCH");
-        var actual=Scan(data,map);
+        var actual=Scan(data,map,allowHistoricalEmptyProfiles:true);
         if(!actual.SequenceEqual(m.Files))
             throw new InvalidDataException("UM-BACKUP-DIGEST-MISMATCH");
         return m;
@@ -253,7 +258,7 @@ public static class KovaCompatibleWorldBackup
         if(kind is not ("manual" or "protective"))throw new ArgumentException(nameof(kind));
         string world=World(map),archive=ArchiveRoot(profile,map),key=MapKey(map);
         Stopped(process);PendingRestore(world);
-        var manifestFiles=Scan(world,key);
+        var manifestFiles=Scan(world,key,HasLiveOrHistoricalStore(map));
         long size=Total(manifestFiles);
         Directory.CreateDirectory(archive);
         if(new DriveInfo(Path.GetPathRoot(archive)!).AvailableFreeSpace<size+64L*1024*1024)
@@ -268,7 +273,7 @@ public static class KovaCompatibleWorldBackup
         {
             CopyVerified(world,Path.Combine(stage,"files"),manifestFiles);
             Stopped(process);
-            if(!Scan(world,key).SequenceEqual(manifestFiles))
+            if(!Scan(world,key,HasLiveOrHistoricalStore(map)).SequenceEqual(manifestFiles))
                 throw new IOException("UM-BACKUP-SOURCE-CHANGED");
             var m=new Manifest(1,map.Id,key,Guard(map.InstallationPath),
                 DateTimeOffset.UtcNow,kind,manifestFiles);
