@@ -64,7 +64,13 @@ public static class RconProtocol
         if(host!="127.0.0.1"||string.IsNullOrWhiteSpace(command)||
            command.Length>240||command.Any(char.IsControl)||command.Contains(';'))
             throw new InvalidDataException("UM-ADMIN-RCON-UNSAFE-DISPATCH");
-        string token=command.Split(' ',2,StringSplitOptions.RemoveEmptyEntries)[0];
+        string[] words=command.Split(' ',StringSplitOptions.RemoveEmptyEntries);
+        int i=0;
+        while(i<words.Length && (
+            words[i].Equals("cheat",StringComparison.OrdinalIgnoreCase) ||
+            words[i].Equals("admincheat",StringComparison.OrdinalIgnoreCase)))i++;
+        if(i>=words.Length)throw new InvalidDataException("UM-ADMIN-RCON-EMPTY-COMMAND");
+        string token=words[i];
         if(token.Equals("SaveWorld",StringComparison.OrdinalIgnoreCase)||
            token.Equals("DoExit",StringComparison.OrdinalIgnoreCase)||
            token.Equals("Quit",StringComparison.OrdinalIgnoreCase)||
