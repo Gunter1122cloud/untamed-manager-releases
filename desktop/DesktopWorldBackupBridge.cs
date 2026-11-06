@@ -44,13 +44,24 @@ public sealed class DesktopWorldBackupBridge
            state.Identity!=null||state.LoaderIdentity!=null)
             throw new InvalidOperationException("UM-BACKUP-CONFIRMED-STOP-REQUIRED");
     }
-    private void UniqueInstallation(LocalMap map)
+    private void UniqueWorldDirectory(LocalMap map)
     {
-        if(cluster.Config.LocalMaps.Count(m=>string.Equals(
-            Path.GetFullPath(m.InstallationPath).TrimEnd(Path.DirectorySeparatorChar),
-            Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar),
-            StringComparison.OrdinalIgnoreCase))!=1)
-            throw new InvalidOperationException("UM-BACKUP-SHARED-INSTALLATION-AMBIGUOUS");
+        // Multiple map instances may share the same SteamCMD installation.
+        // Only a collision of the actual SavedArks/map-key folder is unsafe.
+        // The backup lock remains installation-wide, so even independent map
+        // directories cannot be renamed concurrently by this Manager.
+        string root=Path.GetFullPath(map.InstallationPath)
+            .TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar);
+        string key=KovaCompatibleWorldBackup.MapKey(map);
+        foreach(var other in cluster.Config.LocalMaps.Where(m=>m.Id!=map.Id))
+        {
+            string candidate=Path.GetFullPath(other.InstallationPath)
+                .TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar);
+            if(!string.Equals(root,candidate,StringComparison.OrdinalIgnoreCase))continue;
+            if(string.Equals(key,KovaCompatibleWorldBackup.MapKey(other),
+                StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("UM-BACKUP-SHARED-MAP-DIRECTORY-COLLISION");
+        }
     }
     public async Task<string> HandleAsync(string raw)
     {
@@ -103,7 +114,7 @@ public sealed class DesktopWorldBackupBridge
                        !Guid.TryParse(m.GetString(),out var mid))
                         return Fail(id,"UM-BACKUP-INVALID-MAP");
                     var map=Owned(mid);
-                    UniqueInstallation(map);
+                    UniqueWorldDirectory(map);
                     Stopped(map);
                     var key=KovaCompatibleWorldBackup.MapKey(map);
                     string point="";
@@ -160,7 +171,7 @@ public sealed class DesktopWorldBackupBridge
                 if(current.InstallationPath!=ticket.Root||
                    current.Arguments!=ticket.Arguments)
                     return Fail(id,"UM-BACKUP-MAP-CONFIG-CHANGED");
-                UniqueInstallation(current);
+                UniqueWorldDirectory(current);
                 Stopped(current);
                 if(ticket.Restore)
                 {
