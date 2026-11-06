@@ -1,10 +1,11 @@
 import {useCallback,useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,RefreshCw,Shield,Terminal,Users,Save} from "lucide-react";
-import {managerBridge,type RconStatus,type RconPlayers,type RconWorldSave,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
+import {managerBridge,type RconStatus,type RconPlayers,type RconReadLog,type RconWorldSave,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
 
 export function RconReadOnlyPanel({mapId}:{mapId:string}){
   const [status,setStatus]=useState<RconStatus|null>(null);
   const [result,setResult]=useState<RconPlayers|null>(null);
+  const [readLog,setReadLog]=useState<RconReadLog|null>(null);
   const [saveReceipt,setSaveReceipt]=useState<RconWorldSave|null>(null);
   const [saveApproved,setSaveApproved]=useState(false);
   const [adminAction,setAdminAction]=useState("broadcast");
@@ -23,7 +24,7 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
   const [error,setError]=useState("");
   const load=useCallback(async()=>{
     if(!mapId)return;
-    setBusy(true);setError("");setStatus(null);setResult(null);
+    setBusy(true);setError("");setStatus(null);setResult(null);setReadLog(null);
     setSaveReceipt(null);setSaveApproved(false);
     setAdminDraft(null);setAdminApproved(false);setAdminTyped("");setAdminReceipt(null);
     try{
@@ -72,6 +73,17 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
     try{setResult(await managerBridge.rconListPlayers(mapId));}
     catch{setError("A biztonságos ListPlayers lekérdezés nem igazolható. A kapcsolódás vagy a folyamat állapota megváltozhatott.");}
     finally{setBusy(false);}
+  };
+  const queryReadLog=async(type:"game"|"chat")=>{
+    if(!status?.permitted||busy)return;
+    setBusy(true);setError("");setReadLog(null);setResult(null);
+    try{
+      setReadLog(type==="game"
+        ?await managerBridge.rconGameLog(mapId)
+        :await managerBridge.rconChatLog(mapId));
+    }catch{
+      setError("Az ASA napló/chat RCON-lekérdezés nem igazolható. A parancs ismételhető, de a helyi PID és TCP-port ellenőrzése szükséges.");
+    }finally{setBusy(false);}
   };
   const saveWorld=async()=>{
     if(!status?.permitted||!saveApproved||busy)return;
@@ -148,6 +160,12 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
           <button type="button" className="primary"
             disabled={!status?.permitted||busy} onClick={()=>{void list();}}>
             <Users size={16}/> Játékoslista lekérdezése</button>
+          <button type="button" className="secondary"
+            disabled={!status?.permitted||busy} onClick={()=>{void queryReadLog("game");}}>
+            <Terminal size={16}/> ASA játéknapló (GetGameLog)</button>
+          <button type="button" className="secondary"
+            disabled={!status?.permitted||busy} onClick={()=>{void queryReadLog("chat");}}>
+            <Terminal size={16}/> ASA chat (GetChat)</button>
         </div>
         <div className="uk-rcon-save-panel">
           <label><input type="checkbox" checked={saveApproved}
@@ -224,7 +242,8 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
           <div className="uk-rcon-terminal-bar"><span aria-hidden="true">●</span>
             UNTAMED / VERIFIED LOCAL RCON
           </div>
-          {result?<pre>{result.response||"A helyi RCON nem adott megjeleníthető választ."}</pre>:
+          {readLog?<pre>{readLog.response||"Nincs új naplóbejegyzés az ASA RCON válaszában."}</pre>:
+           result?<pre>{result.response||"A helyi RCON nem adott megjeleníthető választ."}</pre>:
             <div className="uk-rcon-placeholder">
               <Terminal size={29}/>
               {status?.permitted?
@@ -238,6 +257,10 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
               A lemezre írás befejezését ez önmagában nem bizonyítja.
               A teljes ellenőrzött fájlmentéshez használd a Mentésközpontot
               a map szabályos leállítása után.</p></div>
+        </div>}
+        {readLog&&<div className="uk-rcon-receipt" role="status"><CheckCircle2 size={17}/>
+          {readLog.command} – olvasási válasz · {new Date(readLog.observedUtc).toLocaleString("hu-HU")}
+          · a helyi folyamat és a TCP-port ellenőrizve
         </div>}
         {result&&<div className="uk-rcon-receipt"><CheckCircle2 size={17}/>
           Olvasási válasz · {new Date(result.observedUtc).toLocaleString("hu-HU")}
