@@ -38,7 +38,8 @@ public static class AsaGracefulStop
         TimeSpan timeout,CancellationToken cancellationToken=default,
         Func<LocalMap,ProcessIdentity,CancellationToken,Task>? sendCommands=null,
         Func<int,int,bool>? listenerOwner=null,
-        Guid? approvedRestartId=null)
+        Guid? approvedRestartId=null,
+        Action<string>? evidenceStage=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(expected);
@@ -101,6 +102,7 @@ public static class AsaGracefulStop
                     "UM-ASA-STOP-LOG-WITNESS-MISSING");
             await RconProtocol.DispatchOwnedSaveWorldAsync(
                 map.RconPort,password,Verify,ct);
+            evidenceStage?.Invoke("RCON SaveWorld elküldve; ASA mentésjelzés ellenőrzése");
             var observed=await AsaWorldSaveEvidence.WaitAsync(
                 witness,()=>{
                     try{Verify();return true;}
@@ -110,9 +112,11 @@ public static class AsaGracefulStop
                 throw new InvalidOperationException(
                     "UM-ASA-STOP-SAVE-NOT-OBSERVED_NO_DOEXIT");
             preExitEvidence=true;
+            evidenceStage?.Invoke("ASA World Save Complete + stabil .ark megfigyelve");
             Verify();
             await RconProtocol.DispatchDoExitAsync(
                 map.RconPort,password,Verify,ct);
+            evidenceStage?.Invoke("DoExit elküldve; PID kilépésére vár");
         }
         // DoExit normally closes ASA after its own world save. The process
         // must vanish before declaring a successful graceful stop.
@@ -128,6 +132,7 @@ public static class AsaGracefulStop
                     "Unexpected replacement ASA process during shutdown");
             await Task.Delay(300,ct);
         }
+        evidenceStage?.Invoke("Régi ASA Windows-folyamat kilépése igazolva");
         lease.Complete();
         return new(map.Id,expected.Pid,true,false,true,DateTimeOffset.UtcNow,
             preExitEvidence?
