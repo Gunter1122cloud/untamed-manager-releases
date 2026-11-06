@@ -1313,6 +1313,44 @@ try
             new{token=zipToken,confirm=true});
         Check(IsError(replay,"UM-PLUGIN-ZIP-TOKEN-EXPIRED"),
             "same plugin ZIP approval token cannot be replayed");
+        // An updated DLL must never replace the user's existing settings,
+        // licensing data or other nonbinary files. The Core makes an
+        // independently verified snapshot before swapping the binary.
+        string installedPlugin=Path.Combine(pluginRoot,"SampleZip");
+        File.WriteAllText(Path.Combine(installedPlugin,"config.json"),
+            "{\"preserve\":\"user-value\"}");
+        File.WriteAllText(Path.Combine(installedPlugin,"license.key"),
+            "PRIVATE-LICENSE-UNCHANGED");
+        File.Delete(zipPath);
+        using(var stream=File.Create(zipPath))
+        using(var zip=new System.IO.Compression.ZipArchive(stream,
+            System.IO.Compression.ZipArchiveMode.Create))
+        {
+            using(var dll=zip.CreateEntry("SampleZip/SampleZip.dll").Open())
+                dll.Write(new byte[]{0x4d,0x5a,0x09,0x09,0x09});
+            using(var bogus= new StreamWriter(
+                zip.CreateEntry("SampleZip/config.json").Open()))
+                bogus.Write("MUST_NOT_OVERWRITE");
+        }
+        var updatePreview=await Call(zipBridge.HandleAsync,"plugins.zipSelect",
+            new{mapId=zipMap.Id});
+        IsOk(updatePreview,"native ZIP update detects existing plugin");
+        Check(updatePreview.GetProperty("data")
+                  .GetProperty("previousExists").GetBoolean(),
+            "existing plugin triggers complete SHA-verified backup");
+        var updated=await Call(zipBridge.HandleAsync,"plugins.zipApply",
+            new{token=updatePreview.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true});
+        IsOk(updated,"native ZIP update replaces a plugin DLL with full protection");
+        Check(updated.GetProperty("data").GetProperty("backupCreated").GetBoolean() &&
+              File.ReadAllBytes(Path.Combine(installedPlugin,"SampleZip.dll"))
+                  .SequenceEqual(new byte[]{0x4d,0x5a,0x09,0x09,0x09}) &&
+              File.ReadAllText(Path.Combine(installedPlugin,"config.json"))==
+                  "{\"preserve\":\"user-value\"}" &&
+              File.ReadAllText(Path.Combine(installedPlugin,"license.key"))==
+                  "PRIVATE-LICENSE-UNCHANGED" &&
+              !updated.GetRawText().Contains("PRIVATE-LICENSE-UNCHANGED"),
+            "existing plugin settings/license remain byte-identical and secret");
         zipMap.HistoricalStoreProtected=true;
         var historicalDenied=await Call(zipBridge.HandleAsync,"plugins.zipSelect",
             new{mapId=zipMap.Id});
