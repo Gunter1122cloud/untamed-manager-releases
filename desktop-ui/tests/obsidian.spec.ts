@@ -40,6 +40,9 @@ test.beforeEach(async ({ page }) => {
     let stagedId = "";
     let redoId = "";
     let pluginEnabled = true;
+    let rconAllowed=false;
+    (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
+      .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
     const draftToken = "00000000-0000-4000-8000-000000001234";
     const draftState = () => ({
       draftId:draftToken,mapId:one,active:stagedId?["123456",stagedId]:["123456"],
@@ -48,7 +51,7 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; point?: string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; point?: string; action?: string; message?: string; typedApproval?: string }) => {
       switch (m.method) {
         case "travel.capture": {
           const names=["Astraeos","Genesis Part 1","Valguero","The Island","Extinction"];
@@ -86,10 +89,31 @@ test.beforeEach(async ({ page }) => {
           evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"
         };
         case "rcon.status": return {
-          mapId:m.mapId,mapName:"The Island",configured:false,
-          processVerified:true,permitted:false,maintenance:false,
-          allowedCommands:["ListPlayers"],
+          mapId:m.mapId,mapName:"The Island",configured:rconAllowed,
+          processVerified:true,permitted:rconAllowed,maintenance:false,
+          allowedCommands:["ListPlayers","SaveWorld"],
           evidence:"LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND"
+        };
+        case "rcon.adminPreview": return {
+          token:"00000000-0000-4000-8000-00000000e001",
+          mapId:m.mapId,mapName:"The Island",action:m.action,
+          command:m.action==="wildWipe"?"DestroyWildDinos":
+            m.action==="broadcast"?"Broadcast "+m.message:
+            m.action==="serverChat"?"ServerChat "+m.message:m.message,
+          dangerous:m.action==="wildWipe"||m.action==="custom",
+          approvalWord:m.action==="wildWipe"?"DINÓTÖRLÉS":
+            m.action==="custom"?"ADMIN":null,
+          requiresApproval:true,expiresUtc:"2026-11-06T10:00:00Z",
+          dispatched:false,credentialExposed:false,
+          evidence:"LOCAL_OS_VERIFIED_ADMIN_RCON_PREVIEW"
+        };
+        case "rcon.adminSend": return {
+          mapId:one,mapName:"The Island",action:"broadcast",
+          command:"Broadcast Synthetic operator message",
+          response:"Synthetic RCON command accepted",
+          commandSent:true,observedUtc:"2026-11-06T09:00:00Z",
+          oneShot:true,saveCompleteProven:false,storeWriterTouched:false,
+          evidence:"LIVE_LOCAL_ADMIN_RCON_SINGLE_SEND"
         };
         case "rcon.listPlayers":
           throw new Error("Only verified local process/port can query players");
@@ -701,6 +725,36 @@ test("local map card opens map-specific details, functional tabs, back navigatio
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await expect(page.getByRole("heading",{name:"Szerverek"})).toBeVisible();
   await page.screenshot({path:"test-results/map-detail-navigation-1600.png",fullPage:true});
+});
+
+test("real admin RCON UI requires two-stage approval and exact typed phrase for destructive actions",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.evaluate(()=>
+    (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
+      .__UNTAMED_RCON_ENABLE__?.());
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  await expect(page.getByRole("region",{name:"Helyi admin RCON parancsok"})).toBeVisible();
+  await page.getByRole("textbox",{name:"Admin RCON üzenet vagy parancs"})
+    .fill("Synthetic operator message");
+  await page.getByRole("button",{name:"Éles RCON-parancs ellenőrzése"}).click();
+  await expect(page.getByText("Broadcast Synthetic operator message")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Parancs elküldése"})).toBeDisabled();
+  await page.getByRole("region",{name:"Adminparancs végső jóváhagyása"})
+    .getByRole("checkbox").check();
+  await page.getByRole("button",{name:"Parancs elküldése"}).click();
+  await expect(page.getByText("Adminparancs egyszer elküldve")).toBeVisible();
+  await page.getByRole("combobox",{name:"Admin RCON parancstípus"}).selectOption("wildWipe");
+  await page.getByRole("button",{name:"Éles RCON-parancs ellenőrzése"}).click();
+  await expect(page.getByText("DestroyWildDinos")).toBeVisible();
+  await page.getByRole("region",{name:"Adminparancs végső jóváhagyása"})
+    .getByRole("checkbox").check();
+  await page.getByRole("textbox",{name:"Adminparancs megerősítő szó"}).fill("NEM");
+  await expect(page.getByRole("button",{name:"Parancs elküldése"})).toBeDisabled();
+  await page.getByRole("textbox",{name:"Adminparancs megerősítő szó"}).fill("DINÓTÖRLÉS");
+  await expect(page.getByRole("button",{name:"Parancs elküldése"})).toBeEnabled();
+  await page.screenshot({path:"test-results/untamed-admin-rcon-confirm-1600.png",fullPage:true});
 });
 
 test("local ASA import wizard requires preview and confirmation, then refreshes registered maps",async ({page})=>{
