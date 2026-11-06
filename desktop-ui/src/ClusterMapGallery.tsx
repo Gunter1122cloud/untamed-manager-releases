@@ -14,7 +14,7 @@ type Props={
   query:string;
   onSelect:(id:string)=>void;
   onImport:()=>void;
-  onInstall:()=>void;
+  onInstall:(mapName?:string)=>void;
 };
 
 function StateLabel({running}:{running:boolean}){
@@ -140,7 +140,7 @@ export function ClusterMapGallery({snapshot,query,onSelect,onImport,onInstall}:P
       </div>
       <div className="uk-map-gallery-grid is-discover" aria-label="ASA map választék">
         {catalog.map(name=><button key={name} type="button"
-          className="uk-gallery-tile is-discovery" onClick={onInstall}
+          className="uk-gallery-tile is-discovery" onClick={()=>onInstall(name)}
           aria-label={name+" · új szerver telepítése"}>
           <span className="uk-gallery-art"><MapCover name={name}/>
             <span className="uk-gallery-art-overlay"/></span>
