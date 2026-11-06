@@ -253,7 +253,8 @@ export type RconAdminResult = {
 };
 export type RconWorldSave = {
   mapId:string;mapName:string;response:string;observedUtc:string;
-  rconAcknowledged:true;diskSaveCompletionProven:false;
+  rconAcknowledged:false;rconCommandDispatched:true;
+  diskSaveCompletionProven:false;
   worldFilesTouchedByManager:false;
   evidence:"REAL_FIXED_RCON_SAVEWORLD_ACK_NOT_DISK_COMPLETION";
 };
