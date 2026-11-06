@@ -10,7 +10,7 @@ import {ClusterMapGallery} from "./ClusterMapGallery";
 type Props={
   snapshot:DashboardSnapshot;
   onServers:()=>void;
-  onInstall:()=>void;
+  onInstall:(mapName?:string)=>void;
   onCluster:()=>void;
   onSelect:(id:string)=>void;
 };
@@ -171,7 +171,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
             {!query&&<div className="premium-onboarding-actions">
               <button type="button" className="secondary" onClick={onServers}>
                 Meglévő ASA importálása <ArrowRight size={15}/></button>
-              <button type="button" className="primary" onClick={onInstall}>
+              <button type="button" className="primary" onClick={()=>onInstall()}>
                 Új ASA letöltése · SteamCMD <Plus size={15}/></button>
             </div>}
           </div>}
