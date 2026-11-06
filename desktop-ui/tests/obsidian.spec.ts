@@ -71,6 +71,9 @@ test.beforeEach(async ({ page }) => {
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
+    const offlineArchiveToken="00000000-0000-4000-8000-000000001260";
+    const offlineArchiveJob="00000000-0000-4000-8000-000000001261";
+    let offlineArchiveApproved=false;
     const modCopyToken="00000000-0000-4000-8000-000000001258";
     let modCopyApproved=false;
     const draftToken = "00000000-0000-4000-8000-000000001234";
@@ -443,6 +446,30 @@ test.beforeEach(async ({ page }) => {
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
         case "ini.save": return {saved:true,backupCreated:true,sha256:"FFEE11",evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
         case "ini.close": return {closed:true};
+        case "cluster.offlinePreview":
+          offlineArchiveApproved=false;
+          return {token:offlineArchiveToken,hpCopies:5,ryzenCopies:5,
+            transferMetadataPresent:true,hpFolderName:"HP-offline",
+            ryzenFolderName:"Ryzen-offline",transferFolderName:"Store-copy",
+            destinationFolderName:"Test-artifacts",requiresExplicitApproval:true,
+            originalStoreTouched:false,sqlUsed:false,
+            liveSnapshotConsistencyCertified:false,
+            evidence:"NATIVE_OFFLINE_FOLDER_SELECTION_NO_WRITES"};
+        case "cluster.offlineApply":
+          if(m.token!==offlineArchiveToken || m.confirm!==true || offlineArchiveApproved)
+            throw new Error("UM-CLUSTER-ARCHIVE-APPROVAL-REQUIRED");
+          offlineArchiveApproved=true;
+          return {jobId:offlineArchiveJob,started:true,sqlUsed:false,
+            productionRestoreAllowed:false,originalStoreTouched:false,
+            evidence:"OFFLINE_ASA_ONLY_ARCHIVE_JOB_STARTED"};
+        case "cluster.offlineStatus":
+          if(m.jobId!==offlineArchiveJob || !offlineArchiveApproved)
+            throw new Error("UM-CLUSTER-ARCHIVE-JOB-NOT-FOUND");
+          return {jobId:offlineArchiveJob,state:"completed",code:"SHA256_VERIFIED",
+            archiveName:"Untamed-ASA-Offline-synthetic",verifiedMaps:10,transferFiles:3,
+            changedUtc:"2026-11-06T22:00:00Z",liveConsistencyCertified:false,
+            storeWriterCertified:false,productionRestoreAllowed:false,sqlUsed:false,
+            evidence:"OFFLINE_FILE_INTEGRITY_ONLY_NO_LIVE_WRITER"};
         case "mods.copyPreview":
           if(!m.sourceMapId || !Array.isArray(m.targets)||m.targets.length!==1 ||
              m.targets[0]!==two)throw new Error("UM-MOD-COPY-INVALID-TARGET");
@@ -1506,6 +1533,25 @@ test("Store-v1 original ASA launch text stays read-only and redacted",async ({pa
   await expect(report).not.toContainText(secret);
   await launch.fill("ArkAscendedServer.exe ScorchedEarth_WP -port=9999");
   await expect(report).toHaveCount(0);
+});
+
+test("SQL-free offline cluster archive requires four native folders and explicit approval",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const panel=page.getByRole("region",{name:"SQL-mentes clusterarchívum"});
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("10 map · SQL nélkül");
+  await panel.getByRole("button",{name:"A négy offline mappa kiválasztása"}).click();
+  const prepared=panel.getByRole("region",{name:"SQL-mentes clusterarchívum előnézete"});
+  await expect(prepared).toContainText("HP: 5 map");
+  await expect(prepared).toContainText("Ryzen: 5 map");
+  await expect(prepared.getByRole("button",{name:"Offline archívum készítése"})).toBeDisabled();
+  await prepared.getByRole("checkbox").check();
+  await prepared.getByRole("button",{name:"Offline archívum készítése"}).click();
+  await panel.getByRole("button",{name:"Állapot ellenőrzése"}).click();
+  await expect(panel).toContainText("10 map és 3 transferállomány SHA-256-tal igazolva");
+  await expect(panel).toContainText("nem élő többgépes pillanatkép");
+  await expect(panel).not.toContainText("SQL mentés kész");
 });
 
 test("Mod Center Copy To merges selected local maps only after native diff approval",async ({page})=>{
