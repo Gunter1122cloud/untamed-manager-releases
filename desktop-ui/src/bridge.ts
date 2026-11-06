@@ -163,6 +163,35 @@ export type UpdateCheck = {
   evidence:"GITHUB_RELEASE_METADATA_NOT_AN_INSTALLER";
 };
 
+export type WorldBackupPoint={
+  id:string;createdUtc:string;kind:"manual"|"protective";
+  files:number;bytes:number;characters:number;tribes:number;verified:true;
+};
+export type WorldBackupHistory={
+  mapId:string;mapName:string;points:WorldBackupPoint[];
+  source:"LOCAL_SAVEDARKS_MAP_FOLDER";storeWriterTouched:false;
+  evidence:"REAL_SHA256_BACKUP_PACKAGES";
+};
+export type WorldBackupPreview={
+  token:string;mapId:string;mapName:string;mapKey:string;point:string|null;
+  confirmedStopped:true;willCreateProtectiveBackup:boolean;
+  originalWorldRetained:boolean;storeWriterTouched:false;
+  action:"BACKUP"|"RESTORE";
+  evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT";
+};
+export type WorldBackupCreated={
+  mapId:string;mapName:string;point:string;createdUtc:string;
+  files:number;bytes:number;characters:number;tribes:number;
+  backupVerified:true;asaSaveCompleteProven:false;storeWriterTouched:false;
+  evidence:"REAL_VERIFIED_STOPPED_MAP_WORLD_BACKUP";
+};
+export type WorldBackupRestored={
+  mapId:string;mapName:string;point:string;protectiveBackup:string;
+  restored:true;oldWorldRetained:true;worldRestoreVerified:true;
+  storeWriterTouched:false;
+  evidence:"VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY";
+};
+
 export type BackupOverview = {
   evidence: "FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE";
   maps: Array<{ mapId: string; mapName: string; validPackages: number;
@@ -351,6 +380,8 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.status" | "rcon.listPlayers" |
+  "backup.history" | "backup.preview" | "backup.create" |
+  "backup.restorePreview" | "backup.restore" |
   "travel.capture" | "travel.compare";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode; position?: number;
@@ -363,6 +394,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
+  point?:string;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
   sourceMap?: string;destinationMap?: string; profileId?: string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
@@ -421,6 +453,16 @@ export const managerBridge = {
     request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
   pluginToggleApply: (token:string) =>
     request<PluginToggleReceipt>("plugins.toggleApply",{token,confirm:true}),
+  backupHistory: (mapId:string) =>
+    request<WorldBackupHistory>("backup.history",{mapId}),
+  backupPreview: (mapId:string) =>
+    request<WorldBackupPreview>("backup.preview",{mapId}),
+  backupCreate: (token:string) =>
+    request<WorldBackupCreated>("backup.create",{token,confirm:true}),
+  backupRestorePreview: (mapId:string,point:string) =>
+    request<WorldBackupPreview>("backup.restorePreview",{mapId,point}),
+  backupRestore: (token:string,mapName:string) =>
+    request<WorldBackupRestored>("backup.restore",{token,mapName,confirm:true}),
   backupOverview: () => request<BackupOverview>("backups.summary"),
   logTail: (mapId: string) => request<LogTail>("logs.read", { mapId }),
   steamInstallations: () => request<SteamInstallations>("steam.installations"),
