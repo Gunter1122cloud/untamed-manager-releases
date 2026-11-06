@@ -27,7 +27,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   },[chosen]);
   useEffect(()=>{void reload();},[reload]);
   const preview=async()=>{
-    if(!chosen||busy)return;
+    if(!chosen||busy||current?.running)return;
     setPending(null);setReceipt(null);setRestoreTarget(null);setConfirmName("");
     setBusy(true);setError("");
     try{setPending(await managerBridge.backupPreview(chosen));}
@@ -35,7 +35,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     finally{setBusy(false);}
   };
   const create=async()=>{
-    if(!pending||pending.action!=="BACKUP"||busy)return;
+    if(!pending||pending.action!=="BACKUP"||busy||current?.running||pending.mapId!==chosen)return;
     setBusy(true);setError("");
     const token=pending.token;setPending(null);
     try{
@@ -46,7 +46,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     }finally{setBusy(false);}
   };
   const restorePreview=async(point:WorldBackupPoint)=>{
-    if(!chosen||busy)return;
+    if(!chosen||busy||current?.running)return;
     setPending(null);setRestoreTarget(null);setConfirmName("");setReceipt(null);
     setBusy(true);setError("");
     try{
@@ -58,7 +58,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   };
   const restore=async()=>{
     if(!pending||pending.action!=="RESTORE"||!current||
-       confirmName!==current.name||busy)return;
+       confirmName!==current.name||busy||current.running||pending.mapId!==chosen)return;
     const token=pending.token;setPending(null);setRestoreTarget(null);
     setBusy(true);setError("");
     try{
@@ -79,14 +79,15 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <label>Helyi map
           <select aria-label="Mentendő helyi map"
             value={chosen} disabled={busy||Boolean(selectedMap)}
-            onChange={e=>{setChosen(e.target.value);setReceipt(null);}}>
+            onChange={e=>{setChosen(e.target.value);setReceipt(null);
+              setPending(null);setRestoreTarget(null);setConfirmName("");}}>
             {maps.map(m=><option key={m.id} value={m.id}>{m.name}
               {m.running?" · fut":" · leállítva"}</option>)}
           </select>
         </label>
         <button className="secondary" type="button" disabled={!chosen||busy}
           onClick={()=>{void reload();}}><RefreshCcw size={15}/> Előzmények frissítése</button>
-        <button className="primary" type="button" disabled={!chosen||busy}
+        <button className="primary" type="button" disabled={!chosen||busy||current?.running}
           onClick={()=>{void preview();}}><Save size={15}/> Világmentés készítése</button>
       </div>
       {current?.running&&<div className="uk-world-backup-notice"><LockKeyhole size={18}/>
@@ -125,7 +126,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             <small>{p.files} fájl · {p.characters} karakter · {p.tribes} tribe · {(p.bytes/1024/1024).toFixed(1)} MiB</small>
           </span>
           <span className="uk-world-backup-verified"><CheckCircle2 size={14}/> SHA-256</span>
-          <button type="button" className="secondary" disabled={busy}
+          <button type="button" className="secondary" disabled={busy||current?.running}
             onClick={()=>{void restorePreview(p);}}><RotateCcw size={14}/> Visszaállítás</button>
         </div>):
           <div className="uk-world-backup-empty">Még nincs ellenőrzött mentési pont ezen a mapon.</div>}
