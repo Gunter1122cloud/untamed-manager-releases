@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useState,type FormEvent} from "react";
 import {AlertTriangle,CheckCircle2,KeyRound,Network,RefreshCw,Shield,Wifi,WifiOff} from "lucide-react";
 import {managerBridge,type LanPreview,type LanStatus} from "./bridge";
+import "./lan-pairing.css";
 
 export function LanSettingsPanel(){
   const [status,setStatus]=useState<LanStatus|null>(null);
