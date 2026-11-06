@@ -902,6 +902,22 @@ try
               !Directory.EnumerateDirectories(worldParent,".untamed-stage-*").Any(),
             "pre-swap failure leaves live world intact, removes stage and does not fake a crash recovery marker");
 
+        string crashMarker=Path.Combine(worldParent,
+            ".untamed-restore-TheIsland_WP.json");
+        File.WriteAllText(crashMarker,"synthetic crash recovery marker");
+        var recoverable=await Call(worldBridge.HandleAsync,"backup.history",
+            new{mapId=localMap.Id});
+        IsOk(recoverable,"restore recovery warning is discoverable without modifying the marked world");
+        Check(recoverable.GetProperty("data").GetProperty("recoveryRequired").GetBoolean(),
+            "backup history exposes interrupted restore marker to operator");
+        var preflightDuringRecovery=await Call(worldBridge.HandleAsync,"backup.preview",
+            new{mapId=localMap.Id});
+        Check(IsError(preflightDuringRecovery,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED"),
+            "native world backup refuses approval while crash marker is present");
+        File.Delete(crashMarker);
+        Check(!KovaCompatibleWorldBackup.RecoveryRequired(localMap),
+            "synthetic recovery marker removal returns map to no-recovery state");
+
         // Two local ASA map profiles can legitimately share the same
         // SteamCMD installation if their SavedArks/<MapKey> folders differ.
         // Both must remain independently selectable, never overwrite each
