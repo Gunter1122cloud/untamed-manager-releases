@@ -604,8 +604,8 @@ try
         Directory.CreateDirectory(binaryDir);
         string exe=Path.Combine(binaryDir,"ArkAscendedServer.exe");
         File.WriteAllBytes(exe,new byte[]{0x4d,0x5a,0x90,0x00});
-        var map=new LocalMap {
-            Name="New lab map",InstallationPath=stopRoot,ExecutablePath=exe,
+        var stopLabMap=new LocalMap {
+            Name="New lab stopLabMap",InstallationPath=stopRoot,ExecutablePath=exe,
             Arguments="TheIsland_WP?listen -port=7798 -QueryPort=27048",
             GamePort=7798,QueryPort=27048,RconPort=37556,
             RconHost="127.0.0.1",
@@ -613,15 +613,15 @@ try
         };
         var identity=new ProcessIdentity {
             Pid=44117,StartedUtc=DateTimeOffset.UtcNow,
-            ExecutablePath=exe,Arguments=map.Arguments
+            ExecutablePath=exe,Arguments=stopLabMap.Arguments
         };
-        bool running=true;
+        bool stopLabRunning=true;
         await using var lab=new ClusterService("graceful-asa-native-test",
             Path.Combine(root,"graceful-asa-native-profile"),
-            _=>running?
+            _=>stopLabRunning?
                 new ProcessCheck(true,"synthetic owned local ASA",identity):
                 new ProcessCheck(false,"synthetic stopped",null,true));
-        lab.AddMap(map);
+        lab.AddMap(stopLabMap);
         int sends=0;
         bool Owner(int port,int pid)=>port==37556&&pid==44117;
         using var stopBridge=new DesktopFreshAsaStopBridge(lab,Owner,
@@ -630,9 +630,9 @@ try
                     TimeSpan.FromSeconds(6),
                     sendCommands:(m,p,ct)=>{
                         sends++;
-                        Check(m.Id==map.Id&&p.Pid==identity.Pid,
+                        Check(m.Id==stopLabMap.Id&&p.Pid==identity.Pid,
                             "graceful Stop writes only to exact approved process");
-                        running=false;
+                        stopLabRunning=false;
                         return Task.CompletedTask;
                     },listenerOwner:Owner);
                 return receipt;
@@ -640,9 +640,9 @@ try
         var unknown=await Call(stopBridge.HandleAsync,"servers.gracefulStopPreview",
             new{mapId=Guid.NewGuid()});
         Check(IsError(unknown,"UM-MAP-NOT-OWNED")&&sends==0,
-            "unknown/remote map cannot stop local ASA");
+            "unknown/remote stopLabMap cannot stop local ASA");
         var preview=await Call(stopBridge.HandleAsync,"servers.gracefulStopPreview",
-            new{mapId=map.Id});
+            new{mapId=stopLabMap.Id});
         IsOk(preview,"native graceful Stop verifies owned PID and local RCON port");
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
         var noApproval=await Call(stopBridge.HandleAsync,"servers.gracefulStopApply",
@@ -671,9 +671,9 @@ try
               !result.GetProperty("data").GetProperty("killPerformed").GetBoolean() &&
               sends==1,
             "native DoExit verifies process exit without inventing SaveComplete");
-        map.HistoricalStoreProtected=true;
+        stopLabMap.HistoricalStoreProtected=true;
         var protectedMap=await Call(stopBridge.HandleAsync,
-            "servers.gracefulStopPreview",new{mapId=map.Id});
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
         Check(IsError(protectedMap,"UM-ASA-STOP-FAILED")&&sends==1,
             "historical Store protection blocks all new graceful Stop operations");
     }
