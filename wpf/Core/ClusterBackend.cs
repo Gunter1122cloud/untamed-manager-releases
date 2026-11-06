@@ -698,6 +698,14 @@ public sealed class ClusterService : IAsyncDisposable
         if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("Unresolved restore prevents ASA start");
         using var lease=Operations.Acquire(root,UntamedOperationKind.Launch);
+        // Reject changed disk/host conditions after the installation-wide
+        // operation lock, immediately before spawning any process.
+        FreshAsaInstallationSafety.Demand(this,map);
+        LocalMapPortPolicy.RequireNoConflicts(map,Config.LocalMaps);
+        if(!AsaLocalPortPreflight.CanStart(map) ||
+           AsaSteamBuildCatalog.InstalledBuild(root)!=build ||
+           !AsaReadyProbe.IsRegisteredServerBinary(map))
+            throw new InvalidOperationException("UM-ASA-START-PREFLIGHT-CHANGED");
         var current=Check(map);
         if(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
             map.Maintenance,current.ConfirmedStopped,current.Running,
