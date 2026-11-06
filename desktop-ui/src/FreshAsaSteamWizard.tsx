@@ -13,8 +13,8 @@ const mapNames = [
  * job. No permission gate is removed; Core still checks root, Store,
  * journals and disk, then uses official Valve SteamCMD.
  */
-export function FreshAsaSteamWizard({onRegistered}:{onRegistered:()=>Promise<void>}) {
-  const [mapName,setMapName]=useState("The Island");
+export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island"}:{onRegistered:()=>Promise<void>;initialMapName?:string}) {
+  const [mapName,setMapName]=useState(initialMapName);
   const [installRoot,setInstallRoot]=useState("");
   const [steamExe,setSteamExe]=useState("");
   const [explicitRetry,setExplicitRetry]=useState(false);
@@ -162,6 +162,9 @@ export function FreshAsaSteamWizard({onRegistered}:{onRegistered:()=>Promise<voi
   };
 
   const running=!!job&&!job.registered&&!job.verified&&!job.errorCode;
+  // The map gallery can open the same installer preselected to the clicked map.
+  // Do not change the active job or an in-progress download.
+  useEffect(()=>{if(!running&&!busy)setMapName(initialMapName);},[initialMapName]);
   return <section className="glass panel fresh-wizard">
     <div className="panel-head"><h2>Új ASA szerver · SteamCMD telepítés</h2>
       <span className="mod-tag amber">Map → mappa → letöltés</span></div>
