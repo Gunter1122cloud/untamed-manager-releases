@@ -127,6 +127,8 @@ public static class ClusterVaultTests
         Assert(together.VerifiedFiles==12 && together.Peers==2 && together.Maps==10 &&
             together.CompleteTwoHostEvidence && together.ConfigHashesVerified &&
             together.SessionConsistent && together.LocalHostMapRecordsActive &&
+            together.HistoricalActiveProtocolShape &&
+            together.HistoricalStartBlockers.Length==0 &&
             !together.ProductionUseAllowed,
             "pairing genuine-shaped eight-file coordination and four-file HP copy proves only historical metadata, never production ownership");
         Assert(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(original)))==before &&
