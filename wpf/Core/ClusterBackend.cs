@@ -651,6 +651,66 @@ public sealed class ClusterService : IAsyncDisposable
         operation.Complete();
         return true;
     }
+    // Genuine local ASA start for a NEW SteamCMD installation only. This is
+    // deliberately separate from historical Store-v1 imports and FakeAsa.
+    // No automatic server restart or recovery is authorized here. A successful
+    // Process.Start is not evidence of RCON/ASA client readiness.
+    public ProcessIdentity LaunchFreshAsa(Guid id,bool operatorApproved)
+    {
+        var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
+            throw new UnauthorizedAccessException("Only local registered maps may start");
+        if(map.HistoricalStoreProtected || map.Maintenance ||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
+           (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
+               StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Store-v1/historical launch remains locked");
+        if(map.Id==Guid.Empty || map.GamePort is <1024 or >65535 ||
+           map.QueryPort is <1024 or >65535 ||
+           string.IsNullOrWhiteSpace(map.Arguments) ||
+           !Path.IsPathFullyQualified(map.InstallationPath) ||
+           map.InstallationPath.StartsWith(@"\\",StringComparison.Ordinal) ||
+           !Path.IsPathFullyQualified(map.ExecutablePath))
+            throw new InvalidDataException("New ASA installation has incomplete local setup");
+        string root=Path.GetFullPath(map.InstallationPath);
+        string server=Path.Combine(root,"ShooterGame","Binaries","Win64",
+            "ArkAscendedServer.exe");
+        if(!string.Equals(Path.GetFullPath(map.ExecutablePath),server,
+            StringComparison.OrdinalIgnoreCase) || !File.Exists(server))
+            throw new InvalidDataException("Expected native ASA executable not found");
+        var build=AsaSteamBuildCatalog.InstalledBuild(root);
+        if(string.IsNullOrWhiteSpace(build))
+            throw new InvalidDataException("Official SteamCMD ASA build manifest is missing");
+        LocalMapPortPolicy.RequireNoConflicts(map,Config.LocalMaps);
+        var launch=AsaApiLaunchPolicy.Resolve(map);
+        if(!string.Equals(launch.Arguments,map.Arguments,StringComparison.Ordinal))
+            throw new InvalidDataException("Unverified server launch argument set");
+        var before=Check(map);
+        if(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
+            map.Maintenance,before.ConfirmedStopped,before.Running,
+            verifiedFreshInstall:true,explicitOperatorApproval:operatorApproved).Allowed ||
+           before.Identity!=null || before.LoaderIdentity!=null)
+            throw new InvalidOperationException("ASA start requires a confirmed stopped local map");
+        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+            throw new InvalidOperationException("Unresolved restore prevents ASA start");
+        using var lease=Operations.Acquire(root,UntamedOperationKind.Launch);
+        var current=Check(map);
+        if(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
+            map.Maintenance,current.ConfirmedStopped,current.Running,
+            verifiedFreshInstall:true,explicitOperatorApproval:operatorApproved).Allowed ||
+           current.Identity!=null||current.LoaderIdentity!=null)
+            throw new InvalidOperationException("ASA process state changed before launch");
+        // Mark BEFORE spawn. An interrupted start must never be retried
+        // automatically; the operator can reattach to its exact process.
+        lease.MarkMutationStarted();
+        var identity=_inspector.Launch(map);
+        // The server may outlive the Manager UI. The durable identity is used
+        // to recognize the original process and reject PID reuse.
+        if(map.StartWithAsaApi)map.LastLoader=identity;else map.LastProcess=identity;
+        Save();
+        lease.Complete();
+        return identity;
+    }
+
     public ProcessIdentity LaunchLocal(Guid id)
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
