@@ -63,6 +63,29 @@ public static class KovaCompatibleWorldBackup
             throw new InvalidDataException("UM-BACKUP-UNSAFE-MAP-KEY");
         return key;
     }
+    // Active Store-v1 maps cannot be rolled back independently of the other
+    // host's character transfer state. An imported historical map is Store
+    // bound even if it was intentionally quarantined with empty arguments.
+    public static bool HasLiveOrHistoricalStore(LocalMap map)
+    {
+        if(map==null)throw new ArgumentNullException(nameof(map));
+        if(map.HistoricalStoreProtected||
+           !string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot))
+            return true;
+        foreach(string args in new[]{
+            map.Arguments,map.ApiLoaderArguments,map.LastProcess?.Arguments??"",
+            map.LastLoader?.Arguments??""
+        })
+        {
+            if(string.IsNullOrWhiteSpace(args))continue;
+            if(args.Contains("-usestore",StringComparison.OrdinalIgnoreCase)||
+               args.Contains("-converttostore",StringComparison.OrdinalIgnoreCase)||
+               args.Contains("-convertfromstore",StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
     private static string World(LocalMap map)
     {
         string root=Guard(map.InstallationPath);
@@ -272,11 +295,7 @@ public static class KovaCompatibleWorldBackup
     public static RestoreReceipt Restore(LocalMap map,string profile,string point,
         Func<ProcessCheck> process,Action? beforeSwap=null)
     {
-        if(map.HistoricalStoreProtected||
-           (map.Arguments+" "+map.ApiLoaderArguments).Contains("-usestore",
-               StringComparison.OrdinalIgnoreCase)||
-           (map.Arguments+" "+map.ApiLoaderArguments).Contains("converttostore",
-               StringComparison.OrdinalIgnoreCase))
+        if(HasLiveOrHistoricalStore(map))
             throw new UnauthorizedAccessException(
                 "UM-BACKUP-STORE-CHARACTER-RESTORE-REQUIRES-TWO-HOST-TRANSACTION");
         string world=World(map),archive=ArchiveRoot(profile,map),key=MapKey(map);
