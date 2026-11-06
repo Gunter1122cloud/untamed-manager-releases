@@ -1,0 +1,26 @@
+.lan-pairing-panel{margin-top:18px;min-width:0}
+.lan-pairing-panel .panel-head h2{display:flex;align-items:center;gap:9px}
+.lan-status{display:flex;align-items:center;gap:12px;border:1px solid #365b52;
+  border-radius:11px;background:#142f31;padding:14px;margin:16px 0;color:#75d6b3}
+.lan-status>div{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+.lan-status strong{font-size:14px;color:#e4f4ea}
+.lan-status span{font-size:12px;color:#b2d2c6}
+.lan-status small{font-size:11px;color:#a6c5b9}
+.lan-settings-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+.lan-settings-form label{display:flex;flex-direction:column;gap:8px;min-width:0;
+  color:#c1e6d5;font-size:12px;font-weight:600}
+.lan-settings-form input{width:100%;min-width:0;min-height:43px;border:1px solid #41665b;
+  border-radius:9px;background:#10282d;color:#e7f4ed;padding:10px 12px;font-size:13px}
+.lan-settings-form input:focus-visible{outline:2px solid #73dcbc;outline-offset:2px}
+.lan-settings-form .lan-secret{grid-column:1/-1}
+.lan-secret-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.lan-secret-actions button,.lan-settings-form>button{display:inline-flex;align-items:center;gap:7px;min-height:39px}
+.lan-settings-form>button{grid-column:1/-1;justify-self:start}
+.lan-preview{border:1px solid #4d9674;background:#143b36;border-radius:10px;padding:17px;margin-top:16px}
+.lan-preview b{display:flex;align-items:center;gap:8px;color:#d6f9e4}
+.lan-preview p{color:#c0ddcc;font-size:12px;line-height:1.65;margin:11px 0}
+.lan-preview-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+@media(max-width:1050px){.lan-settings-form{grid-template-columns:1fr 1fr}
+  .lan-settings-form .lan-secret{grid-column:1/-1}}
+@media(max-width:650px){.lan-settings-form{grid-template-columns:1fr}
+  .lan-settings-form .lan-secret{grid-column:1}.lan-settings-form>button{grid-column:1}}
