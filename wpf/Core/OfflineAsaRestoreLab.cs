@@ -13,8 +13,10 @@ namespace UntamedManager.Core;
 /// directory is never usable as a real ASA server root by this method.
 /// This is NOT a coordinated, transactional restore of an active cluster.
 /// </summary>
+public sealed record AsaRestoredLabFile(Guid MapId,string RelativePath,long Bytes,string Sha256);
 public sealed record AsaRestoreLabReport(int Schema,Guid SourceBatch,
     DateTimeOffset CreatedUtc,AsaOfflinePackage SourceArchive,
+    AsaRestoredLabFile[] MapFiles,
     bool ProductionRestoreAllowed,string Evidence);
 
 public static class OfflineAsaRestoreLab
@@ -100,6 +102,7 @@ public static class OfflineAsaRestoreLab
                StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("ASA restore target and archive may not overlap");
         Directory.CreateDirectory(stage);
+        var restoredFiles=new System.Collections.Generic.List<AsaRestoredLabFile>();
         foreach(var item in original.Maps)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -112,6 +115,7 @@ public static class OfflineAsaRestoreLab
                 cancellationToken.ThrowIfCancellationRequested();
                 CopyVerified(Within(Path.Combine(package,"data"),file.Path),
                     Within(dst,file.Path),file.Size,file.Sha256);
+                restoredFiles.Add(new(item.Map,file.Path,file.Size,file.Sha256));
             }
             BackupIntegrity.Verify(dst,verified,item.Map);
         }
@@ -124,7 +128,7 @@ public static class OfflineAsaRestoreLab
                 Within(transfer,entry.RelativePath),entry.Bytes,entry.Sha256);
         }
         var report=new AsaRestoreLabReport(1,original.Batch,DateTimeOffset.UtcNow,
-            original,false,Evidence);
+            original,restoredFiles.ToArray(),false,Evidence);
         string index=Within(stage,Index);
         Durable(index,JsonSerializer.Serialize(report));
         Durable(Within(stage,IndexHash),Hash(index));
@@ -157,6 +161,8 @@ public static class OfflineAsaRestoreLab
            original.LiveConsistencyCertified || original.LiveStoreWriterCertified ||
            original.RestoreToProductionAllowed || original.Maps?.Length!=10||
            original.Transfer==null||original.Transfer.Length<1||
+           report.MapFiles==null ||
+           report.MapFiles.Length!=original.Maps.Sum(m=>m.Files) ||
            File.ReadAllText(Within(root,Complete)).Trim()!=report.SourceBatch.ToString("N"))
             throw new InvalidDataException("Isolated ASA restore metadata is incomplete");
         if(Directory.GetFiles(root).Length!=3 ||
@@ -168,17 +174,27 @@ public static class OfflineAsaRestoreLab
                 throw new InvalidDataException("Unexpected lab map inventory");
         foreach(var item in original.Maps)
         {
-            var dest=Within(root,Path.Combine(item.Host,item.Map.ToString("N")));
-            // Verify exactly the files claimed by the original archive
-            // manifest. The protected source metadata is never rewritten.
-            var paths=Directory.GetFiles(dest,"*",SearchOption.AllDirectories)
+            string dest=Within(root,Path.Combine(item.Host,item.Map.ToString("N")));
+            var expected=report.MapFiles.Where(f=>f.MapId==item.Map).ToArray();
+            if(expected.Length!=item.Files ||expected.Sum(f=>f.Bytes)!=item.Bytes ||
+               expected.Select(f=>f.RelativePath).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+                   !=expected.Length)
+                throw new InvalidDataException("Lab world file identities changed");
+            string[] actual=Directory.GetFiles(dest,"*",SearchOption.AllDirectories)
                 .Select(x=>Path.GetRelativePath(dest,x))
                 .OrderBy(x=>x,StringComparer.OrdinalIgnoreCase).ToArray();
-            if(paths.Length!=item.Files)throw new InvalidDataException("Map restore file count mismatch");
-            // The archive index contains a hash of each source map manifest,
-            // but that manifest is deliberately NOT copied into the world.
-            // Its original file list remains in the package, not this lab.
-            // Integrity of each map world is proven before promotion in MaterializeToLab.
+            if(actual.Length!=expected.Length ||
+               !actual.SequenceEqual(expected.Select(f=>f.RelativePath)
+                   .OrderBy(x=>x,StringComparer.OrdinalIgnoreCase),
+                   StringComparer.OrdinalIgnoreCase))
+                throw new InvalidDataException("Unexpected or missing restored map files");
+            foreach(var file in expected)
+            {
+                string world=Within(dest,file.RelativePath);
+                if(new FileInfo(world).Length!=file.Bytes ||
+                   !Hash(world).Equals(file.Sha256,StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Restored world bytes were modified");
+            }
         }
         foreach(var file in original.Transfer)
         {
