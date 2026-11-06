@@ -71,6 +71,8 @@ test.beforeEach(async ({ page }) => {
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
+    const modCopyToken="00000000-0000-4000-8000-000000001258";
+    let modCopyApproved=false;
     const draftToken = "00000000-0000-4000-8000-000000001234";
     const draftState = () => ({
       draftId:draftToken,mapId:one,active:stagedId?["123456",stagedId]:["123456"],
@@ -441,6 +443,25 @@ test.beforeEach(async ({ page }) => {
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
         case "ini.save": return {saved:true,backupCreated:true,sha256:"FFEE11",evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
         case "ini.close": return {closed:true};
+        case "mods.copyPreview":
+          if(!m.sourceMapId || !Array.isArray(m.targets)||m.targets.length!==1 ||
+             m.targets[0]!==two)throw new Error("UM-MOD-COPY-INVALID-TARGET");
+          modCopyApproved=false;
+          return {token:modCopyToken,sourceMapId:one,mode:m.mode,
+            targets:[{mapId:two,mapName:"Astraeos",changed:true,
+              before:{active:["928548"],passive:[],disabled:[]},
+              after:{active:["928548","123456"],passive:["789012"],disabled:[]}}],
+            operationCount:2,changed:true,requiresRestart:true,
+            remoteWritesAllowed:false,storeWriterTouched:false,
+            evidence:"LOCAL_MOD_COPY_PREVIEW_NO_WRITES"};
+        case "mods.copyApply":
+          if(m.token!==modCopyToken || m.confirm!==true || modCopyApproved)
+            throw new Error("UM-MOD-COPY-APPROVAL-REQUIRED");
+          modCopyApproved=true;
+          return {saved:true,sourceMapId:one,mode:"merge",changedMaps:[two],
+            operationsApplied:2,requiresRestart:true,modsLoadedVerified:false,
+            remoteWritesAllowed:false,storeWriterTouched:false,
+            evidence:"LOCAL_MANAGER_CONFIG_ATOMIC_BATCH_PENDING_RESTART"};
         case "mods.draftStart": stagedId="";return draftState();
         case "mods.draftStage": stagedId=String(m.modId||"");redoId="";return draftState();
         case "mods.draftUndo": redoId=stagedId;stagedId="";return draftState();
@@ -1485,6 +1506,24 @@ test("Store-v1 original ASA launch text stays read-only and redacted",async ({pa
   await expect(report).not.toContainText(secret);
   await launch.fill("ArkAscendedServer.exe ScorchedEarth_WP -port=9999");
   await expect(report).toHaveCount(0);
+});
+
+test("Mod Center Copy To merges selected local maps only after native diff approval",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("tab",{name:"Másolás több mapra"}).click();
+  const panel=page.getByRole("region",{name:"Modlista másolása több mapra"});
+  await expect(panel).toBeVisible();
+  await panel.getByRole("group",{name:"Célmapok kiválasztása"}).getByRole("checkbox").first().check();
+  await panel.getByRole("button",{name:"Változások előnézete"}).click();
+  const preview=panel.getByRole("region",{name:"Többmapos modmásolás előnézete"});
+  await expect(preview).toContainText("Astraeos");
+  await expect(preview).toContainText("Előtte:");
+  await expect(preview).toContainText("Utána:");
+  await expect(preview.getByRole("button",{name:"Jóváhagyás és mentés"})).toBeDisabled();
+  await preview.getByRole("checkbox").check();
+  await preview.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
+  await expect(panel).toContainText("helyi map modkonfigurációja mentve");
 });
 
 test("cross-map mod inventory uses actual native contract, filtering and map selection",async ({page})=>{
