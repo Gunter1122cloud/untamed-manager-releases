@@ -20,6 +20,10 @@ public sealed class DesktopRconReadOnlyBridge
     private readonly Func<int,int,bool> ownsPort;
     private readonly Func<string,int,string,string,Action,CancellationToken,Task<string>> send;
     private readonly SemaphoreSlim serial=new(1,1);
+    private sealed record SaveCheck(Guid Token,Guid MapId,int Pid,
+        DateTimeOffset StartedUtc,AsaWorldSaveEvidence.Boundary Bookmark,
+        DateTimeOffset Expires);
+    private SaveCheck? pendingSave;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopRconReadOnlyBridge(ClusterService cluster,
@@ -63,7 +67,7 @@ public sealed class DesktopRconReadOnlyBridge
             id=parsed.ToString("D");
             string? method=methodValue.GetString();
             if(method is not ("rcon.status" or "rcon.listPlayers" or "rcon.saveWorld" or
-                "rcon.gameLog" or "rcon.chatLog"))
+                "rcon.saveStatus" or "rcon.gameLog" or "rcon.chatLog"))
                 return Deny(id,"UM-METHOD-DENIED");
             if(!root.TryGetProperty("mapId",out var mapValue) ||
                mapValue.ValueKind!=JsonValueKind.String ||
@@ -92,6 +96,44 @@ public sealed class DesktopRconReadOnlyBridge
                         evidence="LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND"
                     });
                 if(!safe)return Deny(id,"UM-RCON-READONLY-PREFLIGHT-DENIED");
+                if(method=="rcon.saveStatus")
+                {
+                    if(!root.TryGetProperty("watchId",out var identifier) ||
+                       identifier.ValueKind!=JsonValueKind.String ||
+                       !Guid.TryParse(identifier.GetString(),out var watchId) ||
+                       pendingSave==null||pendingSave.Token!=watchId ||
+                       pendingSave.MapId!=map.Id||pendingSave.Pid!=check.Identity!.Pid||
+                       pendingSave.StartedUtc!=check.Identity.StartedUtc ||
+                       pendingSave.Expires<DateTimeOffset.UtcNow)
+                        return Deny(id,"UM-RCON-SAVE-WITNESS-NOT-FOUND");
+                    var requested=pendingSave;
+                    bool Same() {
+                        var current=cluster.Check(map);
+                        return current.Running&&!current.ConfirmedStopped &&
+                            current.Identity is {Pid:>0} active &&
+                            active.Pid==requested.Pid &&
+                            active.StartedUtc==requested.StartedUtc &&
+                            ownsPort(map.RconPort,requested.Pid);
+                    }
+                    using var proofDeadline=new CancellationTokenSource(
+                        TimeSpan.FromSeconds(3));
+                    var witness=await AsaWorldSaveEvidence.ObserveAsync(
+                        requested.Bookmark,Same,proofDeadline.Token);
+                    return Ok(id,new{
+                        mapId=map.Id,watchId=requested.Token,
+                        rconCommandDispatched=true,
+                        logSavingStarted=witness.LogStarted,
+                        logSaveCompleteObserved=witness.LogCompleted,
+                        worldFileUpdated=witness.WorldUpdated,
+                        worldFileStable=witness.WorldStable,
+                        combinedSaveEvidenceObserved=witness.CompletionObserved,
+                        diskFsyncCertified=false,
+                        gameClientRejoinVerified=false,
+                        sourceIsLocalAsaLog=true,
+                        stage=witness.Stage,
+                        evidence="LOCAL_ASA_POST_DISPATCH_LOG_AND_WORLD_METADATA"
+                    });
+                }
                 if(method=="rcon.saveWorld")
                 {
                     // A second SaveWorld while an approved DoExit/Restart is
@@ -128,6 +170,14 @@ public sealed class DesktopRconReadOnlyBridge
                         throw new InvalidOperationException(
                             "UM-RCON-POST-AUTH-OWNER-CHANGED");
                 }
+                // Capture log and world-file boundary BEFORE SaveWorld bytes;
+                // RCON success alone can never be a SaveComplete signal.
+                AsaWorldSaveEvidence.Boundary? bookmark=null;
+                if(method=="rcon.saveWorld")
+                {
+                    pendingSave=null;
+                    bookmark=AsaWorldSaveEvidence.Begin(map,identity);
+                }
                 string answer=await send("127.0.0.1",map.RconPort,password,command,
                     VerifyOwned,timeout.Token);
                 var after=cluster.Check(map);
@@ -139,7 +189,14 @@ public sealed class DesktopRconReadOnlyBridge
                 if(answer.Length>32000)return Deny(id,"UM-RCON-OVERSIZED-REPLY");
                 string sanitized=UntamedPresentation.Redact(answer);
                 if(method=="rcon.saveWorld")
+                {
+                    if(bookmark!=null)
+                        pendingSave=new SaveCheck(Guid.NewGuid(),map.Id,
+                            identity.Pid,identity.StartedUtc,bookmark,
+                            DateTimeOffset.UtcNow.AddMinutes(5));
                     return Ok(id,new {
+                        watchId=pendingSave?.Token,
+                        nativeWitnessAvailable=bookmark!=null,
                         mapId=map.Id,mapName=map.Name,
                         rconAcknowledged=false,rconCommandDispatched=true,
                         diskSaveCompletionProven=false,
@@ -147,6 +204,7 @@ public sealed class DesktopRconReadOnlyBridge
                         response=sanitized,observedUtc=DateTimeOffset.UtcNow,
                         evidence="REAL_FIXED_RCON_SAVEWORLD_ACK_NOT_DISK_COMPLETION"
                     });
+                }
                 return Ok(id,new {
                     mapId=map.Id,mapName=map.Name,command,response=sanitized,
                     observedUtc=DateTimeOffset.UtcNow,readOnly=true,
