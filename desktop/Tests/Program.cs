@@ -1098,10 +1098,14 @@ try
             (_,pid)=>owner && pid==identity.Pid,
             (host,port,password,command,ct)=>{
                 Check(host=="127.0.0.1"&&port==fakeMap.RconPort &&
-                      password=="test-only-passphrase"&&command is ("ListPlayers" or "SaveWorld"),
+                      password=="test-only-passphrase"&&command is ("ListPlayers" or "SaveWorld" or "GetGameLog" or "GetChat"),
                     "RCON command is fixed allowlist and secret never reaches WebView");
-                dispatched++;return Task.FromResult(command=="SaveWorld"?
-                    "World save queued":"Player 1: Synthetic Survivor");
+                dispatched++;return Task.FromResult(command switch {
+                    "SaveWorld"=>"World save queued",
+                    "GetGameLog"=>"Synthetic world log line",
+                    "GetChat"=>"Synthetic chat message",
+                    _=>"Player 1: Synthetic Survivor"
+                });
             });
         var ready=await Call(rcon.HandleAsync,"rcon.status",new{mapId=fakeMap.Id});
         IsOk(ready,"read-only local RCON status is available on synthetic owned map");
@@ -1228,6 +1232,22 @@ try
         Check(IsError(foreignAdmin,"UM-RCON-ADMIN-SAFETY-CHECK-FAILED_NO_AUTO_RETRY") &&
               adminDispatches==2,
             "remote or unowned maps cannot reach native admin RCON");
+        var gameLog=await Call(rcon.HandleAsync,"rcon.gameLog",
+            new{mapId=fakeMap.Id,command="DestroyWildDinos"});
+        IsOk(gameLog,"actual native GetGameLog reads local ASA log without caller-supplied commands");
+        Check(dispatched==3 &&
+              gameLog.GetProperty("data").GetProperty("command").GetString()=="GetGameLog" &&
+              gameLog.GetProperty("data").GetProperty("readOnly").GetBoolean() &&
+              gameLog.GetProperty("data").GetProperty("response")
+                  .GetString()=="Synthetic world log line",
+            "GetGameLog sends only fixed read-only RCON to owned local map");
+        var chatLog=await Call(rcon.HandleAsync,"rcon.chatLog",new{mapId=fakeMap.Id});
+        IsOk(chatLog,"actual native GetChat reads local ASA chat");
+        Check(dispatched==4 &&
+              chatLog.GetProperty("data").GetProperty("command").GetString()=="GetChat" &&
+              chatLog.GetProperty("data").GetProperty("response")
+                  .GetString()=="Synthetic chat message",
+            "GetChat reads chat without arbitrary browser command dispatch");
     }
 
     // Two independent 5-map hosts; never use UK-HOME-01/02 or the live
