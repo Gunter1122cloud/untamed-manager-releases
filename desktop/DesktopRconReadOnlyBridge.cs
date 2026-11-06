@@ -120,7 +120,9 @@ public sealed class DesktopRconReadOnlyBridge
                     mapId=map.Id,mapName=map.Name,command,response=sanitized,
                     observedUtc=DateTimeOffset.UtcNow,readOnly=true,
                     saveCompleteProven=false,
-                    evidence="LOCAL_VERIFIED_READ_ONLY_RCON"
+                    evidence=method=="rcon.listPlayers"?
+                        "LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS":
+                        "LOCAL_VERIFIED_READ_ONLY_RCON"
                 });
             }
             finally{serial.Release();}
