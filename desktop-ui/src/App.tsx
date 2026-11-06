@@ -22,6 +22,7 @@ import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
+import { WorldBackupControls } from "./WorldBackupControls";
 
 type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "travel" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -833,7 +834,7 @@ function PluginCenter({ snapshot, selected, setSelected }: {
     </div>
   </div>;
 }
-function BackupCenter({mapId}:{mapId?:string} = {}) {
+function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot}) {
   const [info,setInfo]=useState<BackupOverview|null>(null);
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
@@ -861,6 +862,7 @@ function BackupCenter({mapId}:{mapId?:string} = {}) {
     .sort((a,b)=>new Date(b.latestVerifiedUtc!).getTime()-
       new Date(a.latestVerifiedUtc!).getTime())[0], [scope]);
   return <div className="premium-backup-page">
+    <WorldBackupControls maps={snapshot.local.maps} selectedMap={mapId}/>
     <div className="page-intro"><span className="eyebrow">BACKUP / FILE INTEGRITY</span>
       <h1>Mentésközpont</h1>
       <p>Helyi, ellenőrzött mentéscsomagok leltára. Az ASA SaveComplete,
@@ -1316,7 +1318,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>} 
     {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
-    {section==="backups" && <BackupCenter mapId={mapId}/>}
+    {section==="backups" && <BackupCenter mapId={mapId} snapshot={snapshot}/>}
     {section==="logs" && <LogsCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="rcon" && <RconReadOnlyPanel mapId={mapId}/>}
   </div>;
@@ -1400,7 +1402,7 @@ export function App() {
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "plugins" && <PluginCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
-          {page === "backups" && <BackupCenter/>}
+          {page === "backups" && <BackupCenter snapshot={snapshot}/>}
           {page === "updates" && <UpdateCenterPage/>}
           {page === "travel" && <StoreTravelWorkbench/>}
           {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh}/>}
