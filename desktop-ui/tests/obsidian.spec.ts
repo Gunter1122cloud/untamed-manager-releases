@@ -744,7 +744,7 @@ test("Mentésközpont calls real native preview/create and displays verified cha
   await expect(page.getByText(/Astraeos_WP/)).toBeVisible();
   await page.getByRole("button",{name:"Mentés indítása"}).click();
   await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
-  await expect(page.getByText(/4 fájl · 1 külön profil · 1 külön tribe fájl/)).toBeVisible();
+  await expect(page.locator(".uk-world-backup-success").getByText(/4 fájl · 1 külön profil · 1 külön tribe fájl/)).toBeVisible();
   await expect(page.getByText("1 ellenőrzött csomag")).toBeVisible();
   await page.screenshot({path:"test-results/uk-real-world-backup-1600.png",fullPage:false});
 });
