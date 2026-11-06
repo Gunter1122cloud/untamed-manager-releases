@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
-  Grid2X2, List,
+  Grid2X2, List, CalendarClock,
   Package, Plug, RefreshCw, Search, Server, Settings2, Shield, WifiOff
 } from "lucide-react";
 import {
@@ -31,8 +31,9 @@ import { PluginZipInstaller } from "./PluginZipInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
+import { OperationsCenter } from "./OperationsCenter";
 
-type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "travel" | "map";
+type Page = "operations" | "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "travel" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
   { page: "dashboard", label: "Áttekintés", icon: LayoutDashboard },
   { page: "servers", label: "Szerverek", icon: Server },
@@ -40,6 +41,7 @@ const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> =
   { page: "mods", label: "Modok", icon: Layers3 },
   { page: "plugins", label: "Pluginok", icon: Plug },
   { page: "backups", label: "Mentések", icon: Archive },
+  { page: "operations", label: "Üzemeltetés", icon: CalendarClock },
   { page: "steam", label: "SteamCMD", icon: HardDrive },
   { page: "updates", label: "Frissítések", icon: CloudDownload },
   { page: "travel", label: "Karakterutazás teszt", icon: Activity },
@@ -1286,7 +1288,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
     </div>
   </>;
 }
-type MapSection = "overview" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
+type MapSection = "overview" | "monitor" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
 function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   snapshot:DashboardSnapshot;mapId:string;onBack:()=>void;
   setSelected:(value:string)=>void;onConfigured:()=>Promise<void>
@@ -1320,7 +1322,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const map=snapshot.local.maps.find(m=>m.id===mapId);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   const sections: Array<{id:MapSection;name:string}>=[
-    {id:"overview",name:"Áttekintés"},{id:"mods",name:"Modok"},
+    {id:"overview",name:"Áttekintés"},{id:"monitor",name:"Üzemeltetés"},{id:"mods",name:"Modok"},
     {id:"plugins",name:"Pluginok / ASA API"},{id:"ini",name:"INI"},
     {id:"backups",name:"Mentések"},{id:"logs",name:"Naplók"},
     {id:"rcon",name:"RCON / Konzol"}
@@ -1372,6 +1374,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
           <div className="map-overview-actions">
             <button className="primary" onClick={()=>setSection("mods")}><Layers3 size={17}/> Modok kezelése</button>
             <button className="secondary" onClick={()=>setSection("ini")}><FileText size={17}/> INI szerkesztése</button>
+            <button className="secondary" onClick={()=>setSection("monitor")}><Activity size={17}/> PID / RAM / állapot</button>
           </div>
           <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A történeti Store-v1 átvétel, automatikus restart és nem igazolt SaveComplete utáni leállítás továbbra is külön védelem alatt áll.</div>
         </Panel>
@@ -1387,6 +1390,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         <CheckCircle2 size={17}/>{map.name} indítási profilja mentve. A szerver nem indult el; RCON és modok később konfigurálhatók.
       </div>}
     </>}
+    {section==="monitor" && <OperationsCenter selectedMapId={mapId} onOpenMap={()=>setSection("overview")}/>}
     {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>} 
     {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
@@ -1480,6 +1484,7 @@ export function App() {
           {page === "mods" && <Mods snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "plugins" && <PluginCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "backups" && <BackupCenter snapshot={snapshot}/>}
+          {page === "operations" && <OperationsCenter onOpenMap={selectMap}/>}
           {page === "updates" && <UpdateCenterPage/>}
           {page === "travel" && <StoreTravelWorkbench/>}
           {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh} initialMapName={steamMap}/>}
