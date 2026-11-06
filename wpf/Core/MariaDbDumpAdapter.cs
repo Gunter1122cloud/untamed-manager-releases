@@ -75,7 +75,7 @@ public sealed class MariaDbDumpAdapter
         long bytes=new FileInfo(sql).Length;if(bytes<1)throw new InvalidDataException("Empty SQL dump");
         string hash=Hash(sql);
         var manifest=new MariaDbDumpManifest(1,owner,Guid.NewGuid(),DateTimeOffset.UtcNow,
-            "10.11.19",MariaDbCompatibility.Databases.ToArray(),bytes,hash,schema,
+            "11.4.13",MariaDbCompatibility.Databases.ToArray(),bytes,hash,schema,
             "InnoDB single-transaction logical dump; cross-ASA/Store consistency not established");
         Durable(Path.Combine(stage,"manifest.json"),JsonSerializer.Serialize(manifest));
         Durable(Path.Combine(stage,"complete"),"1");
@@ -112,7 +112,7 @@ public sealed class MariaDbDumpAdapter
             throw new InvalidDataException("Incomplete SQL package");
         var m=JsonSerializer.Deserialize<MariaDbDumpManifest>(File.ReadAllText(manifestPath));
         string sql=FixedPath(Path.Combine(root,"databases.sql"));
-        if(m==null||m.Schema!=1||m.Owner!=owner||m.Batch==Guid.Empty||m.Version!="10.11.19"||
+        if(m==null||m.Schema!=1||m.Owner!=owner||m.Batch==Guid.Empty||m.Version!="11.4.13"||
            m.Databases==null||m.Databases.Length!=3||!m.Databases.SequenceEqual(MariaDbCompatibility.Databases)||
            m.Bytes<1||new FileInfo(sql).Length!=m.Bytes||Hash(sql)!=m.Sha256||
            !Regex.IsMatch(m.SchemaFingerprint??"","\\A[A-F0-9]{64}\\z"))
@@ -127,11 +127,11 @@ public sealed class MariaDbDumpAdapter
             await RunAsync(exe,new[]{"--no-defaults","--version"},output,null,TimeSpan.FromSeconds(10),65536,ct);
             string text=Encoding.UTF8.GetString(output.ToArray());
             if(!text.Contains("MariaDB",StringComparison.OrdinalIgnoreCase)||
-               !Regex.IsMatch(text,@"(?<![0-9.])10\.11\.19(?![0-9.])"))
+               !Regex.IsMatch(text,@"(?<![0-9.])11\.4\.13(?![0-9.])"))
                 throw new InvalidDataException("SQL tools must match deployment baseline");
         }
         string[] identity=(await QueryAsync(options,"SELECT VERSION(),@@port,@@datadir",ct)).Trim().Split('\t');
-        if(identity.Length!=3||!identity[0].StartsWith("10.11.19-MariaDB",StringComparison.OrdinalIgnoreCase)||
+        if(identity.Length!=3||!identity[0].StartsWith("11.4.13-MariaDB",StringComparison.OrdinalIgnoreCase)||
            identity[1]!=endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)||
            !FixedPath(identity[2]).TrimEnd('\\','/').Equals(endpoint.DataDirectory.TrimEnd('\\','/'),StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("SQL endpoint identity mismatch");
