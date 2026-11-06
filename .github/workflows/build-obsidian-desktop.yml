@@ -94,6 +94,17 @@ jobs:
             throw "Bundled Rex background altered during publish"
           }
           if (!(Test-Path desktop/publish/UntamedDesktop.exe)) { throw "Windows host missing" }
+      - name: Publish isolated self-contained external rollback updater
+        shell: pwsh
+        run: |
+          dotnet publish wpf/Updater/UntamedUpdater.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o desktop/updater-publish
+          if ($LASTEXITCODE -ne 0) { throw "External rollback updater build failed" }
+          $updater = "desktop/updater-publish/UntamedUpdater.exe"
+          if (!(Test-Path $updater)) { throw "External rollback updater not produced" }
+          Copy-Item $updater desktop/publish/UntamedUpdater.exe -Force
+          if ((Get-Item desktop/publish/UntamedUpdater.exe).Length -lt 1000000) {
+            throw "Updater is not a self-contained single-file executable"
+          }
       - name: Run real native C# bridge integration tests (isolated synthetic Windows files)
         shell: pwsh
         run: |
