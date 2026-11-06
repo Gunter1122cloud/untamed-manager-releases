@@ -215,4 +215,144 @@ public static class AsaApiOwnedInstaller
             throw;
         }
     }
+    /// <summary>
+    /// Explicit operator rollback of a COMPLETED owned CORE update. This is
+    /// intentionally not an automatic recovery for an interrupted update:
+    /// operation-journal NeedsOperator and any unexpected on-disk byte forbid it.
+    /// A successful rollback restores only the exact, SHA-256-pinned API files;
+    /// player plugins, configs, world saves and the original transaction survive.
+    /// </summary>
+    public sealed record RollbackReceipt(Guid MapId,string TransactionId,
+        int FilesRestored,int FilesRemoved,bool ByteVerified,bool Restarted,
+        string Evidence);
+
+    public static RollbackReceipt RollbackCompletedOwnedStopped(
+        ClusterService cluster,Guid mapId,string transactionId,
+        bool operatorApproved,CancellationToken ct=default)
+    {
+        if(!operatorApproved)throw new UnauthorizedAccessException("UM-API-CORE-ROLLBACK-APPROVAL");
+        if(transactionId==null||transactionId.Length!=32||
+           transactionId.Any(c=>!Uri.IsHexDigit(c)))
+            throw new InvalidDataException("UM-API-CORE-ROLLBACK-ID");
+        ct.ThrowIfCancellationRequested();
+        var (_,root,binary)=Preflight(cluster,mapId);
+        string transaction=Safe(Path.Combine(cluster.Store.Root,
+            "api-core-transactions",transactionId));
+        if(!Directory.Exists(transaction)||
+           (File.GetAttributes(transaction)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-API-CORE-ROLLBACK-TRANSACTION");
+        string done=Safe(Path.Combine(transaction,"complete"));
+        string rolledBack=Safe(Path.Combine(transaction,"rolled-back"));
+        string statePath=Safe(Path.Combine(transaction,"transaction.json"));
+        if(!File.Exists(done)||File.Exists(rolledBack)||!File.Exists(statePath)||
+           new FileInfo(statePath).Length is <50 or >32768)
+            throw new InvalidOperationException("UM-API-CORE-ROLLBACK-NOT-COMMITTED");
+        State state;
+        try
+        {
+            state=JsonSerializer.Deserialize<State>(File.ReadAllText(statePath)) ??
+                throw new InvalidDataException("UM-API-CORE-ROLLBACK-STATE");
+        }
+        catch(JsonException e)
+        {
+            throw new InvalidDataException("UM-API-CORE-ROLLBACK-STATE",e);
+        }
+        var eligible=Required.Concat(Dependencies).ToHashSet(StringComparer.Ordinal);
+        if(state.Schema!=1||state.MapId!=mapId||
+           !state.Installation.Equals(root,StringComparison.OrdinalIgnoreCase)||
+           state.Phase!="prepared"||state.Files==null||
+           state.Files.Length<Required.Length||
+           state.Files.Length>eligible.Count||
+           state.Files.Any(item=>item==null||!eligible.Contains(item.Relative)||
+               item.NewHash==null||item.NewHash.Length!=64||
+               item.NewHash.Any(c=>!Uri.IsHexDigit(c))||
+               (item.HadOriginal&&(item.PreviousHash==null||
+                   item.PreviousHash.Length!=64||
+                   item.PreviousHash.Any(c=>!Uri.IsHexDigit(c)))))||
+           state.Files.Select(x=>x.Relative).Distinct(StringComparer.Ordinal).Count()!=state.Files.Length||
+           Required.Any(name=>!state.Files.Any(x=>x.Relative==name)))
+            throw new InvalidDataException("UM-API-CORE-ROLLBACK-STATE");
+        // Before acquiring the mutation lock verify BOTH the installed files
+        // and the historical copies. A later update or manual edit must never
+        // be silently overwritten with an older loader.
+        void VerifyInputs()
+        {
+            foreach(var item in state.Files)
+            {
+                string target=Safe(Path.Combine(binary,
+                    item.Relative.Replace('/',Path.DirectorySeparatorChar)));
+                if(!File.Exists(target)||Hash(target)!=item.NewHash)
+                    throw new IOException("UM-API-CORE-ROLLBACK-DESTINATION-CHANGED");
+                if(item.HadOriginal)
+                {
+                    string original=Safe(Path.Combine(transaction,"previous",
+                        item.Relative.Replace('/',Path.DirectorySeparatorChar)));
+                    if(!File.Exists(original)||Hash(original)!=item.PreviousHash)
+                        throw new IOException("UM-API-CORE-ROLLBACK-SNAPSHOT-CHANGED");
+                }
+            }
+        }
+        VerifyInputs();
+        using var lease=cluster.Operations.Acquire(root,UntamedOperationKind.Update);
+        Preflight(cluster,mapId);
+        VerifyInputs();
+        ct.ThrowIfCancellationRequested();
+        // Durable intent precedes every destructive change. Interrupted
+        // recovery stays in NeedsOperator rather than blindly retrying.
+        Durable(Path.Combine(transaction,"rollback-intent"),new {
+            schema=1,mapId,transactionId,utc=DateTimeOffset.UtcNow,
+            expected=state.Files.Length
+        });
+        lease.MarkMutationStarted();
+        int restored=0,removed=0;
+        foreach(var item in state.Files)
+        {
+            ct.ThrowIfCancellationRequested();
+            Preflight(cluster,mapId);
+            string target=Safe(Path.Combine(binary,
+                item.Relative.Replace('/',Path.DirectorySeparatorChar)));
+            if(!File.Exists(target)||Hash(target)!=item.NewHash)
+                throw new IOException("UM-API-CORE-ROLLBACK-DESTINATION-CHANGED");
+            if(item.HadOriginal)
+            {
+                string original=Safe(Path.Combine(transaction,"previous",
+                    item.Relative.Replace('/',Path.DirectorySeparatorChar)));
+                if(!File.Exists(original)||Hash(original)!=item.PreviousHash)
+                    throw new IOException("UM-API-CORE-ROLLBACK-SNAPSHOT-CHANGED");
+                string incoming=target+".untamed-rollback-"+Guid.NewGuid().ToString("N");
+                try
+                {
+                    File.Copy(original,incoming,false);
+                    if(Hash(incoming)!=item.PreviousHash)
+                        throw new IOException("UM-API-CORE-ROLLBACK-COPY-CHANGED");
+                    using(var output=new FileStream(incoming,FileMode.Open,
+                        FileAccess.ReadWrite,FileShare.None))output.Flush(true);
+                    File.Move(incoming,target,true);
+                }
+                finally{if(File.Exists(incoming))File.Delete(incoming);}
+                restored++;
+            }
+            else
+            {
+                File.Delete(target);
+                removed++;
+            }
+        }
+        foreach(var item in state.Files)
+        {
+            string target=Safe(Path.Combine(binary,
+                item.Relative.Replace('/',Path.DirectorySeparatorChar)));
+            if(item.HadOriginal?
+                (!File.Exists(target)||Hash(target)!=item.PreviousHash):
+                File.Exists(target))
+                throw new IOException("UM-API-CORE-ROLLBACK-VERIFY-FAILED");
+        }
+        Durable(rolledBack,new {schema=1,mapId,transactionId,
+            utc=DateTimeOffset.UtcNow,filesRestored=restored,
+            filesRemoved=removed,bytesVerified=true,runtimeVerified=false});
+        lease.Complete();
+        return new(mapId,transactionId,restored,removed,true,false,
+            "STOPPED_OWNED_OFFICIAL_API_CORE_SHA256_ROLLBACK_ONLY");
+    }
+
 }
