@@ -6,17 +6,19 @@ export type LanStatus = {
     bothHaveFiveActiveMaps:boolean;copiedMetadataPairMatches:boolean;
     liveWriterCertified:false;characterTravelVerified:false;statusCode:string;
   };
-  hostName:string; listenPort:number; peerAddress:string; peerPort:number;
+  hostName:string; localHostId:string; expectedPeerHostId:string;
+  listenPort:number; peerAddress:string; peerPort:number;
   pairingKeyConfigured:boolean; remoteFresh:boolean; remoteState:string;
   secretReturned:false; peerWritesAllowed:false; evidence:string;
 };
 export type LanPreview = {
   token:string;listenPort:number;peerAddress:string;peerPort:number;
-  pairingKeyWillChange:boolean;requiresManagerRestart:true;remoteWritesAllowed:false;
+  expectedPeerHostId:string;pairingKeyWillChange:boolean;requiresManagerRestart:true;remoteWritesAllowed:false;
   evidence:string;
 };
 export type LanSaved = {
   saved:true;listenPort:number;peerAddress:string;peerPort:number;
+  expectedPeerHostId:string;
   requiresManagerRestart:true;secretReturned:false;remoteWritesAllowed:false;
   evidence:string;
 };
@@ -699,8 +701,11 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
 
 export const managerBridge = {
   lanStatus: () => request<LanStatus>("lan.status"),
-  lanPreview: (listenPort:number,peerAddress:string,peerPort:number,pairingKey:string) =>
-    request<LanPreview>("lan.preview",{listenPort,peerAddress,peerPort,pairingKey}),
+  lanPreview: (listenPort:number,peerAddress:string,peerPort:number,
+    expectedPeerHostId:string,pairingKey:string) =>
+    request<LanPreview>("lan.preview",{
+      listenPort,peerAddress,peerPort,expectedPeerHostId,pairingKey
+    }),
   lanApply: (token:string) => request<LanSaved>("lan.apply",{token,confirm:true}),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
   operationsMap: (mapId:string) => request<OperationsSnapshot>("operations.map",{mapId}),
