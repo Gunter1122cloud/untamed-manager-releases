@@ -1,6 +1,5 @@
 using System;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using UntamedManager.Core;
@@ -22,7 +21,7 @@ public sealed class DesktopUpdateStatusBridge
     public DesktopUpdateStatusBridge(
         Func<UpdateChannel,CancellationToken,Task<UpdateRelease?>>? provider=null)
     {
-        fetch=provider??((channel,ct)=>UpdateCenter.CheckAsync(Repository,channel,ct));
+        fetch=provider??ObsidianReleaseCatalog.CheckAsync;
     }
 
     public async Task<string> HandleAsync(string raw)
@@ -79,12 +78,9 @@ public sealed class DesktopUpdateStatusBridge
                     installationPermitted=false,updaterVerified=false,
                     evidence="GITHUB_RELEASE_METADATA_NOT_AN_INSTALLER"
                 });
-            string expectedPrefix="https://github.com/"+Repository+"/releases/download/";
-            if(!release.AssetUrl.StartsWith(expectedPrefix,StringComparison.Ordinal) ||
-               !release.AssetName.EndsWith("-SETUP.exe",StringComparison.Ordinal) ||
-               !Regex.IsMatch(release.Sha256,@"\A[0-9a-fA-F]{64}\z"))
+            if(!ObsidianReleaseCatalog.IsTrusted(release))
                 return Fail(id,"UM-UPDATE-UNTRUSTED-RELEASE");
-            bool newer=ReleaseCatalog.IsNewer(release,UpdateCenter.RunningVersion,installed);
+            bool newer=ObsidianReleaseCatalog.IsNewer(release,UpdateCenter.RunningVersion,installed);
             string notes=release.ChangeLog.Length>2400?release.ChangeLog[..2400]:release.ChangeLog;
             return Ok(id,new{
                 repository=Repository,runningVersion=running,installedTag=installed,
