@@ -514,6 +514,109 @@ try
             "RCON cannot target an unregistered or remote peer map");
     }
 
+    // Two independent 5-map hosts; never use UK-HOME-01/02 or the live
+    // MariaDB. The original synthetic .arkprofile bytes are not altered by
+    // capture/compare, and zero-byte/duplicate transfers must fail.
+    {
+        var namesA=new[]{"Astraeos","Genesis Part 1","Valguero","The Island","Extinction"};
+        var namesB=new[]{"Scorched Earth","Lost Colony","Ragnarok","The Center","Aberration"};
+        var tokens=new Dictionary<string,string>{
+            ["Astraeos"]="Astraeos_WP",
+            ["Genesis Part 1"]="Genesis_WP",
+            ["Valguero"]="Valguero_WP",
+            ["The Island"]="TheIsland_WP",
+            ["Extinction"]="Extinction_WP",
+            ["Scorched Earth"]="ScorchedEarth_WP",
+            ["Lost Colony"]="LostColony_WP",
+            ["Ragnarok"]="Ragnarok_WP",
+            ["The Center"]="TheCenter_WP",
+            ["Aberration"]="Aberration_WP"
+        };
+        var pathA=Path.Combine(root,"travel-lab-a");
+        var pathB=Path.Combine(root,"travel-lab-b");
+        await using var firstHost=new ClusterService("travel-lab-a",
+            Path.Combine(root,"travel-profile-a"),
+            _=>new ProcessCheck(false,"confirmed stopped synthetic travel",null,true));
+        await using var secondHost=new ClusterService("travel-lab-b",
+            Path.Combine(root,"travel-profile-b"),
+            _=>new ProcessCheck(false,"confirmed stopped synthetic travel",null,true));
+        var savePaths=new Dictionary<string,string>();
+        foreach(var (names,service,basePath) in new[]{
+            (namesA,firstHost,pathA),(namesB,secondHost,pathB)})
+        foreach(var name in names)
+        {
+            string install=Path.Combine(basePath,name.Replace(" ",""));
+            string save=Path.Combine(install,"ShooterGame","Saved","SavedArks",tokens[name]);
+            Directory.CreateDirectory(save);
+            savePaths[name]=save;
+            service.AddMap(new LocalMap{Name=name,InstallationPath=install});
+        }
+        string sourceSave=savePaths["The Island"];
+        string targetSave=savePaths["Ragnarok"];
+        string sourceFile=Path.Combine(sourceSave,"76561198000000001.arkprofile");
+        string destinationFile=Path.Combine(targetSave,"76561198000000001.arkprofile");
+        string tribePath=Path.Combine(sourceSave,"42.arktribe");
+        byte[] survivor=Encoding.UTF8.GetBytes("SYNTHETIC-SURVIVOR-PROFILE-VALID-2026");
+        File.WriteAllBytes(sourceFile,survivor);
+        File.WriteAllText(tribePath,"synthetic tribe");
+        var travelA=new DesktopStoreTravelEvidenceBridge(firstHost);
+        var travelB=new DesktopStoreTravelEvidenceBridge(secondHost);
+        var beforeA=await Call(travelA.HandleAsync,"travel.capture");
+        var beforeB=await Call(travelB.HandleAsync,"travel.capture");
+        IsOk(beforeA,"first 5 local map inventory captured without write");
+        IsOk(beforeB,"second 5 local map inventory captured without write");
+        Check(beforeA.GetProperty("data").GetProperty("complete").GetBoolean() &&
+              beforeB.GetProperty("data").GetProperty("complete").GetBoolean() &&
+              File.ReadAllBytes(sourceFile).SequenceEqual(survivor),
+            "read-only capture does not mutate survivor bytes or claim Store writer authority");
+        var sourceRecord=beforeA.GetProperty("data").GetProperty("maps")
+            .EnumerateArray().Single(x=>x.GetProperty("mapName").GetString()=="The Island");
+        string sourceMapId=sourceRecord.GetProperty("mapId").GetString()!;
+        string profileHash=sourceRecord.GetProperty("profileFiles")[0].GetProperty("id").GetString()!;
+        string destinationMapId=secondHost.Config.LocalMaps.Single(m=>m.Name=="Ragnarok")
+            .Id.ToString("D");
+        File.Move(sourceFile,destinationFile);
+        var afterA=await Call(travelA.HandleAsync,"travel.capture");
+        var afterB=await Call(travelB.HandleAsync,"travel.capture");
+        var request=new{
+            beforeA=beforeA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            beforeB=beforeB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            afterA=afterA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            afterB=afterB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            sourceMap=sourceMapId,destinationMap=destinationMapId,profileId=profileHash
+        };
+        var checkedTravel=await Call(travelA.HandleAsync,"travel.compare",request);
+        IsOk(checkedTravel,"four native snapshots passed to deterministic two-host verifier");
+        Check(checkedTravel.GetProperty("data").GetProperty("passed").GetBoolean() &&
+              checkedTravel.GetProperty("data").GetProperty("uniqueDestination").GetBoolean() &&
+              !checkedTravel.GetProperty("data").GetProperty("productionUnlockAllowed").GetBoolean() &&
+              !checkedTravel.GetProperty("data").GetProperty("liveStoreWriterCertified").GetBoolean(),
+            "exactly-once synthetic travel is consistent but production Store permission stays closed");
+        File.WriteAllBytes(Path.Combine(targetSave,"zero.arkprofile"),Array.Empty<byte>());
+        var brokenAfter=await Call(travelB.HandleAsync,"travel.capture");
+        var zeroResult=await Call(travelA.HandleAsync,"travel.compare",
+            new{request.beforeA,request.beforeB,request.afterA,
+                afterB=brokenAfter.GetProperty("data").GetProperty("snapshot").GetString()!,
+                request.sourceMap,request.destinationMap,request.profileId});
+        IsOk(zeroResult,"four-snapshot zero-byte report is returned");
+        Check(!zeroResult.GetProperty("data").GetProperty("passed").GetBoolean() &&
+              zeroResult.GetProperty("data").GetProperty("zeroByteFiles").GetInt32()>0,
+            "zero-byte profile fails two-host acceptance and never opens production Store");
+        File.Delete(Path.Combine(targetSave,"zero.arkprofile"));
+        File.WriteAllBytes(sourceFile,survivor);
+        var duplicateAfter=await Call(travelA.HandleAsync,"travel.capture");
+        var dup=await Call(travelA.HandleAsync,"travel.compare",
+            new{request.beforeA,request.beforeB,
+                afterA=duplicateAfter.GetProperty("data").GetProperty("snapshot").GetString()!,
+                request.afterB,request.sourceMap,request.destinationMap,request.profileId});
+        Check(!dup.GetProperty("data").GetProperty("passed").GetBoolean() &&
+              !dup.GetProperty("data").GetProperty("uniqueDestination").GetBoolean(),
+            "same character file on both hosts is detected as duplicate survivor");
+        Check(File.ReadAllBytes(sourceFile).SequenceEqual(survivor) &&
+              File.ReadAllBytes(destinationFile).SequenceEqual(survivor),
+            "all acceptance probes remain read-only to synthetic character bytes");
+    }
+
     // Update Center: deterministic provider response; no remote download,
     // installer launch or server mutation in this test.
     {
