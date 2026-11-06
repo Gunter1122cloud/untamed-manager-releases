@@ -462,6 +462,18 @@ try
         var fresh=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
         Check(AsaRconConfigurationEvidence.Matches(fresh),
             "fresh server must match RCON port, WindowsServer INI and protected credential");
+        string rconIni=AsaInitialRconSettings.NewIniPath(fresh.InstallationPath);
+        byte[] rconOriginal=File.ReadAllBytes(rconIni);
+        try
+        {
+            File.AppendAllText(rconIni,
+                "\\r\\n[ServerSettings]\\r\\nRCONPort=49999\\r\\n");
+            Check(!AsaRconConfigurationEvidence.Matches(fresh),
+                "duplicate RCON configuration cannot bypass new-server preflight");
+        }
+        finally { File.WriteAllBytes(rconIni,rconOriginal); }
+        Check(AsaRconConfigurationEvidence.Matches(fresh),
+            "RCON settings remain byte-identical after isolated negative test");
         int calls=0;
         var localGameBind=new[]{
             new System.Net.IPEndPoint(System.Net.IPAddress.Any,fresh.GamePort)};
