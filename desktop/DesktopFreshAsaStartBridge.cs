@@ -95,11 +95,45 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
             id=requestId.ToString("D");
             var method=field.GetString();
             if(method is not ("servers.freshStartPreview" or
-                "servers.freshStartApply" or "servers.freshStartStatus"))
+                "servers.freshStartApply" or "servers.freshStartStatus" or
+                "servers.freshReadiness"))
                 return Error(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
             {
+                if(method=="servers.freshReadiness")
+                {
+                    if(!ReadGuid(item,"mapId",out var mapId))
+                        return Error(id,"UM-FRESH-MAP");
+                    var map=Owned(mapId);
+                    if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
+                    if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
+                       !AsaReadyProbe.IsRegisteredServerBinary(map)||
+                       map.Maintenance)
+                        return Error(id,"UM-FRESH-READINESS-PROTECTED");
+                    var current=cluster.Check(map);
+                    if(!current.Running||current.ConfirmedStopped ||
+                       current.Identity is not {Pid:>0} pid)
+                        return Error(id,"UM-FRESH-READINESS-NOT-RUNNING");
+                    if(map.RconPort>0 && !string.IsNullOrWhiteSpace(map.RconPasswordProtected) &&
+                       !RconPortOwnership.IsOwnedListener(map.RconPort,pid.Pid))
+                        return Error(id,"UM-FRESH-READINESS-RCON-OWNER");
+                    using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(9));
+                    var observed=await AsaReadyProbe.ProbeAsync(cluster,map.Id,deadline.Token);
+                    return Ok(id,new{
+                        mapId=map.Id,mapName=map.Name,
+                        stage=observed.Stage.ToString(),
+                        observedUtc=observed.ObservedUtc,
+                        loaderObserved=observed.LoaderObserved,
+                        apiInitialized=observed.ApiInitialized,
+                        joinAdvertised=observed.JoinAdvertised,
+                        rconAuthenticated=observed.Stage==AsaRuntimeStage.RconAuthenticated,
+                        productionReady=observed.ProductionReady,
+                        description=observed.Explanation,
+                        storeTouched=false,
+                        evidence="READ_ONLY_LOCAL_ASA_PROCESS_AND_RCON_READINESS"
+                    });
+                }
                 if(method=="servers.freshStartStatus")
                 {
                     if(!ReadGuid(item,"mapId",out var mapId))
