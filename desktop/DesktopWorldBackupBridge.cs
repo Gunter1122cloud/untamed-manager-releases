@@ -189,7 +189,14 @@ public sealed class DesktopWorldBackupBridge
                         point=receipt.Point,protectiveBackup=receipt.ProtectiveBackup,
                         restored=receipt.Restored,
                         oldWorldRetained=receipt.OldWorldRetained,
-                        worldRestoreVerified=true,
+                        // The full on-disk backup digest is restored and the
+                        // prior world retained, but only an actual ASA boot +
+                        // client join proves gameplay/tribe/survivor recovery.
+                        bytesRestoredAndHashesVerified=true,
+                        worldRestoreVerified=false,
+                        gameClientLoadVerified=false,
+                        tribeOwnershipVerified=false,
+                        characterRejoinVerified=false,
                         storeWriterTouched=false,
                         evidence="VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY"
                     });
@@ -201,6 +208,8 @@ public sealed class DesktopWorldBackupBridge
                     point=created.Id,createdUtc=created.CreatedUtc,
                     files=created.Files,bytes=created.Bytes,
                     characters=created.Characters,tribes=created.Tribes,
+                    embeddedSurvivorCountUnknown=
+                        KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(current),
                     backupVerified=true,
                     asaSaveCompleteProven=false,
                     storeWriterTouched=false,
