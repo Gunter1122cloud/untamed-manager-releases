@@ -1655,6 +1655,55 @@ try
         Check(File.ReadAllBytes(sourceFile).SequenceEqual(survivor) &&
               File.ReadAllBytes(destinationFile).SequenceEqual(survivor),
             "all acceptance probes remain read-only to synthetic character bytes");
+        // Official ASA -usestore embeds survivor/tribe information inside
+        // the .ark world. No standalone profile is required or trustworthy.
+        // Snapshot the large world by bounded filesystem metadata only.
+        foreach(var service in new[]{firstHost,secondHost})
+            foreach(var map in service.Config.LocalMaps)
+            {
+                map.Arguments="-usestore";
+                string key=tokens[map.Name];
+                File.WriteAllBytes(Path.Combine(savePaths[map.Name],key+".ark"),
+                    Encoding.UTF8.GetBytes("SYNTHETIC-EMBEDDED-WORLD-"+key));
+            }
+        File.Delete(sourceFile);
+        File.Delete(destinationFile);
+        File.WriteAllBytes(Path.Combine(targetSave,"old-leftover.arkprofile"),
+            Array.Empty<byte>());
+        var storeBeforeA=await Call(travelA.HandleAsync,"travel.capture");
+        var storeBeforeB=await Call(travelB.HandleAsync,"travel.capture");
+        Check(storeBeforeA.GetProperty("data").GetProperty("complete").GetBoolean() &&
+              storeBeforeB.GetProperty("data").GetProperty("complete").GetBoolean() &&
+              storeBeforeB.GetProperty("data").GetProperty("maps").EnumerateArray()
+                .All(x=>x.GetProperty("storeMode").GetBoolean() &&
+                   x.GetProperty("worldPresent").GetBoolean()),
+            "zero-byte legacy profile does not invalidate a stable -usestore .ark world snapshot");
+        File.AppendAllText(Path.Combine(targetSave,"Ragnarok_WP.ark"),
+            "-SYNTHETIC-EMBEDDED-CHARACTER-CHANGE");
+        var storeAfterA=await Call(travelA.HandleAsync,"travel.capture");
+        var storeAfterB=await Call(travelB.HandleAsync,"travel.capture");
+        var storeResult=await Call(travelA.HandleAsync,"travel.compare",new{
+            beforeA=storeBeforeA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            beforeB=storeBeforeB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            afterA=storeAfterA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            afterB=storeAfterB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            sourceMap=sourceMapId,destinationMap=destinationMapId,profileId="embedded"
+        });
+        IsOk(storeResult,"embedded Store-v1 world snapshots accepted for read-only metadata comparison");
+        var storeData=storeResult.GetProperty("data");
+        Check(storeData.GetProperty("storeModeDetected").GetBoolean() &&
+              storeData.GetProperty("worldFilesPresentForStore").GetBoolean() &&
+              !storeData.GetProperty("passed").GetBoolean() &&
+              !storeData.GetProperty("embeddedSurvivorVerified").GetBoolean() &&
+              !storeData.GetProperty("gameClientRejoinVerified").GetBoolean() &&
+              !storeData.GetProperty("productionUnlockAllowed").GetBoolean() &&
+              !storeData.GetProperty("findings").EnumerateArray()
+                .Any(x=>x.GetString()!.Contains("beágyaz",StringComparison.OrdinalIgnoreCase)) &&
+              !storeData.GetProperty("findings").EnumerateArray()
+                .Any(x=>x.GetString()!.Contains("hiányzik az érvényes karakterfájl",
+                    StringComparison.OrdinalIgnoreCase)),
+            "Store-v1 never invents lost survivor from absent loose .arkprofile or claims real travel");
+
     }
 
     // Kova-compatible *real file operations* against a disposable stopped
