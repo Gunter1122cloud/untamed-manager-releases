@@ -120,7 +120,12 @@ public static class AsaWorldSaveEvidence
         // Require BOTH ordered lines to reject unrelated/stale completion
         // reports (including old auto-save entries before our bookmark).
         int first=lines.IndexOf("Saving world",StringComparison.OrdinalIgnoreCase);
-        int last=lines.IndexOf("World Save Complete",StringComparison.OrdinalIgnoreCase);
+        // The post-dispatch window may first contain another completed
+        // autosave without its start (the original log boundary split it).
+        // Pair the FIRST full new Saving world with a completion AFTER it;
+        // never pair an earlier unrelated completion with a later start.
+        int last=first<0 ? -1 : lines.IndexOf("World Save Complete",
+            first+"Saving world".Length,StringComparison.OrdinalIgnoreCase);
         bool ordered=first>=0&&last>first;
         bool updated=false,stable=false;
         if(File.Exists(bookmark.World))
