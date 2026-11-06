@@ -248,8 +248,14 @@ test.beforeEach(async ({ page }) => {
           modOrderStatus:"MATCH",passiveModOrderStatus:"MATCH",clusterIdPresent:!!m.command?.includes("-clusterid="),
           clusterIdStatus:m.command?.includes("-clusterid=KovaCluster")?"MATCH":"MISMATCH",
           clusterPathPresent:!!m.command?.includes("-ClusterDirOverride="),clusterPathVerified:false,
-          useStorePresent:true,conversionFlagPresent:!!m.command?.includes("-converttostore"),
-          findings:m.command?.includes("-converttostore")?["CONVERSION_FLAG_PRESENT"]:[],
+          useStorePresent:true,
+          storeFlagCount:(m.command?.match(/-usestore(?=\\s|$)/gi)||[]).length,
+          conversionFlagPresent:!!m.command?.match(/-convert(?:to|from)store/i),
+          canonicalSourceFlagsObserved:!!m.command?.includes("?listen")&&
+            !!m.command?.match(/-log(?=\\s|$)/i)&&
+            (m.command?.match(/-usestore(?=\\s|$)/gi)||[]).length===1 &&
+            !m.command?.match(/-convert(?:to|from)store/i),
+          findings:m.command?.match(/-convert(?:to|from)store/i)?["CONVERSION_FLAG_PRESENT"]:[],
           sourceAuthenticated:false,fullLaunchArgumentsVerified:false,
           peerWriterVerified:false,productionUseAllowed:false,serverStartAllowed:false,
           evidence:"OPERATOR_TEXT_READ_ONLY_UNAUTHENTICATED"
