@@ -236,8 +236,9 @@ public sealed class DesktopStoreTravelEvidenceBridge
                         maps=snapshot.Maps.Select(x=>new{
                             mapId=x.MapId,mapName=x.Name,
                             x.ConfirmedStopped,x.SaveDirectoryFound,x.AmbiguousLayout,
-                            x.Profiles,x.Tribes,x.ZeroByteDetected,x.Unstable,
-                            profiles=x.Files.Where(f=>f.Kind=="profile").Select(f=>
+                            profileCount=x.Profiles,tribeCount=x.Tribes,
+                            x.ZeroByteDetected,x.Unstable,
+                            profileFiles=x.Files.Where(f=>f.Kind=="profile").Select(f=>
                                 new{id=f.Id,bytes=f.Bytes}).ToArray()
                         }).ToArray(),
                         complete=snapshot.Maps.All(m=>m.ConfirmedStopped&&
