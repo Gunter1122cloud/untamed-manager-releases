@@ -184,7 +184,7 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 .cf-filters>.cf-order,.cf-filters>.primary{width:100%}}
 
 /* Two-step fresh ASA experience: map + destination, one native install. */
-.fresh-wizard-form{grid-template-columns:minmax(200px,.75fr) minmax(420px,2.25fr)}
+.fresh-wizard .fresh-wizard-form{grid-template-columns:minmax(200px,.75fr) minmax(420px,2.25fr)}
 .fresh-wizard-form>label:nth-child(2){min-width:0}
 .fresh-folder-row{display:flex;align-items:center;gap:9px;min-width:0}
 .fresh-folder-row>input{flex:1 1 auto;min-width:0}
@@ -198,7 +198,7 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
   font-size:12px;line-height:1.5}
 .fresh-advanced>label:has(input:not([type=checkbox])){flex-direction:column}
 .fresh-advanced input[type=checkbox]{accent-color:#4dcfa0;width:16px;height:16px}
-@media(max-width:1000px){.fresh-wizard-form{grid-template-columns:1fr}
+@media(max-width:1000px){.fresh-wizard .fresh-wizard-form{grid-template-columns:1fr}
  .fresh-wizard-form>label:first-child{grid-column:auto}}
 @media(max-width:640px){.fresh-folder-row{flex-wrap:wrap}
  .fresh-folder-row>button{width:100%}}
