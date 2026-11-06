@@ -665,6 +665,27 @@ export type OfflineAsaArchiveStatus = {
   productionRestoreAllowed:false;sqlUsed:false;evidence:string;
 };
 
+export type PortableModProfileExport = {
+  exported:true;mapId:string;profileName:string;enabled:number;passive:number;
+  disabled:number;sha256:string;remoteWritesAllowed:false;storeTouched:false;
+  sqlUsed:false;evidence:string;
+};
+export type PortableModProfilePreview = {
+  token:string;label:string;sha256:string;mode:"merge"|"replace";
+  enabled:number;passive:number;disabled:number;
+  targets:Array<{mapId:string;mapName:string;changed:boolean;
+    before:{active:string[];passive:string[];disabled:string[]};
+    after:{active:string[];passive:string[];disabled:string[]}}>;
+  operationCount:number;changed:boolean;
+  productionLoadedVerified:false;remoteWritesAllowed:false;
+  storeTouched:false;sqlUsed:false;evidence:string;
+};
+export type PortableModProfileApplied = {
+  saved:true;changedMaps:string[];operationsApplied:number;requiresRestart:true;
+  productionLoadedVerified:false;remoteWritesAllowed:false;
+  storeTouched:false;sqlUsed:false;evidence:string;
+};
+
 export type ModCopyMode = "merge" | "replace";
 export type ModCopyPreview = {
   token:string;sourceMapId:string;mode:ModCopyMode;
@@ -697,6 +718,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
   "mods.copyPreview" | "mods.copyApply" |
+  "mods.profileExport" | "mods.profileImportPreview" | "mods.profileImportApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
@@ -889,6 +911,12 @@ export const managerBridge = {
     request<ModCopyPreview>("mods.copyPreview",{sourceMapId,targets,mode}),
   modCopyApply: (token:string) =>
     request<ModCopyApplied>("mods.copyApply",{token,confirm:true}),
+  modProfileExport: (mapId:string) =>
+    request<PortableModProfileExport>("mods.profileExport",{mapId}),
+  modProfileImportPreview: (targets:string[],mode:ModCopyMode) =>
+    request<PortableModProfilePreview>("mods.profileImportPreview",{targets,mode}),
+  modProfileImportApply: (token:string) =>
+    request<PortableModProfileApplied>("mods.profileImportApply",{token,confirm:true}),
   offlineArchivePreview: () =>
     request<OfflineAsaArchivePreview>("cluster.offlinePreview"),
   offlineArchiveApply: (token:string) =>
