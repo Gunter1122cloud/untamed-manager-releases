@@ -1005,7 +1005,7 @@ test("local ASA import wizard requires preview and confirmation, then refreshes 
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
-  await page.getByRole("button",{name:"Új helyi map felvétele"}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
   await expect(page.getByText("Helyi ASA-telepítés felvétele")).toBeVisible();
   await expect(page.getByRole("button",{name:"Ellenőrzött map regisztrálása"})).toBeDisabled();
   await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
@@ -1061,6 +1061,20 @@ test("SteamCMD new ASA: choose map and Windows folder, one click starts download
   await page.screenshot({path:"test-results/steam-fresh-install-1600.png",fullPage:true});
 });
 
+test("Servers page offers immediate real ASA download separately from importing an existing server",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Új ASA letöltése"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Meglévő ASA importálása"})).toBeVisible();
+  await page.getByRole("button",{name:"Új ASA letöltése"}).click();
+  await expect(page.getByText("Új ASA szerver · SteamCMD telepítés")).toBeVisible();
+  await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("Ragnarok");
+  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Servers\\Ragnarok");
+  await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
+  await expect(page.getByText(/letöltve és hozzáadva a Managerhez/))
+    .toBeVisible({timeout:12000});
+});
+
 test("SteamCMD simple path entry starts installation without advanced options or extra confirmation",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"SteamCMD"}).click();
@@ -1075,7 +1089,7 @@ test("Newly imported local map first setup saves session and UDP ports only afte
   await page.setViewportSize({width:1500,height:850});
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
-  await page.getByRole("button",{name:"Új helyi map felvétele"}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
   await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
   await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
   await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
