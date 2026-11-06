@@ -40,6 +40,8 @@ test.beforeEach(async ({ page }) => {
     let stagedId = "";
     let redoId = "";
     let pluginEnabled = true;
+    let pluginZipInstalled = false;
+    let steamUpdateStarted = false;
     let localBackupMap=one;
     let localBackupSaved=false;
     let crashRecovery=false;
@@ -346,6 +348,38 @@ test.beforeEach(async ({ page }) => {
           evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY"
         };
         case "mods.configured": return {mapId: m.mapId, mapName: "The Island", pending: false, active: ["123456"], passive: ["789012"], disabled: [], evidence:"CONFIGURED_ONLY"};
+        case "plugins.zipSelect": return {
+          token:"00000000-0000-4000-8000-000000005555",
+          mapId:m.mapId,mapName:"The Island",archiveName:"SampleZip-package.zip",
+          plugin:"SampleZip",binaryCount:1,skippedFiles:1,
+          previousExists:false,evidence:"NATIVE_PLUGIN_ZIP_PREFLIGHT_NO_WRITE"
+        };
+        case "plugins.zipApply":
+          if(!m.confirm)throw new Error("Approval required");
+          pluginZipInstalled=true;
+          return {mapId:one,plugin:"SampleZip",installedBinaries:1,
+            backupCreated:false,requiresRestart:true,runtimeLoadedVerified:false,
+            evidence:"VERIFIED_GUARDED_PLUGIN_ZIP_INSTALL"};
+        case "steam.stoppedPreview": return {
+          token:"00000000-0000-4000-8000-000000006666",mapId:m.mapId,
+          mapName:"Astraeos",maps:["Astraeos"],installedBuild:"123456",
+          reserveBytes:10737418240,availableBytes:53687091200,
+          evidence:"REAL_LOCAL_STOPPED_STEAM_PREFLIGHT_NO_WRITE"
+        };
+        case "steam.stoppedApply":
+          if(!m.confirm)throw new Error("Approval required");
+          steamUpdateStarted=true;
+          return {jobId:"00000000-0000-4000-8000-000000007777",started:true,
+            restartPerformed:false,remoteHostTouched:false,
+            evidence:"REAL_LOCAL_STOPPED_STEAM_UPDATE_STARTED"};
+        case "steam.stoppedStatus":
+          return {jobId:"00000000-0000-4000-8000-000000007777",
+            state:steamUpdateStarted?"completed":"queued",
+            stage:steamUpdateStarted?"verified":"preflight",
+            changedUtc:"2026-11-06T10:00:00Z",
+            oldBuild:"123456",newBuild:"123457",
+            protectedFilesIntact:steamUpdateStarted,
+            restartPerformed:false,storeTouched:false};
         case "plugins.state": return {
           mapId:m.mapId,mapName:"The Island",historicalProtected:false,
           plugins:[{name:"ExamplePlugin",enabled:pluginEnabled,runtimeLoadedVerified:false}],
@@ -1064,4 +1098,38 @@ test("plugin center requires native preview and explicit operator approval befor
   await expect(page.getByText("Letiltott mappa")).toBeVisible();
   await expect(page.getByText(/teljes könyvtár mentése elkészült/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Engedélyezés előnézete"})).toBeVisible();
+});
+
+test("native plugin ZIP install has explicit preview, approval, and verified result",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Pluginok"}).click();
+  const choose=page.getByRole("button",{name:"Plugin ZIP kiválasztása és ellenőrzése"});
+  await expect(choose).toBeVisible();
+  await choose.click();
+  await expect(page.getByRole("region",{name:"Plugin ZIP telepítés jóváhagyása"})).toBeVisible();
+  await expect(page.getByText("SampleZip-package.zip")).toBeVisible();
+  const apply=page.getByRole("button",{name:"Plugin telepítésének véglegesítése"});
+  await expect(apply).toBeDisabled();
+  await page.getByText(/Jóváhagyom a kiválasztott helyi plugin/).click();
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(page.getByText(/SampleZip – 1 DLL telepítve/)).toBeVisible();
+  await expect(page.getByRole("region",{name:"Plugin ZIP telepítés jóváhagyása"})).toHaveCount(0);
+});
+
+test("real stopped-map SteamCMD update is opt-in and reports verified outcome",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"SteamCMD"}).click();
+  await expect(page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"})).toBeVisible();
+  await page.getByRole("combobox",{name:"SteamCMD frissítés map"}).selectOption(second);
+  await page.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toBeVisible();
+  await expect(page.getByText(/Astraeos – jelenlegi build: 123456/)).toBeVisible();
+  const start=page.getByRole("button",{name:"Valódi frissítés indítása"});
+  await expect(start).toBeDisabled();
+  await page.getByText(/Megerősítem, hogy a kiválasztott/).click();
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(page.getByText(/Build 123456 → 123457/)).toBeVisible({timeout:15000});
+  await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
 });
