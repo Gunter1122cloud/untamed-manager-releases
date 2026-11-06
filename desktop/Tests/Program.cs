@@ -1411,9 +1411,23 @@ try
     // Read-only RCON uses an isolated synthetic process identity and injected
     // fake ListPlayers response. This must never reach live ASA or real SQL.
     {
+        string syntheticRconRoot=Path.Combine(root,"rcon-fake-install");
+        string syntheticRconExe=Path.Combine(syntheticRconRoot,"ShooterGame",
+            "Binaries","Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(syntheticRconExe)!);
+        File.WriteAllText(syntheticRconExe,"SYNTHETIC TEST EXE NOT EXECUTED");
+        string syntheticRconLog=Path.Combine(syntheticRconRoot,"ShooterGame",
+            "Saved","Logs","ShooterGame.log");
+        string syntheticRconWorld=Path.Combine(syntheticRconRoot,"ShooterGame",
+            "Saved","SavedArks","TheIsland_WP","TheIsland_WP.ark");
+        Directory.CreateDirectory(Path.GetDirectoryName(syntheticRconLog)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(syntheticRconWorld)!);
+        File.WriteAllText(syntheticRconLog,"Saving world...\\nWorld Save Complete. Took: 1.0\\n");
+        File.WriteAllText(syntheticRconWorld,"SYNTHETIC PREVIOUS WORLD");
+        File.SetLastWriteTimeUtc(syntheticRconWorld,DateTime.UtcNow.AddSeconds(-25));
         var fakeMap=new LocalMap{
-            Name="RCON synthetic map",ExecutablePath=Path.Combine(root,"rcon-fake.exe"),
-            InstallationPath=Path.Combine(root,"rcon-fake-install"),
+            Name="The Island",ExecutablePath=syntheticRconExe,
+            InstallationPath=syntheticRconRoot,
             RconHost="127.0.0.1",RconPort=37555,
             RconPasswordProtected=SecureStore.Protect("test-only-passphrase")
         };
@@ -1467,6 +1481,39 @@ try
               !savedWorld.GetProperty("data").GetProperty("worldFilesTouchedByManager").GetBoolean() &&
               !savedWorld.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal),
             "SaveWorld ignores arbitrary command injection, redacts secrets and never fakes SaveComplete");
+        var rconWatch=savedWorld.GetProperty("data");
+        Check(rconWatch.GetProperty("nativeWitnessAvailable").GetBoolean() &&
+              Guid.TryParse(rconWatch.GetProperty("watchId").GetString(),out var watchId) &&
+              watchId!=Guid.Empty,
+            "owned SaveWorld dispatch establishes a private new-log witness boundary");
+        var pendingLog=await Call(rcon.HandleAsync,"rcon.saveStatus",new{
+            mapId=fakeMap.Id,watchId
+        });
+        IsOk(pendingLog,"post-dispatch SaveWorld witness poll is read-only");
+        Check(!pendingLog.GetProperty("data").GetProperty("combinedSaveEvidenceObserved").GetBoolean() &&
+              !pendingLog.GetProperty("data").GetProperty("logSaveCompleteObserved").GetBoolean(),
+            "previous autosave marker cannot falsely confirm a new RCON SaveWorld");
+        File.AppendAllText(syntheticRconLog,
+            "Saving world...\\nWorld Save Complete. Took: 0.6\\n");
+        File.AppendAllText(syntheticRconWorld," + VERIFIED_SYNTHETIC_SAVE");
+        File.SetLastWriteTimeUtc(syntheticRconWorld,DateTime.UtcNow.AddSeconds(1));
+        var verifiedLog=await Call(rcon.HandleAsync,"rcon.saveStatus",new{
+            mapId=fakeMap.Id,watchId
+        });
+        IsOk(verifiedLog,"RCON SaveWorld proof follows source log and world metadata");
+        Check(verifiedLog.GetProperty("data").GetProperty("logSaveCompleteObserved").GetBoolean() &&
+              verifiedLog.GetProperty("data").GetProperty("worldFileUpdated").GetBoolean() &&
+              verifiedLog.GetProperty("data").GetProperty("worldFileStable").GetBoolean() &&
+              verifiedLog.GetProperty("data").GetProperty("combinedSaveEvidenceObserved").GetBoolean() &&
+              !verifiedLog.GetProperty("data").GetProperty("diskFsyncCertified").GetBoolean() &&
+              !verifiedLog.GetProperty("data").GetProperty("gameClientRejoinVerified").GetBoolean(),
+            "SaveWorld status distinguishes observed log/world data from untested durable fsync/client rejoin");
+        var fakeWatch=await Call(rcon.HandleAsync,"rcon.saveStatus",new{
+            mapId=fakeMap.Id,watchId=Guid.NewGuid()
+        });
+        Check(IsError(fakeWatch,"UM-RCON-SAVE-WITNESS-NOT-FOUND") &&
+              dispatched==2,
+            "unrecognized SaveWorld proof token cannot inspect another operation");
         owner=false;
         var deniedOwnership=await Call(rcon.HandleAsync,"rcon.saveWorld",
             new{mapId=fakeMap.Id,confirm=true});
