@@ -455,6 +455,61 @@ try
             "RCON success response contains no plaintext credential");
     }
 
+    // Actual SteamCMD entry point uses Core's stopped-map update and per-host
+    // queue. The adapter is injected only in this isolated Windows fixture.
+    {
+        var target=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
+        int executions=0;
+        byte[] original=File.ReadAllBytes(target.ExecutablePath);
+        using var updater=new DesktopStoppedSteamUpdateBridge(cluster,
+            m=>new SteamUpdatePreview(Path.GetFullPath(m.InstallationPath)
+                .TrimEnd(Path.DirectorySeparatorChar),new[]{m.Name},
+                "FAKE-STEAMCMD-DIGEST","123456",
+                10L*1024*1024*1024,20L*1024*1024*1024,true,"Synthetic plan"),
+            async(m,progress)=>{
+                executions++;
+                progress.Report(SteamMaintenanceStage.Backup);
+                await Task.Delay(65);
+                return new SteamStoppedMapUpdater.Receipt(m.Id,m.InstallationPath,
+                    "123456","123457","fake-backup",
+                    DateTimeOffset.UtcNow,true);
+            });
+        var unknown=await Call(updater.HandleAsync,"steam.stoppedPreview",
+            new{mapId=Guid.NewGuid()});
+        Check(IsError(unknown,"UM-MAP-NOT-OWNED"),
+            "remote or unknown map cannot schedule local SteamCMD update");
+        var proposed=await Call(updater.HandleAsync,"steam.stoppedPreview",
+            new{mapId=target.Id});
+        IsOk(proposed,"stopped-map SteamCMD update preflight is functional");
+        Check(executions==0,"SteamCMD preview has no launch side effect");
+        string token=proposed.GetProperty("data").GetProperty("token").GetString()!;
+        var refused=await Call(updater.HandleAsync,"steam.stoppedApply",
+            new{token,confirm=false});
+        Check(IsError(refused,"UM-STEAM-CONFIRMATION-REQUIRED") && executions==0,
+            "SteamCMD update requires native approval");
+        var launched=await Call(updater.HandleAsync,"steam.stoppedApply",
+            new{token,confirm=true});
+        IsOk(launched,"approved update dispatches native verified Core operation");
+        string job=launched.GetProperty("data").GetProperty("jobId").GetString()!;
+        var replay=await Call(updater.HandleAsync,"steam.stoppedApply",
+            new{token,confirm=true});
+        Check(!replay.GetProperty("ok").GetBoolean(),
+            "same SteamCMD approval token cannot replay");
+        JsonElement result=default;
+        for(int n=0;n<60;n++){
+            result=await Call(updater.HandleAsync,"steam.stoppedStatus",
+                new{jobId=job});
+            if(result.GetProperty("data").GetProperty("state").GetString()=="completed")break;
+            await Task.Delay(25);
+        }
+        IsOk(result,"native SteamCMD update reports progress");
+        Check(result.GetProperty("data").GetProperty("state").GetString()=="completed" &&
+              executions==1 &&
+              result.GetProperty("data").GetProperty("protectedFilesIntact").GetBoolean() &&
+              original.SequenceEqual(File.ReadAllBytes(target.ExecutablePath)),
+            "SteamCMD update runs once and preserves fixture ASA executable");
+    }
+
     // Native cross-map Mod Center inventory: real Core parser, read-only
     // historical Store-v1 metadata, never the quarantined Arguments field.
     {
