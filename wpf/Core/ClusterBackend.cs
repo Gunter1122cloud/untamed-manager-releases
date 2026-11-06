@@ -576,6 +576,23 @@ public sealed class ClusterService : IAsyncDisposable
             throw;
         }
     }
+    /// <summary>
+    /// Strictly read-only physical process observation for evidence collection.
+    /// Unlike Check(), this must not conflate a blocked Store-v1 launch policy
+    /// with a running/unknown Windows process. It grants no launch, Stop,
+    /// RCON, ownership, or Store-write capability. A missing executable,
+    /// unreadable process family, unknown PID or unmatched command line
+    /// must remain unconfirmed (never synthetic "stopped").
+    /// </summary>
+    public ProcessCheck ObserveLocalProcessesReadOnly(LocalMap map)
+    {
+        if(map==null || !Config.LocalMaps.Contains(map))
+            throw new UnauthorizedAccessException("Only locally registered maps can be observed");
+        if(map.StartWithAsaApi || !string.IsNullOrWhiteSpace(map.ApiLoaderPath))
+            return _inspector.InspectFamily(map);
+        return _inspect(map);
+    }
+
     public ProcessCheck Check(LocalMap map)
     {
         if(!Config.LocalMaps.Contains(map)) throw new UnauthorizedAccessException("Not a local map");
