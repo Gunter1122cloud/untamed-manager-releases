@@ -27,7 +27,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   },[chosen]);
   useEffect(()=>{void reload();},[reload]);
   const preview=async()=>{
-    if(!chosen||busy||current?.running)return;
+    if(!chosen||busy||current?.running||history?.recoveryRequired)return;
     setPending(null);setReceipt(null);setRestoreTarget(null);setConfirmName("");
     setBusy(true);setError("");
     try{setPending(await managerBridge.backupPreview(chosen));}
@@ -35,7 +35,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     finally{setBusy(false);}
   };
   const create=async()=>{
-    if(!pending||pending.action!=="BACKUP"||busy||current?.running||pending.mapId!==chosen)return;
+    if(!pending||pending.action!=="BACKUP"||busy||current?.running||history?.recoveryRequired||pending.mapId!==chosen)return;
     setBusy(true);setError("");
     const token=pending.token;setPending(null);
     try{
@@ -46,7 +46,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     }finally{setBusy(false);}
   };
   const restorePreview=async(point:WorldBackupPoint)=>{
-    if(!chosen||busy||current?.running||current?.storeProtected)return;
+    if(!chosen||busy||current?.running||current?.storeProtected||history?.recoveryRequired)return;
     setPending(null);setRestoreTarget(null);setConfirmName("");setReceipt(null);
     setBusy(true);setError("");
     try{
@@ -58,7 +58,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   };
   const restore=async()=>{
     if(!pending||pending.action!=="RESTORE"||!current||
-       confirmName!==current.name||busy||current.running||current.storeProtected||pending.mapId!==chosen)return;
+       confirmName!==current.name||busy||current.running||current.storeProtected||history?.recoveryRequired||pending.mapId!==chosen)return;
     const token=pending.token;setPending(null);setRestoreTarget(null);
     setBusy(true);setError("");
     try{
@@ -87,9 +87,13 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         </label>
         <button className="secondary" type="button" disabled={!chosen||busy}
           onClick={()=>{void reload();}}><RefreshCcw size={15}/> Előzmények frissítése</button>
-        <button className="primary" type="button" disabled={!chosen||busy||current?.running}
+        <button className="primary" type="button" disabled={!chosen||busy||current?.running||history?.recoveryRequired}
           onClick={()=>{void preview();}}><Save size={15}/> Világmentés készítése</button>
       </div>
+      {history?.recoveryRequired&&<div className="uk-world-backup-error" role="alert"><AlertTriangle size={19}/>
+        Megszakadt világ-visszaállítás jelzője található. Ne indítsd a mapot és
+        ne készíts új mentést, amíg a megőrzött előző világ és a védőmentés
+        ellenőrzése meg nem történt. A Manager nem írja felül automatikusan.</div>}
       {current?.storeProtected&&<div className="uk-world-backup-notice"><LockKeyhole size={18}/>
         Store-v1 vagy történeti Store-kapcsolat észlelve: a mentések olvashatók,
         de a map egyoldalú visszaállítása zárolva van. A másik gép karakteradatait
@@ -130,7 +134,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             <small>{p.files} fájl · {p.characters} karakter · {p.tribes} tribe · {(p.bytes/1024/1024).toFixed(1)} MiB</small>
           </span>
           <span className="uk-world-backup-verified"><CheckCircle2 size={14}/> SHA-256</span>
-          <button type="button" className="secondary" disabled={busy||current?.running||current?.storeProtected}
+          <button type="button" className="secondary" disabled={busy||current?.running||current?.storeProtected||history?.recoveryRequired}
             title={current?.storeProtected?"Store-v1 map: egyoldalú visszaállítás tiltva":"Védett visszaállítás"}
             onClick={()=>{void restorePreview(p);}}><RotateCcw size={14}/> Visszaállítás</button>
         </div>):
@@ -150,7 +154,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             placeholder={current?.name??""}/>
         </label>
         <div className="uk-world-backup-restore-actions">
-          <button type="button" className="danger" disabled={busy||current?.storeProtected||current?.running||confirmName!==current?.name}
+          <button type="button" className="danger" disabled={busy||current?.storeProtected||current?.running||history?.recoveryRequired||confirmName!==current?.name}
             onClick={()=>{void restore();}}><RotateCcw size={14}/> Védett visszaállítás</button>
           <button type="button" className="secondary" disabled={busy}
             onClick={()=>{setPending(null);setRestoreTarget(null);}}>Mégsem</button>
