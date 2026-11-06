@@ -43,6 +43,9 @@ test.beforeEach(async ({ page }) => {
     let pluginZipInstalled = false;
     let steamUpdateStarted = false;
     let freshStarted=false;
+    let restartInterrupted=false;
+    (window as typeof window & {__UNTAMED_RESTART_INTERRUPTED__?:()=>void})
+      .__UNTAMED_RESTART_INTERRUPTED__=()=>{restartInterrupted=true;};
     let lifecycleInterrupted=false;
     (window as typeof window & {__UNTAMED_LIFECYCLE_INTERRUPTED__?:()=>void})
       .__UNTAMED_LIFECYCLE_INTERRUPTED__=()=>{lifecycleInterrupted=true;};
@@ -406,6 +409,16 @@ test.beforeEach(async ({ page }) => {
             createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
             readyCertified:false,requiresRconReadiness:true,storeTouched:false,
             evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"};
+        case "servers.restartCurrent": return {
+          exists:restartInterrupted,belongsToMap:true,
+          phase:restartInterrupted?"NeedsOperator":null,
+          oldPid:restartInterrupted?44117:null,
+          newPid:restartInterrupted?0:null,
+          changedUtc:restartInterrupted?"2026-11-06T11:51:00Z":null,
+          needsOperatorReview:restartInterrupted,
+          autoResumeAllowed:false,
+          evidence:"DURABLE_MACHINE_LOCAL_MANUAL_ASA_RESTART"
+        };
         case "servers.restartPreview": return {
           token:"00000000-0000-4000-8000-000000009666",
           mapId:m.mapId,mapName:"The Island",currentPid:44117,
@@ -1308,4 +1321,20 @@ test("real ASA manual Restart waits for approval and reports old and new PIDs",a
     .toBeVisible({timeout:12000});
   await expect(page.getByText(/nem végez kényszerített Kill-t/)).toBeVisible();
   await expect(page.getByRole("region",{name:"ASA újraindítás jóváhagyása"})).toHaveCount(0);
+});
+
+test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI reload",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_INTERRUPTED__?:()=>void
+  }).__UNTAMED_RESTART_INTERRUPTED__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"})).toBeDisabled();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
 });
