@@ -1881,7 +1881,7 @@ try
             new{token=ticket,confirm=true});
         Check(IsError(replay,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),
             "backup creation token cannot replay");
-        var pointProof=KovaCompatibleWorldBackup.Verify(localMap,localProfile,point);
+        var pointProof=UntamedWorldBackup.Verify(localMap,localProfile,point);
         Check(pointProof.Files==3 &&
               pointProof.Bytes==worldBeforeBackup.Length+survivorBeforeBackup.Length+"TEST TRIBE".Length,
             "saved manifest contents are cryptographically re-verified from disk");
@@ -1917,7 +1917,7 @@ try
               !restored.GetProperty("data").GetProperty("characterRejoinVerified").GetBoolean(),
             "restored world/profile bytes match and prior world is preserved; no fictitious ASA game/tribe/client proof");
         string protective=restored.GetProperty("data").GetProperty("protectiveBackup").GetString()!;
-        var protectiveProof=KovaCompatibleWorldBackup.Verify(localMap,localProfile,protective);
+        var protectiveProof=UntamedWorldBackup.Verify(localMap,localProfile,protective);
         Check(protectiveProof.Kind=="protective",
             "old live world is preserved in a separately verified protected snapshot");
         var retainedWorlds=Directory.EnumerateDirectories(
@@ -1929,7 +1929,7 @@ try
               File.ReadAllText(Path.Combine(retainedWorlds[0],"76561198000000001.arkprofile"))==
                   "SYNTHETIC PROFILE V2",
             "restored older world keeps a directly accessible byte-for-byte previous world and profile");
-        var recentWorldPoints=KovaCompatibleWorldBackup.List(localMap,localProfile,2);
+        var recentWorldPoints=UntamedWorldBackup.List(localMap,localProfile,2);
         Check(recentWorldPoints.Length==2 &&
               recentWorldPoints[0].Id==protective &&
               recentWorldPoints[1].Id==point,
@@ -1949,9 +1949,9 @@ try
         // Their bytes must be preserved, never automatically repaired/deleted.
         string zeroLegacy=Path.Combine(localWorld,"converted-empty.arkprofile");
         File.WriteAllBytes(zeroLegacy,Array.Empty<byte>());
-        var storePoint=KovaCompatibleWorldBackup.Create(localMap,localProfile,
+        var storePoint=UntamedWorldBackup.Create(localMap,localProfile,
             ()=>new ProcessCheck(false,"synthetic stopped Store",null,true));
-        var storeVerified=KovaCompatibleWorldBackup.Verify(localMap,localProfile,storePoint.Id);
+        var storeVerified=UntamedWorldBackup.Verify(localMap,localProfile,storePoint.Id);
         Check(storeVerified.Files==4 && storeVerified.Characters==2 &&
               File.Exists(zeroLegacy)&&new FileInfo(zeroLegacy).Length==0,
             "stopped Store-v1 backup preserves zero-byte historical loose profiles byte-for-byte");
@@ -1959,7 +1959,7 @@ try
         byte[] validWorld=File.ReadAllBytes(arkFile);
         File.WriteAllBytes(arkFile,Array.Empty<byte>());
         bool emptyWorldDenied=false;
-        try{KovaCompatibleWorldBackup.Create(localMap,localProfile,
+        try{UntamedWorldBackup.Create(localMap,localProfile,
             ()=>new ProcessCheck(false,"synthetic stopped Store",null,true));}
         catch(InvalidDataException){emptyWorldDenied=true;}
         Check(emptyWorldDenied,"zero-byte .ark world hard-blocks even Store-v1 backup publication");
@@ -1992,7 +1992,7 @@ try
         localMap.LastProcess=null;
         File.WriteAllText(Path.Combine(localWorld,"TheIsland_WP.ark"),"TAMPERED");
         // The archived original is unaffected by source changes.
-        Check(KovaCompatibleWorldBackup.Verify(localMap,localProfile,point).Files==3,
+        Check(UntamedWorldBackup.Verify(localMap,localProfile,point).Files==3,
             "source tampering cannot modify verified archive bytes");
         var forged=await Call(worldBridge.HandleAsync,"backup.restorePreview",
             new{mapId=localMap.Id,point=Guid.NewGuid().ToString("D")});
@@ -2004,7 +2004,7 @@ try
         bool rejectedBeforeSwap=false;
         try
         {
-            KovaCompatibleWorldBackup.Restore(localMap,localProfile,point,
+            UntamedWorldBackup.Restore(localMap,localProfile,point,
                 ()=>new ProcessCheck(false,"synthetic stopped",null,true),
                 ()=>{throw new IOException("Injected before-rename failure");});
         }
@@ -2030,7 +2030,7 @@ try
         Check(IsError(preflightDuringRecovery,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED"),
             "native world backup refuses approval while crash marker is present");
         File.Delete(crashMarker);
-        Check(!KovaCompatibleWorldBackup.RecoveryRequired(localMap),
+        Check(!UntamedWorldBackup.RecoveryRequired(localMap),
             "synthetic recovery marker removal returns map to no-recovery state");
 
         // Two local ASA map profiles can legitimately share the same
@@ -2058,14 +2058,14 @@ try
         string originalKovaMarker=Path.Combine(worldParent,
             ".kova-restore-TheIsland_WP.json");
         File.WriteAllText(originalKovaMarker,"synthetic interrupted Kova backup marker");
-        Check(KovaCompatibleWorldBackup.InstallationRecoveryRequired(centerMap),
+        Check(UntamedWorldBackup.InstallationRecoveryRequired(centerMap),
             "another map's original Kova restore marker blocks shared installation");
         var centerBlocked=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=centerMap.Id});
         Check(IsError(centerBlocked,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED"),
             "native manager refuses Center snapshot while Island Kova restore needs recovery");
         File.Delete(originalKovaMarker);
-        Check(!KovaCompatibleWorldBackup.InstallationRecoveryRequired(centerMap),
+        Check(!UntamedWorldBackup.InstallationRecoveryRequired(centerMap),
             "cleared synthetic Kova marker restores normal shared-map preflight");
     }
 
