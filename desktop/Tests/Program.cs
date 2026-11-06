@@ -287,7 +287,11 @@ try
 
     int selectedFolders=0;
     using(var steamBridge=new DesktopSteamFreshInstallBridge(cluster,
-        SyntheticSteamRunner,()=>{selectedFolders++;return freshRoot;}))
+        SyntheticSteamRunner,()=>{selectedFolders++;return freshRoot;},
+        // GitHub Windows runners do not guarantee 35 GiB free on D:.
+        // Inject capacity in the synthetic fixture; production still probes
+        // the actual fixed drive and Core rechecks during a real download.
+        availableFreeBytes:_=>100L*1024*1024*1024))
     {
         var folder=await Call(steamBridge.HandleAsync,"steam.freshBrowse");
         IsOk(folder,"native Windows ASA folder picker returns an operator-selected local root");
@@ -303,6 +307,20 @@ try
         Check(IsError(badPath,"UM-FRESH-INVALID-PATH"),
             "new Steam download shows specific invalid-drive error for foreign/UNC install root");
         Check(fakeRuns==0,"preflight never launches synthetic SteamCMD adapter");
+
+        // The safety invariant is still enforced: an undersized disk is
+        // rejected *before* SteamCMD starts or an installation root is made.
+        using(var lowDiskBridge=new DesktopSteamFreshInstallBridge(cluster,
+            SyntheticSteamRunner,()=>freshRoot,
+            availableFreeBytes:_=>34L*1024*1024*1024))
+        {
+            var lowDisk=await Call(lowDiskBridge.HandleAsync,"steam.freshPreflight",
+                new{mapName="Valguero",installRoot=freshRoot,
+                    steamExe,allowSteamCmdDownload=false});
+            Check(IsError(lowDisk,"UM-FRESH-LOW-DISK-SPACE") &&
+                  fakeRuns==0 && !Directory.Exists(freshRoot),
+                "insufficient free disk blocks ASA download before side effects");
+        }
 
         // Operator need not type steamcmd.exe path: native Manager config
         // resolves it without ever exposing the path to JavaScript.
