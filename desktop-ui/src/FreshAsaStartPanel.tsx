@@ -44,7 +44,7 @@ export function FreshAsaStartPanel({mapId,onStarted,journalBlocked}:{
     if(busy || !mapId || journalBlocked)return;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{setPreview(await managerBridge.freshAsaStartPreview(mapId));}
-    catch{setError("Indítás nem engedélyezett: új, érvényesen konfigurált ASA-telepítés, leállított folyamat és sértetlen mentésállapot szükséges. Store-v1 történeti mapok nem indíthatók ezzel a művelettel.");}
+    catch{setError("Indítás nem engedélyezett: új, érvényesen konfigurált ASA-telepítés, a Manager RCON-portjával és jelszavával egyező GameUserSettings.ini, szabad Game/Query/RCON portok, igazoltan leállított folyamat és sértetlen mentésállapot szükséges. Store-v1 történeti mapok nem indíthatók ezzel a művelettel.");}
     finally{setBusy(false);}
   };
   const start=async()=>{
