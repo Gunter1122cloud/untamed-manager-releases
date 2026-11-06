@@ -9,6 +9,7 @@ import "./update-fidelity.css";
 import "./rcon-fidelity.css";
 import "./travel-fidelity.css";
 import "./approved-dashboard-fidelity.css";
+import "./world-backup-fidelity.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing root");
