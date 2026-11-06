@@ -623,7 +623,7 @@ test("historical Store-v1 map allows backup inspection but disables unilateral w
     (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
       .__UNTAMED_PROTECT_TEST_MAP__?.();
   });
-  await page.locator(".uk-rcon-console").getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Mentések",exact:true}).click();
   await page.getByRole("combobox",{name:"Mentendő helyi map"}).selectOption(second);
   await expect(page.getByText(/Store-v1 vagy történeti Store-kapcsolat észlelve/)).toBeVisible();
@@ -984,7 +984,7 @@ test("real local RCON game and chat log buttons are read-only and show separate 
   await page.evaluate(()=>(
     window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void}
   ).__UNTAMED_RCON_ENABLE__?.());
-  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.locator(".uk-rcon-console").getByRole("button",{name:"Állapot frissítése"}).click();
   const game=page.getByRole("button",{name:"ASA játéknapló (GetGameLog)"});
   const chat=page.getByRole("button",{name:"ASA chat (GetChat)"});
   await expect(game).toBeEnabled();
