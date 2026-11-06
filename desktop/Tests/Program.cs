@@ -869,6 +869,29 @@ try
             new{mapId=localMap.Id,point=Guid.NewGuid().ToString("D")});
         Check(IsError(forged,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
             "unknown archive ID is rejected without writing world or Store");
+
+        // Two local ASA map profiles can legitimately share the same
+        // SteamCMD installation if their SavedArks/<MapKey> folders differ.
+        // Both must remain independently selectable, never overwrite each
+        // other's world data or create ambiguous shared folder backups.
+        string centerWorld=Path.Combine(localInstall,"ShooterGame","Saved",
+            "SavedArks","TheCenter_WP");
+        Directory.CreateDirectory(centerWorld);
+        byte[] centerBytes=Encoding.UTF8.GetBytes("SYNTHETIC CENTER WORLD");
+        File.WriteAllBytes(Path.Combine(centerWorld,"TheCenter_WP.ark"),centerBytes);
+        var centerMap=new LocalMap{Id=Guid.NewGuid(),Name="The Center",
+            InstallationPath=localInstall,
+            ExecutablePath=Path.Combine(localInstall,"fake.exe")};
+        backupHost.AddMap(centerMap);
+        var sharedFirst=await Call(worldBridge.HandleAsync,"backup.preview",
+            new{mapId=localMap.Id});
+        IsOk(sharedFirst,"The Island backup can be prepared in shared ASA SteamCMD install");
+        var sharedSecond=await Call(worldBridge.HandleAsync,"backup.preview",
+            new{mapId=centerMap.Id});
+        IsOk(sharedSecond,"The Center has its own independent world backup in shared install");
+        Check(File.ReadAllBytes(Path.Combine(centerWorld,"TheCenter_WP.ark"))
+                .SequenceEqual(centerBytes),
+            "first map backup cannot alter neighboring map world bytes");
     }
 
     // Update Center: deterministic provider response; no remote download,
