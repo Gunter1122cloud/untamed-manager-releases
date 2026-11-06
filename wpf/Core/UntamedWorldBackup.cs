@@ -52,22 +52,7 @@ public static class UntamedWorldBackup
         child.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,
             StringComparison.OrdinalIgnoreCase);
 
-    public static string MapKey(LocalMap map)
-    {
-        if(map==null||map.Id==Guid.Empty)throw new InvalidDataException("UM-BACKUP-INVALID-MAP");
-        string key=!string.IsNullOrWhiteSpace(map.HistoricalMapKey)?map.HistoricalMapKey:
-            map.Name switch{
-                "The Island"=>"TheIsland_WP","The Center"=>"TheCenter_WP",
-                "Scorched Earth"=>"ScorchedEarth_WP","Aberration"=>"Aberration_WP",
-                "Extinction"=>"Extinction_WP","Genesis Part 1"=>"Genesis_WP",
-                "Valguero"=>"Valguero_WP","Ragnarok"=>"Ragnarok_WP",
-                "Astraeos"=>"Astraeos_WP","Lost Colony"=>"LostColony_WP",
-                _=>throw new InvalidDataException("UM-BACKUP-UNKNOWN-MAP-KEY")
-            };
-        if(key.Length<3||key.Length>80||!key.All(c=>char.IsAsciiLetterOrDigit(c)||c=='_'))
-            throw new InvalidDataException("UM-BACKUP-UNSAFE-MAP-KEY");
-        return key;
-    }
+    public static string MapKey(LocalMap map)=>AsaSaveLayoutResolver.MapToken(map);
     // Active Store-v1 maps cannot be rolled back independently of the other
     // host's character transfer state. An imported historical map is Store
     // bound even if it was intentionally quarantined with empty arguments.
@@ -91,13 +76,8 @@ public static class UntamedWorldBackup
         }
         return false;
     }
-    private static string World(LocalMap map)
-    {
-        string root=Guard(map.InstallationPath);
-        string result=Guard(Path.Combine(root,"ShooterGame","Saved","SavedArks",MapKey(map)));
-        if(!Contained(root,result))throw new InvalidDataException("UM-BACKUP-WORLD-ESCAPES-ROOT");
-        return result;
-    }
+    private static string World(LocalMap map)=>
+        Guard(AsaSaveLayoutResolver.Resolve(map).WorldDirectory);
     private static string ArchiveRoot(string profile,LocalMap map)
     {
         string path=Guard(Path.Combine(Guard(profile),"world-backups",map.Id.ToString("N")));
