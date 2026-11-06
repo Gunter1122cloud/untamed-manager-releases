@@ -1,5 +1,5 @@
 import {useMemo,useState} from "react";
-import {Activity,AlertTriangle,CheckCircle2,ClipboardCopy,FileCheck2,
+import {AlertTriangle,CheckCircle2,ClipboardCopy,FileCheck2,
   FileWarning,HardDrive,LockKeyhole,RefreshCw,Server,ShieldCheck,Users} from "lucide-react";
 import {managerBridge,type TravelCapture,type TravelComparison} from "./bridge";
 
