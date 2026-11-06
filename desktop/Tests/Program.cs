@@ -1393,6 +1393,89 @@ try
             "original Store protection and remote read-only ownership survive the batch");
     }
 
+    // Export mod-only JSON on HP, transfer file manually to Ryzen, and import
+    // only to its explicitly selected local map after SHA and CAS checks.
+    {
+        string profileRoot=Path.Combine(root,"mod-profile-lab");
+        string sourceRoot=Path.Combine(root,"mod-profile-source");
+        string targetRoot=Path.Combine(root,"mod-profile-target");
+        Directory.CreateDirectory(sourceRoot);Directory.CreateDirectory(targetRoot);
+        var hpMap=new LocalMap{Id=Guid.NewGuid(),Name="Astraeos",
+            InstallationPath=sourceRoot,Arguments=
+                "Astraeos_WP?listen -Port=7777 -mods=928548,940975 -passivemods=940975"};
+        var ryzenMap=new LocalMap{Id=Guid.NewGuid(),Name="Ragnarok",
+            InstallationPath=targetRoot,Arguments=
+                "Ragnarok_WP?listen -Port=7827 -mods=888888"};
+        await using var hp=new ClusterService("profile-HP",Path.Combine(profileRoot,"hp"),
+            _=>new ProcessCheck(false,"synthetic stopped",null,true));
+        await using var ryzen=new ClusterService("profile-Ryzen",Path.Combine(profileRoot,"ryzen"),
+            _=>new ProcessCheck(false,"synthetic stopped",null,true));
+        hp.AddMap(hpMap);ryzen.AddMap(ryzenMap);
+        string exportPath=Path.Combine(root,"portable-mod-profile-test.json");
+        using(var exporter=new DesktopModProfileBridge(hp,_=>exportPath))
+        {
+            var exported=await Call(exporter.HandleAsync,"mods.profileExport",new{mapId=hpMap.Id});
+            IsOk(exported,"HP exports mod-only portable profile to explicit local JSON");
+            Check(File.Exists(exportPath) &&
+                  !File.ReadAllText(exportPath).Contains("Port=7777",StringComparison.Ordinal) &&
+                  !File.ReadAllText(exportPath).Contains(sourceRoot,StringComparison.Ordinal) &&
+                  !File.ReadAllText(exportPath).Contains("password",StringComparison.OrdinalIgnoreCase),
+                "portable mod profile contains no ASA arguments, paths or passwords");
+            var denied=await Call(exporter.HandleAsync,"mods.profileExport",new{mapId=ryzenMap.Id});
+            Check(IsError(denied,"UM-MODPROFILE-SAFETY-CHECK-FAILED"),
+                "HP cannot export a peer-only map that it does not own");
+        }
+        using(var importer=new DesktopModProfileBridge(ryzen,null,()=>exportPath))
+        {
+            string before=ryzenMap.Arguments;
+            var prepared=await Call(importer.HandleAsync,"mods.profileImportPreview",
+                new{targets=new[]{ryzenMap.Id},mode="merge"});
+            IsOk(prepared,"Ryzen previews checksum-verified HP mod JSON");
+            Check(ryzenMap.Arguments==before &&
+                  prepared.GetProperty("data").GetProperty("changed").GetBoolean(),
+                "cross-host import preview never writes local map");
+            string token=prepared.GetProperty("data").GetProperty("token").GetString()!;
+            var noConsent=await Call(importer.HandleAsync,"mods.profileImportApply",
+                new{token,confirm=false});
+            Check(IsError(noConsent,"UM-MODPROFILE-APPROVAL-REQUIRED"),
+                "portable mod import requires explicit local approval");
+            IsOk(await Call(importer.HandleAsync,"mods.profileImportApply",
+                new{token,confirm=true}),
+                "Ryzen commits approved mod-only profile via local atomic CAS");
+            var applied=ModStateController.Read(ryzenMap);
+            Check(applied.Active.Contains("888888")&&
+                  applied.Active.Contains("928548")&&
+                  applied.Passive.Contains("940975")&&
+                  ryzenMap.Arguments.Contains("-Port=7827",StringComparison.Ordinal),
+                "Merge preserves Ryzen-specific project, passive status and game port");
+            var replay=await Call(importer.HandleAsync,"mods.profileImportApply",
+                new{token,confirm=true});
+            Check(IsError(replay,"UM-MODPROFILE-APPROVAL-REQUIRED"),
+                "portable profile approval is one-shot");
+            var replace=await Call(importer.HandleAsync,"mods.profileImportPreview",
+                new{targets=new[]{ryzenMap.Id},mode="replace"});
+            IsOk(replace,"Ryzen previews Replace from portable profile");
+            string replaceToken=replace.GetProperty("data").GetProperty("token").GetString()!;
+            IsOk(await Call(importer.HandleAsync,"mods.profileImportApply",
+                new{token=replaceToken,confirm=true}),
+                "Ryzen applies Replace locally after explicit preview");
+            applied=ModStateController.Read(ryzenMap);
+            Check(applied.EnabledOrder.SequenceEqual(new[]{"928548","940975"}) &&
+                  !applied.EnabledOrder.Contains("888888") &&
+                  applied.Passive.SequenceEqual(new[]{"940975"}),
+                "portable Replace reproduces source load order, excludes previous project");
+        }
+        string valid=File.ReadAllText(exportPath);
+        File.WriteAllText(exportPath,valid.Replace("940975","999999",StringComparison.Ordinal));
+        using(var importer=new DesktopModProfileBridge(ryzen,null,()=>exportPath))
+        {
+            var corrupted=await Call(importer.HandleAsync,"mods.profileImportPreview",
+                new{targets=new[]{ryzenMap.Id},mode="replace"});
+            Check(IsError(corrupted,"UM-MODPROFILE-SAFETY-CHECK-FAILED"),
+                "mod profile checksum blocks silently edited export from another machine");
+        }
+    }
+
     // SQL-free, COPY-ONLY cluster archive: ten verified map packages and the
     // original shared transfer directory copied to an isolated test machine.
     // It cannot authorize a consistent live Store restore or new Store writer.
