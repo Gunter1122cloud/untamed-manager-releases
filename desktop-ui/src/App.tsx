@@ -21,6 +21,7 @@ import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
 import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
+import { PluginZipInstaller } from "./PluginZipInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
@@ -833,6 +834,7 @@ function PluginCenter({ snapshot, selected, setSelected }: {
       {notice && <div role="status" className="warning-inline"><AlertTriangle size={17}/>{notice}</div>}
     </Panel>
     </div>
+    <PluginZipInstaller mapId={selected} onInstalled={()=>setRevision(n=>n+1)}/>
   </div>;
 }
 function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot}) {
