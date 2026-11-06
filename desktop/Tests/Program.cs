@@ -46,6 +46,48 @@ var map=new LocalMap{
 cluster.AddMap(map);
 try
 {
+    // Native operational center must expose only verified local OS evidence.
+    // No WebView message may turn a status read into a scheduler or ASA write.
+    using(var operations = new DesktopOperationsCenterBridge(cluster))
+    {
+        var firstSnapshot=await Call(operations.HandleAsync,"operations.snapshot");
+        IsOk(firstSnapshot,"native operations center reads real local map snapshots");
+        var mapped=firstSnapshot.GetProperty("data").GetProperty("maps");
+        Check(mapped.GetArrayLength()==1 &&
+              mapped[0].GetProperty("mapName").GetString()=="The Island" &&
+              mapped[0].GetProperty("pid").ValueKind==JsonValueKind.Null &&
+              mapped[0].GetProperty("memoryMiB").ValueKind==JsonValueKind.Null &&
+              !mapped[0].GetProperty("running").GetBoolean(),
+            "unverified synthetic ASA reports unknown PID and RAM, never fabricated metrics");
+        var missing=await Call(operations.HandleAsync,"operations.map",
+            new{mapId=Guid.NewGuid()});
+        Check(IsError(missing,"UM-MAP-NOT-OWNED"),
+            "native process detail refuses unowned or remote map IDs");
+        var methodDenied=await Call(operations.HandleAsync,"operations.start",
+            new{mapId=map.Id});
+        Check(IsError(methodDenied,"UM-METHOD-DENIED"),
+            "operational diagnostics cannot dispatch lifecycle methods");
+        cluster.UpdateSettings(config=>config.RecurringSchedules.Add(new RecurringSchedule {
+            Map=map.Id,Kind=OperationalTaskKind.Observation,
+            Frequency=ScheduleFrequency.Daily,LocalClock=new TimeSpan(7,30,0),
+            Enabled=false
+        }));
+        var configured=await Call(operations.HandleAsync,"operations.snapshot");
+        IsOk(configured,"persisted local schedules shown through real Core preview");
+        var schedules=configured.GetProperty("data").GetProperty("schedules");
+        Check(schedules.GetArrayLength()==1 &&
+              !schedules[0].GetProperty("enabled").GetBoolean() &&
+              !schedules[0].GetProperty("autoExecutionPermitted").GetBoolean() &&
+              schedules[0].GetProperty("state").GetString()=="disabled",
+            "disabled persisted observation stays disabled and cannot execute from UI");
+        var oneMap=await Call(operations.HandleAsync,"operations.map",
+            new{mapId=map.Id});
+        IsOk(oneMap,"owned map details return one verified local diagnostic snapshot");
+        Check(oneMap.GetProperty("data").GetProperty("maps").GetArrayLength()==1 &&
+              oneMap.GetProperty("data").GetProperty("schedules").GetArrayLength()==0,
+            "map inspection is bounded and never creates recurring jobs");
+    }
+
     using(var drafts=new DesktopModDraftBridge(cluster))
     {
         IsOk(await Call(drafts.HandleAsync,"mods.draftStart",new{mapId=map.Id}),
