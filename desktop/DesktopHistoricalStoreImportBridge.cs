@@ -58,7 +58,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 return Fail(null,"UM-INVALID-MESSAGE");
             id=requestId.ToString("D");
             string? method=methodProp.GetString();
-            if(method is not ("historical.localStatus" or "historical.list" or "historical.preview" or
+            if(method is not ("historical.localStatus" or "historical.localParity" or "historical.list" or "historical.preview" or
                 "historical.register" or "historical.pairedEvidence" or
                 "historical.launchEvidence"))
                 return Fail(id,"UM-METHOD-DENIED");
@@ -67,6 +67,34 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             {
                 foreach(var expired in pending.Where(x=>x.Value.ExpiresUtc<DateTimeOffset.UtcNow)
                     .Select(x=>x.Key).ToArray())pending.Remove(expired);
+
+                if(method=="historical.localParity")
+                {
+                    if(!TextField(data,"archive",520,out var parityArchive))
+                        return Fail(id,"UM-STORE-PARITY-ARCHIVE-REQUIRED");
+                    try
+                    {
+                        string archivePath=CanonicalArchive(parityArchive);
+                        var parity=LegacyStoreV1ArchiveParity.Inspect(
+                            archivePath,localLegacyDataDirectory);
+                        return Ok(id,new {
+                            archiveVerified=parity.ArchiveVerified,
+                            localStoreActive=parity.LocalStoreActive,
+                            allFourExactlyMatch=parity.AllFourExactlyMatch,
+                            files=parity.Files.Select(f=>new {
+                                kind=f.Kind,exactlySame=f.ExactlySame
+                            }).ToArray(),
+                            liveTwoHostVerified=false,
+                            characterTravelVerified=false,
+                            productionUseAllowed=false,
+                            evidence=parity.Evidence
+                        });
+                    }
+                    catch(DirectoryNotFoundException)
+                    {return Fail(id,"UM-STORE-PARITY-LOCAL-MISSING");}
+                    catch(Exception)
+                    {return Fail(id,"UM-STORE-PARITY-FAILED");}
+                }
 
                 if(method=="historical.localStatus")
                 {
