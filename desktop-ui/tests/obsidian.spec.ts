@@ -381,6 +381,24 @@ test.beforeEach(async ({ page }) => {
             createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
             readyCertified:false,requiresRconReadiness:true,storeTouched:false,
             evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"};
+        case "servers.gracefulStopPreview": return {
+          token:"00000000-0000-4000-8000-000000009444",
+          mapId:m.mapId,mapName:"The Island",pid:44117,
+          usesSaveWorld:true,usesDoExit:true,killPermitted:false,
+          autoRestart:false,evidence:"REAL_LOCAL_GRACEFUL_STOP_PREVIEW_NO_DISPATCH"
+        };
+        case "servers.gracefulStopApply":
+          if(!m.confirm)throw new Error("Approval required");
+          return {jobId:"00000000-0000-4000-8000-000000009555",
+            started:true,killPerformed:false,autoRestart:false,
+            evidence:"REAL_LOCAL_GRACEFUL_STOP_JOB_QUEUED"};
+        case "servers.gracefulStopStatus": return {
+          jobId:"00000000-0000-4000-8000-000000009555",
+          state:"completed",step:"Windows process verified stopped",
+          changedUtc:"2026-11-06T11:00:00Z",confirmedStopped:true,
+          saveCompleteProven:false,killPerformed:false,
+          restartPerformed:false,storeTouched:false
+        };
         case "steam.stoppedPreview": return {
           token:"00000000-0000-4000-8000-000000006666",mapId:m.mapId,
           mapName:"Astraeos",maps:["Astraeos"],installedBuild:"123456",
@@ -1198,4 +1216,21 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await expect(page.getByText(/ASA indítás elindítva, PID: 45678/)).toBeVisible();
   await expect(page.getByText(/folyamatindítás még nem bizonyítja/)).toBeVisible();
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
+});
+
+test("ASA normal Stop requires approval and never force-kills or claims SaveComplete",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
+  await page.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toBeVisible();
+  await expect(page.getByText(/SaveWorld → DoExit → ellenőrzött/)).toBeVisible();
+  const confirm=page.getByRole("button",{name:"Szerver szabályos leállítása"});
+  await expect(confirm).toBeDisabled();
+  await page.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
+  await confirm.click();
+  await expect(page.getByText(/ASA-folyamat szabályosan kilépett/)).toBeVisible({timeout:12000});
+  await expect(page.getByText(/független lemezmentési bizonyíték nincs/)).toBeVisible();
+  await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
 });
