@@ -617,6 +617,22 @@ export type SharedModInventory = {
   evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY";
 };
 
+export type OfflineAsaRestorePreview = {
+  token:string;archiveName:string;verified:false;
+  requiresExplicitApproval:true;target:"FRESH_ISOLATED_TEMP_FOLDER_ONLY";
+  sqlUsed:false;productionRestoreAllowed:false;evidence:string;
+};
+export type OfflineAsaRestoreStarted = {
+  jobId:string;started:true;sqlUsed:false;
+  productionRestoreAllowed:false;evidence:string;
+};
+export type OfflineAsaRestoreStatus = {
+  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  stage:string;labName:string;maps:number;files:number;changedUtc:string;
+  gameplayRestoredVerified:false;storeWriterVerified:false;
+  productionRestoreAllowed:false;sqlUsed:false;evidence:string;
+};
+
 export type PluginJsonDocument = {
   token:string;mapId:string;plugin:string;content:string;sha256:string;
   encoding:string;bytes:number;evidence:"STOPPED_OWNED_PLUGIN_JSON_SNAPSHOT";
@@ -683,6 +699,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.copyPreview" | "mods.copyApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
+  "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
   "servers.inspectLocal" | "servers.importLocal" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
@@ -886,6 +903,12 @@ export const managerBridge = {
     request<PluginJsonApplied>("plugins.jsonSave",{token,confirm:true}),
   pluginJsonClose: (token:string) =>
     request<{closed:true}>("plugins.jsonClose",{token}),
+  offlineRestoreLabPreview: () =>
+    request<OfflineAsaRestorePreview>("cluster.restoreLabPreview"),
+  offlineRestoreLabApply: (token:string) =>
+    request<OfflineAsaRestoreStarted>("cluster.restoreLabApply",{token,confirm:true}),
+  offlineRestoreLabStatus: (jobId:string) =>
+    request<OfflineAsaRestoreStatus>("cluster.restoreLabStatus",{jobId}),
   iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
   iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
