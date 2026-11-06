@@ -940,6 +940,18 @@ try
         Check(File.ReadAllBytes(Path.Combine(centerWorld,"TheCenter_WP.ark"))
                 .SequenceEqual(centerBytes),
             "first map backup cannot alter neighboring map world bytes");
+        string originalKovaMarker=Path.Combine(worldParent,
+            ".kova-restore-TheIsland_WP.json");
+        File.WriteAllText(originalKovaMarker,"synthetic interrupted Kova backup marker");
+        Check(KovaCompatibleWorldBackup.InstallationRecoveryRequired(centerMap),
+            "another map's original Kova restore marker blocks shared installation");
+        var centerBlocked=await Call(worldBridge.HandleAsync,"backup.preview",
+            new{mapId=centerMap.Id});
+        Check(IsError(centerBlocked,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED"),
+            "native manager refuses Center snapshot while Island Kova restore needs recovery");
+        File.Delete(originalKovaMarker);
+        Check(!KovaCompatibleWorldBackup.InstallationRecoveryRequired(centerMap),
+            "cleared synthetic Kova marker restores normal shared-map preflight");
     }
 
     // Update Center: deterministic provider response; no remote download,
