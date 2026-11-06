@@ -1473,6 +1473,47 @@ try
                   !final.GetProperty("data").GetProperty("productionRestoreAllowed").GetBoolean(),
                 "native archive completes 10 verified offline map copies without SQL or Store-write permissions");
         }
+        using(var restoreBridge=new DesktopOfflineAsaRestoreBridge(()=>destination))
+        {
+            var labPre=await Call(restoreBridge.HandleAsync,"cluster.restoreLabPreview");
+            IsOk(labPre,"native restore lab chooses an existing offline ASA archive");
+            Check(!labPre.GetProperty("data").GetProperty("verified").GetBoolean() &&
+                  !labPre.GetProperty("data").GetProperty("productionRestoreAllowed").GetBoolean() &&
+                  !labPre.ToString().Contains(archiveLab,StringComparison.Ordinal),
+                "native restore preview neither claims integrity nor reveals original local source");
+            string token=labPre.GetProperty("data").GetProperty("token").GetString()!;
+            var refused=await Call(restoreBridge.HandleAsync,"cluster.restoreLabApply",
+                new{token,confirm=false});
+            Check(IsError(refused,"UM-ASARESTORE-APPROVAL-REQUIRED"),
+                "isolated restore lab requires explicit operator approval");
+            var started=await Call(restoreBridge.HandleAsync,"cluster.restoreLabApply",
+                new{token,confirm=true});
+            IsOk(started,"approved isolated restore lab starts");
+            var job=started.GetProperty("data").GetProperty("jobId").GetString()!;
+            var replay=await Call(restoreBridge.HandleAsync,"cluster.restoreLabApply",
+                new{token,confirm=true});
+            Check(IsError(replay,"UM-ASARESTORE-APPROVAL-REQUIRED") ||
+                  IsError(replay,"UM-ASARESTORE-JOB-BUSY"),
+                "one-shot restore approval cannot be replayed");
+            JsonElement final=default;
+            for(int i=0;i<400;i++)
+            {
+                final=await Call(restoreBridge.HandleAsync,
+                    "cluster.restoreLabStatus",new{jobId=job});
+                if(final.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(25);
+            }
+            IsOk(final,"isolated native restore returns real async status");
+            var receipt=final.GetProperty("data");
+            Check(receipt.GetProperty("state").GetString()=="completed" &&
+                  receipt.GetProperty("maps").GetInt32()==10 &&
+                  receipt.GetProperty("files").GetInt32()==10 &&
+                  !receipt.GetProperty("productionRestoreAllowed").GetBoolean() &&
+                  !receipt.GetProperty("storeWriterVerified").GetBoolean() &&
+                  !receipt.GetProperty("sqlUsed").GetBoolean(),
+                "native restore validates ten world files with no live writer or SQL");
+        }
         string labDestination=Path.Combine(Path.GetTempPath(),
             "Untamed-AsaRestore-Lab-"+Guid.NewGuid().ToString("N"));
         var labReceipt=OfflineAsaRestoreLab.MaterializeToLab(destination,labDestination);
