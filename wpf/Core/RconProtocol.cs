@@ -51,6 +51,16 @@ public static class RconProtocol
         return new(DateTimeOffset.UtcNow,false);
     }
 
+    // SaveWorld for the lifecycle path: bind the request to an OS-verified
+    // local listener *after* RCON authentication, before dispatching bytes.
+    internal static async Task DispatchOwnedSaveWorldAsync(int port,string password,
+        Action verifyOwnedListener,CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(verifyOwnedListener);
+        await ExecuteCore("127.0.0.1",port,password,"SaveWorld",true,ct,
+            adminDispatch:true,authorizeAfterAuthentication:verifyOwnedListener);
+    }
+
     // Explicit graceful dedicated-server exit. DoExit itself triggers a save
     // in ASA; no arbitrary browser RCON string may invoke this path.
     // The caller rechecks exact owned Windows PID and RCON listener after
