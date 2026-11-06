@@ -57,7 +57,7 @@ export function UpdateCenterPage(){
       <span className="uk-updates-symbol"><CloudDownload size={38}/></span>
       <div><span className="uk-updates-kicker">UNTAMED COMMAND • UPDATE CHANNEL</span>
         <h2>Maradj naprakész. Őrizd meg a clustert.</h2>
-        <p>Külön helyi Manager, külön MariaDB és karaktermentés. A kiadvány ellenőrzése nem jelent
+        <p>A Manager frissítése külön történik a szerverek és karaktermentések kezelésétől. A kiadvány ellenőrzése nem jelent
           engedélyt a Store-v1 vagy az éles szerverek módosítására.</p>
       </div>
     </section>
@@ -138,7 +138,7 @@ export function UpdateCenterPage(){
           </div>}
           <small className="uk-updates-detail">
             A GitHub kiadványadatainak olvasása nem hitelesíti önmagában a letöltött fájlt.
-            Az Untamed Store-v1, az ASA mentések és a MariaDB változatlanok.
+            Az Untamed Store-v1 és az ASA mentések változatlanok.
           </small>
         </div>
       </section>
