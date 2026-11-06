@@ -140,6 +140,22 @@ export type DurableSteamQueue = {
   needsOperatorReview:boolean;autoResumeAllowed:false;hostName?:string;
   evidence?:"DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL";
 };
+export type FreshAsaStartPreview = {
+  token:string;mapId:string;mapName:string;steamBuild:string;
+  gamePort:number;queryPort:number;rconConfigured:boolean;
+  confirmedStopped:true;serverStarted:false;
+  evidence:"FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE";
+};
+export type FreshAsaStartReceipt = {
+  mapId:string;mapName:string;pid:number;createdUtc:string;
+  startRequested:true;readyCertified:false;requiresRconReadiness:true;
+  storeTouched:false;evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY";
+};
+export type FreshAsaStartStatus = {
+  mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
+  pid?:number|null;readyCertified:false;status:string;
+  evidence:"LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS";
+};
 export type StoppedSteamPreview = {
   token:string;mapId:string;mapName:string;maps:string[];
   installedBuild:string;reserveBytes:number;availableBytes:number;
@@ -436,7 +452,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
+  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -504,6 +520,12 @@ export const managerBridge = {
   updatePrepare: (channel:"stable"|"preview") => request<UpdatePrepared>("updates.prepare",{channel,confirm:true}),
   updateInstall: (token:string) => request<UpdateInstallReceipt>("updates.install",{token,confirm:true}),
   updateStatus: () => request<UpdateStatus>("updates.status"),
+  freshAsaStartPreview: (mapId:string) =>
+    request<FreshAsaStartPreview>("servers.freshStartPreview",{mapId}),
+  freshAsaStartApply: (token:string) =>
+    request<FreshAsaStartReceipt>("servers.freshStartApply",{token,confirm:true}),
+  freshAsaStartStatus: (mapId:string) =>
+    request<FreshAsaStartStatus>("servers.freshStartStatus",{mapId}),
   steamStoppedCurrent: () =>
     request<DurableSteamQueue>("steam.stoppedCurrent"),
   steamStoppedPreview: (mapId:string) =>
