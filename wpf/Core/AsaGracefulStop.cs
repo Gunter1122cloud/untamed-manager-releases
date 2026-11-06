@@ -39,7 +39,7 @@ public static class AsaGracefulStop
             throw new ArgumentOutOfRangeException(nameof(timeout));
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId)
             ??throw new UnauthorizedAccessException("Local ASA map is not registered");
-        if(map.HistoricalStoreProtected||map.Maintenance||
+        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||map.Maintenance||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
            (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
                StringComparison.OrdinalIgnoreCase)||
