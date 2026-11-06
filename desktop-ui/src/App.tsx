@@ -507,7 +507,7 @@ function ModDraftEditor({ mapId, onSaved, prefillId, prefillMode, onDraftProgres
     try {
       const saved = await managerBridge.saveModDraft(draft.draftId);
       onSaved(saved); setDraft(null);
-      setNotice("Mentve a helyi indítási konfigurációba. A futó ASA modbetöltése NEM igazolt; ellenőrzött újraindítás szükséges.");
+      setNotice("Mentve a helyi -mods indítási konfigurációba. A modok letöltését/frissítését az ASA indításkor végzi; a betöltés még nem igazolt.");
     } catch { setError("Nem sikerült a konfiguráció biztonságos mentése. Lehetséges versengő módosítás, az eredeti adatokat ellenőrizni kell."); }
     finally { setBusy(false); }
   };
@@ -660,7 +660,7 @@ function Mods({ snapshot, selected, setSelected }: {
     <div className="page-intro premium-mod-intro">
       <span className="eyebrow">CLUSTER / {currentName.toLocaleUpperCase("hu-HU")} / MODOK</span>
       <h1>Modok – {currentName}</h1>
-      <p>Konfigurált modok kezelése, sorrend és CurseForge-projektadatok. A futó ASA-betöltés és a fájlok telepítettsége nem következtethető ki a listából.</p>
+      <p>CurseForge modkeresés, aktív/passzív modok és sorrend kezelése. Az ASA a mentett <code>-mods</code> projektazonosítókat az indítás során maga tölti le és frissíti. A tényleges modbetöltést nem igazolja önmagában a konfiguráció.</p>
     </div>
     <div className="premium-mod-map-picker">
       <Layers3 size={18}/>
