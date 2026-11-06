@@ -1,5 +1,11 @@
 /* Explicit allowlisted Windows host contract; only guarded native methods may mutate local Manager configuration. */
 export type LanStatus = {
+  originalStorePair:{
+    bothOriginalProfilesPresent:boolean;
+    sameSharedSession:boolean;sameSharedPath:boolean;distinctDeviceIds:boolean;
+    bothHaveFiveActiveMaps:boolean;copiedMetadataPairMatches:boolean;
+    liveWriterCertified:false;characterTravelVerified:false;statusCode:string;
+  };
   hostName:string; listenPort:number; peerAddress:string; peerPort:number;
   pairingKeyConfigured:boolean; remoteFresh:boolean; remoteState:string;
   secretReturned:false; peerWritesAllowed:false; evidence:string;
