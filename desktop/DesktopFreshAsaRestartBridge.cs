@@ -62,6 +62,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
            map.Maintenance || !AsaReadyProbe.IsRegisteredServerBinary(map) ||
            map.RconHost!="127.0.0.1" || map.RconPort is <1024 or >65535 ||
            string.IsNullOrWhiteSpace(map.RconPasswordProtected) ||
+           !AsaRconConfigurationEvidence.Matches(map) ||
            string.IsNullOrWhiteSpace(AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)))
             throw new InvalidOperationException("Restart requires a new local non-Store ASA installation");
         var state=cluster.Check(map);
