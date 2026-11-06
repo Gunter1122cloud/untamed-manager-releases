@@ -565,6 +565,8 @@ try
         var beforeB=await Call(travelB.HandleAsync,"travel.capture");
         IsOk(beforeA,"first 5 local map inventory captured without write");
         IsOk(beforeB,"second 5 local map inventory captured without write");
+        Console.WriteLine("Travel A map preflight: "+beforeA.GetProperty("data").GetProperty("maps").GetRawText());
+        Console.WriteLine("Travel B map preflight: "+beforeB.GetProperty("data").GetProperty("maps").GetRawText());
         Check(beforeA.GetProperty("data").GetProperty("complete").GetBoolean() &&
               beforeB.GetProperty("data").GetProperty("complete").GetBoolean() &&
               File.ReadAllBytes(sourceFile).SequenceEqual(survivor),
