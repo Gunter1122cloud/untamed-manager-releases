@@ -1072,6 +1072,64 @@ try
         catch(UnauthorizedAccessException){lifecycleDenied=true;}
         Check(lifecycleDenied,
             "admincheat-prefixed shutdown cannot bypass separately approved Stop");
+        // Validate an actual native SaveWorld packet after login, never through
+        // the read-only Execute() path which deliberately rejects mutation.
+        using var saveDeadline=new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var saveListener=new System.Net.Sockets.TcpListener(
+            System.Net.IPAddress.Loopback,0);
+        saveListener.Start();
+        int savePort=((System.Net.IPEndPoint)saveListener.LocalEndpoint).Port;
+        bool saveAuthorized=false,saveAuthenticated=false;
+        string savedWireCommand="";
+        var saveMock=Task.Run(async()=>{
+            using var client=await saveListener.AcceptTcpClientAsync(saveDeadline.Token);
+            using var stream=client.GetStream();
+            var auth=await ReadWire(stream,saveDeadline.Token);
+            Check(auth.Type==3 && auth.Body=="LOCAL-RCON-WIRE-TEST-PASSWORD",
+                "native SaveWorld requires real local RCON authentication");
+            saveAuthenticated=true;
+            await WriteWire(stream,auth.Id,2,"",saveDeadline.Token);
+            var command=await ReadWire(stream,saveDeadline.Token);
+            Check(command.Type==2 && saveAuthorized,
+                "native SaveWorld must verify exact owner after RCON login");
+            savedWireCommand=command.Body;
+        });
+        await RconProtocol.DispatchOwnedSaveWorldAsync(savePort,
+            "LOCAL-RCON-WIRE-TEST-PASSWORD",
+            ()=>{Check(saveAuthenticated,"SaveWorld approved after RCON auth");
+                saveAuthorized=true;},saveDeadline.Token);
+        await saveMock.WaitAsync(saveDeadline.Token);
+        saveListener.Stop();
+        Check(savedWireCommand=="SaveWorld",
+            "explicit real SaveWorld sends one RCON packet but never claims SaveComplete");
+
+        // Empty GetChat is a normal quiet server result, provided a second
+        // ordered read-only reply positively completes the Source RCON stream.
+        using var chatDeadline=new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var chatListener=new System.Net.Sockets.TcpListener(
+            System.Net.IPAddress.Loopback,0);
+        chatListener.Start();
+        int chatPort=((System.Net.IPEndPoint)chatListener.LocalEndpoint).Port;
+        var chatMock=Task.Run(async()=>{
+            using var client=await chatListener.AcceptTcpClientAsync(chatDeadline.Token);
+            using var stream=client.GetStream();
+            var auth=await ReadWire(stream,chatDeadline.Token);
+            await WriteWire(stream,auth.Id,2,"",chatDeadline.Token);
+            var first=await ReadWire(stream,chatDeadline.Token);
+            Check(first.Body=="GetChat" && first.Type==2,
+                "read-only native GetChat sends only an allowlisted command");
+            await WriteWire(stream,first.Id,0,"",chatDeadline.Token);
+            var barrier=await ReadWire(stream,chatDeadline.Token);
+            Check(barrier.Body=="ListPlayers" && barrier.Type==2,
+                "empty chat requires second ordered RCON completion barrier");
+            await WriteWire(stream,barrier.Id,0,"No Players Connected",chatDeadline.Token);
+        });
+        string emptyChat=await RconProtocol.Execute("127.0.0.1",chatPort,
+            "LOCAL-RCON-WIRE-TEST-PASSWORD","GetChat",chatDeadline.Token);
+        await chatMock.WaitAsync(chatDeadline.Token);
+        chatListener.Stop();
+        Check(emptyChat=="",
+            "empty verified native GetChat is successful, not a false protocol failure");
     }
 
     // Read-only RCON uses an isolated synthetic process identity and injected
