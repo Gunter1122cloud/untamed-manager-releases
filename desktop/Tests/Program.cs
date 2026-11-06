@@ -501,6 +501,12 @@ try
         Check(IsError(historical,"UM-FRESH-START-NOT-READY")&&calls==1,
             "historical Store protection always blocks fresh ASA start");
         fresh.HistoricalStoreProtected=false;
+        fresh.HistoricalMapKey="Valguero_WP";
+        var provenance=await Call(starter.HandleAsync,"servers.freshStartPreview",
+            new{mapId=fresh.Id});
+        Check(IsError(provenance,"UM-FRESH-START-NOT-READY")&&calls==1,
+            "historical map key alone blocks an unsafe new-ASA launch");
+        fresh.HistoricalMapKey="";
         Check(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
                 confirmedStopped:true).Allowed &&
               ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
@@ -671,6 +677,13 @@ try
               !result.GetProperty("data").GetProperty("killPerformed").GetBoolean() &&
               sends==1,
             "native DoExit verifies process exit without inventing SaveComplete");
+        stopLabRunning=true;
+        stopLabMap.HistoricalMapKey="TheIsland_WP";
+        var provenanceStop=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(provenanceStop,"UM-ASA-STOP-FAILED")&&sends==1,
+            "historical map key alone cannot authorize graceful Stop");
+        stopLabMap.HistoricalMapKey="";
         stopLabMap.HistoricalStoreProtected=true;
         var protectedMap=await Call(stopBridge.HandleAsync,
             "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
