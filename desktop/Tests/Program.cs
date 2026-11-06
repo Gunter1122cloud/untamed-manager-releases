@@ -267,9 +267,15 @@ try
             "LAN pairing refuses a public IPv4 destination");
         var before=File.ReadAllBytes(cluster.Store.FilePath);
         const string pairSecret="SYNTHETIC-SHARED-PAIR-SECRET-NEVER-LOG";
+        string remoteHostId=Guid.NewGuid().ToString("N");
+        var ownIdRejected=await Call(lan.HandleAsync,"lan.preview",
+            new{listenPort=39290,peerAddress="192.168.1.200",peerPort=39291,
+                expectedPeerHostId=cluster.Config.LocalHostId,pairingKey=pairSecret});
+        Check(IsError(ownIdRejected,"UM-LAN-PEER-HOST-ID-REQUIRED"),
+            "LAN refuses a peer identity equal to the local Manager");
         var prepared=await Call(lan.HandleAsync,"lan.preview",
             new{listenPort=39290,peerAddress="192.168.1.200",peerPort=39291,
-                pairingKey=pairSecret});
+                expectedPeerHostId=remoteHostId,pairingKey=pairSecret});
         IsOk(prepared,"RFC1918 peer passes local-only pairing preview");
         Check(File.ReadAllBytes(cluster.Store.FilePath).SequenceEqual(before),
             "LAN preview leaves persisted configuration untouched");
@@ -286,6 +292,7 @@ try
         Check(cluster.Config.ListenPort==39290 &&
               cluster.Config.PeerAddress=="192.168.1.200" &&
               cluster.Config.PeerPort==39291 &&
+              cluster.Config.ExpectedPeerHostId==remoteHostId &&
               !string.IsNullOrWhiteSpace(cluster.Config.PairingKeyProtected),
             "LAN settings retain local port, private peer address and DPAPI ciphertext");
         Check(SecureStore.Unprotect(cluster.Config.PairingKeyProtected)==pairSecret &&
@@ -298,6 +305,8 @@ try
         var current=await Call(lan.HandleAsync,"lan.status");
         IsOk(current,"LAN status reports persisted settings without secret");
         Check(current.GetProperty("data").GetProperty("pairingKeyConfigured").GetBoolean() &&
+              current.GetProperty("data").GetProperty("expectedPeerHostId").GetString()==remoteHostId &&
+              current.GetProperty("data").GetProperty("localHostId").GetString()==cluster.Config.LocalHostId &&
               !current.ToString().Contains(pairSecret,StringComparison.Ordinal),
             "read-only LAN status never returns pairing secret");
     }
