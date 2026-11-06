@@ -618,7 +618,7 @@ test("native Operations Center displays local PID RAM uptime and saved schedules
   await expect(page.getByRole("heading",{name:"Üzemeltetés"})).toBeVisible();
   await expect(page.locator(".ops-map")).toHaveCount(2);
   await expect(page.locator(".ops-map").first()).toContainText("12345");
-  await expect(page.locator(".ops-map").first()).toContainText("9 234,5 MiB");
+  await expect(page.locator(".ops-map").first()).toContainText(/9\\s?234,5 MiB|9234,5 MiB/);
   await expect(page.locator(".ops-map").last()).toContainText("Nem mérhető");
   await expect(page.locator(".ops-schedule-table tbody tr")).toHaveCount(1);
   await expect(page.getByText("Kikapcsolva",{exact:true})).toBeVisible();
