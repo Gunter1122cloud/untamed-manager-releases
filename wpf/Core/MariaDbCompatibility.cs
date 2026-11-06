@@ -12,7 +12,7 @@ public sealed record MariaDbCompatibilityResult(bool Compatible,bool LiveVersion
 // policy opens no database/process and cannot authorize a dump or restore.
 public static class MariaDbCompatibility
 {
-    public static readonly Version DeploymentBaseline=new(10,11,19);
+    public static readonly Version DeploymentBaseline=new(11,4,13);
     public static readonly IReadOnlyList<string> Databases=Array.AsReadOnly(
         new[]{"arkshop","arkpermissions","lethalquests"});
     public static MariaDbCompatibilityResult Evaluate(string serverText,string dumpText,
@@ -28,7 +28,7 @@ public static class MariaDbCompatibility
         var server=Parse(serverText);var dump=Parse(dumpText);var target=Parse(restoreText);
         if(!serverQueriedReadOnly)issues.Add("SERVER_VERSION_NOT_QUERIED");
         if(server!=DeploymentBaseline)issues.Add("SERVER_BASELINE_MISMATCH");
-        bool SameSeries(Version? v)=>v!=null&&v.Major==10&&v.Minor==11;
+        bool SameSeries(Version? v)=>v!=null&&v.Major==11&&v.Minor==4;
         if(!SameSeries(dump))issues.Add("DUMP_TOOL_SERIES_MISMATCH");
         else if(dump!=DeploymentBaseline)issues.Add("DUMP_TOOL_BASELINE_MISMATCH");
         if(!SameSeries(target))issues.Add("RESTORE_TARGET_SERIES_MISMATCH");
