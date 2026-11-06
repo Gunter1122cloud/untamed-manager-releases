@@ -68,6 +68,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
            string.IsNullOrWhiteSpace(map.RconPasswordProtected))
             throw new InvalidOperationException("Local non-Store RCON configuration required");
         FreshAsaInstallationSafety.Demand(cluster,map);
+        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
         var state=cluster.Check(map);
         if(!state.Running||state.ConfirmedStopped||
            state.Identity is not {Pid:>0} identity||
