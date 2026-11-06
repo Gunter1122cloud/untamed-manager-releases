@@ -98,7 +98,8 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                        !Guid.TryParse(m.GetString(),out var mapId)||
                        !obj.TryGetProperty("assetName",out var a)||
                        a.ValueKind!=JsonValueKind.String ||
-                       a.GetString() is not {Length:>0 and <=180} assetName)
+                       a.GetString() is not string assetName ||
+                       assetName.Length>180 || string.IsNullOrWhiteSpace(assetName))
                         return Err(id,"UM-API-CORE-INVALID-SELECTION");
                     var map=Local(mapId);
                     if(map==null || !Eligible(map))
@@ -148,7 +149,9 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
                     cluster,approved.MapId,staged,latestNow,selected,true));
                 // The pinned rollback transaction is retained in the Manager
                 // profile. Disposable release staging is not needed again.
-                Directory.Delete(staged,true);
+                try{Directory.Delete(staged,true);}
+                catch(IOException){/* optional staging cleanup never invalidates installed receipt */}
+                catch(UnauthorizedAccessException){/* keep verified transaction result */}
                 return Ok(id,new{
                     mapId=installed.MapId,releaseTag=installed.ReleaseTag,
                     transactionId=installed.TransactionId,binaries=installed.Binaries,
