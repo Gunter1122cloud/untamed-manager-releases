@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
+  Grid2X2, List,
   Package, Plug, RefreshCw, Search, Server, Settings2, Shield, WifiOff
 } from "lucide-react";
 import {
@@ -17,6 +18,7 @@ import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { PremiumDashboard } from "./PremiumDashboard";
+import { ClusterMapGallery } from "./ClusterMapGallery";
 import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
@@ -412,10 +414,19 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
   onImported:()=>Promise<void>
 }) {
   const [importMode,setImportMode]=useState<"none"|"new"|"existing"|"store">("none");
+  const [serverView,setServerView]=useState<"table"|"gallery">("table");
+  const [installMap,setInstallMap]=useState("The Island");
+  const openInstall=(mapName?:string)=>{if(mapName)setInstallMap(mapName);setImportMode("new");};
   return <><div className="page-intro"><span className="eyebrow">LOCAL HOST / LAN</span><h1>Szerverek</h1><p>A helyi mapok megfigyelése; távoli mapok kizárólag olvashatók.</p></div>
     <div className="server-toolbar">
       <div className="toolbar"><Search size={19}/><input aria-label="Map keresése" placeholder="Map keresése..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
       <div className="server-import-buttons">
+        <div className="premium-view-switcher" role="group" aria-label="Szervernézet">
+          <button type="button" className={serverView==="table"?"is-active":""}
+            aria-pressed={serverView==="table"} onClick={()=>setServerView("table")}><List size={15}/> Lista</button>
+          <button type="button" className={serverView==="gallery"?"is-active":""}
+            aria-pressed={serverView==="gallery"} onClick={()=>setServerView("gallery")}><Grid2X2 size={15}/> Kártyák</button>
+        </div>
         <button className="secondary" onClick={()=>setImportMode(v=>v==="store"?"none":"store")}>
           {importMode==="store"?"Store-v1 import bezárása":"Store-v1 átvétel"}
         </button>
@@ -427,11 +438,16 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
         </button>
       </div>
     </div>
-    {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported}/>}
+    {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
     {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}
-    <Panel title={`Helyi mapok · ${snapshot.local.hostName}`}><MapTable maps={snapshot.local.maps} host={snapshot.local.hostName} filter={search} onPick={onSelect}/></Panel>
-    {snapshot.remote && <Panel title={`Távoli mapok · ${snapshot.remote.hostName}`}><MapTable maps={snapshot.remote.maps} host={snapshot.remote.hostName} filter={search}/></Panel>}
+    {serverView==="gallery"?<Panel title="Mapkártyák · helyi kezelés / távoli megfigyelés">
+      <ClusterMapGallery snapshot={snapshot} query={search} onSelect={onSelect}
+        onInstall={openInstall} onImport={()=>setImportMode("existing")}/>
+    </Panel>:<>
+      <Panel title={`Helyi mapok · ${snapshot.local.hostName}`}><MapTable maps={snapshot.local.maps} host={snapshot.local.hostName} filter={search} onPick={onSelect}/></Panel>
+      {snapshot.remote && <Panel title={`Távoli mapok · ${snapshot.remote.hostName}`}><MapTable maps={snapshot.remote.maps} host={snapshot.remote.hostName} filter={search}/></Panel>}
+    </>}
   </>;
 }
 function ModDraftEditor({ mapId, onSaved, prefillId, prefillMode, onDraftProgress }: {
