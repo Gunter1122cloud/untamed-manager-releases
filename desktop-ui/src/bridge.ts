@@ -140,6 +140,21 @@ export type DurableSteamQueue = {
   needsOperatorReview:boolean;autoResumeAllowed:false;hostName?:string;
   evidence?:"DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL";
 };
+export type FreshAsaStopPreview = {
+  token:string;mapId:string;mapName:string;pid:number;
+  usesSaveWorld:true;usesDoExit:true;killPermitted:false;
+  autoRestart:false;evidence:"REAL_LOCAL_GRACEFUL_STOP_PREVIEW_NO_DISPATCH";
+};
+export type FreshAsaStopQueued = {
+  jobId:string;started:true;killPerformed:false;autoRestart:false;
+  evidence:"REAL_LOCAL_GRACEFUL_STOP_JOB_QUEUED";
+};
+export type FreshAsaStopStatus = {
+  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  step:string;changedUtc:string;confirmedStopped:boolean;
+  saveCompleteProven:false;killPerformed:false;restartPerformed:false;
+  storeTouched:false;
+};
 export type FreshAsaStartPreview = {
   token:string;mapId:string;mapName:string;steamBuild:string;
   gamePort:number;queryPort:number;rconConfigured:boolean;
@@ -452,7 +467,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
+  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -520,6 +535,12 @@ export const managerBridge = {
   updatePrepare: (channel:"stable"|"preview") => request<UpdatePrepared>("updates.prepare",{channel,confirm:true}),
   updateInstall: (token:string) => request<UpdateInstallReceipt>("updates.install",{token,confirm:true}),
   updateStatus: () => request<UpdateStatus>("updates.status"),
+  freshAsaStopPreview: (mapId:string) =>
+    request<FreshAsaStopPreview>("servers.gracefulStopPreview",{mapId}),
+  freshAsaStopApply: (token:string) =>
+    request<FreshAsaStopQueued>("servers.gracefulStopApply",{token,confirm:true}),
+  freshAsaStopStatus: (jobId:string) =>
+    request<FreshAsaStopStatus>("servers.gracefulStopStatus",{jobId}),
   freshAsaStartPreview: (mapId:string) =>
     request<FreshAsaStartPreview>("servers.freshStartPreview",{mapId}),
   freshAsaStartApply: (token:string) =>
