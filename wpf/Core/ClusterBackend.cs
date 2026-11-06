@@ -682,6 +682,7 @@ public sealed class ClusterService : IAsyncDisposable
         var build=AsaSteamBuildCatalog.InstalledBuild(root);
         if(string.IsNullOrWhiteSpace(build))
             throw new InvalidDataException("Official SteamCMD ASA build manifest is missing");
+        FreshAsaInstallationSafety.Demand(this,map);
         LocalMapPortPolicy.RequireNoConflicts(map,Config.LocalMaps);
         var launch=AsaApiLaunchPolicy.Resolve(map);
         if(!string.Equals(launch.Arguments,map.Arguments,StringComparison.Ordinal))
