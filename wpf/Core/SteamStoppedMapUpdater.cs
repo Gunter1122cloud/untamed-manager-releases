@@ -115,6 +115,7 @@ public static class SteamStoppedMapUpdater
         if(reserve<1024L*1024*1024 || reserve>500L*1024*1024*1024)
             throw new InvalidDataException("SteamCMD download reserve outside safe bounds");
         string root=Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar);
+        new AsaManualRestartJournal(root).DemandNoPending();
         if(root.StartsWith(@"\\",StringComparison.Ordinal)||
            !AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidDataException("ASA server executable is not a verified local installation");
