@@ -60,7 +60,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             string? method=methodProp.GetString();
             if(method is not ("historical.localStatus" or "historical.localParity" or "historical.list" or "historical.preview" or
                 "historical.register" or "historical.pairedEvidence" or
-                "historical.launchEvidence"))
+                "historical.launchEvidence" or "historical.liveGuard"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
@@ -94,6 +94,40 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     {return Fail(id,"UM-STORE-PARITY-LOCAL-MISSING");}
                     catch(Exception)
                     {return Fail(id,"UM-STORE-PARITY-FAILED");}
+                }
+
+                if(method=="historical.liveGuard")
+                {
+                    // Explicit user-initiated read-only verification of the
+                    // ORIGINAL Kova local metadata and the configured UNC
+                    // coordination directory. No path can be supplied by UI.
+                    if(!GuidField(data,"mapId",out var liveMapId))
+                        return Fail(id,"UM-HISTORICAL-LIVE-MAP-REQUIRED");
+                    var selected=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==liveMapId);
+                    if(selected==null||!selected.HistoricalStoreProtected)
+                        return Fail(id,"UM-HISTORICAL-LIVE-OWNED-STORE-ONLY");
+                    try
+                    {
+                        var proof=await Task.Run(()=>
+                            LegacyStoreV1LiveReadGate.InspectOriginalActive(
+                                selected,localLegacyDataDirectory));
+                        return Ok(id,new{
+                            mapId=selected.Id,
+                            originalActiveReady=proof.CompletedOriginalSourceGuard,
+                            bothPeersDone=proof.BothPeersDone,
+                            sharedSessionMatches=proof.SharedSessionMatches,
+                            noPendingConversion=proof.NoPendingConversion,
+                            noMutationMarker=proof.NoMutationMarker,
+                            localMapBindingMatches=proof.LocalMapBindingMatches,
+                            activeMaps=proof.ActiveMaps,donePeers=proof.DonePeers,
+                            readOnly=true,serverStarted=false,
+                            gameClientRejoinVerified=false,
+                            productionLaunchEnabled=false,
+                            evidence=proof.Evidence
+                        });
+                    }
+                    catch(Exception)
+                    {return Fail(id,"UM-HISTORICAL-LIVE-ORIGINAL-UNC-UNAVAILABLE-OR-INCONSISTENT");}
                 }
 
                 if(method=="historical.localStatus")
