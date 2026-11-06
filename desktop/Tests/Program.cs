@@ -483,7 +483,7 @@ try
         try
         {
             File.AppendAllText(rconIni,
-                "\\r\\n[ServerSettings]\\r\\nRCONPort=49999\\r\\n");
+                "\r\n[ServerSettings]\r\nRCONPort=49999\r\n");
             Check(!AsaRconConfigurationEvidence.Matches(fresh),
                 "duplicate RCON configuration cannot bypass new-server preflight");
         }
