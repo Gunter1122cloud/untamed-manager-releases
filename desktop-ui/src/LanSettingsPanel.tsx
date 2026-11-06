@@ -7,6 +7,7 @@ export function LanSettingsPanel(){
   const [status,setStatus]=useState<LanStatus|null>(null);
   const [listen,setListen]=useState("0");
   const [peer,setPeer]=useState("");
+  const [expectedHostId,setExpectedHostId]=useState("");
   const [port,setPort]=useState("0");
   const [secret,setSecret]=useState("");
   const [reveal,setReveal]=useState(false);
@@ -19,6 +20,7 @@ export function LanSettingsPanel(){
       const s=await managerBridge.lanStatus();
       setStatus(s);
       setListen(String(s.listenPort));setPeer(s.peerAddress);
+      setExpectedHostId(s.expectedPeerHostId??"");
       setPort(String(s.peerPort));
     }catch{setError("A natív LAN-beállítás nem olvasható.");}
   },[]);
@@ -40,12 +42,17 @@ export function LanSettingsPanel(){
     if(peer.trim().length===0 && other!==0){
       setError("Távoli cím nélkül a peer-portnak 0-nak kell lennie.");return;
     }
+    if((local!==0 || other!==0) &&
+       (!/^[0-9a-fA-F]{32}$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(expectedHostId.trim()) ||
+        expectedHostId.replaceAll("-","").toLowerCase()===status?.localHostId?.replaceAll("-","").toLowerCase())){
+      setError("Add meg a másik gép LAN oldalán látható saját Host ID-t. A helyi azonosító nem használható peernek.");return;
+    }
     if(secret && secret.length<24){
       setError("A két Manager közös kulcsa legalább 24 karakter legyen.");return;
     }
     setWorking(true);
     try{
-      const p=await managerBridge.lanPreview(local,peer.trim(),other,secret);
+      const p=await managerBridge.lanPreview(local,peer.trim(),other,expectedHostId.trim(),secret);
       setPreview(p);
       // The native bridge retains the one-time approval token; the sensitive
       // plaintext must not remain in component state during final approval.
@@ -80,6 +87,7 @@ export function LanSettingsPanel(){
         <div><strong>{status?.hostName||"Helyi gazdagép"}</strong>
           <span>{status?.remoteState||"LAN-konfiguráció lekérése..."}</span>
           <small>Közös kulcs: {status?.pairingKeyConfigured?"helyileg, védetten beállítva":"nincs beállítva"}</small>
+          <small>Saját Host ID (a másik gépre ezt másold): <code>{status?.localHostId||"—"}</code></small>
         </div>
         <button type="button" className="quiet" disabled={working} aria-label="LAN állapot újraolvasása"
           onClick={()=>{void reload();}}><RefreshCw size={16}/></button>
@@ -114,6 +122,12 @@ export function LanSettingsPanel(){
           <input aria-label="Másik LAN cím" value={peer} placeholder="192.168.1.200"
             onChange={e=>{setPeer(e.target.value);invalidate();}} disabled={working}/>
         </label>
+        <label>Másik Manager tartós Host ID-ja
+          <input aria-label="Elvárt távoli Host ID" spellCheck={false}
+            value={expectedHostId} placeholder="A másik Manager saját Host ID-ja"
+            maxLength={40} onChange={e=>{setExpectedHostId(e.target.value);invalidate();}}
+            disabled={working}/>
+        </label>
         <label>Másik Manager fogadóportja
           <input aria-label="Távoli LAN port" inputMode="numeric" value={port}
             onChange={e=>{setPort(e.target.value);invalidate();}} disabled={working}/>
@@ -139,6 +153,7 @@ export function LanSettingsPanel(){
         <p>Fogadóport: {preview.listenPort||"ki"} · Peer:
           {" "}{preview.peerAddress||"nincs"}:{preview.peerPort||"—"}.
           A párosítás csak Manager-újraindítás után lép életbe.</p>
+        <p>Engedélyezett távoli gazdagép: <code>{preview.expectedPeerHostId||"nincs"}</code>. Más Host ID-val rendelkező válasz elutasítva.</p>
         <p>Új közös kulcs: {preview.pairingKeyWillChange?"igen, DPAPI-védetten mentjük":"nem, a régit megtartjuk"}.
           Másik gazdagépen nem végzünk műveletet.</p>
         <div className="lan-preview-actions">
@@ -152,6 +167,7 @@ export function LanSettingsPanel(){
       {error&&<div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
       <div className="warning-inline"><Shield size={16}/>
         A közös kulcs nem kerül visszaolvasásra a Windows DPAPI-tárolóból.
+        A párválasztás mindkét oldalon külön, a másik gép saját Host ID-jával történjen.
         Ha most generáltál új kulcsot, már az ellenőrzés előtt jegyezd fel a másik Manager számára.
         Tűzfalat, routert, adatbázist és ASA-fájlokat nem módosítunk.</div>
     </div>
