@@ -1,12 +1,14 @@
 import {useCallback,useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,RefreshCw,Shield,Terminal,Users,Save} from "lucide-react";
-import {managerBridge,type RconStatus,type RconPlayers,type RconReadLog,type RconWorldSave,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
+import {managerBridge,type RconStatus,type RconPlayers,type RconReadLog,type RconWorldSave,type RconSaveStatus,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
 
 export function RconReadOnlyPanel({mapId}:{mapId:string}){
   const [status,setStatus]=useState<RconStatus|null>(null);
   const [result,setResult]=useState<RconPlayers|null>(null);
   const [readLog,setReadLog]=useState<RconReadLog|null>(null);
   const [saveReceipt,setSaveReceipt]=useState<RconWorldSave|null>(null);
+  const [saveEvidence,setSaveEvidence]=useState<RconSaveStatus|null>(null);
+  const [checkingSave,setCheckingSave]=useState(false);
   const [saveApproved,setSaveApproved]=useState(false);
   const [adminAction,setAdminAction]=useState("broadcast");
   const [adminMessage,setAdminMessage]=useState("");
@@ -25,7 +27,7 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
   const load=useCallback(async()=>{
     if(!mapId)return;
     setBusy(true);setError("");setStatus(null);setResult(null);setReadLog(null);
-    setSaveReceipt(null);setSaveApproved(false);
+    setSaveReceipt(null);setSaveEvidence(null);setSaveApproved(false);
     setAdminDraft(null);setAdminApproved(false);setAdminTyped("");setAdminReceipt(null);
     try{
       // The optional configuration endpoint must never block existing RCON
@@ -87,10 +89,17 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
   };
   const saveWorld=async()=>{
     if(!status?.permitted||!saveApproved||busy)return;
-    setBusy(true);setError("");setSaveReceipt(null);setSaveApproved(false);
+    setBusy(true);setError("");setSaveReceipt(null);setSaveEvidence(null);setSaveApproved(false);
     try{setSaveReceipt(await managerBridge.rconSaveWorld(mapId));}
     catch{setError("A SaveWorld RCON-parancs nem lett ellenőrzötten visszaigazolva. A folyamatot és a mentés fájljait ellenőrizd.");}
     finally{setBusy(false);}
+  };
+  const verifySave=async()=>{
+    if(!saveReceipt?.watchId||checkingSave||busy)return;
+    setCheckingSave(true);setError("");
+    try{setSaveEvidence(await managerBridge.rconSaveStatus(mapId,saveReceipt.watchId));}
+    catch{setError("A mentési napló vagy világfájl nem igazolható, illetve a PID megváltozott. Új SaveWorld nem indult.");}
+    finally{setCheckingSave(false);}
   };
   const prepareAdmin=async()=>{
     if(!status?.permitted||busy||(!adminMessage.trim()&&adminAction!=="wildWipe"))return;
@@ -255,8 +264,25 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
           <CheckCircle2 size={18}/><div><b>SaveWorld RCON-küldés megtörtént; végrehajtás nincs igazolva.</b>
             <p>{new Date(saveReceipt.observedUtc).toLocaleString("hu-HU")} ·
               A lemezre írás befejezését ez önmagában nem bizonyítja.
+              {saveReceipt.nativeWitnessAvailable?
+                " A szervernapló és a világfájl külön ellenőrizhető.":
+                " A megadott maphoz nem található hiteles naplóhatár; a mentés nem igazolt."}
               A teljes ellenőrzött fájlmentéshez használd a Mentésközpontot
-              a map szabályos leállítása után.</p></div>
+              a map szabályos leállítása után.</p>
+              {saveReceipt.watchId&&<button className="secondary" type="button"
+                disabled={checkingSave||busy} onClick={()=>{void verifySave();}}>
+                <RefreshCw size={15}/>{checkingSave?"Lemez és napló ellenőrzése...":
+                  "SaveWorld napló- és világfájl-állapot ellenőrzése"}
+              </button>}
+              {saveEvidence&&<div className="uk-rcon-save-evidence" role="status">
+                <p>ASA mentésindítás: <b>{saveEvidence.logSavingStarted?"Megfigyelve":"Nem igazolt"}</b></p>
+                <p>Új World Save Complete: <b>{saveEvidence.logSaveCompleteObserved?"Megfigyelve":"Nem igazolt"}</b></p>
+                <p>.ark fájl módosult: <b>{saveEvidence.worldFileUpdated?"Igen":"Nem igazolt"}</b></p>
+                <p>.ark fájl stabil: <b>{saveEvidence.worldFileStable?"Igen":"Nem igazolt"}</b></p>
+                <p><b>{saveEvidence.combinedSaveEvidenceObserved?
+                  "Napló és lemezmetaadat egyezik – valódi visszatöltés még nem tesztelt":
+                  "A mentés befejezése továbbra sem igazolt"}</b></p>
+              </div>}</div>
         </div>}
         {readLog&&<div className="uk-rcon-receipt" role="status"><CheckCircle2 size={17}/>
           {readLog.command} – olvasási válasz · {new Date(readLog.observedUtc).toLocaleString("hu-HU")}
