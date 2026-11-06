@@ -2239,9 +2239,9 @@ try
             "remote UNC archive cannot be used for original Store parity");
     }
     File.AppendAllText(Path.Combine(parityLocal,"cluster-v1.json")," ");
-    var stale=LegacyStoreV1ArchiveParity.Inspect(oldArchive,parityLocal);
-    Check(!stale.AllFourExactlyMatch&&stale.Files.Count(f=>!f.ExactlySame)==1 &&
-          stale.Files.Single(f=>!f.ExactlySame).Kind=="cluster",
+    var parityChangedCopy=LegacyStoreV1ArchiveParity.Inspect(oldArchive,parityLocal);
+    Check(!parityChangedCopy.AllFourExactlyMatch&&parityChangedCopy.Files.Count(f=>!f.ExactlySame)==1 &&
+          parityChangedCopy.Files.Single(f=>!f.ExactlySame).Kind=="cluster",
         "changed local metadata invalidates archive byte parity without altering historic source");
     Check(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
         File.ReadAllBytes(oldArchive)))==originalZipSha,
