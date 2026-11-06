@@ -35,13 +35,17 @@ export function FreshAsaSteamWizard({onRegistered}:{onRegistered:()=>Promise<voi
   useEffect(()=>{
     if(!job||job.registered||job.verified||!!job.errorCode)return;
     let active=true;
+    let registrationPending=false;
     const poll=async()=>{
+      if(registrationPending)return;
       try{
         const state=await managerBridge.freshStatus(job.jobId);
         if(!active)return;
-        setJob(state);
         if(state.verified && !state.registered && !state.errorCode &&
            autoRegisterId.current===state.jobId) {
+          // Do not change job.verified before registration completes: a
+          // React effect cleanup would otherwise abandon the receipt.
+          registrationPending=true;
           autoRegisterId.current=null; // no automatic retry of config writes
           setBusy(true);
           try{
@@ -50,10 +54,18 @@ export function FreshAsaSteamWizard({onRegistered}:{onRegistered:()=>Promise<voi
             setJob({...state,registered:true,stage:"registered"});
             setMessage(receipt.mapName+" letöltve és hozzáadva a Managerhez. A portok, RCON és modok később állíthatók be.");
             await onRegistered();
-          }catch {
-            if(active)setError("A fájlok letöltődtek, de a Manager-regisztráció nem sikerült. A lenti gombbal próbálhatod meg újra; a letöltést NEM kell megismételni.");
-          }finally{if(active)setBusy(false);}
+          }catch{
+            if(active){
+              setJob(state);
+              setError("A fájlok letöltődtek, de a Manager-regisztráció nem sikerült. A lenti gombbal próbálhatod meg újra; a letöltést NEM kell megismételni.");
+            }
+          }finally{
+            registrationPending=false;
+            if(active)setBusy(false);
+          }
+          return;
         }
+        setJob(state);
       }catch{
         if(active)setError("A natív SteamCMD állapota nem olvasható. Ellenőrizd a telepítést a következő művelet előtt.");
       }
