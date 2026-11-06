@@ -22,6 +22,7 @@ import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
 import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
 import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
+import { FreshAsaStopPanel } from "./FreshAsaStopPanel";
 import { PluginZipInstaller } from "./PluginZipInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
@@ -1313,6 +1314,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         </Panel>
       </div>
       {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured}/>}
+      {map.gamePort>0 && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
