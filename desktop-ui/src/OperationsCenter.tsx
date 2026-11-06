@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useMemo,useState} from "react";
-import {Activity,AlertTriangle,CalendarClock,Clock3,HardDrive,LockKeyhole,RefreshCw,Server,Shield,Terminal,WifiOff} from "lucide-react";
+import {Activity,AlertTriangle,CalendarClock,LockKeyhole,RefreshCw,Server,Shield,Terminal,WifiOff} from "lucide-react";
 import {managerBridge,type OperationsMap,type OperationsSnapshot} from "./bridge";
 import "./operations-fidelity.css";
 
