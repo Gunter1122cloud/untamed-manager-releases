@@ -20,7 +20,8 @@ public static class ReleaseCapabilityGate
 {
     public static OperationReadiness Check(ManagerOperation operation,bool owned,
         bool maintenance=false,bool confirmedStopped=false,bool running=false,
-        bool realSaveWorldProof=false,bool storeVerified=false)
+        bool realSaveWorldProof=false,bool storeVerified=false,
+        bool verifiedFreshInstall=false,bool explicitOperatorApproval=false)
     {
         if(!owned)return new(operation,false,"Not a registered local map/profile");
         switch(operation)
@@ -44,6 +45,15 @@ public static class ReleaseCapabilityGate
                     running && !maintenance && !confirmedStopped?
                     "Explicit SaveWorld on exact owned local process":
                     "Local owned running server required for explicit SaveWorld");
+            case ManagerOperation.RealAsaStart:
+                // The only authorized real start in this stage is a newly
+                // installed, non-Store ASA map after an explicit UI approval.
+                // The caller independently validates the official Steam files,
+                // all launch arguments, ports and persistent operation lock.
+                return new(operation,
+                    verifiedFreshInstall && explicitOperatorApproval &&
+                    confirmedStopped && !running && !maintenance,
+                    "Fresh-install local ASA start requires verified Steam files, explicit approval and stopped process");
             case ManagerOperation.FakeAsaStart:
                 return new(operation,!maintenance && confirmedStopped && !running,
                     !maintenance && confirmedStopped && !running?
