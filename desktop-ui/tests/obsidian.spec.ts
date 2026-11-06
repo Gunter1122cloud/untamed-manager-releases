@@ -42,6 +42,9 @@ test.beforeEach(async ({ page }) => {
     let pluginEnabled = true;
     let pluginZipInstalled = false;
     let steamUpdateStarted = false;
+    let lifecycleInterrupted=false;
+    (window as typeof window & {__UNTAMED_LIFECYCLE_INTERRUPTED__?:()=>void})
+      .__UNTAMED_LIFECYCLE_INTERRUPTED__=()=>{lifecycleInterrupted=true;};
     let steamInterrupted=false;
     (window as typeof window & {__UNTAMED_STEAM_INTERRUPTED__?:()=>void})
       .__UNTAMED_STEAM_INTERRUPTED__=()=>{steamInterrupted=true;};
@@ -363,6 +366,16 @@ test.beforeEach(async ({ page }) => {
           return {mapId:one,plugin:"SampleZip",installedBinaries:1,
             backupCreated:false,requiresRestart:true,runtimeLoadedVerified:false,
             evidence:"VERIFIED_GUARDED_PLUGIN_ZIP_INSTALL"};
+        case "servers.lifecycleJournal": return {
+          mapId:m.mapId,mapName:m.mapId===two?"Astraeos":"The Island",
+          journalExists:lifecycleInterrupted,
+          phase:lifecycleInterrupted?"NeedsOperator":null,
+          kind:lifecycleInterrupted?"Launch":null,
+          changedUtc:lifecycleInterrupted?"2026-11-06T11:00:00Z":null,
+          needsOperatorReview:lifecycleInterrupted,
+          autoResumeAllowed:false,storeTouched:false,
+          evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
+        };
         case "servers.freshStartStatus": return {
           mapId:m.mapId,mapName:"Astraeos",running:false,confirmedStopped:true,
           pid:null,readyCertified:false,status:"Leállítva",
@@ -1227,4 +1240,19 @@ test("ASA normal Stop requires approval and never force-kills or claims SaveComp
   await expect(page.locator(".success-inline").filter({hasText:"ASA-folyamat szabályosan kilépett"})).toBeVisible({timeout:12000});
   await expect(page.locator(".success-inline").filter({hasText:"független lemezmentési bizonyíték nincs"})).toBeVisible();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
+});
+
+test("interrupted lifecycle journal disables fresh ASA Start and Stop in map Overview",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LIFECYCLE_INTERRUPTED__?:()=>void
+  }).__UNTAMED_LIFECYCLE_INTERRUPTED__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await expect(page.getByText(/Félbeszakadt helyi ASA-művelet/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
 });
