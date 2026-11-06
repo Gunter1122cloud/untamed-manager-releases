@@ -46,6 +46,26 @@ var map=new LocalMap{
 cluster.AddMap(map);
 try
 {
+    // WebView cannot bypass native approval or introduce arbitrary API CORE
+    // rollback paths. A newly registered but unverified ASA is not writable.
+    {
+        using var recoveryHttp=new HttpClient();
+        using var recoveryBridge=new DesktopAsaApiCoreBridge(cluster,recoveryHttp);
+        Check(IsError(await Call(recoveryBridge.HandleAsync,
+                "api.coreRollbackApply",new {token=Guid.NewGuid().ToString("D"),confirm=true}),
+                "UM-API-CORE-ROLLBACK-APPROVAL"),
+            "CORE rollback denies invented or replayed approval token");
+        Check(IsError(await Call(recoveryBridge.HandleAsync,
+                "api.coreRollbackCandidates",new {mapId=map.Id.ToString("D")}),
+                "UM-API-CORE-ROLLBACK-NOT-STOPPED"),
+            "CORE rollback candidate list refuses unverified ASA binary ownership");
+        Check(IsError(await Call(recoveryBridge.HandleAsync,
+                "api.coreRollbackPreview",new {
+                    mapId=map.Id.ToString("D"),transactionId=Guid.NewGuid().ToString("N")}),
+                "UM-API-CORE-ROLLBACK-NOT-STOPPED"),
+            "CORE rollback preview denies unverified installation without granting an approval");
+    }
+
     // Real-world save discovery is shared by backup/restore/travel/RCON.
     // Custom ASA map names are NOT tied to a ten-map hardcoded list.
     {
