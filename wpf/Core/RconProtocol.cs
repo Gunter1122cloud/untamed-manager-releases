@@ -51,6 +51,18 @@ public static class RconProtocol
         return new(DateTimeOffset.UtcNow,false);
     }
 
+    // Explicit graceful dedicated-server exit. DoExit itself triggers a save
+    // in ASA; no arbitrary browser RCON string may invoke this path.
+    // The caller rechecks exact owned Windows PID and RCON listener after
+    // authentication, before any DoExit bytes are transmitted.
+    internal static async Task DispatchDoExitAsync(int port,string password,
+        Action verifyOwnedListener,CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(verifyOwnedListener);
+        await ExecuteCore("127.0.0.1",port,password,"DoExit",false,ct,
+            adminDispatch:true,authorizeAfterAuthentication:verifyOwnedListener);
+    }
+
     private static async Task<string> ExecuteCore(string host,int port,string password,
         string command,bool allowSaveWorld,CancellationToken cancellationToken,
         bool adminDispatch=false,Action? authorizeAfterAuthentication=null)
@@ -94,6 +106,10 @@ public static class RconProtocol
         // TCP flush proves only dispatch to the local socket; the server may not
         // have executed SaveWorld. Never use this result to authorize DoExit.
         if(allowSaveWorld)return "SAVEWORLD_DISPATCHED_NOT_COMPLETED";
+        // The ASA process can close its RCON socket immediately after DoExit.
+        // A successful flush proves dispatch, not durable game data. The
+        // lifecycle caller verifies process exit separately.
+        if(adminDispatch&&command=="DoExit")return "DOEXIT_DISPATCHED";
         var responses=new List<string>();
         bool barrierSent=false;
         int totalBytes=0;
