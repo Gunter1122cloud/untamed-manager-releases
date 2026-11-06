@@ -1508,6 +1508,65 @@ try
         Check(rejected,"ASA-only cluster archive refuses absent original Store coordination metadata");
     }
 
+    // Plugin config.json is an existing local file. Native editor supports
+    // strict JSON validation, concurrent modification detection and .bak copy.
+    {
+        string pluginProfile=Path.Combine(root,"plugin-json-profile");
+        string install=Path.Combine(root,"plugin-json-test-install");
+        string config=Path.Combine(install,"ShooterGame","Binaries","Win64",
+            "ArkApi","Plugins","SamplePlugin","config.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(config)!);
+        File.WriteAllText(config,"{\"enabled\":true,\"slot\":1}");
+        await using var pluginLab=new ClusterService("plugin-json",pluginProfile,
+            _=>new ProcessCheck(false,"Synthetic stopped",null,true));
+        var owned=new LocalMap{
+            Id=Guid.NewGuid(),Name="Plugin test map",
+            InstallationPath=install,
+            Arguments="TheIsland_WP?listen -Port=7777"
+        };
+        pluginLab.AddMap(owned);
+        using var editor=new DesktopPluginJsonBridge(pluginLab);
+        var traversal=await Call(editor.HandleAsync,"plugins.jsonOpen",new{
+            mapId=owned.Id,plugin="../SamplePlugin"});
+        Check(IsError(traversal,"UM-PLUGIN-JSON-SAFETY-CHECK-FAILED"),
+            "plugin editor refuses renderer-controlled path traversal");
+        var opened=await Call(editor.HandleAsync,"plugins.jsonOpen",new{
+            mapId=owned.Id,plugin="SamplePlugin"});
+        IsOk(opened,"native plugin JSON opens original local file");
+        string token=opened.GetProperty("data").GetProperty("token").GetString()!;
+        var invalid=await Call(editor.HandleAsync,"plugins.jsonPreview",new{
+            token,content="{\"enabled\":true,\"enabled\":false}"});
+        Check(IsError(invalid,"UM-PLUGIN-JSON-SAFETY-CHECK-FAILED"),
+            "duplicate JSON plugin keys fail validation with zero writes");
+        Check(File.ReadAllText(config).Contains("\"slot\":1",StringComparison.Ordinal),
+            "invalid plugin preview did not alter original bytes");
+        var valid=await Call(editor.HandleAsync,"plugins.jsonPreview",new{
+            token,content="{\"enabled\":false,\"slot\":2}"});
+        IsOk(valid,"valid stopped-map plugin JSON update prepared");
+        var applied=await Call(editor.HandleAsync,"plugins.jsonSave",new{token,confirm=true});
+        IsOk(applied,"native plugin JSON apply uses atomic replacement");
+        Check(File.ReadAllText(config).Contains("\"slot\":2",StringComparison.Ordinal) &&
+              applied.GetProperty("data").GetProperty("backupCreated").GetBoolean() &&
+              !applied.GetProperty("data").GetProperty("asaPluginReloaded").GetBoolean(),
+            "atomic JSON update preserved backup and never claims live plugin reload");
+        var replay=await Call(editor.HandleAsync,"plugins.jsonSave",new{token,confirm=true});
+        Check(IsError(replay,"UM-PLUGIN-JSON-SESSION-EXPIRED"),
+            "plugin JSON approval cannot be replayed");
+        var race=await Call(editor.HandleAsync,"plugins.jsonOpen",new{
+            mapId=owned.Id,plugin="SamplePlugin"});
+        IsOk(race,"race fixture reads current plugin JSON");
+        string raceToken=race.GetProperty("data").GetProperty("token").GetString()!;
+        IsOk(await Call(editor.HandleAsync,"plugins.jsonPreview",new{
+            token=raceToken,content="{\"enabled\":true,\"slot\":3}"}),
+            "race fixture stages valid plugin JSON");
+        File.WriteAllText(config,"{\"enabled\":true,\"slot\":999}");
+        var stale=await Call(editor.HandleAsync,"plugins.jsonSave",new{
+            token=raceToken,confirm=true});
+        Check(IsError(stale,"UM-PLUGIN-JSON-SAFETY-CHECK-FAILED") &&
+              File.ReadAllText(config).Contains("\"slot\":999",StringComparison.Ordinal),
+            "external plugin edit causes ETag conflict without overwriting newer bytes");
+    }
+
     // REAL localhost Source RCON wire test: fake isolated TCP server, no ASA.
     // This catches the old bug where the admin bridge called read-only
     // RconProtocol.Execute and silently refused Broadcast/wildWipe.
