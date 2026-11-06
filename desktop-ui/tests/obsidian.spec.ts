@@ -41,6 +41,7 @@ test.beforeEach(async ({ page }) => {
     let redoId = "";
     let pluginEnabled = true;
     let pluginZipInstalled = false;
+    let apiCoreRolledBack = false;
     let steamUpdateStarted = false;
     let freshStarted=false;
     let restartInterrupted=false;
@@ -77,7 +78,7 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string }) => {
       switch (m.method) {
         case "travel.capture": {
           const names=["Astraeos","Genesis Part 1","Valguero","The Island","Extinction"];
@@ -461,6 +462,29 @@ test.beforeEach(async ({ page }) => {
           evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY"
         };
         case "mods.configured": return {mapId: m.mapId, mapName: "The Island", pending: false, active: ["123456"], passive: ["789012"], disabled: [], evidence:"CONFIGURED_ONLY"};
+        case "api.coreRollbackCandidates": return {
+          candidates:apiCoreRolledBack?[]:[{
+            transactionId:"11111111111141118111111111111111",
+            releaseTag:"2.03",binaries:4
+          }],
+          restartsServer:false,evidence:"COMMITTED_OWNED_API_CORE_TRANSACTIONS_ONLY"
+        };
+        case "api.coreRollbackPreview": return {
+          token:"00000000-0000-4000-8000-000000006666",
+          mapId:m.mapId,mapName:"The Island",
+          transactionId:m.transactionId,releaseTag:"2.03",binaries:4,
+          approved:false,doesNotRestart:true,
+          evidence:"STOPPED_OWNED_COMMITTED_ROLLBACK_REQUIRES_BYTE_REVALIDATION"
+        };
+        case "api.coreRollbackApply":
+          if(!m.confirm||m.token!=="00000000-0000-4000-8000-000000006666")
+            throw new Error("Rollback approval required");
+          apiCoreRolledBack=true;
+          return {
+            mapId:one,transactionId:"11111111111141118111111111111111",
+            filesRestored:1,filesRemoved:3,bytesVerified:true,serverRestarted:false,
+            evidence:"STOPPED_OWNED_OFFICIAL_API_CORE_SHA256_ROLLBACK_ONLY"
+          };
         case "plugins.zipSelect": return {
           token:"00000000-0000-4000-8000-000000005555",
           mapId:m.mapId,mapName:"The Island",archiveName:"SampleZip-package.zip",
@@ -1489,6 +1513,23 @@ test("plugin center requires native preview and explicit operator approval befor
   await expect(page.getByText("Letiltott mappa")).toBeVisible();
   await expect(page.getByText(/teljes könyvtár mentése elkészült/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Engedélyezés előnézete"})).toBeVisible();
+});
+
+test("API CORE rollback is a native opt-in two-stage workflow, never an automatic retry",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Pluginok"}).click();
+  await page.getByRole("button",{name:"Korábbi API CORE telepítések lekérdezése"}).click();
+  await expect(page.getByRole("combobox",{name:"Korábbi API CORE tranzakció"})).toBeVisible();
+  await page.getByRole("button",{name:"Visszaállítási jóváhagyás előkészítése"}).click();
+  const rollback=page.getByRole("region",{name:"API CORE visszaállítás jóváhagyása"});
+  await expect(rollback).toBeVisible();
+  const apply=page.getByRole("button",{name:"Eredeti API CORE binárisok visszaállítása"});
+  await expect(apply).toBeDisabled();
+  await rollback.getByText(/Kifejezetten jóváhagyom a visszaállítást/).click();
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(page.getByText(/API CORE visszaállítva: 1 eredeti bináris/)).toBeVisible();
+  await expect(rollback).toHaveCount(0);
 });
 
 test("native plugin ZIP install has explicit preview, approval, and verified result",async({page})=>{
