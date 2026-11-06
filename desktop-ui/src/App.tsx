@@ -20,6 +20,7 @@ import { PremiumDashboard } from "./PremiumDashboard";
 import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
+import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
@@ -961,7 +962,7 @@ function SteamCenter({ snapshot, onRegistered }: {
   useEffect(() => { void reload(); }, [reload]);
   return <>
     <div className="page-intro"><span className="eyebrow">VALVE STEAMCMD / INSTALLED BUILD</span><h1>SteamCMD Center</h1>
-      <p>Valódi C#-os helyi telepítés-ellenőrzés és portjavaslat. A friss telepítés külön jóváhagyással elérhető; frissítés és szerverindítás a migrációs felületen továbbra is tiltott.</p></div>
+      <p>Valódi C#-os helyi telepítés és külön jóváhagyott SteamCMD-frissítés leállított mapokon. Az éles Store-v1 szervervezérlés ettől független.</p></div>
     <Panel title="Regisztrált ASA mapok" action={<button className="quiet" onClick={() => { void reload(); }} disabled={busy}><RefreshCw size={16}/> Ellenőrzés</button>}>
       {snapshot.local.maps.length===0 && <div className="empty">Nincs hozzáadott helyi telepítés.</div>}
       {snapshot.local.maps.map(m => <div className="steam-row" key={m.id}>
@@ -979,9 +980,10 @@ function SteamCenter({ snapshot, onRegistered }: {
           <small>ASA EXE: {entry.executablePresent ? "megtalálva" : "hiányzik"} · Build: {entry.installedSteamBuild || "ismeretlen"}</small>
           <small>{entry.reason}</small>
         </div>
-        <span className="mod-tag amber">Frissítés tiltva</span>
+        <span className="mod-tag amber">Kézi előellenőrzés</span>
       </div>)}
     </Panel>
+    <StoppedSteamUpdate maps={snapshot.local.maps}/>
     <FreshAsaSteamWizard onRegistered={onRegistered}/>
     <Panel title="Új map · konfigurációs előkészítés">
       <p className="muted small">Az új telepítés után a szerver nevének és portjainak ellenőrzött beállítása a map Áttekintés oldalán érhető el. A javaslat önmagában nem indít SteamCMD-műveletet.</p>
