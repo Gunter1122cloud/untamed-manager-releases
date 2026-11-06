@@ -1475,7 +1475,15 @@ try
         var refused=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(refused,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
               dispatched==2,"RCON port ownership loss prevents another dispatch");
-        owner=true;rconRunning=false;
+        owner=true;
+        fakeMap.Arguments="-usestore";
+        var forbiddenStoreSave=await Call(rcon.HandleAsync,"rcon.saveWorld",
+            new{mapId=fakeMap.Id,confirm=true});
+        Check(IsError(forbiddenStoreSave,"UM-HISTORICAL-STORE-LOCKED")&&
+              dispatched==2,
+            "native RCON SaveWorld rejects active -usestore writes without peer writer authority");
+        fakeMap.Arguments="";
+        rconRunning=false;
         var stopped=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(stopped,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
               dispatched==2,"stopped synthetic process cannot receive RCON");
