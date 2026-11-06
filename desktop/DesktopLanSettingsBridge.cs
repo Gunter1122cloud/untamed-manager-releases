@@ -18,8 +18,8 @@ namespace UntamedDesktop;
 public sealed class DesktopLanSettingsBridge
 {
     private sealed record Pending(Guid Token,int ListenPort,string PeerAddress,int PeerPort,
-        string? NewKey,int OriginalListen,string OriginalAddress,int OriginalPeerPort,
-        string OriginalKey,DateTimeOffset CreatedUtc);
+        string ExpectedPeerHostId,string? NewKey,int OriginalListen,string OriginalAddress,
+        int OriginalPeerPort,string OriginalPeerHostId,string OriginalKey,DateTimeOffset CreatedUtc);
     private readonly ClusterService cluster;
     private readonly System.Threading.SemaphoreSlim gate=new(1,1);
     private Pending? pending;
@@ -69,6 +69,8 @@ public sealed class DesktopLanSettingsBridge
             statusCode=pair.StatusCode
         },
         hostName=cluster.Config.LocalHostName,
+        localHostId=cluster.Config.LocalHostId,
+        expectedPeerHostId=cluster.Config.ExpectedPeerHostId,
         listenPort=cluster.Config.ListenPort,
         peerAddress=cluster.Config.PeerAddress,
         peerPort=cluster.Config.PeerPort,
@@ -111,6 +113,7 @@ public sealed class DesktopLanSettingsBridge
                     if(!Integer(data,"listenPort",out var listenPort)||
                        !Integer(data,"peerPort",out var peerPort)||
                        !Text(data,"peerAddress",100,out var address)||
+                       !Text(data,"expectedPeerHostId",40,out var expectedHostId)||
                        !Text(data,"pairingKey",256,out var suppliedKey) ||
                        !Port(listenPort)||!Port(peerPort) ||
                        ((address.Length==0)!=(peerPort==0)) ||
@@ -120,17 +123,28 @@ public sealed class DesktopLanSettingsBridge
                     if(key!=null && (key.Length<24 || key.Any(char.IsWhiteSpace)))
                         return Fail(id,"UM-LAN-PAIRING-KEY-TOO-SHORT");
                     bool enabled=listenPort>0||peerPort>0;
+                    if(enabled &&
+                       (!Guid.TryParse(expectedHostId,out var pinnedId) ||
+                        pinnedId==Guid.Empty ||
+                        !Guid.TryParse(cluster.Config.LocalHostId,out var localId) ||
+                        localId==pinnedId || address.Length==0 ||
+                        peerPort==0 || listenPort==0))
+                        return Fail(id,"UM-LAN-PEER-HOST-ID-REQUIRED");
+                    if(!enabled && expectedHostId.Length>0 &&
+                       !Guid.TryParse(expectedHostId,out _))
+                        return Fail(id,"UM-LAN-PEER-HOST-ID-INVALID");
                     if(enabled && key==null &&
                        string.IsNullOrWhiteSpace(cluster.Config.PairingKeyProtected))
                         return Fail(id,"UM-LAN-PAIRING-KEY-REQUIRED");
                     // Preview never touches Manager config or starts a listener.
                     var cfg=cluster.Config;
                     var token=Guid.NewGuid();
-                    pending=new(token,listenPort,address,peerPort,key,
-                        cfg.ListenPort,cfg.PeerAddress,cfg.PeerPort,
-                        cfg.PairingKeyProtected,DateTimeOffset.UtcNow);
+                    pending=new(token,listenPort,address,peerPort,
+                        expectedHostId,key,cfg.ListenPort,cfg.PeerAddress,cfg.PeerPort,
+                        cfg.ExpectedPeerHostId,cfg.PairingKeyProtected,DateTimeOffset.UtcNow);
                     return Ok(id,new{
                         token,listenPort,peerAddress=address,peerPort,
+                        expectedPeerHostId=expectedHostId,
                         pairingKeyWillChange=key!=null,
                         requiresManagerRestart=true,
                         remoteWritesAllowed=false,
@@ -152,6 +166,7 @@ public sealed class DesktopLanSettingsBridge
                 if(current.ListenPort!=snapshot.OriginalListen ||
                    current.PeerAddress!=snapshot.OriginalAddress ||
                    current.PeerPort!=snapshot.OriginalPeerPort ||
+                   current.ExpectedPeerHostId!=snapshot.OriginalPeerHostId ||
                    current.PairingKeyProtected!=snapshot.OriginalKey)
                     return Fail(id,"UM-LAN-CONFIG-CHANGED");
                 string protectedKey=snapshot.NewKey==null?snapshot.OriginalKey:
@@ -160,11 +175,13 @@ public sealed class DesktopLanSettingsBridge
                     cfg.ListenPort=snapshot.ListenPort;
                     cfg.PeerAddress=snapshot.PeerAddress;
                     cfg.PeerPort=snapshot.PeerPort;
+                    cfg.ExpectedPeerHostId=snapshot.ExpectedPeerHostId;
                     cfg.PairingKeyProtected=protectedKey;
                 });
                 return Ok(id,new{
                     saved=true,listenPort=snapshot.ListenPort,
                     peerAddress=snapshot.PeerAddress,peerPort=snapshot.PeerPort,
+                    expectedPeerHostId=snapshot.ExpectedPeerHostId,
                     requiresManagerRestart=true,
                     secretReturned=false,remoteWritesAllowed=false,
                     evidence="ATOMIC_LOCAL_LAN_PAIRING_DPAPI_PROFILE_ONLY"
