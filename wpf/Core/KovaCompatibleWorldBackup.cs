@@ -292,10 +292,15 @@ public static class KovaCompatibleWorldBackup
         if(new DriveInfo(Path.GetPathRoot(root)!).AvailableFreeSpace<
            selected.Bytes+Total(current)*2+128L*1024*1024)
             throw new IOException("UM-BACKUP-INSUFFICIENT-RESTORE-CAPACITY");
+        // Take a real protective backup before acquiring the swap lease.
+        // Create acquires its own installation lock; nesting the same
+        // cross-process lock could deadlock on Windows.
+        var protective=Create(map,profile,process,"protective");
         using var lease=new UntamedOperationCoordinator().Acquire(
             map.InstallationPath,UntamedOperationKind.Backup);
         Stopped(process);
-        var protective=Create(map,profile,process,"protective");
+        if(!Scan(world,key).SequenceEqual(current))
+            throw new IOException("UM-BACKUP-SOURCE-CHANGED-AFTER-PROTECTIVE");
         var id=Guid.NewGuid().ToString("N");
         string stage=Path.Combine(root,".untamed-stage-"+id);
         string old=Path.Combine(root,".untamed-previous-"+key+"-"+id);
