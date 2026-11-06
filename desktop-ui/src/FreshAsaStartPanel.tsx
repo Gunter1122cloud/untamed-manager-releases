@@ -1,6 +1,6 @@
 import {useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,Play,RefreshCw,Shield} from "lucide-react";
-import {managerBridge,type FreshAsaStartPreview,type FreshAsaStartStatus} from "./bridge";
+import {managerBridge,type FreshAsaStartPreview,type FreshAsaStartStatus,type FreshAsaReadiness} from "./bridge";
 
 // Nonsecret process receipt survives a dashboard refresh/remount. Never persist
 // launch arguments, credentials or Store data in WebView2 storage.
@@ -12,12 +12,15 @@ export function FreshAsaStartPanel({mapId,onStarted,journalBlocked}:{
   const [observed,setObserved]=useState<FreshAsaStartStatus|null>(null);
   const [preview,setPreview]=useState<FreshAsaStartPreview|null>(null);
   const [approved,setApproved]=useState(false);
+  const [readiness,setReadiness]=useState<FreshAsaReadiness|null>(null);
+  const [checkingReady,setCheckingReady]=useState(false);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState(()=>recentStartReceipts.get(mapId)??"");
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
     setPreview(null);setApproved(false);setObserved(null);setError("");
+    setReadiness(null);
     setMessage(recentStartReceipts.get(mapId)??"");
     managerBridge.freshAsaStartStatus(mapId)
       .then(s=>{if(active)setObserved(s);})
@@ -29,6 +32,13 @@ export function FreshAsaStartPanel({mapId,onStarted,journalBlocked}:{
     setError("");
     try{setObserved(await managerBridge.freshAsaStartStatus(mapId));}
     catch{setError("A helyi ASA-folyamat állapotának beolvasása sikertelen.");}
+  };
+  const checkReadiness=async()=>{
+    if(!observed?.running||checkingReady||busy||journalBlocked)return;
+    setCheckingReady(true);setReadiness(null);setError("");
+    try{setReadiness(await managerBridge.freshAsaReadiness(mapId));}
+    catch{setError("Nem sikerült az ASA/RCON-készenlét ellenőrzése. Ez nem jelent karaktervesztést; a szerverfolyamatot nem állítottuk le.");}
+    finally{setCheckingReady(false);}
   };
   const check=async()=>{
     if(busy || !mapId || journalBlocked)return;
@@ -68,6 +78,17 @@ export function FreshAsaStartPanel({mapId,onStarted,journalBlocked}:{
     </div>}
     <button type="button" className="secondary" disabled={busy||journalBlocked||Boolean(observed?.running)}
       onClick={()=>{void check();}}>Valódi ASA-indítás előellenőrzése</button>
+    <button type="button" className="secondary"
+      disabled={!observed?.running||busy||journalBlocked||checkingReady}
+      onClick={()=>{void checkReadiness();}}><RefreshCw size={16}/> ASA / RCON készenlét ellenőrzése</button>
+    {readiness&&<div className="historical-preview" role="status">
+      <h3>ASA készenléti szint: {readiness.stage}</h3>
+      <div className="details-line"><span>Windows folyamat / RCON</span>
+        <b>{readiness.rconAuthenticated?"RCON hitelesítve":"RCON nem igazolt"}</b></div>
+      <div className="details-line"><span>ASA API inicializálás / játékosbelépés</span>
+        <b>{readiness.apiInitialized&&readiness.joinAdvertised?"Igazolt":"Még nincs igazolva"}</b></div>
+      <p className="muted small">{readiness.description}</p>
+    </div>}
     {preview&&<div className="historical-preview" role="region" aria-label="Valódi ASA indítás jóváhagyása">
       <h3>{preview.mapName} – Steam build: {preview.steamBuild}</h3>
       <div className="details-line"><span>Game / Query UDP</span>
