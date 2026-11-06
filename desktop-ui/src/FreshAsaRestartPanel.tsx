@@ -15,8 +15,10 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   const [status,setStatus]=useState<FreshAsaRestartStatus|null>(null);
   const [message,setMessage]=useState(()=>latestRestart.get(mapId)??"");
   const [error,setError]=useState("");
+  const [needsLocalReview,setNeedsLocalReview]=useState(false);
   useEffect(()=>{
     setPreview(null);setApproved(false);setError("");
+    setNeedsLocalReview(false);
     setMessage(latestRestart.get(mapId)??"");
   },[mapId]);
   useEffect(()=>{
@@ -36,12 +38,12 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
           setMessage(summary);
           onRestarted().catch(()=>{});
         }else if(state.state==="needsOperator"){
-          setJobId(null);
+          setJobId(null);setNeedsLocalReview(true);
           setError("A szerver újraindítása félbeszakadt. Automatikus ismétlés nem történt. Ellenőrizd a Windows-folyamatot és a natív műveleti naplót.");
         }
       }catch{
         if(active){
-          setJobId(null);
+          setJobId(null);setNeedsLocalReview(true);
           setError("Nem érhető el a natív újraindítási feladat. Ellenőrizd a helyi naplót új művelet előtt.");
         }
       }
@@ -52,14 +54,14 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   },[jobId,mapId,onRestarted]);
 
   const check=async()=>{
-    if(!mapId||!running||busy||jobId||journalBlocked)return;
+    if(!mapId||!running||busy||jobId||journalBlocked||needsLocalReview)return;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{setPreview(await managerBridge.freshAsaRestartPreview(mapId));}
     catch{setError("Az újraindítás előellenőrzése sikertelen. Csak saját, RCON-nal azonosított, nem Store-v1 ASA folyamat engedélyezett, a Managerrel egyező GameUserSettings.ini konfigurációval.");}
     finally{setBusy(false);}
   };
   const run=async()=>{
-    if(!preview||!approved||busy||jobId||journalBlocked)return;
+    if(!preview||!approved||busy||jobId||journalBlocked||needsLocalReview)return;
     const token=preview.token;
     setBusy(true);setPreview(null);setApproved(false);setError("");
     try{
@@ -81,7 +83,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     </header>
     <p>A C# Manager a régi szervert SaveWorld → DoExit művelettel leállítja, megvárja a pontos Windows-folyamat kilépését, majd egyszer indítja el az új folyamatot. Csak az új, helyi, nem Store-v1 mapokhoz.</p>
     <button type="button" className="secondary"
-      disabled={!running||busy||!!jobId||journalBlocked}
+      disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview}
       onClick={()=>{void check();}}><RefreshCw size={16}/> Újraindítás előellenőrzése</button>
     {preview&&<div className="historical-preview" role="region" aria-label="ASA újraindítás jóváhagyása">
       <h3>{preview.mapName} – jelenlegi PID: {preview.currentPid}</h3>
@@ -91,7 +93,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
           onChange={e=>setApproved(e.target.checked)} disabled={busy}/>
         Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását.
       </label>
-      <button type="button" className="primary" disabled={!approved||busy||journalBlocked}
+      <button type="button" className="primary" disabled={!approved||busy||journalBlocked||needsLocalReview}
         onClick={()=>{void run();}}>Szerver újraindítása</button>
       <button type="button" className="secondary" disabled={busy}
         onClick={()=>setPreview(null)}>Mégsem</button>
