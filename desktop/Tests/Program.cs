@@ -1761,11 +1761,11 @@ try
         // the .ark world. No standalone profile is required or trustworthy.
         // Snapshot the large world by bounded filesystem metadata only.
         foreach(var service in new[]{firstHost,secondHost})
-            foreach(var map in service.Config.LocalMaps)
+            foreach(var storeMap in service.Config.LocalMaps)
             {
-                map.Arguments="-usestore";
-                string key=tokens[map.Name];
-                File.WriteAllBytes(Path.Combine(savePaths[map.Name],key+".ark"),
+                storeMap.Arguments="-usestore";
+                string key=tokens[storeMap.Name];
+                File.WriteAllBytes(Path.Combine(savePaths[storeMap.Name],key+".ark"),
                     Encoding.UTF8.GetBytes("SYNTHETIC-EMBEDDED-WORLD-"+key));
             }
         File.Delete(sourceFile);
