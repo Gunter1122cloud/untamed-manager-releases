@@ -23,6 +23,11 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
     private readonly CurseForgeCatalog _catalog;
     public DesktopReadOnlyBridge() => _catalog = new CurseForgeCatalog(_http);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    // A peer may use "N" or "D" Guid formatting. Never compare string
+    // representations when determining ownership/protection flags.
+    public static bool MatchesPublishedMapId(Guid localMapId,string? publishedId)=>
+        localMapId!=Guid.Empty && Guid.TryParse(publishedId,out var parsed) &&
+        parsed==localMapId;
 
     public async Task<string> HandleAsync(string input)
     {
@@ -128,7 +133,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                         // launch arguments or internal cluster identifiers
                         // to the WebView2 renderer.
                         var config = _cluster.Config.LocalMaps.FirstOrDefault(x =>
-                            Guid.TryParse(m.Id,out var publicId) && x.Id==publicId);
+                            MatchesPublishedMapId(x.Id,m.Id));
                         return new {
                             id = m.Id, name = m.Name, running = m.Running,
                             status = m.Status, gamePort = m.GamePort,
