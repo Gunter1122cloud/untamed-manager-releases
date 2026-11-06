@@ -67,6 +67,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopUpdateStatusBridge _updates = new();
     private readonly DesktopObsidianUpdateInstallBridge _updateInstall;
     private readonly DesktopRconReadOnlyBridge _rcon;
+    private readonly DesktopRconAdminBridge _rconAdmin;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly DesktopWorldBackupBridge _worldBackup;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
@@ -88,6 +89,7 @@ public sealed class ObsidianWindow : Form
         _initialMapSetup = new DesktopInitialMapSetupBridge(_bridge.LocalCluster);
         _historicalStore = new DesktopHistoricalStoreImportBridge(_bridge.LocalCluster);
         _rcon = new DesktopRconReadOnlyBridge(_bridge.LocalCluster);
+        _rconAdmin = new DesktopRconAdminBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
@@ -206,6 +208,7 @@ public sealed class ObsidianWindow : Form
                 bool updateRoute = false;
                 bool updateInstallRoute = false;
                 bool rconRoute = false;
+                bool rconAdminRoute = false;
                 bool travelRoute = false;
                 bool worldBackupRoute = false;
                 try
@@ -222,6 +225,7 @@ public sealed class ObsidianWindow : Form
                         updateRoute = name is "updates.status" or "updates.check";
                         updateInstallRoute = name is "updates.prepare" or "updates.install";
                         rconRoute = name is "rcon.status" or "rcon.listPlayers" or "rcon.saveWorld";
+                        rconAdminRoute = name is "rcon.adminPreview" or "rcon.adminSend";
                         travelRoute = name is "travel.capture" or "travel.compare";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore";
@@ -253,7 +257,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = worldBackupRoute ? await _worldBackup.HandleAsync(incoming)
+                    string response = rconAdminRoute ? await _rconAdmin.HandleAsync(incoming)
+                        : worldBackupRoute ? await _worldBackup.HandleAsync(incoming)
                         : updateInstallRoute ? await _updateInstall.HandleAsync(incoming)
                         : travelRoute ? await _travel.HandleAsync(incoming)
                         : rconRoute ? await _rcon.HandleAsync(incoming)
