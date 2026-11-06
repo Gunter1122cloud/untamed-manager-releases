@@ -84,6 +84,27 @@ export function LanSettingsPanel(){
         <button type="button" className="quiet" disabled={working} aria-label="LAN állapot újraolvasása"
           onClick={()=>{void reload();}}><RefreshCw size={16}/></button>
       </div>
+      {status?.originalStorePair&&<section className="lan-store-proof" aria-label="Eredeti kétgépes Store-v1 egyezőség">
+        <div className="lan-store-heading"><Shield size={18}/>
+          <strong>Eredeti Store-v1 · kétgépes összevetés</strong>
+          <span>{status.originalStorePair.copiedMetadataPairMatches?
+            "Történeti metaadatok egyeznek":"További ellenőrzés szükséges"}</span>
+        </div>
+        <div className="lan-store-grid">
+          <div><span>Azonos Store-session</span>
+            <b>{status.originalStorePair.sameSharedSession?"Egyező":"Nem igazolt"}</b></div>
+          <div><span>Azonos UNC-megosztás</span>
+            <b>{status.originalStorePair.sameSharedPath?"Egyező":"Nem igazolt"}</b></div>
+          <div><span>Külön gazdagépazonosítók</span>
+            <b>{status.originalStorePair.distinctDeviceIds?"Igazolt":"Nem igazolt"}</b></div>
+          <div><span>5 + 5 aktív Store-map</span>
+            <b>{status.originalStorePair.bothHaveFiveActiveMaps?"Igazolt":"Nem igazolt"}</b></div>
+        </div>
+        <p className="muted small">A vizsgálat kizárólag hitelesített LAN-státuszt és a két gép
+          eredeti, helyileg olvasott Store-fájljainak hash-eit használja. Az eredeti UNC-útvonal
+          és azonosítók nem kerülnek átküldésre. Az egyezés nem igazolja az élő
+          kizárólagos Store-írójogot vagy a karakterutazást; szerverindítást nem old fel.</p>
+      </section>}
       <form className="lan-settings-form" onSubmit={e=>{void preflight(e);}}>
         <label>Helyi fogadóport (0 = kikapcsolva)
           <input aria-label="Helyi LAN port" inputMode="numeric" value={listen}
