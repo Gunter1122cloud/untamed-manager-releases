@@ -1,0 +1,66 @@
+/* Kova-pattern native world backup and rollback screen.
+   Uses the existing approved charcoal / teal design system. */
+.uk-world-backup{margin:0 0 16px;min-width:0;}
+.uk-world-backup-inner{padding:14px 16px 17px;}
+.uk-world-backup-toolbar{display:grid;grid-template-columns:minmax(180px,1fr) auto auto;
+  gap:9px;align-items:end;}
+.uk-world-backup-toolbar label,.uk-world-backup-restore label{display:flex;
+  flex-direction:column;gap:5px;font-size:11px;color:#accdc2;font-weight:750;}
+.uk-world-backup-toolbar select,.uk-world-backup-restore input{background:#152c34;
+  border:1px solid #4c7067;color:#e8fff4;border-radius:7px;
+  min-height:40px;padding:8px 12px;min-width:0;}
+.uk-world-backup-toolbar button,.uk-world-backup-confirm button,
+.uk-world-backup-restore-actions button,.uk-world-backup-line button{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:39px;}
+.uk-world-backup-confirm,.uk-world-backup-restore,.uk-world-backup-notice,
+.uk-world-backup-success,.uk-world-backup-error{border:1px solid #4c826c;
+  background:#153a30;color:#c3f4df;display:flex;align-items:flex-start;
+  gap:13px;border-radius:9px;padding:13px 15px;margin-top:13px;font-size:11.5px;line-height:1.6;}
+.uk-world-backup-notice{background:#3e3222;border-color:#8b7242;color:#efcd98;}
+.uk-world-backup-notice svg,.uk-world-backup-success svg,
+.uk-world-backup-error svg{flex:none;}
+.uk-world-backup-confirm>div{flex:1;min-width:0;}
+.uk-world-backup-confirm p,.uk-world-backup-success p,.uk-world-backup-restore p{
+  color:#b3d2c5;margin:4px 0;font-size:11px;}
+.uk-world-backup-success{background:#153d30;border-color:#549e7b;}
+.uk-world-backup-success b{font-size:12.5px;}
+.uk-world-backup-success small{display:block;margin-top:6px;color:#8fb6a6;font-size:10px;}
+.uk-world-backup-error{background:#422c28;border-color:#aa605b;color:#ffb8a6;}
+.uk-world-backup-history{border:1px solid #3d615c;border-radius:9px;
+  background:#142b32;margin-top:15px;overflow:hidden;}
+.uk-world-backup-heading{display:flex;align-items:center;justify-content:space-between;
+  gap:8px;padding:11px 14px;background:#1b383a;border-bottom:1px solid #375b54;}
+.uk-world-backup-heading>span:first-child{display:flex;align-items:center;gap:8px;
+  font-size:12.5px;font-weight:800;color:#def7e8;}
+.uk-world-backup-heading>span:last-child{font-size:10.5px;color:#9ecdb9;}
+.uk-world-backup-line{display:flex;align-items:center;gap:11px;padding:10px 12px;
+  border-bottom:1px solid #2e4c4b;}
+.uk-world-backup-line:last-child{border-bottom:0;}
+.uk-world-backup-point-icon{display:grid;place-items:center;width:32px;height:32px;
+  border:1px solid #3d7769;border-radius:7px;color:#7fe0b8;background:#164538;}
+.uk-world-backup-point{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px;}
+.uk-world-backup-point b{font-size:11px;color:#d5f7e5;}
+.uk-world-backup-point small{font-size:10px;color:#9fbdb5;}
+.uk-world-backup-verified{display:flex;align-items:center;gap:5px;color:#88e7ba;
+  font-weight:700;font-size:10px;}
+.uk-world-backup-line button{font-size:10.5px;padding:7px 11px;}
+.uk-world-backup-empty{padding:16px;font-size:11.5px;color:#9bbeb1;}
+.uk-world-backup-restore{display:block;border-color:#a38245;background:#3e3326;}
+.uk-world-backup-restore>div:first-child{display:flex;align-items:center;gap:10px;
+  color:#ffe0a9;font-size:12.5px;}
+.uk-world-backup-restore>label{margin-top:12px;max-width:440px;color:#ffddac;}
+.uk-world-backup-restore-actions{display:flex;gap:10px;margin-top:12px;}
+.uk-world-backup-restore-actions .danger{background:#a24e46;color:#fff;
+  border:1px solid #c7786d;padding:8px 12px;border-radius:7px;font-weight:750;}
+.uk-world-backup-restore-actions .danger:hover:not(:disabled){background:#b65a4e;}
+.uk-world-backup-restore-actions .danger:disabled{opacity:.4;cursor:not-allowed;}
+@media(max-width:1100px){
+ .uk-world-backup-toolbar{grid-template-columns:1fr 1fr;}
+ .uk-world-backup-toolbar label{grid-column:1/-1;}
+}
+@media(max-width:670px){
+ .uk-world-backup-toolbar{grid-template-columns:1fr;}
+ .uk-world-backup-toolbar label{grid-column:auto;}
+ .uk-world-backup-line{flex-wrap:wrap;}
+ .uk-world-backup-verified{margin-left:auto;}
+}
