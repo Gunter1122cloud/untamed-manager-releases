@@ -252,7 +252,7 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
             </div>}
         </div>
         {saveReceipt&&<div className="uk-rcon-save-receipt" role="status">
-          <CheckCircle2 size={18}/><div><b>SaveWorld RCON-válasz érkezett.</b>
+          <CheckCircle2 size={18}/><div><b>SaveWorld RCON-küldés megtörtént; végrehajtás nincs igazolva.</b>
             <p>{new Date(saveReceipt.observedUtc).toLocaleString("hu-HU")} ·
               A lemezre írás befejezését ez önmagában nem bizonyítja.
               A teljes ellenőrzött fájlmentéshez használd a Mentésközpontot
