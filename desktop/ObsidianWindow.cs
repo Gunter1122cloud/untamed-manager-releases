@@ -68,6 +68,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopObsidianUpdateInstallBridge _updateInstall;
     private readonly DesktopRconReadOnlyBridge _rcon;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
+    private readonly DesktopWorldBackupBridge _worldBackup;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -88,6 +89,7 @@ public sealed class ObsidianWindow : Form
         _historicalStore = new DesktopHistoricalStoreImportBridge(_bridge.LocalCluster);
         _rcon = new DesktopRconReadOnlyBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
+        _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
@@ -205,6 +207,7 @@ public sealed class ObsidianWindow : Form
                 bool updateInstallRoute = false;
                 bool rconRoute = false;
                 bool travelRoute = false;
+                bool worldBackupRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -220,6 +223,8 @@ public sealed class ObsidianWindow : Form
                         updateInstallRoute = name is "updates.prepare" or "updates.install";
                         rconRoute = name is "rcon.status" or "rcon.listPlayers";
                         travelRoute = name is "travel.capture" or "travel.compare";
+                        worldBackupRoute = name is "backup.history" or "backup.preview" or
+                            "backup.create" or "backup.restorePreview" or "backup.restore";
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         draftRoute = name is
@@ -248,7 +253,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = updateInstallRoute ? await _updateInstall.HandleAsync(incoming)
+                    string response = worldBackupRoute ? await _worldBackup.HandleAsync(incoming)
+                        : updateInstallRoute ? await _updateInstall.HandleAsync(incoming)
                         : travelRoute ? await _travel.HandleAsync(incoming)
                         : rconRoute ? await _rcon.HandleAsync(incoming)
                         : updateRoute ? await _updates.HandleAsync(incoming)
