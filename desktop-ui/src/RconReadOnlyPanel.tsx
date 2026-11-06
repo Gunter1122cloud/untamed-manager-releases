@@ -95,15 +95,16 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
     setAdminDraft(null);setAdminApproved(false);setAdminTyped("");
     setBusy(true);setError("");setAdminReceipt(null);
     try{setAdminReceipt(await managerBridge.rconAdminSend(token,adminTyped));}
-    catch{setError("A parancs nem kapott ellenőrzött választ. Ismétlés előtt ellenőrizd a szerver állapotát; automatikus újraküldés nincs.");}
+    catch{setError("A parancs eredménye nem igazolható. A TCP-küldés megtörténhetett; ismétlés előtt ellenőrizd a szerver állapotát. Automatikus újraküldés nincs.");}
     finally{setBusy(false);}
   };
   return <div className="uk-rcon-page">
     <div className="page-intro"><span className="eyebrow">UNTAMED ASA / LOCAL RCON</span>
       <h1>RCON konzol</h1>
-      <p>Az igazolt helyi ASA-folyamathoz kötött RCON-kapcsolat valódi
-        ListPlayers és külön jóváhagyott SaveWorld műveletet kezel.
-        Tetszőleges parancs, távoli peer-vezérlés és Store-v1 átírás nincs.</p></div>
+      <p>Valódi ListPlayers, SaveWorld, Broadcast, szerver-chat, vad dinó törlés
+        és külön jóváhagyott egyedi adminparancsok, kizárólag a helyi, igazolt
+        ASA-folyamathoz kötve. A leállítás külön életciklus-funkció; távoli
+        peer-vezérlés és Store-v1 átírás nincs.</p></div>
     {!config?.configured&&<section className="premium-panel" aria-label="RCON első beállítása" style={{marginBottom:18,padding:20}}>
       <header className="premium-panel-heading"><h2><LockKeyhole size={18}/> RCON beállítása a helyi mapon</h2></header>
       <p>Csak leállított, nem Store-v1 mapon. A jelszó kizárólag a natív Windows részhez kerül; a Manager DPAPI-val titkosítja.</p>
@@ -139,7 +140,7 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
       <section className="premium-panel uk-rcon-console">
         <header className="premium-panel-heading">
           <h2><Terminal size={19}/> Helyi RCON konzol</h2>
-          <span className="premium-small-muted">RCON / LISTPLAYERS / SAVEWORLD</span>
+          <span className="premium-small-muted">RCON / ADMIN / SAVEWORLD</span>
         </header>
         <div className="uk-rcon-commands">
           <button type="button" className="secondary" disabled={busy} onClick={()=>{void load();}}>
@@ -213,7 +214,7 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
             </div>
           </div>}
           {adminReceipt&&<div className="uk-rcon-admin-success" role="status">
-            <CheckCircle2 size={17}/><div><b>Adminparancs egyszer elküldve</b>
+            <CheckCircle2 size={17}/><div><b>Adminparancs egyszer elküldve – a végrehajtás még nem igazolt</b>
               <small>{adminReceipt.action} · {new Date(adminReceipt.observedUtc).toLocaleString("hu-HU")}</small>
               {adminReceipt.response&&<pre>{adminReceipt.response}</pre>}
             </div>
@@ -252,8 +253,9 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
           <div><span>SaveWorld művelet</span><b>{status?.permitted?"Külön jóváhagyással":"Tiltva"}</b></div>
           <div><span>Karbantartási mód</span><b>{status?.maintenance?"Aktív":"Nincs igazolt karbantartás"}</b></div>
           <div className="uk-rcon-locked"><LockKeyhole size={17}/>
-            A DoExit, Kill, tetszőleges adminparancs és a Store-v1 írása
-            továbbra is külön, jóváhagyott és ellenőrzött műveletet igényel.</div>
+            A DoExit és a szerverfolyamat indítása/leállítása a külön életciklus-felületen
+            engedélyezett. Az egyedi adminparancs egyszeri küldést és írásos jóváhagyást igényel;
+            Store-v1 írását a RCON konzol nem végzi.</div>
         </div>
       </aside>
     </div>
