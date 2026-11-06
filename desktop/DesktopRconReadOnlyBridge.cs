@@ -137,7 +137,8 @@ public sealed class DesktopRconReadOnlyBridge
                 if(method=="rcon.saveWorld")
                     return Ok(id,new {
                         mapId=map.Id,mapName=map.Name,
-                        rconAcknowledged=true,diskSaveCompletionProven=false,
+                        rconAcknowledged=false,rconCommandDispatched=true,
+                        diskSaveCompletionProven=false,
                         worldFilesTouchedByManager=false,
                         response=sanitized,observedUtc=DateTimeOffset.UtcNow,
                         evidence="REAL_FIXED_RCON_SAVEWORLD_ACK_NOT_DISK_COMPLETION"
