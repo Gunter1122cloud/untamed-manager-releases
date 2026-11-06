@@ -24,15 +24,18 @@ public sealed class DesktopObsidianUpdateInstallBridge
     private Pending? prepared;
     private readonly SemaphoreSlim gate=new(1,1);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
+    private readonly ClusterService? cluster;
     private readonly Func<UpdateChannel,CancellationToken,Task<UpdateRelease?>> fetch;
     private readonly Func<UpdateRelease,string,CancellationToken,Task<string>> download;
     private readonly Func<string,bool> validateExecutable;
 
     public DesktopObsidianUpdateInstallBridge(
+        ClusterService? localCluster=null,
         Func<UpdateChannel,CancellationToken,Task<UpdateRelease?>>? provider=null,
         Func<UpdateRelease,string,CancellationToken,Task<string>>? downloader=null,
         Func<string,bool>? appTrust=null)
     {
+        cluster=localCluster;
         fetch=provider??ObsidianReleaseCatalog.CheckAsync;
         download=downloader??((release,dir,ct)=>
             UpdateCenter.DownloadAndVerifyAsync(release,dir,null,ct));
@@ -110,6 +113,9 @@ public sealed class DesktopObsidianUpdateInstallBridge
                     }
                     // Optional publisher certificate pin is a native profile
                     // setting, never passed through JavaScript.
+                    string pinned=cluster?.Config.PublisherCertificateThumbprint??"";
+                    if(!string.IsNullOrWhiteSpace(pinned))
+                        UpdateCenter.CheckAuthenticodePublisher(staged,pinned);
                     prepared=new(Guid.NewGuid(),release,staged,helper,exe,
                         DateTimeOffset.UtcNow.AddMinutes(7));
                     return Ok(id,new {
