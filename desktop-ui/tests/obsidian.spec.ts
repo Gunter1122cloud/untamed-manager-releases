@@ -667,7 +667,8 @@ test("Steam installation preflight and redacted log center are read-only and fil
   await expect(page.getByText("Build: 123456")).toBeVisible();
   await expect(page.getByText("2797", {exact:true})).toHaveCount(0);
   await expect(page.getByText("7797", {exact:true})).toBeVisible();
-  await expect(page.getByText("Frissítés tiltva")).toBeVisible();
+  await expect(page.getByText("Kézi előellenőrzés")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Frissítés előellenőrzése" })).toBeVisible();
   await page.screenshot({path:"test-results/steam-preflight-1366.png",fullPage:true});
 
   await page.getByRole("button", { name: "Naplók" }).click();
