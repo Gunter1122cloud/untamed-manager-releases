@@ -102,6 +102,7 @@ public sealed class PublicMapStatus
 }
 public sealed class HostStatus
 {
+    public LegacyStoreV1PeerProof? OriginalStoreV1 {get;set;}
     public string HostId { get; set; } = "";
     public string HostName { get; set; } = "";
     public DateTimeOffset ObservedUtc { get; set; } = DateTimeOffset.UtcNow;
@@ -755,6 +756,7 @@ public sealed class ClusterService : IAsyncDisposable
     public HostStatus LocalStatus()
     {
         return new HostStatus{
+            OriginalStoreV1=LegacyStoreV1PeerProof.FromCurrentUserLegacyProfile(),
             HostId=Config.LocalHostId,HostName=Config.LocalHostName,ObservedUtc=DateTimeOffset.UtcNow,
             Maps=Config.LocalMaps.Select(map=>{
                 var c=Check(map);
