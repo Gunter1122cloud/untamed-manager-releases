@@ -62,6 +62,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
             StringComparison.OrdinalIgnoreCase) ||
            !File.Exists(expected))
             return false;
+        if(!AsaReadyProbe.IsRegisteredServerBinary(map))return false;
         if(string.IsNullOrWhiteSpace(
             AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)))
             return false;
