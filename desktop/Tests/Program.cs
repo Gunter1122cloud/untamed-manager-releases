@@ -1225,6 +1225,74 @@ try
             "native plugin inventory can see explicitly disabled plugin folder");
     }
 
+    // Native plugin ZIP picker and guarded installation. The WinForms file
+    // dialog is replaced by a deterministic picker in this isolated test only.
+    {
+        string zipInstall=Path.Combine(root,"plugin-zip-bridge-install");
+        string pluginRoot=Path.Combine(zipInstall,"ShooterGame","Binaries","Win64","ArkApi","Plugins");
+        Directory.CreateDirectory(pluginRoot);
+        string zipPath=Path.Combine(root,"SampleZip-package.zip");
+        using(var stream=File.Create(zipPath))
+        using(var zip=new System.IO.Compression.ZipArchive(stream,
+            System.IO.Compression.ZipArchiveMode.Create))
+        {
+            using(var binary=zip.CreateEntry("SampleZip/SampleZip.dll").Open())
+                binary.Write(new byte[]{0x4d,0x5a,0x01,0x02,0x03});
+            using(var readme=new StreamWriter(zip.CreateEntry("SampleZip/README.txt").Open()))
+                readme.Write("Ignored non-binary asset");
+        }
+        bool zipPeerRunning=false;
+        var zipMap=new LocalMap{Name="Plugin ZIP test",InstallationPath=zipInstall};
+        var zipPeer=new LocalMap{Name="Plugin ZIP peer",InstallationPath=zipInstall};
+        await using var zipCluster=new ClusterService("native-zip-fixture",
+            Path.Combine(root,"plugin-zip-profile"),
+            m=>zipPeerRunning && m.Id==zipPeer.Id
+                ?new ProcessCheck(true,"synthetic running peer",null,false)
+                :new ProcessCheck(false,"synthetic stopped",null,true));
+        zipCluster.AddMap(zipMap);
+        zipCluster.AddMap(zipPeer);
+        int pickerCalls=0;
+        using var zipBridge=new DesktopPluginZipBridge(zipCluster,
+            ()=>{pickerCalls++;return zipPath;});
+        var outsider=await Call(zipBridge.HandleAsync,"plugins.zipSelect",
+            new{mapId=Guid.NewGuid()});
+        Check(IsError(outsider,"UM-MAP-NOT-OWNED")&&pickerCalls==0,
+            "foreign map cannot open plugin ZIP picker");
+        zipPeerRunning=true;
+        var runningDenied=await Call(zipBridge.HandleAsync,"plugins.zipSelect",
+            new{mapId=zipMap.Id});
+        Check(IsError(runningDenied,"UM-PLUGIN-ZIP-FAILED")&&pickerCalls==0,
+            "running sibling blocks ZIP selection before picker opens");
+        zipPeerRunning=false;
+        var selected=await Call(zipBridge.HandleAsync,"plugins.zipSelect",
+            new{mapId=zipMap.Id});
+        IsOk(selected,"native ZIP picker prepares a valid plugin archive");
+        string zipToken=selected.GetProperty("data").GetProperty("token").GetString()!;
+        Check(pickerCalls==1&&!Directory.Exists(Path.Combine(pluginRoot,"SampleZip")) &&
+              selected.GetProperty("data").GetProperty("skippedFiles").GetInt32()==1,
+            "plugin ZIP preview does not write files and reports ignored data");
+        var noApproval=await Call(zipBridge.HandleAsync,"plugins.zipApply",
+            new{token=zipToken,confirm=false});
+        Check(IsError(noApproval,"UM-PLUGIN-ZIP-APPROVAL"),
+            "plugin install requires explicit operator approval");
+        var applied=await Call(zipBridge.HandleAsync,"plugins.zipApply",
+            new{token=zipToken,confirm=true});
+        IsOk(applied,"guarded Core installs selected ZIP binary");
+        Check(File.Exists(Path.Combine(pluginRoot,"SampleZip","SampleZip.dll")) &&
+              !File.Exists(Path.Combine(pluginRoot,"SampleZip","README.txt")) &&
+              applied.GetProperty("data").GetProperty("installedBinaries").GetInt32()==1,
+            "DLL is installed but arbitrary nonbinary payload is not");
+        var replay=await Call(zipBridge.HandleAsync,"plugins.zipApply",
+            new{token=zipToken,confirm=true});
+        Check(IsError(replay,"UM-PLUGIN-ZIP-TOKEN-EXPIRED"),
+            "same plugin ZIP approval token cannot be replayed");
+        zipMap.HistoricalStoreProtected=true;
+        var historicalDenied=await Call(zipBridge.HandleAsync,"plugins.zipSelect",
+            new{mapId=zipMap.Id});
+        Check(IsError(historicalDenied,"UM-PLUGIN-ZIP-FAILED"),
+            "historical Store-v1 map never authorizes plugin ZIP changes");
+    }
+
     // A historical Store-v1 ZIP is an identity/provenance source, NOT a
     // complete command line. Test imported map remains blocked even with
     // valid SHA and an actual world file.
