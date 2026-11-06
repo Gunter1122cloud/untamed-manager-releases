@@ -1081,7 +1081,8 @@ test("SteamCMD simple path entry starts installation without advanced options or
   await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Servers\\TheIsland");
   await expect(page.getByRole("button",{name:"ASA letöltés indítása"})).toBeEnabled();
   await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
-  await expect(page.getByText(/valódi ASA-letöltés elindult/i)).toBeVisible();
+  await expect(page.getByText(/letöltve és hozzáadva a Managerhez/))
+    .toBeVisible({timeout:12000});
   await expect(page.getByRole("checkbox",{name:/Korábban megszakadt telepítés/})).toHaveCount(0);
 });
 
