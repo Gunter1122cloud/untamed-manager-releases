@@ -455,6 +455,65 @@ try
             "RCON success response contains no plaintext credential");
     }
 
+    // The first REAL ASA start has its own native two-stage approval path.
+    // The Windows test injects a process adapter and never executes the
+    // synthetic (non-executable) ASA fixture or touches live Store-v1.
+    {
+        var fresh=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
+        int calls=0;
+        using var starter=new DesktopFreshAsaStartBridge(cluster,(id,approved)=>{
+            Check(approved && id==fresh.Id,"native launch receives exact approved local map");
+            calls++;
+            return new ProcessIdentity{
+                Pid=45678,StartedUtc=DateTimeOffset.UtcNow,
+                ExecutablePath=fresh.ExecutablePath,Arguments=fresh.Arguments
+            };
+        });
+        var unknown=await Call(starter.HandleAsync,"servers.freshStartPreview",
+            new{mapId=Guid.NewGuid()});
+        Check(IsError(unknown,"UM-MAP-NOT-OWNED") && calls==0,
+            "unknown map cannot start a Windows ASA process");
+        var preview=await Call(starter.HandleAsync,"servers.freshStartPreview",
+            new{mapId=fresh.Id});
+        IsOk(preview,"stopped fresh official ASA installation passes first-start preflight");
+        Check(preview.GetProperty("data").GetProperty("steamBuild").GetString()=="123456" &&
+              calls==0,"preflight uses local Steam manifest without launching server");
+        string firstToken=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var denied=await Call(starter.HandleAsync,"servers.freshStartApply",
+            new{token=firstToken,confirm=false});
+        Check(IsError(denied,"UM-FRESH-START-APPROVAL")&&calls==0,
+            "real fresh ASA start requires explicit confirmation");
+        var launched=await Call(starter.HandleAsync,"servers.freshStartApply",
+            new{token=firstToken,confirm=true});
+        IsOk(launched,"confirmed new local ASA start calls native process adapter");
+        Check(calls==1 &&
+              launched.GetProperty("data").GetProperty("pid").GetInt32()==45678 &&
+              !launched.GetProperty("data").GetProperty("readyCertified").GetBoolean() &&
+              !launched.GetProperty("data").GetProperty("storeTouched").GetBoolean(),
+            "process start does not claim readiness or mutate Store");
+        var replay=await Call(starter.HandleAsync,"servers.freshStartApply",
+            new{token=firstToken,confirm=true});
+        Check(IsError(replay,"UM-FRESH-START-TOKEN-EXPIRED")&&calls==1,
+            "approved ASA start is one-shot and cannot automatically repeat");
+        fresh.HistoricalStoreProtected=true;
+        var historical=await Call(starter.HandleAsync,"servers.freshStartPreview",
+            new{mapId=fresh.Id});
+        Check(IsError(historical,"UM-FRESH-START-NOT-READY")&&calls==1,
+            "historical Store protection always blocks fresh ASA start");
+        fresh.HistoricalStoreProtected=false;
+        Check(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
+                confirmedStopped:true).Allowed &&
+              ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
+                confirmedStopped:true,verifiedFreshInstall:true,
+                explicitOperatorApproval:true).Allowed,
+            "production start gate requires both real-install evidence and explicit approval");
+        var status=await Call(starter.HandleAsync,"servers.freshStartStatus",
+            new{mapId=fresh.Id});
+        IsOk(status,"local ASA process can be reobserved without starting it");
+        Check(!status.GetProperty("data").GetProperty("readyCertified").GetBoolean(),
+            "process observation never implies game-client readiness");
+    }
+
     // Actual SteamCMD entry point uses Core's stopped-map update and per-host
     // queue. The adapter is injected only in this isolated Windows fixture.
     {
