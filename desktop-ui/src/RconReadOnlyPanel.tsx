@@ -43,7 +43,7 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
     if(!status?.permitted||busy||(!adminMessage.trim()&&adminAction!=="wildWipe"))return;
     setBusy(true);setError("");setAdminDraft(null);setAdminReceipt(null);
     setAdminApproved(false);setAdminTyped("");
-    try{setAdminDraft(await managerBridge.rconAdminPreview(mapId,adminAction,adminMessage));}
+    try{setAdminDraft(await managerBridge.rconAdminPreview(mapId,adminAction,adminAction==="wildWipe"?"":adminMessage));}
     catch{setError("A helyi adminparancs ellenőrzése sikertelen: a művelet nincs engedélyezve vagy a RCON-kapcsolat nem igazolt.");}
     finally{setBusy(false);}
   };
@@ -92,7 +92,8 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
             <label>Parancstípus
               <select aria-label="Admin RCON parancstípus" disabled={busy||!status?.permitted}
                 value={adminAction} onChange={e=>{
-                  setAdminAction(e.target.value);setAdminDraft(null);setAdminReceipt(null);
+                  setAdminAction(e.target.value);setAdminMessage("");
+                  setAdminDraft(null);setAdminReceipt(null);
                 }}>
                 <option value="broadcast">Közlemény minden játékosnak</option>
                 <option value="serverChat">Szerver-chat üzenet</option>
