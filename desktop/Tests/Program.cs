@@ -460,6 +460,8 @@ try
     // synthetic (non-executable) ASA fixture or touches live Store-v1.
     {
         var fresh=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
+        Check(AsaRconConfigurationEvidence.Matches(fresh),
+            "fresh server must match RCON port, WindowsServer INI and protected credential");
         int calls=0;
         var localGameBind=new[]{
             new System.Net.IPEndPoint(System.Net.IPAddress.Any,fresh.GamePort)};
@@ -741,6 +743,10 @@ try
         Directory.CreateDirectory(manifests);
         File.WriteAllText(Path.Combine(manifests,"appmanifest_2430930.acf"),
             "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
+        AsaInitialRconSettings.CreateForNewServer(stopRoot,37556,
+            "SYNTHETIC-LOCAL-STOP-CREDENTIAL");
+        Check(AsaRconConfigurationEvidence.Matches(stopLabMap),
+            "Restart requires a real local ASA RCON INI matching Manager credentials");
         int restartCalls=0;
         using var restartBridge=new DesktopFreshAsaRestartBridge(lab,Owner,
             async (id,old,progress)=>{
