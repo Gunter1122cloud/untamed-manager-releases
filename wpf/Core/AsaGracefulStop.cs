@@ -8,7 +8,14 @@ namespace UntamedManager.Core;
 
 public sealed record AsaGracefulStopReceipt(Guid MapId,int Pid,
     bool ConfirmedStopped,bool SaveCompleteProven,bool UsedDoExit,
-    DateTimeOffset CompletedUtc,string Evidence);
+    DateTimeOffset CompletedUtc,string Evidence)
+{
+    // Log marker + changed/stable .ark were witnessed BEFORE DoExit.
+    // They do not prove ASA's final DoExit save was fsynced, nor that a
+    // character/tribe can actually rejoin after a restore.
+    public bool PreExitSaveLogAndWorldObserved {get;init;}
+    public bool GameClientRejoinVerified=>false;
+}
 
 /// <summary>
 /// Strictly local, non-Store, first-run ASA graceful stop. SaveWorld is sent
@@ -79,6 +86,7 @@ public static class AsaGracefulStop
             throw new InvalidOperationException("UM-ASA-STOP-LOCAL-BINARY-CHANGED");
         Verify();
         lease.MarkMutationStarted();
+        bool preExitEvidence=false;
         if(sendCommands!=null)
             await sendCommands(map,expected,ct).WaitAsync(ct);
         else
@@ -86,8 +94,22 @@ public static class AsaGracefulStop
             string password=SecureStore.Unprotect(map.RconPasswordProtected);
             if(string.IsNullOrWhiteSpace(password))
                 throw new InvalidDataException("Local RCON credential unavailable");
+            // Capture the current log byte offset BEFORE irreversible RCON
+            // dispatch. Old autosave lines must not certify this SaveWorld.
+            var witness=AsaWorldSaveEvidence.Begin(map,expected) ??
+                throw new InvalidOperationException(
+                    "UM-ASA-STOP-LOG-WITNESS-MISSING");
             await RconProtocol.DispatchOwnedSaveWorldAsync(
                 map.RconPort,password,Verify,ct);
+            var observed=await AsaWorldSaveEvidence.WaitAsync(
+                witness,()=>{
+                    try{Verify();return true;}
+                    catch{return false;}
+                },TimeSpan.FromSeconds(90),ct);
+            if(!observed.CompletionObserved)
+                throw new InvalidOperationException(
+                    "UM-ASA-STOP-SAVE-NOT-OBSERVED_NO_DOEXIT");
+            preExitEvidence=true;
             Verify();
             await RconProtocol.DispatchDoExitAsync(
                 map.RconPort,password,Verify,ct);
@@ -108,6 +130,11 @@ public static class AsaGracefulStop
         }
         lease.Complete();
         return new(map.Id,expected.Pid,true,false,true,DateTimeOffset.UtcNow,
-            "REAL_LOCAL_RCON_DOEXIT_PROCESS_EXIT_NOT_INDEPENDENT_SAVECOMPLETE");
+            preExitEvidence?
+              "REAL_LOCAL_PREEXIT_SAVE_LOG_AND_WORLD_VERIFIED_FINAL_EXIT_SAVE_UNVERIFIED":
+              "ISOLATED_COMMAND_DISPATCH_AND_PROCESS_EXIT_NO_INDEPENDENT_SAVE_WITNESS")
+        {
+            PreExitSaveLogAndWorldObserved=preExitEvidence
+        };
     }
 }
