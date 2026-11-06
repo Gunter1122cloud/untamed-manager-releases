@@ -257,7 +257,8 @@ public sealed class ObsidianWindow : Form
                         freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or
                             "servers.freshStartStatus" or "servers.freshReadiness";
                         freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or "servers.gracefulStopStatus";
-                        freshRestartRoute = name is "servers.restartPreview" or "servers.restartApply" or "servers.restartStatus";
+                        freshRestartRoute = name is "servers.restartPreview" or "servers.restartApply" or
+                            "servers.restartStatus" or "servers.restartCurrent";
                         lifecycleJournalRoute = name is "servers.lifecycleJournal";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
