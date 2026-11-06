@@ -24,6 +24,9 @@ public sealed record ClusterVaultArchiveReport(
     public VaultFinding[] Findings {get;init;}=System.Array.Empty<VaultFinding>();
     public VaultHostStatus[] Hosts {get;init;}=System.Array.Empty<VaultHostStatus>();
     public bool HistoricalConsistent {get;init;}
+    // Statically inferred from copied metadata; NEVER live launch authority.
+    public bool HistoricalActiveProtocolShape {get;init;}
+    public string[] HistoricalStartBlockers {get;init;}=System.Array.Empty<string>();
     public bool ProductionUseAllowed=>false;
 }
 
@@ -93,6 +96,7 @@ public static class ClusterVaultArchiveInspector
         var allMaps=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var names=new List<string>();
         var hosts=new List<VaultHostStatus>();
+        var peerPhases=new List<string>();
         bool sessions=true,hashes=true,active=true;
         for(int index=0;index<peerIds.Length;index++)
         {
@@ -106,6 +110,7 @@ public static class ClusterVaultArchiveInspector
             }
             using var peerDoc=VaultReadSnapshot.Json(files,peerKey);
             var peer=peerDoc.RootElement;
+            peerPhases.Add(Text(peer,"phase"));
             bool sessionOk=SameGuid(Text(peer,"session"),sessionId)&&SameGuid(Text(peer,"id"),Guid.Parse(peerId));
             if(!sessionOk)Issue(VaultFindingCode.SessionMismatch,"Eltérő peer-azonosító vagy munkamenet.");
             if(Text(peer,"phase")!="done")
@@ -205,7 +210,26 @@ public static class ClusterVaultArchiveInspector
                 Issue(marker.Item2,marker.Item3);
         bool complete=hosts.Count==2&&hosts.All(h=>h.LocalEvidence)&&
             !findings.Any(f=>f.Code==VaultFindingCode.LocalLock);
-        bool historical=complete&&findings.Count==0;
+        // The original two-host source permits normal active Store launches
+        // ONLY after both peer journals reached done, local durable locks
+        // match and the attempted conversion marker is closed with no running
+        // reservation or abandoned mutation lock. These copies remain offline.
+        var phaseGate=LegacyStoreV1PhaseGate.Evaluate(new(
+            MapPhase:active&&hosts.All(h=>h.ActiveMaps)?"active":"unknown",
+            LocalPeerPhase:peerPhases.Count>0?peerPhases[0]:"",
+            OtherPeerPhase:peerPhases.Count>1?peerPhases[1]:"",
+            LocalLockPresent:hosts.Count==2&&hosts.All(h=>h.LocalEvidence),
+            LocalLockMatchesSession:hosts.Count==2&&hosts.All(h=>h.LockMatches),
+            PeerSessionsMatch:sessions,
+            ConfigurationHashesMatch:hashes,
+            MapIdentityAndRootMatch:!findings.Any(f=>f.Code is
+                VaultFindingCode.MapAssignment or VaultFindingCode.LocalStore),
+            SelectedByLocalPeer:!findings.Any(f=>f.Code==VaultFindingCode.SelectedMaps),
+            RunningMarkerPresent:findings.Any(f=>f.Code==VaultFindingCode.RunningMarker),
+            MutationLockPresent:findings.Any(f=>f.Code==VaultFindingCode.MutationLock),
+            CancelledMarkerPresent:findings.Any(f=>f.Code==VaultFindingCode.CancelledMarker),
+            AttemptedMarkerPresent:files.ContainsKey(attempted)));
+        bool historical=complete&&findings.Count==0&&phaseGate.HistoricalNormalStartShape;
         // Partial historical evidence may have internally consistent sessions,
         // but never two-host or production acceptance.
         bool consistent=sessions&&!findings.Any(f=>f.Code!=VaultFindingCode.MissingLocalHost);
@@ -213,7 +237,10 @@ public static class ClusterVaultArchiveInspector
             "TÖRTÉNETI MÁSOLAT: élő állapot, karaktertranszfer és kizárólagos írójog nem igazolt.").ToArray();
         return new(files.Count(x=>x.Value.Length>0&&x.Key!="manifest.json"),names.Count,
             hosts.Count,consistent,hashes,active&&locals.Count>0,complete,names.ToArray(),warnings)
-        {Findings=findings.ToArray(),Hosts=hosts.ToArray(),HistoricalConsistent=historical};
+        {Findings=findings.ToArray(),Hosts=hosts.ToArray(),
+            HistoricalConsistent=historical,
+            HistoricalActiveProtocolShape=historical,
+            HistoricalStartBlockers=phaseGate.Blockers};
     }
     private static JsonElement Required(JsonElement e,string name)=>
         e.ValueKind==JsonValueKind.Object&&e.TryGetProperty(name,out var value)?value:
