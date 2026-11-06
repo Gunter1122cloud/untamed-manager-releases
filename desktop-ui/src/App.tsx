@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
-  FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload,
+  FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
   Package, Plug, RefreshCw, Search, Server, Settings2, Shield, WifiOff
 } from "lucide-react";
 import {
@@ -21,8 +21,9 @@ import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
+import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 
-type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "map";
+type Page = "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "travel" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
   { page: "dashboard", label: "Áttekintés", icon: LayoutDashboard },
   { page: "servers", label: "Szerverek", icon: Server },
@@ -32,6 +33,7 @@ const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> =
   { page: "backups", label: "Mentések", icon: Archive },
   { page: "steam", label: "SteamCMD", icon: HardDrive },
   { page: "updates", label: "Frissítések", icon: CloudDownload },
+  { page: "travel", label: "Karakterutazás teszt", icon: Activity },
   { page: "logs", label: "Naplók", icon: FileText },
   { page: "ini", label: "INI szerkesztő", icon: FileText },
   { page: "settings", label: "Beállítások", icon: Settings2 },
@@ -1400,6 +1402,7 @@ export function App() {
           {page === "plugins" && <PluginCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "backups" && <BackupCenter/>}
           {page === "updates" && <UpdateCenterPage/>}
+          {page === "travel" && <StoreTravelWorkbench/>}
           {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh}/>}
           {page === "logs" && <LogsCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "settings" && <SettingsCenter/>}
