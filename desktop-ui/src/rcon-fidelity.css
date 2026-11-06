@@ -34,3 +34,21 @@
 .uk-rcon-locked svg {flex:none;}
 @media(max-width:1080px){.uk-rcon-grid{grid-template-columns:1fr;}}
 @media(max-width:760px){.uk-rcon-commands button{width:100%;justify-content:center;}}
+
+/* Explicit real SaveWorld action: visually distinct from read-only player list. */
+.uk-rcon-save-panel{display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:12px;padding:14px;border-bottom:1px solid #45655d;
+  background:linear-gradient(90deg,#1c3835,#243a35);}
+.uk-rcon-save-panel label{display:flex;align-items:center;gap:9px;
+  font-size:11px;line-height:1.5;color:#c6dfd4;max-width:460px;}
+.uk-rcon-save-panel input{width:16px;height:16px;accent-color:#69dbab;flex:none;}
+.uk-rcon-save-panel button{display:inline-flex;align-items:center;gap:7px;min-height:39px;}
+.uk-rcon-save-panel button:disabled{opacity:.47;cursor:not-allowed;}
+.uk-rcon-save-receipt{display:flex;align-items:flex-start;gap:10px;padding:12px 15px;
+  color:#c8e9cf;background:#1d4436;border:1px solid #598c68;border-radius:8px;
+  margin:11px 13px;}
+.uk-rcon-save-receipt svg{color:#7af2ac;flex:none;}
+.uk-rcon-save-receipt b{font-size:12px;}
+.uk-rcon-save-receipt p{font-size:11px;line-height:1.6;margin:6px 0 0;}
+@media(max-width:750px){.uk-rcon-save-panel{flex-direction:column;align-items:stretch;}
+  .uk-rcon-save-panel button{justify-content:center;}}
