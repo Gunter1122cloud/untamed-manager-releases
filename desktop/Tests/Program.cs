@@ -470,12 +470,12 @@ try
             Pid=550055,StartedUtc=DateTimeOffset.UtcNow,
             ExecutablePath=fakeMap.ExecutablePath,Arguments=""
         };
-        bool running=true,owner=true;
+        bool rconRunning=true,owner=true;
         int dispatched=0;
         await using var observed=new ClusterService("rcon-readonly-synthetic",
             Path.Combine(root,"rcon-readonly-profile"),
-            _=>new ProcessCheck(running,"synthetic process observed",
-                running?identity:null,!running));
+            _=>new ProcessCheck(rconRunning,"synthetic process observed",
+                rconRunning?identity:null,!rconRunning));
         observed.AddMap(fakeMap);
         var rcon=new DesktopRconReadOnlyBridge(observed,
             (_,pid)=>owner && pid==identity.Pid,
@@ -501,11 +501,11 @@ try
         var refused=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(refused,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
               dispatched==1,"RCON port ownership loss prevents another dispatch");
-        owner=true;running=false;
+        owner=true;rconRunning=false;
         var stopped=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(stopped,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
               dispatched==1,"stopped synthetic process cannot receive RCON");
-        running=true;fakeMap.HistoricalStoreProtected=true;
+        rconRunning=true;fakeMap.HistoricalStoreProtected=true;
         var locked=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(locked,"UM-HISTORICAL-STORE-LOCKED") &&
               dispatched==1,"historical Store-v1 lock always prevents RCON dispatch");
