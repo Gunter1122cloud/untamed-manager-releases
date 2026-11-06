@@ -93,6 +93,39 @@ test.beforeEach(async ({ page }) => {
         };
         case "rcon.listPlayers":
           throw new Error("Only verified local process/port can query players");
+        case "backup.history": return {
+          mapId:m.mapId,mapName:"The Island",points:[],
+          source:"LOCAL_SAVEDARKS_MAP_FOLDER",
+          storeWriterTouched:false,evidence:"REAL_SHA256_BACKUP_PACKAGES"
+        };
+        case "backup.preview": return {
+          token:"00000000-0000-4000-8000-00000000b001",
+          mapId:m.mapId,mapName:"The Island",mapKey:"TheIsland_WP",point:null,
+          confirmedStopped:true,willCreateProtectiveBackup:false,
+          originalWorldRetained:false,storeWriterTouched:false,
+          action:"BACKUP",evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
+        };
+        case "backup.create": return {
+          mapId:one,mapName:"The Island",point:"00000000-0000-4000-8000-00000000b002",
+          createdUtc:"2026-11-06T08:12:00Z",files:4,bytes:12799,
+          characters:1,tribes:1,backupVerified:true,asaSaveCompleteProven:false,
+          storeWriterTouched:false,evidence:"REAL_VERIFIED_STOPPED_MAP_WORLD_BACKUP"
+        };
+        case "backup.restorePreview": return {
+          token:"00000000-0000-4000-8000-00000000b003",
+          mapId:m.mapId,mapName:"The Island",mapKey:"TheIsland_WP",
+          point:m.point,confirmedStopped:true,
+          willCreateProtectiveBackup:true,originalWorldRetained:true,
+          storeWriterTouched:false,action:"RESTORE",
+          evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
+        };
+        case "backup.restore": return {
+          mapId:one,mapName:"The Island",point:"00000000-0000-4000-8000-00000000b002",
+          protectiveBackup:"00000000-0000-4000-8000-00000000b004",
+          restored:true,oldWorldRetained:true,worldRestoreVerified:true,
+          storeWriterTouched:false,
+          evidence:"VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY"
+        };
         case "updates.status": return {
           repository:"Gunter1122cloud/untamed-manager-releases",
           runningVersion:"1.4.0",installedTag:"v1.4.0",
@@ -104,12 +137,26 @@ test.beforeEach(async ({ page }) => {
           repository:"Gunter1122cloud/untamed-manager-releases",
           runningVersion:"1.4.0",installedTag:"v1.4.0",
           channel:m.channel??"stable",found:true,newer:true,
-          tag:"v9.0.0",version:"9.0.0",
-          assetName:"UntamedManager-9.0.0-SETUP.exe",
+          tag:"v9.0.0-obsidian-preview.1",version:"9.0.0",
+          assetName:"Untamed_Obsidian_Desktop_Preview_Setup.exe",
           sha256:"a".repeat(64),
           releaseNotes:"Synthetic signed-release metadata only",
           installationPermitted:false,updaterVerified:false,
           evidence:"GITHUB_RELEASE_METADATA_NOT_AN_INSTALLER"
+        };
+        case "updates.prepare": return {
+          token:"00000000-0000-4000-8000-00000000b005",
+          tag:"v9.0.0-obsidian-preview.1",version:"9.0.0",
+          assetName:"Untamed_Obsidian_Desktop_Preview_Setup.exe",
+          sha256:"a".repeat(64),fileBytes:15250100,verified:true,
+          requiresFinalApproval:true,updaterPackaged:true,
+          automaticInstallationStarted:false,
+          evidence:"OBSIDIAN_INSTALLER_SHA256_STAGED_ONLY"
+        };
+        case "updates.install": return {
+          externalUpdaterStarted:true,needsManagerExit:true,processId:7654,
+          tag:"v9.0.0-obsidian-preview.1",serverProcessesTouched:false,
+          evidence:"EXTERNAL_ROLLBACK_UPDATER_HANDOFF"
         };
         case "historical.launchEvidence": return {
           mapStatus:"MENTIONED",gamePortStatus:"MATCH",queryPortStatus:"MATCH",
@@ -343,7 +390,7 @@ test("two-host character travel workbench captures exactly five local maps witho
   await page.screenshot({path:"test-results/untamed-store-travel-workbench-1600.png",fullPage:false});
 });
 
-test("Update Center checks official metadata without exposing installer mutation",async({page})=>{
+test("Update Center verifies Obsidian-only installer and requires explicit two-stage native approval",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Frissítések"}).click();
   await expect(page.getByRole("heading",{name:"Frissítési központ"})).toBeVisible();
@@ -351,9 +398,12 @@ test("Update Center checks official metadata without exposing installer mutation
   await page.getByRole("combobox",{name:"Frissítési csatorna"}).selectOption("preview");
   await page.getByRole("button",{name:"Frissítések keresése"}).click();
   await expect(page.getByText("Új kiadás érhető el")).toBeVisible();
-  await expect(page.getByText("UntamedManager-9.0.0-SETUP.exe")).toBeVisible();
-  await expect(page.getByText(/A telepítés nincs engedélyezve/)).toBeVisible();
-  await expect(page.getByRole("button",{name:/Telepítés indítása/})).toHaveCount(0);
+  await expect(page.getByText("Untamed_Obsidian_Desktop_Preview_Setup.exe")).toBeVisible();
+  await page.getByRole("button",{name:/Telepítő letöltése és SHA-256 ellenőrzése/}).click();
+  await expect(page.getByText("Telepítő SHA-256 ellenőrizve")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Ellenőrzött frissítés telepítése"})).toBeDisabled();
+  await page.getByRole("checkbox").check();
+  await expect(page.getByRole("button",{name:"Ellenőrzött frissítés telepítése"})).toBeEnabled();
   await page.screenshot({path:"test-results/uk-update-center-1600.png",fullPage:false});
 });
 
