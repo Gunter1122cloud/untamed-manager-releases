@@ -211,6 +211,8 @@ export type FreshAsaRestartStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   stage:string;oldPid:number;newPid:number;changedUtc:string;
   saveCompleteProven:false;readinessCertified:false;
+  preExitSaveEvidenceObserved:boolean;finalDoExitSaveCertified:false;
+  gameClientRejoinVerified:false;
   killPerformed:false;storeTouched:false;autoRetry:false;
 };
 export type FreshAsaReadiness = {
@@ -233,7 +235,9 @@ export type FreshAsaStopQueued = {
 export type FreshAsaStopStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;confirmedStopped:boolean;
-  saveCompleteProven:false;killPerformed:false;restartPerformed:false;
+  saveCompleteProven:false;preExitSaveEvidenceObserved:boolean;
+  finalDoExitSaveCertified:false;gameClientRejoinVerified:false;
+  killPerformed:false;restartPerformed:false;
   storeTouched:false;
 };
 export type FreshAsaStartPreview = {
