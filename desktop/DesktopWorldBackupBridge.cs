@@ -109,9 +109,7 @@ public sealed class DesktopWorldBackupBridge
                     string point="";
                     if(method=="backup.restorePreview")
                     {
-                        if(map.HistoricalStoreProtected||
-                           (map.Arguments+" "+map.ApiLoaderArguments).Contains(
-                               "store",StringComparison.OrdinalIgnoreCase))
+                        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
                             return Fail(id,"UM-BACKUP-STORE-V1-RESTORE-LOCKED");
                         if(!root.TryGetProperty("point",out var rawPoint)||
                            rawPoint.ValueKind!=JsonValueKind.String||
