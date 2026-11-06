@@ -23,7 +23,7 @@ public sealed class DesktopRconAdminBridge
         int Pid,DateTimeOffset ProcessStartUtc,DateTimeOffset Expires);
     private readonly ClusterService cluster;
     private readonly Func<int,int,bool> ownsPort;
-    private readonly Func<string,int,string,string,CancellationToken,Task<string>> send;
+    private readonly Func<string,int,string,string,Action,CancellationToken,Task<string>> send;
     private readonly SemaphoreSlim gate=new(1,1);
     private Pending? pending;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -38,7 +38,12 @@ public sealed class DesktopRconAdminBridge
     {
         cluster=local??throw new ArgumentNullException(nameof(local));
         ownsPort=owner??RconPortOwnership.IsOwnedListener;
-        send=dispatch??RconProtocol.Execute;
+        send=dispatch==null
+            ?RconProtocol.DispatchApprovedAdminAsync
+            :(host,port,password,command,recheck,ct)=>{
+                recheck(); // injected synthetic tests still exercise ownership
+                return dispatch(host,port,password,command,ct);
+            };
     }
     private static string BuildCommand(string action,string message)
     {
@@ -70,6 +75,9 @@ public sealed class DesktopRconAdminBridge
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
         if(map==null)throw new UnauthorizedAccessException("UM-RCON-MAP-NOT-OWNED");
         if(map.HistoricalStoreProtected||map.Maintenance)
+            throw new InvalidOperationException("UM-RCON-MAP-PROTECTED");
+        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
             throw new InvalidOperationException("UM-RCON-MAP-PROTECTED");
         if(map.RconHost!="127.0.0.1"||map.RconPort is <1 or >65535||
            string.IsNullOrWhiteSpace(map.RconPasswordProtected))
@@ -162,8 +170,17 @@ public sealed class DesktopRconAdminBridge
                 if(string.IsNullOrEmpty(password))
                     return Fail(id,"UM-RCON-ADMIN-PASSWORD-UNAVAILABLE");
                 using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(11));
+                void RecheckAfterAuthentication()
+                {
+                    var (live,process)=RequireOwned(job.MapId);
+                    if(process.Pid!=job.Pid ||
+                       process.StartedUtc!=job.ProcessStartUtc ||
+                       live.RconPort!=owned.RconPort)
+                        throw new InvalidOperationException(
+                            "UM-RCON-ADMIN-POST-AUTH-PID-CHANGED");
+                }
                 string output=await send("127.0.0.1",owned.RconPort,password,job.Command,
-                    deadline.Token);
+                    RecheckAfterAuthentication,deadline.Token);
                 var check=cluster.Check(owned);
                 if(!check.Running||check.Identity==null||
                    check.Identity.Pid!=job.Pid||
