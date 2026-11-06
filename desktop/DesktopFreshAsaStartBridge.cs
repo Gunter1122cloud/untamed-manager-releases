@@ -43,7 +43,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
     }
     private bool Eligible(LocalMap map)
     {
-        if(map.HistoricalStoreProtected || map.Maintenance ||
+        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) || map.Maintenance ||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
            (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
                StringComparison.OrdinalIgnoreCase)||
