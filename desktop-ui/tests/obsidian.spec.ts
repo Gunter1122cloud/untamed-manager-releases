@@ -744,7 +744,7 @@ test("Mentésközpont calls real native preview/create and displays verified cha
   await expect(page.getByText(/Astraeos_WP/)).toBeVisible();
   await page.getByRole("button",{name:"Mentés indítása"}).click();
   await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
-  await expect(page.getByText(/4 fájl · 1 karakter · 1 törzs/)).toBeVisible();
+  await expect(page.getByText(/4 fájl · 1 külön profil · 1 külön tribe fájl/)).toBeVisible();
   await expect(page.getByText("1 ellenőrzött csomag")).toBeVisible();
   await page.screenshot({path:"test-results/uk-real-world-backup-1600.png",fullPage:false});
 });
@@ -1572,8 +1572,8 @@ test("ASA normal Stop requires approval and never force-kills or claims SaveComp
   await expect(confirm).toBeDisabled();
   await page.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await confirm.click();
-  await expect(page.locator(".success-inline").filter({hasText:"ASA-folyamat szabályosan kilépett"})).toBeVisible({timeout:12000});
-  await expect(page.locator(".success-inline").filter({hasText:"független lemezmentési bizonyíték nincs"})).toBeVisible();
+  await expect(page.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"})).toBeVisible({timeout:12000});
+  await expect(page.locator(".success-inline").filter({hasText:"független lemezmentése nincs igazolva"})).toBeVisible();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
 });
 
