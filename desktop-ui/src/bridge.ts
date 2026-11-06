@@ -134,6 +134,12 @@ export type PluginZipInstalled = {
   requiresRestart:true;runtimeLoadedVerified:false;
   evidence:"VERIFIED_GUARDED_PLUGIN_ZIP_INSTALL";
 };
+export type DurableSteamQueue = {
+  exists:boolean;queueId?:string;phase?:string;activeMapName?:string|null;
+  nextIndex?:number;total?:number;changedUtc?:string;summary?:string;
+  needsOperatorReview:boolean;autoResumeAllowed:false;hostName?:string;
+  evidence?:"DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL";
+};
 export type StoppedSteamPreview = {
   token:string;mapId:string;mapName:string;maps:string[];
   installedBuild:string;reserveBytes:number;availableBytes:number;
@@ -430,7 +436,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" |
+  "steam.freshRegister" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -498,6 +504,8 @@ export const managerBridge = {
   updatePrepare: (channel:"stable"|"preview") => request<UpdatePrepared>("updates.prepare",{channel,confirm:true}),
   updateInstall: (token:string) => request<UpdateInstallReceipt>("updates.install",{token,confirm:true}),
   updateStatus: () => request<UpdateStatus>("updates.status"),
+  steamStoppedCurrent: () =>
+    request<DurableSteamQueue>("steam.stoppedCurrent"),
   steamStoppedPreview: (mapId:string) =>
     request<StoppedSteamPreview>("steam.stoppedPreview",{mapId}),
   steamStoppedApply: (token:string) =>
