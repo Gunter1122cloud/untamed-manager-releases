@@ -66,3 +66,14 @@
   .uk-updates-hero h2{font-size:21px;}
   .uk-updates-info-row{align-items:flex-start;flex-direction:column;}
 }
+
+.uk-updates-ready{margin:13px 0;padding:14px;background:#173d31;
+  border:1px solid #52a480;border-radius:9px;color:#d4ffe5;}
+.uk-updates-ready>div:first-child{display:flex;align-items:center;gap:8px;
+  font-size:13px;font-weight:750;color:#a6ffd2;}
+.uk-updates-ready>span{display:block;color:#b7dac9;font-size:11px;margin:9px 0;}
+.uk-updates-ready code{display:block;overflow-wrap:anywhere;font-size:10px;color:#8fe9ca;}
+.uk-updates-ready label{display:flex;align-items:flex-start;gap:11px;
+  margin:14px 0 4px;padding:12px;border:1px solid #5d9c7e;border-radius:8px;
+  background:#184c39;color:#e8fff2;font-size:11.5px;line-height:1.6;}
+.uk-updates-ready label input{width:18px;height:18px;flex:0 0 18px;margin-top:2px;}
