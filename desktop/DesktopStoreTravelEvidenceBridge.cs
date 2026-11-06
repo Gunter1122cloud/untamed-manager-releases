@@ -87,7 +87,7 @@ public sealed class DesktopStoreTravelEvidenceBridge
         bool ambiguous=folder==saved&&cluster.Config.LocalMaps.Count(m=>
             string.Equals(Path.GetFullPath(m.InstallationPath).TrimEnd('\\'),
                 baseRoot.TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))>1;
-        var before=cluster.Check(map);
+        var before=cluster.ObserveLocalProcessesReadOnly(map);
         bool quiescent=!before.Running&&before.ConfirmedStopped&&
             before.Identity==null&&before.LoaderIdentity==null;
         var proofs=new List<Proof>();
@@ -140,7 +140,7 @@ public sealed class DesktopStoreTravelEvidenceBridge
             var second=new FileInfo(world);
             worldUnstable=first.Length!=second.Length||touched!=second.LastWriteTimeUtc;
         }
-        var after=cluster.Check(map);
+        var after=cluster.ObserveLocalProcessesReadOnly(map);
         if(quiescent&&(after.Running||!after.ConfirmedStopped||
             after.Identity!=null||after.LoaderIdentity!=null))unstable=true;
         if(worldUnstable)unstable=true;
