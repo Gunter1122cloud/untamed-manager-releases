@@ -655,7 +655,7 @@ public sealed class ClusterService : IAsyncDisposable
     // deliberately separate from historical Store-v1 imports and FakeAsa.
     // No automatic server restart or recovery is authorized here. A successful
     // Process.Start is not evidence of RCON/ASA client readiness.
-    public ProcessIdentity LaunchFreshAsa(Guid id,bool operatorApproved)
+    public ProcessIdentity LaunchFreshAsa(Guid id,bool operatorApproved,Guid? approvedRestartId=null)
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
             throw new UnauthorizedAccessException("Only local registered maps may start");
@@ -672,6 +672,8 @@ public sealed class ClusterService : IAsyncDisposable
            !Path.IsPathFullyQualified(map.ExecutablePath))
             throw new InvalidDataException("New ASA installation has incomplete local setup");
         string root=Path.GetFullPath(map.InstallationPath);
+        var restartJournal=new AsaManualRestartJournal(root);
+        restartJournal.DemandAuthorizedStart(approvedRestartId);
         string server=Path.Combine(root,"ShooterGame","Binaries","Win64",
             "ArkAscendedServer.exe");
         if(!string.Equals(Path.GetFullPath(map.ExecutablePath),server,
@@ -700,6 +702,7 @@ public sealed class ClusterService : IAsyncDisposable
         if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("Unresolved restore prevents ASA start");
         using var lease=Operations.Acquire(root,UntamedOperationKind.Launch);
+        restartJournal.DemandAuthorizedStart(approvedRestartId);
         // Reject changed disk/host conditions after the installation-wide
         // operation lock, immediately before spawning any process.
         FreshAsaInstallationSafety.Demand(this,map);
