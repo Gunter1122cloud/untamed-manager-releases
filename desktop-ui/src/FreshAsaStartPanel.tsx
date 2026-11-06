@@ -6,8 +6,8 @@ import {managerBridge,type FreshAsaStartPreview,type FreshAsaStartStatus} from "
 // launch arguments, credentials or Store data in WebView2 storage.
 const recentStartReceipts=new Map<string,string>();
 
-export function FreshAsaStartPanel({mapId,onStarted}:{
-  mapId:string;onStarted:()=>Promise<void>
+export function FreshAsaStartPanel({mapId,onStarted,journalBlocked}:{
+  mapId:string;onStarted:()=>Promise<void>;journalBlocked:boolean
 }){
   const [observed,setObserved]=useState<FreshAsaStartStatus|null>(null);
   const [preview,setPreview]=useState<FreshAsaStartPreview|null>(null);
@@ -31,14 +31,14 @@ export function FreshAsaStartPanel({mapId,onStarted}:{
     catch{setError("A helyi ASA-folyamat állapotának beolvasása sikertelen.");}
   };
   const check=async()=>{
-    if(busy || !mapId)return;
+    if(busy || !mapId || journalBlocked)return;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{setPreview(await managerBridge.freshAsaStartPreview(mapId));}
     catch{setError("Indítás nem engedélyezett: új, érvényesen konfigurált ASA-telepítés, leállított folyamat és sértetlen mentésállapot szükséges. Store-v1 történeti mapok nem indíthatók ezzel a művelettel.");}
     finally{setBusy(false);}
   };
   const start=async()=>{
-    if(!preview || !approved || busy)return;
+    if(!preview || !approved || busy || journalBlocked)return;
     const token=preview.token;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{
@@ -66,7 +66,7 @@ export function FreshAsaStartPanel({mapId,onStarted}:{
       <b>{observed.running?"Fut · PID "+(observed.pid??"?"):
         observed.confirmedStopped?"Igazoltan leállítva":"Nem igazolt állapot"}</b>
     </div>}
-    <button type="button" className="secondary" disabled={busy||Boolean(observed?.running)}
+    <button type="button" className="secondary" disabled={busy||journalBlocked||Boolean(observed?.running)}
       onClick={()=>{void check();}}>Valódi ASA-indítás előellenőrzése</button>
     {preview&&<div className="historical-preview" role="region" aria-label="Valódi ASA indítás jóváhagyása">
       <h3>{preview.mapName} – Steam build: {preview.steamBuild}</h3>
@@ -79,7 +79,7 @@ export function FreshAsaStartPanel({mapId,onStarted}:{
         onChange={e=>setApproved(e.target.checked)}/>
         Jóváhagyom az új, saját helyi ASA szerver tényleges Windows-folyamatának elindítását.
       </label>
-      <button type="button" className="primary" disabled={busy||!approved}
+      <button type="button" className="primary" disabled={busy||!approved||journalBlocked}
         onClick={()=>{void start();}}><Play size={16}/> ASA szerver indítása</button>
       <button type="button" className="secondary" disabled={busy}
         onClick={()=>setPreview(null)}>Mégsem</button>
