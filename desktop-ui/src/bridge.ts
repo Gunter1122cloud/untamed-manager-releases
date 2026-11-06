@@ -140,6 +140,12 @@ export type DurableSteamQueue = {
   needsOperatorReview:boolean;autoResumeAllowed:false;hostName?:string;
   evidence?:"DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL";
 };
+export type AsaLifecycleJournal = {
+  mapId:string;mapName:string;journalExists:boolean;
+  phase?:string|null;kind?:string|null;changedUtc?:string|null;
+  needsOperatorReview:boolean;autoResumeAllowed:false;
+  storeTouched:false;evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY";
+};
 export type FreshAsaStopPreview = {
   token:string;mapId:string;mapName:string;pid:number;
   usesSaveWorld:true;usesDoExit:true;killPermitted:false;
@@ -467,7 +473,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
+  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -535,6 +541,8 @@ export const managerBridge = {
   updatePrepare: (channel:"stable"|"preview") => request<UpdatePrepared>("updates.prepare",{channel,confirm:true}),
   updateInstall: (token:string) => request<UpdateInstallReceipt>("updates.install",{token,confirm:true}),
   updateStatus: () => request<UpdateStatus>("updates.status"),
+  asaLifecycleJournal: (mapId:string) =>
+    request<AsaLifecycleJournal>("servers.lifecycleJournal",{mapId}),
   freshAsaStopPreview: (mapId:string) =>
     request<FreshAsaStopPreview>("servers.gracefulStopPreview",{mapId}),
   freshAsaStopApply: (token:string) =>
