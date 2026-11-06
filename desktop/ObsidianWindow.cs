@@ -73,6 +73,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopStoppedSteamUpdateBridge _steamUpdate;
     private readonly DesktopFreshAsaStartBridge _freshStart;
     private readonly DesktopFreshAsaStopBridge _freshStop;
+    private readonly DesktopFreshAsaRestartBridge _freshRestart;
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly DesktopWorldBackupBridge _worldBackup;
@@ -101,6 +102,7 @@ public sealed class ObsidianWindow : Form
         _steamUpdate = new DesktopStoppedSteamUpdateBridge(_bridge.LocalCluster);
         _freshStart = new DesktopFreshAsaStartBridge(_bridge.LocalCluster);
         _freshStop = new DesktopFreshAsaStopBridge(_bridge.LocalCluster);
+        _freshRestart = new DesktopFreshAsaRestartBridge(_bridge.LocalCluster);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster);
@@ -149,6 +151,7 @@ public sealed class ObsidianWindow : Form
             _steamUpdate.Dispose();
             _freshStart.Dispose();
             _freshStop.Dispose();
+            _freshRestart.Dispose();
             _initialMapSetup.Dispose();
             _freshInstall.Dispose();
             _modCatalog.Dispose();
@@ -233,6 +236,7 @@ public sealed class ObsidianWindow : Form
                 bool stoppedSteamRoute = false;
                 bool freshStartRoute = false;
                 bool freshStopRoute = false;
+                bool freshRestartRoute = false;
                 bool lifecycleJournalRoute = false;
                 try
                 {
@@ -253,6 +257,7 @@ public sealed class ObsidianWindow : Form
                         freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or
                             "servers.freshStartStatus" or "servers.freshReadiness";
                         freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or "servers.gracefulStopStatus";
+                        freshRestartRoute = name is "servers.restartPreview" or "servers.restartApply" or "servers.restartStatus";
                         lifecycleJournalRoute = name is "servers.lifecycleJournal";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
@@ -288,7 +293,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
+                    string response = freshRestartRoute ? await _freshRestart.HandleAsync(incoming)
+                        : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
                         : freshStopRoute ? await _freshStop.HandleAsync(incoming)
                         : freshStartRoute ? await _freshStart.HandleAsync(incoming)
                         : pluginZipRoute ? await _pluginZip.HandleAsync(incoming)
