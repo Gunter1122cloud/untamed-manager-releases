@@ -675,6 +675,7 @@ export const managerBridge = {
   catalogSummary: (modId: number) => request<CurseForgeSummary>("curseforge.summary", { modId }),
   catalogProject: (modId: number) => request<CurseForgeProject>("curseforge.project", { modId }),
   catalogFiles: (modId: number, page: number) => request<CurseForgeFilePage>("curseforge.files", { modId, page }),
+  freshBrowse: () => request<{selected:boolean;installRoot?:string}>("steam.freshBrowse"),
   freshPreflight: (args: {
     mapName:string; installRoot:string; steamExe:string;
     allowSteamCmdDownload:boolean; explicitRetry:boolean;
