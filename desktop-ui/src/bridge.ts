@@ -476,6 +476,16 @@ export type HistoricalLocalStoreStatus = {
   evidence:string;
 };
 
+export type HistoricalLiveGuard = {
+  mapId:string;originalActiveReady:boolean;bothPeersDone:boolean;
+  sharedSessionMatches:boolean;noPendingConversion:boolean;
+  noMutationMarker:boolean;localMapBindingMatches:boolean;
+  activeMaps:number;donePeers:number;readOnly:true;
+  serverStarted:false;gameClientRejoinVerified:false;
+  productionLaunchEnabled:false;
+  evidence:"ORIGINAL_LIVE_TWO_HOST_ACTIVE_DONE_SHARED_GUARD_READ_ONLY";
+};
+
 export type HistoricalPairEvidence = {
   files:number; maps:number; peers:number;
   sessionConsistent:boolean; configHashesVerified:boolean;
@@ -593,7 +603,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
-  "historical.pairedEvidence" | "historical.launchEvidence" |
+  "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
@@ -785,6 +795,7 @@ export const managerBridge = {
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
     request<HistoricalLaunchEvidence>("historical.launchEvidence",{archive,mapId,command}),
   historicalLocalStatus: () => request<HistoricalLocalStoreStatus>("historical.localStatus"),
+  historicalLiveGuard: (mapId:string) => request<HistoricalLiveGuard>("historical.liveGuard",{mapId}),
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
   historicalList: (archive:string) => request<HistoricalStoreList>("historical.list", {archive}),
   historicalPreview: (archive:string, mapId:string, root:string) =>
