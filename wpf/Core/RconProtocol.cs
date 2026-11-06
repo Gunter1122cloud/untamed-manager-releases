@@ -189,8 +189,13 @@ public static class RconProtocol
             }
             else if(packet.Id==barrierId && barrierSent)
             {
-                if(responses.Count==0 || (!adminDispatch&&string.IsNullOrWhiteSpace(
-                    string.Concat(responses))))
+                // Empty chat/game-log is a valid result when the explicit
+                // ordered ListPlayers barrier proves that the first command
+                // finished; treating it as a protocol error breaks an idle
+                // server's RCON console. ListPlayers still requires evidence.
+                bool emptyReadAllowed=command is "GetChat" or "GetGameLog";
+                if(responses.Count==0 || (!adminDispatch && !emptyReadAllowed &&
+                    string.IsNullOrWhiteSpace(string.Concat(responses))))
                     throw new InvalidDataException("Incomplete read-only RCON response");
                 return string.Concat(responses);
             }
