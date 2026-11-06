@@ -125,6 +125,54 @@ public static class ClusterVaultTests
             localRead.LocalSnapshotReady && localRead.Maps.Length==5 &&
             !localRead.LiveTwoHostVerified&&!localRead.CharacterTravelVerified,
             "read-only original local four Store-v1 files identify five active records without remote claims");
+        // Authenticated Manager LAN reports opaque tags, not original
+        // session IDs, UNC paths or device GUIDs. Both host copies MUST
+        // belong to the same prior shared Store session and different PCs.
+        string copiedRyzen=Path.Combine(dir,"Synthetic-Ryzen-Local-Copy");
+        Directory.CreateDirectory(copiedRyzen);
+        foreach(string sourceName in new[]{
+            "cluster-v1.json","cluster-store-v1.json",
+            "shared-store-device-v1.json","shared-store-lock-v1.json"})
+            File.WriteAllText(Path.Combine(copiedRyzen,sourceName),
+                items["Ryzen-Kova/"+sourceName],new UTF8Encoding(false));
+        var hpPeer=LegacyStoreV1PeerProof.FromLocal(copiedLocal);
+        var ryzenPeer=LegacyStoreV1PeerProof.FromLocal(copiedRyzen);
+        var historicalPair=LegacyStoreV1PairComparison.Compare(hpPeer,ryzenPeer,true);
+        Assert(historicalPair.CopiedMetadataPairMatches &&
+            historicalPair.SameSharedSession &&
+            historicalPair.SameSharedPath &&
+            historicalPair.DistinctDeviceIds &&
+            historicalPair.BothHaveFiveActiveMaps &&
+            !historicalPair.LiveWriterCertified &&
+            !historicalPair.CharacterTravelVerified,
+            "two original five-map local copies exchange matching Store session/share hashes without writer authority");
+        Assert(hpPeer.SessionTag.Length==64 &&
+            hpPeer.SharedPathTag.Length==64 &&
+            hpPeer.DeviceTag.Length==64 &&
+            !JsonSerializer.Serialize(hpPeer).Contains(sharedPath,StringComparison.OrdinalIgnoreCase) &&
+            !JsonSerializer.Serialize(hpPeer).Contains(session,StringComparison.OrdinalIgnoreCase),
+            "LAN Store peer proof redacts original session, UNC and device identity");
+        var stalePair=LegacyStoreV1PairComparison.Compare(hpPeer,ryzenPeer,false);
+        Assert(!stalePair.CopiedMetadataPairMatches &&
+            stalePair.StatusCode=="STORE_PEER_NOT_FRESH",
+            "stale remote LAN observation cannot certify paired Store files");
+        var selfPair=LegacyStoreV1PairComparison.Compare(hpPeer,hpPeer,true);
+        Assert(!selfPair.CopiedMetadataPairMatches &&
+            selfPair.StatusCode=="STORE_PEER_SAME_DEVICE",
+            "duplicate device identity never masquerades as two original Store hosts");
+        var badPair=LegacyStoreV1PairComparison.Compare(hpPeer,
+            LegacyStoreV1PeerProof.Invalid,true);
+        Assert(!badPair.CopiedMetadataPairMatches &&
+            badPair.StatusCode=="STORE_PEER_METADATA_INVALID",
+            "corrupted opposite host Store metadata never becomes two-host proof");
+        var transmitted=JsonSerializer.Deserialize<HostStatus>(
+            JsonSerializer.Serialize(new HostStatus{
+                HostId=Guid.NewGuid().ToString(),HostName="Synthetic-Ryzen",
+                OriginalStoreV1=ryzenPeer
+            }));
+        Assert(transmitted?.OriginalStoreV1?.SessionTag==ryzenPeer.SessionTag,
+            "original source tag survives backwards-compatible LAN status serialization");
+
         string copiedStorePath=Path.Combine(copiedLocal,"cluster-store-v1.json");
         string beforeTemporary=File.ReadAllText(copiedStorePath);
         File.WriteAllText(copiedStorePath,
