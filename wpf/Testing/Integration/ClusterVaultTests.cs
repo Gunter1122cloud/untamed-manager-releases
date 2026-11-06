@@ -115,6 +115,28 @@ public static class ClusterVaultTests
                 using var writer=new StreamWriter(entry.Open(),new UTF8Encoding(false));
                 writer.Write(file.Value);
             }
+        // On-demand, read-only original local four-file inspection. A valid
+        // copied host does NOT infer that the other host owns the same writer.
+        string copiedLocal=Path.Combine(dir,"Synthetic-HP-Local-Copy");
+        ZipFile.ExtractToDirectory(hpCopy,copiedLocal);
+        var localRead=LegacyStoreV1LocalReader.Inspect(copiedLocal);
+        Assert(localRead.LocalFilesVerified&&localRead.ClusterHashVerified &&
+            localRead.LocalLockVerified&&localRead.AllLocalMapsActive &&
+            localRead.LocalSnapshotReady && localRead.Maps.Length==5 &&
+            !localRead.LiveTwoHostVerified&&!localRead.CharacterTravelVerified,
+            "read-only original local four Store-v1 files identify five active records without remote claims");
+        string copiedStorePath=Path.Combine(copiedLocal,"cluster-store-v1.json");
+        string beforeTemporary=File.ReadAllText(copiedStorePath);
+        File.WriteAllText(copiedStorePath,
+            beforeTemporary.Replace("\"active\"","\"prepared\"",StringComparison.Ordinal));
+        var incompleteLocal=LegacyStoreV1LocalReader.Inspect(copiedLocal);
+        Assert(!incompleteLocal.LocalSnapshotReady && !incompleteLocal.AllLocalMapsActive,
+            "prepared historical map in local copy never becomes an active Store-v1 launch");
+        File.WriteAllText(copiedStorePath,beforeTemporary);
+        var recoveredLocal=LegacyStoreV1LocalReader.Inspect(copiedLocal);
+        Assert(recoveredLocal.LocalSnapshotReady,
+            "unchanged synthetic active local copy passes verification after isolated test mutation");
+
         string original=CreateArchive("Untamed-Cluster-Vault.zip",items);
         string before=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(original)));
         var result=ClusterVaultArchiveInspector.Inspect(original);
