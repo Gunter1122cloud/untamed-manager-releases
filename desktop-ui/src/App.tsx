@@ -21,6 +21,7 @@ import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
 import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
+import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
 import { PluginZipInstaller } from "./PluginZipInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
@@ -1308,9 +1309,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
             <button className="primary" onClick={()=>setSection("mods")}><Layers3 size={17}/> Modok kezelése</button>
             <button className="secondary" onClick={()=>setSection("ini")}><FileText size={17}/> INI szerkesztése</button>
           </div>
-          <div className="warning-inline"><Shield size={17}/> Valódi ASA Start/Stop/Restart és RCON írás csak sikeres izolált hitelesítési és életciklus-tesztek után engedhető.</div>
+          <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A történeti Store-v1 átvétel, automatikus restart és nem igazolt SaveComplete utáni leállítás továbbra is külön védelem alatt áll.</div>
         </Panel>
       </div>
+      {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
