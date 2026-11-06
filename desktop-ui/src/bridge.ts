@@ -497,6 +497,21 @@ export type AsaApiCoreReceipt = {
   evidence:"OFFICIAL_SHA256_STOPPED_API_CORE_SELECTIVE_ROLLBACK_SNAPSHOT";
 };
 
+export type AsaApiCoreRollbackCandidates = {
+  candidates:Array<{transactionId:string;releaseTag:string;binaries:number}>;
+  restartsServer:false;evidence:"COMMITTED_OWNED_API_CORE_TRANSACTIONS_ONLY";
+};
+export type AsaApiCoreRollbackPreview = {
+  token:string;mapId:string;mapName:string;transactionId:string;
+  releaseTag:string;binaries:number;approved:false;doesNotRestart:true;
+  evidence:"STOPPED_OWNED_COMMITTED_ROLLBACK_REQUIRES_BYTE_REVALIDATION";
+};
+export type AsaApiCoreRollbackReceipt = {
+  mapId:string;transactionId:string;filesRestored:number;filesRemoved:number;
+  bytesVerified:true;serverRestarted:false;
+  evidence:"STOPPED_OWNED_OFFICIAL_API_CORE_SHA256_ROLLBACK_ONLY";
+};
+
 export type HistoricalLiveGuard = {
   mapId:string;originalActiveReady:boolean;bothPeersDone:boolean;
   sharedSessionMatches:boolean;noPendingConversion:boolean;
@@ -626,6 +641,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
   "api.coreRelease" | "api.corePreview" | "api.coreApply" |
+  "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
@@ -642,7 +658,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
-  assetName?:string;
+  assetName?:string;transactionId?:string;
   point?:string; action?:string; message?:string; typedApproval?:string;
   rconPort?:number; password?:string; createIni?:boolean;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
@@ -755,6 +771,12 @@ export const managerBridge = {
     request<AsaApiCorePreview>("api.corePreview",{mapId,assetName}),
   apiCoreApply: (token:string) =>
     request<AsaApiCoreReceipt>("api.coreApply",{token,confirm:true}),
+  apiCoreRollbackCandidates: (mapId:string) =>
+    request<AsaApiCoreRollbackCandidates>("api.coreRollbackCandidates",{mapId}),
+  apiCoreRollbackPreview: (mapId:string,transactionId:string) =>
+    request<AsaApiCoreRollbackPreview>("api.coreRollbackPreview",{mapId,transactionId}),
+  apiCoreRollbackApply: (token:string) =>
+    request<AsaApiCoreRollbackReceipt>("api.coreRollbackApply",{token,confirm:true}),
   pluginZipSelect: (mapId:string) =>
     request<PluginZipPreview>("plugins.zipSelect",{mapId}),
   pluginZipApply: (token:string) =>
