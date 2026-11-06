@@ -7,6 +7,7 @@ import "./mod-fidelity.css";
 import "./cluster-gallery.css";
 import "./update-fidelity.css";
 import "./rcon-fidelity.css";
+import "./travel-fidelity.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing root");
