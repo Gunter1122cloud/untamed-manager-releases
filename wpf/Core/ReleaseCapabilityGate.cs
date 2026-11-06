@@ -9,7 +9,7 @@ namespace UntamedManager.Core;
 // to mutate real ASA, KovaCluster or MariaDB instances.
 public enum ManagerOperation
 {
-    LocalProcessObservation, LocalReadOnlyRcon, OfflineConfiguration,
+    LocalProcessObservation, LocalReadOnlyRcon, LiveWorldSave, OfflineConfiguration,
     OfflineBackup, OfflineSqlArchive, OfflineStoreInventory,
     FakeAsaStart, FakeAsaRecoverySimulation, SteamCmdDryRun,
     RealAsaStart, RealAsaStop, RealAsaRestart, RealAsaKill,
@@ -36,6 +36,14 @@ public static class ReleaseCapabilityGate
             case ManagerOperation.LocalReadOnlyRcon:
                 return new(operation,running && !maintenance,
                     running && !maintenance?"Read-only ListPlayers on verified local map":"Not verified running or in maintenance");
+            case ManagerOperation.LiveWorldSave:
+                // A fixed SaveWorld command does not confer Start/Stop/Kill,
+                // arbitrary RCON or Store writer privileges. The native
+                // caller must also verify exact PID/start and RCON listener owner.
+                return new(operation,running && !maintenance && !confirmedStopped,
+                    running && !maintenance && !confirmedStopped?
+                    "Explicit SaveWorld on exact owned local process":
+                    "Local owned running server required for explicit SaveWorld");
             case ManagerOperation.FakeAsaStart:
                 return new(operation,!maintenance && confirmedStopped && !running,
                     !maintenance && confirmedStopped && !running?
