@@ -46,7 +46,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     }finally{setBusy(false);}
   };
   const restorePreview=async(point:WorldBackupPoint)=>{
-    if(!chosen||busy||current?.running)return;
+    if(!chosen||busy||current?.running||current?.storeProtected)return;
     setPending(null);setRestoreTarget(null);setConfirmName("");setReceipt(null);
     setBusy(true);setError("");
     try{
@@ -58,7 +58,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   };
   const restore=async()=>{
     if(!pending||pending.action!=="RESTORE"||!current||
-       confirmName!==current.name||busy||current.running||pending.mapId!==chosen)return;
+       confirmName!==current.name||busy||current.running||current.storeProtected||pending.mapId!==chosen)return;
     const token=pending.token;setPending(null);setRestoreTarget(null);
     setBusy(true);setError("");
     try{
@@ -90,6 +90,10 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <button className="primary" type="button" disabled={!chosen||busy||current?.running}
           onClick={()=>{void preview();}}><Save size={15}/> Világmentés készítése</button>
       </div>
+      {current?.storeProtected&&<div className="uk-world-backup-notice"><LockKeyhole size={18}/>
+        Store-v1 vagy történeti Store-kapcsolat észlelve: a mentések olvashatók,
+        de a map egyoldalú visszaállítása zárolva van. A másik gép karakteradatait
+        nem írhatjuk felül.</div>}
       {current?.running&&<div className="uk-world-backup-notice"><LockKeyhole size={18}/>
         A map jelenleg fut. A teljes, karakter- és törzsadatokat is tartalmazó
         konzisztens másolathoz előbb szabályosan állítsd le, és ellenőrizd a mentés elkészültét.</div>}
@@ -126,7 +130,8 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             <small>{p.files} fájl · {p.characters} karakter · {p.tribes} tribe · {(p.bytes/1024/1024).toFixed(1)} MiB</small>
           </span>
           <span className="uk-world-backup-verified"><CheckCircle2 size={14}/> SHA-256</span>
-          <button type="button" className="secondary" disabled={busy||current?.running}
+          <button type="button" className="secondary" disabled={busy||current?.running||current?.storeProtected}
+            title={current?.storeProtected?"Store-v1 map: egyoldalú visszaállítás tiltva":"Védett visszaállítás"}
             onClick={()=>{void restorePreview(p);}}><RotateCcw size={14}/> Visszaállítás</button>
         </div>):
           <div className="uk-world-backup-empty">Még nincs ellenőrzött mentési pont ezen a mapon.</div>}
@@ -145,7 +150,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             placeholder={current?.name??""}/>
         </label>
         <div className="uk-world-backup-restore-actions">
-          <button type="button" className="danger" disabled={busy||confirmName!==current?.name}
+          <button type="button" className="danger" disabled={busy||current?.storeProtected||current?.running||confirmName!==current?.name}
             onClick={()=>{void restore();}}><RotateCcw size={14}/> Védett visszaállítás</button>
           <button type="button" className="secondary" disabled={busy}
             onClick={()=>{setPending(null);setRestoreTarget(null);}}>Mégsem</button>
