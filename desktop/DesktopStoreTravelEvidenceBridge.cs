@@ -36,29 +36,7 @@ public sealed class DesktopStoreTravelEvidenceBridge
     public DesktopStoreTravelEvidenceBridge(ClusterService service)=>
         cluster=service??throw new ArgumentNullException(nameof(service));
 
-    private static string MapKey(LocalMap map)
-    {
-        if(!string.IsNullOrWhiteSpace(map.HistoricalMapKey))
-        {
-            string key=map.HistoricalMapKey;
-            if(!Regex.IsMatch(key,@"\A[A-Za-z0-9_]{3,64}\z"))
-                throw new InvalidDataException("UM-TRAVEL-INVALID-MAP-KEY");
-            return key;
-        }
-        return map.Name switch{
-            "The Island"=>"TheIsland_WP",
-            "The Center"=>"TheCenter_WP",
-            "Scorched Earth"=>"ScorchedEarth_WP",
-            "Aberration"=>"Aberration_WP",
-            "Extinction"=>"Extinction_WP",
-            "Genesis Part 1"=>"Genesis_WP",
-            "Valguero"=>"Valguero_WP",
-            "Ragnarok"=>"Ragnarok_WP",
-            "Astraeos"=>"Astraeos_WP",
-            "Lost Colony"=>"LostColony_WP",
-            _=>throw new InvalidDataException("UM-TRAVEL-MAP-KEY-UNVERIFIED")
-        };
-    }
+    private static string MapKey(LocalMap map)=>AsaSaveLayoutResolver.MapToken(map);
     private static string SafeRoot(string path)
     {
         if(string.IsNullOrWhiteSpace(path)||!Path.IsPathFullyQualified(path)||
@@ -77,16 +55,15 @@ public sealed class DesktopStoreTravelEvidenceBridge
         stem.ToUpperInvariant())));
     private MapProof Scan(LocalMap map)
     {
-        string baseRoot=SafeRoot(map.InstallationPath);
-        string saved=SafeRoot(Path.Combine(baseRoot,"ShooterGame","Saved","SavedArks"));
-        string mapPath=SafeRoot(Path.Combine(saved,MapKey(map)));
-        string folder=Directory.Exists(mapPath)?mapPath:saved;
+        var layout=AsaSaveLayoutResolver.Resolve(map);
+        string folder=SafeRoot(layout.WorldDirectory);
         bool missing=!Directory.Exists(folder);
-        // A flat SavedArks layout shared by several local maps cannot be
-        // attributed to one map without a verified per-map root.
-        bool ambiguous=folder==saved&&cluster.Config.LocalMaps.Count(m=>
-            string.Equals(Path.GetFullPath(m.InstallationPath).TrimEnd('\\'),
-                baseRoot.TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))>1;
+        // Reject conflicting per-map save roots even if both maps have valid
+        // map tokens. Never silently scan another map's flat SavedArks root.
+        bool ambiguous=cluster.Config.LocalMaps.Any(other=>other.Id!=map.Id&&
+            !string.IsNullOrWhiteSpace(other.InstallationPath)&&
+            string.Equals(AsaSaveLayoutResolver.Resolve(other).WorldDirectory,
+                folder,StringComparison.OrdinalIgnoreCase));
         var before=cluster.ObserveLocalProcessesReadOnly(map);
         bool quiescent=!before.Running&&before.ConfirmedStopped&&
             before.Identity==null&&before.LoaderIdentity==null;
@@ -99,7 +76,7 @@ public sealed class DesktopStoreTravelEvidenceBridge
         bool storeMode=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
         bool worldPresent=false,worldUnstable=false;
         long worldBytes=0;
-        string world=Path.Combine(folder,MapKey(map)+".ark");
+        string world=layout.WorldFile;
         long total=0;
         if(!missing&&!ambiguous)
         {
