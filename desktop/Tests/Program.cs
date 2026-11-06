@@ -89,16 +89,16 @@ try
     // Original source port: historical active Store-v1 never permits a
     // fresh conversion, and its mod/port/cluster flags match source grammar.
     {
-        const string safeIni="[ServerSettings]\\nPort=7777\\nQueryPort=27015\\n";
+        const string safeIni="[ServerSettings]\nPort=7777\nQueryPort=27015\n";
         var input=new LegacyStoreV1ActiveLaunch.Input(
             "ScorchedEarth_WP",7777,27015,
             new[]{"123456","654321","123456"},new[]{"654321"},
-            "KovaCluster", @"\\\\192.0.2.1\\SyntheticCluster","active",safeIni);
+            "KovaCluster", @"\\192.0.2.1\SyntheticCluster","active",safeIni);
         var active=LegacyStoreV1ActiveLaunch.Build(input);
         Check(active.Arguments.SequenceEqual(new[]{
             "ScorchedEarth_WP?listen","-Port=7777","-QueryPort=27015",
             "-mods=654321,123456","-passivemods=654321",
-            "-clusterid=KovaCluster",@"-ClusterDirOverride=\\\\192.0.2.1\\SyntheticCluster",
+            "-clusterid=KovaCluster",@"-ClusterDirOverride=\\192.0.2.1\SyntheticCluster",
             "-usestore","-log"})&&!active.ConversionRequested,
             "original active Store-v1 source grammar preserves passive-first mods and forbids conversion");
         void Reject(LegacyStoreV1ActiveLaunch.Input changed,string label)
@@ -114,11 +114,11 @@ try
             "incomplete conversion review never qualifies as active Store launch");
         Reject(input with{ClusterId="UntamedKingdom"},
             "branding cannot silently change original KovaCluster wire identity");
-        Reject(input with{ClusterPath=@"\\\\?\\C:\\Windows"},
+        Reject(input with{ClusterPath=@"\\?\C:\Windows"},
             "Windows device path cannot replace original shared Store path");
-        Reject(input with{GameUserSettingsIni="[ServerSettings]\\nPort=7778\\nQueryPort=27015"},
+        Reject(input with{GameUserSettingsIni="[ServerSettings]\nPort=7778\nQueryPort=27015"},
             "INI GamePort mismatch blocks old-store startup before any process spawn");
-        Reject(input with{GameUserSettingsIni="[ServerSettings]\\nQueryPort=27016"},
+        Reject(input with{GameUserSettingsIni="[ServerSettings]\nQueryPort=27016"},
             "INI QueryPort mismatch blocks old-store startup");
         Reject(input with{GamePort=27015},
             "Game and Query UDP ports cannot collide");
