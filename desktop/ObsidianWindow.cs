@@ -239,7 +239,8 @@ public sealed class ObsidianWindow : Form
                         rconRoute = name is "rcon.status" or "rcon.listPlayers" or "rcon.saveWorld";
                         rconAdminRoute = name is "rcon.adminPreview" or "rcon.adminSend";
                         rconConfigRoute = name is "rcon.configStatus" or "rcon.configPreview" or "rcon.configApply";
-                        stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or "steam.stoppedStatus";
+                        stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
+                            "steam.stoppedStatus" or "steam.stoppedCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore";
