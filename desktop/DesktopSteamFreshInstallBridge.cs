@@ -20,6 +20,9 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
 {
     private readonly ClusterService cluster;
     private readonly Func<string?> folderPicker;
+    // Real installations always probe their fixed local drive. Tests can
+    // substitute a disk probe without weakening the production reserve gate.
+    private readonly Func<string,long> availableFreeBytes;
     private readonly Func<SteamFreshInstallRequest,LocalMap[],
         IProgress<SteamInstallProgress>?,CancellationToken,Task<SteamFreshInstallReceipt>> runner;
     private readonly SemaphoreSlim serial = new(1,1);
@@ -55,10 +58,13 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
     public DesktopSteamFreshInstallBridge(ClusterService source,
         Func<SteamFreshInstallRequest,LocalMap[],IProgress<SteamInstallProgress>?,
             CancellationToken,Task<SteamFreshInstallReceipt>>? runner=null,
-        Func<string?>? folderPicker=null)
+        Func<string?>? folderPicker=null,
+        Func<string,long>? availableFreeBytes=null)
     {
         cluster=source ?? throw new ArgumentNullException(nameof(source));
         this.folderPicker=folderPicker??PickWindowsFolder;
+        this.availableFreeBytes=availableFreeBytes ?? (path =>
+            new DriveInfo(Path.GetPathRoot(path)!).AvailableFreeSpace);
         this.runner=runner ?? ((request,maps,progress,ct) =>
             SteamFreshInstall.InstallAsync(request,maps,progress,ct));
     }
@@ -161,8 +167,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     // download. Core enforces the same reserve again under
                     // its exclusive installation lock.
                     try {
-                        if(new DriveInfo(Path.GetPathRoot(installRoot)!).AvailableFreeSpace <
-                            35L*1024*1024*1024)
+                        if(availableFreeBytes(installRoot) < 35L*1024*1024*1024)
                             return Error(id,"UM-FRESH-LOW-DISK-SPACE");
                     }
                     catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
