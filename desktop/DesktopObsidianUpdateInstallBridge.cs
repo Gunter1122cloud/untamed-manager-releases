@@ -153,14 +153,14 @@ public sealed class DesktopObsidianUpdateInstallBridge
                         StringComparison.OrdinalIgnoreCase))
                         return Error(id,"UM-UPDATE-INSTALLER-CHANGED");
                 }
-                string helper=UpdateCenter.StageUpdater(saved.Helper);
+                string stagedHelper=UpdateCenter.StageUpdater(saved.Helper);
                 string backup=Path.Combine(UpdateCenter.UpdateRoot,
                     "rollback-"+DateTime.UtcNow.ToString("yyyyMMddHHmmss")+
                     "-"+Guid.NewGuid().ToString("N")[..8]);
                 Directory.CreateDirectory(backup);
-                var start=new ProcessStartInfo(helper){
+                var start=new ProcessStartInfo(stagedHelper){
                     UseShellExecute=false,CreateNoWindow=false,
-                    WorkingDirectory=Path.GetDirectoryName(helper)!
+                    WorkingDirectory=Path.GetDirectoryName(stagedHelper)!
                 };
                 foreach(var argument in new[]{
                     "--pid",Environment.ProcessId.ToString(),
