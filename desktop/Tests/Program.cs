@@ -422,6 +422,22 @@ try
         Check(status.GetProperty("data").GetProperty("permitted").GetBoolean(),
             "native RCON configuration is eligible only for safe local map");
         const string secret="A-strong-unique-test-secret";
+        var historicalSibling=new LocalMap {
+            Name="Historical RCON installation sibling",
+            InstallationPath=fresh.InstallationPath,
+            HistoricalMapKey="LegacyMap_WP"
+        };
+        cluster.AddMap(historicalSibling);
+        var protectedStatus=await Call(rconSetup.HandleAsync,"rcon.configStatus",
+            new{mapId=fresh.Id});
+        IsOk(protectedStatus,"RCON historical sibling status is observable without writes");
+        Check(!protectedStatus.GetProperty("data").GetProperty("permitted").GetBoolean(),
+            "RCON bootstrap is disabled when another map shares historical Store provenance");
+        var protectedPreview=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=37555,password=secret,createIni=true});
+        Check(IsError(protectedPreview,"UM-RCON-CONFIG-STOPPED-NONSTORE-ONLY"),
+            "RCON bootstrap cannot bypass historical Store map on shared installation");
+        cluster.RemoveMap(historicalSibling.Id);
         var preview=await Call(rconSetup.HandleAsync,"rcon.configPreview",
             new{mapId=fresh.Id,rconPort=37555,password=secret,createIni=true});
         IsOk(preview,"new ASA RCON config is previewed, not applied");
