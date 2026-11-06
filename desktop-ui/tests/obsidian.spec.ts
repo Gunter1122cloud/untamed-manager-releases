@@ -394,6 +394,13 @@ test.beforeEach(async ({ page }) => {
             evidence:"LOCAL_OS_PROCESS_AND_SAVED_SCHEDULE_READ_ONLY"};
         }
         case "lan.status": return {
+          originalStorePair:{
+            bothOriginalProfilesPresent:false,
+            sameSharedSession:false,sameSharedPath:false,distinctDeviceIds:false,
+            bothHaveFiveActiveMaps:false,copiedMetadataPairMatches:false,
+            liveWriterCertified:false,characterTravelVerified:false,
+            statusCode:"STORE_PEER_NOT_FRESH"
+          },
           hostName:state.local.hostName,listenPort:lanListen,
           peerAddress:lanPeer,peerPort:lanPeerPort,
           pairingKeyConfigured:lanConfigured,remoteFresh:false,
@@ -692,6 +699,10 @@ test("two-host LAN pairing is guarded, native-only, private and never exposes ke
   await page.goto("/");
   await page.getByRole("button",{name:"Beállítások"}).click();
   await expect(page.getByRole("heading",{name:"Kétgépes LAN-párosítás"})).toBeVisible();
+  const originalSource=page.getByRole("region",{name:"Eredeti kétgépes Store-v1 egyezőség"});
+  await expect(originalSource).toContainText("Azonos Store-session");
+  await expect(originalSource).toContainText("NEM IGAZOLT", {ignoreCase:true});
+  await expect(originalSource).not.toContainText("Éles írás engedélyezett");
   await expect(page.getByText(/Közös kulcs: nincs beállítva/)).toBeVisible();
   await page.getByRole("textbox",{name:"Helyi LAN port"}).fill("39290");
   await page.getByRole("textbox",{name:"Másik LAN cím"}).fill("192.168.1.200");
