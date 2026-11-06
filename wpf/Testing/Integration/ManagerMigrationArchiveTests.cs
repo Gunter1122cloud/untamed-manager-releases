@@ -187,7 +187,9 @@ public static class ManagerMigrationArchiveTests
         var historical=HistoricalLaunchProfileReader.Inspect(path);
         Check(!historical.ReadyForLiveControl &&historical.Maps.Length==5 &&
             historical.Maps.All(m=>m.ExistingStoreActive&&m.EnabledMods==1&&
-                m.PassiveMods==0&&m.ArgumentsPreview.EndsWith(" -usestore")) &&
+                m.PassiveMods==0&&m.ArgumentsPreview.StartsWith(m.MapId+"?listen -Port=")&&
+                m.ArgumentsPreview.EndsWith(" -usestore -log")&&
+                !m.ArgumentsPreview.Contains("-converttostore",StringComparison.OrdinalIgnoreCase)) &&
             historical.Maps.Select(m=>m.MapId).Distinct().Count()==5,
             "historical Manager launch profiles preserve five-map Store mode, no live control");
         Check(result.SourceSha256==originalSha&&
