@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - chatgpt/obsidian-react-desktop-20261105
+      - main
+      - 'release/**'
     paths:
       - "desktop/**"
       - "desktop-ui/**"
