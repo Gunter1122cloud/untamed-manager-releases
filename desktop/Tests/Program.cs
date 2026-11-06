@@ -804,11 +804,13 @@ try
             "Restart requires a real local ASA RCON INI matching Manager credentials");
         int restartCalls=0;
         using var restartBridge=new DesktopFreshAsaRestartBridge(lab,Owner,
-            async (id,old,progress)=>{
+            async (id,old,journalId,progress)=>{
                 restartCalls++;
                 progress("Synthetic SaveWorld then DoExit");
                 await Task.Delay(55);
                 progress("Synthetic fresh ASA process");
+                new AsaManualRestartJournal(stopRoot).Change(
+                    journalId,AsaRestartPhase.Starting);
                 var stopped=new AsaGracefulStopReceipt(id,old.Pid,
                     true,false,true,DateTimeOffset.UtcNow,
                     "SYNTHETIC_OLD_PROCESS_STOPPED");
@@ -860,6 +862,10 @@ try
               !restartData.GetProperty("readinessCertified").GetBoolean() &&
               !restartData.GetProperty("autoRetry").GetBoolean(),
             "one verified old process exits before single replacement, no false readiness");
+        var finishedRestartJournal=new AsaManualRestartJournal(stopRoot).Observe();
+        Check(finishedRestartJournal?.Phase==AsaRestartPhase.Completed &&
+              finishedRestartJournal.NewPid==44118,
+            "manual Restart records its completed old/new PID durably");
         stopLabMap.HistoricalMapKey="TheIsland_WP";
         var historicalRestart=await Call(restartBridge.HandleAsync,
             "servers.restartPreview",new{mapId=stopLabMap.Id});
