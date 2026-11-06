@@ -165,6 +165,12 @@ public static class ClusterVaultTests
         Assert(!badPair.CopiedMetadataPairMatches &&
             badPair.StatusCode=="STORE_PEER_METADATA_INVALID",
             "corrupted opposite host Store metadata never becomes two-host proof");
+#if STORE_V1_ISOLATED
+        var transmittedProof=JsonSerializer.Deserialize<LegacyStoreV1PeerProof>(
+            JsonSerializer.Serialize(ryzenPeer));
+        Assert(transmittedProof?.SessionTag==ryzenPeer.SessionTag,
+            "isolated Store-v1 proof survives redacted JSON serialization");
+#else
         var transmitted=JsonSerializer.Deserialize<HostStatus>(
             JsonSerializer.Serialize(new HostStatus{
                 HostId=Guid.NewGuid().ToString(),HostName="Synthetic-Ryzen",
@@ -172,6 +178,7 @@ public static class ClusterVaultTests
             }));
         Assert(transmitted?.OriginalStoreV1?.SessionTag==ryzenPeer.SessionTag,
             "original source tag survives backwards-compatible LAN status serialization");
+#endif
 
         string copiedStorePath=Path.Combine(copiedLocal,"cluster-store-v1.json");
         string beforeTemporary=File.ReadAllText(copiedStorePath);
