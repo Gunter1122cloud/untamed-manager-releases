@@ -186,6 +186,7 @@ export type WorldBackupPoint={
 };
 export type WorldBackupHistory={
   mapId:string;mapName:string;points:WorldBackupPoint[];
+  recoveryRequired?:boolean;
   source:"LOCAL_SAVEDARKS_MAP_FOLDER";storeWriterTouched:false;
   evidence:"REAL_SHA256_BACKUP_PACKAGES";
 };
