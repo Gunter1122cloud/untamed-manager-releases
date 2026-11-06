@@ -212,7 +212,10 @@ public static class ModStateController
     {
         if(cluster==null||edits==null)throw new ArgumentNullException();
         var requests=edits.ToArray();
-        if(requests.Length==0 || requests.Length>100)throw new InvalidDataException("Invalid batch size");
+        // One local Manager may copy up to five ~500-mod map configurations
+        // atomically. Never accept an unbounded batch from the UI.
+        if(requests.Length==0 || requests.Length>2500)
+            throw new InvalidDataException("Invalid batch size");
         var originals=new Dictionary<Guid,(string Args,List<string> Disabled,bool Pending)>();
         var previews=new List<ModPreview>();
         using var operation=cluster.Operations.AcquireMany(new[]{cluster.Store.Root}.Concat(
@@ -221,10 +224,23 @@ public static class ModStateController
                 .Select(m=>m!.InstallationPath)),UntamedOperationKind.Configuration);
         try
         {
+            // Validate ALL baselines (including an optional source-only map)
+            // under the same operation lease. A changed source must not
+            // silently provide an obsolete multi-map replacement.
+            if(expectedBaselines!=null)
+            foreach(var (baselineId,baseline) in expectedBaselines)
+            {
+                var observed=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==baselineId);
+                if(observed==null || !baseline.Matches(observed))
+                    throw new IOException("Mod copy baseline changed; reload required");
+            }
             foreach(var edit in requests)
             {
                 var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==edit.Map);
                 if(map==null)throw new UnauthorizedAccessException("Cannot edit a peer map");
+                if(map.HistoricalStoreProtected ||
+                   UntamedWorldBackup.HasLiveOrHistoricalStore(map) || map.Maintenance)
+                    throw new UnauthorizedAccessException("Store-v1 or maintenance mods are protected");
                 if(!originals.ContainsKey(map.Id))
                 {
                     // Verify the editor snapshot while the configuration lease is
