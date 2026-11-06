@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
-import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence } from "./bridge";
+import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -14,6 +14,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [localProbe,setLocalProbe]=useState<HistoricalLocalStoreStatus|null>(null);
+  const [liveGuard,setLiveGuard]=useState<HistoricalLiveGuard|null>(null);
+  const [liveGuardBusy,setLiveGuardBusy]=useState(false);
+  const [liveGuardError,setLiveGuardError]=useState("");
   const [localBusy,setLocalBusy]=useState(false);
   const [localError,setLocalError]=useState("");
   const [parity,setParity]=useState<HistoricalLocalStoreParity|null>(null);
@@ -94,6 +97,13 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       if(epoch===launchEpoch.current){setLaunchCommand("");setLaunchError("A parancssor csak olvasható összevetése sikertelen.");}
     }finally{if(epoch===launchEpoch.current)setLaunchBusy(false);}
   };
+  const inspectOriginalLive=async()=>{
+    if(!mapId||liveGuardBusy)return;
+    setLiveGuardBusy(true);setLiveGuard(null);setLiveGuardError("");
+    try{setLiveGuard(await managerBridge.historicalLiveGuard(mapId));}
+    catch{setLiveGuardError("A helyi eredeti Store-profil, a két gép közös UNC állapota vagy az ACTIVE/DONE session nem egyezik. A közös zár érintetlen.");}
+    finally{setLiveGuardBusy(false);}
+  };
   const checkOriginalLocal=async()=>{
     setLocalBusy(true);setLocalError("");setLocalProbe(null);
     try{setLocalProbe(await managerBridge.historicalLocalStatus());}
@@ -160,6 +170,25 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           </div>
         </div>}
         {localError&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{localError}</div>}
+        <div className="historical-parity-check" aria-label="Eredeti élő Store ACTIVE ellenőrzés">
+          <h3>Eredeti élő kétgépes ACTIVE / DONE ellenőrzés</h3>
+          <p className="muted small">A regisztrált Store-map és az eredeti helyi profil alapján, közvetlenül és kizárólag olvasva ellenőrzi a közös SMB koordinációs mappát. A régi zárolásokat nem hozza létre és nem törli.</p>
+          <button type="button" className="secondary" disabled={!mapId||liveGuardBusy||registering}
+            onClick={()=>{void inspectOriginalLive();}}>
+            <Shield size={16}/>{liveGuardBusy?"Eredeti UNC állapot olvasása...":"Kétgépes eredeti Store-session ellenőrzése"}
+          </button>
+          {liveGuard&&<div role="status" className="historical-peer-result">
+            <div className="historical-proof-grid">
+              <span>Eredeti ACTIVE map + session</span><strong>{liveGuard.originalActiveReady?"Egyező":"Nem igazolt"}</strong>
+              <span>Két eredeti DONE résztvevő</span><strong>{liveGuard.donePeers} / 2</strong>
+              <span>Mindkét gép mapja</span><strong>{liveGuard.activeMaps} db</strong>
+              <span>Félbeszakadt átállítási zárak</span><strong>{liveGuard.noMutationMarker?"Nincsenek":"Tiltott"}</strong>
+              <span>Eredeti adatfájl módosítása</span><strong>Nem történt</strong>
+              <span>Karaktervisszalépés / tényleges szerverindítás</span><strong>Még külön ellenőrizendő</strong>
+            </div>
+          </div>}
+          {liveGuardError&&<p role="alert" className="error-inline"><AlertTriangle size={16}/>{liveGuardError}</p>}
+        </div>
         <div className="historical-parity-check">
           <p className="muted small">Ha a régi Manager ZIP-másolata is rendelkezésre áll, az eredeti négy Store-fájl változatlan bájtegyezőségét külön ellenőrizheted.</p>
           <button type="button" className="secondary" disabled={!archive.trim()||parityBusy||registering}
