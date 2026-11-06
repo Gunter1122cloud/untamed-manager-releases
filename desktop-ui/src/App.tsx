@@ -32,6 +32,7 @@ import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
+import { LanSettingsPanel } from "./LanSettingsPanel";
 
 type Page = "operations" | "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "travel" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -1271,10 +1272,11 @@ function SettingsCenter() {
       {error && <div className="error-inline" role="alert"><AlertTriangle size={18}/>{error}</div>}
       <div className="warning-inline"><Shield size={18}/> Kizárólag az API-kulcs kerül mentésre. Semmilyen ASA/Store/SteamCMD művelet nem indul.</div>
     </Panel>
+    <LanSettingsPanel/>
     <Panel title="Manager integrációk">
       <div className="details-line"><span>Frontend</span><b>React / TypeScript · offline</b></div>
       <div className="details-line"><span>Natív Windows-felület</span><b>WebView2 / WinForms</b></div>
-      <div className="details-line"><span>ASA írási műveletek</span><b>Nem engedélyezettek az új UI-n</b></div>
+      <div className="details-line"><span>ASA műveletek</span><b>Friss helyi mapokon külön jóváhagyás; történeti Store-v1 zárolva</b></div>
     </Panel>
   </>;
 }
