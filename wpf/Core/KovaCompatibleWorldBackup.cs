@@ -266,23 +266,65 @@ public static class KovaCompatibleWorldBackup
     {
         string archive=ArchiveRoot(profile,map);
         if(!Directory.Exists(archive))return Array.Empty<Point>();
+        int take=Math.Clamp(max,1,50);
+        string key=MapKey(map),installation=Guard(map.InstallationPath);
+        // Backup folder names are random GUIDs. Sorting them lexically was
+        // returning arbitrary old archives instead of the latest backups.
+        // Read only small, trusted ownership/date headers first; perform
+        // expensive whole-world hash verification on selected recent points.
+        var candidates=new List<(string Folder,DateTimeOffset Created)>();
+        int examined=0;
+        foreach(string folder in Directory.EnumerateDirectories(archive))
+        {
+            if(++examined>5000)
+                throw new InvalidDataException("UM-BACKUP-ARCHIVE-LIST-TOO-LARGE");
+            if(!Guid.TryParse(Path.GetFileName(folder),out _))continue;
+            try
+            {
+                if((File.GetAttributes(folder)&FileAttributes.ReparsePoint)!=0)continue;
+                string path=Path.Combine(folder,"manifest.json");
+                if(!File.Exists(Path.Combine(folder,"complete"))||!File.Exists(path)||
+                   new FileInfo(path).Length is <=0 or >12_000_000)continue;
+                using var doc=JsonDocument.Parse(File.ReadAllText(path));
+                var json=doc.RootElement;
+                if(json.ValueKind!=JsonValueKind.Object ||
+                   !json.TryGetProperty("owner",out var owner) ||
+                   owner.ValueKind!=JsonValueKind.String ||
+                   !Guid.TryParse(owner.GetString(),out var id)||id!=map.Id||
+                   !json.TryGetProperty("mapKey",out var mapKey)||
+                   mapKey.ValueKind!=JsonValueKind.String||mapKey.GetString()!=key||
+                   !json.TryGetProperty("installation",out var origin)||
+                   origin.ValueKind!=JsonValueKind.String||
+                   !string.Equals(origin.GetString(),installation,
+                       StringComparison.OrdinalIgnoreCase)||
+                   !json.TryGetProperty("createdUtc",out var date)||
+                   date.ValueKind!=JsonValueKind.String)continue;
+                candidates.Add((folder,date.GetDateTimeOffset()));
+            }
+            catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+                InvalidDataException or JsonException or FormatException)
+            {
+                // Incomplete/tampered headers are not eligible restore points.
+            }
+        }
         var points=new List<Point>();
-        foreach(var folder in Directory.EnumerateDirectories(archive)
-            .Where(x=>Guid.TryParse(Path.GetFileName(x),out _))
-            .OrderByDescending(x=>x,StringComparer.OrdinalIgnoreCase).Take(Math.Clamp(max,1,50)))
+        // Try additional candidates if a recent package fails full integrity.
+        foreach(var candidate in candidates
+            .OrderByDescending(x=>x.Created).Take(Math.Min(250,take*5)))
         {
             try
             {
-                var m=Read(Guard(folder),map.Id,MapKey(map),Guard(map.InstallationPath));
-                points.Add(AsPoint(Path.GetFileName(folder),m));
+                var m=Read(Guard(candidate.Folder),map.Id,key,installation);
+                points.Add(AsPoint(Path.GetFileName(candidate.Folder),m));
+                if(points.Count==take)break;
             }
             catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
-                InvalidDataException or JsonException)
+                InvalidDataException or JsonException or FormatException)
             {
-                // Invalid packages are intentionally hidden from selectable restore.
+                // Only fully verified packages may appear in selectable history.
             }
         }
-        return points.OrderByDescending(x=>x.CreatedUtc).ToArray();
+        return points.ToArray();
     }
     public static Point Verify(LocalMap map,string profile,string point)
     {
