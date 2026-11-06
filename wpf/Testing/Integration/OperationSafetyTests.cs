@@ -120,19 +120,19 @@ public static class OperationSafetyTests
                 "repeated capture is idempotent and read-only when identity is unchanged");
         }
         string[] dbs={"arkshop","arkpermissions","lethalquests"};
-        Check(MariaDbCompatibility.Evaluate("10.11.19-MariaDB","Distrib 10.11.19-MariaDB","10.11.19-MariaDB",true,dbs).Compatible,"actual deployment series accepted by metadata policy");
-        Check(!MariaDbCompatibility.Evaluate("10.11.19-MariaDB","11.4.13-MariaDB","10.11.19-MariaDB",true,dbs).Compatible,"11.4 tool is not assumed compatible");
-        Check(!MariaDbCompatibility.Evaluate("10.11.19-MariaDB","10.11.18-MariaDB","10.11.19-MariaDB",true,dbs).Compatible,
-            "untested dump patch version cannot certify the 10.11.19 baseline");
-        Check(!MariaDbCompatibility.Evaluate("10.11.19-MariaDB","10.11.19-MariaDB","10.11.18-MariaDB",true,dbs).Compatible,
+        Check(MariaDbCompatibility.Evaluate("11.4.13-MariaDB","Distrib 11.4.13-MariaDB","11.4.13-MariaDB",true,dbs).Compatible,"actual deployment series accepted by metadata policy");
+        Check(!MariaDbCompatibility.Evaluate("11.4.13-MariaDB","10.11.19-MariaDB","11.4.13-MariaDB",true,dbs).Compatible,"10.11 tool cannot certify 11.4 deployment");
+        Check(!MariaDbCompatibility.Evaluate("11.4.13-MariaDB","11.4.12-MariaDB","11.4.13-MariaDB",true,dbs).Compatible,
+            "untested dump patch version cannot certify the 11.4.13 baseline");
+        Check(!MariaDbCompatibility.Evaluate("11.4.13-MariaDB","11.4.13-MariaDB","11.4.12-MariaDB",true,dbs).Compatible,
             "older restore target is not accepted without compatibility evidence");
         bool fixedNames=false;
         try{((IList<string>)MariaDbCompatibility.Databases)[0]="unapproved_database";}catch(NotSupportedException){fixedNames=true;}
         Check(fixedNames&&MariaDbCompatibility.Databases.SequenceEqual(dbs)&&
-            !MariaDbCompatibility.Evaluate("10.11.19-MariaDB","10.11.19-MariaDB","10.11.19-MariaDB",true,new[]{"unapproved_database","arkpermissions","lethalquests"}).Compatible,
+            !MariaDbCompatibility.Evaluate("11.4.13-MariaDB","11.4.13-MariaDB","11.4.13-MariaDB",true,new[]{"unapproved_database","arkpermissions","lethalquests"}).Compatible,
             "public database list cannot be mutated to expand the permitted backup scope");
-        Check(!MariaDbCompatibility.Evaluate("10.11.19-MariaDB","10.11.19-MariaDB","10.11.19-MariaDB",false,dbs).Compatible,"binary metadata cannot certify SQL server version");
-        Check(!MariaDbCompatibility.Evaluate("10.11.19-MariaDB","10.11.19-MariaDB","10.11.19-MariaDB",true,new[]{"arkshop"}).Compatible,"incomplete database set rejected");
+        Check(!MariaDbCompatibility.Evaluate("11.4.13-MariaDB","11.4.13-MariaDB","11.4.13-MariaDB",false,dbs).Compatible,"binary metadata cannot certify SQL server version");
+        Check(!MariaDbCompatibility.Evaluate("11.4.13-MariaDB","11.4.13-MariaDB","11.4.13-MariaDB",true,new[]{"arkshop"}).Compatible,"incomplete database set rejected");
         var ledger=DevelopmentLedger.Read();
         Check(ledger.Records.Length==228&&ledger.SourceDocuments.Length==7&&!ledger.FinalReleaseReady,"all audit requirements tracked without false final acceptance");
         bool invalid=false;try{DevelopmentLedger.Validate(ledger with {Records=ledger.Records.Skip(1).ToArray()});}catch(InvalidDataException){invalid=true;}
