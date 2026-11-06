@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace UntamedManager.Core;
@@ -25,7 +26,16 @@ public static class LegacyStoreV1LocalReader
     public sealed record Report(bool LocalFilesVerified,bool ClusterHashVerified,
         bool LocalLockVerified,bool AllLocalMapsActive,bool LocalSnapshotReady,
         bool LiveTwoHostVerified,bool CharacterTravelVerified,
-        MapEvidence[] Maps,string Evidence);
+        MapEvidence[] Maps,string Evidence)
+    {
+        // Opaque SHA-256 tags for authenticated read-only LAN peer parity.
+        // Original UNC roots, device identities and session IDs stay local.
+        public string SessionTag {get;init;}="";
+        public string SharedPathTag {get;init;}="";
+        public string DeviceTag {get;init;}="";
+    }
+    private static string Tag(string input)=>Convert.ToHexString(SHA256.HashData(
+        Encoding.UTF8.GetBytes(input.Trim().ToLowerInvariant())));
 
     public static Report Inspect(string localDirectory)
     {
@@ -103,7 +113,12 @@ public static class LegacyStoreV1LocalReader
         // all local records are ACTIVE and the local config hash matches.
         return new(true,hash,lockVerified,localActive,lockVerified&&localActive,
             false,false,evidence.ToArray(),
-            "ORIGINAL_LOCAL_STORE_V1_FOUR_FILES_READ_ONLY_NO_PEER_CERTIFICATION");
+            "ORIGINAL_LOCAL_STORE_V1_FOUR_FILES_READ_ONLY_NO_PEER_CERTIFICATION")
+        {
+            SessionTag=Tag(session.ToString("D")),
+            SharedPathTag=Tag(Text(cluster,"path").Replace('/','\\').TrimEnd('\\')),
+            DeviceTag=Tag(Text(device,"id"))
+        };
     }
 
     private static bool SafeMap(string s)=>
