@@ -55,7 +55,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     if(!mapId||!running||busy||jobId||journalBlocked)return;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{setPreview(await managerBridge.freshAsaRestartPreview(mapId));}
-    catch{setError("Az újraindítás előellenőrzése sikertelen. Csak saját, RCON-nal azonosított, nem Store-v1 ASA folyamat engedélyezett.");}
+    catch{setError("Az újraindítás előellenőrzése sikertelen. Csak saját, RCON-nal azonosított, nem Store-v1 ASA folyamat engedélyezett, a Managerrel egyező GameUserSettings.ini konfigurációval.");}
     finally{setBusy(false);}
   };
   const run=async()=>{
