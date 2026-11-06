@@ -825,6 +825,11 @@ try
         var protectiveProof=KovaCompatibleWorldBackup.Verify(localMap,localProfile,protective);
         Check(protectiveProof.Kind=="protective",
             "old live world is preserved in a separately verified protected snapshot");
+        var recentWorldPoints=KovaCompatibleWorldBackup.List(localMap,localProfile,2);
+        Check(recentWorldPoints.Length==2 &&
+              recentWorldPoints[0].Id==protective &&
+              recentWorldPoints[1].Id==point,
+            "backup history orders verified packages by real creation time, never random GUID order");
         File.WriteAllBytes(Path.Combine(localWorld,"broken.arkprofile"),Array.Empty<byte>());
         preview=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=localMap.Id});
