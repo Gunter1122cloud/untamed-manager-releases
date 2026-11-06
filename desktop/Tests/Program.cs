@@ -530,6 +530,87 @@ try
         var foreign=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=Guid.NewGuid()});
         Check(IsError(foreign,"UM-MAP-NOT-OWNED"),
             "RCON cannot target an unregistered or remote peer map");
+
+        // Actual RCON admin execution is a separately approved, one-shot
+        // native operation; the fake adapter never touches a game server.
+        fakeMap.HistoricalStoreProtected=false;rconRunning=true;owner=true;
+        int adminDispatches=0;string lastAdminCommand="";
+        var admin=new DesktopRconAdminBridge(observed,
+            (_,pid)=>owner&&pid==identity.Pid,
+            (host,port,password,command,ct)=>{
+                Check(host=="127.0.0.1"&&port==fakeMap.RconPort&&
+                    password=="test-only-passphrase",
+                    "admin dispatch is local and obtains DPAPI secret only inside native host");
+                lastAdminCommand=command;
+                adminDispatches++;
+                return Task.FromResult("Admin command accepted");
+            });
+        var announcement=await Call(admin.HandleAsync,"rcon.adminPreview",
+            new{mapId=fakeMap.Id,action="broadcast",message="Hello Untamed!"});
+        IsOk(announcement,"actual broadcast command receives native process-bound preview");
+        Check(announcement.GetProperty("data").GetProperty("command").GetString()==
+              "Broadcast Hello Untamed!"&&adminDispatches==0,
+              "preview compiles exact command without network transmission");
+        string adminToken=announcement.GetProperty("data").GetProperty("token").GetString()!;
+        var unapproved=await Call(admin.HandleAsync,"rcon.adminSend",
+            new{token=adminToken,confirm=false,typedApproval=""});
+        Check(IsError(unapproved,"UM-RCON-ADMIN-APPROVAL-REQUIRED")&&adminDispatches==0,
+            "operator must explicitly approve RCON command");
+        var sent=await Call(admin.HandleAsync,"rcon.adminSend",
+            new{token=adminToken,confirm=true,typedApproval=""});
+        IsOk(sent,"real broadcast admin command sent once through synthetic local RCON");
+        Check(adminDispatches==1&&lastAdminCommand=="Broadcast Hello Untamed!"&&
+              sent.GetProperty("data").GetProperty("oneShot").GetBoolean()&&
+              !sent.GetProperty("data").GetProperty("saveCompleteProven").GetBoolean()&&
+              !sent.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal),
+            "broadcast dispatch is one-shot and does not disclose native credentials");
+        var repeated=await Call(admin.HandleAsync,"rcon.adminSend",
+            new{token=adminToken,confirm=true,typedApproval=""});
+        Check(IsError(repeated,"UM-RCON-ADMIN-APPROVAL-REQUIRED")&&adminDispatches==1,
+            "admin command cannot replay after acknowledgement");
+        var invalid=await Call(admin.HandleAsync,"rcon.adminPreview",
+            new{mapId=fakeMap.Id,action="custom",message="DoExit"});
+        Check(IsError(invalid,"UM-RCON-ADMIN-SAFETY-CHECK-FAILED_NO_AUTO_RETRY") &&
+              adminDispatches==1,
+            "graceful shutdown is not bypassed via raw admin console");
+        invalid=await Call(admin.HandleAsync,"rcon.adminPreview",
+            new{mapId=fakeMap.Id,action="broadcast",message="hi;DestroyWildDinos"});
+        Check(IsError(invalid,"UM-RCON-ADMIN-SAFETY-CHECK-FAILED_NO_AUTO_RETRY") &&
+              adminDispatches==1,
+            "semicolon RCON command injection cannot be approved");
+        var wipe=await Call(admin.HandleAsync,"rcon.adminPreview",
+            new{mapId=fakeMap.Id,action="wildWipe",message=""});
+        IsOk(wipe,"destructive wild dino wipe is previewable but does not execute");
+        adminToken=wipe.GetProperty("data").GetProperty("token").GetString()!;
+        var wrongWord=await Call(admin.HandleAsync,"rcon.adminSend",
+            new{token=adminToken,confirm=true,typedApproval="IGEN"});
+        Check(IsError(wrongWord,"UM-RCON-ADMIN-TYPED-APPROVAL-REQUIRED") &&
+              adminDispatches==1,
+            "destructive command requires exact typed native confirmation");
+        wipe=await Call(admin.HandleAsync,"rcon.adminPreview",
+            new{mapId=fakeMap.Id,action="wildWipe",message=""});
+        adminToken=wipe.GetProperty("data").GetProperty("token").GetString()!;
+        var wiped=await Call(admin.HandleAsync,"rcon.adminSend",
+            new{token=adminToken,confirm=true,typedApproval="DINÓTÖRLÉS"});
+        IsOk(wiped,"operator approved exactly one wild dino wipe");
+        Check(adminDispatches==2&&lastAdminCommand=="DestroyWildDinos",
+            "destructive RCON executes only through typed two-stage approval");
+        var custom=await Call(admin.HandleAsync,"rcon.adminPreview",
+            new{mapId=fakeMap.Id,action="custom",message="GetGameLog"});
+        IsOk(custom,"advanced admin console accepts valid non-lifecycle command");
+        adminToken=custom.GetProperty("data").GetProperty("token").GetString()!;
+        rconRunning=false;
+        var stale=await Call(admin.HandleAsync,"rcon.adminSend",
+            new{token=adminToken,confirm=true,typedApproval="ADMIN"});
+        Check(IsError(stale,"UM-RCON-ADMIN-SAFETY-CHECK-FAILED_NO_AUTO_RETRY") &&
+              adminDispatches==2,
+            "process going offline between preview and approval cancels admin dispatch");
+        rconRunning=true;
+        var foreignAdmin=await Call(admin.HandleAsync,"rcon.adminPreview",
+            new{mapId=Guid.NewGuid(),action="custom",message="GetGameLog"});
+        Check(IsError(foreignAdmin,"UM-RCON-ADMIN-SAFETY-CHECK-FAILED_NO_AUTO_RETRY") &&
+              adminDispatches==2,
+            "remote or unowned maps cannot reach native admin RCON");
     }
 
     // Two independent 5-map hosts; never use UK-HOME-01/02 or the live
