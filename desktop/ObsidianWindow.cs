@@ -65,6 +65,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopInitialMapSetupBridge _initialMapSetup;
     private readonly DesktopHistoricalStoreImportBridge _historicalStore;
     private readonly DesktopUpdateStatusBridge _updates = new();
+    private readonly DesktopObsidianUpdateInstallBridge _updateInstall = new();
     private readonly DesktopRconReadOnlyBridge _rcon;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
@@ -200,6 +201,7 @@ public sealed class ObsidianWindow : Form
                 bool historicalRoute = false;
                 bool pluginStateRoute = false;
                 bool updateRoute = false;
+                bool updateInstallRoute = false;
                 bool rconRoute = false;
                 bool travelRoute = false;
                 try
@@ -214,6 +216,7 @@ public sealed class ObsidianWindow : Form
                             "curseforge.credentialSave" or
                             "curseforge.credentialClear";
                         updateRoute = name is "updates.status" or "updates.check";
+                        updateInstallRoute = name is "updates.prepare" or "updates.install";
                         rconRoute = name is "rcon.status" or "rcon.listPlayers";
                         travelRoute = name is "travel.capture" or "travel.compare";
                         pluginStateRoute = name is
@@ -244,7 +247,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = travelRoute ? await _travel.HandleAsync(incoming)
+                    string response = updateInstallRoute ? await _updateInstall.HandleAsync(incoming)
+                        : travelRoute ? await _travel.HandleAsync(incoming)
                         : rconRoute ? await _rcon.HandleAsync(incoming)
                         : updateRoute ? await _updates.HandleAsync(incoming)
                         : credentialRoute ? await _credentials.HandleAsync(incoming)
@@ -259,6 +263,17 @@ public sealed class ObsidianWindow : Form
                                                     : await _bridge.HandleAsync(incoming);
                     if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
                         _browser.CoreWebView2.PostWebMessageAsJson(response);
+                    if (updateInstallRoute && response.Contains("\"externalUpdaterStarted\":true",
+                        StringComparison.Ordinal) && response.Contains("\"ok\":true",
+                        StringComparison.Ordinal))
+                    {
+                        // Only a native, verified updater handoff can close the
+                        // Manager; the WebView cannot directly request Exit().
+                        // ASA processes remain independent; the external helper
+                        // waits for the current UI PID before touching binaries.
+                        _reallyExit = true;
+                        BeginInvoke(new Action(Close));
+                    }
                 }
                 finally { _bridgeGate.Release(); }
             };
