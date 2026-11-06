@@ -24,6 +24,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         public Guid Id=Guid.NewGuid();
         public string State="queued",Stage="preflight";
         public int OldPid,NewPid;
+        public bool PreExitSaveEvidenceObserved;
         public DateTimeOffset Changed=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
@@ -101,6 +102,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             oldPid=item.OldPid,newPid=item.NewPid,
             changedUtc=item.Changed,
             saveCompleteProven=false,readinessCertified=false,
+            preExitSaveEvidenceObserved=item.PreExitSaveEvidenceObserved,
+            finalDoExitSaveCertified=false,gameClientRejoinVerified=false,
             killPerformed=false,storeTouched=false,
             autoRetry=false
         };
@@ -226,6 +229,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                            receipt.Started.Pid<=0 ||
                            receipt.Started.StartedUtc<=approved.StartedUtc)
                             throw new InvalidDataException("UM-ASA-RESTART-RECEIPT-INVALID");
+                        job.PreExitSaveEvidenceObserved=
+                            receipt.Stop.PreExitSaveLogAndWorldObserved;
                         restartJournal.Change(persisted.Id,AsaRestartPhase.Completed,
                             receipt.Started.Pid);
                         Change(job,"completed","New Windows process started; readiness unverified",
