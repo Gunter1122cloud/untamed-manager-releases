@@ -70,6 +70,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
             return false;
         if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map))return false;
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
+        if(!AsaLocalPortPreflight.CanStart(map))return false;
         AsaApiLaunchPolicy.Resolve(map);
         var state=cluster.Check(map);
         return ReleaseCapabilityGate.Check(ManagerOperation.RealAsaStart,true,
