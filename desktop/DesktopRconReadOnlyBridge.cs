@@ -136,6 +136,12 @@ public sealed class DesktopRconReadOnlyBridge
                 }
                 if(method=="rcon.saveWorld")
                 {
+                    // A running historical -usestore ASA process has shared
+                    // character/tribe ownership. A local manual SaveWorld is
+                    // a Store write; never treat read-only RCON authentication
+                    // as authorization to mutate an unverified old session.
+                    if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
+                        return Deny(id,"UM-HISTORICAL-STORE-LOCKED");
                     // A second SaveWorld while an approved DoExit/Restart is
                     // underway can race the server's final world save.
                     // Read-only log/chat/players remain available for diagnosis.
