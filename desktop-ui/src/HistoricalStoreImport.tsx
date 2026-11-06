@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
-import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLaunchEvidence } from "./bridge";
+import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -16,6 +16,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [localProbe,setLocalProbe]=useState<HistoricalLocalStoreStatus|null>(null);
   const [localBusy,setLocalBusy]=useState(false);
   const [localError,setLocalError]=useState("");
+  const [parity,setParity]=useState<HistoricalLocalStoreParity|null>(null);
+  const [parityError,setParityError]=useState("");
+  const [parityBusy,setParityBusy]=useState(false);
+  const parityEpoch=useRef(0);
+  const invalidateParity=()=>{parityEpoch.current++;setParity(null);setParityError("");setParityBusy(false);};
   const [coordZip,setCoordZip]=useState("");
   const [localZip,setLocalZip]=useState("");
   const [pairResult,setPairResult]=useState<HistoricalPairEvidence | null>(null);
@@ -97,6 +102,20 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       "A négy eredeti Store-v1 fájl nem igazolható. Semmi nem változott az eredeti adatokban.");}
     finally{setLocalBusy(false);}
   };
+  const checkOriginalParity=async()=>{
+    if(!archive.trim()||registering)return;
+    const epoch=++parityEpoch.current;
+    setParity(null);setParityError("");setParityBusy(true);
+    try{
+      const matched=await managerBridge.historicalLocalParity(archive);
+      if(epoch===parityEpoch.current)setParity(matched);
+    }catch(e){
+      if(epoch===parityEpoch.current)setParityError(
+        e instanceof Error&&e.message==="UM-STORE-PARITY-LOCAL-MISSING"?
+          "A korábbi Manager helyi Store-mappája nem található ezen a gépen.":
+          "A négy fájl egyezősége nem ellenőrizhető. Az eredeti fájlok változatlanok maradtak.");
+    }finally{if(epoch===parityEpoch.current)setParityBusy(false);}
+  };
   const comparePeers=async(e:FormEvent)=>{
     e.preventDefault();const epoch=++pairEpoch.current;setPairResult(null);setPairError("");setPairBusy(true);
     try {
@@ -141,11 +160,32 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           </div>
         </div>}
         {localError&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{localError}</div>}
+        <div className="historical-parity-check">
+          <p className="muted small">Ha a régi Manager ZIP-másolata is rendelkezésre áll, az eredeti négy Store-fájl változatlan bájtegyezőségét külön ellenőrizheted.</p>
+          <button type="button" className="secondary" disabled={!archive.trim()||parityBusy||registering}
+            onClick={()=>{void checkOriginalParity();}}><Shield size={16}/>
+            {parityBusy?"Store-fájlok összevetése...":"Helyi Store és archivált ZIP egyeztetése"}
+          </button>
+          {parity&&<div role="status" className="historical-peer-result">
+            <div className="historical-proof-grid">
+              <span>ZIP ellenőrzése</span><strong>{parity.archiveVerified?"39 fájl ellenőrizve":"Nem igazolt"}</strong>
+              <span>Mind a négy eredeti metaadatfájl</span><strong>{parity.allFourExactlyMatch?"BÁJT-PONTOSAN EGYEZIK":"Eltérés / más időpontú másolat"}</strong>
+              <span>Helyi Store ACTIVE</span><strong>{parity.localStoreActive?"Igen":"Nem teljesül"}</strong>
+              <span>Éles karakterutazás</span><strong>NEM IGAZOLT</strong>
+            </div>
+            <div className="historical-peer-hosts">
+              {parity.files.map(f=><div className="historical-peer-host" key={f.kind}>
+                <b>{f.kind}</b><span>{f.exactlySame?"SHA-256 egyezés":"Eltérő bájtok"}</span>
+              </div>)}
+            </div>
+          </div>}
+          {parityError&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{parityError}</div>}
+        </div>
       </section>
       <form className="historical-import-form" onSubmit={e=>{void inspectArchive(e);}}>
         <label>Korábban mentett Manager ZIP (helyi, olvasási célú másolat)
           <input aria-label="Korábbi Manager archívum" placeholder="D:\Mentések\Korábbi-Manager.zip"
-            value={archive} maxLength={520} disabled={registering} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");invalidateImport();setLaunchCommand("");}} required/>
+            value={archive} maxLength={520} disabled={registering} onChange={e=>{setArchive(e.target.value);setKnown(null);setMapId("");invalidateImport();invalidateParity();setLaunchCommand("");}} required/>
         </label>
         <button type="submit" className="secondary" disabled={busy||registering||!archive.trim()}>
           <Shield size={16}/> Archívum ellenőrzése
