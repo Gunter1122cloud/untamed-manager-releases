@@ -342,6 +342,29 @@ test.beforeEach(async ({ page }) => {
         case "servers.importLocal":
           state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
           return {mapId:"00000000-0000-4000-8000-000000009998",mapName:"Genesis Part 1",exeRegistered:true,needsConfiguration:true,evidence:"MANAGER_PROFILE_ONLY_NO_ASA_CHANGE"};
+        case "operations.snapshot":
+        case "operations.map": {
+          const maps=state.local.maps.filter(x=>
+            m.method==="operations.snapshot"||m.mapId===x.id).map(x=>({
+              mapId:x.id,mapName:x.name,
+              running:x.running,confirmedStopped:!x.running,status:x.status,
+              pid:x.running?12345:null,startedUtc:x.running?"2026-11-06T09:00:00Z":null,
+              uptimeSeconds:x.running?7200:null,
+              memoryMiB:x.running?9234.5:null,memoryVerified:x.running,
+              maintenance:false,storeProtected:false,gamePort:x.gamePort,queryPort:27015,
+              rconConfigured:x.running,rconPort:x.running?37015:null,
+              autoStartConfigured:false,lifecycleActionsVerified:false,
+              evidence:"EXACT_LOCAL_PROCESS_IDENTITY_NO_NETWORK_OR_FILE_WRITE"
+            }));
+          return {hostName:state.local.hostName,observedUtc:"2026-11-06T11:00:00Z",
+            maps,schedules:m.method==="operations.map"?[]:[{
+              id:"00000000-0000-4000-8000-000000009987",mapId:one,
+              mapName:"The Island",kind:"Observation",frequency:"Daily",
+              enabled:false,nextUtc:"2026-11-07T06:30:00Z",
+              state:"disabled",autoExecutionPermitted:false
+            }],schedulingIsReadOnly:true,remoteCommandsAllowed:false,
+            evidence:"LOCAL_OS_PROCESS_AND_SAVED_SCHEDULE_READ_ONLY"};
+        }
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
         case "ini.open": return {token:iniToken,mapId:one,file:m.file||"Game.ini",content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
@@ -586,6 +609,26 @@ test.beforeEach(async ({ page }) => {
       }}
     });
   }, { one: first, two: second });
+});
+
+test("native Operations Center displays local PID RAM uptime and saved schedules only",async({page})=>{
+  await page.setViewportSize({width:1366,height:768});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Üzemeltetés",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Üzemeltetés"})).toBeVisible();
+  await expect(page.locator(".ops-map")).toHaveCount(2);
+  await expect(page.locator(".ops-map").first()).toContainText("12345");
+  await expect(page.locator(".ops-map").first()).toContainText("9 234,5 MiB");
+  await expect(page.locator(".ops-map").last()).toContainText("Nem mérhető");
+  await expect(page.locator(".ops-schedule-table tbody tr")).toHaveCount(1);
+  await expect(page.getByText("Kikapcsolva",{exact:true})).toBeVisible();
+  await expect(page.locator(".ops-center").getByText("Ragnarok")).toHaveCount(0);
+  await page.locator(".ops-map").first().getByRole("button",{name:"Map megnyitása"}).click();
+  await expect(page.locator(".map-detail-hero")).toContainText("The Island");
+  await page.getByRole("tab",{name:"Üzemeltetés"}).click();
+  await expect(page.locator(".ops-map")).toHaveCount(1);
+  await expect(page.locator(".ops-map").first()).toContainText("12345");
+  await expect(page.locator(".ops-schedules")).toHaveCount(0);
 });
 
 test("two-host character travel workbench captures exactly five local maps without unlocking Store",async({page})=>{
