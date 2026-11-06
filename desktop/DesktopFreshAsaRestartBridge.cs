@@ -47,7 +47,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         execute=runner??(async(mapId,old,journalId,progress)=>{
             progress("SaveWorld → DoExit");
             var stopped=await AsaGracefulStop.StopAsync(cluster,mapId,old,
-                TimeSpan.FromMinutes(2),approvedRestartId:journalId);
+                TimeSpan.FromMinutes(2),approvedRestartId:journalId,
+                evidenceStage:progress);
             if(!stopped.ConfirmedStopped||stopped.MapId!=mapId)
                 throw new InvalidOperationException("ASA old process did not stop");
             progress("Starting new ASA process");
