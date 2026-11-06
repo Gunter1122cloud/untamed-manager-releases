@@ -48,8 +48,8 @@ try
 {
     // Native operational center must expose only verified local OS evidence.
     // No WebView message may turn a status read into a scheduler or ASA write.
-    using(var operations = new DesktopOperationsCenterBridge(cluster))
     {
+        var operations = new DesktopOperationsCenterBridge(cluster);
         var firstSnapshot=await Call(operations.HandleAsync,"operations.snapshot");
         IsOk(firstSnapshot,"native operations center reads real local map snapshots");
         var mapped=firstSnapshot.GetProperty("data").GetProperty("maps");
