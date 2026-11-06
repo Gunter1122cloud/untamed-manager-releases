@@ -617,6 +617,20 @@ export type SharedModInventory = {
   evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY";
 };
 
+export type PluginJsonDocument = {
+  token:string;mapId:string;plugin:string;content:string;sha256:string;
+  encoding:string;bytes:number;evidence:"STOPPED_OWNED_PLUGIN_JSON_SNAPSHOT";
+};
+export type PluginJsonPreview = {
+  previewToken:string;changed:boolean;oldSha256:string;newSha256:string;
+  oldLines:number;newLines:number;evidence:"VALIDATED_PLUGIN_JSON_PREVIEW_NO_WRITES";
+};
+export type PluginJsonApplied = {
+  saved:boolean;backupCreated:boolean;newSha256?:string;
+  asaPluginReloaded?:false;requiresRestart?:true;storeTouched?:false;
+  sqlUsed?:false;evidence?:string;reason?:string;
+};
+
 export type OfflineAsaArchivePreview = {
   token:string;hpCopies:5;ryzenCopies:5;transferMetadataPresent:true;
   hpFolderName:string;ryzenFolderName:string;
@@ -668,6 +682,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
   "mods.copyPreview" | "mods.copyApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
+  "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
   "servers.inspectLocal" | "servers.importLocal" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
@@ -863,6 +878,14 @@ export const managerBridge = {
     request<OfflineAsaArchiveStarted>("cluster.offlineApply",{token,confirm:true}),
   offlineArchiveStatus: (jobId:string) =>
     request<OfflineAsaArchiveStatus>("cluster.offlineStatus",{jobId}),
+  pluginJsonOpen: (mapId:string,plugin:string) =>
+    request<PluginJsonDocument>("plugins.jsonOpen",{mapId,plugin}),
+  pluginJsonPreview: (token:string,content:string) =>
+    request<PluginJsonPreview>("plugins.jsonPreview",{token,content}),
+  pluginJsonSave: (token:string) =>
+    request<PluginJsonApplied>("plugins.jsonSave",{token,confirm:true}),
+  pluginJsonClose: (token:string) =>
+    request<{closed:true}>("plugins.jsonClose",{token}),
   iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
   iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
