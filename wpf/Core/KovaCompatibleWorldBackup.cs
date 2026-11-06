@@ -221,6 +221,18 @@ public static class KovaCompatibleWorldBackup
             throw new InvalidDataException("UM-BACKUP-DIGEST-MISMATCH");
         return m;
     }
+    public static bool InstallationRecoveryRequired(LocalMap map)
+    {
+        string root=Guard(map.InstallationPath);
+        string saved=Guard(Path.Combine(root,"ShooterGame","Saved","SavedArks"));
+        if(!Directory.Exists(saved))return false;
+        // Never restart a shared SteamCMD process family while any map in
+        // the installation has a Kova or Untamed interrupted atomic swap.
+        return Directory.EnumerateFiles(saved,".untamed-restore-*.json",
+                   SearchOption.TopDirectoryOnly).Any() ||
+               Directory.EnumerateFiles(saved,".kova-restore-*.json",
+                   SearchOption.TopDirectoryOnly).Any();
+    }
     public static bool RecoveryRequired(LocalMap map)
     {
         string world=World(map);
