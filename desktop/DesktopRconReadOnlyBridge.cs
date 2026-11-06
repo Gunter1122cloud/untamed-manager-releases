@@ -94,6 +94,10 @@ public sealed class DesktopRconReadOnlyBridge
                 if(!safe)return Deny(id,"UM-RCON-READONLY-PREFLIGHT-DENIED");
                 if(method=="rcon.saveWorld")
                 {
+                    // A second SaveWorld while an approved DoExit/Restart is
+                    // underway can race the server's final world save.
+                    // Read-only log/chat/players remain available for diagnosis.
+                    new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
                     if(!root.TryGetProperty("confirm",out var approve) ||
                        approve.ValueKind!=JsonValueKind.True)
                         return Deny(id,"UM-RCON-SAVE-EXPLICIT-CONFIRMATION-REQUIRED");
