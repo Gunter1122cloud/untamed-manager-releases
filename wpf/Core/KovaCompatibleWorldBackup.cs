@@ -221,6 +221,13 @@ public static class KovaCompatibleWorldBackup
             throw new InvalidDataException("UM-BACKUP-DIGEST-MISMATCH");
         return m;
     }
+    public static bool RecoveryRequired(LocalMap map)
+    {
+        string world=World(map);
+        string parent=Path.GetDirectoryName(world)!;
+        string marker=Path.Combine(parent,".untamed-restore-"+Path.GetFileName(world)+".json");
+        return File.Exists(marker);
+    }
     private static void PendingRestore(string world)
     {
         string parent=Path.GetDirectoryName(world)!;
