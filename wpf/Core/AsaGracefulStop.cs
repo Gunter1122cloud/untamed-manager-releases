@@ -70,6 +70,9 @@ public static class AsaGracefulStop
         Verify();
         using var lease=cluster.Operations.Acquire(map.InstallationPath,
             UntamedOperationKind.Launch);
+        FreshAsaInstallationSafety.Demand(cluster,map);
+        if(!AsaReadyProbe.IsRegisteredServerBinary(map))
+            throw new InvalidOperationException("UM-ASA-STOP-LOCAL-BINARY-CHANGED");
         Verify();
         lease.MarkMutationStarted();
         if(sendCommands!=null)
