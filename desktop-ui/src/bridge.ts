@@ -375,12 +375,15 @@ export type WorldBackupPreview={
 export type WorldBackupCreated={
   mapId:string;mapName:string;point:string;createdUtc:string;
   files:number;bytes:number;characters:number;tribes:number;
+  embeddedSurvivorCountUnknown:boolean;
   backupVerified:true;asaSaveCompleteProven:false;storeWriterTouched:false;
   evidence:"REAL_VERIFIED_STOPPED_MAP_WORLD_BACKUP";
 };
 export type WorldBackupRestored={
   mapId:string;mapName:string;point:string;protectiveBackup:string;
-  restored:true;oldWorldRetained:true;worldRestoreVerified:true;
+  restored:true;oldWorldRetained:true;bytesRestoredAndHashesVerified:true;
+  worldRestoreVerified:false;gameClientLoadVerified:false;
+  tribeOwnershipVerified:false;characterRejoinVerified:false;
   storeWriterTouched:false;
   evidence:"VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY";
 };
