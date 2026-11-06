@@ -285,9 +285,18 @@ try
             AsaSteamMapCatalog.LevelFor(request.MapName));
     }
 
+    int selectedFolders=0;
     using(var steamBridge=new DesktopSteamFreshInstallBridge(cluster,
-        SyntheticSteamRunner))
+        SyntheticSteamRunner,()=>{selectedFolders++;return freshRoot;}))
     {
+        var folder=await Call(steamBridge.HandleAsync,"steam.freshBrowse");
+        IsOk(folder,"native Windows ASA folder picker returns an operator-selected local root");
+        Check(folder.GetProperty("data").GetProperty("selected").GetBoolean() &&
+              folder.GetProperty("data").GetProperty("installRoot").GetString()==
+                  Path.GetFullPath(freshRoot) &&
+              selectedFolders==1 && !Directory.Exists(freshRoot) &&
+              fakeRuns==0,
+            "native folder choice does not initiate SteamCMD or mutate installation files");
         var badPath=await Call(steamBridge.HandleAsync,"steam.freshPreflight",
             new{mapName="Valguero",installRoot=@"\\foreign\server",
                 steamExe,allowSteamCmdDownload=false});
