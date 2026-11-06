@@ -300,8 +300,8 @@ try
         var badPath=await Call(steamBridge.HandleAsync,"steam.freshPreflight",
             new{mapName="Valguero",installRoot=@"\\foreign\server",
                 steamExe,allowSteamCmdDownload=false});
-        Check(!badPath.GetProperty("ok").GetBoolean(),
-            "new Steam download refuses foreign/UNC install root");
+        Check(IsError(badPath,"UM-FRESH-INVALID-PATH"),
+            "new Steam download shows specific invalid-drive error for foreign/UNC install root");
         Check(fakeRuns==0,"preflight never launches synthetic SteamCMD adapter");
 
         // Operator need not type steamcmd.exe path: native Manager config
