@@ -43,6 +43,7 @@ function ServerRow({map,host,local,onSelect}:{
     <span role="cell" className={`premium-server-state ${map.running?"is-running":"is-stopped"}`}>
       <i aria-hidden="true"/>{map.running?"Fut":"Leállítva"}
     </span>
+    <span className="premium-server-players" role="cell" title="Játékosszámot csak hitelesített RCON-ból jelenítünk meg">—</span>
     <span className="premium-server-port" role="cell">
       {map.gamePort?map.gamePort:"—"}
     </span>
@@ -94,7 +95,9 @@ function HostPanel({snapshot}:{snapshot:DashboardSnapshot}){
 
 export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelect}:Props){
   const [query,setQuery]=useState("");
-  const [view,setView]=useState<"gallery"|"table">("gallery");
+  // Approved Dashboard reference: compact table + right-side host/alerts.
+  // The full artwork gallery remains an explicit toggle, not the default.
+  const [view,setView]=useState<"gallery"|"table">("table");
   const hosts=1+(snapshot.remote?1:0);
   const local=snapshot.local.maps;
   const peer=snapshot.remote?.maps??[];
@@ -152,7 +155,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
         <div className="premium-server-list" role="table" aria-label="Cluster szerverlista">
           <div className="premium-server-table-head" role="row">
             <span>MAP / SZERVER</span><span>GAZDAGÉP</span>
-            <span>ÁLLAPOT</span><span>GAME UDP</span><span>RÉSZLETEK</span>
+            <span>ÁLLAPOT</span><span>JÁTÉKOSOK</span><span>GAME UDP</span><span>RÉSZLETEK</span>
           </div>
           {maps.map(({map,host,isLocal})=><ServerRow key={host+map.id}
             map={map} host={host} local={isLocal} onSelect={onSelect}/>)}
