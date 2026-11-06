@@ -27,10 +27,14 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
     setSaveReceipt(null);setSaveApproved(false);
     setAdminDraft(null);setAdminApproved(false);setAdminTyped("");setAdminReceipt(null);
     try{
-      const [nextStatus,nextConfig]=await Promise.all([
+      // The optional configuration endpoint must never block existing RCON
+      // commands or the admin panel when old/native test bridges omit it.
+      const [rcon,configuration]=await Promise.allSettled([
         managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
       ]);
-      setStatus(nextStatus);setConfig(nextConfig);
+      if(rcon.status!=="fulfilled")throw new Error("UM-RCON-STATUS-UNAVAILABLE");
+      setStatus(rcon.value);
+      setConfig(configuration.status==="fulfilled"?configuration.value:null);
     }
     catch{setError("A helyi RCON-állapot nem ellenőrizhető. Egyetlen parancs sem került elküldésre.");}
     finally{setBusy(false);}
