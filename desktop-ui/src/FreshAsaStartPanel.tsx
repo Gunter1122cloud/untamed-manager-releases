@@ -2,6 +2,10 @@ import {useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,Play,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type FreshAsaStartPreview,type FreshAsaStartStatus} from "./bridge";
 
+// Nonsecret process receipt survives a dashboard refresh/remount. Never persist
+// launch arguments, credentials or Store data in WebView2 storage.
+const recentStartReceipts=new Map<string,string>();
+
 export function FreshAsaStartPanel({mapId,onStarted}:{
   mapId:string;onStarted:()=>Promise<void>
 }){
@@ -9,11 +13,12 @@ export function FreshAsaStartPanel({mapId,onStarted}:{
   const [preview,setPreview]=useState<FreshAsaStartPreview|null>(null);
   const [approved,setApproved]=useState(false);
   const [busy,setBusy]=useState(false);
-  const [message,setMessage]=useState("");
+  const [message,setMessage]=useState(()=>recentStartReceipts.get(mapId)??"");
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
-    setPreview(null);setApproved(false);setObserved(null);setError("");setMessage("");
+    setPreview(null);setApproved(false);setObserved(null);setError("");
+    setMessage(recentStartReceipts.get(mapId)??"");
     managerBridge.freshAsaStartStatus(mapId)
       .then(s=>{if(active)setObserved(s);})
       .catch(()=>{});
@@ -38,9 +43,11 @@ export function FreshAsaStartPanel({mapId,onStarted}:{
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{
       const receipt=await managerBridge.freshAsaStartApply(token);
-      setMessage(receipt.mapName+" · ASA indítás elindítva, PID: "+receipt.pid+
-        ". A folyamatindítás még nem bizonyítja a játék és az RCON készenlétét.");
-      await onStarted();
+      const summary=receipt.mapName+" · ASA indítás elindítva, PID: "+receipt.pid+
+        ". A folyamatindítás még nem bizonyítja a játék és az RCON készenlétét.";
+      recentStartReceipts.set(mapId,summary);
+      setMessage(summary);
+      try{await onStarted();}catch{/* Process receipt remains visible even if dashboard refresh fails. */}
       await observe();
     }catch{setError("Az ASA elindítása nem igazolható. Ellenőrizd a helyi naplókat és a folyamatállapotot; automatikus ismétlés nem történt.");}
     finally{setBusy(false);}
