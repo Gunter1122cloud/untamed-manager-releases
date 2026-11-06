@@ -17,9 +17,9 @@ type Props={
   onInstall:(mapName?:string)=>void;
 };
 
-function StateLabel({running}:{running:boolean}){
-  return <span className={"uk-gallery-state "+(running?"is-running":"is-stopped")}>
-    <span aria-hidden="true"/>{running?"FUT":"LEÁLLÍTVA"}
+function StateLabel({running,needsSetup}:{running:boolean;needsSetup:boolean}){
+  return <span className={"uk-gallery-state "+(running?"is-running":needsSetup?"is-setup":"is-stopped")}>
+    <span aria-hidden="true"/>{running?"FUT":needsSetup?"BEÁLLÍTÁS":"LEÁLLÍTVA"}
   </span>;
 }
 
@@ -28,7 +28,7 @@ function MapTile({entry,onSelect}:{entry:LocatedMap;onSelect:(id:string)=>void})
   const body=<>
     <span className="uk-gallery-art"><MapCover name={map.name}/>
       <span className="uk-gallery-art-overlay"/>
-      <span className="uk-gallery-state-wrap"><StateLabel running={map.running}/></span>
+      <span className="uk-gallery-state-wrap"><StateLabel running={map.running} needsSetup={map.gamePort===0}/></span>
     </span>
     <span className="uk-gallery-tile-body">
       <b className="uk-gallery-name">{map.name}</b>
@@ -45,7 +45,7 @@ function MapTile({entry,onSelect}:{entry:LocatedMap;onSelect:(id:string)=>void})
       <span className="uk-gallery-footer">
         <span>UDP <b>{map.gamePort||"—"}</b></span>
         <span className={local?"uk-gallery-local":"uk-gallery-remote"}>
-          {local?<><span>KEZELÉS</span><ArrowRight size={14}/></>:
+          {local?<><span>{map.gamePort===0?"BEÁLLÍTÁS":"KEZELÉS"}</span><ArrowRight size={14}/></>:
             <><ShieldCheck size={14}/> CSAK OLVASÁS</>}
         </span>
       </span>
