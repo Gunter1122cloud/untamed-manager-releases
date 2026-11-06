@@ -29,7 +29,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object sync=new();
     private readonly Func<int,int,bool> ownsPort;
-    private readonly Func<Guid,ProcessIdentity,Task<AsaGracefulStopReceipt>> stop;
+    private readonly Func<Guid,ProcessIdentity,Action<string>,Task<AsaGracefulStopReceipt>> stop;
     private Approval? pending;
     private Job? job;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -40,8 +40,10 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         ownsPort=owner??RconPortOwnership.IsOwnedListener;
-        stop=execute??((map,identity)=>AsaGracefulStop.StopAsync(
-            cluster,map,identity,TimeSpan.FromMinutes(2)));
+        stop=execute==null
+            ?(map,identity,stage)=>AsaGracefulStop.StopAsync(
+                cluster,map,identity,TimeSpan.FromMinutes(2),evidenceStage:stage)
+            :(map,identity,_)=>execute(map,identity);
     }
     private LocalMap? Owned(Guid id)=>
         cluster.Config.LocalMaps.SingleOrDefault(map=>map.Id==id);
@@ -177,7 +179,8 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                     Change(item,"running","SaveWorld → új ASA SaveComplete + stabil .ark → DoExit");
                     try
                     {
-                        var receipt=await stop(map.Id,current);
+                        var receipt=await stop(map.Id,current,
+                            stage=>Change(item,"running",stage));
                         if(!receipt.ConfirmedStopped||receipt.MapId!=map.Id||
                            receipt.Pid!=approved.Pid)
                             throw new InvalidDataException("ASA graceful stop receipt invalid");
