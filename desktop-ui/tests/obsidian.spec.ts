@@ -79,6 +79,8 @@ test.beforeEach(async ({ page }) => {
     const offlineArchiveToken="00000000-0000-4000-8000-000000001260";
     const offlineArchiveJob="00000000-0000-4000-8000-000000001261";
     let offlineArchiveApproved=false;
+    const portableProfileToken="00000000-0000-4000-8000-000000001265";
+    let portableProfileApplied=false;
     const modCopyToken="00000000-0000-4000-8000-000000001258";
     let modCopyApproved=false;
     const draftToken = "00000000-0000-4000-8000-000000001234";
@@ -518,6 +520,31 @@ test.beforeEach(async ({ page }) => {
             changedUtc:"2026-11-06T22:00:00Z",liveConsistencyCertified:false,
             storeWriterCertified:false,productionRestoreAllowed:false,sqlUsed:false,
             evidence:"OFFLINE_FILE_INTEGRITY_ONLY_NO_LIVE_WRITER"};
+        case "mods.profileExport":
+          return {exported:true,mapId:m.mapId,profileName:"Astraeos-mods.json",
+            enabled:2,passive:1,disabled:0,sha256:"AA".repeat(32),
+            remoteWritesAllowed:false,storeTouched:false,sqlUsed:false,
+            evidence:"MOD_IDS_ONLY_NATIVE_LOCAL_FILE_EXPORT"};
+        case "mods.profileImportPreview":
+          if(!Array.isArray(m.targets)||m.targets.length===0)
+            throw new Error("UM-MODPROFILE-INVALID-TARGETS");
+          portableProfileApplied=false;
+          return {token:portableProfileToken,label:"Astraeos",sha256:"AA".repeat(32),
+            mode:m.mode,enabled:2,passive:1,disabled:0,
+            targets:m.targets.map((mapId:string)=>({mapId,mapName:"Astraeos",
+              changed:true,before:{active:["928548"],passive:[],disabled:[]},
+              after:{active:["928548","940975"],passive:["940975"],disabled:[]}})),
+            operationCount:2,changed:true,productionLoadedVerified:false,
+            remoteWritesAllowed:false,storeTouched:false,sqlUsed:false,
+            evidence:"PORTABLE_PROFILE_IMPORT_PREVIEW_NO_WRITES"};
+        case "mods.profileImportApply":
+          if(m.token!==portableProfileToken||m.confirm!==true||portableProfileApplied)
+            throw new Error("UM-MODPROFILE-APPROVAL-REQUIRED");
+          portableProfileApplied=true;
+          return {saved:true,changedMaps:[two],operationsApplied:2,
+            requiresRestart:true,productionLoadedVerified:false,
+            remoteWritesAllowed:false,storeTouched:false,sqlUsed:false,
+            evidence:"LOCAL_ATOMIC_PROFILE_IMPORT_PENDING_RESTART"};
         case "mods.copyPreview":
           if(!m.sourceMapId || !Array.isArray(m.targets)||m.targets.length!==1 ||
              m.targets[0]!==two)throw new Error("UM-MOD-COPY-INVALID-TARGET");
@@ -1634,6 +1661,26 @@ test("SQL-free offline cluster archive requires four native folders and explicit
   await expect(panel).toContainText("10 map és 3 transferállomány SHA-256-tal igazolva");
   await expect(panel).toContainText("nem élő többgépes pillanatkép");
   await expect(panel).not.toContainText("SQL mentés kész");
+});
+
+test("HP/Ryzen portable mod profiles require native selection and per-host local approval",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("tab",{name:"Modprofilok HP / Ryzen"}).click();
+  const panel=page.getByRole("region",{name:"Kétgépes modprofil csere"});
+  await expect(panel).toBeVisible();
+  await panel.getByRole("button",{name:"Kijelölt map profiljának exportja"}).click();
+  await expect(panel).toContainText("Astraeos-mods.json");
+  await panel.getByRole("group",{name:"Modprofil célmapok"}).getByRole("checkbox").first().check();
+  await panel.getByRole("button",{name:"JSON-profil kiválasztása és előnézete"}).click();
+  const approval=panel.getByRole("region",{name:"Modprofil import előnézete"});
+  await expect(approval).toContainText("Astraeos");
+  await expect(approval).toContainText("SHA-256");
+  await expect(approval.getByRole("button",{name:"Jóváhagyás és mentés"})).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
+  await expect(panel).toContainText("map módosítva");
+  await expect(panel).toContainText("tényleges betöltését");
 });
 
 test("Mod Center Copy To merges selected local maps only after native diff approval",async ({page})=>{
