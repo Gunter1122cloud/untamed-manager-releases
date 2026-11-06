@@ -60,6 +60,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopModCopyBridge _modCopy;
     private readonly DesktopOfflineAsaArchiveBridge _offlineClusterArchive;
     private readonly DesktopPluginStateBridge _pluginState;
+    private readonly DesktopPluginJsonBridge _pluginJson;
     private readonly DesktopPluginZipBridge _pluginZip;
     private readonly DesktopAsaApiCoreBridge _apiCore;
     private readonly DesktopIniBridge _iniEditor;
@@ -96,6 +97,7 @@ public sealed class ObsidianWindow : Form
         _modCopy = new DesktopModCopyBridge(_bridge.LocalCluster);
         _offlineClusterArchive = new DesktopOfflineAsaArchiveBridge();
         _pluginState = new DesktopPluginStateBridge(_bridge.LocalCluster);
+        _pluginJson = new DesktopPluginJsonBridge(_bridge.LocalCluster);
         _pluginZip = new DesktopPluginZipBridge(_bridge.LocalCluster);
         _apiCore = new DesktopAsaApiCoreBridge(_bridge.LocalCluster);
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
@@ -178,6 +180,7 @@ public sealed class ObsidianWindow : Form
             _modCopy.Dispose();
             _offlineClusterArchive.Dispose();
             _pluginState.Dispose();
+            _pluginJson.Dispose();
             _pluginZip.Dispose();
             _apiCore.Dispose();
             _credentials.Dispose();
@@ -248,6 +251,7 @@ public sealed class ObsidianWindow : Form
                 bool historicalRoute = false;
                 bool pluginStateRoute = false;
                 bool pluginZipRoute = false;
+                bool pluginJsonRoute = false;
                 bool apiCoreRoute = false;
                 bool updateRoute = false;
                 bool updateInstallRoute = false;
@@ -297,6 +301,8 @@ public sealed class ObsidianWindow : Form
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";
+                        pluginJsonRoute = name is "plugins.jsonOpen" or "plugins.jsonPreview" or
+                            "plugins.jsonSave" or "plugins.jsonClose";
                         apiCoreRoute = name is "api.coreRelease" or "api.corePreview" or "api.coreApply" or
                             "api.coreRollbackCandidates" or "api.coreRollbackPreview" or "api.coreRollbackApply";
                         modCopyRoute = name is "mods.copyPreview" or "mods.copyApply";
@@ -338,6 +344,7 @@ public sealed class ObsidianWindow : Form
                         : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
                         : freshStopRoute ? await _freshStop.HandleAsync(incoming)
                         : freshStartRoute ? await _freshStart.HandleAsync(incoming)
+                        : pluginJsonRoute ? await _pluginJson.HandleAsync(incoming)
                         : pluginZipRoute ? await _pluginZip.HandleAsync(incoming)
                         : stoppedSteamRoute ? await _steamUpdate.HandleAsync(incoming)
                         : rconConfigRoute ? await _rconConfig.HandleAsync(incoming)
