@@ -173,6 +173,7 @@ public sealed class ObsidianWindow : Form
             _modDrafts.Dispose();
             _pluginState.Dispose();
             _pluginZip.Dispose();
+            _apiCore.Dispose();
             _credentials.Dispose();
             _ = _bridge.DisposeAsync();
         };
