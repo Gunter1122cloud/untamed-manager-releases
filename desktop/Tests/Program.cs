@@ -508,6 +508,29 @@ try
               result.GetProperty("data").GetProperty("protectedFilesIntact").GetBoolean() &&
               original.SequenceEqual(File.ReadAllBytes(target.ExecutablePath)),
             "SteamCMD update runs once and preserves fixture ASA executable");
+        var emptyJournal=await Call(updater.HandleAsync,"steam.stoppedCurrent");
+        IsOk(emptyJournal,"first-run Steam queue journal status is readable");
+        Check(!emptyJournal.GetProperty("data").GetProperty("exists").GetBoolean(),
+            "no queue journal is not misreported as an update");
+        string folder=Path.Combine(cluster.Store.Root,"steam-maintenance-queue");
+        Directory.CreateDirectory(folder);
+        string journalPath=Path.Combine(folder,"queue-v1.json");
+        var interrupted=new SteamQueueSnapshot(
+            Guid.NewGuid(),SteamQueuePhase.NeedsOperator,
+            cluster.Config.LocalHostId,0,new[]{target.Id},
+            target.Id,DateTimeOffset.UtcNow,"Synthetic interrupted Steam update");
+        File.WriteAllText(journalPath,JsonSerializer.Serialize(interrupted));
+        try
+        {
+            var recovered=await Call(updater.HandleAsync,"steam.stoppedCurrent");
+            IsOk(recovered,"durable Steam journal is readable after interruption");
+            var status=recovered.GetProperty("data");
+            Check(status.GetProperty("needsOperatorReview").GetBoolean() &&
+                  !status.GetProperty("autoResumeAllowed").GetBoolean() &&
+                  status.GetProperty("phase").GetString()=="NeedsOperator",
+                "interrupted per-host Steam update refuses automatic retry");
+        }
+        finally{File.Delete(journalPath);}
     }
 
     // Native cross-map Mod Center inventory: real Core parser, read-only
