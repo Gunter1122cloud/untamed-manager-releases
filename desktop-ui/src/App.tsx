@@ -1270,18 +1270,28 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const [initialSetupSaved,setInitialSetupSaved]=useState(false);
   const [lifecycle,setLifecycle]=useState<AsaLifecycleJournal|null>(null);
   const [restartJournal,setRestartJournal]=useState<AsaRestartJournalStatus|null>(null);
+  const [journalsVerifiedFor,setJournalsVerifiedFor]=useState("");
+  const [journalReadError,setJournalReadError]=useState(false);
   useEffect(()=>{setSection("overview");setInitialSetupSaved(false);},[mapId]);
   useEffect(()=>{
     let active=true;
     setLifecycle(null);setRestartJournal(null);
-    managerBridge.freshAsaRestartCurrent(mapId)
-      .then(v=>{if(active)setRestartJournal(v);})
-      .catch(()=>{if(active)setRestartJournal(null);});
-    managerBridge.asaLifecycleJournal(mapId)
-      .then(v=>{if(active)setLifecycle(v);})
-      .catch(()=>{if(active)setLifecycle(null);});
+    setJournalsVerifiedFor("");setJournalReadError(false);
+    Promise.all([
+      managerBridge.asaLifecycleJournal(mapId),
+      managerBridge.freshAsaRestartCurrent(mapId)
+    ]).then(([lifecycleState,restartState])=>{
+      if(!active)return;
+      setLifecycle(lifecycleState);
+      setRestartJournal(restartState);
+      setJournalsVerifiedFor(mapId);
+    }).catch(()=>{
+      if(active)setJournalReadError(true);
+    });
     return ()=>{active=false;};
   },[mapId]);
+  const lifecycleBlocked=journalsVerifiedFor!==mapId||
+    Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview);
   const map=snapshot.local.maps.find(m=>m.id===mapId);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   const sections: Array<{id:MapSection;name:string}>=[
@@ -1303,6 +1313,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       </div>
       <State running={map.running} status={map.status}/>
     </div>
+    {journalReadError&&<div className="warning-inline" role="alert">
+      <Shield size={17}/> A helyi ASA-műveleti naplók nem olvashatók.
+      A Start, Stop és Restart gombok tiltva maradnak, amíg a naplók ellenőrzése nem sikerül.
+    </div>}
     {restartJournal?.needsOperatorReview&&<div className="warning-inline" role="alert">
       <Shield size={17}/> A manuális ASA újraindítás megszakadt ({restartJournal.phase??"ismeretlen"}).
       Régi PID: {restartJournal.oldPid??"?"}; új PID: {restartJournal.newPid||"nem igazolt"}.
@@ -1337,9 +1351,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
           <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A történeti Store-v1 átvétel, automatikus restart és nem igazolt SaveComplete utáni leállítás továbbra is külön védelem alatt áll.</div>
         </Panel>
       </div>
-      {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview)}/>}
-      {map.gamePort>0 && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview)}/>}
-      {map.gamePort>0 && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview)}/>}
+      {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
