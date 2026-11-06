@@ -146,6 +146,22 @@ export type AsaLifecycleJournal = {
   needsOperatorReview:boolean;autoResumeAllowed:false;
   storeTouched:false;evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY";
 };
+export type FreshAsaRestartPreview = {
+  token:string;mapId:string;mapName:string;currentPid:number;
+  saveWorldBeforeExit:true;verifiesOldProcessExit:true;
+  autoRetry:false;killPerformed:false;storeTouched:false;
+  evidence:"REAL_LOCAL_NONSTORE_RESTART_PREVIEW_NO_WRITES";
+};
+export type FreshAsaRestartStarted = {
+  jobId:string;started:true;autoRetry:false;killPerformed:false;storeTouched:false;
+  evidence:"REAL_LOCAL_ASA_RESTART_JOB_QUEUED";
+};
+export type FreshAsaRestartStatus = {
+  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  stage:string;oldPid:number;newPid:number;changedUtc:string;
+  saveCompleteProven:false;readinessCertified:false;
+  killPerformed:false;storeTouched:false;autoRetry:false;
+};
 export type FreshAsaReadiness = {
   mapId:string;mapName:string;
   stage:"Unconfigured"|"ExecutableVerified"|"ProcessVerified"|"RconAuthenticated";
@@ -481,7 +497,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
+  "steam.freshRegister" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -557,6 +573,12 @@ export const managerBridge = {
     request<FreshAsaStopQueued>("servers.gracefulStopApply",{token,confirm:true}),
   freshAsaStopStatus: (jobId:string) =>
     request<FreshAsaStopStatus>("servers.gracefulStopStatus",{jobId}),
+  freshAsaRestartPreview: (mapId:string) =>
+    request<FreshAsaRestartPreview>("servers.restartPreview",{mapId}),
+  freshAsaRestartApply: (token:string) =>
+    request<FreshAsaRestartStarted>("servers.restartApply",{token,confirm:true}),
+  freshAsaRestartStatus: (jobId:string) =>
+    request<FreshAsaRestartStatus>("servers.restartStatus",{jobId}),
   freshAsaReadiness: (mapId:string) =>
     request<FreshAsaReadiness>("servers.freshReadiness",{mapId}),
   freshAsaStartPreview: (mapId:string) =>
