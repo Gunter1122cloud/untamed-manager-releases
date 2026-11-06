@@ -719,6 +719,24 @@ test("gallery filters local/remote machines without exposing peer control action
   await page.screenshot({path:"test-results/uk-rex-ten-map-gallery-1600.png",fullPage:false});
 });
 
+test("P0-1 gallery keeps missing map installers accessible on a partly configured cluster",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Kártyák"}).click();
+  // Two local maps and one read-only remote map are already registered.
+  // A user must still be able to install the other seven maps.
+  const catalog=page.getByLabel("ASA map választék");
+  await expect(catalog.locator(".is-discovery")).toHaveCount(7);
+  await expect(catalog.getByRole("button",{name:"The Island · új szerver telepítése"})).toHaveCount(0);
+  await expect(catalog.getByRole("button",{name:"Astraeos · új szerver telepítése"})).toHaveCount(0);
+  await expect(catalog.getByRole("button",{name:"Ragnarok · új szerver telepítése"})).toHaveCount(0);
+  await page.getByRole("combobox",{name:"Gazdagép szűrő"}).selectOption("remote");
+  await expect(catalog).toHaveCount(0);
+  await page.getByRole("combobox",{name:"Gazdagép szűrő"}).selectOption("all");
+  await catalog.getByRole("button",{name:"Valguero · új szerver telepítése"}).click();
+  await expect(page.getByRole("combobox",{name:"Új ASA map"})).toHaveValue("Valguero");
+});
+
 test("P0-2 Servers switches between keyboard-accessible list and premium 2-host map gallery",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
