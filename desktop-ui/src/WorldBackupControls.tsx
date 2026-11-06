@@ -116,12 +116,14 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <CheckCircle2 size={20}/>
         <div><b>{"backupVerified" in receipt?
           "A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.":
-          "A map visszaállítása elkészült; az előző világ megmaradt."}</b>
+          "A visszaállított fájlok SHA-256 szerint egyeznek; ASA játékbeli betöltés még nincs igazolva."}</b>
           <p>{"backupVerified" in receipt?
-            `${receipt.files} fájl · ${receipt.characters} karakter · ${receipt.tribes} törzs · ${(receipt.bytes/1024/1024).toFixed(1)} MiB`:
+            `${receipt.files} fájl · ${receipt.characters} külön profil · ${receipt.tribes} külön tribe fájl · ${(receipt.bytes/1024/1024).toFixed(1)} MiB`:
             `Visszaállított pont: ${receipt.point.slice(0,8)}… · Védőmentés: ${receipt.protectiveBackup.slice(0,8)}…`}
           </p>
-          <small>Ez fájlszintű mentés és visszaállítás, nem kétgépes Store-írjog-igazolás.</small>
+          <small>{"backupVerified" in receipt&&receipt.embeddedSurvivorCountUnknown?
+            "Store-v1: a karakterek és tribe-adatok a .ark fájlban lehetnek; a külön fájlok száma nem játékosszám.":
+            "SHA-256-fájlellenőrzés történt; valódi ASA visszatöltés, karakter-belépés és Store-írójog nincs igazolva."}</small>
         </div>
       </div>}
       <div className="uk-world-backup-history">
@@ -131,7 +133,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           <span className="uk-world-backup-point-icon"><HardDrive size={17}/></span>
           <span className="uk-world-backup-point">
             <b>{new Date(p.createdUtc).toLocaleString("hu-HU")} · {p.kind==="protective"?"Védőmentés":"Kézi mentés"}</b>
-            <small>{p.files} fájl · {p.characters} karakter · {p.tribes} tribe · {(p.bytes/1024/1024).toFixed(1)} MiB</small>
+            <small>{p.files} fájl · {p.characters} külön profil · {p.tribes} külön tribe fájl · {(p.bytes/1024/1024).toFixed(1)} MiB</small>
           </span>
           <span className="uk-world-backup-verified"><CheckCircle2 size={14}/> SHA-256</span>
           <button type="button" className="secondary" disabled={busy||current?.running||current?.storeProtected||history?.recoveryRequired}
