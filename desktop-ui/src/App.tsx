@@ -326,12 +326,13 @@ function CurseForgeExplorer({ onPrepare }: { onPrepare?: (id: string) => void })
     </div>
   </Panel>;
 }
-function Dashboard({ snapshot, onPage, onSelect }: {
+function Dashboard({ snapshot, onPage, onSelect, onInstall }: {
   snapshot: DashboardSnapshot;
-  onPage: (page: Page) => void; onSelect: (id: string) => void
+  onPage: (page: Page) => void; onSelect: (id: string) => void;
+  onInstall: (mapName?:string) => void
 }) {
   return <PremiumDashboard snapshot={snapshot} onSelect={onSelect}
-    onServers={()=>onPage("servers")} onInstall={()=>onPage("steam")}
+    onServers={()=>onPage("servers")} onInstall={onInstall}
     onCluster={()=>onPage("cluster")}/>;
 }
 const asaMapNames = [
@@ -970,8 +971,9 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
     </div>
   </div>;
 }
-function SteamCenter({ snapshot, onRegistered }: {
-  snapshot: DashboardSnapshot; onRegistered:()=>Promise<void>
+function SteamCenter({ snapshot, onRegistered, initialMapName }: {
+  snapshot: DashboardSnapshot; onRegistered:()=>Promise<void>;
+  initialMapName:string
 }) {
   const [inventory, setInventory] = useState<SteamInstallations | null>(null);
   const [ports, setPorts] = useState<SuggestedPorts | null>(null);
@@ -1013,7 +1015,7 @@ function SteamCenter({ snapshot, onRegistered }: {
       </div>)}
     </Panel>
     <StoppedSteamUpdate maps={snapshot.local.maps}/>
-    <FreshAsaSteamWizard onRegistered={onRegistered}/>
+    <FreshAsaSteamWizard onRegistered={onRegistered} initialMapName={initialMapName}/>
     <Panel title="Új map · konfigurációs előkészítés">
       <p className="muted small">Az új telepítés után a szerver nevének és portjainak ellenőrzött beállítása a map Áttekintés oldalán érhető el. A javaslat önmagában nem indít SteamCMD-műveletet.</p>
       {ports && <div className="port-strip">
@@ -1396,6 +1398,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
 
 export function App() {
   const [page, setPage] = useState<Page>("dashboard");
+  const [steamMap, setSteamMap] = useState("The Island");
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -1436,6 +1439,10 @@ export function App() {
   const title = useMemo(() => page==="map" ? "Map részletei" :
     tabs.find(t => t.page === page)?.label ?? "Áttekintés", [page]);
   const selectMap = (id: string) => { setSelected(id); setPage("map"); };
+  const openSteamInstall = (mapName?:string) => {
+    if(mapName)setSteamMap(mapName);
+    setPage("steam");
+  };
 
   return <div className="app-layout">
     {(window as typeof window & { __UNTAMED_TEST_FIXTURE__?: boolean }).__UNTAMED_TEST_FIXTURE__ &&
@@ -1466,7 +1473,7 @@ export function App() {
         {error && <div className="error-banner"><AlertTriangle size={22}/><div><b>Nem érhető el a natív Manager-adatkapcsolat</b><p>{error}. Ez a felület nem jelenít meg kitalált szerveradatokat.</p></div><button onClick={() => { void refresh(); }}>Újra</button></div>}
         {!snapshot && !error && <div className="loading"><RefreshCw className="spin"/> Valós helyi állapot betöltése...</div>}
         {snapshot && <>
-          {page === "dashboard" && <Dashboard snapshot={snapshot} onPage={setPage} onSelect={selectMap}/>}
+          {page === "dashboard" && <Dashboard snapshot={snapshot} onPage={setPage} onSelect={selectMap} onInstall={openSteamInstall}/>}
           {page === "map" && <MapDetails snapshot={snapshot} mapId={selected} setSelected={setSelected} onBack={()=>setPage("servers")} onConfigured={refresh}/>}
           {page === "servers" && <Servers snapshot={snapshot} search={search} setSearch={setSearch} onSelect={selectMap} onImported={refresh}/>} 
           {page === "cluster" && <Cluster snapshot={snapshot}/>}
@@ -1475,7 +1482,7 @@ export function App() {
           {page === "backups" && <BackupCenter snapshot={snapshot}/>}
           {page === "updates" && <UpdateCenterPage/>}
           {page === "travel" && <StoreTravelWorkbench/>}
-          {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh}/>}
+          {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh} initialMapName={steamMap}/>}
           {page === "logs" && <LogsCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "settings" && <SettingsCenter/>}
           {page === "ini" && <IniCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>} 
