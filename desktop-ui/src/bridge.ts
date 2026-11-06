@@ -617,6 +617,24 @@ export type SharedModInventory = {
   evidence:"LOCAL_CONFIG_AND_QUARANTINED_ARCHIVE_METADATA_ONLY";
 };
 
+export type OfflineAsaArchivePreview = {
+  token:string;hpCopies:5;ryzenCopies:5;transferMetadataPresent:true;
+  hpFolderName:string;ryzenFolderName:string;
+  transferFolderName:string;destinationFolderName:string;
+  requiresExplicitApproval:true;originalStoreTouched:false;sqlUsed:false;
+  liveSnapshotConsistencyCertified:false;evidence:string;
+};
+export type OfflineAsaArchiveStarted = {
+  jobId:string;started:true;sqlUsed:false;productionRestoreAllowed:false;
+  originalStoreTouched:false;evidence:string;
+};
+export type OfflineAsaArchiveStatus = {
+  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  code:string;archiveName:string;verifiedMaps:number;transferFiles:number;
+  changedUtc:string;liveConsistencyCertified:false;storeWriterCertified:false;
+  productionRestoreAllowed:false;sqlUsed:false;evidence:string;
+};
+
 export type ModCopyMode = "merge" | "replace";
 export type ModCopyPreview = {
   token:string;sourceMapId:string;mode:ModCopyMode;
@@ -649,6 +667,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
   "mods.copyPreview" | "mods.copyApply" |
+  "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
   "servers.inspectLocal" | "servers.importLocal" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
@@ -838,6 +857,12 @@ export const managerBridge = {
     request<ModCopyPreview>("mods.copyPreview",{sourceMapId,targets,mode}),
   modCopyApply: (token:string) =>
     request<ModCopyApplied>("mods.copyApply",{token,confirm:true}),
+  offlineArchivePreview: () =>
+    request<OfflineAsaArchivePreview>("cluster.offlinePreview"),
+  offlineArchiveApply: (token:string) =>
+    request<OfflineAsaArchiveStarted>("cluster.offlineApply",{token,confirm:true}),
+  offlineArchiveStatus: (jobId:string) =>
+    request<OfflineAsaArchiveStatus>("cluster.offlineStatus",{jobId}),
   iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
   iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
