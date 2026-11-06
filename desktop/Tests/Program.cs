@@ -2199,6 +2199,28 @@ try
         Check(conversion.GetProperty("data").GetProperty("conversionFlagPresent").GetBoolean() &&
               !conversion.GetProperty("data").GetProperty("serverStartAllowed").GetBoolean(),
             "conversion flag is recognized but never executed");
+        var exactSourceStyle=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,
+                command="ArkAscendedServer.exe ScorchedEarth_WP?listen -Port=7777 -QueryPort=27015 -mods=928548 -clusterid=KovaCluster -ClusterDirOverride=C:\\private\\cluster -usestore -log"});
+        IsOk(exactSourceStyle,"read-only launch preview matches original supplied JavaScript source switch grammar");
+        Check(exactSourceStyle.GetProperty("data").GetProperty("canonicalSourceFlagsObserved").GetBoolean() &&
+              exactSourceStyle.GetProperty("data").GetProperty("storeFlagCount").GetInt32()==1 &&
+              !exactSourceStyle.GetProperty("data").GetProperty("productionUseAllowed").GetBoolean(),
+            "exact original source syntax is recognized but cannot authorize historic ASA launch");
+        var duplicateStore=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,
+                command=privateLaunch+" -usestore"});
+        Check(duplicateStore.GetProperty("data").GetProperty("storeFlagCount").GetInt32()==2 &&
+              !duplicateStore.GetProperty("data").GetProperty("canonicalSourceFlagsObserved").GetBoolean() &&
+              duplicateStore.GetProperty("data").GetProperty("findings").EnumerateArray()
+                .Any(x=>x.GetString()=="DUPLICATE_USESTORE_FLAG"),
+            "repeated Store flag is explicit evidence of an altered historical launch");
+        var reverseConvert=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
+            new{archive=oldArchive,mapId=historicalId,
+                command=privateLaunch+" -convertfromstore"});
+        Check(reverseConvert.GetProperty("data").GetProperty("conversionFlagPresent").GetBoolean() &&
+              !reverseConvert.GetProperty("data").GetProperty("serverStartAllowed").GetBoolean(),
+            "reverse conversion is denied as unsafe for existing Store-v1 characters");
         var missing=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
             new{archive=oldArchive,mapId=historicalId,
                 command="ArkAscendedServer.exe ScorchedEarth_WP -port=9999"});
