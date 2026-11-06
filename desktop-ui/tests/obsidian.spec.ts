@@ -71,6 +71,8 @@ test.beforeEach(async ({ page }) => {
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
+    const pluginJsonToken="00000000-0000-4000-8000-000000001262";
+    let pluginJsonModified=false;
     const offlineArchiveToken="00000000-0000-4000-8000-000000001260";
     const offlineArchiveJob="00000000-0000-4000-8000-000000001261";
     let offlineArchiveApproved=false;
@@ -446,6 +448,27 @@ test.beforeEach(async ({ page }) => {
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
         case "ini.save": return {saved:true,backupCreated:true,sha256:"FFEE11",evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
         case "ini.close": return {closed:true};
+        case "plugins.jsonOpen":
+          if(m.plugin!=="ExamplePlugin")throw new Error("UM-PLUGIN-JSON-INVALID-NAME");
+          return {token:pluginJsonToken,mapId:m.mapId,plugin:m.plugin,
+            content:'{"enabled":true,"slot":1}',sha256:"AA".repeat(32),
+            encoding:"utf-8",bytes:25,
+            evidence:"STOPPED_OWNED_PLUGIN_JSON_SNAPSHOT"};
+        case "plugins.jsonPreview":
+          if(m.token!==pluginJsonToken ||
+             String(m.content).includes('"enabled":true,"enabled":false'))
+            throw new Error("UM-PLUGIN-JSON-SAFETY-CHECK-FAILED");
+          return {previewToken:pluginJsonToken,changed:true,
+            oldSha256:"AA".repeat(32),newSha256:"BB".repeat(32),
+            oldLines:1,newLines:1,evidence:"VALIDATED_PLUGIN_JSON_PREVIEW_NO_WRITES"};
+        case "plugins.jsonSave":
+          if(m.token!==pluginJsonToken||m.confirm!==true||pluginJsonModified)
+            throw new Error("UM-PLUGIN-JSON-APPROVAL-REQUIRED");
+          pluginJsonModified=true;
+          return {saved:true,backupCreated:true,newSha256:"BB".repeat(32),
+            asaPluginReloaded:false,requiresRestart:true,storeTouched:false,
+            sqlUsed:false,evidence:"ATOMIC_STOPPED_LOCAL_PLUGIN_JSON_WITH_PROTECTIVE_BAK"};
+        case "plugins.jsonClose":return {closed:true};
         case "cluster.offlinePreview":
           offlineArchiveApproved=false;
           return {token:offlineArchiveToken,hpCopies:5,ryzenCopies:5,
@@ -1533,6 +1556,23 @@ test("Store-v1 original ASA launch text stays read-only and redacted",async ({pa
   await expect(report).not.toContainText(secret);
   await launch.fill("ArkAscendedServer.exe ScorchedEarth_WP -port=9999");
   await expect(report).toHaveCount(0);
+});
+
+test("Plugin Center uses native stopped-map JSON editing with preview and protective save",async ({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
+  await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
+  await page.getByRole("button",{name:"config.json szerkesztése"}).click();
+  const editor=page.getByRole("region",{name:"Plugin JSON szerkesztő"});
+  await expect(editor).toBeVisible();
+  await editor.getByRole("textbox",{name:"Plugin JSON tartalma"}).fill('{"enabled":false,"slot":2}');
+  await editor.getByRole("button",{name:"JSON és változások ellenőrzése"}).click();
+  const approval=editor.getByRole("region",{name:"Plugin JSON módosítás jóváhagyása"});
+  await expect(approval).toContainText("Változott: igen");
+  await expect(approval.getByRole("button",{name:"Mentés véglegesítése"})).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"Mentés véglegesítése"}).click();
+  await expect(editor).toContainText("védőmásolattal");
 });
 
 test("SQL-free offline cluster archive requires four native folders and explicit approval",async ({page})=>{
