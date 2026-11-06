@@ -1,5 +1,5 @@
 #define MyAppName "Untamed Kingdom — Obsidian Command PREVIEW"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "1.4.0"
 #ifndef BuildDir
   #define BuildDir "..\publish"
 #endif
