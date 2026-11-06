@@ -108,6 +108,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         activeStoreRecords=result.LocalHostMapRecordsActive,
                         completeTwoHostEvidence=result.CompleteTwoHostEvidence,
                         historicalConsistent=result.HistoricalConsistent,
+                        historicalActiveProtocolShape=result.HistoricalActiveProtocolShape,
+                        historicalStartBlockers=result.HistoricalStartBlockers,
                         findings=result.Findings.Select(x=>x.Code.ToString()).Distinct().ToArray(),
                         hosts=result.Hosts.Select(x=>new{
                             number=x.Number,maps=x.Maps,localEvidence=x.LocalEvidence,
