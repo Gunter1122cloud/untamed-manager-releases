@@ -683,6 +683,8 @@ public sealed class ClusterService : IAsyncDisposable
         if(string.IsNullOrWhiteSpace(build))
             throw new InvalidDataException("Official SteamCMD ASA build manifest is missing");
         FreshAsaInstallationSafety.Demand(this,map);
+        if(!AsaRconConfigurationEvidence.Matches(map))
+            throw new InvalidDataException("UM-FRESH-ASA-RCON-CONFIG-DIVERGED");
         LocalMapPortPolicy.RequireNoConflicts(map,Config.LocalMaps);
         if(!AsaLocalPortPreflight.CanStart(map))
             throw new InvalidOperationException("UM-ASA-START-LOCAL-PORT-IN-USE");
@@ -701,6 +703,8 @@ public sealed class ClusterService : IAsyncDisposable
         // Reject changed disk/host conditions after the installation-wide
         // operation lock, immediately before spawning any process.
         FreshAsaInstallationSafety.Demand(this,map);
+        if(!AsaRconConfigurationEvidence.Matches(map))
+            throw new InvalidDataException("UM-FRESH-ASA-RCON-CONFIG-DIVERGED");
         LocalMapPortPolicy.RequireNoConflicts(map,Config.LocalMaps);
         if(!AsaLocalPortPreflight.CanStart(map) ||
            AsaSteamBuildCatalog.InstalledBuild(root)!=build ||
