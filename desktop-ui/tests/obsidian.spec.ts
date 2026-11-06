@@ -42,6 +42,7 @@ test.beforeEach(async ({ page }) => {
     let pluginEnabled = true;
     let pluginZipInstalled = false;
     let steamUpdateStarted = false;
+    let freshStarted=false;
     let lifecycleInterrupted=false;
     (window as typeof window & {__UNTAMED_LIFECYCLE_INTERRUPTED__?:()=>void})
       .__UNTAMED_LIFECYCLE_INTERRUPTED__=()=>{lifecycleInterrupted=true;};
@@ -377,8 +378,9 @@ test.beforeEach(async ({ page }) => {
           evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
         };
         case "servers.freshStartStatus": return {
-          mapId:m.mapId,mapName:"Astraeos",running:false,confirmedStopped:true,
-          pid:null,readyCertified:false,status:"Leállítva",
+          mapId:m.mapId,mapName:"Astraeos",running:freshStarted,confirmedStopped:!freshStarted,
+          pid:freshStarted?45678:null,readyCertified:false,
+          status:freshStarted?"Fut · szintetikus tesztfolyamat":"Leállítva",
           evidence:"LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS"
         };
         case "servers.freshStartPreview": return {
@@ -388,8 +390,18 @@ test.beforeEach(async ({ page }) => {
           confirmedStopped:true,serverStarted:false,
           evidence:"FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
         };
+        case "servers.freshReadiness": return {
+          mapId:m.mapId,mapName:"Astraeos",stage:"RconAuthenticated",
+          observedUtc:"2026-11-06T11:00:00Z",loaderObserved:false,
+          apiInitialized:false,joinAdvertised:false,
+          rconAuthenticated:true,productionReady:false,
+          description:"Synthetic test only: RCON authenticated; game join unverified",
+          storeTouched:false,
+          evidence:"READ_ONLY_LOCAL_ASA_PROCESS_AND_RCON_READINESS"
+        };
         case "servers.freshStartApply":
           if(!m.confirm)throw new Error("approval required");
+          freshStarted=true;
           return {mapId:two,mapName:"Astraeos",pid:45678,
             createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
             readyCertified:false,requiresRconReadiness:true,storeTouched:false,
@@ -1222,6 +1234,10 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"}))
     .toBeVisible({timeout:12000});
   await expect(page.locator(".success-inline").filter({hasText:"folyamatindítás még nem bizonyítja"})).toBeVisible();
+  await page.getByRole("button",{name:"ASA / RCON készenlét ellenőrzése"}).click();
+  await expect(page.getByText("ASA készenléti szint: RconAuthenticated")).toBeVisible();
+  await expect(page.getByText("RCON hitelesítve", {exact:true})).toBeVisible();
+  await expect(page.getByText("Még nincs igazolva", {exact:true})).toBeVisible();
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
 });
 
