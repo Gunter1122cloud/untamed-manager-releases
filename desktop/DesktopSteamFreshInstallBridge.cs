@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using UntamedManager.Core;
 
 namespace UntamedDesktop;
@@ -76,12 +77,28 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
             string? method=methodValue.GetString();
             if(method is not ("steam.freshPreflight" or "steam.freshStart" or
                 "steam.freshStatus" or "steam.freshCurrent" or "steam.freshCancel" or
-                "steam.freshDiscard" or "steam.freshRegister"))
+                "steam.freshDiscard" or "steam.freshRegister" or "steam.freshBrowse"))
                 return Error(id,"UM-METHOD-DENIED");
 
             await serial.WaitAsync();
             try
             {
+                if(method=="steam.freshBrowse")
+                {
+                    // The user picks a local folder with Windows itself. No
+                    // browser-supplied shell path is executed or opened.
+                    // The normal preflight still rejects nonempty, linked,
+                    // historical or shared ASA roots before any download.
+                    using var picker=new FolderBrowserDialog{
+                        Description="Untamed Kingdom – új ASA-szerver célmappája",
+                        ShowNewFolderButton=true,UseDescriptionForTitle=true
+                    };
+                    if(picker.ShowDialog()!=DialogResult.OK ||
+                       string.IsNullOrWhiteSpace(picker.SelectedPath))
+                        return Ok(id,new{selected=false});
+                    string selection=Canonical(picker.SelectedPath);
+                    return Ok(id,new{selected=true,installRoot=selection});
+                }
                 if(method=="steam.freshCurrent")
                 {
                     lock(stateGate)return Ok(id,new{current=currentJob==null?null:Describe(currentJob)});
