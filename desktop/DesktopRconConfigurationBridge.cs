@@ -150,7 +150,8 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
                     return Ok(id,new{mapId,mapName=map.Name,
                         configured=map.RconPort>0&&!string.IsNullOrWhiteSpace(map.RconPasswordProtected),
-                        permitted=SafeMap(map)&&Stopped(map),
+                        permitted=SafeMap(map)&&Stopped(map)&&
+                            FreshAsaInstallationSafety.IsProvenFresh(cluster,map),
                         evidence="LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE"});
                 }
                 if(method=="rcon.configPreview")
@@ -167,7 +168,8 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                         return Error(id,"UM-RCON-CONFIG-FIELDS");
                     var map=Local(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    if(!SafeMap(map)||!Stopped(map))
+                    if(!SafeMap(map)||!Stopped(map)||
+                       !FreshAsaInstallationSafety.IsProvenFresh(cluster,map))
                         return Error(id,"UM-RCON-CONFIG-STOPPED-NONSTORE-ONLY");
                     string password=secretField.GetString()??"";
                     AsaInitialRconSettings.ValidateAdminPassword(password);
@@ -202,6 +204,7 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                 pending=null; // one shot, including failed writes
                 var current=Local(item.MapId);
                 if(current==null||!SafeMap(current) || !Stopped(current) ||
+                   !FreshAsaInstallationSafety.IsProvenFresh(cluster,current) ||
                    current.Arguments!=item.BaselineArguments ||
                    current.InstallationPath!=item.Installation ||
                    current.ExecutablePath!=item.Executable ||
