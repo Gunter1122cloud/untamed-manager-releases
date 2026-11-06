@@ -65,7 +65,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopInitialMapSetupBridge _initialMapSetup;
     private readonly DesktopHistoricalStoreImportBridge _historicalStore;
     private readonly DesktopUpdateStatusBridge _updates = new();
-    private readonly DesktopObsidianUpdateInstallBridge _updateInstall = new();
+    private readonly DesktopObsidianUpdateInstallBridge _updateInstall;
     private readonly DesktopRconReadOnlyBridge _rcon;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
@@ -77,6 +77,7 @@ public sealed class ObsidianWindow : Form
     {
         _smokeTest = smokeTest;
         _credentials = new DesktopCredentialBridge(_bridge.LocalCluster);
+        _updateInstall = new DesktopObsidianUpdateInstallBridge(_bridge.LocalCluster);
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
         _pluginState = new DesktopPluginStateBridge(_bridge.LocalCluster);
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
