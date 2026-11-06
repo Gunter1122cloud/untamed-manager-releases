@@ -90,6 +90,13 @@ public static class ObsidianReleaseCatalog
         return found.OrderByDescending(x=>x.v).ThenByDescending(x=>x.preview)
             .Select(x=>x.item).FirstOrDefault();
     }
+    public static bool IsTrusted(UpdateRelease release) =>
+        Order(release.Tag)!=null &&
+        release.AssetName==Installer &&
+        release.AssetUrl==$"https://github.com/{Repository}/releases/download/{release.Tag}/{Installer}" &&
+        Regex.IsMatch(release.Sha256,@"\\A[a-fA-F0-9]{64}\\z",
+            RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100));
+
     public static bool IsNewer(UpdateRelease release,Version current,string installedTag)
     {
         var incoming=Order(release.Tag);
