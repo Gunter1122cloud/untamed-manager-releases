@@ -1768,6 +1768,17 @@ try
                 File.WriteAllBytes(Path.Combine(savePaths[storeMap.Name],key+".ark"),
                     Encoding.UTF8.GetBytes("SYNTHETIC-EMBEDDED-WORLD-"+key));
             }
+        var firstStoreMap=firstHost.Config.LocalMaps.Single(m=>m.Name=="The Island");
+        var storePolicy=firstHost.Check(firstStoreMap);
+        var physicalProcess=firstHost.ObserveLocalProcessesReadOnly(firstStoreMap);
+        Check(!storePolicy.ConfirmedStopped &&
+              physicalProcess.ConfirmedStopped && !physicalProcess.Running,
+            "read-only Store process observation is distinct from intentionally blocked Store launch policy");
+        bool originalStoreStartDenied=false;
+        try{firstHost.LaunchFreshAsa(firstStoreMap.Id,operatorApproved:true);}
+        catch(InvalidOperationException){originalStoreStartDenied=true;}
+        Check(originalStoreStartDenied,
+            "Store-v1 launch remains forbidden despite physically stopped read-only inventory");
         File.Delete(sourceFile);
         File.Delete(destinationFile);
         File.WriteAllBytes(Path.Combine(targetSave,"old-leftover.arkprofile"),
