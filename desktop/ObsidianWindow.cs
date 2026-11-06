@@ -306,7 +306,8 @@ public sealed class ObsidianWindow : Form
                             "historical.localParity" or
                             "historical.list" or
                             "historical.preview" or "historical.register" or
-                            "historical.pairedEvidence" or "historical.launchEvidence";
+                            "historical.pairedEvidence" or "historical.launchEvidence" or
+                            "historical.liveGuard";
                     }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
