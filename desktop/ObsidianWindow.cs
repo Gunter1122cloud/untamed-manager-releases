@@ -251,7 +251,8 @@ public sealed class ObsidianWindow : Form
                             "curseforge.credentialClear";
                         updateRoute = name is "updates.status" or "updates.check";
                         updateInstallRoute = name is "updates.prepare" or "updates.install";
-                        rconRoute = name is "rcon.status" or "rcon.listPlayers" or "rcon.saveWorld";
+                        rconRoute = name is "rcon.status" or "rcon.listPlayers" or
+                            "rcon.gameLog" or "rcon.chatLog" or "rcon.saveWorld";
                         rconAdminRoute = name is "rcon.adminPreview" or "rcon.adminSend";
                         rconConfigRoute = name is "rcon.configStatus" or "rcon.configPreview" or "rcon.configApply";
                         freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or
