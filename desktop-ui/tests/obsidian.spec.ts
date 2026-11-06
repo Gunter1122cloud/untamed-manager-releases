@@ -40,6 +40,8 @@ test.beforeEach(async ({ page }) => {
     let stagedId = "";
     let redoId = "";
     let pluginEnabled = true;
+    let localBackupMap=one;
+    let localBackupSaved=false;
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
@@ -118,33 +120,51 @@ test.beforeEach(async ({ page }) => {
         case "rcon.listPlayers":
           throw new Error("Only verified local process/port can query players");
         case "backup.history": return {
-          mapId:m.mapId,mapName:"The Island",points:[],
+          mapId:m.mapId,
+          mapName:m.mapId===two?"Astraeos":"The Island",
+          points:localBackupSaved&&m.mapId===localBackupMap?[{
+            id:"00000000-0000-4000-8000-00000000b002",
+            createdUtc:"2026-11-06T08:12:00Z",kind:"manual",
+            files:4,bytes:12799,characters:1,tribes:1,verified:true
+          }]:[],
           source:"LOCAL_SAVEDARKS_MAP_FOLDER",
           storeWriterTouched:false,evidence:"REAL_SHA256_BACKUP_PACKAGES"
         };
-        case "backup.preview": return {
-          token:"00000000-0000-4000-8000-00000000b001",
-          mapId:m.mapId,mapName:"The Island",mapKey:"TheIsland_WP",point:null,
-          confirmedStopped:true,willCreateProtectiveBackup:false,
-          originalWorldRetained:false,storeWriterTouched:false,
-          action:"BACKUP",evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
-        };
-        case "backup.create": return {
-          mapId:one,mapName:"The Island",point:"00000000-0000-4000-8000-00000000b002",
-          createdUtc:"2026-11-06T08:12:00Z",files:4,bytes:12799,
-          characters:1,tribes:1,backupVerified:true,asaSaveCompleteProven:false,
-          storeWriterTouched:false,evidence:"REAL_VERIFIED_STOPPED_MAP_WORLD_BACKUP"
-        };
+        case "backup.preview":
+          localBackupMap=m.mapId??one;
+          return {
+            token:"00000000-0000-4000-8000-00000000b001",
+            mapId:m.mapId,
+            mapName:localBackupMap===two?"Astraeos":"The Island",
+            mapKey:localBackupMap===two?"Astraeos_WP":"TheIsland_WP",
+            point:null,confirmedStopped:true,willCreateProtectiveBackup:false,
+            originalWorldRetained:false,storeWriterTouched:false,
+            action:"BACKUP",evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
+          };
+        case "backup.create":
+          localBackupSaved=true;
+          return {
+            mapId:localBackupMap,
+            mapName:localBackupMap===two?"Astraeos":"The Island",
+            point:"00000000-0000-4000-8000-00000000b002",
+            createdUtc:"2026-11-06T08:12:00Z",
+            files:4,bytes:12799,characters:1,tribes:1,
+            backupVerified:true,asaSaveCompleteProven:false,storeWriterTouched:false,
+            evidence:"REAL_VERIFIED_STOPPED_MAP_WORLD_BACKUP"
+          };
         case "backup.restorePreview": return {
           token:"00000000-0000-4000-8000-00000000b003",
-          mapId:m.mapId,mapName:"The Island",mapKey:"TheIsland_WP",
+          mapId:m.mapId,mapName:m.mapId===two?"Astraeos":"The Island",
+          mapKey:m.mapId===two?"Astraeos_WP":"TheIsland_WP",
           point:m.point,confirmedStopped:true,
           willCreateProtectiveBackup:true,originalWorldRetained:true,
           storeWriterTouched:false,action:"RESTORE",
           evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
         };
         case "backup.restore": return {
-          mapId:one,mapName:"The Island",point:"00000000-0000-4000-8000-00000000b002",
+          mapId:localBackupMap,
+          mapName:localBackupMap===two?"Astraeos":"The Island",
+          point:"00000000-0000-4000-8000-00000000b002",
           protectiveBackup:"00000000-0000-4000-8000-00000000b004",
           restored:true,oldWorldRetained:true,worldRestoreVerified:true,
           storeWriterTouched:false,
@@ -419,12 +439,16 @@ test("Mentésközpont calls real native preview/create and displays verified cha
   await page.getByRole("button",{name:"Mentések",exact:true}).click();
   await expect(page.getByRole("heading",{name:"Mentésközpont"})).toBeVisible();
   await expect(page.getByRole("heading",{name:"Valódi világmentés és védett visszaállítás"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Világmentés készítése"})).toBeDisabled();
+  await page.getByRole("combobox",{name:"Mentendő helyi map"}).selectOption(two);
+  await expect(page.getByRole("button",{name:"Világmentés készítése"})).toBeEnabled();
   await page.getByRole("button",{name:"Világmentés készítése"}).click();
   await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toBeVisible();
-  await expect(page.getByText(/TheIsland_WP/)).toBeVisible();
+  await expect(page.getByText(/Astraeos_WP/)).toBeVisible();
   await page.getByRole("button",{name:"Mentés indítása"}).click();
   await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
   await expect(page.getByText(/4 fájl · 1 karakter · 1 törzs/)).toBeVisible();
+  await expect(page.getByText("1 ellenőrzött csomag")).toBeVisible();
   await page.screenshot({path:"test-results/uk-real-world-backup-1600.png",fullPage:false});
 });
 
