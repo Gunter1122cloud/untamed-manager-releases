@@ -103,6 +103,7 @@ public sealed class SteamSerialMaintenanceQueue
                 {
                     ct.ThrowIfCancellationRequested();
                     var map=selected[i];
+                    new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
                     // Check all other maps sharing the same installation; a
                     // running sibling can use the same ASA binaries as this map.
                     string install=Path.GetFullPath(map.InstallationPath).TrimEnd(
