@@ -30,6 +30,7 @@ import type { AsaLifecycleJournal, AsaRestartJournalStatus } from "./bridge";
 import { PluginZipInstaller } from "./PluginZipInstaller";
 import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
+import { LocalModCopyPanel } from "./LocalModCopyPanel";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
@@ -659,7 +660,7 @@ function Mods({ snapshot, selected, setSelected }: {
   const [prefillMode,setPrefillMode]=useState<ModDraftMode>("active");
   const [draftChanges,setDraftChanges]=useState(0);
   const [inventoryRevision,setInventoryRevision]=useState(0);
-  const [workspaceTab,setWorkspaceTab]=useState<"installed"|"draft"|"galaxy"|"shared">("installed");
+  const [workspaceTab,setWorkspaceTab]=useState<"installed"|"draft"|"galaxy"|"shared"|"copy">("installed");
   const [savedNotice,setSavedNotice]=useState("");
   const currentName=info?.mapName||
     snapshot.local.maps.find(m=>m.id===selected)?.name||"Helyi map";
@@ -709,7 +710,8 @@ function Mods({ snapshot, selected, setSelected }: {
         {id:"installed",name:"Map modjai",icon:Package},
         {id:"draft",name:"Modpiszkozat",icon:FileText},
         {id:"galaxy",name:"CurseForge katalógus",icon:Search},
-        {id:"shared",name:"Közös modok",icon:Layers3}
+        {id:"shared",name:"Közös modok",icon:Layers3},
+        {id:"copy",name:"Másolás több mapra",icon:Copy}
       ] as const).map(tab=><button type="button" key={tab.id} role="tab"
         aria-selected={workspaceTab===tab.id}
         className={workspaceTab===tab.id?"active":""}
@@ -740,6 +742,15 @@ function Mods({ snapshot, selected, setSelected }: {
     <div className={workspaceTab==="shared"?"premium-tab-surface":"premium-tab-surface is-hidden"}
       aria-hidden={workspaceTab!=="shared"}>
       <SharedModOverview revision={inventoryRevision} onPick={setSelected}/>
+    </div>
+    <div className={workspaceTab==="copy"?"premium-tab-surface":"premium-tab-surface is-hidden"}
+      aria-hidden={workspaceTab!=="copy"}>
+      <LocalModCopyPanel maps={snapshot.local.maps} sourceMapId={selected}
+        onApplied={()=>{
+          setInventoryRevision(n=>n+1);
+          setSavedNotice("A kijelölt helyi mapok modkonfigurációja mentve; tényleges betöltésük még nem igazolt.");
+          managerBridge.configuredMods(selected).then(setInfo).catch(()=>setInfo(null));
+        }}/>
     </div>
     <div id="curseforge-catalog" className={workspaceTab==="galaxy"?
       "premium-catalog-area premium-tab-surface":"premium-catalog-area premium-tab-surface is-hidden"}
