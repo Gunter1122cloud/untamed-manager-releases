@@ -124,6 +124,20 @@ export type TravelComparison = {
   evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY";
 };
 
+export type StoppedSteamPreview = {
+  token:string;mapId:string;mapName:string;maps:string[];
+  installedBuild:string;reserveBytes:number;availableBytes:number;
+  evidence:"REAL_LOCAL_STOPPED_STEAM_PREFLIGHT_NO_WRITE";
+};
+export type StoppedSteamStarted = {
+  jobId:string;started:true;restartPerformed:false;remoteHostTouched:false;
+  evidence:"REAL_LOCAL_STOPPED_STEAM_UPDATE_STARTED";
+};
+export type StoppedSteamStatus = {
+  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  stage:string;changedUtc:string;oldBuild:string;newBuild:string;
+  protectedFilesIntact:boolean;restartPerformed:false;storeTouched:false;
+};
 export type RconConfigStatus = {
   mapId:string;mapName:string;configured:boolean;permitted:boolean;
   evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE";
@@ -406,7 +420,7 @@ type WireRequest = { id: string; method: "dashboard.snapshot" | "mods.configured
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" |
+  "steam.freshRegister" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -474,6 +488,12 @@ export const managerBridge = {
   updatePrepare: (channel:"stable"|"preview") => request<UpdatePrepared>("updates.prepare",{channel,confirm:true}),
   updateInstall: (token:string) => request<UpdateInstallReceipt>("updates.install",{token,confirm:true}),
   updateStatus: () => request<UpdateStatus>("updates.status"),
+  steamStoppedPreview: (mapId:string) =>
+    request<StoppedSteamPreview>("steam.stoppedPreview",{mapId}),
+  steamStoppedApply: (token:string) =>
+    request<StoppedSteamStarted>("steam.stoppedApply",{token,confirm:true}),
+  steamStoppedStatus: (jobId:string) =>
+    request<StoppedSteamStatus>("steam.stoppedStatus",{jobId}),
   rconConfigStatus: (mapId:string) => request<RconConfigStatus>("rcon.configStatus",{mapId}),
   rconConfigPreview: (mapId:string,rconPort:number,password:string,createIni:boolean) =>
     request<RconConfigPreview>("rcon.configPreview",{mapId,rconPort,password,createIni}),
