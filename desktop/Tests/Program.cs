@@ -884,6 +884,24 @@ try
         Check(IsError(forged,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
             "unknown archive ID is rejected without writing world or Store");
 
+        // A failure immediately before the directory swap must not alter
+        // current world/character bytes or leave a misleading recovery marker.
+        bool rejectedBeforeSwap=false;
+        try
+        {
+            KovaCompatibleWorldBackup.Restore(localMap,localProfile,point,
+                ()=>new ProcessCheck(false,"synthetic stopped",null,true),
+                ()=>{throw new IOException("Injected before-rename failure");});
+        }
+        catch(IOException){rejectedBeforeSwap=true;}
+        var worldParent=Path.Combine(localInstall,"ShooterGame","Saved","SavedArks");
+        Check(rejectedBeforeSwap &&
+              File.ReadAllText(arkFile)=="TAMPERED" &&
+              !File.Exists(Path.Combine(worldParent,
+                  ".untamed-restore-TheIsland_WP.json")) &&
+              !Directory.EnumerateDirectories(worldParent,".untamed-stage-*").Any(),
+            "pre-swap failure leaves live world intact, removes stage and does not fake a crash recovery marker");
+
         // Two local ASA map profiles can legitimately share the same
         // SteamCMD installation if their SavedArks/<MapKey> folders differ.
         // Both must remain independently selectable, never overwrite each
