@@ -121,11 +121,30 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             id=request.ToString("D");
             var method=methodField.GetString();
             if(method is not ("servers.restartPreview" or
-                "servers.restartApply" or "servers.restartStatus"))
+                "servers.restartApply" or "servers.restartStatus" or
+                "servers.restartCurrent"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
             {
+                if(method=="servers.restartCurrent")
+                {
+                    if(!ReadGuid(args,"mapId",out var mapId))
+                        return Fail(id,"UM-ASA-RESTART-MAP");
+                    var map=Owned(mapId);
+                    if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    var saved=new AsaManualRestartJournal(map.InstallationPath).Observe();
+                    bool belongs=saved!=null&&saved.MapId==map.Id;
+                    bool pending=saved!=null&&saved.Phase!=AsaRestartPhase.Completed;
+                    return Ok(id,new{
+                        exists=saved!=null,belongsToMap=belongs,
+                        phase=saved?.Phase.ToString(),
+                        oldPid=saved?.OldPid,newPid=saved?.NewPid,
+                        changedUtc=saved?.ChangedUtc,
+                        needsOperatorReview=pending,autoResumeAllowed=false,
+                        evidence="DURABLE_MACHINE_LOCAL_MANUAL_ASA_RESTART"
+                    });
+                }
                 if(method=="servers.restartStatus")
                 {
                     if(!ReadGuid(args,"jobId",out var jobId) ||
