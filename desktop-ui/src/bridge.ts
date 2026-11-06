@@ -476,6 +476,27 @@ export type HistoricalLocalStoreStatus = {
   evidence:string;
 };
 
+export type AsaApiCoreRelease = {
+  tag:string;publishedUtc:string|null;htmlUrl:string;
+  assets:Array<{name:string;bytes:number;publisherDigestAvailable:boolean}>;
+  installationStarted:false;
+  evidence:"OFFICIAL_ASA_API_GITHUB_RELEASE_METADATA_ONLY";
+};
+export type AsaApiCorePreview = {
+  token:string;mapId:string;mapName:string;releaseTag:string;
+  assetName:string;bytes:number;officialSha256VerifiedInMetadata:true;
+  approved:false;serverStopped:true;storeProtected:false;
+  createsSelectiveRollback:true;restartsServer:false;
+  runtimeLoadCertified:false;
+  evidence:"VERIFIED_UPSTREAM_RELEASE_PREFLIGHT_NO_WRITE";
+};
+export type AsaApiCoreReceipt = {
+  mapId:string;releaseTag:string;transactionId:string;binaries:number;
+  bytesVerified:true;rollbackSnapshot:true;
+  runtimeLoadedVerified:false;serverRestarted:false;
+  evidence:"OFFICIAL_SHA256_STOPPED_API_CORE_SELECTIVE_ROLLBACK_SNAPSHOT";
+};
+
 export type HistoricalLiveGuard = {
   mapId:string;originalActiveReady:boolean;bothPeersDone:boolean;
   sharedSessionMatches:boolean;noPendingConversion:boolean;
@@ -604,6 +625,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
+  "api.coreRelease" | "api.corePreview" | "api.coreApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
@@ -620,6 +642,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
+  assetName?:string;
   point?:string; action?:string; message?:string; typedApproval?:string;
   rconPort?:number; password?:string; createIni?:boolean;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
@@ -727,6 +750,11 @@ export const managerBridge = {
   sharedModInventory: () => request<SharedModInventory>("mods.sharedInventory"),
   catalogSearch: (term: string, page = 0) => request<CurseForgeResult>("curseforge.search", { term, page }),
   pluginInventory: (mapId: string) => request<PluginInventory>("plugins.inventory", { mapId }),
+  apiCoreRelease: () => request<AsaApiCoreRelease>("api.coreRelease"),
+  apiCorePreview: (mapId:string,assetName:string) =>
+    request<AsaApiCorePreview>("api.corePreview",{mapId,assetName}),
+  apiCoreApply: (token:string) =>
+    request<AsaApiCoreReceipt>("api.coreApply",{token,confirm:true}),
   pluginZipSelect: (mapId:string) =>
     request<PluginZipPreview>("plugins.zipSelect",{mapId}),
   pluginZipApply: (token:string) =>
