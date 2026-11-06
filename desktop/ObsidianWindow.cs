@@ -76,6 +76,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopFreshAsaRestartBridge _freshRestart;
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopOperationsCenterBridge _operations;
+    private readonly DesktopLanSettingsBridge _lan;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly DesktopWorldBackupBridge _worldBackup;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
@@ -106,6 +107,7 @@ public sealed class ObsidianWindow : Form
         _freshRestart = new DesktopFreshAsaRestartBridge(_bridge.LocalCluster);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
         _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster);
+        _lan = new DesktopLanSettingsBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
@@ -133,7 +135,14 @@ public sealed class ObsidianWindow : Form
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => RestoreWindow();
 
-        Shown += async (_, _) => await InitializeBrowserAsync();
+        Shown += async (_, _) => {
+            // Once per Manager start, enable only the explicitly configured
+            // authenticated read-only LAN listener. Config changes require
+            // Manager restart, never an ASA server restart.
+            if (!_smokeTest) try { await _bridge.LocalCluster.BeginLanAsync(); }
+                catch (Exception) { /* UI remains usable; peer status stays unknown */ }
+            await InitializeBrowserAsync();
+        };
         FormClosing += (_, e) =>
         {
             if (!_reallyExit && e.CloseReason == CloseReason.UserClosing)
@@ -241,6 +250,7 @@ public sealed class ObsidianWindow : Form
                 bool freshRestartRoute = false;
                 bool lifecycleJournalRoute = false;
                 bool operationsRoute = false;
+                bool lanRoute = false;
                 try
                 {
                     using var parsed = JsonDocument.Parse(incoming);
@@ -265,6 +275,7 @@ public sealed class ObsidianWindow : Form
                             "servers.restartStatus" or "servers.restartCurrent";
                         lifecycleJournalRoute = name is "servers.lifecycleJournal";
                         operationsRoute = name is "operations.snapshot" or "operations.map";
+                        lanRoute = name is "lan.status" or "lan.preview" or "lan.apply";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare";
@@ -299,7 +310,8 @@ public sealed class ObsidianWindow : Form
                 await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = operationsRoute ? await _operations.HandleAsync(incoming)
+                    string response = lanRoute ? await _lan.HandleAsync(incoming)
+                        : operationsRoute ? await _operations.HandleAsync(incoming)
                         : freshRestartRoute ? await _freshRestart.HandleAsync(incoming)
                         : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
                         : freshStopRoute ? await _freshStop.HandleAsync(incoming)
