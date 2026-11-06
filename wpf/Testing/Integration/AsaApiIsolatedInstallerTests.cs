@@ -104,6 +104,52 @@ public static class AsaApiIsolatedInstallerTests
                 File.ReadAllText(Path.Combine(plugin,"Protected.dll"))=="existing protected plugin",
                 "configuration, plugin database and license remain byte-identical in "+mode);
         }
+        // The production installer uses its OWN path: unlike the isolated
+        // full-tree fixture it selectively backs up ONLY verified API binaries,
+        // preserves configs/player plugins, and never handles Store worlds.
+        {
+            string top=Path.Combine(Path.GetTempPath(),"Untamed-ApiOwned-"+Guid.NewGuid().ToString("N"));
+            string install=Path.Combine(top,"official-owned-asa"),
+                binary=Path.Combine(install,"ShooterGame","Binaries","Win64"),
+                plugin=Path.Combine(binary,"ArkApi","Plugins","PlayerState");
+            Directory.CreateDirectory(plugin);
+            File.WriteAllBytes(Path.Combine(binary,"ArkAscendedServer.exe"),pe);
+            string oldLoader=Path.Combine(binary,"AsaApiLoader.exe");
+            File.WriteAllText(oldLoader,"SYNTHETIC OLD LOADER");
+            string originalConfig=Path.Combine(binary,"config.json");
+            File.WriteAllText(originalConfig,"{\"UserSettings\":\"PRESERVED\"}");
+            string playerDb=Path.Combine(plugin,"players.db");
+            File.WriteAllText(playerDb,"ORIGINAL PLAYER PLUGIN STATE");
+            var owned=new LocalMap {
+                Id=Guid.NewGuid(),Name="The Island",InstallationPath=install,
+                ExecutablePath=Path.Combine(binary,"ArkAscendedServer.exe"),
+                Arguments="TheIsland_WP?listen"
+            };
+            await using var host=new ClusterService("api-owned",Path.Combine(top,"profile"),
+                _=>new ProcessCheck(false,"Synthetic stopped",null,true));
+            host.AddMap(owned);
+            var receipt=AsaApiOwnedInstaller.ApplyOwnedStopped(
+                host,owned.Id,archive,release,asset,true);
+            Check(receipt.ByteVerified&&receipt.HasProtectiveCopy&&
+                  !receipt.LoaderRuntimeVerified&&!receipt.Restarted &&
+                  receipt.Binaries==4 &&
+                  File.ReadAllBytes(oldLoader).SequenceEqual(pe)&&
+                  File.ReadAllBytes(Path.Combine(binary,"ArkApi","AsaApi.dll")).SequenceEqual(pe),
+                "owned fresh stopped API CORE binaries updated with original targeted rollback");
+            Check(File.ReadAllText(originalConfig)=="{\"UserSettings\":\"PRESERVED\"}"&&
+                  File.ReadAllText(playerDb)=="ORIGINAL PLAYER PLUGIN STATE",
+                "verified owned API CORE install never modifies config or player plugin database");
+            var transaction=Path.Combine(host.Store.Root,"api-core-transactions",
+                receipt.TransactionId);
+            Check(File.Exists(Path.Combine(transaction,"complete"))&&
+                  File.ReadAllText(Path.Combine(transaction,"previous","AsaApiLoader.exe"))==
+                    "SYNTHETIC OLD LOADER",
+                "old API binaries protected in durable transaction without copying world or game EXE");
+            owned.HistoricalStoreProtected=true;
+            Check(Refused(()=>AsaApiOwnedInstaller.ApplyOwnedStopped(
+                    host,owned.Id,archive,release,asset,true)),
+                "historical Store-v1 map cannot enter owned API CORE mutation path");
+        }
         foreach(string mode in new[]{"ok","cancel","race","running","proxy","peer"})await Case(mode);
     }
 }
