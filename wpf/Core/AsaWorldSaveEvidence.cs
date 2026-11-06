@@ -57,9 +57,8 @@ public static class AsaWorldSaveEvidence
         string root=map.InstallationPath;
         string log=LocalFilePath(root,Path.Combine(root,"ShooterGame","Saved",
             "Logs","ShooterGame.log"));
-        string key=KovaCompatibleWorldBackup.MapKey(map);
-        string world=LocalFilePath(root,Path.Combine(root,"ShooterGame","Saved",
-            "SavedArks",key,key+".ark"));
+        string world=LocalFilePath(root,
+            AsaSaveLayoutResolver.Resolve(map).WorldFile);
         return BeginFromPaths(map.Id,process.Pid,process.StartedUtc,
             root,log,world);
     }
