@@ -719,6 +719,44 @@ test("gallery filters local/remote machines without exposing peer control action
   await page.screenshot({path:"test-results/uk-rex-ten-map-gallery-1600.png",fullPage:false});
 });
 
+test("P0-2 Servers switches between keyboard-accessible list and premium 2-host map gallery",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await expect(page.locator(".premium-map-line.is-local")).toHaveCount(2);
+  await expect(page.locator(".premium-map-line.is-remote")).toHaveCount(1);
+  await page.getByRole("group",{name:"Szervernézet"}).getByRole("button",{name:"Kártyák"}).click();
+  const gallery=page.getByRole("region",{name:"Szervergaléria"});
+  await expect(gallery.locator(".uk-gallery-tile.is-local")).toHaveCount(2);
+  await expect(gallery.locator(".uk-gallery-tile.is-remote")).toHaveCount(1);
+  await expect(gallery.getByLabel(/Ragnarok távoli megfigyelés/)).toBeVisible();
+  await expect(gallery.getByRole("button",{name:/Ragnarok szerver megnyitása/})).toHaveCount(0);
+  await gallery.getByRole("button",{name:/Astraeos szerver megnyitása/}).click();
+  await expect(page.locator(".map-detail-hero")).toContainText("Astraeos");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.getByRole("group",{name:"Szervernézet"}).getByRole("button",{name:"Lista"}).click();
+  await expect(page.locator(".premium-map-line.is-local")).toHaveCount(2);
+});
+
+test("P0-1 click an Untamed map artwork on an empty host to preselect its real SteamCMD installer",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_EMPTY_FIXTURE__?:()=>void
+  }).__UNTAMED_EMPTY_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("group",{name:"Szervernézet"}).getByRole("button",{name:"Kártyák"}).click();
+  await expect(page.getByLabel("ASA map választék").locator(".is-discovery")).toHaveCount(10);
+  await page.getByRole("button",{name:"Valguero · új szerver telepítése"}).click();
+  await expect(page.getByText("Új ASA szerver · SteamCMD telepítés")).toBeVisible();
+  await expect(page.getByRole("combobox",{name:"Új ASA map"})).toHaveValue("Valguero");
+  await expect(page.getByRole("button",{name:"ASA letöltés indítása"})).toBeEnabled();
+  // Empty root can never dispatch a native download, even with map selected.
+  await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
+  await expect(page.getByRole("alert")).toContainText("Válassz egy üres, helyi telepítési mappát.");
+});
+
 test("real UI contract renders the synthetic dashboard and responsive navigation", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto("/");
