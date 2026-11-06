@@ -1186,6 +1186,12 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
   await expect(start).toBeEnabled();
   await start.click();
+  // Surface the actual visible native-bridge error when a UI regression
+  // occurs, rather than a generic locator timeout with no diagnosis.
+  await expect.poll(async()=>({
+    done:(await page.getByText(/ASA indítás elindítva, PID: 45678/)).count()>0,
+    alert:await page.getByRole("alert").allTextContents()
+  }),{timeout:12000}).toMatchObject({done:true});
   await expect(page.getByText(/ASA indítás elindítva, PID: 45678/)).toBeVisible();
   await expect(page.getByText(/folyamatindítás még nem bizonyítja/)).toBeVisible();
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
