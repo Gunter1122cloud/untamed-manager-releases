@@ -67,11 +67,12 @@ try
             new{mapId=map.Id});
         Check(IsError(methodDenied,"UM-METHOD-DENIED"),
             "operational diagnostics cannot dispatch lifecycle methods");
-        cluster.UpdateSettings(config=>config.RecurringSchedules.Add(new RecurringSchedule {
+        cluster.Config.RecurringSchedules.Add(new RecurringSchedule {
             Map=map.Id,Kind=OperationalTaskKind.Observation,
             Frequency=ScheduleFrequency.Daily,LocalClock=new TimeSpan(7,30,0),
             Enabled=false
-        }));
+        });
+        cluster.Save(); // Synthetic test owns this isolated Manager profile.
         var configured=await Call(operations.HandleAsync,"operations.snapshot");
         IsOk(configured,"persisted local schedules shown through real Core preview");
         var schedules=configured.GetProperty("data").GetProperty("schedules");
