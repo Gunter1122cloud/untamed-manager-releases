@@ -23,6 +23,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
 {
     private readonly ClusterService cluster;
     private readonly Func<LocalMap,ProcessCheck> inspect;
+    private readonly string localLegacyDataDirectory;
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly Dictionary<Guid,Prepared> pending=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -32,10 +33,13 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         DateTimeOffset ExpiresUtc);
 
     public DesktopHistoricalStoreImportBridge(ClusterService service,
-        Func<LocalMap,ProcessCheck>? processInspector=null)
+        Func<LocalMap,ProcessCheck>? processInspector=null,
+        string? localLegacyDataDirectory=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         inspect=processInspector??(map=>new WindowsProcessInspector().InspectFamily(map));
+        this.localLegacyDataDirectory=localLegacyDataDirectory??Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
     }
 
     public async Task<string> HandleAsync(string raw)
@@ -54,7 +58,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 return Fail(null,"UM-INVALID-MESSAGE");
             id=requestId.ToString("D");
             string? method=methodProp.GetString();
-            if(method is not ("historical.list" or "historical.preview" or
+            if(method is not ("historical.localStatus" or "historical.list" or "historical.preview" or
                 "historical.register" or "historical.pairedEvidence" or
                 "historical.launchEvidence"))
                 return Fail(id,"UM-METHOD-DENIED");
@@ -63,6 +67,35 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             {
                 foreach(var expired in pending.Where(x=>x.Value.ExpiresUtc<DateTimeOffset.UtcNow)
                     .Select(x=>x.Key).ToArray())pending.Remove(expired);
+
+                if(method=="historical.localStatus")
+                {
+                    // Only the local, explicitly configured legacy profile folder
+                    // is inspected. No UI-supplied file path, no SMB or remote reads.
+                    try
+                    {
+                        var proof=LegacyStoreV1LocalReader.Inspect(localLegacyDataDirectory);
+                        return Ok(id,new {
+                            found=true,localFilesVerified=proof.LocalFilesVerified,
+                            configHashVerified=proof.ClusterHashVerified,
+                            localLockVerified=proof.LocalLockVerified,
+                            allLocalMapsActive=proof.AllLocalMapsActive,
+                            localSnapshotReady=proof.LocalSnapshotReady,
+                            liveTwoHostVerified=false,characterTravelVerified=false,
+                            maps=proof.Maps.Select(m=>new{
+                                mapKey=m.MapKey,active=m.Active,
+                                sessionMatches=m.SessionMatches,
+                                rootMatches=m.RootMatches,selected=m.Selected,
+                                backupIdentityPresent=m.BackupIdentityPresent
+                            }).ToArray(),
+                            productionUseAllowed=false,evidence=proof.Evidence
+                        });
+                    }
+                    catch(DirectoryNotFoundException)
+                    {return Fail(id,"UM-LOCAL-STORE-NOT-FOUND");}
+                    catch(Exception)
+                    {return Fail(id,"UM-LOCAL-STORE-VERIFICATION-FAILED");}
+                }
 
                 if(method=="historical.launchEvidence")
                 {
