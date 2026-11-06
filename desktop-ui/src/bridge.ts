@@ -148,6 +148,8 @@ export type TravelMapProof = {
   mapId:string;mapName:string;confirmedStopped:boolean;
   saveDirectoryFound:boolean;ambiguousLayout:boolean;
   profileCount:number;tribeCount:number;zeroByteDetected:boolean;unstable:boolean;
+  storeMode:boolean;worldPresent:boolean;worldBytes:number;worldUnstable:boolean;
+  embeddedSurvivorVerified:false;
   profileFiles:Array<{id:string;bytes:number}>;
 };
 export type TravelCapture = {
@@ -159,9 +161,12 @@ export type TravelComparison = {
   passed:boolean;maps:10;hosts:2;
   beforeOnSource:boolean;afterOnTarget:boolean;uniqueDestination:boolean;
   zeroByteFiles:number;findings:string[];
+  storeModeDetected:boolean;embeddedSurvivorVerified:false;
+  gameClientRejoinVerified:false;worldFilesPresentForStore:boolean;
   liveStoreWriterCertified:false;asaSaveCompleteCertified:false;
   productionUnlockAllowed:false;
-  evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY";
+  evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"|
+    "STORE_V1_EMBEDDED_WORLD_METADATA_NO_CHARACTER_CONTENT_PROOF";
 };
 
 export type PluginZipPreview = {
