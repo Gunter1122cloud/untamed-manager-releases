@@ -215,6 +215,46 @@ public static class AsaApiOwnedInstaller
             throw;
         }
     }
+    // UI receives opaque transaction identifiers only, never arbitrary disk
+    // paths. The actual rollback revalidates every SHA-256 under a machine lock.
+    public sealed record RollbackCandidate(string TransactionId,string ReleaseTag,
+        int Binaries);
+
+    public static IReadOnlyList<RollbackCandidate> ListCompletedRollbacks(
+        ClusterService cluster,Guid mapId)
+    {
+        var (_,root,_)=Preflight(cluster,mapId);
+        string parent=Safe(Path.Combine(cluster.Store.Root,"api-core-transactions"));
+        if(!Directory.Exists(parent))return Array.Empty<RollbackCandidate>();
+        var results=new List<RollbackCandidate>();
+        foreach(string directory in Directory.GetDirectories(parent))
+        {
+            string name=Path.GetFileName(directory);
+            if(!Guid.TryParseExact(name,"N",out _)||
+               (File.GetAttributes(directory)&FileAttributes.ReparsePoint)!=0)
+                continue;
+            string committed=Safe(Path.Combine(directory,"complete"));
+            string reverted=Safe(Path.Combine(directory,"rolled-back"));
+            string statePath=Safe(Path.Combine(directory,"transaction.json"));
+            if(!File.Exists(committed)||File.Exists(reverted)||
+               !File.Exists(statePath)||
+               new FileInfo(statePath).Length is <50 or >32768)
+                continue;
+            try
+            {
+                var state=JsonSerializer.Deserialize<State>(File.ReadAllText(statePath));
+                if(state?.Schema==1&&state.MapId==mapId&&
+                   state.Installation.Equals(root,StringComparison.OrdinalIgnoreCase)&&
+                   state.Phase=="prepared"&&state.Files is { Length: > 0 }&&
+                   !string.IsNullOrWhiteSpace(state.ReleaseTag))
+                    results.Add(new(name,state.ReleaseTag,state.Files.Length));
+            }
+            catch(JsonException){/* never advertise corrupt/untrusted recovery state */}
+        }
+        return results.OrderByDescending(x=>x.TransactionId,StringComparer.Ordinal)
+            .Take(30).ToArray();
+    }
+
     /// <summary>
     /// Explicit operator rollback of a COMPLETED owned CORE update. This is
     /// intentionally not an automatic recovery for an interrupted update:
