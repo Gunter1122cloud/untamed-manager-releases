@@ -999,7 +999,7 @@ try
     // RconProtocol.Execute and silently refused Broadcast/wildWipe.
     {
         using var socketDeadline=new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        using var listener=new System.Net.Sockets.TcpListener(
+        var listener=new System.Net.Sockets.TcpListener(
             System.Net.IPAddress.Loopback,0);
         listener.Start();
         int rconPort=((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
@@ -1030,7 +1030,7 @@ try
                 frame.AsSpan(4,4),id);
             System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(
                 frame.AsSpan(8,4),type);
-            data.CopyTo(frame.AsSpan(12));
+            data.AsSpan().CopyTo(frame.AsSpan(12));
             await stream.WriteAsync(frame,ct);
             await stream.FlushAsync(ct);
         }
@@ -1055,6 +1055,7 @@ try
             ()=>{Check(authReceived,"admin command authorization occurs after RCON login");
                 verifiedAfterAuth=true;},socketDeadline.Token);
         await mockServer.WaitAsync(socketDeadline.Token);
+        listener.Stop();
         Check(commandReceived=="Broadcast Untamed native one-shot" &&
               dispatched=="ADMIN_RCON_DISPATCHED_EXECUTION_NOT_VERIFIED",
             "real localhost RCON Broadcast writes one packet and does not pretend execution succeeded");
