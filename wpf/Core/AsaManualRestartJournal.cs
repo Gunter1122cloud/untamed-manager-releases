@@ -134,6 +134,16 @@ public sealed class AsaManualRestartJournal
                 "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR");
     }
 
+    public void DemandAuthorizedStop(Guid? restartId)
+    {
+        var current=Observe();
+        if(current==null||current.Phase==AsaRestartPhase.Completed)return;
+        if(restartId==null||current.Id!=restartId.Value||
+           current.Phase!=AsaRestartPhase.Stopping)
+            throw new InvalidOperationException(
+                "UM-ASA-RESTART-JOURNAL-STOP-UNAUTHORIZED");
+    }
+
     public void DemandAuthorizedStart(Guid? restartId)
     {
         var current=Observe();
