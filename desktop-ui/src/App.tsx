@@ -23,6 +23,7 @@ import { UpdateCenterPage } from "./UpdateCenterPage";
 import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
 import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
 import { FreshAsaStopPanel } from "./FreshAsaStopPanel";
+import { FreshAsaRestartPanel } from "./FreshAsaRestartPanel";
 import type { AsaLifecycleJournal } from "./bridge";
 import { PluginZipInstaller } from "./PluginZipInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
@@ -1329,6 +1330,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       </div>
       {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview)}/>}
       {map.gamePort>0 && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview)}/>}
+      {map.gamePort>0 && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={Boolean(lifecycle?.needsOperatorReview)}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
