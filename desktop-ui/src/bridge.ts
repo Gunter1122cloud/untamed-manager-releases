@@ -436,7 +436,8 @@ export type HistoricalPairEvidence = {
   files:number; maps:number; peers:number;
   sessionConsistent:boolean; configHashesVerified:boolean;
   activeStoreRecords:boolean; completeTwoHostEvidence:boolean;
-  historicalConsistent:boolean; findings:string[];
+  historicalConsistent:boolean; historicalActiveProtocolShape:boolean;
+  historicalStartBlockers:string[]; findings:string[];
   hosts:Array<{number:number;maps:number;localEvidence:boolean;
     sessionMatches:boolean;configHashMatches:boolean;
     lockMatches:boolean;activeMaps:boolean}>;
