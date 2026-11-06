@@ -123,7 +123,7 @@ public sealed class DesktopStoreTravelEvidenceBridge
         var after=cluster.Check(map);
         if(quiescent&&(after.Running||!after.ConfirmedStopped||
             after.Identity!=null||after.LoaderIdentity!=null))unstable=true;
-        return new(map.Id,map.Name,quiescent&&!unstable,!missing,!ambiguous,
+        return new(map.Id,map.Name,quiescent&&!unstable,!missing,ambiguous,
             proofs.Count(p=>p.Kind=="profile"),proofs.Count(p=>p.Kind=="tribe"),
             zero,unstable,proofs.ToArray());
     }
