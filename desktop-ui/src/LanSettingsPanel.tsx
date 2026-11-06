@@ -130,7 +130,7 @@ export function LanSettingsPanel(){
       {error&&<div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
       <div className="warning-inline"><Shield size={16}/>
         A közös kulcs nem kerül visszaolvasásra a Windows DPAPI-tárolóból.
-        Ha most generáltál új kulcsot, a végső jóváhagyás előtt jegyezd fel a másik Manager számára.
+        Ha most generáltál új kulcsot, már az ellenőrzés előtt jegyezd fel a másik Manager számára.
         Tűzfalat, routert, adatbázist és ASA-fájlokat nem módosítunk.</div>
     </div>
   </section>;
