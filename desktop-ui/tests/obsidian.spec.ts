@@ -390,6 +390,20 @@ test("two-host character travel workbench captures exactly five local maps witho
   await page.screenshot({path:"test-results/untamed-store-travel-workbench-1600.png",fullPage:false});
 });
 
+test("Mentésközpont calls real native preview/create and displays verified characters",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Mentésközpont"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Valódi világmentés és védett visszaállítás"})).toBeVisible();
+  await page.getByRole("button",{name:"Világmentés készítése"}).click();
+  await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toBeVisible();
+  await expect(page.getByText(/TheIsland_WP/)).toBeVisible();
+  await page.getByRole("button",{name:"Mentés indítása"}).click();
+  await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
+  await expect(page.getByText(/4 fájl · 1 karakter · 1 törzs/)).toBeVisible();
+  await page.screenshot({path:"test-results/uk-real-world-backup-1600.png",fullPage:false});
+});
+
 test("Update Center verifies Obsidian-only installer and requires explicit two-stage native approval",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Frissítések"}).click();
