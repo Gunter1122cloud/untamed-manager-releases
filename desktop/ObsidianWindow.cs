@@ -57,6 +57,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopReadOnlyBridge _bridge = new();
     private readonly DesktopCredentialBridge _credentials;
     private readonly DesktopModDraftBridge _modDrafts;
+    private readonly DesktopModCopyBridge _modCopy;
     private readonly DesktopPluginStateBridge _pluginState;
     private readonly DesktopPluginZipBridge _pluginZip;
     private readonly DesktopAsaApiCoreBridge _apiCore;
@@ -91,6 +92,7 @@ public sealed class ObsidianWindow : Form
         _credentials = new DesktopCredentialBridge(_bridge.LocalCluster);
         _updateInstall = new DesktopObsidianUpdateInstallBridge(_bridge.LocalCluster);
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
+        _modCopy = new DesktopModCopyBridge(_bridge.LocalCluster);
         _pluginState = new DesktopPluginStateBridge(_bridge.LocalCluster);
         _pluginZip = new DesktopPluginZipBridge(_bridge.LocalCluster);
         _apiCore = new DesktopAsaApiCoreBridge(_bridge.LocalCluster);
@@ -171,6 +173,7 @@ public sealed class ObsidianWindow : Form
             _mapRegistry.Dispose();
             _iniEditor.Dispose();
             _modDrafts.Dispose();
+            _modCopy.Dispose();
             _pluginState.Dispose();
             _pluginZip.Dispose();
             _apiCore.Dispose();
@@ -232,6 +235,7 @@ public sealed class ObsidianWindow : Form
                 string incoming = e.WebMessageAsJson;
                 bool credentialRoute = false;
                 bool draftRoute = false;
+                bool modCopyRoute = false;
                 bool iniRoute = false;
                 bool registryRoute = false;
                 bool discoveryRoute = false;
@@ -291,6 +295,7 @@ public sealed class ObsidianWindow : Form
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";
                         apiCoreRoute = name is "api.coreRelease" or "api.corePreview" or "api.coreApply" or
                             "api.coreRollbackCandidates" or "api.coreRollbackPreview" or "api.coreRollbackApply";
+                        modCopyRoute = name is "mods.copyPreview" or "mods.copyApply";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
@@ -338,6 +343,7 @@ public sealed class ObsidianWindow : Form
                         : updateRoute ? await _updates.HandleAsync(incoming)
                         : credentialRoute ? await _credentials.HandleAsync(incoming)
                         : pluginStateRoute ? await _pluginState.HandleAsync(incoming)
+                        : modCopyRoute ? await _modCopy.HandleAsync(incoming)
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
                             : iniRoute ? await _iniEditor.HandleAsync(incoming)
                                 : registryRoute ? await _mapRegistry.HandleAsync(incoming)
