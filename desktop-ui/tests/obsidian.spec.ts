@@ -260,6 +260,16 @@ test.beforeEach(async ({ page }) => {
           peerWriterVerified:false,productionUseAllowed:false,serverStartAllowed:false,
           evidence:"OPERATOR_TEXT_READ_ONLY_UNAUTHENTICATED"
         };
+        case "historical.localStatus": return {
+          found:true,localFilesVerified:true,configHashVerified:true,
+          localLockVerified:true,allLocalMapsActive:true,
+          localSnapshotReady:true,liveTwoHostVerified:false,
+          characterTravelVerified:false,productionUseAllowed:false,
+          maps:["TheIsland_WP","Astraeos_WP","Valguero_WP","Genesis_WP","Extinction_WP"]
+            .map(mapKey=>({mapKey,active:true,sessionMatches:true,
+              rootMatches:true,selected:true,backupIdentityPresent:true})),
+          evidence:"ORIGINAL_LOCAL_STORE_V1_FOUR_FILES_READ_ONLY_NO_PEER_CERTIFICATION"
+        };
         case "historical.pairedEvidence": return {
           files:12,maps:10,peers:2,sessionConsistent:true,
           configHashesVerified:true,activeStoreRecords:true,
@@ -1267,6 +1277,20 @@ test("Newly imported local map first setup saves session and UDP ports only afte
   await expect(page.getByText(/indítási profilja mentve/)).toBeVisible();
   await expect(page.getByText("7797").first()).toBeVisible();
   await page.screenshot({path:"test-results/asa-first-map-setup-1500.png",fullPage:true});
+});
+
+test("original local Store-v1 five-map source proof is explicit and never enables launch",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  await expect(page.getByRole("heading",{name:"Eredeti helyi Store-v1 állapot · közvetlen, csak olvasási ellenőrzés"})).toBeVisible();
+  await page.getByRole("button",{name:"Eredeti helyi Store állapotának ellenőrzése"}).click();
+  const proof=page.getByRole("region",{name:"Korábbi helyi Store-v1 állapot"});
+  await expect(proof).toContainText("TheIsland_WP");
+  await expect(proof).toContainText("Extinction_WP");
+  await expect(proof).toContainText("Mind az öt map ACTIVE");
+  await expect(proof).toContainText("Kétgépes élő állapot / karakterutazás");
+  await expect(proof).toContainText("NEM IGAZOLT");
+  await expect(proof.getByRole("button",{name:/regisztrálása/})).toHaveCount(0);
 });
 
 test("Store-v1 historic import preserves map identity and never permits launch before real validation",async ({page})=>{
