@@ -4392,6 +4392,102 @@ try
                 "synthetic Start never changes original launch profile or Store source files");
         }
     }
+
+    // Actual original Store-v1 RCON channel is distinct from fresh ASA
+    // endpoints and permits exactly the three READ-ONLY commands. No WMI,
+    // real socket, ASA Process.Start, or original live Store access in tests.
+    {
+        string historicalRoot=Path.Combine(root,"historical-rcon-readonly-owned");
+        string bin=Path.Combine(historicalRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(bin);
+        string exe=Path.Combine(bin,"ArkAscendedServer.exe");
+        File.WriteAllBytes(exe,new byte[]{77,90,2,0});
+        string iniDir=Path.Combine(historicalRoot,"ShooterGame","Saved",
+            "Config","WindowsServer");
+        Directory.CreateDirectory(iniDir);
+        string ini=Path.Combine(iniDir,"GameUserSettings.ini");
+        const string secret="HistoricalReadOnlyPass!2026";
+        const int port=37165;
+        File.WriteAllText(ini,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
+            "RCONPort="+port+"\r\nServerAdminPassword="+secret+"\r\n");
+        byte[] originalIni=File.ReadAllBytes(ini);
+        await using var historical=new ClusterService("original-readonly-rcon",
+            Path.Combine(root,"historical-readonly-rcon-profile"),m=>
+                new ProcessCheck(false,"Synthetic external process observation",null,true));
+        var map=new LocalMap{
+            Id=Guid.NewGuid(),Name="Aberration",
+            InstallationPath=historicalRoot,ExecutablePath=exe,
+            HistoricalStoreProtected=true,HistoricalMapKey="Aberration_WP",
+            HistoricalArchiveSha256=new string('A',64),
+            GamePort=7877,QueryPort=27177,RconPort=port,
+            RconPasswordProtected=SecureStore.Protect(secret)
+        };
+        historical.AddMap(map);
+        bool sourceReady=true,listenerOwned=true;
+        int sent=0;
+        int currentPid=43210;
+        using(var bridge=new DesktopHistoricalRconReadOnlyBridge(historical,
+            processInspector:_=>new ProcessCheck(true,"Synthetic owned",new ProcessIdentity{
+                Pid=currentPid,StartedUtc=new DateTimeOffset(2026,11,7,10,0,0,TimeSpan.Zero),
+                ExecutablePath=exe,Arguments="SYNTHETIC_ORIGINAL_ACTIVE"},false),
+            sourceGuard:_=>sourceReady,
+            portOwner:(p,pid)=>p==port&&pid==43210&&listenerOwned,
+            dispatch:(host,actualPort,password,command,ct)=>{
+                Check(host=="127.0.0.1"&&actualPort==port&&password==secret,
+                    "original Store RCON dispatch uses only owned local loopback port and DPAPI secret");
+                Check(command is "ListPlayers" or "GetGameLog" or "GetChat",
+                    "original Store RCON never transmits SaveWorld, DoExit, or arbitrary mutations");
+                sent++;
+                return Task.FromResult("SYNTHETIC_"+command);
+            }))
+        {
+            var unknown=await Call(bridge.HandleAsync,"historical.rconLiveStatus",
+                new{mapId=Guid.NewGuid()});
+            Check(!unknown.GetProperty("ok").GetBoolean(),
+                "original Store RCON rejects remote and unregistered map identities");
+            var status=await Call(bridge.HandleAsync,"historical.rconLiveStatus",
+                new{mapId=map.Id});
+            IsOk(status,"original Store owned PID and RCON status");
+            Check(status.GetProperty("data").GetProperty("permitted").GetBoolean()&&
+                  status.GetProperty("data").GetProperty("pid").GetInt32()==43210,
+                "original ACTIVE/DONE source and TCP owner allow read-only commands");
+            foreach(var (method,command) in new[]{
+                ("historical.rconPlayers","ListPlayers"),
+                ("historical.rconGameLog","GetGameLog"),
+                ("historical.rconChatLog","GetChat")})
+            {
+                var reply=await Call(bridge.HandleAsync,method,new{mapId=map.Id});
+                IsOk(reply,"original Store read-only "+command);
+                Check(reply.GetProperty("data").GetProperty("command").GetString()==command&&
+                      reply.GetProperty("data").GetProperty("readOnly").GetBoolean()&&
+                      !reply.GetProperty("data").GetProperty("storeTouched").GetBoolean()&&
+                      reply.GetProperty("data").GetProperty("response").GetString()=="SYNTHETIC_"+command,
+                    "original Store native RCON command response verifies source and does not write");
+            }
+            Check(sent==3,"three original RCON queries each dispatch exactly once");
+            var blockedWrite=await Call(bridge.HandleAsync,"historical.rconSaveWorld",
+                new{mapId=map.Id});
+            Check(!blockedWrite.GetProperty("ok").GetBoolean()&&sent==3,
+                "original Store RCON rejects mutating and unknown bridge methods");
+            sourceReady=false;
+            var stale=await Call(bridge.HandleAsync,"historical.rconPlayers",
+                new{mapId=map.Id});
+            Check(!stale.GetProperty("ok").GetBoolean()&&sent==3,
+                "changed original two-peer ACTIVE/DONE source blocks RCON before dispatch");
+            sourceReady=true;listenerOwned=false;
+            var hijacked=await Call(bridge.HandleAsync,"historical.rconGameLog",
+                new{mapId=map.Id});
+            Check(!hijacked.GetProperty("ok").GetBoolean()&&sent==3,
+                "RCON listener belonging to another PID never receives a Store RCON command");
+            listenerOwned=true;currentPid=43211;
+            var replaced=await Call(bridge.HandleAsync,"historical.rconPlayers",
+                new{mapId=map.Id});
+            Check(!replaced.GetProperty("ok").GetBoolean()&&sent==3,
+                "replaced original Store ASA PID is not authorized by previous TCP owner");
+        }
+        Check(File.ReadAllBytes(ini).SequenceEqual(originalIni),
+            "every native original Store RCON query preserves exact ASA INI file bytes");
+    }
     Console.WriteLine("PASS all native bridge checks (synthetic local fixtures, no ASA launch)");
 }
 finally
