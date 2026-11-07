@@ -1833,6 +1833,30 @@ try
         try{OfflineAsaClusterArchive.Verify(fullDestination);}
         catch(InvalidDataException){rejected=true;}
         Check(rejected,"tampered original config invalidates sealed cluster backup");
+        // A newly initialized ASA map may legitimately omit Game.ini.
+        // Preserve the absence; never synthesize an empty replacement.
+        string optionalGameIni=Path.Combine(ryzen,"CONFIG",
+            ids[5].ToString("N"),"WindowsServer","Game.ini");
+        File.Delete(optionalGameIni);
+        string optionalDestination=Path.Combine(archiveLab,"valid-optional-game-ini");
+        var optionalArchive=OfflineAsaClusterArchive.BuildFromFolders(
+            hp,ryzen,transfer,optionalDestination);
+        Check(optionalArchive.Schema==3&&optionalArchive.Config?.Length==19&&
+              !optionalArchive.Config.Any(x=>x.Map==ids[5]&&
+                  x.RelativePath.EndsWith("Game.ini",StringComparison.OrdinalIgnoreCase)),
+            "ASA map with no Game.ini is still a valid full config backup; absence is retained");
+        string optionalRestore=Path.Combine(Path.GetTempPath(),
+            "Untamed-AsaRestore-Lab-"+Guid.NewGuid().ToString("N"));
+        var optionalReport=OfflineAsaRestoreLab.MaterializeToLab(
+            optionalDestination,optionalRestore);
+        Check(optionalReport.SourceBatch==optionalArchive.Batch&&
+              OfflineAsaRestoreLab.VerifyLab(optionalRestore).SourceArchive.Config?.Length==19&&
+              !File.Exists(Path.Combine(optionalRestore,"CONFIG","RYZEN",
+                  ids[5].ToString("N"),"WindowsServer","Game.ini"))&&
+              File.Exists(Path.Combine(optionalRestore,"CONFIG","RYZEN",
+                  ids[5].ToString("N"),"WindowsServer","GameUserSettings.ini")),
+            "offline restore preserves absent Game.ini and hashes remaining settings");
+
         File.Delete(Path.Combine(ryzen,"CONFIG",ids[5].ToString("N"),
             "WindowsServer","GameUserSettings.ini"));
         rejected=false;
