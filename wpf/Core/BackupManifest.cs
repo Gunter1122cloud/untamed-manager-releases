@@ -22,8 +22,15 @@ public static class BackupIntegrity
     }
     public static void Verify(string directory, BackupManifest manifest, Guid mapId)
     {
-        if(manifest.Version!=1 || manifest.MapId!=mapId || string.IsNullOrWhiteSpace(manifest.Scope))
-            throw new InvalidDataException("Backup manifest identity or version mismatch");
+        // JSON record's Files field can be explicitly null despite C#'s
+        // non-nullable declaration. Reject malformed inputs BEFORE scanning
+        // large world directories or dereferencing invalid entries.
+        if(manifest==null || manifest.Version!=1 || manifest.MapId!=mapId ||
+           string.IsNullOrWhiteSpace(manifest.Scope) || manifest.Files==null ||
+           manifest.Files.Any(x=>x is null || string.IsNullOrWhiteSpace(x.Path) ||
+               x.Size<0 || x.Sha256 is null || x.Sha256.Length!=64 ||
+               !x.Sha256.All(Uri.IsHexDigit)))
+            throw new InvalidDataException("Backup manifest identity or members invalid");
         var actual=Scan(directory);
         if(manifest.Files.Count!=actual.Count ||
             !manifest.Files.OrderBy(x=>x.Path,StringComparer.Ordinal).SequenceEqual(actual))

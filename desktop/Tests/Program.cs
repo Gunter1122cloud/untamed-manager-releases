@@ -1658,6 +1658,41 @@ try
             TestBackupPackage.Create(local,Path.Combine(container,"map"+i),
                 ids[i],"Stopped offline synthetic ASA map "+i);
         }
+        // Test malformed files selected from an OFFLINE backup package. No
+        // original map, Store coordination file or live process is changed.
+        string manifestLab=Path.Combine(archiveLab,"untrusted-manifest-lab");
+        TestBackupPackage.Create(Path.Combine(archiveLab,"synthetic-save-0"),
+            manifestLab,ids[0],"synthetic manifest corruption test");
+        string manifestFile=Path.Combine(manifestLab,"manifest.json");
+        File.WriteAllText(manifestFile,JsonSerializer.Serialize(new {
+            Version=1,MapId=ids[0],Scope="synthetic",CreatedUtc=DateTimeOffset.UtcNow,
+            Files=(object?)null
+        }));
+        bool nullFilesRejected=false;
+        try{TestBackupPackage.Verify(manifestLab,ids[0]);}
+        catch(InvalidDataException){nullFilesRejected=true;}
+        Check(nullFilesRejected,
+            "operator-selected offline manifest with null file array fails closed");
+
+        File.WriteAllText(manifestFile,JsonSerializer.Serialize(new {
+            Version=1,MapId=ids[0],Scope="synthetic",CreatedUtc=DateTimeOffset.UtcNow,
+            Files=new object?[]{null}
+        }));
+        bool nullEntryRejected=false;
+        try{TestBackupPackage.Verify(manifestLab,ids[0]);}
+        catch(InvalidDataException){nullEntryRejected=true;}
+        Check(nullEntryRejected,
+            "operator-selected offline manifest with null file entry fails closed");
+
+        using(var oversized=new FileStream(manifestFile,FileMode.Open,
+            FileAccess.Write,FileShare.None))
+            oversized.SetLength(16L*1024*1024+1);
+        bool oversizedRejected=false;
+        try{TestBackupPackage.Verify(manifestLab,ids[0]);}
+        catch(InvalidDataException){oversizedRejected=true;}
+        Check(oversizedRejected,
+            "oversized offline manifest rejected before JSON deserialization");
+
         string destination=Path.Combine(archiveLab,"verified-asa-package");
         var report=OfflineAsaClusterArchive.BuildFromFolders(hp,ryzen,transfer,destination);
         Check(report.Schema==2&&report.Maps.Length==10&&
@@ -1670,6 +1705,38 @@ try
               new FileInfo(Path.Combine(destination,"TRANSFER","old-zero.arkprofile")).Length==0 &&
               !Directory.Exists(Path.Combine(destination,"SQL")),
             "verifier preserves historical zero-byte profile and never creates SQL folder");
+        // Exercise the complete ten-map index bound without copying any game
+        // bytes or touching production Store-v1 data.
+        string signedIndex=Path.Combine(destination,"asa-cluster-index.json");
+        byte[] originalIndex=File.ReadAllBytes(signedIndex);
+        using(var expanded=new FileStream(signedIndex,FileMode.Open,
+            FileAccess.Write,FileShare.None))
+            expanded.SetLength(32L*1024*1024+1);
+        bool bigIndexDenied=false;
+        try{OfflineAsaClusterArchive.Verify(destination);}
+        catch(InvalidDataException){bigIndexDenied=true;}
+        Check(bigIndexDenied,
+            "oversized ten-map signed archive index fails before JSON parsing");
+        File.WriteAllBytes(signedIndex,originalIndex);
+        // The SHA-256 and completion markers must also be read with strictly
+        // bounded buffers; a damaged offline copy never reaches full world
+        // scans merely because its metadata is huge.
+        foreach(string markerName in new[]{"asa-cluster-index.sha256","complete"})
+        {
+            string smallMarker=Path.Combine(destination,markerName);
+            byte[] originalMarker=File.ReadAllBytes(smallMarker);
+            using(var oversizedMarker=new FileStream(smallMarker,FileMode.Open,
+                FileAccess.Write,FileShare.None))
+                oversizedMarker.SetLength(129);
+            bool refusedHugeMarker=false;
+            try{OfflineAsaClusterArchive.Verify(destination);}
+            catch(InvalidDataException){refusedHugeMarker=true;}
+            Check(refusedHugeMarker,
+                "oversized ten-map archive metadata marker rejected: "+markerName);
+            File.WriteAllBytes(smallMarker,originalMarker);
+        }
+        Check(OfflineAsaClusterArchive.Verify(destination).Batch==report.Batch,
+            "restored synthetic archive index still passes full SHA256 verification");
         // Native UI uses Windows-only directory selection, not paths from
         // untrusted React. This injected picker is isolated to this test.
         string nativeOutput=Path.Combine(archiveLab,"native-output");

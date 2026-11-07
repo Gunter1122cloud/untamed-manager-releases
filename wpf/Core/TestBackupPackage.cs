@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 
 namespace UntamedManager.Core;
@@ -7,6 +8,11 @@ namespace UntamedManager.Core;
 // Isolated test-copy workflow. Restore is intentionally absent.
 public static class TestBackupPackage
 {
+    // These manifests originate in operator-selected OFFLINE copies. Keep
+    // JSON deserialization bounded even if a damaged/malicious archive is
+    // presented to the native folder picker. No player bytes are modified.
+    private const long MaxManifestBytes=16L*1024*1024;
+
     public static void Create(string source, string destination, Guid owner, string scope)
     {
         source=LocalPath(source); destination=LocalPath(destination);
@@ -18,6 +24,9 @@ public static class TestBackupPackage
         if(Directory.Exists(destination) || Directory.Exists(staging))
             throw new IOException("Backup destination or interrupted staging already exists");
         var manifest=BackupIntegrity.Create(source,owner,scope);
+        string manifestJson=BackupIntegrity.Serialize(manifest);
+        if(Encoding.UTF8.GetByteCount(manifestJson)>MaxManifestBytes)
+            throw new InvalidDataException("Offline test package manifest exceeds size limit");
         Directory.CreateDirectory(Path.Combine(staging,"data"));
         foreach(var file in manifest.Files)
         {
@@ -27,7 +36,7 @@ public static class TestBackupPackage
         }
         BackupIntegrity.Verify(source,manifest,owner);
         BackupIntegrity.Verify(Path.Combine(staging,"data"),manifest,owner);
-        File.WriteAllText(Path.Combine(staging,"manifest.json"),BackupIntegrity.Serialize(manifest));
+        File.WriteAllText(Path.Combine(staging,"manifest.json"),manifestJson);
         File.WriteAllText(Path.Combine(staging,"complete"),"1");
         Directory.Move(staging,destination);
     }
@@ -37,7 +46,17 @@ public static class TestBackupPackage
         if(directory.EndsWith(".incomplete",StringComparison.OrdinalIgnoreCase) ||
             !File.Exists(Path.Combine(directory,"complete")))
             throw new InvalidDataException("Backup was interrupted or never committed");
-        var manifest=JsonSerializer.Deserialize<BackupManifest>(File.ReadAllText(Path.Combine(directory,"manifest.json")))
+        string manifestPath=Path.Combine(directory,"manifest.json");
+        var info=new FileInfo(manifestPath);
+        if(!info.Exists||info.Length is <2 or >MaxManifestBytes||
+           (info.Attributes&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("Offline package manifest missing, linked or oversized");
+        using var input=new FileStream(manifestPath,FileMode.Open,FileAccess.Read,
+            FileShare.Read,65536,FileOptions.SequentialScan);
+        // Race-safe size guard for an input changed between FileInfo and open.
+        if(input.Length is <2 or >MaxManifestBytes)
+            throw new InvalidDataException("Offline package manifest size changed");
+        var manifest=JsonSerializer.Deserialize<BackupManifest>(input)
             ?? throw new InvalidDataException("Missing manifest");
         BackupIntegrity.Verify(Path.Combine(directory,"data"),manifest,owner);
         return manifest;
