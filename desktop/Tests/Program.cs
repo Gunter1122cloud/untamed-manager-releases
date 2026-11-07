@@ -171,6 +171,76 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
       DesktopReadOnlyBridge.MatchesPublishedMapId(map.Id,map.Id.ToString("N")) &&
       !DesktopReadOnlyBridge.MatchesPublishedMapId(map.Id,Guid.NewGuid().ToString("D")),
     "dashboard map ownership resolves D/N GUID formats but never a foreign map");
+// Original Store-v1 process reattach must validate the entire active
+// source launch grammar. It may classify an OS process but NEVER own,
+// start, stop or write the original Store session.
+{
+    string observedExe=Path.Combine(root,"physical-original-process-grammar",
+        "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+    var historicCommandMap=new LocalMap{
+        Id=Guid.NewGuid(),Name="Aberration",
+        InstallationPath=Path.Combine(root,"physical-original-process-grammar"),
+        ExecutablePath=observedExe,HistoricalStoreProtected=true,
+        HistoricalMapKey="Aberration_WP",GamePort=7797,QueryPort=27015,
+        HistoricalEnabledMods=new List<string>{"123456","789012"},
+        HistoricalPassiveMods=new List<string>{"123456"}
+    };
+    var exactArgs=LegacyStoreV1ActiveLaunch.Build(
+        new LegacyStoreV1ActiveLaunch.Input("Aberration_WP",7797,27015,
+            historicCommandMap.HistoricalEnabledMods,
+            historicCommandMap.HistoricalPassiveMods,
+            VaultProtocol.ClusterId,@"\\original-test\store","active","")
+    ).Arguments;
+    string originalCommand="\""+observedExe+"\" "+string.Join(" ",exactArgs);
+    bool Match(string command)=>LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+        command,observedExe,historicCommandMap);
+    Check(Match(originalCommand),
+        "historical physical process accepts source-compatible ACTIVE-only canonical launch string");
+    Check(!Match(originalCommand+" -converttostore") &&
+          !Match(originalCommand+" -convertfromstore") &&
+          !Match(originalCommand+" -usestore") &&
+          !Match(originalCommand+" -UnknownExtraFlag") &&
+          !Match(originalCommand.Replace("-Port=7797","-Port=7798",StringComparison.Ordinal)) &&
+          !Match(originalCommand.Replace("-clusterid=KovaCluster",
+              "-clusterid=UntamedKingdom",StringComparison.Ordinal)) &&
+          !Match(originalCommand.Replace("-mods=123456,789012",
+              "-mods=789012,123456",StringComparison.Ordinal)),
+        "historical observer denies reconversion, repeated Store flag, unknown switches, changed ports, cluster ID or mod order");
+    Check(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+        originalCommand,Path.Combine(root,"different","ArkAscendedServer.exe"),
+        historicCommandMap) &&
+        !Match(originalCommand.Replace("Aberration_WP?listen","Aberration_WP")),
+        "historical observer requires exact executable ownership and ?listen map switch");
+    Directory.CreateDirectory(Path.GetDirectoryName(observedExe)!);
+    File.WriteAllText(observedExe,"SYNTHETIC TEST ONLY NOT AN ASA EXECUTABLE");
+    var physical=LegacyStoreV1ProcessObserver.Observe(historicCommandMap);
+    Check(!physical.Running&&!physical.ConfirmedStopped&&physical.Identity==null,
+        "absent/unverifiable original Store process cannot be certified stopped or owned");
+    var markerRoot=Path.Combine(root,"synthetic-store-marker-evidence");
+    Directory.CreateDirectory(markerRoot);
+    Check(LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"mutation.lock"),
+        "truly missing original coordination marker is recognized read-only");
+    string mutationFile=Path.Combine(markerRoot,"mutation.lock");
+    File.WriteAllText(mutationFile,"SYNTHETIC-DO-NOT-UNLOCK");
+    Check(!LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"mutation.lock"),
+        "existing durable Store mutation lock always blocks live readiness");
+    Directory.CreateDirectory(Path.Combine(markerRoot,"running.json"));
+    Check(!LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"running.json"),
+        "even a malformed directory in place of a running marker blocks live readiness");
+    bool unknownMarkerRefused=false;
+    try{LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"not-allowed.json");}
+    catch(InvalidDataException){unknownMarkerRefused=true;}
+    Check(unknownMarkerRefused,
+        "shared Store marker probe rejects an arbitrary injected SMB name");
+    Directory.Delete(Path.Combine(markerRoot,"running.json"));
+    File.Delete(mutationFile);
+    Directory.Delete(markerRoot);
+    bool missingShareDenied=false;
+    try{LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"mutation.lock");}
+    catch(InvalidDataException){missingShareDenied=true;}
+    Check(missingShareDenied,
+        "missing/inaccessible coordination parent is not interpreted as an absent Store lock");
+}
 // A live historical Store-v1 server must NOT appear stopped merely
 // because its START command is locked. Monitoring is READ-ONLY and cannot
 // confer Start/Stop, Store write or remote lifecycle authority.
