@@ -127,6 +127,19 @@ public static class OfflineAsaRestoreLab
             CopyVerified(Within(Path.Combine(sourceRoot,"TRANSFER"),entry.RelativePath),
                 Within(transfer,entry.RelativePath),entry.Bytes,entry.Sha256);
         }
+        if(original.Schema==3)
+        {
+            if(original.Config==null||original.Config.Length==0)
+                throw new InvalidDataException("Configuration archive is incomplete");
+            string config=Within(stage,"CONFIG");
+            Directory.CreateDirectory(config);
+            foreach(var item in original.Config)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                CopyVerified(Within(Path.Combine(sourceRoot,"CONFIG"),item.RelativePath),
+                    Within(config,item.RelativePath),item.Bytes,item.Sha256);
+            }
+        }
         var report=new AsaRestoreLabReport(1,original.Batch,DateTimeOffset.UtcNow,
             original,restoredFiles.ToArray(),false,Evidence);
         string index=Within(stage,Index);
@@ -161,12 +174,14 @@ public static class OfflineAsaRestoreLab
            original.LiveConsistencyCertified || original.LiveStoreWriterCertified ||
            original.RestoreToProductionAllowed || original.Maps?.Length!=10||
            original.Transfer==null||original.Transfer.Length<1||
+           original.Schema is not (2 or 3) ||
+           (original.Schema==3 && original.Config is not {Length:>0}) ||
            report.MapFiles==null ||
            report.MapFiles.Length!=original.Maps.Sum(m=>m.Files) ||
            File.ReadAllText(Within(root,Complete)).Trim()!=report.SourceBatch.ToString("N"))
             throw new InvalidDataException("Isolated ASA restore metadata is incomplete");
         if(Directory.GetFiles(root).Length!=3 ||
-           Directory.GetDirectories(root).Length!=3)
+           Directory.GetDirectories(root).Length!=(original.Schema==3?4:3))
             throw new InvalidDataException("Unexpected lab restore root content");
         foreach(var host in new[]{"HP","RYZEN"})
             if(Directory.GetDirectories(Within(root,host)).Length!=5 ||
@@ -195,6 +210,25 @@ public static class OfflineAsaRestoreLab
                    !Hash(world).Equals(file.Sha256,StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("Restored world bytes were modified");
             }
+        }
+        if(original.Schema==3)
+        {
+            string cfg=Within(root,"CONFIG");
+            var expected=original.Config!;
+            foreach(var item in expected)
+            {
+                string file=Within(cfg,item.RelativePath);
+                if(new FileInfo(file).Length!=item.Bytes ||
+                   !Hash(file).Equals(item.Sha256,StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Restored configuration bytes differ from archive");
+            }
+            var actual=Directory.GetFiles(cfg,"*",SearchOption.AllDirectories)
+                .Select(x=>Path.GetRelativePath(cfg,x))
+                .OrderBy(x=>x,StringComparer.OrdinalIgnoreCase).ToArray();
+            if(!actual.SequenceEqual(expected.Select(x=>x.RelativePath)
+                .OrderBy(x=>x,StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase))
+                throw new InvalidDataException("Restored configuration member set differs");
         }
         foreach(var file in original.Transfer)
         {
