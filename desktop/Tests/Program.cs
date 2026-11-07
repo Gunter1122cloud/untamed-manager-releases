@@ -2102,6 +2102,35 @@ try
               !labReceipt.ProductionRestoreAllowed &&
               OfflineAsaRestoreLab.VerifyLab(labDestination).SourceBatch==report.Batch,
             "SQL-free archive materializes to isolated TEMP restore lab with 10 hashed worlds");
+        // Restore-lab index and marker are untrusted even after a successful
+        // archive extraction. Prove an oversized metadata file fails BEFORE
+        // SHA hashing, JSON parsing or consuming unbounded memory.
+        void OversizedLabMetadataDenied(string name,long forbiddenLength,string label)
+        {
+            string file=Path.Combine(labDestination,name);
+            byte[] original=File.ReadAllBytes(file);
+            try
+            {
+                using(var handle=new FileStream(file,FileMode.Open,FileAccess.Write,FileShare.None))
+                    handle.SetLength(forbiddenLength);
+                bool earlyRejection=false;
+                try{OfflineAsaRestoreLab.VerifyLab(labDestination);}
+                catch(InvalidDataException ex)
+                {
+                    earlyRejection=ex.Message.Contains("size limit",StringComparison.Ordinal);
+                }
+                Check(earlyRejection,label);
+            }
+            finally{File.WriteAllBytes(file,original);}
+        }
+        OversizedLabMetadataDenied("restore-lab-index.json",32L*1024*1024+1,
+            "oversized restore lab index is refused before hashing or JSON deserialization");
+        OversizedLabMetadataDenied("restore-lab-index.sha256",129,
+            "oversized restore lab checksum marker is refused before reading arbitrary text");
+        OversizedLabMetadataDenied("complete",129,
+            "oversized restore lab completion marker is refused before reading arbitrary text");
+        Check(OfflineAsaRestoreLab.VerifyLab(labDestination).SourceBatch==report.Batch,
+            "valid complete lab remains byte-identical and verifiable after each refused metadata attack");
         string world=Path.Combine(labDestination,"HP",ids[0].ToString("N"),"World0.ark");
         File.AppendAllText(world,"CORRUPTION");
         bool worldRejected=false;
