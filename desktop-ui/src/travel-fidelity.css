@@ -73,3 +73,16 @@
   .uk-travel-targets{grid-template-columns:1fr;}
   .uk-travel-targets label:last-child{grid-column:auto;}
 }
+
+/* Bounded offline embedded Store inspector: separate from live transfer claims. */
+.uk-store-copy-panel{margin:0 0 16px;}
+.uk-store-copy-panel .uk-travel-primary{margin-top:3px;}
+.uk-store-copy-result{border:1px solid #467b64;background:#152e2d;color:#d4f1e4;
+  border-radius:8px;padding:13px 14px;margin:12px 0 0;font-size:11.5px;line-height:1.6;}
+.uk-store-copy-result>b{font-size:12px;}
+.uk-store-copy-result p{margin:10px 0 0;color:#bcd9cd;}
+.uk-store-copy-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:11px 0 0;}
+.uk-store-copy-metrics span{display:flex;flex-direction:column;gap:3px;
+  border:1px solid #3b6357;border-radius:7px;padding:9px;background:#1d3936;}
+.uk-store-copy-metrics strong{font-size:19px;color:#9ceec6;font-variant-numeric:tabular-nums;}
+@media(max-width:790px){.uk-store-copy-metrics{grid-template-columns:repeat(2,minmax(0,1fr));}}
