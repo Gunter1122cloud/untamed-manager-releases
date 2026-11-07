@@ -1658,6 +1658,41 @@ try
             TestBackupPackage.Create(local,Path.Combine(container,"map"+i),
                 ids[i],"Stopped offline synthetic ASA map "+i);
         }
+        // Test malformed files selected from an OFFLINE backup package. No
+        // original map, Store coordination file or live process is changed.
+        string manifestLab=Path.Combine(archiveLab,"untrusted-manifest-lab");
+        TestBackupPackage.Create(Path.Combine(archiveLab,"synthetic-save-0"),
+            manifestLab,ids[0],"synthetic manifest corruption test");
+        string manifestFile=Path.Combine(manifestLab,"manifest.json");
+        File.WriteAllText(manifestFile,JsonSerializer.Serialize(new {
+            Version=1,MapId=ids[0],Scope="synthetic",CreatedUtc=DateTimeOffset.UtcNow,
+            Files=(object?)null
+        }));
+        bool nullFilesRejected=false;
+        try{TestBackupPackage.Verify(manifestLab,ids[0]);}
+        catch(InvalidDataException){nullFilesRejected=true;}
+        Check(nullFilesRejected,
+            "operator-selected offline manifest with null file array fails closed");
+
+        File.WriteAllText(manifestFile,JsonSerializer.Serialize(new {
+            Version=1,MapId=ids[0],Scope="synthetic",CreatedUtc=DateTimeOffset.UtcNow,
+            Files=new object?[]{null}
+        }));
+        bool nullEntryRejected=false;
+        try{TestBackupPackage.Verify(manifestLab,ids[0]);}
+        catch(InvalidDataException){nullEntryRejected=true;}
+        Check(nullEntryRejected,
+            "operator-selected offline manifest with null file entry fails closed");
+
+        using(var oversized=new FileStream(manifestFile,FileMode.Open,
+            FileAccess.Write,FileShare.None))
+            oversized.SetLength(16L*1024*1024+1);
+        bool oversizedRejected=false;
+        try{TestBackupPackage.Verify(manifestLab,ids[0]);}
+        catch(InvalidDataException){oversizedRejected=true;}
+        Check(oversizedRejected,
+            "oversized offline manifest rejected before JSON deserialization");
+
         string destination=Path.Combine(archiveLab,"verified-asa-package");
         var report=OfflineAsaClusterArchive.BuildFromFolders(hp,ryzen,transfer,destination);
         Check(report.Schema==2&&report.Maps.Length==10&&
