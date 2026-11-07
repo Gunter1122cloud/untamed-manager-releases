@@ -57,7 +57,15 @@ public static class ReleaseCatalog
     }
     public static bool IsNewer(UpdateRelease release,Version running,string installedTag)
     {
-        var installed=ReleaseOrder.Parse(installedTag)??new ReleaseOrder(new Version(running.Major,running.Minor,Math.Max(0,running.Build)),null);
+        // Legacy WPF EXEs have no installed-release.txt. Treat them as preview
+        // build 0 of their assembly version, so an explicit Preview-channel
+        // upgrade to the first tagged ASA-only build is possible. Once the
+        // new Setup runs, the exact tag is installed and upgrades become
+        // strictly monotonic. A malformed nonempty tag fails closed as stable.
+        var fallbackPreview=string.IsNullOrWhiteSpace(installedTag)?0:(int?)null;
+        var installed=ReleaseOrder.Parse(installedTag)??
+            new ReleaseOrder(new Version(running.Major,running.Minor,
+                Math.Max(0,running.Build)),fallbackPreview);
         return ReleaseOrder.Parse(release.Tag)?.CompareTo(installed)>0;
     }
     public static string InstalledTag
