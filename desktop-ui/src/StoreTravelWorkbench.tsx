@@ -1,7 +1,7 @@
 import {useMemo,useState} from "react";
 import {AlertTriangle,CheckCircle2,ClipboardCopy,FileCheck2,
   FileWarning,HardDrive,LockKeyhole,RefreshCw,Server,ShieldCheck,Users} from "lucide-react";
-import {managerBridge,type EmbeddedStoreArchiveReport,type EmbeddedStoreCopyReport,type TravelCapture,type TravelComparison} from "./bridge";
+import {managerBridge,type EmbeddedStoreArchiveReport,type EmbeddedStoreCopyReport,type OfflineAsaArchiveDiff,type TravelCapture,type TravelComparison} from "./bridge";
 
 type Slot="beforeA"|"beforeB"|"afterA"|"afterB";
 const slots:Array<{key:Slot;label:string;subtitle:string}>= [
@@ -30,6 +30,7 @@ const seed={beforeA:"",beforeB:"",afterA:"",afterB:""};
 function EmbeddedStoreCopyInspector(){
   const [data,setData]=useState<EmbeddedStoreCopyReport|null>(null);
   const [archive,setArchive]=useState<EmbeddedStoreArchiveReport|null>(null);
+  const [comparison,setComparison]=useState<OfflineAsaArchiveDiff|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   async function inspect(){
@@ -44,6 +45,13 @@ function EmbeddedStoreCopyInspector(){
     setBusy(true);setArchive(null);setError("");
     try{setArchive(await managerBridge.embeddedStoreInspectArchive());}
     catch{setError("Az offline 10-map archívum fájlleltára vagy beágyazott indexe nem ellenőrizhető. Az eredeti fájlok érintetlenek.");}
+    finally{setBusy(false);}
+  }
+  async function compareArchives(){
+    if(busy)return;
+    setBusy(true);setComparison(null);setError("");
+    try{setComparison(await managerBridge.offlineArchiveCompare());}
+    catch{setError("A két OFFLINE archívum nem egyeztethető vagy SHA-256 ellenőrzésük sikertelen. Válaszd ki előbb a korábbi, majd az újabb tízmapos mentést.");}
     finally{setBusy(false);}
   }
   return <section className="premium-panel uk-store-copy-panel" aria-label="Beágyazott Store-v1 ellenőrzése">
@@ -62,6 +70,43 @@ function EmbeddedStoreCopyInspector(){
         <HardDrive size={16}/>{busy?"Offline ellenőrzés folyamatban...":
           "Teljes 10-map archívum Store-indexeinek vizsgálata"}
       </button>
+      <button type="button" className="secondary uk-travel-primary" disabled={busy}
+        onClick={()=>{void compareArchives();}}>
+        <FileCheck2 size={16}/>{busy?"Offline ellenőrzés folyamatban...":
+          "Két teljes 10-map archívum változásainak összevetése"}
+      </button>
+      <p className="muted small">Először az utazás ELŐTTI, majd az UTÁNI lezárt archívumot
+        válaszd ki. A fájlnevek, játékosazonosítók és Store-metaadatok nem
+        kerülnek át a felületre.</p>
+      {comparison&&<section className="uk-store-copy-result"
+          aria-label="Két offline clusterarchívum változásai">
+        <strong>Mindkét archívum SHA-256-tal ellenőrizve · {comparison.maps} map</strong>
+        <div className="uk-store-copy-metrics">
+          <span><strong>{comparison.transferAdded}</strong> hozzáadott transferfájl</span>
+          <span><strong>{comparison.transferRemoved}</strong> hiányzó transferfájl</span>
+          <span><strong>{comparison.transferModified}</strong> módosult transferfájl</span>
+          <span><strong>{comparison.zeroByteTransferFilesPreserved}</strong> változatlan nulla bájtos fájl</span>
+        </div>
+        <p>Konfigurációk: +{comparison.configurationAdded} / −{comparison.configurationRemoved}
+          / módosult {comparison.configurationModified}.
+          {comparison.configurationCoverageChanged?" A két mentés konfigurációs lefedése eltér.":""}
+        </p>
+        <div className="uk-store-archive-scroller">
+          <table className="uk-store-archive-table">
+            <thead><tr><th>Gép</th><th>Map</th><th>Világmentés változott?</th>
+              <th>Új fájl</th><th>Hiányzó fájl</th><th>Módosult</th></tr></thead>
+            <tbody>{comparison.results.map(m=><tr key={m.mapId}>
+              <td>{m.host}</td><td>{m.name}</td>
+              <td>{m.worldChanged?"Igen":"Nem"}</td>
+              <td>{m.filesAdded}</td><td>{m.filesRemoved}</td><td>{m.filesModified}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <p><strong>Ez fájlkülönbség-leltár, nem sikeres karakterutazás.</strong>
+          Nem igazol játékbeli belépést, inventoryt, tribe-tagságot, eredeti
+          Store-v1 írójogot vagy konzisztens élő cluster-pillanatképet.
+          Az éles visszaállítás továbbra is tiltott.</p>
+      </section>}
       {archive&&<section className="uk-store-copy-result"
         aria-label="Tízmapos beágyazott Store-leltár">
         <strong>{archive.maps} map ellenőrizve: {archive.indexScannedMaps} olvasható index,

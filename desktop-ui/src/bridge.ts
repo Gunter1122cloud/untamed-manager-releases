@@ -160,6 +160,24 @@ export type EmbeddedStoreArchiveReport = {
   evidence:"OFFLINE_TEN_MAP_WORLD_STORE_INDEX_AUDIT_ONLY";
 };
 
+export type OfflineAsaArchiveDiffMap = {
+  host:"HP"|"RYZEN";mapId:string;name:string;
+  filesAdded:number;filesRemoved:number;filesModified:number;
+  worldChanged:boolean;worldFilesBefore:number;worldFilesAfter:number;
+};
+export type OfflineAsaArchiveDiff = {
+  beforeBatch:string;afterBatch:string;maps:10;
+  transferFilesBefore:number;transferFilesAfter:number;
+  transferAdded:number;transferRemoved:number;transferModified:number;
+  zeroByteTransferFilesPreserved:number;
+  configurationAdded:number;configurationRemoved:number;configurationModified:number;
+  configurationCoverageChanged:boolean;anyChanges:boolean;
+  bothArchivesSha256Verified:true;liveConsistencyCertified:false;
+  storeWriterCertified:false;characterTravelVerified:false;
+  productionRestoreAllowed:false;results:OfflineAsaArchiveDiffMap[];
+  evidence:"TWO_SEALED_OFFLINE_ARCHIVE_FILE_DIFFERENCES_ONLY";
+};
+
 export type EmbeddedStoreCopyReport = {
   fileName:string;state:string;format:number;storeBytes:number;
   sections:number;profileCandidates:number;tribeCandidates:number;
@@ -763,7 +781,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
-  "travel.capture" | "travel.compare" | "store.inspectCopy" | "store.inspectArchive";
+  "travel.capture" | "travel.compare" | "store.inspectCopy" | "store.inspectArchive" | "store.compareArchives";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
@@ -829,6 +847,7 @@ export const managerBridge = {
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
   embeddedStoreInspectCopy: () => request<EmbeddedStoreCopyReport>("store.inspectCopy"),
   embeddedStoreInspectArchive: () => request<EmbeddedStoreArchiveReport>("store.inspectArchive"),
+  offlineArchiveCompare: () => request<OfflineAsaArchiveDiff>("store.compareArchives"),
   travelCapture: () => request<TravelCapture>("travel.capture"),
   travelCompare: (p:{
     beforeA:string;beforeB:string;afterA:string;afterB:string;

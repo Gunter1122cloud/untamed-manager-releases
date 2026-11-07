@@ -110,6 +110,26 @@ test.beforeEach(async ({ page }) => {
             characterTravelVerified:false
           }))
         };
+        case "store.compareArchives": return {
+          beforeBatch:"b8d0c49f-cc87-42e0-b312-a0485c82f101",
+          afterBatch:"b8d0c49f-cc87-42e0-b312-a0485c82f102",
+          maps:10,transferFilesBefore:2,transferFilesAfter:3,
+          transferAdded:1,transferRemoved:0,transferModified:0,
+          zeroByteTransferFilesPreserved:1,configurationAdded:0,
+          configurationRemoved:0,configurationModified:0,
+          configurationCoverageChanged:false,anyChanges:true,
+          bothArchivesSha256Verified:true,liveConsistencyCertified:false,
+          storeWriterCertified:false,characterTravelVerified:false,
+          productionRestoreAllowed:false,
+          evidence:"TWO_SEALED_OFFLINE_ARCHIVE_FILE_DIFFERENCES_ONLY",
+          results:Array.from({length:10},(_,i)=>({
+            host:i<5?"HP":"RYZEN",
+            mapId:"00000000-0000-4000-8000-"+String(i+1).padStart(12,"0"),
+            name:"synthetic-map-"+i,filesAdded:0,filesRemoved:0,
+            filesModified:0,worldChanged:false,
+            worldFilesBefore:1,worldFilesAfter:1
+          }))
+        };
         case "store.inspectCopy": return {
           fileName:"TheIsland_WP.ark",state:"INDEX_SCANNED",
           format:1,storeBytes:412,sections:2,profileCandidates:2,
@@ -920,6 +940,16 @@ test("two-host character travel workbench captures exactly five local maps witho
   await expect(inventory.locator("tbody tr")).toHaveCount(10);
   await expect(inventory).toContainText("EMBEDDED_INDEX_NOT_READABLE");
   await expect(inventory).toContainText("Nem igazol");
+  await embedded.getByRole("button",{
+    name:"Két teljes 10-map archívum változásainak összevetése"
+  }).click();
+  const changes=embedded.getByRole("region",{name:"Két offline clusterarchívum változásai"});
+  await expect(changes).toContainText("Mindkét archívum SHA-256-tal ellenőrizve");
+  await expect(changes).toContainText("1 hozzáadott transferfájl");
+  await expect(changes).toContainText("1 változatlan nulla bájtos fájl");
+  await expect(changes.locator("tbody tr")).toHaveCount(10);
+  await expect(changes).toContainText("Ez fájlkülönbség-leltár, nem sikeres karakterutazás");
+  await expect(changes).not.toContainText("old-zero.arkprofile");
 
   await page.getByRole("button",{name:"Helyi 5 map ellenőrzése"}).click();
   await expect(page.getByText("Az öt helyi map fájlleltára nyugalomban készült; ez nem karakterigazolás.")).toBeVisible();

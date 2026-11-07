@@ -320,7 +320,7 @@ public sealed class ObsidianWindow : Form
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare";
-                        embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive";
+                        embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore";
                         pluginStateRoute = name is
