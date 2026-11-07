@@ -50,7 +50,11 @@ export function OfflineAsaArchivePanel(){
     <p className="muted small">Öt HP- és öt Ryzen-map ellenőrzött, leállított szerverről
       előzetesen elkészített mentéscsomagjából, valamint a közös Store/transfer könyvtár
       <strong> külön helyi másolatából</strong> állít össze egységes SHA-256 archívumot.
-      A négy mappát natív Windows mappaválasztóval adod meg.</p>
+      A négy mappát natív Windows mappaválasztóval adod meg. Az eredeti
+      konfigurációkat is megőrzi, ha mindkét gép offline mapcsomagjai mellett
+      külön <code>CONFIG/&lt;map-GUID&gt;/WindowsServer/</code> mappában ott vannak
+      a <code>Game.ini</code> és <code>GameUserSettings.ini</code> másolatok.
+      Csak az egyik gép hiányos konfigurációja esetén a műveletet elutasítja.</p>
     <div className="warning-inline"><Shield size={17}/>
       Ez fájlintegritási archívum, nem élő többgépes pillanatkép. Nem állítja le
       vagy indítja újra a mapokat, nem nyúl az eredeti SMB/Store-hoz, és nem teszi
@@ -65,6 +69,9 @@ export function OfflineAsaArchivePanel(){
       <p>HP: {prepared.hpCopies} map · {prepared.hpFolderName}</p>
       <p>Ryzen: {prepared.ryzenCopies} map · {prepared.ryzenFolderName}</p>
       <p>Store/transfer másolat: {prepared.transferFolderName}</p>
+      <p>Szerverkonfigurációk: {prepared.configurationCopiesPresent?
+          "Mindkét gépről mellékelve – kötelező SHA-256 ellenőrzés":
+          "Nincsenek mellékelve; ez csak világ + transfer archívum"}</p>
       <p>Új csomag szülőmappája: {prepared.destinationFolderName}</p>
       <label><input type="checkbox" disabled={busy} checked={approved}
         onChange={e=>setApproved(e.target.checked)}/>
@@ -82,7 +89,8 @@ export function OfflineAsaArchivePanel(){
       <p>{status?.code??"PREPARED"}</p>
       {status?.archiveName&&<p>Helyi csomag neve: {status.archiveName}</p>}
       {status?.state==="completed"&&<p><CheckCircle2 size={16}/>
-        {status.verifiedMaps} map és {status.transferFiles} transferállomány SHA-256-tal igazolva.</p>}
+        {status.verifiedMaps} map, {status.transferFiles} transferállomány és
+        {status.configurationFiles} konfigurációs állomány SHA-256-tal igazolva.</p>}
       {status?.state==="needsOperator"&&<p><AlertTriangle size={16}/>
         Az archívum nem teljes. A félbemaradt <code>.incomplete</code> mappa kézi ellenőrzést igényel.</p>}
       <button className="secondary" type="button" disabled={busy}
