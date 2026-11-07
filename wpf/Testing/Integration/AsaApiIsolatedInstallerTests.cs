@@ -153,7 +153,7 @@ public static class AsaApiIsolatedInstallerTests
                 host,owned.Id,receipt.TransactionId,true)),
                 "changed installed CORE DLL blocks rollback before touching other files");
             Check(File.ReadAllText(oldLoader)!="SYNTHETIC OLD LOADER" &&
-                File.ReadAllText(originalConfig)=="{\\"UserSettings\\":\\"PRESERVED\\"}",
+                File.ReadAllText(originalConfig)=="{\"UserSettings\":\"PRESERVED\"}",
                 "refused rollback neither replaces installed loader nor edits config");
             File.WriteAllBytes(newApi,pe);
             Check(Refused(()=>AsaApiOwnedInstaller.RollbackCompletedOwnedStopped(
@@ -169,7 +169,7 @@ public static class AsaApiIsolatedInstallerTests
                 !File.Exists(Path.Combine(binary,"libssl-3-x64.dll")),
                 "explicit completed CORE rollback restores exact original loader and removes only new binaries");
             Check(File.Exists(Path.Combine(transaction,"rolled-back"))&&
-                File.ReadAllText(originalConfig)=="{\\"UserSettings\\":\\"PRESERVED\\"}"&&
+                File.ReadAllText(originalConfig)=="{\"UserSettings\":\"PRESERVED\"}"&&
                 File.ReadAllText(playerDb)=="ORIGINAL PLAYER PLUGIN STATE",
                 "durable rollback receipt and untouched player plugins survive");
             Check(Refused(()=>AsaApiOwnedInstaller.RollbackCompletedOwnedStopped(
