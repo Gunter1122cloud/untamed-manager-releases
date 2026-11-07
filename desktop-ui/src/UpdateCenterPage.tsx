@@ -8,7 +8,7 @@ import {managerBridge,type UpdateStatus,type UpdateCheck,type UpdatePrepared} fr
 export function UpdateCenterPage(){
   const [current,setCurrent]=useState<UpdateStatus|null>(null);
   const [latest,setLatest]=useState<UpdateCheck|null>(null);
-  const [channel,setChannel]=useState<"stable"|"preview">("stable");
+  const [channel,setChannel]=useState<"stable"|"preview">("preview");
   const [loading,setLoading]=useState(false);
   const [prepared,setPrepared]=useState<UpdatePrepared|null>(null);
   const [approved,setApproved]=useState(false);
@@ -86,8 +86,8 @@ export function UpdateCenterPage(){
                 setChannel(e.target.value as "stable"|"preview");setLatest(null);setError("");
                 setPrepared(null);setApproved(false);
               }}>
-              <option value="stable">Stabil kiadások</option>
-              <option value="preview">Előzetes kiadások is</option>
+              <option value="stable">Stabil kiadások (amint elérhetők)</option>
+              <option value="preview">Obsidian Preview (jelenlegi kiadási ág)</option>
             </select>
           </label>
           <button type="button" className="primary uk-updates-check" onClick={()=>{void check();}}
@@ -132,8 +132,9 @@ export function UpdateCenterPage(){
             {handedOff&&<p role="status">A külön külső updater átvette a telepítést;
               a Manager felülete bezárul. Az ASA-szerverfolyamatok függetlenek.</p>}
             <div className="uk-updates-install-lock"><ShieldCheck size={17}/>
-              Csak Untamed Obsidian telepítő használható. A régi WPF Manager
-              kiadása nem kompatibilis, a karaktermentéseket nem módosítjuk.
+              Csak az Obsidian Command saját, SHA-256-tal ellenőrzött Windows
+              telepítője fogadható el. Más alkalmazás kiadása nem kompatibilis;
+              a karaktermentéseket nem módosítjuk.
             </div>
           </div>}
           <small className="uk-updates-detail">

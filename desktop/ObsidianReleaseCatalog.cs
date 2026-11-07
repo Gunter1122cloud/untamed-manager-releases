@@ -40,8 +40,10 @@ public static class ObsidianReleaseCatalog
         var m=TagRegex.Match(tag);
         if(!m.Success||!Version.TryParse(m.Groups["version"].Value,out var version))
             return null;
-        int preview=m.Groups["preview"].Success?
-            int.Parse(m.Groups["preview"].Value):-1;
+        int preview=-1;
+        if(m.Groups["preview"].Success &&
+            (!int.TryParse(m.Groups["preview"].Value,out preview)||preview<1))
+            return null;
         return(version,preview);
     }
     public static UpdateRelease? Select(string json,UpdateChannel channel)
@@ -97,14 +99,37 @@ public static class ObsidianReleaseCatalog
         Regex.IsMatch(release.Sha256,@"\A[a-fA-F0-9]{64}\z",
             RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100));
 
+    // Obsidian owns its release marker independently of the legacy WPF
+    // ReleaseCatalog. Manual Setup and Portable must ship the same tag.
+    // Preserve malformed/non-Obsidian values for fail-closed comparison.
+    public static string InstalledTag
+    {
+        get
+        {
+            try
+            {
+                var path=Path.Combine(AppContext.BaseDirectory,"installed-release.txt");
+                return File.ReadAllText(path).Trim();
+            }
+            catch(IOException){return "";}
+            catch(UnauthorizedAccessException){return "";}
+        }
+    }
+
     public static bool IsNewer(UpdateRelease release,Version current,string installedTag)
     {
         var incoming=Order(release.Tag);
         if(incoming==null)return false;
         var old=Order(installedTag);
         if(old==null)
+        {
+            // A legacy/first Obsidian installation has no release marker.
+            // A NONEMPTY foreign or corrupt marker must not be silently
+            // interpreted as an untagged installation.
+            if(!string.IsNullOrWhiteSpace(installedTag))return false;
             return incoming.Value.version>current ||
                 (incoming.Value.version==current && incoming.Value.preview>0);
+        }
         int v=incoming.Value.version.CompareTo(old.Value.version);
         return v>0||(v==0&&incoming.Value.preview>old.Value.preview);
     }

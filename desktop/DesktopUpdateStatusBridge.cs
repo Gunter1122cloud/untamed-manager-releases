@@ -43,7 +43,7 @@ public sealed class DesktopUpdateStatusBridge
             string? method=methodRaw.GetString();
             if(method is not ("updates.status" or "updates.check"))
                 return Fail(id,"UM-METHOD-DENIED");
-            string installed=ReleaseCatalog.InstalledTag;
+            string installed=ObsidianReleaseCatalog.InstalledTag;
             string running=UpdateCenter.RunningVersion.ToString();
             if(method=="updates.status")
                 return Ok(id,new{

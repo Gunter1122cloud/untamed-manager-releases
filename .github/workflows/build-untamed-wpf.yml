@@ -1,25 +1,13 @@
 name: Untamed Manager WPF Windows Build
+# Historical native WPF + shared Core regression suite, MANUAL ONLY.
+# Obsidian Command React/WebView2 is the one shipping Windows Manager.
 on:
-  push:
-    branches: [main, 'feature/store-lifecycle-evidence-parity-20261103', 'codex/**', 'chatgpt/**']
-    paths:
-      - 'wpf/**'
-      - 'tools/lab/**'
-      - 'docs/development/WORK-LEDGER.json'
-      - '.github/workflows/build-untamed-wpf.yml'
   workflow_dispatch:
-  pull_request:
-    branches: [main, 'feature/store-lifecycle-evidence-parity-20261103']
-    paths:
-      - 'wpf/**'
-      - 'tools/lab/**'
-      - 'docs/development/WORK-LEDGER.json'
-      - '.github/workflows/build-untamed-wpf.yml'
 concurrency:
   group: untamed-wpf-${{ github.ref }}
   cancel-in-progress: true
 permissions:
-  contents: write
+  contents: read
 jobs:
   build:
     runs-on: windows-latest
@@ -248,58 +236,6 @@ jobs:
             dist/UntamedManager-1.6.1-SETUP.exe
             dist/SHA256SUMS.txt
           if-no-files-found: error
-      - name: Create test-only GitHub release
-        if: ${{ github.ref == 'refs/heads/chatgpt/untamed-manager-unified-20261105' && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release-test premium') }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $tag = "v1.6.1-premium-test.12"
-          $repo = "$env:GITHUB_REPOSITORY"
-          $files = @(
-            "dist/UntamedManager.exe#UntamedManager-WPF-v1.6.1-unified-test12.exe",
-            "dist/UntamedManager-1.6.1-win-x64.zip#UntamedManager-1.6.1-unified-test12-portable.zip",
-            "dist/UntamedManager-1.6.1-SETUP.exe#UntamedManager-1.6.1-unified-test12-SETUP.exe",
-            "dist/SHA256SUMS.txt#SHA256SUMS.txt",
-            "dist/UntamedManager-preview.png#UntamedManager-premium-dashboard.png",
-            "dist/UI-Screenshots/UntamedManager-demo-mods.png#UntamedManager-premium-demo-mods.png",
-            "dist/UI-Screenshots/UntamedManager-demo-plugins.png#UntamedManager-premium-demo-plugins.png",
-            "dist/UI-Screenshots/UntamedManager-demo-servers.png#UntamedManager-premium-demo-servers.png",
-            "dist/UI-Screenshots/UntamedManager-backups.png#UntamedManager-premium-backup-center.png",
-            "dist/UI-Screenshots/UntamedManager-demo-backups.png#UntamedManager-premium-demo-backups.png",
-            "dist/UI-Screenshots/UntamedManager-logs.png#UntamedManager-premium-log-center.png",
-            "dist/UI-Screenshots/UntamedManager-demo-logs.png#UntamedManager-premium-demo-logs.png",
-            "dist/UI-Screenshots/UntamedManager-cluster.png#UntamedManager-premium-cluster.png",
-            "dist/UI-Screenshots/UntamedManager-steam.png#UntamedManager-steamcmd-update-center.png",
-            "dist/UI-Screenshots/UntamedManager-map-setup-step1.png#UntamedManager-map-wizard-1.png",
-            "dist/UI-Screenshots/UntamedManager-map-setup-step2.png#UntamedManager-map-wizard-2.png",
-            "dist/UI-Screenshots/UntamedManager-map-setup-step3.png#UntamedManager-map-wizard-3.png",
-            "dist/UI-Screenshots/UntamedManager-map-setup-step4.png#UntamedManager-map-wizard-4.png",
-            "dist/UI-Screenshots/UntamedManager-map-setup-step5.png#UntamedManager-map-wizard-5.png",
-            "dist/UI-Screenshots/UntamedManager-layout-1366x768.png#UntamedManager-layout-1366x768.png"
-          )
-          gh release view $tag --repo $repo --json tagName 2>$null | Out-Null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag @files --repo $repo --clobber
-          } else {
-            gh release create $tag @files --target "$env:GITHUB_SHA" --repo $repo `
-              --title "Untamed Manager v1.6.1 · Unified CurseForge TEST 12" --prerelease `
-              --notes "Neon Kingdom Unified TEST 12 - isolated Windows TEST PC ONLY. PR #7 SteamCMD and ASA manager plus PR #9 CurseForge DPAPI key import are integrated on PR #10 without embedding or exposing approved secrets. The Premium WPF Mod Center includes official ASA category/sort, featured/popular/recent, descriptions, gallery, strict file-ID and dependency metadata, local Active/Passive/Disabled inventory and cancellable HTTP. NEW TEST 12: for mod-version decisions, verify exact ASA game ID and ALL CurseForge file pages (max 16x25) before deciding Current/Newer; reject inconsistent pagination, duplicate file IDs, equal-date ambiguity and unproven local mod folder identity. Preserve interleaved -mods order across mode changes; reorder only on explicit user action, preserve -passivemods semantics. Windows CI tests mod list order, fake CurseForge pagination, protected Store-v1, updater/installer recovery, SQL restore and real WPF screenshots. Manual SteamCMD update only for VERIFIED STOPPED local ASA maps, with verified backup; live SaveComplete/automatic restart and authorized mod downloads remain blocked until independently proven. UK-HOME-01 and UK-HOME-02 operate independent one-at-a-time LOCAL maintenance queues; no cluster-wide lock. NEVER install this TEST build on either production ASA machine."
-          }
-          if($LASTEXITCODE -ne 0){ throw "Premium test release could not be published" }
-          # A cancelled prior CI can leave an unpublished draft with the same tag.
-          # Updating assets is not enough: explicitly publish and point the tag
-          # to the successful, verified HEAD of THIS build.
-          $allReleases = gh api "repos/$repo/releases?per_page=100" | ConvertFrom-Json
-          if($LASTEXITCODE -ne 0){ throw "Could not inspect premium release" }
-          $matches = @($allReleases | Where-Object { $_.tag_name -eq $tag })
-          if($matches.Count -ne 1){ throw "Expected exactly one premium release for $tag" }
-          $releaseId = $matches[0].id
-          gh api -X PATCH "repos/$repo/releases/$releaseId" -f "tag_name=$tag" -f "target_commitish=$env:GITHUB_SHA" -F "draft=false" -F "prerelease=true" --silent
-          if($LASTEXITCODE -ne 0){ throw "Premium release could not be published" }
-          gh release view $tag --repo $repo --json isDraft,isPrerelease,tagName --jq '{draft: .isDraft, prerelease: .isPrerelease, tag: .tagName}'
-          if($LASTEXITCODE -ne 0){ throw "Published premium release is not readable" }
-
   # Historical database fixture only. The shipped Manager is SQL-free:
   # never require MariaDB to build, test or release either Windows desktop.
   # Operators may explicitly run the old isolated fixture on demand.
@@ -315,66 +251,3 @@ jobs:
       - name: Real isolated MariaDB logical dump and empty-target restore
         shell: pwsh
         run: ./wpf/Testing/MariaDb/Run-RealSql.ps1
-
-
-  # A self-contained native WPF distribution is also downloadable after
-  # the complete Windows UI, integration, setup and updater tests pass.
-  # SQL is excluded from the WPF EXE; historical SQL fixtures do not gate it.
-  # Game-world/Store-v1 production travel is not certified by fake ASA tests.
-  publish-wpf-prerelease:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download tested WPF portable artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: UntamedManager-WPF-v1.6.1-windows-x64
-          path: portable
-      - name: Download tested WPF installer and final SHA-256 manifest
-        uses: actions/download-artifact@v4
-        with:
-          name: UntamedManager-WPF-v1.6.1-installer
-          path: installer
-      - name: Verify all six release files and embedded tag against final manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release-assets
-          cp portable/UntamedManager.exe portable/UntamedUpdater.exe \
-             portable/UntamedSupervisor.exe portable/installed-release.txt \
-             portable/UntamedManager-1.6.1-win-x64.zip release-assets/
-          cp installer/UntamedManager-1.6.1-SETUP.exe \
-             installer/SHA256SUMS.txt release-assets/
-          cd release-assets
-          sha256sum -c SHA256SUMS.txt
-          test "$(cat installed-release.txt)" = "v1.6.1-wpf-asa-only.${{ github.run_number }}"
-          test -s UntamedManager.exe
-          test -s UntamedUpdater.exe
-          test -s UntamedSupervisor.exe
-          test -s installed-release.txt
-          test -s UntamedManager-1.6.1-win-x64.zip
-          test -s UntamedManager-1.6.1-SETUP.exe
-      - name: Publish verified native WPF prerelease
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: v1.6.1-wpf-asa-only.${{ github.run_number }}
-          SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          gh release create "$TAG" \
-            release-assets/UntamedManager.exe \
-            release-assets/UntamedUpdater.exe \
-            release-assets/UntamedSupervisor.exe \
-            release-assets/installed-release.txt \
-            release-assets/UntamedManager-1.6.1-win-x64.zip \
-            release-assets/UntamedManager-1.6.1-SETUP.exe \
-            release-assets/SHA256SUMS.txt \
-            --repo "$GH_REPO" --target "$SHA" \
-            --title "Untamed Manager 1.6.1 – native WPF Windows ($TAG)" \
-            --notes "Windows WPF, Store-v1 read-only regression, fake ASA two-Manager LAN, real GUI rendering, updater rollback and installer tests passed. SQL/MariaDB removed from this shipping WPF application; ASA-only 5+5 offline archive with copied transfer and isolated TEMP restore. Production live character travel and active historical Store-v1 writer handover are NOT certified. Install on the separate Windows test machine before any production migration." \
-            --prerelease

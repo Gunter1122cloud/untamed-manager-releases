@@ -148,11 +148,27 @@ jobs:
           path: desktop-artifacts/Untamed-Obsidian-Native-Preview.png
           if-no-files-found: ignore
           retention-days: 7
+      - name: Stamp EXACT Obsidian Command release tag (Setup + Portable)
+        shell: pwsh
+        run: |
+          $tag = "v1.4.0-obsidian-preview.${{ github.run_number }}"
+          Set-Content -LiteralPath desktop/publish/installed-release.txt -Value $tag -NoNewline -Encoding utf8
+          if ((Get-Content desktop/publish/installed-release.txt -Raw) -ne $tag) {
+            throw "Obsidian installed-release tag stamp failed"
+          }
+          if ($tag -match '-wpf-') { throw "WPF and Obsidian release channels must never mix" }
       - name: Build portable ZIP
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path desktop-artifacts | Out-Null
           Compress-Archive -Path desktop/publish/* -DestinationPath desktop-artifacts/Untamed_Obsidian_Desktop_Preview_Portable.zip -Force
+          Copy-Item desktop/publish/installed-release.txt desktop-artifacts/installed-release.txt -Force
+          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path desktop-artifacts/Untamed_Obsidian_Desktop_Preview_Portable.zip).Path)
+          try {
+            if (@($zip.Entries | Where-Object { $_.FullName -eq 'installed-release.txt' }).Count -ne 1) {
+              throw "Portable ZIP does not contain installed-release.txt"
+            }
+          } finally { $zip.Dispose() }
       - name: Build separate preview Setup (never overwrites WPF installation)
         shell: pwsh
         run: |
@@ -173,6 +189,32 @@ jobs:
           $publish = (Resolve-Path desktop/publish).Path
           & $iscc "/DBuildDir=$publish" desktop/installer/ObsidianPreview.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+      - name: Validate Obsidian Setup installs exact version marker on isolated CI machine
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP "Obsidian-Test-Install-${{ github.run_number }}"
+          $setup = (Resolve-Path desktop-artifacts/Untamed_Obsidian_Desktop_Preview_Setup.exe).Path
+          $proc = Start-Process -FilePath $setup -ArgumentList @(
+            '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',
+            "/DIR=$target",'/NOCLOSEAPPLICATIONS') -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Obsidian installer failed: $($proc.ExitCode)" }
+          $expected = "v1.4.0-obsidian-preview.${{ github.run_number }}"
+          $marker = Join-Path $target 'installed-release.txt'
+          if (!(Test-Path $marker) -or (Get-Content $marker -Raw) -ne $expected) {
+            throw "Obsidian Setup lost exact GitHub version marker"
+          }
+          if (!(Test-Path (Join-Path $target 'UntamedDesktop.exe')) -or
+              !(Test-Path (Join-Path $target 'UntamedUpdater.exe')) -or
+              !(Test-Path (Join-Path $target 'ui/index.html'))) {
+            throw "Obsidian Setup missing executable, updater or offline React UI"
+          }
+          $smoke = Start-Process -FilePath (Join-Path $target 'UntamedDesktop.exe') -ArgumentList '--smoke-test' -PassThru
+          if (!$smoke.WaitForExit(90000)) {
+            try { $smoke.Kill() } catch {}
+            throw "Installed Obsidian WebView2 application did not complete smoke test"
+          }
+          if ($smoke.ExitCode -ne 0) { throw "Installed Obsidian WebView2 smoke failed: $($smoke.ExitCode)" }
+          Write-Output "PASS: Obsidian Setup installs exact version, updater and starts packaged WebView2 React UI"
       - name: SHA-256 checksums
         shell: pwsh
         run: |
@@ -212,6 +254,7 @@ jobs:
           sha256sum -c SHA256SUMS.txt
           test -s Untamed_Obsidian_Desktop_Preview_Portable.zip
           test -s Untamed_Obsidian_Desktop_Preview_Setup.exe
+          test "$(cat installed-release.txt)" = "v1.4.0-obsidian-preview.${{ github.run_number }}"
       - name: Publish opt-in test release without claiming Store-v1 certification
         shell: bash
         env:
@@ -221,4 +264,4 @@ jobs:
           COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh release create "$TAG"             release-assets/Untamed_Obsidian_Desktop_Preview_Portable.zip             release-assets/Untamed_Obsidian_Desktop_Preview_Setup.exe             release-assets/SHA256SUMS.txt             --repo "$GH_REPO" --target "$COMMIT"             --title "Untamed Manager 1.4.0 – Windows test release ($TAG)"             --notes "Windows CI / native bridge / Playwright / WebView2 smoke passed. Not an approved live Store-v1 5+5 migration or character-travel release. SQL is excluded from the desktop assembly; original Store/session and production ASA machines remain untouched. Install on a separate Windows test PC."             --prerelease
+          gh release create "$TAG"             release-assets/Untamed_Obsidian_Desktop_Preview_Portable.zip             release-assets/Untamed_Obsidian_Desktop_Preview_Setup.exe             release-assets/installed-release.txt             release-assets/SHA256SUMS.txt             --repo "$GH_REPO" --target "$COMMIT"             --title "Untamed Manager 1.4.0 – Windows test release ($TAG)"             --notes "Windows CI / native bridge / Playwright / WebView2 smoke passed. Not an approved live Store-v1 5+5 migration or character-travel release. SQL is excluded from the desktop assembly; original Store/session and production ASA machines remain untouched. Install on a separate Windows test PC."             --prerelease

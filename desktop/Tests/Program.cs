@@ -53,9 +53,15 @@ cluster.AddMap(map);
         "UntamedManager.Core.MariaDbDumpAdapter",
         "UntamedManager.Core.OfflineSqlArchive",
         "UntamedManager.Core.OfflineClusterBackup",
-        "UntamedManager.Core.ClusterRestoreCoordinator"})
+        "UntamedManager.Core.ClusterRestoreCoordinator",
+        "UntamedManager.Core.DemoWorkspace",
+        "UntamedManager.Core.IsolatedFakeAsaSession",
+        "UntamedManager.Core.SyntheticRestore",
+        "UntamedManager.Core.SteamCmdTestRunner",
+        "UntamedManager.Core.RecoverySimulator",
+        "UntamedManager.Core.VaultFixtureAudit"})
         Check(application.GetType(forbidden,false)==null,
-            "shipping desktop excludes old SQL and 3-SQL restore: "+forbidden);
+            "shipping Obsidian desktop excludes SQL, legacy WPF demos and fake test harness: "+forbidden);
 }
 // The real dashboard once compared N-format LAN IDs with D-format owned map
 // IDs and silently hid maintenance / Store protection / RCON flags.
@@ -2653,6 +2659,26 @@ try
         Check(!ObsidianReleaseCatalog.IsTrusted(selected with{
             AssetName="UntamedManager-8.2.0-SETUP.exe"}),
             "compatible-looking WPF installer is never an Obsidian update");
+        Check(ObsidianReleaseCatalog.IsNewer(selected,new Version(8,2,0),""),
+            "first install of a legacy untagged Obsidian can find its preview upgrade");
+        Check(ObsidianReleaseCatalog.IsNewer(selected,new Version(8,2,0),
+                "v8.2.0-obsidian-preview.2") &&
+              !ObsidianReleaseCatalog.IsNewer(selected,new Version(8,2,0),
+                "v8.2.0-obsidian-preview.3") &&
+              !ObsidianReleaseCatalog.IsNewer(selected,new Version(8,2,0),
+                "v8.2.0-obsidian-preview.4"),
+            "stamped Preview version is strictly monotonic and never loops on same installer");
+        Check(!ObsidianReleaseCatalog.IsNewer(selected,new Version(8,2,0),
+                "v8.2.0-wpf-asa-only.967") &&
+              !ObsidianReleaseCatalog.IsNewer(selected,new Version(8,2,0),
+                "INVALID") &&
+              !ObsidianReleaseCatalog.IsNewer(selected,new Version(8,2,0),
+                "v8.2.0-obsidian-preview.999999999999999999999999999999"),
+            "WPF, corrupted and malformed installed tags fail closed");
+        string oversizedPreview=releaseJson.Replace(
+            tag,"v8.2.0-obsidian-preview."+new string('9',60),StringComparison.Ordinal);
+        Check(ObsidianReleaseCatalog.Select(oversizedPreview,UpdateChannel.Preview)==null,
+            "malformed oversized GitHub preview run ID cannot crash release discovery");
         var staging=new DesktopObsidianUpdateInstallBridge();
         var missingConsent=await Call(staging.HandleAsync,"updates.prepare",
             new{channel="preview",confirm=false});

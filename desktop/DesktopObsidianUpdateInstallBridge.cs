@@ -96,7 +96,7 @@ public sealed class DesktopObsidianUpdateInstallBridge
                     var release=await fetch(channel,deadline.Token);
                     if(release==null||!ObsidianReleaseCatalog.IsTrusted(release)||
                        !ObsidianReleaseCatalog.IsNewer(release,
-                           UpdateCenter.RunningVersion,ReleaseCatalog.InstalledTag))
+                           UpdateCenter.RunningVersion,ObsidianReleaseCatalog.InstalledTag))
                         return Error(id,"UM-UPDATE-NO-VERIFIED-NEWER-OBSIDIAN");
                     string root=Path.Combine(UpdateCenter.UpdateRoot,"ObsidianStage");
                     string staged=await download(release,root,deadline.Token);

@@ -1,46 +1,29 @@
-# Untamed Kingdom — Obsidian React Desktop (migration branch)
+# Obsidian Command — tényleges Windows Manager
 
-This is the **actual new Windows host**, not a website and not a replacement
-server backend. It compiles and reuses the existing production `wpf/Core/*.cs`
-sources unchanged, just as the existing Supervisor does. The old WPF release,
-PR #7/#9/#10 and their configuration/Store formats remain untouched.
+Ez a jelenlegi, felhasználó által kiválasztott asztali alkalmazás: **offline React/TypeScript UI a `desktop-ui/` alatt, helyi WinForms/WebView2 shell, és .NET 10 C# native bridge-ek**. A korábbi WPF Manager UI-t **nem** fejlesztjük tovább.
 
-## Build (separate Windows test PC only)
-
+## Fordítás (elkülönített Windows tesztgépen)
 ```powershell
 cd desktop-ui
-npm install
+npm ci
 npm run build
+npm run test:ui
 cd ../desktop
-dotnet build -c Release
-dotnet run -c Release
+dotnet publish UntamedDesktop.csproj -c Release -r win-x64 --self-contained true
 ```
 
-The `ui/` folder is copied from `desktop-ui/dist` by MSBuild. No runtime
-development server is used. WebView2 Evergreen Runtime is required.
-The desktop displays **real read-only local manager configuration and observed
-process information**, optionally authenticated read-only LAN peer status.
-There is no synthetic success state and no fake data.
+A React `dist/` bekerül a desktop `ui/` mappájába, és a WebView2 kizárólag a helyben csomagolt virtuális hostot tölti be. Nincs külön webes admin UI vagy CDN-függőség. Az új alkalmazás helyi WinForms héjat használ; a backend a megosztott `../wpf/Core/*.cs` logikára épül, **a natív WPF ablakokra nem**.
 
-The only currently accepted bridge methods are
-`dashboard.snapshot` and `mods.configured`. The bridge has no write
-actions, no RCON execution and no Store/SQL access. Unknown operations fail
-closed. New UI sections must be connected incrementally to existing,
-permission-checked Core operations, with isolated Windows/ASA acceptance.
+## Tényleges funkciók és korlátok
+- Dashboard, két host áttekintése, helyi mapbeállítások, modlista/CurseForge, pluginleltár és védett JSON-szerkesztés.
+- Helyi, új és bizonyítottan tiszta ASA telepítések SteamCMD telepítése, kétfázisú indítása/leállítása/újraindítása; RCON olvasás és jóváhagyott admin parancsok.
+- Natív INI szerkesztés, mapmentések, SQL-mentes 5+5 mapos **előre elkészített offline másolatok** SHA-256 archívuma, kizárólag TEMP-laboros próba-visszaállítás.
+- Modlista többmapos helyi másolása és átvitele fájlban a két Manager között. Távoli Manager csak hitelesített megfigyelésre jogosult.
+- Frissítési központ: **csak Obsidian kiadások**, külön SHA-256-ellenőrzött Setup, külső visszaállításképes updater, egyértelmű kiadási azonosítóval.
 
-No production lifecycle gate is lifted here. Never test this on UK-HOME-01
-or UK-HOME-02. Existing WPF and supervisor remain the baseline until the
-frontend, all screens and safe operations have been migrated and verified.
+A korábbi dokumentációban szereplő „only `dashboard.snapshot` and `mods.configured`” állítás elavult. A kiterjesztett, engedélyezett RPC-felület a `desktop/ObsidianWindow.cs` és `desktop-ui/src/bridge.ts` fájlokban ellenőrizhető. A runtime-hatások és élő Store-v1 utazás nem tekinthetők hitelesítettnek pusztán szintetikus tesztektől.
 
-## Architecture
+**Nincs a desktopban MariaDB/SQL kezelő.** A történeti Store-v1 map indításának tiltása továbbra is él, nem állítható, hogy a karakterutazás éles próbája megvolt. A két UK-HOME éles gép nincs CI tesztnek kitéve.
 
-`desktop-ui`: React/TypeScript/CSS, compiled to offline `dist/`.
-
-`desktop`: WinForms tray/window + WebView2 virtual host mapping +
-strict request-ID read-only bridge, links unchanged `wpf/Core/*.cs`.
-
-`wpf/`: existing protected Manager and Supervisor source, unchanged.
-
-Development stages: complete visual Dashboard, mod catalog and controls,
-migrate remaining panels and backend contracts, Windows GUI/Playwright
-tests, full offline installer and updater migration, real isolated ASA tests.
+## Elfogadott UI
+`desktop-ui/src/PremiumDashboard.tsx`, `PremiumModBoard.tsx`, `approved-dashboard-fidelity.css`, `mod-fidelity.css`. A fontos vizuális arányok: négy kompakt KPI; szervertábla balra, host/események jobbra; prémium kéthasábos Mod Center; a képes mapgaléria opcionális.
