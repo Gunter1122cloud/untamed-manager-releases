@@ -183,7 +183,8 @@ public static class LegacyStoreV1LiveReadGate
                !StoreV1Fingerprint.Matches(config,Text(peer,"configHash"))||
                owned.ValueKind!=JsonValueKind.Array||owned.GetArrayLength()!=5||
                selected.ValueKind!=JsonValueKind.Array||selected.GetArrayLength()!=5||
-               Need(config,"members").GetRawText()!=owned.GetRawText())
+               StoreV1Fingerprint.Compute(Need(config,"members"))!=
+                   StoreV1Fingerprint.Compute(owned))
                 throw new InvalidDataException("UM-STORE-LIVE-PEER-DONE-INVALID");
             var ids=owned.EnumerateArray().Select(x=>Text(x,"id")).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if(ids.Count!=5||selected.EnumerateArray().Any(x=>
