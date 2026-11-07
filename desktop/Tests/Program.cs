@@ -1809,6 +1809,52 @@ try
             "v3 backup bundles both hosts' ten world packages, 20 INIs and shared transfer without live certification");
         Check(OfflineAsaClusterArchive.Verify(fullDestination).Batch==fullArchive.Batch,
             "manifest verifies exact configuration path ownership and file SHA256");
+        // Two independently sealed offline batches, unchanged historical
+        // zero-byte profile and one NEW transfer member, never a live ASA map.
+        string newTransfer=Path.Combine(transfer,"synthetic-new-transfer.dat");
+        File.WriteAllText(newTransfer,"synthetic upload only");
+        string afterArchivePath=Path.Combine(archiveLab,"verified-archive-after-transfer");
+        var afterArchive=OfflineAsaClusterArchive.BuildFromFolders(
+            hp,ryzen,transfer,afterArchivePath);
+        var delta=OfflineAsaArchiveComparison.Compare(
+            fullDestination,afterArchivePath);
+        Check(delta.BeforeBatch==fullArchive.Batch&&
+              delta.AfterBatch==afterArchive.Batch&&delta.Maps==10&&
+              delta.TransferAdded==1&&delta.TransferRemoved==0&&
+              delta.TransferModified==0&&delta.ZeroByteTransferFilesPreserved==1&&
+              delta.Results.All(m=>!m.WorldChanged)&&
+              delta.BothArchivesSha256Verified&&
+              !delta.LiveConsistencyCertified&&!delta.StoreWriterCertified&&
+              !delta.CharacterTravelVerified&&!delta.ProductionRestoreAllowed,
+            "two signed 10-map copies identify new tribute member, retain zero-byte profile, never certify live travel");
+        var pickedArchives=new Queue<string>(new[]{fullDestination,afterArchivePath});
+        using(var comparisonBridge=new DesktopEmbeddedStoreBridge(
+            null,()=>pickedArchives.Dequeue()))
+        {
+            var wire=await Call(comparisonBridge.HandleAsync,"store.compareArchives");
+            IsOk(wire,"native two-folder archive comparison returns SHA-verified delta");
+            Check(wire.GetProperty("data").GetProperty("transferAdded").GetInt32()==1&&
+                  wire.GetProperty("data").GetProperty("results").GetArrayLength()==10&&
+                  !wire.ToString().Contains(archiveLab,StringComparison.OrdinalIgnoreCase)&&
+                  !wire.ToString().Contains("synthetic-new-transfer.dat",StringComparison.OrdinalIgnoreCase)&&
+                  !wire.GetProperty("data").GetProperty("productionRestoreAllowed").GetBoolean(),
+                "WebView receives aggregate file counts only, never transfer filenames or archive paths");
+            var injected=await Call(comparisonBridge.HandleAsync,"store.compareArchives",
+                new{beforeArchive=fullDestination,afterArchive=afterArchivePath});
+            Check(IsError(injected,"UM-STORE-COPY-PATH-DENIED"),
+                "renderer cannot inject archive paths into the native comparison");
+        }
+        bool reverseRejected=false;
+        try{OfflineAsaArchiveComparison.Compare(afterArchivePath,fullDestination);}
+        catch(InvalidDataException){reverseRejected=true;}
+        Check(reverseRejected,"offline compare refuses reverse-time archive pairing");
+        File.AppendAllText(Path.Combine(afterArchivePath,"TRANSFER",
+            "synthetic-new-transfer.dat"),"tampered");
+        bool tamperRejected=false;
+        try{OfflineAsaArchiveComparison.Compare(fullDestination,afterArchivePath);}
+        catch(InvalidDataException){tamperRejected=true;}
+        Check(tamperRejected,"offline compare fails closed on modified tribute bytes");
+        File.Delete(newTransfer);
         string fullRestore=Path.Combine(Path.GetTempPath(),
             "Untamed-AsaRestore-Lab-"+Guid.NewGuid().ToString("N"));
         var restoredFull=OfflineAsaRestoreLab.MaterializeToLab(
