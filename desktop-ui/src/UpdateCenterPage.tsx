@@ -132,8 +132,9 @@ export function UpdateCenterPage(){
             {handedOff&&<p role="status">A külön külső updater átvette a telepítést;
               a Manager felülete bezárul. Az ASA-szerverfolyamatok függetlenek.</p>}
             <div className="uk-updates-install-lock"><ShieldCheck size={17}/>
-              Csak Untamed Obsidian telepítő használható. A régi WPF Manager
-              kiadása nem kompatibilis, a karaktermentéseket nem módosítjuk.
+              Csak az Obsidian Command saját, SHA-256-tal ellenőrzött Windows
+              telepítője fogadható el. Más alkalmazás kiadása nem kompatibilis;
+              a karaktermentéseket nem módosítjuk.
             </div>
           </div>}
           <small className="uk-updates-detail">
