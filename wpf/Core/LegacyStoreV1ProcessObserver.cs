@@ -211,6 +211,8 @@ public static class LegacyStoreV1ProcessObserver
             return localMaps.Any(other=>other!=null&&other.Id!=Guid.Empty&&
                 other.Id!=requested.Id&&other.HistoricalStoreProtected&&
                 other.StartWithAsaApi&&
+                string.IsNullOrWhiteSpace(other.Arguments)&&
+                string.IsNullOrWhiteSpace(other.ApiLoaderArguments)&&
                 other.GamePort!=requested.GamePort&&
                 other.QueryPort!=requested.QueryPort&&
                 other.RconPort!=requested.RconPort&&
