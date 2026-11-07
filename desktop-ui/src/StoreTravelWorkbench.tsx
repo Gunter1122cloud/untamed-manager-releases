@@ -169,7 +169,7 @@ export function StoreTravelWorkbench(){
         <ShieldCheck size={19}/>
         <strong>REFERENCIÁVAL IGAZOLT – NÁLUNK IS KÖTELEZŐEN MŰKÖDNIE KELL</strong>
       </div>
-      <p>Más ASA Managerben (YARK) valódi játékbeli próbával igazolták a két map közötti
+      <p>Nyilvánosan dokumentált ASA Manager-tesztekben játékbeli próbával igazolták a két map közötti
         karakter-, tárgy- és dinóátvitelt, újraindítással és oda-vissza utazással.
         Ez nálunk is kötelező képesség, kiegészítve a két külön gépes, 5+5 mapos
         Store-v1 kompatibilitással, a tribe-adatok és az eredeti fájlok sértetlenségével.</p>
@@ -177,7 +177,7 @@ export function StoreTravelWorkbench(){
         <span><CheckCircle2 size={14}/> Kötelező megvalósítási cél</span>
         <span><LockKeyhole size={14}/> Saját éles Store-v1 igazolás: még nincs</span>
       </div>
-      <small>Referenciabizonyíték: YARK, 2026-08-13, két map egy Windows gépen.
+      <small>Referenciabizonyíték: külső ASA Manager teszt, két map egy Windows gépen.
         Nem a mi kétgépes clusterünk tanúsítása. A Writer/Store védelem továbbra is aktív.</small>
     </section>
     <EmbeddedStoreCopyInspector/>
