@@ -1787,6 +1787,60 @@ try
             hp,ryzen,noStore,Path.Combine(archiveLab,"unsafe-package"));}
         catch(InvalidDataException){rejected=true;}
         Check(rejected,"ASA-only cluster archive refuses absent original Store coordination metadata");
+
+        // Extended self-contained, locally copied config files must accompany
+        // all ten worlds and the original transfer. Neither side may disappear.
+        for(int i=0;i<ids.Length;i++)
+        {
+            string host=i<5?hp:ryzen;
+            string folder=Path.Combine(host,"CONFIG",ids[i].ToString("N"),"WindowsServer");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder,"Game.ini"),
+                "[/Script/ShooterGame.ShooterGameMode]\\nSYNTHETIC="+i);
+            File.WriteAllText(Path.Combine(folder,"GameUserSettings.ini"),
+                "[ServerSettings]\\nSYNTHETIC="+i);
+        }
+        string fullDestination=Path.Combine(archiveLab,"verified-asa-full-saved-package");
+        var fullArchive=OfflineAsaClusterArchive.BuildFromFolders(
+            hp,ryzen,transfer,fullDestination);
+        Check(fullArchive.Schema==3&&fullArchive.Config?.Length==20 &&
+              fullArchive.Maps.Length==10&&fullArchive.Transfer.Length==2&&
+              !fullArchive.LiveConsistencyCertified&&!fullArchive.RestoreToProductionAllowed,
+            "v3 backup bundles both hosts' ten world packages, 20 INIs and shared transfer without live certification");
+        Check(OfflineAsaClusterArchive.Verify(fullDestination).Batch==fullArchive.Batch,
+            "manifest verifies exact configuration path ownership and file SHA256");
+        string fullRestore=Path.Combine(Path.GetTempPath(),
+            "Untamed-AsaRestore-Lab-"+Guid.NewGuid().ToString("N"));
+        var restoredFull=OfflineAsaRestoreLab.MaterializeToLab(
+            fullDestination,fullRestore);
+        Check(restoredFull.SourceBatch==fullArchive.Batch&&
+            OfflineAsaRestoreLab.VerifyLab(fullRestore).SourceArchive.Config?.Length==20 &&
+            File.ReadAllText(Path.Combine(fullRestore,"CONFIG","HP",
+                ids[0].ToString("N"),"WindowsServer","Game.ini"))
+                .Contains("SYNTHETIC=0",StringComparison.Ordinal),
+            "full offline restore copies original map configs and transfer to TEMP with exact hashes");
+        string changedConfig=Path.Combine(fullRestore,"CONFIG","RYZEN",
+            ids[5].ToString("N"),"WindowsServer","GameUserSettings.ini");
+        File.AppendAllText(changedConfig,"CORRUPTION");
+        rejected=false;
+        try{OfflineAsaRestoreLab.VerifyLab(fullRestore);}
+        catch(InvalidDataException){rejected=true;}
+        Check(rejected,"tampered restored configuration is never marked complete");
+        string changedArchive=Path.Combine(fullDestination,"CONFIG","HP",
+            ids[0].ToString("N"),"WindowsServer","Game.ini");
+        File.AppendAllText(changedArchive,"CORRUPTION");
+        rejected=false;
+        try{OfflineAsaClusterArchive.Verify(fullDestination);}
+        catch(InvalidDataException){rejected=true;}
+        Check(rejected,"tampered original config invalidates sealed cluster backup");
+        File.Delete(Path.Combine(ryzen,"CONFIG",ids[5].ToString("N"),
+            "WindowsServer","GameUserSettings.ini"));
+        rejected=false;
+        try{OfflineAsaClusterArchive.BuildFromFolders(hp,ryzen,transfer,
+            Path.Combine(archiveLab,"incomplete-config-source"));}
+        catch(InvalidDataException){rejected=true;}
+        Check(rejected,"missing required configuration never silently creates a world-only archive");
+
     }
 
     // Plugin config.json is an existing local file. Native editor supports
