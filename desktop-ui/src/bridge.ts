@@ -623,6 +623,20 @@ export type HistoricalActiveStartReceipt = {
   automaticRetryAllowed:false;
   evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED";
 };
+export type HistoricalRconLiveStatus = {
+  mapId:string;mapName:string;configured:boolean;
+  processVerified:boolean;portOwned:boolean;pid:number|null;
+  permitted:boolean;allowedCommands:string[];
+  storeTouched:false;saveCompleteProven:false;
+  evidence:"ORIGINAL_ACTIVE_SOURCE_WMI_PID_TCP_OWNER_READY" |
+    "ORIGINAL_RCON_NOT_VERIFIED_NO_COMMAND";
+};
+export type HistoricalRconReadResponse = {
+  mapId:string;mapName:string;command:"ListPlayers"|"GetGameLog"|"GetChat";
+  response:string;observedUtc:string;readOnly:true;
+  storeTouched:false;saveCompleteProven:false;
+  evidence:"ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON";
+};
 export type HistoricalPairEvidence = {
   files:number; maps:number; peers:number;
   sessionConsistent:boolean; configHashesVerified:boolean;
@@ -837,6 +851,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
    "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" |
+   "historical.rconLiveStatus" | "historical.rconPlayers" |
+   "historical.rconGameLog" | "historical.rconChatLog" |
   "api.coreRelease" | "api.corePreview" | "api.coreApply" |
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
@@ -1120,6 +1136,14 @@ export const managerBridge = {
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
     request<HistoricalLaunchEvidence>("historical.launchEvidence",{archive,mapId,command}),
+  historicalRconLiveStatus: (mapId:string) =>
+    request<HistoricalRconLiveStatus>("historical.rconLiveStatus",{mapId}),
+  historicalRconPlayers: (mapId:string) =>
+    request<HistoricalRconReadResponse>("historical.rconPlayers",{mapId}),
+  historicalRconGameLog: (mapId:string) =>
+    request<HistoricalRconReadResponse>("historical.rconGameLog",{mapId}),
+  historicalRconChatLog: (mapId:string) =>
+    request<HistoricalRconReadResponse>("historical.rconChatLog",{mapId}),
   historicalActiveStartStatus: (mapId:string) =>
     request<HistoricalActiveStartStatus>("historical.activeStartStatus",{mapId}),
   historicalActiveStartPreview: (mapId:string) =>
