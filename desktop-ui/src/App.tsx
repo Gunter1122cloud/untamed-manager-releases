@@ -1424,7 +1424,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         </Panel>
       </div>
       {map.storeProtected&&<HistoricalRconAttach mapId={mapId} onConfigured={onConfigured}/>}
-      {map.storeProtected&&<HistoricalActiveStartPanel mapId={mapId} onStarted={onConfigured}/>}
+      {map.storeProtected&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
       {map.gamePort>0 && !map.storeProtected && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && !map.storeProtected && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && !map.storeProtected && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
