@@ -459,6 +459,9 @@ try
         var start=DateTimeOffset.UtcNow;
         Check(supervisor.TickOnce(start).Length==0,
             "first recurring tick only claims next future due slot");
+        var firstDue=supervisor.DueDates()[Guid.Parse(jobId)];
+        Check(firstDue==start.AddMinutes(5),
+            "durable interval cursor records exact next slot, not a moving GUI estimate");
         var performed=supervisor.TickOnce(start.AddMinutes(6));
         Check(performed.Any(x=>x.Status=="claimed"&&x.Job==Guid.Parse(jobId)) &&
               performed.Any(x=>x.Status=="succeeded"&&x.Job==Guid.Parse(jobId)) &&
@@ -466,6 +469,11 @@ try
             "due schedule observes confirmed stopped process and journals success without rewriting Manager configuration");
         var snapshot=await Call(operations.HandleAsync,"operations.snapshot");
         IsOk(snapshot,"operations UI reads real persisted scheduler evidence");
+        var scheduledRow=snapshot.GetProperty("data").GetProperty("schedules")
+            .EnumerateArray().Single(x=>x.GetProperty("id").GetString()==jobId);
+        var persistedDue=supervisor.DueDates()[Guid.Parse(jobId)];
+        Check(scheduledRow.GetProperty("nextUtc").GetDateTimeOffset()==persistedDue,
+            "native UI displays the persisted next due slot rather than now plus interval");
         Check(snapshot.GetProperty("data").GetProperty("scheduleReceipts")
                 .EnumerateArray().Any(x=>x.GetProperty("status").GetString()=="succeeded") &&
               snapshot.GetProperty("data").GetProperty("schedulingIsReadOnly").GetBoolean(),
