@@ -53,8 +53,9 @@ export function OfflineAsaArchivePanel(){
       A négy mappát natív Windows mappaválasztóval adod meg. Az eredeti
       konfigurációkat is megőrzi, ha mindkét gép offline mapcsomagjai mellett
       külön <code>CONFIG/&lt;map-GUID&gt;/WindowsServer/</code> mappában ott vannak
-      a <code>Game.ini</code> és <code>GameUserSettings.ini</code> másolatok.
-      Csak az egyik gép hiányos konfigurációja esetén a műveletet elutasítja.</p>
+      a <code>GameUserSettings.ini</code> másolatok. A <code>Game.ini</code>
+      opcionális: ha valamelyik mapon nem létezik, a mentés és a tesztvisszaállítás
+      az eredeti hiányát is megőrzi. A többi hiányos konfigurációt elutasítja.</p>
     <div className="warning-inline"><Shield size={17}/>
       Ez fájlintegritási archívum, nem élő többgépes pillanatkép. Nem állítja le
       vagy indítja újra a mapokat, nem nyúl az eredeti SMB/Store-hoz, és nem teszi
