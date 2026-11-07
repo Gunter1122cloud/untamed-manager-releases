@@ -12,15 +12,22 @@ namespace UntamedDesktop;
 /// Bounded, on-demand operational evidence for the locally owned ASA servers.
 /// No commands, credentials, remote writes, Store changes or generated telemetry.
 /// Process resources are trusted only after matching PID + Windows start time.
-/// Recurring jobs are shown from persisted Manager configuration and never run.
+/// Read-only recurring jobs execute only in the independent durable supervisor.
+/// The renderer may create/disable an explicitly approved local inspection,
+/// never schedule a server lifecycle, RCON, Store, SteamCMD or peer write.
 /// </summary>
 public sealed class DesktopOperationsCenterBridge
 {
     private readonly ClusterService cluster;
+    private readonly DesktopRecurringReadOnlySupervisor? supervisor;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public DesktopOperationsCenterBridge(ClusterService source) =>
-        cluster = source ?? throw new ArgumentNullException(nameof(source));
+    public DesktopOperationsCenterBridge(ClusterService source,
+        DesktopRecurringReadOnlySupervisor? readOnlySupervisor=null)
+    {
+        cluster=source??throw new ArgumentNullException(nameof(source));
+        supervisor=readOnlySupervisor;
+    }
 
     public Task<string> HandleAsync(string raw)
     {
@@ -40,8 +47,46 @@ public sealed class DesktopOperationsCenterBridge
                 return Task.FromResult(Fail(null,"UM-OPS-INVALID-REQUEST"));
             id = requestId.ToString("D");
             string? method = methodValue.GetString();
-            if(method is not ("operations.snapshot" or "operations.map"))
+            if(method is not ("operations.snapshot" or "operations.map" or
+                "operations.scheduleCreate" or "operations.scheduleDisable"))
                 return Task.FromResult(Fail(id,"UM-METHOD-DENIED"));
+
+            if(method=="operations.scheduleCreate")
+            {
+                // Operator must explicitly approve this local Manager-config
+                // write. Never accept untrusted absolute paths or raw commands.
+                if(!Confirm(request)||
+                   !request.TryGetProperty("mapId",out var mapField)||
+                   mapField.ValueKind!=JsonValueKind.String||
+                   !Guid.TryParse(mapField.GetString(),out var mapId)||
+                   !request.TryGetProperty("kind",out var kindField)||
+                   kindField.ValueKind!=JsonValueKind.String||
+                   !Enum.TryParse<OperationalTaskKind>(kindField.GetString(),false,out var kind)||
+                   !request.TryGetProperty("intervalMinutes",out var interval)||
+                   interval.ValueKind!=JsonValueKind.Number||
+                   !interval.TryGetInt32(out int minutes))
+                    return Task.FromResult(Fail(id,"UM-OPS-SCHEDULE-INVALID-OR-UNAPPROVED"));
+                var created=cluster.CreateReadOnlySchedule(mapId,kind,minutes);
+                return Task.FromResult(Ok(id,new {
+                    jobId=created.Id,mapId=created.Map,kind=created.Kind.ToString(),
+                    intervalMinutes=created.IntervalMinutes,enabled=created.Enabled,
+                    autoLifecycleAllowed=false,remoteCommandsAllowed=false,
+                    evidence="PERSISTED_LOCAL_READ_ONLY_SCHEDULE_ONLY"
+                }));
+            }
+            if(method=="operations.scheduleDisable")
+            {
+                if(!Confirm(request)||
+                   !request.TryGetProperty("jobId",out var jobField)||
+                   jobField.ValueKind!=JsonValueKind.String||
+                   !Guid.TryParse(jobField.GetString(),out var jobId))
+                    return Task.FromResult(Fail(id,"UM-OPS-SCHEDULE-INVALID-OR-UNAPPROVED"));
+                var disabled=cluster.DisableReadOnlySchedule(jobId);
+                return Task.FromResult(Ok(id,new{
+                    jobId=disabled.Id,enabled=false,autoLifecycleAllowed=false,
+                    evidence="LOCAL_READ_ONLY_SCHEDULE_DISABLED"
+                }));
+            }
 
             Guid selectedId = Guid.Empty;
             if(method == "operations.map")
@@ -85,9 +130,17 @@ public sealed class DesktopOperationsCenterBridge
                     }
                 }).ToArray()
                 : Array.Empty<object>();
+            RecurringJobReceipt[] receipts=Array.Empty<RecurringJobReceipt>();
+            string supervisorState=supervisor?.RuntimeState??"not-configured";
+            if(supervisor!=null&&method=="operations.snapshot")
+            {
+                try{receipts=supervisor.Recent(40);}
+                catch(Exception){supervisorState="journal-unavailable";}
+            }
             return Task.FromResult(Ok(id,new {
                 hostName=cluster.Config.LocalHostName,
                 observedUtc=now, maps, schedules,
+                scheduleReceipts=receipts,supervisorState,
                 schedulingIsReadOnly=true,
                 remoteCommandsAllowed=false,
                 evidence="LOCAL_OS_PROCESS_AND_SAVED_SCHEDULE_READ_ONLY"
@@ -98,6 +151,10 @@ public sealed class DesktopOperationsCenterBridge
             return Task.FromResult(Fail(id,"UM-OPS-OBSERVATION-UNAVAILABLE"));
         }
     }
+
+    private static bool Confirm(JsonElement obj)=>
+        obj.TryGetProperty("confirm",out var value) &&
+        value.ValueKind==JsonValueKind.True;
 
     private object Describe(LocalMap map,DateTimeOffset now)
     {
