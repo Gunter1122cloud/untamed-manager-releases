@@ -3204,6 +3204,24 @@ try
                   missed.LastPoint==null &&
                   missed.NextDueUtc>scheduleNow.AddHours(4),
                 "missed backup windows are consumed durably without replay");
+            // Revoking an active schedule in a native stop-state callback
+            // must abort the copy, not publish a late snapshot.
+            int archiveCountBefore=UntamedWorldBackup.List(localMap,localProfile,50).Length;
+            DesktopScheduledStoppedBackupSupervisor? revoker=null;
+            int stopProbes=0;
+            using(revoker=new DesktopScheduledStoppedBackupSupervisor(backupHost,
+                _=>{
+                    if(++stopProbes==2)revoker!.Disable(localMap.Id);
+                    return new ProcessCheck(false,"synthetic stopped",null,true);
+                }))
+            {
+                revoker.Configure(localMap.Id,60,scheduleNow);
+                var revoked=revoker.TickOnce(scheduleNow.AddMinutes(61)).Single();
+                Check(!revoked.Enabled&&revoked.LastStatus=="disabled" &&
+                      revoked.LastPoint==null&&stopProbes>=2 &&
+                      UntamedWorldBackup.List(localMap,localProfile,50).Length==archiveCountBefore,
+                    "operator disable mid-copy blocks publication and preserves disabled state");
+            }
         }
         File.WriteAllBytes(Path.Combine(localWorld,"broken.arkprofile"),Array.Empty<byte>());
         preview=await Call(worldBridge.HandleAsync,"backup.preview",
