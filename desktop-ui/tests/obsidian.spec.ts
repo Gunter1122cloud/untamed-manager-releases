@@ -272,14 +272,14 @@ test.beforeEach(async ({ page }) => {
         };
         case "updates.status": return {
           repository:"Gunter1122cloud/untamed-manager-releases",
-          runningVersion:"1.4.0",installedTag:"v1.4.0",
+          runningVersion:"2.0.0.0",installedTag:"v2.0.0-obsidian-preview.1478",
           provider:"GITHUB_RELEASES",updateCheckPerformed:false,
           installationPermitted:false,updaterVerified:false,
           evidence:"LOCAL_RELEASE_IDENTITY_NO_NETWORK"
         };
         case "updates.check": return {
           repository:"Gunter1122cloud/untamed-manager-releases",
-          runningVersion:"1.4.0",installedTag:"v1.4.0",
+          runningVersion:"2.0.0.0",installedTag:"v2.0.0-obsidian-preview.1478",
           channel:m.channel??"stable",found:true,newer:true,
           tag:"v9.0.0-obsidian-preview.1",version:"9.0.0",
           assetName:"Untamed_Obsidian_Desktop_Preview_Setup.exe",
@@ -1008,10 +1008,13 @@ test("Update Center verifies Obsidian-only installer and requires explicit two-s
   await page.goto("/");
   await page.getByRole("button",{name:"Frissítések"}).click();
   await expect(page.getByRole("heading",{name:"Frissítési központ"})).toBeVisible();
-  await expect(page.getByText("v1.4.0")).toBeVisible();
-  await page.getByRole("combobox",{name:"Frissítési csatorna"}).selectOption("preview");
+  await expect(page.getByText("2.0.0 Preview")).toBeVisible();
+  await expect(page.getByText("Build #1478")).toBeVisible();
+  await expect(page.getByText(/egyetlen támogatott kiadási ág/)).toBeVisible();
+  await expect(page.getByRole("combobox",{name:"Frissítési csatorna"})).toHaveCount(0);
   await page.getByRole("button",{name:"Frissítések keresése"}).click();
   await expect(page.getByText("Új kiadás érhető el")).toBeVisible();
+  await expect(page.getByText("9.0.0 Preview")).toBeVisible();
   await expect(page.getByText("Untamed_Obsidian_Desktop_Preview_Setup.exe")).toBeVisible();
   await page.getByRole("button",{name:/Telepítő letöltése és SHA-256 ellenőrzése/}).click();
   await expect(page.getByText("Telepítő SHA-256 ellenőrizve")).toBeVisible();
