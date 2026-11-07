@@ -18,9 +18,26 @@ public static class LegacyStoreV1PeerTopology
     public sealed record Peer(string DeviceId,IReadOnlyList<string> MemberIds,
         IReadOnlyList<string> MapNames,IReadOnlyList<string> SelectedIds);
 
+    /// <summary>
+    /// Original shared-store-v1 participant/session IDs are emitted by the
+    /// old Windows agent as lowercase hyphenated UUID strings. The source
+    /// explicitly rejects uppercase, braces, short IDs, whitespace and
+    /// otherwise parseable GUID aliases. Never canonicalize an on-disk
+    /// Store device/session ID while granting original writer authority.
+    /// </summary>
+    public static bool IsOriginalSourceUuid(string? value)
+    {
+        if(value==null||value.Length!=36||
+           !Guid.TryParseExact(value,"D",out var id)||id==Guid.Empty)
+            return false;
+        return string.Equals(value,id.ToString("D"),
+            StringComparison.Ordinal);
+    }
+
     public static void Validate(string localDeviceId,IReadOnlyList<Peer> peers)
     {
-        if(!Guid.TryParse(localDeviceId,out var local) ||
+        if(!IsOriginalSourceUuid(localDeviceId)||
+           !Guid.TryParse(localDeviceId,out var local)||
            peers==null||peers.Count!=2)
             throw new InvalidDataException("UM-STORE-TOPOLOGY-TWO-PEERS-REQUIRED");
         var devices=new HashSet<Guid>();
@@ -28,7 +45,8 @@ public static class LegacyStoreV1PeerTopology
         var mapNames=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach(var peer in peers)
         {
-            if(peer==null||!Guid.TryParse(peer.DeviceId,out var device)||
+            if(peer==null||!IsOriginalSourceUuid(peer.DeviceId)||
+               !Guid.TryParse(peer.DeviceId,out var device)||
                !devices.Add(device)||peer.MemberIds==null||
                peer.MapNames==null||peer.SelectedIds==null||
                peer.MemberIds.Count!=5||peer.MapNames.Count!=5||

@@ -34,7 +34,7 @@ public static class LegacyStoreV1LiveReadGate
     private static bool Str(JsonElement x,string key,string value)=>
         x.ValueKind==JsonValueKind.Object &&
         x.TryGetProperty(key,out var v)&&v.ValueKind==JsonValueKind.String &&
-        string.Equals(v.GetString(),value,StringComparison.OrdinalIgnoreCase);
+        string.Equals(v.GetString(),value,StringComparison.Ordinal);
     private static string Text(JsonElement x,string key)=>VaultReadSnapshot.Text(x,key);
     private static JsonElement Need(JsonElement x,string key)
     {
@@ -129,7 +129,8 @@ public static class LegacyStoreV1LiveReadGate
         string deviceId=Text(device,"id");
         string session=Text(localLock,"session");
         string path=SharedRoot(Text(cluster,"path"));
-        if(!Guid.TryParse(deviceId,out _)||!Guid.TryParse(session,out _)||
+        if(!LegacyStoreV1PeerTopology.IsOriginalSourceUuid(deviceId)||
+            !LegacyStoreV1PeerTopology.IsOriginalSourceUuid(session)||
            !Str(cluster,"mode","shared")||
            !Str(cluster,"id",VaultProtocol.ClusterId)||
            !Str(Need(localLock,"config"),"id",VaultProtocol.ClusterId)||
@@ -158,7 +159,7 @@ public static class LegacyStoreV1LiveReadGate
            Need(op,"schema").GetInt32()!=1)
             throw new InvalidDataException("UM-STORE-LIVE-OPERATION-INVALID");
         var peerIds=peers.EnumerateArray().Select(x=>x.GetString()??"").ToArray();
-        if(peerIds.Any(x=>!Guid.TryParse(x,out _))||
+        if(peerIds.Any(x=>!LegacyStoreV1PeerTopology.IsOriginalSourceUuid(x))||
            peerIds.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=2||
            !peerIds.Contains(deviceId,StringComparer.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-STORE-LIVE-PEERS-INVALID");
