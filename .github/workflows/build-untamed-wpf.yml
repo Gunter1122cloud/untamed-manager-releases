@@ -198,8 +198,13 @@ jobs:
       - name: Package complete portable test build
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/UntamedManager.exe,dist/UntamedUpdater.exe,dist/UntamedSupervisor.exe -DestinationPath dist/UntamedManager-1.6.1-win-x64.zip
-          @("UntamedManager.exe","UntamedUpdater.exe","UntamedSupervisor.exe","UntamedManager-1.6.1-win-x64.zip") | ForEach-Object {
+          # The version marker lets the installed Preview updater compare
+          # subsequent same-assembly-version releases without re-install loops.
+          $tag = "v1.6.1-wpf-asa-only.${{ github.run_number }}"
+          Set-Content -Path "dist/installed-release.txt" -Value $tag -NoNewline -Encoding utf8
+          if ((Get-Content "dist/installed-release.txt" -Raw) -ne $tag) { throw "Release tag stamp mismatch" }
+          Compress-Archive -Path dist/UntamedManager.exe,dist/UntamedUpdater.exe,dist/UntamedSupervisor.exe,dist/installed-release.txt -DestinationPath dist/UntamedManager-1.6.1-win-x64.zip
+          @("UntamedManager.exe","UntamedUpdater.exe","UntamedSupervisor.exe","installed-release.txt","UntamedManager-1.6.1-win-x64.zip") | ForEach-Object {
             $value = Get-FileHash (Join-Path "dist" $_) -Algorithm SHA256
             "$($value.Hash.ToLower())  $_"
           } | Set-Content dist/SHA256SUMS.txt
@@ -211,6 +216,7 @@ jobs:
             dist/UntamedManager.exe
             dist/UntamedUpdater.exe
             dist/UntamedSupervisor.exe
+            dist/installed-release.txt
             dist/UntamedManager-1.6.1-win-x64.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error
@@ -332,21 +338,23 @@ jobs:
         with:
           name: UntamedManager-WPF-v1.6.1-installer
           path: installer
-      - name: Verify all five release files against final manifest
+      - name: Verify all six release files and embedded tag against final manifest
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release-assets
           cp portable/UntamedManager.exe portable/UntamedUpdater.exe \
-             portable/UntamedSupervisor.exe \
+             portable/UntamedSupervisor.exe portable/installed-release.txt \
              portable/UntamedManager-1.6.1-win-x64.zip release-assets/
           cp installer/UntamedManager-1.6.1-SETUP.exe \
              installer/SHA256SUMS.txt release-assets/
           cd release-assets
           sha256sum -c SHA256SUMS.txt
+          test "$(cat installed-release.txt)" = "v1.6.1-wpf-asa-only.${{ github.run_number }}"
           test -s UntamedManager.exe
           test -s UntamedUpdater.exe
           test -s UntamedSupervisor.exe
+          test -s installed-release.txt
           test -s UntamedManager-1.6.1-win-x64.zip
           test -s UntamedManager-1.6.1-SETUP.exe
       - name: Publish verified native WPF prerelease
@@ -362,6 +370,7 @@ jobs:
             release-assets/UntamedManager.exe \
             release-assets/UntamedUpdater.exe \
             release-assets/UntamedSupervisor.exe \
+            release-assets/installed-release.txt \
             release-assets/UntamedManager-1.6.1-win-x64.zip \
             release-assets/UntamedManager-1.6.1-SETUP.exe \
             release-assets/SHA256SUMS.txt \
