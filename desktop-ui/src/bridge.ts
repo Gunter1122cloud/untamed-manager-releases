@@ -146,6 +146,20 @@ export type PluginInventory = {
     binaries: Array<{ name: string; version: string; bytes: number }> }>;
 };
 
+export type EmbeddedStoreArchiveMap = {
+  host:"HP"|"RYZEN";mapId:string;package:string;status:string;
+  profileCandidates:number;tribeCandidates:number;
+  unclassifiedCandidates:number;supersededEntries:number;
+  indexBoundsVerified:boolean;gameplayVerified:false;characterTravelVerified:false;
+};
+export type EmbeddedStoreArchiveReport = {
+  batch:string;maps:10;indexScannedMaps:number;needsReviewMaps:number;
+  archiveFilesSha256Verified:true;liveConsistencyCertified:false;
+  productionRestoreAllowed:false;characterTravelVerified:false;
+  results:EmbeddedStoreArchiveMap[];
+  evidence:"OFFLINE_TEN_MAP_WORLD_STORE_INDEX_AUDIT_ONLY";
+};
+
 export type EmbeddedStoreCopyReport = {
   fileName:string;state:string;format:number;storeBytes:number;
   sections:number;profileCandidates:number;tribeCandidates:number;
@@ -749,7 +763,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
-  "travel.capture" | "travel.compare" | "store.inspectCopy";
+  "travel.capture" | "travel.compare" | "store.inspectCopy" | "store.inspectArchive";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
@@ -814,6 +828,7 @@ export const managerBridge = {
   operationsMap: (mapId:string) => request<OperationsSnapshot>("operations.map",{mapId}),
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
   embeddedStoreInspectCopy: () => request<EmbeddedStoreCopyReport>("store.inspectCopy"),
+  embeddedStoreInspectArchive: () => request<EmbeddedStoreArchiveReport>("store.inspectArchive"),
   travelCapture: () => request<TravelCapture>("travel.capture"),
   travelCompare: (p:{
     beforeA:string;beforeB:string;afterA:string;afterB:string;
