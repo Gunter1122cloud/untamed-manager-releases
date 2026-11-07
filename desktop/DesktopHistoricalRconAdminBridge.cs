@@ -145,7 +145,7 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                         dangerous=action is "wildWipe" or "custom",
                         expiresUtc=pending.Expires,
                         originalStoreActive=true,dispatched=false,
-                        gameClientVerified=false,originalStoreModified=false,
+                        gameClientVerified=false,originalStoreMetadataWritten=false,
                         evidence="ORIGINAL_STORE_ACTIVE_ADMIN_RCON_PREVIEW"
                     });
                 }
@@ -175,14 +175,16 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                 var locked=inspect(approved.MapId);
                 if(!ReferenceEquals(locked.Map,first.Map)||
                    !Identical(locked.Process,first.Process)||
-                   locked.SourceSha!=first.SourceSha)
+                   locked.SourceSha!=first.SourceSha||
+                   JsonSerializer.Serialize(locked.Map)!=approved.ProfileJson)
                     throw new InvalidDataException("UM-ORIGINAL-ADMIN-LEASE-PROOF-CHANGED");
                 void Recheck()
                 {
                     var now=inspect(approved.MapId);
                     if(!ReferenceEquals(now.Map,locked.Map)||
                        !Identical(now.Process,locked.Process)||
-                       now.SourceSha!=locked.SourceSha)
+                       now.SourceSha!=locked.SourceSha||
+                       JsonSerializer.Serialize(now.Map)!=approved.ProfileJson)
                         throw new InvalidOperationException("UM-ORIGINAL-ADMIN-PID-OR-SESSION-CHANGED");
                 }
                 Recheck();
@@ -203,7 +205,7 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                     response=UntamedPresentation.Redact(output).Replace(
                         password,"[REDACTED]",StringComparison.Ordinal),
                     commandSent=true,oneShot=true,
-                    originalStoreModified=false,saveCompleteProven=false,
+                    originalStoreMetadataWritten=false,saveCompleteProven=false,
                     gameplayEffectVerified=false,
                     evidence="ORIGINAL_STORE_ACTIVE_ADMIN_RCON_SINGLE_SEND"
                 });
