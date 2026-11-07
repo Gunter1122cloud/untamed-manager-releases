@@ -25,6 +25,11 @@ public static class LegacyStoreV1LiveReadGate
     {
         public bool RejoinProven=>false;
         public bool WorldSaveCompleteProven=>false;
+        // NEVER serialized over the React bridge or read-only LAN protocol.
+        // The original local launch path and exact source-state fingerprint
+        // are consumed only inside the native, two-stage explicit start.
+        internal string VerifiedOriginalSharedPath {get;init;}="";
+        internal string SourceStateSha256 {get;init;}="";
     }
     private static bool Str(JsonElement x,string key,string value)=>
         x.ValueKind==JsonValueKind.Object &&
@@ -143,7 +148,8 @@ public static class LegacyStoreV1LiveReadGate
         if(peers.ValueKind!=JsonValueKind.Array||peers.GetArrayLength()!=2||
            !Str(op,"session",session)||
            !Str(op,"cluster",VaultProtocol.ClusterId)||
-           !Str(op,"path",path)||
+           !LegacyStoreV1PeerTopology.SameOriginalUncDirectory(
+               path,SharedRoot(Text(op,"path")))||
            Need(op,"schema").GetInt32()!=1)
             throw new InvalidDataException("UM-STORE-LIVE-OPERATION-INVALID");
         var peerIds=peers.EnumerateArray().Select(x=>x.GetString()??"").ToArray();
@@ -167,7 +173,8 @@ public static class LegacyStoreV1LiveReadGate
                !Str(peer,"phase","done")||
                !Str(config,"id",VaultProtocol.ClusterId)||
                !Str(config,"mode","shared")||
-               !Str(config,"path",path)||
+               !LegacyStoreV1PeerTopology.SameOriginalUncDirectory(
+                   path,SharedRoot(Text(config,"path")))||
                !StoreV1Fingerprint.Matches(config,Text(peer,"configHash"))||
                owned.ValueKind!=JsonValueKind.Array||owned.GetArrayLength()!=5||
                selected.ValueKind!=JsonValueKind.Array||selected.GetArrayLength()!=5||
@@ -222,9 +229,22 @@ public static class LegacyStoreV1LiveReadGate
            !LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(share,"mutation.lock")||
            !LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(share,"cancelled.json"))
             throw new InvalidOperationException("UM-STORE-LIVE-SHARED-MARKER-CHANGED");
-        // Proof covers original active coordination only. Launch/client
-        // acceptance is a separate operation; no source bytes changed.
+        // Bind the preview/apply operation to the EXACT original local four
+        // files and all shared coordination evidence, not just an old session
+        // ID. No source file is written and no originals are serialized to UI.
+        using var fingerprint=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach(byte[] source in new[]{
+            clusterRaw,deviceRaw,lockRaw,storeRaw,operationRaw,
+            peerBytes[0],peerBytes[1],attemptedRaw})
+        {
+            fingerprint.AppendData(BitConverter.GetBytes(source.Length));
+            fingerprint.AppendData(source);
+        }
         return new(true,true,done==2,true,true,true,true,true,
-            members.Count,done,"ORIGINAL_LIVE_TWO_HOST_ACTIVE_DONE_SHARED_GUARD_READ_ONLY");
+            members.Count,done,"ORIGINAL_LIVE_TWO_HOST_ACTIVE_DONE_SHARED_GUARD_READ_ONLY")
+        {
+            VerifiedOriginalSharedPath=path,
+            SourceStateSha256=Convert.ToHexString(fingerprint.GetHashAndReset())
+        };
     }
 }

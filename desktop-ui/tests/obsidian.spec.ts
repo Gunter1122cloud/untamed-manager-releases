@@ -67,6 +67,8 @@ test.beforeEach(async ({ page }) => {
       };
     let historicalRconAttached=false;
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
+    const historicalStartToken="00000000-0000-4000-8000-000000001698";
+    let historicalActiveStarted=false;
     let lanListen=0,lanPeer="",lanPeerPort=0,lanConfigured=false;
     let lanExpectedId="";
     let lanApproval="";
@@ -359,6 +361,43 @@ test.beforeEach(async ({ page }) => {
           return {mapId:two,mapName:"Astraeos",configured:true,rconPort:37145,
             originalStoreTouched:false,iniModified:false,serverStarted:false,
             evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED"};
+        }
+        case "historical.activeStartStatus": return {
+          mapId:two,mapName:"Astraeos",running:historicalActiveStarted,
+          confirmedStopped:!historicalActiveStarted,
+          pid:historicalActiveStarted?42101:null,
+          rconConfigured:historicalRconAttached,
+          originalStartAutomatic:false,saveCompleteProven:false,
+          gameplayTravelVerified:false,
+          evidence:"HISTORICAL_ORIGINAL_PROCESS_READ_ONLY_STATUS"
+        };
+        case "historical.activeStartPreview": {
+          if(!historicalRconAttached||historicalActiveStarted||m.mapId!==two)
+            throw new Error("Original Store ACTIVE/DONE source proof required");
+          return {
+            token:historicalStartToken,mapId:two,mapName:"Astraeos",
+            gamePort:7847,queryPort:27025,rconPort:37145,
+            originalTwoPeersVerified:true,conversionAllowed:false,
+            automaticRetryAllowed:false,serverStarted:false,readyCertified:false,
+            gameplayTravelVerified:false,
+            evidence:"ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT"
+          };
+        }
+        case "historical.activeStartApply": {
+          if(!historicalRconAttached||historicalActiveStarted||
+             m.token!==historicalStartToken||m.confirm!==true||
+             m.typedApproval!=="STORE-V1 ACTIVE START")
+            throw new Error("Original Store approval denied");
+          historicalActiveStarted=true;
+          state.local.maps[1].running=true;state.local.maps[1].status="Fut";
+          return {
+            mapId:two,mapName:"Astraeos",pid:42101,
+            createdUtc:"2026-11-07T14:00:00Z",startRequested:true,
+            readyCertified:false,originalStoreMetadataChanged:false,
+            conversionPerformed:false,gameClientRejoinVerified:false,
+            automaticRetryAllowed:false,
+            evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED"
+          };
         }
         case "historical.localStatus": return {
           found:true,localFilesVerified:true,configHashVerified:true,
@@ -1510,6 +1549,45 @@ test("historical Store RCON attaches only existing INI with native approval and 
   await expect(attach.getByText(/RCON-port: 37145/)).toBeVisible();
   await expect(attach.getByText(/Store-fájlok nem módosultak/)).toBeVisible();
   await expect(attach.getByRole("button",{name:"RCON átvétel véglegesítése"})).toHaveCount(0);
+});
+
+test("original two-host ACTIVE Store-v1 ASA Start is real native approved operation, not a fresh-demo button",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const historic=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
+  await expect(historic).toBeVisible();
+  await expect(historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Friss ASA indítása"})).toHaveCount(0);
+  const rcon=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await rcon.getByLabel("Meglévő ASA RCON-port").fill("37145");
+  await rcon.getByLabel("Eredeti ASA ServerAdminPassword").fill("HistoricalRconPass!2026");
+  await rcon.getByRole("button",{name:"Eredeti RCON előellenőrzése"}).click();
+  await rcon.getByRole("region",{name:"Store-v1 RCON jóváhagyása"})
+    .getByText(/Jóváhagyom az eredeti RCON-kapcsolat/).click();
+  await rcon.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
+  await expect(rcon.getByText(/RCON-port: 37145/)).toBeVisible();
+  // Profile change refreshes map detail; the native Start probe re-queries
+  // original manager profile, two peers and exact ASA process state.
+  const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
+  await expect(preflight).toBeEnabled();
+  await preflight.click();
+  const approval=historic.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
+  await expect(approval).toBeVisible();
+  const spawn=approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
+  await expect(spawn).toBeDisabled();
+  await approval.locator('input[id="historical-start-phrase"]').fill("START");
+  await expect(spawn).toBeDisabled();
+  await approval.locator('input[id="historical-start-phrase"]').fill("STORE-V1 ACTIVE START");
+  await expect(spawn).toBeEnabled();
+  await spawn.click();
+  await expect(historic.getByText(/valódi Windows ASA PID: 42101/)).toBeVisible();
+  await expect(historic.getByText(/Nincs automatikus Start\/Restart/)).toBeVisible();
+  await expect(spawn).toHaveCount(0);
 });
 
 test("real admin RCON UI requires two-stage approval and exact typed phrase for destructive actions",async({page})=>{

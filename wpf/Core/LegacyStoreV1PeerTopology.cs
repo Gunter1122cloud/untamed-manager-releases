@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace UntamedManager.Core;
 
@@ -64,12 +65,58 @@ public static class LegacyStoreV1PeerTopology
     /// UNC hostname aliases, member order, root or backup-path differences
     /// must not be silently normalized into writer authorization.
     /// </summary>
-    public static void RequireSameOriginalConfiguration(
-        JsonElement localCluster,JsonElement sharedPeerConfig)
+    /// <summary>
+    /// Distinct historical UNC HOSTNAME aliases are not the same string, but
+    /// may resolve to the exact SAME existing shared directory. Only a real
+    /// Windows filesystem volume+file identity proof can bridge the spelling;
+    /// DNS, string normalization and an operator claim are insufficient.
+    /// </summary>
+    public static bool SameOriginalUncDirectory(string? first,string? second)
     {
+        if(string.IsNullOrWhiteSpace(first)||string.IsNullOrWhiteSpace(second)||
+           !first.StartsWith(@"\\",StringComparison.Ordinal)||
+           !second.StartsWith(@"\\",StringComparison.Ordinal))
+            return false;
+        if(string.Equals(first,second,StringComparison.OrdinalIgnoreCase))return true;
+        var proof=StorePathIdentity.CompareDirectories(first,second);
+        return proof.AliasEvidence&&proof.BothUncPaths&&proof.SameFileSystemObject;
+    }
+
+    public static void RequireSameOriginalConfiguration(
+        JsonElement localCluster,JsonElement sharedPeerConfig)=>
+        RequireSameOriginalConfiguration(localCluster,sharedPeerConfig,
+            SameOriginalUncDirectory);
+
+    // A verifier callback is injectable ONLY into isolated native tests;
+    // production calls the actual Windows volume/file-ID probe above.
+    internal static void RequireSameOriginalConfiguration(
+        JsonElement localCluster,JsonElement sharedPeerConfig,
+        Func<string,string,bool> verifiedPhysicalAlias)
+    {
+        ArgumentNullException.ThrowIfNull(verifiedPhysicalAlias);
         string original=StoreV1Fingerprint.Compute(localCluster);
         string remote=StoreV1Fingerprint.Compute(sharedPeerConfig);
-        if(!string.Equals(original,remote,StringComparison.Ordinal))
-            throw new InvalidDataException("UM-STORE-TOPOLOGY-LOCAL-PEER-CONFIG-DIFFERS");
+        if(string.Equals(original,remote,StringComparison.Ordinal))return;
+        if(localCluster.ValueKind!=JsonValueKind.Object||
+           sharedPeerConfig.ValueKind!=JsonValueKind.Object ||
+           !localCluster.TryGetProperty("path",out var localPathElement)||
+           !sharedPeerConfig.TryGetProperty("path",out var peerPathElement)||
+           localPathElement.ValueKind!=JsonValueKind.String||
+           peerPathElement.ValueKind!=JsonValueKind.String)
+            throw new InvalidDataException("UM-STORE-TOPOLOGY-CONFIG-PATH-MISSING");
+        string localPath=localPathElement.GetString()??"";
+        string remotePath=peerPathElement.GetString()??"";
+        if(!verifiedPhysicalAlias(localPath,remotePath))
+            throw new InvalidDataException("UM-STORE-TOPOLOGY-UNC-ALIAS-UNVERIFIED");
+        // Compare every original JSON key/value in the exact historical
+        // order; substitute ONLY the already physically-proven UNC spelling.
+        // The original records and their stored hashes are NEVER rewritten.
+        JsonObject patched=JsonNode.Parse(localCluster.GetRawText())?.AsObject()
+            ??throw new InvalidDataException("UM-STORE-TOPOLOGY-CONFIG-INVALID");
+        patched["path"]=remotePath;
+        using var normalized=JsonDocument.Parse(patched.ToJsonString());
+        if(!string.Equals(StoreV1Fingerprint.Compute(normalized.RootElement),
+            remote,StringComparison.Ordinal))
+            throw new InvalidDataException("UM-STORE-TOPOLOGY-CONFIG-BESIDES-PATH-DIFFERS");
     }
 }

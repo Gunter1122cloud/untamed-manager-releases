@@ -132,6 +132,63 @@ public static class LegacyStoreV1ProcessObserver
         return true;
     }
 
+    /// <summary>
+    /// Exact executable-family proof used ONLY by the explicitly approved
+    /// historical ACTIVE start. The ordinary dashboard observer intentionally
+    /// remains untrusted for lifecycle authority. A running or unreadable
+    /// ASA/loader candidate (including one from another map sharing a binary)
+    /// prevents the fresh process spawn. No process is killed or modified.
+    /// </summary>
+    internal static bool PotentialOriginalWriter(string expectedServer,
+        string processName,string? executable)
+    {
+        bool server=processName.Equals("ArkAscendedServer.exe",
+            StringComparison.OrdinalIgnoreCase);
+        bool loader=processName.Equals("AsaApiLoader.exe",
+            StringComparison.OrdinalIgnoreCase);
+        if(!server&&!loader)return false;
+        if(string.IsNullOrWhiteSpace(executable))return true;
+        try
+        {
+            string actual=Path.GetFullPath(executable);
+            string expected=Path.GetFullPath(expectedServer);
+            if(server)return actual.Equals(expected,StringComparison.OrdinalIgnoreCase);
+            return actual.Equals(Path.Combine(Path.GetDirectoryName(expected)!,
+                "AsaApiLoader.exe"),StringComparison.OrdinalIgnoreCase);
+        }
+        catch(Exception){return true;}
+    }
+
+    public static ProcessCheck ObserveStoppedForNativeStart(LocalMap map)
+    {
+        if(map==null||!map.HistoricalStoreProtected||map.Id==Guid.Empty)
+            throw new UnauthorizedAccessException("Only an imported historical map can be launched");
+        try
+        {
+            if(!CanonicalLocalExecutable(map.ExecutablePath))
+                return new(false,"UM-HISTORICAL-PROCESS-BINARY-UNKNOWN",null,false);
+            using var query=new ManagementObjectSearcher(
+                "SELECT ProcessId, Name, ExecutablePath FROM Win32_Process");
+            using var found=query.Get();
+            foreach(ManagementObject item in found)
+            {
+                string name=Convert.ToString(item["Name"])??"";
+                if(PotentialOriginalWriter(map.ExecutablePath,name,
+                    Convert.ToString(item["ExecutablePath"])))
+                    return new(false,"UM-HISTORICAL-PROCESS-FAMILY-NOT-STOPPED",null,false);
+            }
+            // This is an OS enumeration, not a declaration that the game has
+            // committed SaveComplete or that player/tribe/tribute data is valid.
+            return new(false,"UM-HISTORICAL-EXACT-EXE-FAMILY-STOPPED",null,true);
+        }
+        catch(Exception)
+        {
+            // WMI denial, unsupported process info or incomplete enumeration
+            // is unknown, never an affirmative proof of a stopped server.
+            return new(false,"UM-HISTORICAL-PROCESS-ENUMERATION-UNAVAILABLE",null,false);
+        }
+    }
+
     public static ProcessCheck Observe(LocalMap map)
     {
         if(map==null||!map.HistoricalStoreProtected||map.Id==Guid.Empty)

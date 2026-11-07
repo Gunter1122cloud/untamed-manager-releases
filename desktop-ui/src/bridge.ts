@@ -603,6 +603,26 @@ export type HistoricalRconReceipt = {
   originalStoreTouched:false;iniModified:false;serverStarted:false;
   evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED";
 };
+export type HistoricalActiveStartStatus = {
+  mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
+  pid:number|null;rconConfigured:boolean;originalStartAutomatic:false;
+  saveCompleteProven:false;gameplayTravelVerified:false;
+  evidence:"HISTORICAL_ORIGINAL_PROCESS_READ_ONLY_STATUS";
+};
+export type HistoricalActiveStartPreview = {
+  token:string;mapId:string;mapName:string;gamePort:number;
+  queryPort:number;rconPort:number;originalTwoPeersVerified:true;
+  conversionAllowed:false;automaticRetryAllowed:false;
+  serverStarted:false;readyCertified:false;gameplayTravelVerified:false;
+  evidence:"ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT";
+};
+export type HistoricalActiveStartReceipt = {
+  mapId:string;mapName:string;pid:number;createdUtc:string;startRequested:true;
+  readyCertified:false;originalStoreMetadataChanged:false;
+  conversionPerformed:false;gameClientRejoinVerified:false;
+  automaticRetryAllowed:false;
+  evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED";
+};
 export type HistoricalPairEvidence = {
   files:number; maps:number; peers:number;
   sessionConsistent:boolean; configHashesVerified:boolean;
@@ -816,6 +836,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
+   "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" |
   "api.coreRelease" | "api.corePreview" | "api.coreApply" |
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
@@ -1099,6 +1120,14 @@ export const managerBridge = {
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
     request<HistoricalLaunchEvidence>("historical.launchEvidence",{archive,mapId,command}),
+  historicalActiveStartStatus: (mapId:string) =>
+    request<HistoricalActiveStartStatus>("historical.activeStartStatus",{mapId}),
+  historicalActiveStartPreview: (mapId:string) =>
+    request<HistoricalActiveStartPreview>("historical.activeStartPreview",{mapId}),
+  historicalActiveStartApply: (token:string,typedApproval:string) =>
+    request<HistoricalActiveStartReceipt>("historical.activeStartApply",{
+      token,typedApproval,confirm:true
+    }),
   historicalRconStatus: (mapId:string) =>
     request<HistoricalRconStatus>("historical.rconStatus",{mapId}),
   historicalRconPreview: (mapId:string,rconPort:number,password:string) =>

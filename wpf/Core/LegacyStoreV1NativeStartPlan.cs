@@ -1,0 +1,97 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace UntamedManager.Core;
+
+/// <summary>
+/// Original ACTIVE/DONE two-host Store-v1 launcher preflight. Unlike the
+/// new-map SteamCMD wizard, this uses ONLY the existing original metadata,
+/// original map ownership, original cluster identity and original world.
+/// Never creates a session, conversion, shared lock, or restore transaction.
+/// This is a native plan; never return its UNC path or arguments to WebView.
+/// </summary>
+internal sealed record LegacyStoreV1NativeStartPlan(string Arguments,
+    string Fingerprint,int GamePort,int QueryPort,int RconPort,
+    string SourceEvidence);
+
+internal static class LegacyStoreV1NativeStartPlanner
+{
+    private static readonly string LocalOriginal=Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
+
+    internal static LegacyStoreV1NativeStartPlan Prepare(ClusterService cluster,
+        LocalMap map)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+        if(map==null||!cluster.Config.LocalMaps.Contains(map)||
+           map.Id==Guid.Empty||!map.HistoricalStoreProtected||
+           map.Maintenance||map.StartWithAsaApi||
+           !string.IsNullOrWhiteSpace(map.ApiLoaderPath)||
+           !string.IsNullOrWhiteSpace(map.ApiLoaderArguments)||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+           !string.IsNullOrWhiteSpace(map.Arguments)||
+           string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+           map.HistoricalArchiveSha256?.Length!=64 ||
+           map.HistoricalArchiveSha256.Any(c=>!Uri.IsHexDigit(c))||
+           map.GamePort is <1024 or >65535||
+           map.QueryPort is <1024 or >65535||
+           map.RconPort is <1024 or >65535)
+            throw new InvalidDataException("UM-STORE-NATIVE-ACTIVE-IMPORT-ONLY");
+        if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
+           !AsaRconConfigurationEvidence.Matches(map))
+            throw new InvalidDataException("UM-STORE-NATIVE-EXE-RCON-PARITY");
+        var prior=new AsaManualRestartJournal(map.InstallationPath);
+        prior.DemandNoPending();
+        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+            throw new InvalidOperationException("UM-STORE-NATIVE-BACKUP-RECOVERY");
+        LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
+        if(!AsaLocalPortPreflight.CanStart(map))
+            throw new InvalidOperationException("UM-STORE-NATIVE-PORT-IN-USE");
+        var stopped=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(map);
+        if(stopped.Running||!stopped.ConfirmedStopped||
+           stopped.Identity!=null||stopped.LoaderIdentity!=null)
+            throw new InvalidOperationException("UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED");
+        var original=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,LocalOriginal);
+        if(!original.CompletedOriginalSourceGuard||!original.BothPeersDone||
+           !original.SharedSessionMatches||!original.NoPendingConversion||
+           !original.NoMutationMarker||!original.LocalMapBindingMatches||
+           !original.HistoricalFilesUnchanged||original.DonePeers!=2||
+           original.ActiveMaps!=10||
+           string.IsNullOrWhiteSpace(original.VerifiedOriginalSharedPath)||
+           original.SourceStateSha256.Length!=64)
+            throw new InvalidOperationException("UM-STORE-NATIVE-ORIGINAL-TWO-HOST-NOT-READY");
+        // Bound and pin the existing ASA INI bytes before source argument
+        // creation. NEVER create, normalize or write the original INI.
+        using var held=new VaultReadSnapshot();
+        byte[] ini=held.Read(AsaInitialRconSettings.NewIniPath(map.InstallationPath),131072);
+        if(!AsaRconConfigurationEvidence.Matches(map))
+            throw new InvalidDataException("UM-STORE-NATIVE-RCON-CHANGED");
+        var plan=LegacyStoreV1ActiveLaunch.Build(new(
+            map.HistoricalMapKey,map.GamePort,map.QueryPort,
+            map.HistoricalEnabledMods,map.HistoricalPassiveMods,
+            VaultProtocol.ClusterId,original.VerifiedOriginalSharedPath,
+            "active",Encoding.UTF8.GetString(ini)));
+        if(plan.ConversionRequested||plan.StoreMode!="active"||
+           plan.Arguments.Count(x=>x.Equals("-usestore",
+               StringComparison.OrdinalIgnoreCase))!=1)
+            throw new InvalidOperationException("UM-STORE-NATIVE-CONVERSION-FORBIDDEN");
+        string args=string.Join(" ",plan.Arguments);
+        if(args.Length>8192||args.Contains("-converttostore",
+            StringComparison.OrdinalIgnoreCase)||
+           args.Contains("-convertfromstore",StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-STORE-NATIVE-ARGUMENTS-INVALID");
+        string originalIniSha=Convert.ToHexString(SHA256.HashData(ini));
+        string evidence=string.Join("\n",map.Id.ToString("D"),
+            Path.GetFullPath(map.InstallationPath),Path.GetFullPath(map.ExecutablePath),
+            map.HistoricalArchiveSha256,original.SourceStateSha256,
+            originalIniSha,args,map.RconPort.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        string fingerprint=Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(evidence)));
+        return new(args,fingerprint,map.GamePort,map.QueryPort,map.RconPort,
+            "ORIGINAL_TWO_PEER_ACTIVE_DONE_AND_EXACT_ASA_RCON_NATIVE_START_PREPARED");
+    }
+}

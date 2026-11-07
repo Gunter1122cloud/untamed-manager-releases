@@ -901,6 +901,63 @@ public sealed class ClusterService : IAsyncDisposable
         return identity;
     }
 
+    /// <summary>
+    /// Actual original ACTIVE Store-v1 ASA launch, distinct from FreshAsa.
+    /// Only the original local writer owner may start its registered map.
+    /// The full 5+5 legacy DONE/session/lock evidence and existing INI/RCON
+    /// are reverified BEFORE and AFTER the durable machine-wide launch lease.
+    /// Never creates or rewrites original shared Store metadata, converts,
+    /// restarts or force-kills the game, or auto-retries a failed launch.
+    /// </summary>
+    public ProcessIdentity LaunchOriginalActiveStoreAsa(Guid mapId,
+        string approvedFingerprint,bool explicitlyApproved)
+    {
+        if(!explicitlyApproved||mapId==Guid.Empty||
+           string.IsNullOrWhiteSpace(approvedFingerprint)||
+           approvedFingerprint.Length!=64||
+           approvedFingerprint.Any(c=>!Uri.IsHexDigit(c)))
+            throw new UnauthorizedAccessException("UM-STORE-NATIVE-EXPLICIT-APPROVAL");
+        var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId) ??
+            throw new UnauthorizedAccessException("UM-STORE-NATIVE-LOCAL-OWNER-REQUIRED");
+        var preview=LegacyStoreV1NativeStartPlanner.Prepare(this,map);
+        if(!string.Equals(preview.Fingerprint,approvedFingerprint,StringComparison.Ordinal))
+            throw new InvalidDataException("UM-STORE-NATIVE-SOURCE-CHANGED");
+        using var lease=Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch);
+        var current=Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId);
+        if(!ReferenceEquals(current,map))
+            throw new InvalidOperationException("UM-STORE-NATIVE-MAP-CHANGED");
+        var inspected=LegacyStoreV1NativeStartPlanner.Prepare(this,map);
+        if(!string.Equals(inspected.Fingerprint,approvedFingerprint,StringComparison.Ordinal)||
+           inspected.Arguments!=preview.Arguments)
+            throw new InvalidOperationException("UM-STORE-NATIVE-PREFLIGHT-CHANGED");
+        var exact=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(map))
+            ??throw new InvalidDataException("UM-STORE-NATIVE-CLONE");
+        exact.Arguments=inspected.Arguments;
+        // Direct original ASA startup first; a loader is a different
+        // explicitly verified startup mode, never selected implicitly.
+        exact.StartWithAsaApi=false;
+        exact.ApiLoaderPath="";
+        exact.ApiLoaderArguments="";
+        lease.MarkMutationStarted(); // durable interruption marker BEFORE Process.Start
+        var started=_inspector.Launch(exact);
+        if(started.Pid<=0||started.StartedUtc==default||
+           !string.Equals(Path.GetFullPath(started.ExecutablePath),
+             Path.GetFullPath(map.ExecutablePath),StringComparison.OrdinalIgnoreCase)||
+           started.Arguments!=inspected.Arguments)
+            throw new InvalidDataException("UM-STORE-NATIVE-SPAWN-IDENTITY-INVALID");
+        // Never persist the original shared UNC path and source switches.
+        // The read-only WMI observer will re-evaluate the true command line
+        // and exact PID/start-time after UI/Manager restart.
+        map.LastProcess=new ProcessIdentity{
+            Pid=started.Pid,StartedUtc=started.StartedUtc,
+            ExecutablePath=started.ExecutablePath,
+            Arguments="HISTORICAL_STORE_V1_NATIVE_START"
+        };
+        Save();
+        lease.Complete();
+        return map.LastProcess;
+    }
+
     public ProcessIdentity LaunchLocal(Guid id)
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
