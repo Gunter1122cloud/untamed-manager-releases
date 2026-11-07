@@ -642,13 +642,13 @@ export type HistoricalAdminRconPreview = {
   action:"broadcast"|"serverChat"|"wildWipe"|"custom";
   command:string;approvalWord:string;dangerous:boolean;
   expiresUtc:string;originalStoreActive:true;dispatched:false;
-  gameClientVerified:false;originalStoreModified:false;
+  gameClientVerified:false;originalStoreMetadataWritten:false;
   evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_PREVIEW";
 };
 export type HistoricalAdminRconReceipt = {
   mapId:string;mapName:string;action:string;command:string;
   response:string;commandSent:true;oneShot:true;
-  originalStoreModified:false;saveCompleteProven:false;
+  originalStoreMetadataWritten:false;saveCompleteProven:false;
   gameplayEffectVerified:false;
   evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_SINGLE_SEND";
 };
