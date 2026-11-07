@@ -1705,6 +1705,21 @@ try
               new FileInfo(Path.Combine(destination,"TRANSFER","old-zero.arkprofile")).Length==0 &&
               !Directory.Exists(Path.Combine(destination,"SQL")),
             "verifier preserves historical zero-byte profile and never creates SQL folder");
+        // Exercise the complete ten-map index bound without copying any game
+        // bytes or touching production Store-v1 data.
+        string signedIndex=Path.Combine(destination,"asa-cluster-index.json");
+        byte[] originalIndex=File.ReadAllBytes(signedIndex);
+        using(var expanded=new FileStream(signedIndex,FileMode.Open,
+            FileAccess.Write,FileShare.None))
+            expanded.SetLength(32L*1024*1024+1);
+        bool bigIndexDenied=false;
+        try{OfflineAsaClusterArchive.Verify(destination);}
+        catch(InvalidDataException){bigIndexDenied=true;}
+        Check(bigIndexDenied,
+            "oversized ten-map signed archive index fails before JSON parsing");
+        File.WriteAllBytes(signedIndex,originalIndex);
+        Check(OfflineAsaClusterArchive.Verify(destination).Batch==report.Batch,
+            "restored synthetic archive index still passes full SHA256 verification");
         // Native UI uses Windows-only directory selection, not paths from
         // untrusted React. This injected picker is isolated to this test.
         string nativeOutput=Path.Combine(archiveLab,"native-output");
