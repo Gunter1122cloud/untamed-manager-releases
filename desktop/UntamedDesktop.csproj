@@ -17,11 +17,11 @@
        This migration does not move or modify production Core or the WPF build. -->
   <ItemGroup>
     <Compile Remove="Tests/**/*.cs" />
-    <!-- The desktop Manager is database-free. Historical SQL fixtures and
-         the obsolete 10-map+3-SQL archive remain only in the untouched
-         legacy WPF/testing code, not in this desktop executable. -->
+    <!-- Shipping Obsidian: shared runtime Core only. No database writers,
+         old WPF demo, fake ASA, fake SteamCMD or synthetic restore harness.
+         Synthetic fixtures are compiled into DesktopBridgeTests separately. -->
     <Compile Include="../wpf/Core/*.cs"
-             Exclude="../wpf/Core/MariaDb*.cs;../wpf/Core/OfflineSqlArchive.cs;../wpf/Core/OfflineClusterBackup.cs;../wpf/Core/ClusterRestoreCoordinator.cs"
+             Exclude="../wpf/Core/MariaDb*.cs;../wpf/Core/OfflineSqlArchive.cs;../wpf/Core/OfflineClusterBackup.cs;../wpf/Core/ClusterRestoreCoordinator.cs;../wpf/Core/DemoWorkspace.cs;../wpf/Core/IsolatedFakeAsaSession.cs;../wpf/Core/IntegrationTestAccess.cs;../wpf/Core/SyntheticRestore.cs;../wpf/Core/SteamCmdTestRunner.cs;../wpf/Core/RecoverySimulation.cs;../wpf/Core/VaultFixtureAudit.cs"
              Link="Core/%(Filename)%(Extension)" />
     <EmbeddedResource Include="../docs/development/WORK-LEDGER.json" LogicalName="UntamedManager.WorkLedger.json" />
     <PackageReference Include="System.Management" Version="10.0.0" />
