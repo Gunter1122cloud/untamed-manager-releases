@@ -69,9 +69,13 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
 // confer Start/Stop, Store write or remote lifecycle authority.
 {
     string historicRoot=Path.Combine(root,"historical-status-only");
+    int observations=0;
     await using var history=new ClusterService("historical-observer",
         Path.Combine(historicRoot,"profile"),
-        _=>new ProcessCheck(true,"Existing ASA process observed (synthetic)",null));
+        _=>{
+            Interlocked.Increment(ref observations);
+            return new ProcessCheck(true,"Existing ASA process observed (synthetic)",null);
+        });
     var historic=new LocalMap {
         Id=Guid.NewGuid(),Name="Aberration",InstallationPath=historicRoot,
         Arguments="Aberration_WP?listen -Port=7797"
@@ -79,7 +83,12 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
     history.AddMap(historic);
     historic.HistoricalStoreProtected=true;
     var status=history.LocalStatus().Maps.Single();
-    Check(status.Running &&
+    int initialReads=observations;
+    status.Running=false; // External UI mutating a snapshot must not taint the cache.
+    var cached=history.LocalStatus().Maps.Single();
+    Check(cached.Running && observations==initialReads,
+        "LAN dashboard snapshot cache is defensive-copy and avoids repeated WMI scans");
+    Check(cached.Running &&
           status.Status.Contains("Store-v1 védett",StringComparison.Ordinal) &&
           status.Status.Contains("Existing ASA process observed",StringComparison.Ordinal) &&
           !history.Check(historic).Running,
