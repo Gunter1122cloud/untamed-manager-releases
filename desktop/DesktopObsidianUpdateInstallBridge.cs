@@ -168,6 +168,9 @@ public sealed class DesktopObsidianUpdateInstallBridge
                     "--app",saved.Application,
                     "--expected",saved.Release.Version.ToString(3),
                     "--tag",saved.Release.Tag,
+                    // The external updater re-hashes the installer before
+                    // taking the application snapshot and again at execution.
+                    "--sha256",saved.Release.Sha256,
                     "--profile","default",
                     "--backup",backup
                 })start.ArgumentList.Add(argument);
