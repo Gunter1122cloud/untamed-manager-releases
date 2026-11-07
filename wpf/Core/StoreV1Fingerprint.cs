@@ -16,8 +16,11 @@ public static class StoreV1Fingerprint
 {
     public static string Compute(JsonElement config)
     {
-        if(config.ValueKind!=JsonValueKind.Object)
-            throw new InvalidDataException("Expected historical Store configuration");
+        // Original shared-store-v1 hashes BOTH config objects and ordered
+        // member/selection arrays using JavaScript JSON.stringify. Root
+        // array order is significant for peer/session ownership validation.
+        if(config.ValueKind is not (JsonValueKind.Object or JsonValueKind.Array))
+            throw new InvalidDataException("Expected historical Store object or ordered array");
         var sb=new StringBuilder(2048);
         Append(config,sb,0);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())));
