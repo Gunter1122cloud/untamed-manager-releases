@@ -2545,6 +2545,32 @@ try
         };
         var checkedTravel=await Call(travelA.HandleAsync,"travel.compare",request);
         IsOk(checkedTravel,"four native snapshots passed to deterministic two-host verifier");
+        // Corrupt user-supplied JSON must return a typed error, not crash the
+        // async-void WebView2 message handler via a null record member.
+        var nullMap=System.Text.Json.Nodes.JsonNode.Parse(request.beforeA)!.AsObject();
+        nullMap["maps"]!.AsArray()[0]=null;
+        var invalidMap=await Call(travelA.HandleAsync,"travel.compare",new{
+            beforeA=nullMap.ToJsonString(),request.beforeB,request.afterA,
+            request.afterB,request.sourceMap,request.destinationMap,request.profileId
+        });
+        Check(IsError(invalidMap,"UM-TRAVEL-EVIDENCE-UNVERIFIED"),
+            "null map in externally supplied snapshot fails closed without an exception");
+        var nullFile=System.Text.Json.Nodes.JsonNode.Parse(request.beforeA)!.AsObject();
+        nullFile["maps"]![0]!["files"]!.AsArray()[0]=null;
+        var invalidFile=await Call(travelA.HandleAsync,"travel.compare",new{
+            beforeA=nullFile.ToJsonString(),request.beforeB,request.afterA,
+            request.afterB,request.sourceMap,request.destinationMap,request.profileId
+        });
+        Check(IsError(invalidFile,"UM-TRAVEL-EVIDENCE-UNVERIFIED"),
+            "null proof object in supplied character snapshot is rejected");
+        var nullDigest=System.Text.Json.Nodes.JsonNode.Parse(request.beforeA)!.AsObject();
+        nullDigest["maps"]![0]!["files"]![0]!["sha256"]=null;
+        var invalidDigest=await Call(travelA.HandleAsync,"travel.compare",new{
+            beforeA=nullDigest.ToJsonString(),request.beforeB,request.afterA,
+            request.afterB,request.sourceMap,request.destinationMap,request.profileId
+        });
+        Check(IsError(invalidDigest,"UM-TRAVEL-EVIDENCE-UNVERIFIED"),
+            "missing SHA-256 inside an external profile proof is rejected");
         Check(checkedTravel.GetProperty("data").GetProperty("passed").GetBoolean() &&
               checkedTravel.GetProperty("data").GetProperty("uniqueDestination").GetBoolean() &&
               !checkedTravel.GetProperty("data").GetProperty("productionUnlockAllowed").GetBoolean() &&
@@ -2927,6 +2953,24 @@ try
 
     // A large installer download must not freeze unrelated local map status
     // and RCON RPCs. Final update handoff still waits for serialized writes.
+    {
+        const string requestId="4d7892e0-2d8f-4ca1-b49d-240352481a61";
+        string envelope=ObsidianWindow.NativeErrorResponse(
+            "{\"id\":\""+requestId+"\",\"method\":\"travel.compare\"}");
+        using var nativeError=JsonDocument.Parse(envelope);
+        Check(nativeError.RootElement.GetProperty("id").GetString()==requestId &&
+              nativeError.RootElement.GetProperty("ok").GetBoolean()==false &&
+              nativeError.RootElement.GetProperty("error").GetString()==
+                "UM-NATIVE-UNEXPECTED-FAILURE" &&
+              !envelope.Contains("travel.compare",StringComparison.Ordinal),
+            "unhandled native RPC exception retains only the request ID and redacted error");
+        string malformed=ObsidianWindow.NativeErrorResponse("{not-json");
+        using var malformedError=JsonDocument.Parse(malformed);
+        Check(malformedError.RootElement.GetProperty("id").ValueKind==
+                JsonValueKind.Null &&
+              !malformed.Contains("not-json",StringComparison.Ordinal),
+            "malformed native WebView payload cannot leak details or kill the UI");
+    }
     Check(!ObsidianWindow.RequiresGlobalBridgeGate("updates.prepare") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectCopy") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectArchive") &&
