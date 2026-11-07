@@ -24,7 +24,8 @@ public sealed class ObsidianWindow : Form
     internal static bool RequiresGlobalBridgeGate(string? method) =>
         !string.Equals(method, "updates.prepare", StringComparison.Ordinal) &&
         !string.Equals(method, "store.inspectCopy", StringComparison.Ordinal) &&
-        !string.Equals(method, "store.inspectArchive", StringComparison.Ordinal);
+        !string.Equals(method, "store.inspectArchive", StringComparison.Ordinal) &&
+        !string.Equals(method, "store.compareArchives", StringComparison.Ordinal);
     // A malformed bridge request must never escape an async-void WebView2
     // event handler and terminate the Windows Manager. Keep native exception
     // details and private machine paths out of renderer responses.
