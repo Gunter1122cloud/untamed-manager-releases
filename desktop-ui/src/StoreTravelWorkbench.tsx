@@ -1,7 +1,7 @@
 import {useMemo,useState} from "react";
 import {AlertTriangle,CheckCircle2,ClipboardCopy,FileCheck2,
   FileWarning,HardDrive,LockKeyhole,RefreshCw,Server,ShieldCheck,Users} from "lucide-react";
-import {managerBridge,type TravelCapture,type TravelComparison} from "./bridge";
+import {managerBridge,type EmbeddedStoreCopyReport,type TravelCapture,type TravelComparison} from "./bridge";
 
 type Slot="beforeA"|"beforeB"|"afterA"|"afterB";
 const slots:Array<{key:Slot;label:string;subtitle:string}>= [
@@ -27,6 +27,47 @@ function parse(raw:string):Snapshot|null{
   }catch{return null;}
 }
 const seed={beforeA:"",beforeB:"",afterA:"",afterB:""};
+function EmbeddedStoreCopyInspector(){
+  const [data,setData]=useState<EmbeddedStoreCopyReport|null>(null);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  async function inspect(){
+    if(busy)return;
+    setBusy(true);setData(null);setError("");
+    try{setData(await managerBridge.embeddedStoreInspectCopy());}
+    catch{setError("A helyi .ark MÁSOLAT nem elemezhető. A forrás nem változott. Ellenőrizd, hogy leállított világ teljes offline másolatát választottad-e.");}
+    finally{setBusy(false);}
+  }
+  return <section className="premium-panel uk-store-copy-panel" aria-label="Beágyazott Store-v1 ellenőrzése">
+    <header className="premium-panel-heading"><h2><HardDrive size={19}/> Beágyazott karakter- és tribe-leltár</h2></header>
+    <div className="uk-travel-inner">
+      <p className="muted small">Válassz ki egy <b>külön elkészített, helyi, offline .ark másolatot</b>.
+        A Windows natív fájlválasztója megnyitja az ASA világmentést csak olvasásra;
+        a beágyazott tároló indexéből kizárólag rekordjelölteket számol. Nem
+        hoz létre új profilt, nem ír SQL-adatbázist, és nem nyúl a Store sessionhöz.</p>
+      <button type="button" className="secondary uk-travel-primary" disabled={busy}
+        onClick={()=>{void inspect();}}>
+        <FileCheck2 size={16}/>{busy?"Offline Store index elemzése...":"Offline .ark másolat megvizsgálása"}
+      </button>
+      {data&&<div role="status" className="uk-store-copy-result">
+        <b>{data.fileName} · {data.state}</b>
+        <div className="uk-store-copy-metrics">
+          <span><strong>{data.profileCandidates}</strong> karakterindex-bejegyzés</span>
+          <span><strong>{data.tribeCandidates}</strong> tribe-index-bejegyzés</span>
+          <span><strong>{data.unclassifiedCandidates}</strong> nem besorolt bejegyzés</span>
+          <span><strong>{data.supersededEntries}</strong> felülírt rekord</span>
+        </div>
+        <p>Tárolóformátum: {data.format} · indexhatárok: {data.indexBoundsVerified?"ellenőrizve":"nem ellenőrizhető"}
+          · eredeti másolat változatlan: {data.sourceUnchanged?"igen":"nem igazolt"}.</p>
+        <p>Az indexben talált rekordok nem igazolják a karakter beléphetőségét,
+          a tribe tulajdonjogát, az inventoryt vagy az A→B→A utazást.
+          A játékbeli igazolás és a Store-v1 írásvédelem változatlan követelmény.</p>
+      </div>}
+      {error&&<div role="alert" className="uk-travel-warning"><AlertTriangle size={17}/>{error}</div>}
+    </div>
+  </section>;
+}
+
 export function StoreTravelWorkbench(){
   const [local,setLocal]=useState<TravelCapture|null>(null);
   const [busy,setBusy]=useState(false);
@@ -108,6 +149,7 @@ export function StoreTravelWorkbench(){
       <small>Referenciabizonyíték: YARK, 2026-08-13, két map egy Windows gépen.
         Nem a mi kétgépes clusterünk tanúsítása. A Writer/Store védelem továbbra is aktív.</small>
     </section>
+    <EmbeddedStoreCopyInspector/>
     <div className="uk-travel-grid">
       <section className="premium-panel uk-travel-capture">
         <header className="premium-panel-heading"><h2><HardDrive size={19}/> 1. Helyi mentéslenyomat</h2></header>
