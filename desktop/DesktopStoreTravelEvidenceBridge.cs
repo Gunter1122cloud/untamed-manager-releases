@@ -142,14 +142,22 @@ public sealed class DesktopStoreTravelEvidenceBridge
         if(json.Length is <20 or >Limit)throw new InvalidDataException("UM-TRAVEL-INVALID-EVIDENCE");
         var snapshot=JsonSerializer.Deserialize<Capture>(json,Json)??
             throw new InvalidDataException("UM-TRAVEL-INVALID-EVIDENCE");
+        // External snapshot JSON is renderer/operator-controlled. Nullable
+        // properties and null array members deserialize successfully even
+        // when C# records declare them non-nullable; reject them explicitly
+        // instead of letting a NullReferenceException escape the WinForms
+        // async WebMessage handler (which could terminate the desktop).
         if(snapshot.Schema!=2||!Guid.TryParse(snapshot.HostId,out var host)||host==Guid.Empty||
            !Guid.TryParseExact(snapshot.Nonce,"N",out var nonce)||nonce==Guid.Empty||
-           snapshot.Maps?.Length!=5||snapshot.Maps.Select(m=>m.MapId).Distinct().Count()!=5||
-           snapshot.Maps.Any(m=>m.MapId==Guid.Empty||m.Files==null||
+           snapshot.Maps?.Length!=5||snapshot.Maps.Any(m=>m is null)||
+           snapshot.Maps.Select(m=>m.MapId).Distinct().Count()!=5||
+           snapshot.Maps.Any(m=>m.MapId==Guid.Empty||
+               string.IsNullOrWhiteSpace(m.Name)||m.Files==null||
                m.Files.Length>1500||m.WorldBytes<0||
                (m.StoreMode&&m.WorldPresent!=(m.WorldBytes>0))||
-               m.Files.Any(p=>p.Bytes<0||
+               m.Files.Any(p=>p is null||p.Bytes<0||
                    p.Kind is not ("profile" or "tribe")||
+                   p.Id is null||p.Sha256 is null||
                    p.Id.Length!=64||p.Sha256.Length!=64||
                    !p.Id.All(Uri.IsHexDigit)||!p.Sha256.All(Uri.IsHexDigit)))||
            snapshot.Utc>DateTimeOffset.UtcNow.AddMinutes(5))
