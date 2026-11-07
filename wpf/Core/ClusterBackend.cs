@@ -510,6 +510,14 @@ public sealed class ClusterService : IAsyncDisposable
     public ManagerConfig Config { get; private set; }
     private readonly WindowsProcessInspector _inspector=new();
     private readonly Func<LocalMap, ProcessCheck> _inspect;
+    // Dashboard/LAN telemetry is NOT a lifecycle safety decision.
+    // Short caching avoids scanning every Windows process ten times on
+    // every polling tick across two managers. Start/Stop/Restore always
+    // call fresh Check()/Observe under their own operation guards.
+    private readonly object _telemetryGate=new();
+    private HostStatus? _telemetryCache;
+    private long _telemetryTick;
+    private static readonly TimeSpan TelemetryTtl=TimeSpan.FromMilliseconds(900);
     private PeerStatusListener? _listener;
     private bool _remoteReachable;
     public bool RemoteIsFresh=>_remoteReachable && RemoteSnapshot!=null && StatusFreshness.IsFresh(RemoteSnapshot.ObservedUtc,DateTimeOffset.UtcNow);
@@ -826,11 +834,51 @@ public sealed class ClusterService : IAsyncDisposable
     }
     public HostStatus LocalStatus()
     {
+        lock(_telemetryGate)
+        {
+            if(_telemetryCache!=null && _telemetryCache.Maps.Count==Config.LocalMaps.Count &&
+               System.Diagnostics.Stopwatch.GetElapsedTime(_telemetryTick)<TelemetryTtl)
+                return CopyTelemetry(_telemetryCache);
+            var fresh=BuildLocalStatus();
+            _telemetryCache=fresh;
+            _telemetryTick=System.Diagnostics.Stopwatch.GetTimestamp();
+            return CopyTelemetry(fresh);
+        }
+    }
+    private static HostStatus CopyTelemetry(HostStatus status)=>new()
+    {
+        OriginalStoreV1=status.OriginalStoreV1,
+        HostId=status.HostId,
+        HostName=status.HostName,
+        ObservedUtc=status.ObservedUtc,
+        Maps=status.Maps.Select(m=>new PublicMapStatus {
+            Id=m.Id,Name=m.Name,Running=m.Running,Status=m.Status,
+            GamePort=m.GamePort,SteamBuildId=m.SteamBuildId,
+            SteamUpdateState=m.SteamUpdateState
+        }).ToList()
+    };
+    private HostStatus BuildLocalStatus()
+    {
         return new HostStatus{
             OriginalStoreV1=LegacyStoreV1PeerProof.FromCurrentUserLegacyProfile(),
             HostId=Config.LocalHostId,HostName=Config.LocalHostName,ObservedUtc=DateTimeOffset.UtcNow,
             Maps=Config.LocalMaps.Select(map=>{
-                var c=Check(map);
+                // Historical Store-v1 start remains HARD-LOCKED by Check().
+                // Observing an already-running historical ASA process is a
+                // separate read-only operation and must not make it look
+                // stopped in Dashboard/LAN just because launch is forbidden.
+                ProcessCheck c;
+                if(map.HistoricalStoreProtected)
+                {
+                    try { c=ObserveLocalProcessesReadOnly(map); }
+                    catch(Exception ex) when (ex is IOException or UnauthorizedAccessException or
+                        InvalidDataException or InvalidOperationException or System.Management.ManagementException)
+                    {
+                        c=new ProcessCheck(false,
+                            "Store-v1 folyamatállapot nem ellenőrizhető (indítás továbbra is tiltva)",null);
+                    }
+                }
+                else c=Check(map);
                 string? build=null;
                 string steamState="Nem ellenőrizhető";
                 try
@@ -849,7 +897,11 @@ public sealed class ClusterService : IAsyncDisposable
                 }
                 catch(Exception){/* peer observation cannot invent Steam evidence */}
                 return new PublicMapStatus {Id=map.Id.ToString("D"), Name=map.Name,
-                    Running=c.Running,Status=c.Status,GamePort=map.GamePort,
+                    Running=c.Running,
+                    Status=map.HistoricalStoreProtected
+                        ? c.Status+" · Store-v1 védett (Start/Stop jogosultság nélkül)"
+                        : c.Status,
+                    GamePort=map.GamePort,
                     SteamBuildId=build,SteamUpdateState=steamState};
             }).ToList()
         };

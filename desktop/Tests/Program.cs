@@ -64,6 +64,36 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
       DesktopReadOnlyBridge.MatchesPublishedMapId(map.Id,map.Id.ToString("N")) &&
       !DesktopReadOnlyBridge.MatchesPublishedMapId(map.Id,Guid.NewGuid().ToString("D")),
     "dashboard map ownership resolves D/N GUID formats but never a foreign map");
+// A live historical Store-v1 server must NOT appear stopped merely
+// because its START command is locked. Monitoring is READ-ONLY and cannot
+// confer Start/Stop, Store write or remote lifecycle authority.
+{
+    string historicRoot=Path.Combine(root,"historical-status-only");
+    int observations=0;
+    await using var history=new ClusterService("historical-observer",
+        Path.Combine(historicRoot,"profile"),
+        _=>{
+            Interlocked.Increment(ref observations);
+            return new ProcessCheck(true,"Existing ASA process observed (synthetic)",null);
+        });
+    var historic=new LocalMap {
+        Id=Guid.NewGuid(),Name="Aberration",InstallationPath=historicRoot,
+        Arguments="Aberration_WP?listen -Port=7797"
+    };
+    history.AddMap(historic);
+    historic.HistoricalStoreProtected=true;
+    var status=history.LocalStatus().Maps.Single();
+    int initialReads=observations;
+    status.Running=false; // External UI mutating a snapshot must not taint the cache.
+    var cached=history.LocalStatus().Maps.Single();
+    Check(cached.Running && observations==initialReads,
+        "LAN dashboard snapshot cache is defensive-copy and avoids repeated WMI scans");
+    Check(cached.Running &&
+          status.Status.Contains("Store-v1 védett",StringComparison.Ordinal) &&
+          status.Status.Contains("Existing ASA process observed",StringComparison.Ordinal) &&
+          !history.Check(historic).Running,
+        "historical Store map is observed as running but remains lifecycle-locked");
+}
 try
 {
     // WebView cannot bypass native approval or introduce arbitrary API CORE
