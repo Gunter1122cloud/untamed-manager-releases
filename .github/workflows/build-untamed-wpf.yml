@@ -294,7 +294,11 @@ jobs:
           gh release view $tag --repo $repo --json isDraft,isPrerelease,tagName --jq '{draft: .isDraft, prerelease: .isPrerelease, tag: .tagName}'
           if($LASTEXITCODE -ne 0){ throw "Published premium release is not readable" }
 
+  # Historical database fixture only. The shipped Manager is SQL-free:
+  # never require MariaDB to build, test or release either Windows desktop.
+  # Operators may explicitly run the old isolated fixture on demand.
   real-sql:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
