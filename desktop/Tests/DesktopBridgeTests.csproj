@@ -8,6 +8,14 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../UntamedDesktop.csproj" />
+    <!-- Synthetic fixtures are for Windows integration tests only.
+         NEVER link these into the Obsidian Windows EXE. -->
+    <Compile Include="../../wpf/Core/DemoWorkspace.cs" Link="TestFixtures/DemoWorkspace.cs" />
+    <Compile Include="../../wpf/Core/IsolatedFakeAsaSession.cs" Link="TestFixtures/IsolatedFakeAsaSession.cs" />
+    <Compile Include="../../wpf/Core/SyntheticRestore.cs" Link="TestFixtures/SyntheticRestore.cs" />
+    <Compile Include="../../wpf/Core/SteamCmdTestRunner.cs" Link="TestFixtures/SteamCmdTestRunner.cs" />
+    <Compile Include="../../wpf/Core/RecoverySimulation.cs" Link="TestFixtures/RecoverySimulation.cs" />
+    <Compile Include="../../wpf/Core/VaultFixtureAudit.cs" Link="TestFixtures/VaultFixtureAudit.cs" />
     <Compile Include="../../wpf/Testing/Integration/ManagerMigrationArchiveTests.cs" Link="SyntheticHistoricalManagerArchive.cs" />
     <Compile Include="../../wpf/Testing/Integration/ClusterVaultTests.cs" Link="SyntheticTwoHostVaultTests.cs" />
   </ItemGroup>
