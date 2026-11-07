@@ -117,16 +117,21 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException("UM-ORIGINAL-STOP-OWNER-CHANGED");
         }
         Verify();
-        // An interrupted write-capable RCON action must never be retried
-        // automatically; an operator can inspect the durable journal.
+        // Absence of a real ASA log/world witness is a PRE-MUTATION error:
+        // do not strand a durable NEEDS_OPERATOR journal if we have sent no
+        // RCON byte. Mutating operation state is marked only after witness
+        // acquisition and immediately before first command.
+        var witness=execute==null?
+            AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
+                ??throw new InvalidOperationException("UM-ORIGINAL-STOP-SAVE-WITNESS-MISSING"):
+            null;
         lease.MarkMutationStarted();
         bool preExitObserved=false;
         if(execute!=null)
             preExitObserved=await execute(locked.Map,locked.Process,Verify,ct).WaitAsync(ct);
         else
         {
-            var evidence=AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
-                ??throw new InvalidOperationException("UM-ORIGINAL-STOP-SAVE-WITNESS-MISSING");
+            var evidence=witness!;
             string password=SecureStore.Unprotect(locked.Map.RconPasswordProtected);
             Verify();
             stage?.Invoke("SaveWorld elküldése az eredeti helyi Store-v1 ASA-nak");
