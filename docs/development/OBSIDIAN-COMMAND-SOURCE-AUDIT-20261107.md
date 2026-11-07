@@ -20,6 +20,7 @@ Windows CI WebView2 indítási képernyőképe és Playwright 1600px dashboard/m
 | P1 | A korábbi `desktop/README.md` csak két read-only route-ot és migrációs demót állított, a gyökér README pedig elavult v0.5.0/Cloudflare kiadást írt le | Mindkettő valós `desktop/` + `desktop-ui/` és jelenlegi funkcionalitás szerint újraírva |
 | P1 | Nem volt tartós, kód mellett őrzött, egyértelmű UI-motor döntés; emiatt WPF felé ment a fejlesztés | Új gyökér `AGENTS.md`: kizárólag Obsidian Command aktuális termék |
 | P2 | Az Obsidian frissítési UI még a régi WPF telepítőt emlegette | Felhasználói szöveg saját, SHA-val hitelesített Obsidian telepítőre frissítve |
+| P1 | A kiadott Obsidian build a wildcard `wpf/Core/*.cs` miatt régi WPF-demo, FakeASA/FakeSteamCMD és szintetikus restore tesztharness osztályokat is fordított | Hat tesztfixture külön `DesktopBridgeTests` assemblybe került, az `IntegrationTestAccess` build-attribútum kizárva a termékből; reflection CI teszt védi |
 
 ## 3. Biztosan meglevő, de éles környezetben nem tanúsított elemek
 - `desktop/ObsidianWindow.cs`: offline WebView2 virtuális host, engedélyezett natív metódusok, tálcaikon, kilépés a külső updater sikeres átadásakor.
