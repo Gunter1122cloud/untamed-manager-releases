@@ -4414,7 +4414,7 @@ try
         await using var historical=new ClusterService("original-readonly-rcon",
             Path.Combine(root,"historical-readonly-rcon-profile"),m=>
                 new ProcessCheck(false,"Synthetic external process observation",null,true));
-        var map=new LocalMap{
+        var originalRconMap=new LocalMap{
             Id=Guid.NewGuid(),Name="Aberration",
             InstallationPath=historicalRoot,ExecutablePath=exe,
             HistoricalStoreProtected=true,HistoricalMapKey="Aberration_WP",
@@ -4422,7 +4422,7 @@ try
             GamePort=7877,QueryPort=27177,RconPort=port,
             RconPasswordProtected=SecureStore.Protect(secret)
         };
-        historical.AddMap(map);
+        historical.AddMap(originalRconMap);
         bool sourceReady=true,listenerOwned=true;
         int sent=0;
         int currentPid=43210;
@@ -4446,7 +4446,7 @@ try
             Check(!unknown.GetProperty("ok").GetBoolean(),
                 "original Store RCON rejects remote and unregistered map identities");
             var status=await Call(bridge.HandleAsync,"historical.rconLiveStatus",
-                new{mapId=map.Id});
+                new{mapId=originalRconMap.Id});
             IsOk(status,"original Store owned PID and RCON status");
             Check(status.GetProperty("data").GetProperty("permitted").GetBoolean()&&
                   status.GetProperty("data").GetProperty("pid").GetInt32()==43210,
@@ -4456,7 +4456,7 @@ try
                 ("historical.rconGameLog","GetGameLog"),
                 ("historical.rconChatLog","GetChat")})
             {
-                var reply=await Call(bridge.HandleAsync,method,new{mapId=map.Id});
+                var reply=await Call(bridge.HandleAsync,method,new{mapId=originalRconMap.Id});
                 IsOk(reply,"original Store read-only "+command);
                 Check(reply.GetProperty("data").GetProperty("command").GetString()==command&&
                       reply.GetProperty("data").GetProperty("readOnly").GetBoolean()&&
@@ -4466,22 +4466,22 @@ try
             }
             Check(sent==3,"three original RCON queries each dispatch exactly once");
             var blockedWrite=await Call(bridge.HandleAsync,"historical.rconSaveWorld",
-                new{mapId=map.Id});
+                new{mapId=originalRconMap.Id});
             Check(!blockedWrite.GetProperty("ok").GetBoolean()&&sent==3,
                 "original Store RCON rejects mutating and unknown bridge methods");
             sourceReady=false;
             var stale=await Call(bridge.HandleAsync,"historical.rconPlayers",
-                new{mapId=map.Id});
+                new{mapId=originalRconMap.Id});
             Check(!stale.GetProperty("ok").GetBoolean()&&sent==3,
                 "changed original two-peer ACTIVE/DONE source blocks RCON before dispatch");
             sourceReady=true;listenerOwned=false;
             var hijacked=await Call(bridge.HandleAsync,"historical.rconGameLog",
-                new{mapId=map.Id});
+                new{mapId=originalRconMap.Id});
             Check(!hijacked.GetProperty("ok").GetBoolean()&&sent==3,
                 "RCON listener belonging to another PID never receives a Store RCON command");
             listenerOwned=true;currentPid=43211;
             var replaced=await Call(bridge.HandleAsync,"historical.rconPlayers",
-                new{mapId=map.Id});
+                new{mapId=originalRconMap.Id});
             Check(!replaced.GetProperty("ok").GetBoolean()&&sent==3,
                 "replaced original Store ASA PID is not authorized by previous TCP owner");
         }
