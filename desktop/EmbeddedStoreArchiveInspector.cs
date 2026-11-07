@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using UntamedManager.Core;
 
@@ -39,7 +41,19 @@ public static class EmbeddedStoreArchiveInspector
         {
             string folder=Path.GetFullPath(Path.Combine(root,map.PackageRelativePath));
             string data=Path.Combine(folder,"data");
-            var manifest=TestBackupPackage.Verify(folder,map.Map);
+            // Archive.Verify has already hashed all map files. Check only
+            // the small signed map index again to avoid rehashing 100+ GiB
+            // of world saves a second time during a single audit.
+            string indexPath=Path.Combine(folder,"manifest.json");
+            var indexBytes=File.ReadAllBytes(indexPath);
+            if(indexBytes.Length>12_000_000 ||
+               !Convert.ToHexString(SHA256.HashData(indexBytes))
+                   .Equals(map.ManifestSha256,StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("UM-ARCHIVE-STORE-INDEX-CHANGED");
+            var manifest=JsonSerializer.Deserialize<BackupManifest>(indexBytes)
+                ??throw new InvalidDataException("UM-ARCHIVE-STORE-MANIFEST-INVALID");
+            if(manifest.MapId!=map.Map || manifest.Files==null)
+                throw new InvalidDataException("UM-ARCHIVE-STORE-OWNER-INVALID");
             var worlds=manifest.Files.Where(f=>
                     f.Path.EndsWith(".ark",StringComparison.OrdinalIgnoreCase) &&
                     f.Size>0).ToArray();
