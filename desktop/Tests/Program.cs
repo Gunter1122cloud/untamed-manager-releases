@@ -406,6 +406,50 @@ try
         };
         LegacyStoreV1PeerTopology.Validate(localDevice,valid);
         Check(true,"two unique original Store-v1 peers with five disjoint owned and selected maps pass read-only topology verification");
+
+        // Original source preserves the ordered FIVE GUID selections in the
+        // local durable shared-store-lock-v1.json AND the matching DONE peer.
+        // Membership equality alone is insufficient for writer/session reuse.
+        var durableLockSelection=JsonSerializer.SerializeToElement(localMaps);
+        LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
+            durableLockSelection,valid[0].SelectedIds);
+        Check(true,"original durable local lock and DONE peer have exact ordered writer map selections");
+        void RejectLocalSelection(string[] candidate,string description)
+        {
+            bool denied=false;
+            try
+            {
+                LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
+                    JsonSerializer.SerializeToElement(candidate),valid[0].SelectedIds);
+            }
+            catch(InvalidDataException){denied=true;}
+            Check(denied,description);
+        }
+        RejectLocalSelection(localMaps.Reverse().ToArray(),
+            "reordered local lock map selections cannot silently reuse the original completed DONE peer session");
+        RejectLocalSelection(new[]{localMaps[0],localMaps[0],
+            localMaps[2],localMaps[3],localMaps[4]},
+            "duplicated local lock selection is rejected before any original writer lifecycle");
+        RejectLocalSelection(new[]{remoteMaps[0],localMaps[1],
+            localMaps[2],localMaps[3],localMaps[4]},
+            "foreign peer map cannot enter the local original durable writer lock");
+        RejectLocalSelection(localMaps[..4],
+            "an incomplete original local selected map list blocks ACTIVE Store operations");
+        RejectLocalSelection(new[]{"not-a-guid",localMaps[1],
+            localMaps[2],localMaps[3],localMaps[4]},
+            "malformed selected local map GUID is never converted into writer authority");
+        RejectLocalSelection(new[]{localMaps[0].ToUpperInvariant(),
+            localMaps[1],localMaps[2],localMaps[3],localMaps[4]},
+            "original source ordered JSON selection digest rejects silently normalized GUID casing");
+        bool missingLocalSelectionDenied=false;
+        try
+        {
+            LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
+                JsonSerializer.SerializeToElement(new{invalid=true}),valid[0].SelectedIds);
+        }
+        catch(InvalidDataException){missingLocalSelectionDenied=true;}
+        Check(missingLocalSelectionDenied,
+            "malformed original local lock selected field is not treated as an empty/unlocked Store");
         void Refuse(LegacyStoreV1PeerTopology.Peer[] peers,string description,
             string? device=null)
         {
@@ -433,6 +477,24 @@ try
         Refuse(new[]{valid[0],valid[1] with{
             MemberIds=new[]{"not-a-guid",remoteMaps[1],remoteMaps[2],remoteMaps[3],remoteMaps[4]}}},
             "invalid map identity cannot enter the original Store ownership table");
+        // The original peer member-list parity hashes canonical ordered JSON,
+        // rather than comparing incidental on-disk whitespace formatting.
+        using var memberCanonical=JsonDocument.Parse(
+            """[{"id":"abc","map":"Island"},{"id":"def","map":"Center"}]""");
+        using var memberFormatted=JsonDocument.Parse(
+            """[ { "id" : "abc" , "map" : "Island" }, { "id" : "def" , "map" : "Center" } ]""");
+        using var memberReordered=JsonDocument.Parse(
+            """[{"id":"def","map":"Center"},{"id":"abc","map":"Island"}]""");
+        Check(StoreV1Fingerprint.Compute(memberCanonical.RootElement)==
+              StoreV1Fingerprint.Compute(memberFormatted.RootElement),
+            "original Store DONE member source hash accepts same ordered member data with different JSON whitespace");
+        Check(StoreV1Fingerprint.Compute(memberCanonical.RootElement)==
+              "E98B421DF586505CAADFC7709A5738B36826C7B35F17F09ED4D2BD6181A9F8BF",
+            "original Store DONE members hash matches Node.js JSON.stringify SHA-256 known-good vector");
+        Check(StoreV1Fingerprint.Compute(memberCanonical.RootElement)!=
+              StoreV1Fingerprint.Compute(memberReordered.RootElement),
+            "original Store DONE member source hash rejects changed original map order");
+
         var sourceConfig=JsonSerializer.SerializeToElement(new{
             id="KovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
             members=localMaps
@@ -444,6 +506,15 @@ try
         LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
             sourceConfig,matchingConfig);
         Check(true,"source local lock and local shared DONE peer have exactly matching original configuration");
+        string originalLocalConfigHash=StoreV1Fingerprint.Compute(sourceConfig);
+        Check(StoreV1Fingerprint.Matches(sourceConfig,originalLocalConfigHash),
+            "original local lock configHash exactly matches its current local cluster configuration");
+        var staleLocalCluster=JsonSerializer.SerializeToElement(new{
+            id="KovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
+            members=localMaps.Reverse().ToArray()
+        });
+        Check(!StoreV1Fingerprint.Matches(staleLocalCluster,originalLocalConfigHash),
+            "stale original lock configHash must block changed member ordering despite self-consistent saved lock");
         var aliasChanged=JsonSerializer.SerializeToElement(new{
             id="KovaCluster",mode="shared",path=@"\\other-host\synthetic",
             members=localMaps

@@ -134,7 +134,12 @@ public static class LegacyStoreV1LiveReadGate
            !Str(cluster,"id",VaultProtocol.ClusterId)||
            !Str(Need(localLock,"config"),"id",VaultProtocol.ClusterId)||
            !Str(Need(localLock,"config"),"path",path)||
-           !StoreV1Fingerprint.Matches(Need(localLock,"config"),Text(localLock,"configHash")))
+           !StoreV1Fingerprint.Matches(Need(localLock,"config"),Text(localLock,"configHash"))||
+           // The durable lock's original configHash must also equal the
+           // CURRENT local cluster config, not merely its own saved copy.
+           // Otherwise a self-consistent forged/stale lock could authorize
+           // a different active map list under the same source session.
+           !StoreV1Fingerprint.Matches(cluster,Text(localLock,"configHash")))
             throw new InvalidDataException("UM-STORE-LIVE-LOCAL-LOCK-MISMATCH");
         string share=Path.Combine(path,".kova-store-v1");
         if(!Directory.Exists(share)||
@@ -178,7 +183,8 @@ public static class LegacyStoreV1LiveReadGate
                !StoreV1Fingerprint.Matches(config,Text(peer,"configHash"))||
                owned.ValueKind!=JsonValueKind.Array||owned.GetArrayLength()!=5||
                selected.ValueKind!=JsonValueKind.Array||selected.GetArrayLength()!=5||
-               Need(config,"members").GetRawText()!=owned.GetRawText())
+               StoreV1Fingerprint.Compute(Need(config,"members"))!=
+                   StoreV1Fingerprint.Compute(owned))
                 throw new InvalidDataException("UM-STORE-LIVE-PEER-DONE-INVALID");
             var ids=owned.EnumerateArray().Select(x=>Text(x,"id")).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if(ids.Count!=5||selected.EnumerateArray().Any(x=>
@@ -190,7 +196,16 @@ public static class LegacyStoreV1LiveReadGate
                 owned.EnumerateArray().Select(x=>Text(x,"map")).ToArray(),
                 selected.EnumerateArray().Select(x=>x.GetString()??"").ToArray()));
             if(peerIds[i].Equals(deviceId,StringComparison.OrdinalIgnoreCase))
+            {
+                // The local durable lock must select exactly the five maps
+                // recorded by THIS original DONE peer, in their original
+                // order. A SetEquals ownership check alone is insufficient:
+                // the original protocol also pins the ordered selection.
+                LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
+                    Need(localLock,"selected"),
+                    selected.EnumerateArray().Select(x=>x.GetString()??"").ToArray());
                 LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(cluster,config);
+            }
             foreach(var item in owned.EnumerateArray())
                 if(!members.Add(Text(item,"map")))
                     throw new InvalidDataException("UM-STORE-LIVE-DUPLICATE-MAP");
