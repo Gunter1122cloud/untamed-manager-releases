@@ -246,7 +246,30 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                     else
                     {
                         AsaSaveLayoutResolver.DemandUniqueOwner(map,cluster.Config.LocalMaps);
-                        var state=inspect(map);
+                        ProcessCheck SafeInspection()
+                        {
+                            // The operator may disable this job or edit a map
+                            // while a long copy is running. Check the durable
+                            // claim, local ownership, recovery and Store flags
+                            // again before *each* Core stop-state checkpoint.
+                            var current=Owned(observed.MapId);
+                            if(Fingerprint(current)!=observed.MapFingerprint||
+                               current.Maintenance||
+                               UntamedWorldBackup.HasLiveOrHistoricalStore(current)||
+                               UntamedWorldBackup.InstallationRecoveryRequired(current))
+                                throw new InvalidOperationException(
+                                    "UM-SCHEDULED-BACKUP-STATE-CHANGED");
+                            bool authorized=Locked(()=>Read().Schedules.Any(x=>
+                                x.MapId==observed.MapId&&x.Enabled&&
+                                x.MapFingerprint==observed.MapFingerprint&&
+                                x.LastAttemptUtc==now&&
+                                x.LastStatus=="claimed-no-auto-retry"));
+                            if(!authorized)
+                                throw new UnauthorizedAccessException(
+                                    "UM-SCHEDULED-BACKUP-CLAIM-REVOKED");
+                            return inspect(current);
+                        }
+                        var state=SafeInspection();
                         if(state.Running||!state.ConfirmedStopped||
                            state.Identity!=null||state.LoaderIdentity!=null)
                             result="not-confirmed-stopped";
@@ -255,7 +278,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                             // Core re-checks stop state before and after copy.
                             // It only writes a new verified local archive.
                             var saved=UntamedWorldBackup.Create(map,cluster.Store.Root,
-                                ()=>inspect(map));
+                                SafeInspection);
                             point=saved.Id;
                             result="verified-backup-created";
                         }
