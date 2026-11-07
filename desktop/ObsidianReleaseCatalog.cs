@@ -130,8 +130,13 @@ public static class ObsidianReleaseCatalog
             // A NONEMPTY foreign or corrupt marker must not be silently
             // interpreted as an untagged installation.
             if(!string.IsNullOrWhiteSpace(installedTag))return false;
-            return incoming.Value.version>current ||
-                (incoming.Value.version==current && incoming.Value.preview>0);
+            // .NET assemblies use four numeric fields (2.0.0.0), whereas
+            // SemVer release tags use three (2.0.0). Normalize to the same
+            // three-part version so a first unstamped Preview can update.
+            var running=new Version(current.Major,current.Minor,
+                Math.Max(0,current.Build));
+            return incoming.Value.version>running ||
+                (incoming.Value.version==running && incoming.Value.preview>0);
         }
         int v=incoming.Value.version.CompareTo(old.Value.version);
         return v>0||(v==0&&incoming.Value.preview>old.Value.preview);
