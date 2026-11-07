@@ -61,7 +61,7 @@ GitHub Actions siker ≠ teljes éles kétgépes karakterutazás. Amíg nincs sa
 
 ## 6. Megvalósított natív lépés: offline embedded Store indexszkennelés
 
-Az Obsidian Command natív C# `EmbeddedStoreReadOnlyInspector` és `DesktopEmbeddedStoreBridge` komponense `store.inspectCopy` metódussal, kizárólag **Windows natív fájlválasztón keresztül kiválasztott, helyi .ark MÁS OLATON** dolgozik. Nem fogad el frontend által beadott `path`, `file`, `root` paramétert, nem ír profilt, tribe-ot vagy MariaDB-t, és nem módosít Store-sessiont/lockot.
+Az Obsidian Command natív C# `EmbeddedStoreReadOnlyInspector` és `DesktopEmbeddedStoreBridge` komponense `store.inspectCopy` metódussal, kizárólag **Windows natív fájlválasztón keresztül kiválasztott, helyi .ark MÁSOLATON** dolgozik. Nem fogad el frontend által beadott `path`, `file`, `root` paramétert, nem ír profilt, tribe-ot vagy MariaDB-t, és nem módosít Store-sessiont/lockot.
 
 - ASA SQLite `custom.GameModeCustomBytes` mezőjéből **kis, legfeljebb 64 indexrekordos lapokat** olvas, nem tölti RAM-ba a teljes világot vagy a teljes profilokat.
 - A nyilvános arkparser megoldás alapján a `PrimalPlayerData` / `PrimalTribeData` osztály-előtagokhoz indexrekord-jelölteket számol; felülírt (nullázott) kulcsok, azonos indexkulcsok, ismeretlen osztályok és indexhatár-hibák elkülönülnek.
