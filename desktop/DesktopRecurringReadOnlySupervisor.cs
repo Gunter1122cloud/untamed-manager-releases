@@ -37,6 +37,7 @@ public sealed class DesktopRecurringReadOnlySupervisor : IDisposable
     }
 
     public RecurringJobReceipt[] Recent(int count=30)=>journal.Recent(count);
+    public IReadOnlyDictionary<Guid,DateTimeOffset> DueDates()=>journal.DueDates();
 
     public RecurringJobReceipt[] TickOnce(DateTimeOffset now)
     {
