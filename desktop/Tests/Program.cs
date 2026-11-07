@@ -404,6 +404,15 @@ try
             new LegacyStoreV1PeerTopology.Peer(remoteDevice,remoteMaps,
                 Enumerable.Range(0,5).Select(i=>"Map_B_"+i).ToArray(),remoteMaps)
         };
+        Check(LegacyStoreV1PeerTopology.IsOriginalSourceUuid(localDevice)&&
+              LegacyStoreV1PeerTopology.IsOriginalSourceUuid(remoteDevice),
+            "original Store device/session UUID accepts source lowercase canonical GUID");
+        Check(!LegacyStoreV1PeerTopology.IsOriginalSourceUuid(localDevice.ToUpperInvariant())&&
+              !LegacyStoreV1PeerTopology.IsOriginalSourceUuid("{"+localDevice+"}")&&
+              !LegacyStoreV1PeerTopology.IsOriginalSourceUuid(" "+localDevice)&&
+              !LegacyStoreV1PeerTopology.IsOriginalSourceUuid(localDevice.Replace("-",""))&&
+              !LegacyStoreV1PeerTopology.IsOriginalSourceUuid(Guid.Empty.ToString("D")),
+            "uppercase, braced, padded, empty or unhyphenated Store device/session IDs must be denied");
         LegacyStoreV1PeerTopology.Validate(localDevice,valid);
         Check(true,"two unique original Store-v1 peers with five disjoint owned and selected maps pass read-only topology verification");
 
@@ -458,6 +467,10 @@ try
             catch(InvalidDataException){denied=true;}
             Check(denied,description);
         }
+        Refuse(new[]{valid[0],valid[1] with{DeviceId=remoteDevice.ToUpperInvariant()}},
+            "uppercase original Store DONE peer ID cannot be used as canonical writer identity");
+        Refuse(valid,"uppercase original local device cannot claim a completed Store session",
+            localDevice.ToUpperInvariant());
         Refuse(new[]{valid[0],valid[1] with{DeviceId=localDevice}},
             "duplicate original device ID rejects shared writer topology");
         Refuse(new[]{valid[0],valid[1]},"original remote device cannot be treated as an unregistered third owner",
