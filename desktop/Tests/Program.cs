@@ -3132,6 +3132,79 @@ try
               File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup) &&
               File.ReadAllBytes(charFile).SequenceEqual(survivorBeforeBackup),
             "original verified backup and restored world/player bytes unchanged after negative metadata tests");
+        // Real scheduled stopped-world backups are disabled by default.
+        // Every claim is durable and cannot replay after process restart.
+        // Synthetic local installation/profile ONLY; never a live ASA map.
+        {
+            DateTimeOffset scheduleNow=DateTimeOffset.UtcNow;
+            using var scheduled=new DesktopScheduledStoppedBackupSupervisor(backupHost,
+                _=>new ProcessCheck(!stopped,
+                    stopped?"synthetic stopped":"synthetic running",
+                    stopped?null:new ProcessIdentity{
+                        Pid=23563,ExecutablePath="synthetic.exe",
+                        StartedUtc=scheduleNow
+                    },stopped));
+            Check(scheduled.Snapshot().Length==0,
+                "automatic world backups are opt-in, never default enabled");
+            var scheduleBridge=new DesktopWorldBackupBridge(backupHost,
+                _=>new ProcessCheck(!stopped,
+                    stopped?"synthetic stopped":"synthetic running",
+                    stopped?null:new ProcessIdentity{
+                        Pid=23563,ExecutablePath="synthetic.exe",
+                        StartedUtc=scheduleNow
+                    },stopped),scheduled);
+            var scheduleUnauthorized=await Call(scheduleBridge.HandleAsync,
+                "backup.scheduleCreate",new{mapId=localMap.Id,intervalMinutes=60,
+                    confirm=false});
+            Check(IsError(scheduleUnauthorized,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),
+                "scheduling requires explicit native confirmation");
+            var scheduleConfigured=scheduled.Configure(localMap.Id,60,scheduleNow);
+            Check(scheduleConfigured.Enabled&&
+                  scheduleConfigured.NextDueUtc==scheduleNow.AddMinutes(60),
+                "enabled stopped-world schedule has a persisted future due time");
+            stopped=false;
+            var runningResult=scheduled.TickOnce(scheduleNow.AddMinutes(61));
+            Check(runningResult.Single().LastStatus=="not-confirmed-stopped" &&
+                  runningResult.Single().LastPoint==null,
+                "running ASA cannot be silently stopped or auto-backed-up");
+            stopped=true;
+            scheduleConfigured=scheduled.Configure(localMap.Id,60,scheduleNow);
+            var completed=scheduled.TickOnce(scheduleNow.AddMinutes(61)).Single();
+            Check(completed.LastStatus=="verified-backup-created" &&
+                  completed.LastPoint!=null &&
+                  UntamedWorldBackup.Verify(localMap,localProfile,
+                      completed.LastPoint).Files==3 &&
+                  File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup) &&
+                  File.ReadAllBytes(charFile).SequenceEqual(survivorBeforeBackup),
+                "due stopped-world job copies real world/profile/tribe without changing originals");
+            var sameSlot=scheduled.TickOnce(scheduleNow.AddMinutes(61)).Single();
+            Check(sameSlot.LastPoint==completed.LastPoint,
+                "claimed scheduled backup slot cannot execute twice");
+            using(var restarted=new DesktopScheduledStoppedBackupSupervisor(backupHost,
+                _=>new ProcessCheck(false,"synthetic stopped",null,true)))
+            {
+                Check(restarted.Snapshot().Single().LastPoint==completed.LastPoint,
+                    "job receipt and due cursor survive Manager process recreation");
+                Check(restarted.Disable(localMap.Id).Enabled==false,
+                    "operator can durably disable scheduled backups");
+            }
+            var disabled=scheduled.TickOnce(scheduleNow.AddHours(3)).Single();
+            Check(!disabled.Enabled && disabled.LastPoint==completed.LastPoint,
+                "disabled schedule never replays or deletes verified backup");
+            localMap.Arguments="-usestore";
+            bool autoStoreDenied=false;
+            try{scheduled.Configure(localMap.Id,60,scheduleNow);}
+            catch(UnauthorizedAccessException){autoStoreDenied=true;}
+            Check(autoStoreDenied,
+                "historical/active Store-v1 character world cannot be scheduled for autonomous copying");
+            localMap.Arguments="";
+            var dueBeforeMissed=scheduled.Configure(localMap.Id,60,scheduleNow);
+            var missed=scheduled.TickOnce(scheduleNow.AddHours(4)).Single();
+            Check(missed.LastStatus=="missed-no-catchup"&&
+                  missed.LastPoint==null &&
+                  missed.NextDueUtc>scheduleNow.AddHours(4),
+                "missed backup windows are consumed durably without replay");
+        }
         File.WriteAllBytes(Path.Combine(localWorld,"broken.arkprofile"),Array.Empty<byte>());
         preview=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=localMap.Id});
