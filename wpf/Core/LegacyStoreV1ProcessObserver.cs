@@ -86,6 +86,37 @@ public static class LegacyStoreV1ProcessObserver
         {return false;}
     }
 
+    /// <summary>
+    /// Multiple owned ASA maps may legitimately share ONE executable path.
+    /// A process with an unequivocally DIFFERENT original MAP?listen token
+    /// is not a candidate for this map and must not poison its evidence.
+    /// An unknown/malformed command is still uncertain and fails closed.
+    /// </summary>
+    public static bool DefinitelyDifferentMap(string? commandLine,
+        string expectedExe,string requestedMap)
+    {
+        if(string.IsNullOrWhiteSpace(requestedMap) ||
+           requestedMap.Length>100 ||
+           !requestedMap.All(c=>char.IsAsciiLetterOrDigit(c)||c=='_'))
+            return false;
+        try
+        {
+            string? args=ExtractArguments(commandLine,expectedExe);
+            if(string.IsNullOrWhiteSpace(args))return false;
+            string first=args.Split((char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()??"";
+            const string suffix="?listen";
+            if(!first.EndsWith(suffix,StringComparison.OrdinalIgnoreCase))return false;
+            string map=first[..^suffix.Length];
+            return map.Length is >=1 and <=100 &&
+                   map.All(c=>char.IsAsciiLetterOrDigit(c)||c=='_') &&
+                   !map.Equals(requestedMap,StringComparison.OrdinalIgnoreCase);
+        }
+        catch(Exception ex) when(ex is ArgumentException or NotSupportedException
+            or PathTooLongException)
+        {return false;}
+    }
+
     private static bool CanonicalLocalExecutable(string exe)
     {
         if(string.IsNullOrWhiteSpace(exe)||!Path.IsPathFullyQualified(exe)||
@@ -130,6 +161,8 @@ public static class LegacyStoreV1ProcessObserver
                     if(!Path.GetFullPath(path).Equals(exe,
                         StringComparison.OrdinalIgnoreCase))continue;
                     string command=Convert.ToString(entry["CommandLine"])??"";
+                    if(DefinitelyDifferentMap(command,exe,map.HistoricalMapKey))
+                        continue; // Another legitimate map in the same ASA install.
                     if(!MatchesOriginalActiveCommand(command,exe,map))
                     {uncertain=true;continue;}
                     int id=Convert.ToInt32(entry["ProcessId"]);
