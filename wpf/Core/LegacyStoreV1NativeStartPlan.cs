@@ -50,7 +50,8 @@ internal static class LegacyStoreV1NativeStartPlanner
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
         if(!AsaLocalPortPreflight.CanStart(map))
             throw new InvalidOperationException("UM-STORE-NATIVE-PORT-IN-USE");
-        var stopped=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(map);
+        var stopped=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+            map,cluster.Config.LocalMaps);
         if(stopped.Running||!stopped.ConfirmedStopped||
            stopped.Identity!=null||stopped.LoaderIdentity!=null)
             throw new InvalidOperationException("UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED");

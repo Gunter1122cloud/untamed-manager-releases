@@ -89,7 +89,8 @@ internal static class LegacyStoreV1GracefulStop
            maximum<=TimeSpan.Zero||maximum>TimeSpan.FromMinutes(3))
             throw new InvalidDataException("UM-ORIGINAL-STOP-APPROVAL");
         inspect??=LegacyStoreV1ProcessObserver.Observe;
-        stopped??=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart;
+        stopped??=(map=>LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+            map,cluster.Config.LocalMaps));
         source??=OriginalSource;
         portOwner??=RconPortOwnership.IsOwnedListener;
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
