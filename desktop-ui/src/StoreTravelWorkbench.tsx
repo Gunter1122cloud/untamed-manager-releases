@@ -92,6 +92,22 @@ export function StoreTravelWorkbench(){
           teszteld az utazást, majd 5+5-öt utána. Ez nem kapcsolja ki a Store-zárat.</p>
       </div>
     </section>
+    <section className="uk-travel-reference" aria-label="Referenciával igazolt, kötelező működés">
+      <div className="uk-travel-reference-header">
+        <ShieldCheck size={19}/>
+        <strong>REFERENCIÁVAL IGAZOLT – NÁLUNK IS KÖTELEZŐEN MŰKÖDNIE KELL</strong>
+      </div>
+      <p>Más ASA Managerben (YARK) valódi játékbeli próbával igazolták a két map közötti
+        karakter-, tárgy- és dinóátvitelt, újraindítással és oda-vissza utazással.
+        Ez nálunk is kötelező képesség, kiegészítve a két külön gépes, 5+5 mapos
+        Store-v1 kompatibilitással, a tribe-adatok és az eredeti fájlok sértetlenségével.</p>
+      <div className="uk-travel-reference-status">
+        <span><CheckCircle2 size={14}/> Kötelező megvalósítási cél</span>
+        <span><LockKeyhole size={14}/> Saját éles Store-v1 igazolás: még nincs</span>
+      </div>
+      <small>Referenciabizonyíték: YARK, 2026-08-13, két map egy Windows gépen.
+        Nem a mi kétgépes clusterünk tanúsítása. A Writer/Store védelem továbbra is aktív.</small>
+    </section>
     <div className="uk-travel-grid">
       <section className="premium-panel uk-travel-capture">
         <header className="premium-panel-heading"><h2><HardDrive size={19}/> 1. Helyi mentéslenyomat</h2></header>
