@@ -1668,6 +1668,8 @@ test("SQL-free offline cluster archive requires four native folders and explicit
   const panel=page.getByRole("region",{name:"SQL-mentes clusterarchívum"});
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("10 map · SQL nélkül");
+  await expect(panel).toContainText("Game.ini");
+  await expect(panel).toContainText("opcionális");
   await panel.getByRole("button",{name:"A négy offline mappa kiválasztása"}).click();
   const prepared=panel.getByRole("region",{name:"SQL-mentes clusterarchívum előnézete"});
   await expect(prepared).toContainText("HP: 5 map");
