@@ -379,10 +379,10 @@ public static class OfflineAsaClusterArchive
                    !Sha(source).Equals(entry.Sha256,StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("Configuration archive hash mismatch");
             }
-            var actual=Directory.GetFiles(cfg,"*",SearchOption.AllDirectories)
+            var actualConfigurations=Directory.GetFiles(cfg,"*",SearchOption.AllDirectories)
                 .Select(p=>Path.GetRelativePath(cfg,p))
                 .OrderBy(x=>x,StringComparer.OrdinalIgnoreCase).ToArray();
-            if(!actual.SequenceEqual(expected.Select(x=>x.RelativePath),
+            if(!actualConfigurations.SequenceEqual(expected.Select(x=>x.RelativePath),
                    StringComparer.OrdinalIgnoreCase))
                 throw new InvalidDataException("Configuration archive member changed");
             foreach(var map in manifest.Maps)
