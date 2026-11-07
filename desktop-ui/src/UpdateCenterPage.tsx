@@ -8,7 +8,7 @@ import {managerBridge,type UpdateStatus,type UpdateCheck,type UpdatePrepared} fr
 export function UpdateCenterPage(){
   const [current,setCurrent]=useState<UpdateStatus|null>(null);
   const [latest,setLatest]=useState<UpdateCheck|null>(null);
-  const [channel,setChannel]=useState<"stable"|"preview">("stable");
+  const [channel,setChannel]=useState<"stable"|"preview">("preview");
   const [loading,setLoading]=useState(false);
   const [prepared,setPrepared]=useState<UpdatePrepared|null>(null);
   const [approved,setApproved]=useState(false);
@@ -86,8 +86,8 @@ export function UpdateCenterPage(){
                 setChannel(e.target.value as "stable"|"preview");setLatest(null);setError("");
                 setPrepared(null);setApproved(false);
               }}>
-              <option value="stable">Stabil kiadások</option>
-              <option value="preview">Előzetes kiadások is</option>
+              <option value="stable">Stabil kiadások (amint elérhetők)</option>
+              <option value="preview">Obsidian Preview (jelenlegi kiadási ág)</option>
             </select>
           </label>
           <button type="button" className="primary uk-updates-check" onClick={()=>{void check();}}
