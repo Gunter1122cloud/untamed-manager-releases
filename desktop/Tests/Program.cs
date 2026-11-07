@@ -4183,8 +4183,8 @@ try
         string ini=Path.Combine(cfg,"GameUserSettings.ini");
         const string originalPass="HistoricalRconPass!2026";
         const int rconPort=37145;
-        File.WriteAllText(ini,"[ServerSettings]\\r\\nRCONEnabled=True\\r\\n"+
-            "RCONPort="+rconPort+"\\r\\nServerAdminPassword="+originalPass+"\\r\\n");
+        File.WriteAllText(ini,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
+            "RCONPort="+rconPort+"\r\nServerAdminPassword="+originalPass+"\r\n");
         var bytesBefore=File.ReadAllBytes(ini);
         await using var histCluster=new ClusterService("obsidian-historical-rcon",
             Path.Combine(root,"historical-rcon-profile"),m=>
