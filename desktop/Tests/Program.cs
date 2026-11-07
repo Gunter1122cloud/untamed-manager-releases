@@ -247,11 +247,19 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
 {
     string historicRoot=Path.Combine(root,"historical-status-only");
     int observations=0;
+    // The test runner itself is the safe synthetic observed PID. This is
+    // NOT a fake claim of ASA game readiness; only local OS identity is used.
+    using var observedSelf=System.Diagnostics.Process.GetCurrentProcess();
+    var identity=new ProcessIdentity{
+        Pid=observedSelf.Id,
+        StartedUtc=new DateTimeOffset(observedSelf.StartTime.ToUniversalTime()),
+        ExecutablePath=Environment.ProcessPath??"",Arguments="SYNTHETIC-PROCESS-TEST"
+    };
     await using var history=new ClusterService("historical-observer",
         Path.Combine(historicRoot,"profile"),
         _=>{
             Interlocked.Increment(ref observations);
-            return new ProcessCheck(true,"Existing ASA process observed (synthetic)",null);
+            return new ProcessCheck(true,"Existing ASA process observed (synthetic)",identity);
         });
     var historic=new LocalMap {
         Id=Guid.NewGuid(),Name="Aberration",InstallationPath=historicRoot,
@@ -270,6 +278,24 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
           status.Status.Contains("Existing ASA process observed",StringComparison.Ordinal) &&
           !history.Check(historic).Running,
         "historical Store map is observed as running but remains lifecycle-locked");
+    var historicalOps=new DesktopOperationsCenterBridge(history);
+    var observed=await Call(historicalOps.HandleAsync,"operations.map",
+        new{mapId=historic.Id});
+    IsOk(observed,"native Operations Center accepts protected Store map observation");
+    var observedMap=observed.GetProperty("data").GetProperty("maps")[0];
+    Check(observedMap.GetProperty("running").GetBoolean() &&
+          observedMap.GetProperty("pid").GetInt32()==identity.Pid &&
+          observedMap.GetProperty("memoryVerified").GetBoolean() &&
+          observedMap.GetProperty("storeProtected").GetBoolean() &&
+          !observedMap.GetProperty("lifecycleActionsVerified").GetBoolean() &&
+          observedMap.GetProperty("evidence").GetString()==
+            "HISTORICAL_STORE_V1_PROCESS_OBSERVATION_NO_LIFECYCLE_RIGHTS" &&
+          !history.Check(historic).Running,
+        "protected historical map shows verified physical PID/RAM while actual Start/Stop remains blocked");
+    var unauthorized=await Call(historicalOps.HandleAsync,"operations.start",
+        new{mapId=historic.Id});
+    Check(IsError(unauthorized,"UM-METHOD-DENIED"),
+        "historical status never becomes a command bridge despite running PID");
 }
 try
 {
