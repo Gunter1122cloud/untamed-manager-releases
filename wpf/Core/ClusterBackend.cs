@@ -61,6 +61,11 @@ public sealed class ManagerConfig
 {
     public string LocalHostId { get; set; } = Guid.NewGuid().ToString("N");
     public string LocalHostName { get; set; } = Environment.MachineName;
+    // Versioned metadata registries are kept in the existing atomic profile
+    // document. Old profiles deserialize these as schema 0 and are migrated
+    // additively; historical Kova Store-v1 files are not read or rewritten.
+    public HostRegistry HostRegistry { get; set; } = new();
+    public ClusterRegistry ClusterRegistry { get; set; } = new();
     public int ListenPort { get; set; } = 0; // Opt-in; 0 disables LAN listener.
     public string PeerAddress { get; set; } = ""; // IPv4/host, configured explicitly by user.
     // Mandatory durable identity pin; an IP address or shared secret alone is not a peer identity.
@@ -200,18 +205,25 @@ public sealed class ConfigStore
         if(!entered)throw new IOException("UNTAMED_CONFIG_BUSY");
         if(Digest(FilePath)!=expectedHash)throw new IOException("UNTAMED_CONFIG_CHANGED_RELOAD_REQUIRED");
         Directory.CreateDirectory(Root);
+        // Stage schema migration and local-map catalog synchronization together
+        // with the legacy profile write. This keeps map ownership metadata and
+        // the source LocalMaps list in one atomic replacement.
+        var persisted=JsonSerializer.Deserialize<ManagerConfig>(JsonSerializer.Serialize(cfg))
+            ??throw new InvalidDataException("Unable to stage Manager configuration");
+        ClusterRegistrySchema.PrepareForSave(persisted);
         // Prevent accidental replacement with another machine's configuration.
-        if (string.IsNullOrWhiteSpace(cfg.LocalHostId)) throw new InvalidDataException("Missing host ID");
-        if (cfg.LocalMaps.Select(x=>x.Id).Distinct().Count() != cfg.LocalMaps.Count)
+        if (string.IsNullOrWhiteSpace(persisted.LocalHostId)) throw new InvalidDataException("Missing host ID");
+        if (persisted.LocalMaps.Select(x=>x.Id).Distinct().Count() != persisted.LocalMaps.Count)
             throw new InvalidDataException("Duplicate map IDs");
-        foreach (var map in cfg.LocalMaps)
+        foreach (var map in persisted.LocalMaps)
         {
             if (string.IsNullOrWhiteSpace(map.Name)) throw new InvalidDataException("Map name empty");
             if (map.GamePort is < 0 or > 65535 || map.QueryPort is < 0 or > 65535 ||
                 map.RconPort is < 0 or > 65535) throw new InvalidDataException("Invalid map port");
         }
+        ClusterRegistrySchema.Validate(persisted);
         temp = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented=true }), Encoding.UTF8);
+        File.WriteAllText(temp, JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented=true }), Encoding.UTF8);
         if (File.Exists(FilePath))
         {
             string backup = Path.Combine(Root, "cluster-config.previous.json");
@@ -219,6 +231,8 @@ public sealed class ConfigStore
         }
         else File.Move(temp, FilePath);
         expectedHash=Digest(FilePath);
+        cfg.HostRegistry=ClusterRegistrySchema.Clone(persisted.HostRegistry);
+        cfg.ClusterRegistry=ClusterRegistrySchema.Clone(persisted.ClusterRegistry);
         }
         finally
         {
@@ -503,11 +517,12 @@ public static class PeerStatusClient
         return status;
     }
 }
-public sealed class ClusterService : IAsyncDisposable
+public sealed partial class ClusterService : IAsyncDisposable
 {
     public UntamedOperationCoordinator Operations {get;}
     public ConfigStore Store { get; }
     public ManagerConfig Config { get; private set; }
+    public ClusterRegistryService Registry { get; }
     private readonly WindowsProcessInspector _inspector=new();
     private readonly Func<LocalMap, ProcessCheck> _inspect;
     private readonly bool _customInspector;
@@ -530,6 +545,11 @@ public sealed class ClusterService : IAsyncDisposable
         Store=new ConfigStore(profile,rootOverride);
         Operations=new UntamedOperationCoordinator();
         Config=Store.EnsureInitialized();
+        // Upgrade historic local-map profiles additively in the same atomic
+        // config file. The source LocalMaps list and all existing settings stay
+        // intact; Kova Store-v1 world/transfer files are outside this path.
+        if(ClusterRegistrySchema.PrepareForSave(Config))Store.Save(Config);
+        Registry=new ClusterRegistryService(this);
         _customInspector=inspect!=null;
         _inspect=inspect ?? _inspector.Inspect;
     }
@@ -639,6 +659,12 @@ public sealed class ClusterService : IAsyncDisposable
                JsonSerializer.Serialize(Config.RecurringSchedules))
             throw new InvalidOperationException(
                 "UpdateSettings cannot mutate host identity, maps or schedules");
+        if(JsonSerializer.Serialize(staged.HostRegistry)!=
+               JsonSerializer.Serialize(Config.HostRegistry) ||
+           JsonSerializer.Serialize(staged.ClusterRegistry)!=
+               JsonSerializer.Serialize(Config.ClusterRegistry))
+            throw new InvalidOperationException(
+                "UpdateSettings cannot mutate host or cluster registries");
 
         // Save checks the original digest and writes atomically. On failure
         // the original Config object has never been altered.
@@ -646,6 +672,8 @@ public sealed class ClusterService : IAsyncDisposable
 
         // Preserve Config, LocalMaps and task-list object identity for
         // selection, reattach, LAN polling and in-memory draft sessions.
+        Config.HostRegistry=ClusterRegistrySchema.Clone(staged.HostRegistry);
+        Config.ClusterRegistry=ClusterRegistrySchema.Clone(staged.ClusterRegistry);
         Config.LocalHostName=staged.LocalHostName;
         Config.ListenPort=staged.ListenPort;
         Config.PeerAddress=staged.PeerAddress;

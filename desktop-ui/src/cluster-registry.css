@@ -1,0 +1,46 @@
+.cluster-registry-workbench{display:flex;flex-direction:column;gap:14px;margin-top:16px;min-width:0}
+.cluster-registry-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:12px 2px 2px}
+.cluster-registry-heading h2{margin:5px 0;font-size:21px;letter-spacing:-.025em}
+.cluster-registry-heading p{margin:0;max-width:850px;color:var(--uk-muted);font-size:12px;line-height:1.55}
+.cluster-registry-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.cluster-registry-metrics>div{display:flex;align-items:baseline;gap:9px;padding:12px 14px;border:1px solid #354b50;border-radius:9px;background:linear-gradient(125deg,#1c2c33,#17262c)}
+.cluster-registry-metrics b{color:#78e3bd;font-size:19px;white-space:nowrap}
+.cluster-registry-metrics span{color:#adc2c2;font-size:11px}
+.cluster-registry-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.cluster-registry-panel{min-width:0;overflow:hidden}
+.cluster-registry-panel .panel-head button{font-size:11px}
+.cluster-registry-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+.cluster-registry-field{display:flex;flex-direction:column;gap:6px;min-width:0;color:#bfd0d0;font-size:11px;font-weight:650}
+.cluster-registry-field input,.cluster-registry-field select{width:100%;min-height:38px;padding:8px 10px;border:1px solid #465f63;border-radius:7px;background:#111e24;color:#edf5f2;font:inherit;font-weight:500}
+.cluster-registry-field input:disabled{opacity:.65}
+.cluster-registry-form>.primary,.cluster-registry-form>.secondary{align-self:end;min-height:38px;justify-content:center}
+.cluster-registry-host-list{display:flex;flex-direction:column;gap:7px;max-height:210px;overflow:auto;padding-right:3px}
+.cluster-registry-host{display:grid;grid-template-columns:9px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 9px;border:1px solid #33484c;border-radius:7px;background:#14232a}
+.cluster-registry-host-dot{width:8px;height:8px;border-radius:50%;background:#d5a84e;box-shadow:0 0 8px #d5a84e66}
+.cluster-registry-host-dot.local{background:#53d7a7;box-shadow:0 0 8px #53d7a766}
+.cluster-registry-host>span:nth-child(2){display:flex;flex-direction:column;min-width:0}
+.cluster-registry-host b{font-size:12px;color:#e7f0ee}
+.cluster-registry-host small,.cluster-registry-map small{overflow:hidden;text-overflow:ellipsis;color:#8fa6a7;font-size:9px;white-space:nowrap}
+.cluster-registry-host em,.cluster-registry-map em{font-size:9px;color:#d8bd81;font-style:normal;white-space:nowrap}
+.cluster-registry-add-host{margin-top:11px;border-top:1px solid #33484c;padding-top:10px}
+.cluster-registry-add-host summary{cursor:pointer;color:#a8d9ca;font-size:11px;font-weight:700}
+.cluster-registry-map-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+.cluster-registry-map-group{min-width:0;margin:0;padding:8px;border:1px solid #354b50;border-radius:8px;background:#132229}
+.cluster-registry-map-group legend{padding:0 5px;color:#b7d4ce;font-size:10px;font-weight:750}
+.cluster-registry-map-group legend span{color:#d7b66d;font-weight:550}
+.cluster-registry-map{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 5px;border-top:1px solid #ffffff0a;cursor:pointer}
+.cluster-registry-map input{width:14px;height:14px;margin:0}
+.cluster-registry-map>span{display:flex;flex-direction:column;min-width:0}
+.cluster-registry-map b{overflow:hidden;color:#e8f2ef;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.cluster-registry-map.inactive{opacity:.55;cursor:not-allowed}
+.cluster-registry-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cluster-membership-preview{display:flex;flex-direction:column;gap:9px;margin-top:13px;padding:12px;border:1px solid #527367;border-radius:8px;background:linear-gradient(140deg,#17342d,#142a2c)}
+.cluster-membership-preview>strong{color:#a0efca;font-size:12px}
+.cluster-membership-counts{display:flex;gap:8px;flex-wrap:wrap}
+.cluster-membership-counts span{padding:5px 8px;border:1px solid #41605a;border-radius:20px;color:#d7e9e2;font-size:10px}
+.cluster-membership-change{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;padding:7px 0;border-top:1px solid #ffffff13;font-size:10px}
+.cluster-membership-change b{color:#edf5f2}
+.cluster-membership-change span{color:#9db9b2}
+.cluster-membership-change small{grid-column:1/-1;color:#bacac4}
+@media(max-width:1150px){.cluster-registry-columns{grid-template-columns:1fr}.cluster-registry-map-groups{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){.cluster-registry-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.cluster-registry-map-groups,.cluster-registry-form{grid-template-columns:1fr}.cluster-registry-heading{flex-direction:column}.cluster-membership-change{grid-template-columns:1fr}}

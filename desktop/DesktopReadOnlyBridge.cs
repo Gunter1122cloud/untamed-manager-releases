@@ -16,12 +16,16 @@ namespace UntamedDesktop;
 /// </summary>
 public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 {
-    private readonly ClusterService _cluster = new();
+    private readonly ClusterService _cluster;
     internal ClusterService LocalCluster => _cluster;
     private readonly SemaphoreSlim _serial = new(1, 1);
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
     private readonly CurseForgeCatalog _catalog;
-    public DesktopReadOnlyBridge() => _catalog = new CurseForgeCatalog(_http);
+    public DesktopReadOnlyBridge(string? profileRootOverride = null)
+    {
+        _cluster = new ClusterService(rootOverride: profileRootOverride);
+        _catalog = new CurseForgeCatalog(_http);
+    }
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     // A peer may use "N" or "D" Guid formatting. Never compare string
     // representations when determining ownership/protection flags.

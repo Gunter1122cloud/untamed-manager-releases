@@ -44,6 +44,7 @@ import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
 import { LanSettingsPanel } from "./LanSettingsPanel";
+import { ClusterRegistryPanel } from "./ClusterRegistryPanel";
 
 type Page = "operations" | "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "travel" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -1333,6 +1334,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
       <Panel title="Ez a gazdagép"><HostCard host={snapshot.local} local/><MapTable maps={snapshot.local.maps} host={snapshot.local.hostName}/></Panel>
       <Panel title="Távoli gazdagép">{remote ? <><HostCard host={remote}/><p className="muted small">Legutóbbi hitelesített mérés: {observedAt(remote.observedUtc)}</p><MapTable maps={remote.maps} host={remote.hostName}/></> : <div className="warning-inline"><WifiOff size={19}/>{snapshot.peerMessage || "Nincs friss távoli adat"}</div>}</Panel>
     </div>
+    <ClusterRegistryPanel/>
   </>;
 }
 type MapSection = "overview" | "monitor" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
