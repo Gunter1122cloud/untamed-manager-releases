@@ -587,6 +587,22 @@ export type HistoricalLiveGuard = {
   evidence:"ORIGINAL_LIVE_TWO_HOST_ACTIVE_DONE_SHARED_GUARD_READ_ONLY";
 };
 
+export type HistoricalRconStatus = {
+  mapId:string;mapName:string;configured:boolean;port:number;
+  verifiedIni:boolean;originalStoreTouched:false;
+  evidence:"HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY";
+};
+export type HistoricalRconPreview = {
+  token:string;mapId:string;mapName:string;rconPort:number;
+  existingIniVerified:true;originalActiveDoneVerified:true;
+  originalStoreTouched:false;serverStarted:false;
+  evidence:"HISTORICAL_RCON_EXISTING_INI_PREVIEW_ONLY";
+};
+export type HistoricalRconReceipt = {
+  mapId:string;mapName:string;configured:true;rconPort:number;
+  originalStoreTouched:false;iniModified:false;serverStarted:false;
+  evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED";
+};
 export type HistoricalPairEvidence = {
   files:number; maps:number; peers:number;
   sessionConsistent:boolean; configHashesVerified:boolean;
@@ -799,6 +815,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
+   "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
   "api.coreRelease" | "api.corePreview" | "api.coreApply" |
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
@@ -1082,6 +1099,12 @@ export const managerBridge = {
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
     request<HistoricalLaunchEvidence>("historical.launchEvidence",{archive,mapId,command}),
+  historicalRconStatus: (mapId:string) =>
+    request<HistoricalRconStatus>("historical.rconStatus",{mapId}),
+  historicalRconPreview: (mapId:string,rconPort:number,password:string) =>
+    request<HistoricalRconPreview>("historical.rconPreview",{mapId,rconPort,password}),
+  historicalRconApply: (token:string) =>
+    request<HistoricalRconReceipt>("historical.rconApply",{token,confirm:true}),
   historicalLocalStatus: () => request<HistoricalLocalStoreStatus>("historical.localStatus"),
   historicalLiveGuard: (mapId:string) => request<HistoricalLiveGuard>("historical.liveGuard",{mapId}),
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
