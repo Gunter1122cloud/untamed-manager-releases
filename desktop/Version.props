@@ -1,0 +1,12 @@
+<Project>
+  <!-- The one human-facing Obsidian Command version.
+       CI derives the immutable Preview build tag from this value and
+       the GitHub Actions run number. The old WPF GUI is not a release target. -->
+  <PropertyGroup>
+    <ObsidianProductVersion>2.0.0</ObsidianProductVersion>
+    <Version>$(ObsidianProductVersion)</Version>
+    <AssemblyVersion>$(ObsidianProductVersion).0</AssemblyVersion>
+    <FileVersion>$(ObsidianProductVersion).0</FileVersion>
+    <InformationalVersion>$(ObsidianProductVersion)-preview</InformationalVersion>
+  </PropertyGroup>
+</Project>
