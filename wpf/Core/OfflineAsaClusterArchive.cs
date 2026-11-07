@@ -217,7 +217,12 @@ public static class OfflineAsaClusterArchive
                 string root=Fixed(directory);
                 if(!Within(source,root))throw new InvalidDataException("Unsafe map package root");
                 string manifestFile=Inside(root,"manifest.json");
-                var manifest=JsonSerializer.Deserialize<BackupManifest>(File.ReadAllText(manifestFile))
+                // This is the FIRST access to an operator-selected map
+                // package. Apply the identical manifest-size limit here,
+                // before the deeper TestBackupPackage.Verify call. Otherwise
+                // a hostile huge JSON could allocate memory during preflight.
+                var manifest=JsonSerializer.Deserialize<BackupManifest>(
+                    ReadBounded(manifestFile,16*1024*1024))
                     ??throw new InvalidDataException("Map manifest missing");
                 if(manifest.MapId==Guid.Empty)throw new InvalidDataException("Missing map owner");
                 TestBackupPackage.Verify(root,manifest.MapId);
