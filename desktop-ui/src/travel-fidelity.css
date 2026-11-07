@@ -10,6 +10,18 @@
 .uk-travel-hero span{color:#89f5c8;font-size:10px;font-weight:850;letter-spacing:.14em;}
 .uk-travel-hero h2{font-size:20px;margin:5px 0 6px;color:#f0fff8;}
 .uk-travel-hero p{font-size:11.5px;color:#bde3d4;line-height:1.55;margin:0;max-width:830px;}
+.uk-travel-reference{background:#142d2d;border:1px solid #477b67;border-radius:10px;
+  padding:14px 17px;margin:0 0 15px;color:#d8f7e7;}
+.uk-travel-reference-header{display:flex;align-items:center;gap:10px;color:#96efc5;
+  font-size:11px;letter-spacing:.025em;line-height:1.5;}
+.uk-travel-reference-header>svg{flex:none;}
+.uk-travel-reference p{margin:8px 0;color:#c5e1d5;font-size:12px;line-height:1.65;}
+.uk-travel-reference-status{display:flex;gap:10px;flex-wrap:wrap;margin:9px 0;}
+.uk-travel-reference-status span{display:flex;align-items:center;gap:6px;
+  color:#d6e7df;font-size:11px;background:#24443e;border:1px solid #477266;
+  padding:5px 9px;border-radius:6px;}
+.uk-travel-reference-status span:last-child{color:#eed7aa;background:#403727;border-color:#886a3b;}
+.uk-travel-reference small{display:block;color:#9cbdaf;font-size:10.5px;line-height:1.5;}
 .uk-travel-grid{display:grid;grid-template-columns:minmax(310px,.94fr) minmax(400px,1.2fr);gap:14px;align-items:start;}
 .uk-travel-inner{padding:16px;min-width:0;}
 .uk-travel-inner>p.muted{font-size:12px;line-height:1.7;margin:0 0 13px;}
