@@ -637,6 +637,21 @@ export type HistoricalRconReadResponse = {
   storeTouched:false;saveCompleteProven:false;
   evidence:"ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON";
 };
+export type HistoricalAdminRconPreview = {
+  token:string;mapId:string;mapName:string;
+  action:"broadcast"|"serverChat"|"wildWipe"|"custom";
+  command:string;approvalWord:string;dangerous:boolean;
+  expiresUtc:string;originalStoreActive:true;dispatched:false;
+  gameClientVerified:false;originalStoreModified:false;
+  evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_PREVIEW";
+};
+export type HistoricalAdminRconReceipt = {
+  mapId:string;mapName:string;action:string;command:string;
+  response:string;commandSent:true;oneShot:true;
+  originalStoreModified:false;saveCompleteProven:false;
+  gameplayEffectVerified:false;
+  evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_SINGLE_SEND";
+};
 export type HistoricalGracefulStopPreview = {
   token:string;mapId:string;mapName:string;pid:number;rconPort:number;
   originalTwoPeersVerified:true;usesSaveWorld:true;usesDoExit:true;
@@ -885,6 +900,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    "historical.rconGameLog" | "historical.rconChatLog" |
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
    "historical.gracefulStopStatus" | "historical.gracefulStopRecovery" |
+   "historical.adminPreview" | "historical.adminSend" |
   "api.coreRelease" | "api.corePreview" | "api.coreApply" |
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
@@ -1168,6 +1184,15 @@ export const managerBridge = {
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
     request<HistoricalLaunchEvidence>("historical.launchEvidence",{archive,mapId,command}),
+  historicalAdminPreview: (mapId:string,
+      action:"broadcast"|"serverChat"|"wildWipe"|"custom",message:string) =>
+    request<HistoricalAdminRconPreview>("historical.adminPreview",{
+      mapId,action,message
+    }),
+  historicalAdminSend: (token:string,typedApproval:string) =>
+    request<HistoricalAdminRconReceipt>("historical.adminSend",{
+      token,confirm:true,typedApproval
+    }),
   historicalGracefulStopRecovery: (mapId:string) =>
     request<HistoricalGracefulStopRecovery>("historical.gracefulStopRecovery",{mapId}),
   historicalGracefulStopPreview: (mapId:string) =>
