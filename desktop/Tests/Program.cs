@@ -1718,6 +1718,23 @@ try
         Check(bigIndexDenied,
             "oversized ten-map signed archive index fails before JSON parsing");
         File.WriteAllBytes(signedIndex,originalIndex);
+        // The SHA-256 and completion markers must also be read with strictly
+        // bounded buffers; a damaged offline copy never reaches full world
+        // scans merely because its metadata is huge.
+        foreach(string markerName in new[]{"asa-cluster-index.sha256","complete"})
+        {
+            string smallMarker=Path.Combine(destination,markerName);
+            byte[] originalMarker=File.ReadAllBytes(smallMarker);
+            using(var oversizedMarker=new FileStream(smallMarker,FileMode.Open,
+                FileAccess.Write,FileShare.None))
+                oversizedMarker.SetLength(129);
+            bool refusedHugeMarker=false;
+            try{OfflineAsaClusterArchive.Verify(destination);}
+            catch(InvalidDataException){refusedHugeMarker=true;}
+            Check(refusedHugeMarker,
+                "oversized ten-map archive metadata marker rejected: "+markerName);
+            File.WriteAllBytes(smallMarker,originalMarker);
+        }
         Check(OfflineAsaClusterArchive.Verify(destination).Batch==report.Batch,
             "restored synthetic archive index still passes full SHA256 verification");
         // Native UI uses Windows-only directory selection, not paths from
