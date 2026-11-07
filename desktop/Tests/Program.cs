@@ -44,7 +44,108 @@ var map=new LocalMap{
         "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
 };
 cluster.AddMap(map);
-// The shipping desktop is deliberately SQL-free. Historical WPF sources
+// A real SQLite .ark COPY fixture tests the actual metadata reader, not a
+// mocked parser. No server process, production Store writer, or network share.
+{
+    string lab=Path.Combine(root,"offline-embedded-lab");
+    Directory.CreateDirectory(lab);
+    string world=Path.Combine(lab,"TheIsland_WP.ark");
+
+    static byte[] PackedEntry(string className)
+    {
+        byte[] raw=new byte[128];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(raw.AsSpan(0,4),7);
+        byte[] name=Encoding.ASCII.GetBytes(className);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(raw.AsSpan(32,4),name.Length);
+        name.CopyTo(raw.AsSpan(36));
+        return raw;
+    }
+    static void PackedSection(BinaryWriter writer,string className,ulong key,bool superseded)
+    {
+        byte[] raw=PackedEntry(className);
+        writer.Write(raw.Length); // dataSize
+        writer.Write(superseded?2:1); // count
+        writer.Write(raw);
+        writer.Write(key);
+        writer.Write(0); // offset into section
+        writer.Write(raw.Length);
+        if(superseded)
+        {
+            writer.Write(0UL); // append-only superseded index key
+            writer.Write(0);
+            writer.Write(raw.Length);
+        }
+    }
+    byte[] blob;
+    using(var bytes=new MemoryStream())
+    using(var writer=new BinaryWriter(bytes,Encoding.UTF8,true))
+    {
+        writer.Write(1); // known embedded-store format
+        PackedSection(writer,"PrimalTribeData",1001,true);
+        PackedSection(writer,"PrimalPlayerData",1002,false);
+        writer.Write(0);writer.Write(0); // format terminator
+        writer.Flush();
+        blob=bytes.ToArray();
+    }
+    using(var db=new Microsoft.Data.Sqlite.SqliteConnection(
+        new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{
+            DataSource=world,Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadWriteCreate,Pooling=false
+        }.ToString()))
+    {
+        db.Open();
+        using var create=db.CreateCommand();
+        create.CommandText="CREATE TABLE custom(key TEXT PRIMARY KEY,value BLOB)";
+        create.ExecuteNonQuery();
+        using var insert=db.CreateCommand();
+        insert.CommandText="INSERT INTO custom(key,value) VALUES($key,$value)";
+        insert.Parameters.AddWithValue("$key","GameModeCustomBytes");
+        insert.Parameters.AddWithValue("$value",blob);
+        insert.ExecuteNonQuery();
+    }
+    string shaBefore=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(world)));
+    var report=EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(world);
+    Check(report.State=="INDEX_SCANNED" && report.ProfileCandidates==1&&
+        report.TribeCandidates==1&&report.SupersededEntries==1&&
+        report.Sections==2&&report.IndexBoundsVerified&&report.SourceUnchanged&&
+        !report.GameplayVerified&&!report.CharacterTravelVerified,
+        "offline SQLite -usestore inspector identifies one tribe and one profile without gameplay certification");
+    using(var bridge=new DesktopEmbeddedStoreBridge(()=>world))
+    {
+        var ok=await Call(bridge.HandleAsync,"store.inspectCopy");
+        IsOk(ok,"native offline world-copy picker invokes actual indexed Store reader");
+        var data=ok.GetProperty("data");
+        Check(data.GetProperty("profileCandidates").GetInt32()==1&&
+            data.GetProperty("tribeCandidates").GetInt32()==1&&
+            !data.GetProperty("characterTravelVerified").GetBoolean()&&
+            !ok.ToString().Contains(lab,StringComparison.OrdinalIgnoreCase),
+            "Obsidian renderer receives only bounded record counts, not local paths or survivor bytes");
+        var malicious=await Call(bridge.HandleAsync,"store.inspectCopy",
+            new{path=world});
+        Check(IsError(malicious,"UM-STORE-COPY-PATH-DENIED"),
+            "web renderer cannot inject arbitrary filesystem source path");
+    }
+    Check(shaBefore==Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(world))),
+        "embedded Store inspection leaves world SQLite bytes unchanged");
+    // An invalid index must never become a positive character or tribe proof.
+    using(var db=new Microsoft.Data.Sqlite.SqliteConnection(
+        new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{
+            DataSource=world,Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadWrite,Pooling=false
+        }.ToString()))
+    {
+        db.Open();
+        using var broken=db.CreateCommand();
+        broken.CommandText="UPDATE custom SET value=$blob WHERE key='GameModeCustomBytes'";
+        broken.Parameters.AddWithValue("$blob",new byte[]{1,0,0,0,255,255,255,127,1,0,0,0});
+        broken.ExecuteNonQuery();
+    }
+    bool invalidDenied=false;
+    try{EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(world);}
+    catch(InvalidDataException){invalidDenied=true;}
+    Check(invalidDenied,"truncated embedded index is rejected without inventing survivors");
+}
+
+// The shipping desktop owns no SQL database or MariaDB GUI. Historical WPF sources
 // must never be linked into or activated by the deployed app.
 {
     var application=typeof(DesktopReadOnlyBridge).Assembly;

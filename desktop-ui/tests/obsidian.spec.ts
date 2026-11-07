@@ -93,6 +93,14 @@ test.beforeEach(async ({ page }) => {
     const iniToken="00000000-0000-4000-8000-000000003333";
     const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string }) => {
       switch (m.method) {
+        case "store.inspectCopy": return {
+          fileName:"TheIsland_WP.ark",state:"INDEX_SCANNED",
+          format:1,storeBytes:412,sections:2,profileCandidates:2,
+          tribeCandidates:1,unclassifiedCandidates:0,supersededEntries:1,
+          duplicateKeys:0,indexBoundsVerified:true,sourceUnchanged:true,
+          gameplayVerified:false,characterTravelVerified:false,
+          evidence:"OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY"
+        };
         case "travel.capture": {
           const names=["Astraeos","Genesis Part 1","Valguero","The Island","Extinction"];
           const list=names.map((name,i)=>({
@@ -882,6 +890,11 @@ test("two-host character travel workbench captures exactly five local maps witho
   await expect(mandatory).toContainText("REFERENCIÁVAL IGAZOLT – NÁLUNK IS KÖTELEZŐEN MŰKÖDNIE KELL");
   await expect(mandatory).toContainText("Saját éles Store-v1 igazolás: még nincs");
   await expect(mandatory).toContainText("két map egy Windows gépen");
+  const embedded=page.getByRole("region",{name:"Beágyazott Store-v1 ellenőrzése"});
+  await embedded.getByRole("button",{name:"Offline .ark másolat megvizsgálása"}).click();
+  await expect(embedded).toContainText("2 karakterindex-bejegyzés");
+  await expect(embedded).toContainText("1 tribe-index-bejegyzés");
+  await expect(embedded).toContainText("a Store-v1 írásvédelem változatlan követelmény");
   await page.getByRole("button",{name:"Helyi 5 map ellenőrzése"}).click();
   await expect(page.getByText("Az öt helyi map fájlleltára nyugalomban készült; ez nem karakterigazolás.")).toBeVisible();
   await expect(page.locator(".uk-travel-map-results>div")).toHaveCount(5);

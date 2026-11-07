@@ -92,6 +92,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopOperationsCenterBridge _operations;
     private readonly DesktopLanSettingsBridge _lan;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
+    private readonly DesktopEmbeddedStoreBridge _embeddedStore;
     private readonly DesktopWorldBackupBridge _worldBackup;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
@@ -129,6 +130,7 @@ public sealed class ObsidianWindow : Form
         _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster);
         _lan = new DesktopLanSettingsBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
+        _embeddedStore = new DesktopEmbeddedStoreBridge();
         _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster);
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
@@ -178,6 +180,7 @@ public sealed class ObsidianWindow : Form
             _tray.Dispose();
             _browser.Dispose();
             _historicalStore.Dispose();
+            _embeddedStore.Dispose();
             _rconConfig.Dispose();
             _steamUpdate.Dispose();
             _freshStart.Dispose();
@@ -276,6 +279,7 @@ public sealed class ObsidianWindow : Form
                 bool rconAdminRoute = false;
                 bool rconConfigRoute = false;
                 bool travelRoute = false;
+                bool embeddedStoreRoute = false;
                 bool worldBackupRoute = false;
                 bool stoppedSteamRoute = false;
                 bool freshStartRoute = false;
@@ -314,6 +318,7 @@ public sealed class ObsidianWindow : Form
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare";
+                        embeddedStoreRoute = name is "store.inspectCopy";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore";
                         pluginStateRoute = name is
@@ -374,6 +379,7 @@ public sealed class ObsidianWindow : Form
                         : rconAdminRoute ? await _rconAdmin.HandleAsync(incoming)
                         : worldBackupRoute ? await _worldBackup.HandleAsync(incoming)
                         : updateInstallRoute ? await _updateInstall.HandleAsync(incoming)
+                        : embeddedStoreRoute ? await _embeddedStore.HandleAsync(incoming)
                         : travelRoute ? await _travel.HandleAsync(incoming)
                         : rconRoute ? await _rcon.HandleAsync(incoming)
                         : updateRoute ? await _updates.HandleAsync(incoming)

@@ -29,6 +29,10 @@
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <!-- Read-only, bounded SQLite BLOB slices for offline ASA -usestore proof. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <!-- Prevent obsolete vulnerable SQLitePCLRaw 2.1.11 transitively selected by the provider. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
   </ItemGroup>
   <ItemGroup Condition="Exists('../desktop-ui/dist/index.html')">
     <Content Include="../desktop-ui/dist/**/*" Link="ui/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
