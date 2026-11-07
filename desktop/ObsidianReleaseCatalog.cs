@@ -73,13 +73,16 @@ public static class ObsidianReleaseCatalog
             var exactAssets=assets.EnumerateArray().Where(asset=>
                 asset.ValueKind==JsonValueKind.Object&&
                 asset.TryGetProperty("name",out var name)&&
+                name.ValueKind==JsonValueKind.String &&
                 name.GetString()==Installer).ToArray();
             if(exactAssets.Length!=1)continue;
             var a=exactAssets[0];
-            string url=a.TryGetProperty("browser_download_url",out var download)?
+            string url=a.TryGetProperty("browser_download_url",out var download) &&
+                download.ValueKind==JsonValueKind.String?
                 download.GetString()??"":"";
             string expected=$"https://github.com/{Repository}/releases/download/{tag}/{Installer}";
-            string digest=a.TryGetProperty("digest",out var digestValue)?
+            string digest=a.TryGetProperty("digest",out var digestValue) &&
+                digestValue.ValueKind==JsonValueKind.String?
                 digestValue.GetString()??"":"";
             if(url!=expected || !Regex.IsMatch(digest,
                 @"\Asha256:[a-fA-F0-9]{64}\z",RegexOptions.CultureInvariant,

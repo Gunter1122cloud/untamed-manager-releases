@@ -2632,6 +2632,14 @@ try
             "untrusted release asset domain fails closed without staging an installer");
     }
 
+    // A large installer download must not freeze unrelated local map status
+    // and RCON RPCs. Final update handoff still waits for serialized writes.
+    Check(!ObsidianWindow.RequiresGlobalBridgeGate("updates.prepare") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("updates.install") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("servers.restartApply") &&
+          ObsidianWindow.RequiresGlobalBridgeGate(null),
+        "Obsidian updater staging cannot monopolize global server command gate");
+
     // Obsidian catalog must never accept a WPF binary even if its release
     // digest, version and GitHub repository are otherwise correct.
     {
@@ -2650,6 +2658,25 @@ try
                     digest="sha256:"+new string('f',64)}},
                 body="Synthetic preview release"}
         });
+        // GitHub metadata can contain malformed assets from unrelated tags.
+        // Ignore them independently; one wrong JSON field must never hide a
+        // later properly validated Obsidian release.
+        string mixedJson=JsonSerializer.Serialize(new object[]{
+            new{tag_name="v8.2.0-obsidian-preview.9",draft=false,prerelease=true,
+                assets=new object[]{
+                    new{name=17,browser_download_url=trustedUrl,digest=17},
+                    new{name=asset,browser_download_url=123,
+                        digest="sha256:"+new string('a',64)},
+                    new{name=asset,browser_download_url=trustedUrl,digest=42}
+                }},
+            new{tag_name=tag,draft=false,prerelease=true,
+                assets=new object[]{new{name=asset,browser_download_url=trustedUrl,
+                    digest="sha256:"+new string('f',64)}}}
+        });
+        var afterMalformed=ObsidianReleaseCatalog.Select(mixedJson,UpdateChannel.Preview);
+        Check(afterMalformed!=null&&afterMalformed.Tag==tag&&
+              ObsidianReleaseCatalog.IsTrusted(afterMalformed),
+            "malformed asset field types cannot block a later trusted Obsidian release");
         var selected=ObsidianReleaseCatalog.Select(releaseJson,UpdateChannel.Preview);
         Check(selected!=null&&selected.Tag==tag&&
               selected.AssetName==asset&&ObsidianReleaseCatalog.IsTrusted(selected),
