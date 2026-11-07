@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -27,6 +28,8 @@ public sealed class UpdateForm : Form
     private string? _ciRoot;
     private string _phase="initialize";
     private static string FailureCode(Exception error)=>error.Message switch{
+        "Obsidian installer SHA-256 mismatch"=>"INSTALLER_SHA256_MISMATCH",
+        "Obsidian updater requires a SHA-256 package pin"=>"INSTALLER_SHA256_REQUIRED",
         "Restored Manager did not initialize"=>"RESTORED_SMOKE_FAILED",
         "Restored Manager smoke check timed out"=>"RESTORED_SMOKE_TIMEOUT",
         "Application health check failed"=>"NEW_HEALTH_FAILED",
@@ -35,6 +38,17 @@ public sealed class UpdateForm : Form
         "Update snapshot inventory differs from protected owner binding"=>"SNAPSHOT_OWNER_HASH_MISMATCH",
         _=>error.GetType().Name
     };
+    private static void VerifyObsidianInstaller(string file,string expected)
+    {
+        if(expected.Length!=64 || !expected.All(Uri.IsHexDigit))
+            throw new InvalidDataException("Obsidian updater requires a SHA-256 package pin");
+        using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,
+            FileShare.Read,65536,FileOptions.SequentialScan);
+        byte[] current=SHA256.HashData(stream);
+        if(!CryptographicOperations.FixedTimeEquals(current,Convert.FromHexString(expected)))
+            throw new InvalidDataException("Obsidian installer SHA-256 mismatch");
+    }
+
     private void Report(string result,Exception? error=null)
     {
         if(_ciTest)File.WriteAllText(Path.Combine(_ciRoot!,"updater-result.json"),JsonSerializer.Serialize(new{
@@ -123,7 +137,15 @@ public sealed class UpdateForm : Form
             string expected=Required("--expected");
             profile=Required("--profile");
             string snapshotRoot=Path.GetFullPath(Required("--backup"));
+            string tag=Required("--tag");
+            string? expectedSha256=null;
+            // Only Obsidian is the shipping product. The retired WPF E2E
+            // reference harness retains its historical CLI, but a real
+            // Obsidian release can NEVER install without an exact SHA pin.
+            if(tag.Contains("-obsidian-",StringComparison.OrdinalIgnoreCase))
+                expectedSha256=Required("--sha256");
             if(!File.Exists(installer))throw new FileNotFoundException("Installer not found",installer);
+            if(expectedSha256!=null)VerifyObsidianInstaller(installer,expectedSha256);
             if(!File.Exists(appExe))throw new FileNotFoundException("Installed Manager EXE missing",appExe);
             if(!Directory.Exists(Path.GetDirectoryName(appExe)))
                 throw new DirectoryNotFoundException("Manager install folder missing");
@@ -138,6 +160,9 @@ public sealed class UpdateForm : Form
                     throw new TimeoutException("Manager UI did not exit in 90 seconds");
             }
             catch(ArgumentException){} // Already exited.
+            // Recheck after waiting for the original Manager to exit.
+            // A staged installer may have changed during the handoff.
+            if(expectedSha256!=null)VerifyObsidianInstaller(installer,expectedSha256);
             Update("Korábbi alkalmazás mentése…",25);
             _phase="snapshot";transaction.Prepare(Path.GetDirectoryName(appExe)!);snapshotPrepared=true;
             UpdateHistory.Append("snapshot-prepared",expected);
@@ -145,6 +170,9 @@ public sealed class UpdateForm : Form
             var log=Path.Combine(snapshotRoot,"setup.log");
             Update("Új Windows-verzió telepítése…",45);
             _phase="installer";
+            // Last integrity gate immediately before executing an external
+            // Setup process. A mismatch invokes the existing full rollback.
+            if(expectedSha256!=null)VerifyObsidianInstaller(installer,expectedSha256);
             var start=new ProcessStartInfo(installer){UseShellExecute=false,
                 CreateNoWindow=true,WorkingDirectory=Path.GetDirectoryName(installer)!};
             foreach(var arg in new[]{"/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART",
