@@ -288,7 +288,9 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
                 Locked(()=>{
                     var data=Read();
                     int index=data.Schedules.FindIndex(x=>x.MapId==observed.MapId);
-                    if(index>=0&&data.Schedules[index].LastAttemptUtc==now)
+                    if(index>=0&&data.Schedules[index].Enabled&&
+                       data.Schedules[index].LastStatus=="claimed-no-auto-retry"&&
+                       data.Schedules[index].LastAttemptUtc==now)
                     {
                         data.Schedules[index]=data.Schedules[index] with {
                             LastStatus=result,LastPoint=point
