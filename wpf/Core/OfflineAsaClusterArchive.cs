@@ -147,10 +147,12 @@ public static class OfflineAsaClusterArchive
             if(!Directory.Exists(mapFolder))
                 throw new InvalidDataException("Configuration map copy missing");
             string windows=Path.Combine(mapFolder,"WindowsServer");
+            // Game.ini is optional for a newly initialized dedicated server:
+            // preserve its presence or absence as recorded in the source copy.
+            // GameUserSettings.ini must be present in a supplied configuration.
             if(!Directory.Exists(windows) ||
-               !File.Exists(Path.Combine(windows,"Game.ini")) ||
                !File.Exists(Path.Combine(windows,"GameUserSettings.ini")))
-                throw new InvalidDataException("Configuration pair incomplete");
+                throw new InvalidDataException("Configuration copy incomplete");
             var stack=new Stack<string>();stack.Push(mapFolder);
             while(stack.Count>0)
             {
@@ -386,11 +388,15 @@ public static class OfflineAsaClusterArchive
                    StringComparer.OrdinalIgnoreCase))
                 throw new InvalidDataException("Configuration archive member changed");
             foreach(var map in manifest.Maps)
-                foreach(string essential in new[]{"Game.ini","GameUserSettings.ini"})
-                    if(!expected.Any(c=>c.Host==map.Host&&c.Map==map.Map&&
-                        c.RelativePath.EndsWith(Path.Combine("WindowsServer",essential),
-                            StringComparison.OrdinalIgnoreCase)))
-                        throw new InvalidDataException("Mandatory configuration file missing");
+            {
+                string required=Path.Combine(map.Host,map.Map.ToString("N"),
+                    "WindowsServer","GameUserSettings.ini");
+                if(!expected.Any(c=>c.Host==map.Host&&c.Map==map.Map&&
+                    c.RelativePath.Equals(required,StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidDataException("Mandatory configuration file missing");
+                // Game.ini is optional; its exact presence or absence is
+                // represented by the signed member inventory, not synthesized.
+            }
         }
         string copied=Inside(root,TransferFolder);
         var actual=InventoryTransfer(copied);
