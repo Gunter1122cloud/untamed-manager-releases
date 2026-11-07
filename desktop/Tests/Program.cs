@@ -4168,6 +4168,91 @@ try
             "running ASA blocks INI editing before even reading the file");
     }
 
+    // Store-v1 imported map RCON attachment: the original ASA INI is
+    // immutable; only the NEW Manager's DPAPI profile may receive the
+    // original credential after two separate native approvals.
+    {
+        string histRoot=Path.Combine(root,"historical-rcon-owned");
+        string bin=Path.Combine(histRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(bin);
+        string exe=Path.Combine(bin,"ArkAscendedServer.exe");
+        File.WriteAllBytes(exe,new byte[]{77,90,1,2});
+        string cfg=Path.Combine(histRoot,"ShooterGame","Saved","Config",
+            "WindowsServer");
+        Directory.CreateDirectory(cfg);
+        string ini=Path.Combine(cfg,"GameUserSettings.ini");
+        const string originalPass="HistoricalRconPass!2026";
+        const int rconPort=37145;
+        File.WriteAllText(ini,"[ServerSettings]\\r\\nRCONEnabled=True\\r\\n"+
+            "RCONPort="+rconPort+"\\r\\nServerAdminPassword="+originalPass+"\\r\\n");
+        var bytesBefore=File.ReadAllBytes(ini);
+        await using var histCluster=new ClusterService("obsidian-historical-rcon",
+            Path.Combine(root,"historical-rcon-profile"),m=>
+            new ProcessCheck(false,"Synthetic only; no ASA launch",null,true));
+        var protectedMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="The Center",InstallationPath=histRoot,
+            ExecutablePath=exe,GamePort=7941,QueryPort=27441,
+            HistoricalStoreProtected=true,HistoricalMapKey="TheCenter_WP",
+            HistoricalArchiveSha256=new string('A',64),
+            HistoricalEnabledMods=new List<string>(),HistoricalPassiveMods=new List<string>(),
+            Arguments="",ApiLoaderArguments=""
+        };
+        histCluster.AddMap(protectedMap);
+        using(var deniedSource=new DesktopHistoricalRconAttachBridge(
+            histCluster,sourceGuard:_=>false))
+        {
+            var blocked=await Call(deniedSource.HandleAsync,"historical.rconPreview",
+                new{mapId=protectedMap.Id,rconPort,password=originalPass});
+            Check(!blocked.GetProperty("ok").GetBoolean(),
+                "original Store-v1 ACTIVE/DONE failed guard prevents even RCON profile attach");
+        }
+        using(var bridge=new DesktopHistoricalRconAttachBridge(
+            histCluster,sourceGuard:_=>true))
+        {
+            var status=await Call(bridge.HandleAsync,"historical.rconStatus",
+                new{mapId=protectedMap.Id});
+            IsOk(status,"historical native RCON initial status");
+            Check(!status.GetProperty("data").GetProperty("configured").GetBoolean(),
+                "historical RCON initially unconfigured without modifying original ASA files");
+            var wrong=await Call(bridge.HandleAsync,"historical.rconPreview",
+                new{mapId=protectedMap.Id,rconPort,password="WrongRconSecret!2026"});
+            Check(!wrong.GetProperty("ok").GetBoolean(),
+                "historical RCON refuses credentials that disagree with the original ASA INI");
+            var preview=await Call(bridge.HandleAsync,"historical.rconPreview",
+                new{mapId=protectedMap.Id,rconPort,password=originalPass});
+            IsOk(preview,"original existing INI verifies historical RCON credentials");
+            Check(!preview.ToString().Contains(originalPass,StringComparison.Ordinal)&&
+                  !preview.ToString().Contains(histRoot,StringComparison.OrdinalIgnoreCase),
+                "historical RCON preview does not expose password or private root to React");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var noConsent=await Call(bridge.HandleAsync,"historical.rconApply",
+                new{token,confirm=false});
+            Check(!noConsent.GetProperty("ok").GetBoolean(),
+                "historical Store-v1 RCON attach requires explicit second approval");
+            var applied=await Call(bridge.HandleAsync,"historical.rconApply",
+                new{token,confirm=true});
+            IsOk(applied,"native historical RCON DPAPI profile attachment committed");
+            Check(applied.GetProperty("data").GetProperty("rconPort").GetInt32()==rconPort&&
+                  applied.GetProperty("data").GetProperty("originalStoreTouched").GetBoolean()==false&&
+                  applied.GetProperty("data").GetProperty("iniModified").GetBoolean()==false,
+                "historical RCON attaches to Manager profile without modifying Store or ASA INI");
+            Check(histCluster.Config.LocalMaps.Single().RconPort==rconPort&&
+                  SecureStore.Unprotect(histCluster.Config.LocalMaps.Single()
+                      .RconPasswordProtected)==originalPass,
+                "original historical RCON secret is stored as reversible current-user DPAPI only");
+            var replay=await Call(bridge.HandleAsync,"historical.rconApply",
+                new{token,confirm=true});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "historical RCON approval cannot be replayed");
+            var after=await Call(bridge.HandleAsync,"historical.rconStatus",
+                new{mapId=protectedMap.Id});
+            Check(after.GetProperty("data").GetProperty("configured").GetBoolean()&&
+                  after.GetProperty("data").GetProperty("verifiedIni").GetBoolean(),
+                "historical RCON status verifies existing password and port after Manager profile save");
+        }
+        Check(File.ReadAllBytes(ini).SequenceEqual(bytesBefore),
+            "historical original GameUserSettings.ini bytes remain IDENTICAL after every attach test");
+    }
     Console.WriteLine("PASS all native bridge checks (synthetic local fixtures, no ASA launch)");
 }
 finally
