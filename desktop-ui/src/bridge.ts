@@ -35,10 +35,24 @@ export type OperationsSchedule = {
   id:string; mapId:string; mapName:string; kind:string; frequency:string;
   enabled:boolean; nextUtc:string|null; state:string; autoExecutionPermitted:false;
 };
+export type OperationsReceipt = {
+  job:string;map:string;slotUtc:string;observedUtc:string;
+  status:string;code:string;
+};
+export type ReadOnlyScheduleKind = "Observation"|"ModCheck"|"ApiCheck"|"SteamCheck";
 export type OperationsSnapshot = {
   hostName:string; observedUtc:string; maps:OperationsMap[];
   schedules:OperationsSchedule[]; schedulingIsReadOnly:true;
+  scheduleReceipts?:OperationsReceipt[];supervisorState?:string;
   remoteCommandsAllowed:false; evidence:string;
+};
+export type ReadOnlyScheduleSaved = {
+  jobId:string;mapId:string;kind:ReadOnlyScheduleKind;
+  intervalMinutes:number;enabled:true;
+  autoLifecycleAllowed:false;remoteCommandsAllowed:false;evidence:string;
+};
+export type ReadOnlyScheduleDisabled = {
+  jobId:string;enabled:false;autoLifecycleAllowed:false;evidence:string;
 };
 
 export type PublicMap = {
@@ -756,7 +770,8 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "operations.snapshot" | "operations.map" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
+type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "operations.snapshot" | "operations.map" |
+  "operations.scheduleCreate" | "operations.scheduleDisable" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
@@ -792,6 +807,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
   confirm?: boolean; jobId?: string; watchId?: string; sessionName?: string;
+  kind?:ReadOnlyScheduleKind;intervalMinutes?:number;
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
@@ -872,6 +888,12 @@ export const managerBridge = {
   lanApply: (token:string) => request<LanSaved>("lan.apply",{token,confirm:true}),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
   operationsMap: (mapId:string) => request<OperationsSnapshot>("operations.map",{mapId}),
+  operationsScheduleCreate: (mapId:string,kind:ReadOnlyScheduleKind,intervalMinutes:number) =>
+    request<ReadOnlyScheduleSaved>("operations.scheduleCreate",{
+      mapId,kind,intervalMinutes,confirm:true
+    }),
+  operationsScheduleDisable: (jobId:string) =>
+    request<ReadOnlyScheduleDisabled>("operations.scheduleDisable",{jobId,confirm:true}),
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
   embeddedStoreInspectCopy: () => request<EmbeddedStoreCopyReport>("store.inspectCopy"),
   embeddedStoreInspectArchive: () => request<EmbeddedStoreArchiveReport>("store.inspectArchive"),

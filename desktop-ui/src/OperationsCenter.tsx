@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useMemo,useState} from "react";
 import {Activity,AlertTriangle,CalendarClock,LockKeyhole,RefreshCw,Server,Shield,Terminal,WifiOff} from "lucide-react";
-import {managerBridge,type OperationsMap,type OperationsSnapshot} from "./bridge";
+import {managerBridge,type OperationsMap,type OperationsSnapshot,type ReadOnlyScheduleKind} from "./bridge";
 import "./operations-fidelity.css";
 
 function elapsed(seconds:number|null){
@@ -48,6 +48,12 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [filter,setFilter]=useState<"all"|"running"|"attention">("all");
+  const [scheduleMap,setScheduleMap]=useState("");
+  const [scheduleKind,setScheduleKind]=useState<ReadOnlyScheduleKind>("Observation");
+  const [scheduleMinutes,setScheduleMinutes]=useState(30);
+  const [scheduleApproved,setScheduleApproved]=useState(false);
+  const [scheduleBusy,setScheduleBusy]=useState(false);
+  const [scheduleNotice,setScheduleNotice]=useState("");
   const reload=useCallback(async()=>{
     setBusy(true);setError("");
     try{
@@ -62,6 +68,36 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
     }finally{setBusy(false);}
   },[selectedMapId]);
   useEffect(()=>{void reload();},[reload]);
+  const addReadOnlySchedule=async()=>{
+    setScheduleBusy(true);setScheduleNotice("");
+    try{
+      if(!scheduleApproved||!scheduleMap||scheduleMinutes<5||
+         scheduleMinutes>10080||!Number.isInteger(scheduleMinutes))
+        throw new Error("UM-OPS-INVALID-READONLY-SCHEDULE");
+      const saved=await managerBridge.operationsScheduleCreate(
+        scheduleMap,scheduleKind,scheduleMinutes);
+      setScheduleNotice(saved.enabled?
+        "Mentve: a helyi, csak olvasó ellenőrzés automatikusan naplózódik.":"Nem menthető");
+      setScheduleApproved(false);
+      await reload();
+    }catch(e){
+      setScheduleNotice("Az ellenőrzés beállítása nem sikerült: "+
+        (e instanceof Error?e.message:"UM-OPS-UNAVAILABLE"));
+    }finally{setScheduleBusy(false);}
+  };
+  const disableReadOnlySchedule=async(jobId:string)=>{
+    setScheduleBusy(true);setScheduleNotice("");
+    try{
+      if(!scheduleApproved)throw new Error("UM-OPS-CONFIRMATION-REQUIRED");
+      await managerBridge.operationsScheduleDisable(jobId);
+      setScheduleNotice("Az automatikus helyi ellenőrzés kikapcsolva.");
+      setScheduleApproved(false);
+      await reload();
+    }catch(e){
+      setScheduleNotice("A kikapcsolás nem sikerült: "+
+        (e instanceof Error?e.message:"UM-OPS-UNAVAILABLE"));
+    }finally{setScheduleBusy(false);}
+  };
   const visible=useMemo(()=>(snapshot?.maps??[]).filter(x=>
     filter==="all"||(filter==="running"?x.running:
     x.maintenance||x.storeProtected||(!x.running&&!x.confirmedStopped))
@@ -101,7 +137,53 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
       {!selectedMapId&&<section className="premium-panel ops-schedules">
         <header className="premium-panel-heading"><h2><CalendarClock size={19}/> Meglévő ütemezések</h2>
           <span className="premium-small-muted">Core / Budapest időzóna</span></header>
-        <p>Az itt látható események a Manager mentett konfigurációjából származnak. Az előnézet nem indít restartot, mentést vagy RCON-parancsot; a felügyeleti végrehajtás külön engedélyhez kötött.</p>
+        <p>Az engedélyezett, kizárólag olvasó ellenőrzések a Windows Managerben, percenkénti felügyelettel és tartós naplóval futnak. A kimaradt alkalmakat nem ismétli meg. Szerverindítás, restart, SaveWorld, SteamCMD, SQL és Store-v1 írás továbbra is tiltva.</p>
+        <p className="premium-small-muted" role="status">
+          Helyi ellenőrző motor: {snapshot.supervisorState==="active"?
+            "AKTÍV":snapshot.supervisorState==="journal-unavailable"?
+              "Napló nem olvasható":snapshot.supervisorState==="journal-or-inspection-error"?
+                "Ellenőrzési hiba – manuális vizsgálat":snapshot.supervisorState??"Ismeretlen"}
+        </p>
+        <div className="ops-schedule-editor">
+          <label>Helyi map
+            <select aria-label="Ütemezett ellenőrzés mapja"
+              value={scheduleMap} disabled={scheduleBusy}
+              onChange={e=>setScheduleMap(e.target.value)}>
+              <option value="">Válassz helyi mapot</option>
+              {snapshot.maps.map(m=><option key={m.mapId} value={m.mapId}>{m.mapName}</option>)}
+            </select>
+          </label>
+          <label>Ellenőrzés
+            <select aria-label="Csak olvasó ellenőrzés típusa"
+              value={scheduleKind} disabled={scheduleBusy}
+              onChange={e=>setScheduleKind(e.target.value as ReadOnlyScheduleKind)}>
+              <option value="Observation">Folyamat / PID megfigyelése</option>
+              <option value="ModCheck">Konfigurált modok ellenőrzése</option>
+              <option value="ApiCheck">ASA API helyi fájlellenőrzés</option>
+              <option value="SteamCheck">Telepített Steam Build ID</option>
+            </select>
+          </label>
+          <label>Ismétlés (perc)
+            <input type="number" aria-label="Ellenőrzési időköz percben"
+              min={5} max={10080} step={1} value={scheduleMinutes}
+              disabled={scheduleBusy}
+              onChange={e=>setScheduleMinutes(Number(e.target.value))}/>
+          </label>
+          <label className="ops-schedule-approval">
+            <input type="checkbox" checked={scheduleApproved}
+              disabled={scheduleBusy}
+              onChange={e=>setScheduleApproved(e.target.checked)}/>
+            Jóváhagyom a helyi, csak olvasó ütemezés módosítását.
+          </label>
+          <button type="button" className="secondary"
+            disabled={!scheduleApproved||!scheduleMap||scheduleBusy||
+              !Number.isInteger(scheduleMinutes)||scheduleMinutes<5||
+              scheduleMinutes>10080}
+            onClick={()=>{void addReadOnlySchedule();}}>
+            <CalendarClock size={15}/> Ellenőrzés bekapcsolása
+          </button>
+        </div>
+        {scheduleNotice&&<p role="status">{scheduleNotice}</p>}
         {snapshot.schedules.length===0?<p className="ops-empty-schedule">
           Még nincs mentett ismétlődő ütemezés ezen a gépen.</p>:
           <div className="ops-schedule-scroll">
@@ -111,9 +193,32 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
               <td>{s.mapName}</td><td>{s.kind}</td><td>{s.frequency}</td>
               <td>{localDate(s.nextUtc)}</td>
               <td>{!s.enabled?"Kikapcsolva":s.state==="read-only-preview"?
-                "Megfigyelési előnézet":s.state==="operator-approval-required"?
-                "Jóváhagyás szükséges":s.state}</td>
+                "Csak olvasó ütemezés":s.state==="operator-approval-required"?
+                "Jóváhagyás szükséges":s.state}
+                {s.enabled&&["Observation","ModCheck","ApiCheck","SteamCheck"].includes(s.kind)&&
+                  <button type="button" className="secondary"
+                    disabled={!scheduleApproved||scheduleBusy}
+                    onClick={()=>{void disableReadOnlySchedule(s.id);}}>
+                    Kikapcsolás
+                  </button>}
+              </td>
             </tr>)}</tbody></table>
+          </div>}
+        <h3>Végrehajtási napló (legutóbbi 40 esemény)</h3>
+        {(snapshot.scheduleReceipts??[]).length===0?
+          <p className="ops-empty-schedule">Még nincs végrehajtott helyi ellenőrzés. Az új ütemezés az első alkalommal csak a következő időpontot rögzíti.</p>:
+          <div className="ops-schedule-scroll">
+            <table className="ops-schedule-table"><thead><tr>
+              <th>Map</th><th>Esedékesség</th><th>Állapot</th><th>Bizonyíték</th>
+            </tr></thead><tbody>{(snapshot.scheduleReceipts??[]).slice().reverse()
+              .map((r,i)=><tr key={r.job+"-"+r.slotUtc+"-"+i}>
+                <td>{snapshot.maps.find(m=>m.mapId===r.map)?.mapName??"Ismeretlen map"}</td>
+                <td>{localDate(r.slotUtc)}</td>
+                <td>{r.status==="succeeded"?"Olvasás végrehajtva":
+                  r.status==="failed-not-retried"?"Ellenőrzés sikertelen – nincs ismétlés":
+                  r.status==="claimed"?"Esedékesség lefoglalva":r.status}</td>
+                <td>{r.code}</td>
+              </tr>)}</tbody></table>
           </div>}
       </section>}
       <div className="ops-disclaimer"><WifiOff size={17}/>

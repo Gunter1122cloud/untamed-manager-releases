@@ -409,6 +409,87 @@ try
             "map inspection is bounded and never creates recurring jobs");
     }
 
+    // Ticking the durable operational scheduler must produce REAL local,
+    // read-only observations and persistent receipts, without touching any
+    // ASA process, config during the tick, Store-v1, RCON or network peer.
+    {
+        using var supervisor=new DesktopRecurringReadOnlySupervisor(cluster,
+            _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true));
+        var operations=new DesktopOperationsCenterBridge(cluster,supervisor);
+        var deniedNoApproval=await Call(operations.HandleAsync,
+            "operations.scheduleCreate",new{
+                mapId=map.Id,kind="Observation",intervalMinutes=5,confirm=false
+            });
+        Check(IsError(deniedNoApproval,
+                "UM-OPS-SCHEDULE-INVALID-OR-UNAPPROVED"),
+            "auto scheduler requires explicit native operator approval");
+        int oldCount=cluster.Config.RecurringSchedules.Count;
+        var forbidden=await Call(operations.HandleAsync,
+            "operations.scheduleCreate",new{
+                mapId=map.Id,kind="ServerRestart",intervalMinutes=5,confirm=true
+            });
+        Check(!forbidden.GetProperty("ok").GetBoolean() &&
+              cluster.Config.RecurringSchedules.Count==oldCount,
+            "no UI payload can schedule unattended restart/Store/RCON");
+        var unknown=await Call(operations.HandleAsync,
+            "operations.scheduleCreate",new{
+                mapId=Guid.NewGuid(),kind="Observation",intervalMinutes=5,confirm=true
+            });
+        Check(!unknown.GetProperty("ok").GetBoolean(),
+            "a foreign or remote map cannot be enrolled");
+        var created=await Call(operations.HandleAsync,
+            "operations.scheduleCreate",new{
+                mapId=map.Id,kind="Observation",intervalMinutes=5,confirm=true
+            });
+        IsOk(created,"operator created persisted, local read-only observation");
+        string jobId=created.GetProperty("data").GetProperty("jobId").GetString()!;
+        Check(created.GetProperty("data").GetProperty("autoLifecycleAllowed").GetBoolean()==false &&
+              cluster.Config.RecurringSchedules.Count==oldCount+1 &&
+              cluster.Config.RecurringSchedules.Single(j=>j.Id==Guid.Parse(jobId)).Enabled,
+            "native scheduler creation is a real optimistic Manager configuration write");
+        var duplicate=await Call(operations.HandleAsync,
+            "operations.scheduleCreate",new{
+                mapId=map.Id,kind="Observation",intervalMinutes=5,confirm=true
+            });
+        Check(!duplicate.GetProperty("ok").GetBoolean() &&
+              cluster.Config.RecurringSchedules.Count==oldCount+1,
+            "duplicate active local recurring task is rejected");
+
+        byte[] beforeTick=File.ReadAllBytes(cluster.Store.FilePath);
+        var start=DateTimeOffset.UtcNow;
+        Check(supervisor.TickOnce(start).Length==0,
+            "first recurring tick only claims next future due slot");
+        var firstDue=supervisor.DueDates()[Guid.Parse(jobId)];
+        Check(firstDue==start.AddMinutes(5),
+            "durable interval cursor records exact next slot, not a moving GUI estimate");
+        var performed=supervisor.TickOnce(start.AddMinutes(6));
+        Check(performed.Any(x=>x.Status=="claimed"&&x.Job==Guid.Parse(jobId)) &&
+              performed.Any(x=>x.Status=="succeeded"&&x.Job==Guid.Parse(jobId)) &&
+              File.ReadAllBytes(cluster.Store.FilePath).SequenceEqual(beforeTick),
+            "due schedule observes confirmed stopped process and journals success without rewriting Manager configuration");
+        var snapshot=await Call(operations.HandleAsync,"operations.snapshot");
+        IsOk(snapshot,"operations UI reads real persisted scheduler evidence");
+        var scheduledRow=snapshot.GetProperty("data").GetProperty("schedules")
+            .EnumerateArray().Single(x=>x.GetProperty("id").GetString()==jobId);
+        var persistedDue=supervisor.DueDates()[Guid.Parse(jobId)];
+        Check(scheduledRow.GetProperty("nextUtc").GetDateTimeOffset()==persistedDue,
+            "native UI displays the persisted next due slot rather than now plus interval");
+        Check(snapshot.GetProperty("data").GetProperty("scheduleReceipts")
+                .EnumerateArray().Any(x=>x.GetProperty("status").GetString()=="succeeded") &&
+              snapshot.GetProperty("data").GetProperty("schedulingIsReadOnly").GetBoolean(),
+            "operator sees durable executed read-only schedule receipts in the native UI");
+        using(var restarted=new DesktopRecurringReadOnlySupervisor(cluster))
+            Check(restarted.Recent().Any(x=>x.Status=="succeeded" &&
+                  x.Job==Guid.Parse(jobId)),
+                "Manager supervisor reattach reads original durable receipts without replay");
+        var disabled=await Call(operations.HandleAsync,
+            "operations.scheduleDisable",new{jobId,confirm=true});
+        IsOk(disabled,"operator disabled saved read-only inspection");
+        Check(cluster.Config.RecurringSchedules.Single(j=>j.Id==Guid.Parse(jobId)).Enabled==false &&
+              supervisor.TickOnce(start.AddMinutes(12)).Length==0,
+            "disabled recurring task never runs even after its prior due time");
+    }
+
     // Two hosts must each persist only their own LAN profile and DPAPI key.
     // No network listener or remote command runs during the isolated fixture.
     {

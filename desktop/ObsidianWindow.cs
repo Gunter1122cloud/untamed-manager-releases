@@ -115,6 +115,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopFreshAsaRestartBridge _freshRestart;
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopOperationsCenterBridge _operations;
+    private readonly DesktopRecurringReadOnlySupervisor _readOnlySupervisor;
     private readonly DesktopLanSettingsBridge _lan;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly DesktopEmbeddedStoreBridge _embeddedStore;
@@ -152,7 +153,8 @@ public sealed class ObsidianWindow : Form
         _freshStop = new DesktopFreshAsaStopBridge(_bridge.LocalCluster);
         _freshRestart = new DesktopFreshAsaRestartBridge(_bridge.LocalCluster);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
-        _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster);
+        _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
+        _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster,_readOnlySupervisor);
         _lan = new DesktopLanSettingsBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _embeddedStore = new DesktopEmbeddedStoreBridge();
@@ -186,8 +188,14 @@ public sealed class ObsidianWindow : Form
             // Once per Manager start, enable only the explicitly configured
             // authenticated read-only LAN listener. Config changes require
             // Manager restart, never an ASA server restart.
-            if (!_smokeTest) try { await _bridge.LocalCluster.BeginLanAsync(); }
+            if (!_smokeTest)
+            {
+                // Restarts only the Manager-side read-only schedule loop;
+                // never starts/stops any ARK server or touches shared Store.
+                _readOnlySupervisor.Start();
+                try { await _bridge.LocalCluster.BeginLanAsync(); }
                 catch (Exception) { /* UI remains usable; peer status stays unknown */ }
+            }
             await InitializeBrowserAsync();
         };
         FormClosing += (_, e) =>
@@ -201,6 +209,7 @@ public sealed class ObsidianWindow : Form
         };
         FormClosed += (_, _) =>
         {
+            _readOnlySupervisor.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
@@ -342,7 +351,8 @@ public sealed class ObsidianWindow : Form
                         freshRestartRoute = name is "servers.restartPreview" or "servers.restartApply" or
                             "servers.restartStatus" or "servers.restartCurrent";
                         lifecycleJournalRoute = name is "servers.lifecycleJournal";
-                        operationsRoute = name is "operations.snapshot" or "operations.map";
+                        operationsRoute = name is "operations.snapshot" or "operations.map" or
+                            "operations.scheduleCreate" or "operations.scheduleDisable";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";

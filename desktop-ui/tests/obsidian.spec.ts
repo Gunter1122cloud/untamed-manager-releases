@@ -91,7 +91,10 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string }) => {
+    const opsJobId="00000000-0000-4000-8000-000000009988";
+    let opsJobCreated=false;
+    let opsJobEnabled=false;
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; kind?:string;intervalMinutes?:number;jobId?:string }) => {
       switch (m.method) {
         case "store.inspectArchive": return {
           batch:"b8d0c49f-cc87-42e0-b312-a0485c82f101",
@@ -429,6 +432,24 @@ test.beforeEach(async ({ page }) => {
         case "servers.importLocal":
           state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
           return {mapId:"00000000-0000-4000-8000-000000009998",mapName:"Genesis Part 1",exeRegistered:true,needsConfiguration:true,evidence:"MANAGER_PROFILE_ONLY_NO_ASA_CHANGE"};
+        case "operations.scheduleCreate": {
+          if(!m.confirm || !state.local.maps.some(x=>x.id===m.mapId)||
+             !["Observation","ModCheck","ApiCheck","SteamCheck"].includes(m.kind??"")||
+             !m.intervalMinutes || m.intervalMinutes<5 || m.intervalMinutes>10080 ||
+             opsJobEnabled)throw new Error("UM-OPS-SCHEDULE-DENIED");
+          opsJobCreated=true;opsJobEnabled=true;
+          return {jobId:opsJobId,mapId:m.mapId,kind:m.kind,
+            intervalMinutes:m.intervalMinutes,enabled:true,
+            autoLifecycleAllowed:false,remoteCommandsAllowed:false,
+            evidence:"PERSISTED_LOCAL_READ_ONLY_SCHEDULE_ONLY"};
+        }
+        case "operations.scheduleDisable": {
+          if(!m.confirm || m.jobId!==opsJobId || !opsJobCreated)
+            throw new Error("UM-OPS-SCHEDULE-DENIED");
+          opsJobEnabled=false;
+          return {jobId:opsJobId,enabled:false,autoLifecycleAllowed:false,
+            evidence:"LOCAL_READ_ONLY_SCHEDULE_DISABLED"};
+        }
         case "operations.snapshot":
         case "operations.map": {
           const maps=state.local.maps.filter(x=>
@@ -449,7 +470,20 @@ test.beforeEach(async ({ page }) => {
               mapName:"The Island",kind:"Observation",frequency:"Daily",
               enabled:false,nextUtc:"2026-11-07T06:30:00Z",
               state:"disabled",autoExecutionPermitted:false
-            }],schedulingIsReadOnly:true,remoteCommandsAllowed:false,
+            },...(opsJobCreated?[{
+              id:opsJobId,mapId:one,mapName:"The Island",
+              kind:"Observation",frequency:"IntervalMinutes",enabled:opsJobEnabled,
+              nextUtc:"2026-11-07T12:00:00Z",
+              state:opsJobEnabled?"read-only-preview":"disabled",
+              autoExecutionPermitted:false
+            }]:[])],schedulingIsReadOnly:true,
+            supervisorState:"active",
+            scheduleReceipts:opsJobCreated?[{
+              job:opsJobId,map:one,slotUtc:"2026-11-07T11:30:00Z",
+              observedUtc:"2026-11-07T11:30:01Z",
+              status:"succeeded",code:"read-only-complete"
+            }]:[],
+            remoteCommandsAllowed:false,
             evidence:"LOCAL_OS_PROCESS_AND_SAVED_SCHEDULE_READ_ONLY"};
         }
         case "lan.status": return {
@@ -892,6 +926,30 @@ test("native Operations Center displays local PID RAM uptime and saved schedules
   await expect(page.locator(".ops-map")).toHaveCount(1);
   await expect(page.locator(".ops-map").first()).toContainText("12345");
   await expect(page.locator(".ops-schedules")).toHaveCount(0);
+});
+
+test("read-only operations scheduler requires approval, shows durable receipt and can be disabled",async({page})=>{
+  await page.setViewportSize({width:1366,height:768});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Üzemeltetés",exact:true}).click();
+  const add=page.getByRole("button",{name:"Ellenőrzés bekapcsolása"});
+  await expect(add).toBeDisabled();
+  await page.getByRole("combobox",{name:"Ütemezett ellenőrzés mapja"}).selectOption(first);
+  await page.getByRole("combobox",{name:"Csak olvasó ellenőrzés típusa"}).selectOption("Observation");
+  await page.getByRole("spinbutton",{name:"Ellenőrzési időköz percben"}).fill("5");
+  await expect(add).toBeDisabled();
+  await page.getByRole("checkbox",{name:/Jóváhagyom a helyi, csak olvasó/}).check();
+  await add.click();
+  await expect(page.getByText(/Mentve: a helyi, csak olvasó ellenőrzés/)).toBeVisible();
+  await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
+  await expect(page.getByText("read-only-complete")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Kikapcsolás"})).toBeDisabled();
+  await page.getByRole("checkbox",{name:/Jóváhagyom a helyi, csak olvasó/}).check();
+  await page.getByRole("button",{name:"Kikapcsolás"}).click();
+  await expect(page.getByText("Az automatikus helyi ellenőrzés kikapcsolva.")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Kikapcsolás"})).toHaveCount(0);
+  await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
+  await expect(page.locator(".ops-schedules")).not.toContainText("Szerver automatikus újraindítása");
 });
 
 test("two-host LAN pairing is guarded, native-only, private and never exposes key",async({page})=>{

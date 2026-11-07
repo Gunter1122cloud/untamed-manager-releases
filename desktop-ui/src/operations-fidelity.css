@@ -48,3 +48,21 @@
 @media(max-width:1080px){.ops-grid{grid-template-columns:1fr}.ops-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:620px){.ops-summary{grid-template-columns:1fr 1fr}.ops-values{grid-template-columns:1fr 1fr}
   .ops-toolbar .secondary{margin-left:0}.ops-card-foot{flex-wrap:wrap}.ops-summary>div{padding:11px}}
+
+/* Native read-only scheduler: compact responsive controls, never a fake
+   operational status. Retains the approved Obsidian glass/emerald palette. */
+.ops-schedule-editor{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;
+  margin:14px 0;padding:14px;border:1px solid #3b6b5b;border-radius:11px;background:#112a2f}
+.ops-schedule-editor>label{display:flex;flex-direction:column;gap:6px;
+  color:#badbd0;font-size:12px;min-width:135px;flex:1 1 175px}
+.ops-schedule-editor select,.ops-schedule-editor input[type=number]{
+  color:#e7f5ee;background:#1e4141;border:1px solid #44766a;border-radius:8px;
+  padding:9px 10px;min-width:0;width:100%;height:39px}
+.ops-schedule-editor select:focus-visible,.ops-schedule-editor input:focus-visible{
+  outline:2px solid #6be1b3;outline-offset:2px}
+.ops-schedule-editor .ops-schedule-approval{flex:1 1 100%;
+  display:flex;align-items:center;flex-direction:row;gap:9px}
+.ops-schedule-approval input[type=checkbox]{width:16px;height:16px;accent-color:#55c99b}
+.ops-schedule-editor>button{height:39px;white-space:normal}
+.ops-schedules h3{margin:19px 0 8px;font-size:14px;color:#e0f3e8}
+.ops-schedule-table td button{margin-left:9px;padding:5px 8px;font-size:11px}
