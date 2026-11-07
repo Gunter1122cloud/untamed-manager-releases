@@ -3062,6 +3062,76 @@ try
               recentWorldPoints[0].Id==protective &&
               recentWorldPoints[1].Id==point,
             "backup history orders verified packages by real creation time, never random GUID order");
+        // A world restore package is operator-selectable untrusted local
+        // metadata. Corrupt packages must never be selectable, restorable or
+        // cause an uncaught NullReferenceException. All changes below occur
+        // only in NEW synthetic backup folders, not a current ASA world.
+        string packageRoot=Path.Combine(localProfile,"world-backups",
+            localMap.Id.ToString("N"));
+        string originalManifest=File.ReadAllText(
+            Path.Combine(packageRoot,point,"manifest.json"));
+        void RejectManifest(string label,Action<System.Text.Json.Nodes.JsonObject> mutate)
+        {
+            var candidate=Guid.NewGuid().ToString("D");
+            string folder=Path.Combine(packageRoot,candidate);
+            Directory.CreateDirectory(folder);
+            var payload=System.Text.Json.Nodes.JsonNode.Parse(originalManifest)!.AsObject();
+            mutate(payload);
+            File.WriteAllText(Path.Combine(folder,"manifest.json"),payload.ToJsonString());
+            File.WriteAllText(Path.Combine(folder,"complete"),"1");
+            bool denied=false;
+            try{UntamedWorldBackup.Verify(localMap,localProfile,candidate);}
+            catch(InvalidDataException){denied=true;}
+            Check(denied,label+" rejected before full world restore/hash scan");
+            Check(!UntamedWorldBackup.List(localMap,localProfile,50)
+                .Any(x=>x.Id==candidate),
+                label+" cannot appear in selectable backup history");
+            Directory.Delete(folder,true);
+        }
+        RejectManifest("null world backup files collection",x=>x["files"]=null);
+        RejectManifest("null world backup file entry",
+            x=>x["files"]!.AsArray()[0]=null);
+        RejectManifest("null SHA-256 backup digest",
+            x=>x["files"]![0]!["sha256"]=null);
+        RejectManifest("null relative file path",
+            x=>x["files"]![0]!["relative"]=null);
+        {
+            string forgedId=Guid.NewGuid().ToString("D");
+            string folder=Path.Combine(packageRoot,forgedId);
+            Directory.CreateDirectory(folder);
+            string m=Path.Combine(folder,"manifest.json");
+            string marker=Path.Combine(folder,"complete");
+            File.WriteAllText(m,originalManifest);
+            File.WriteAllText(marker,"INVALID");
+            bool notCommitted=false;
+            try{UntamedWorldBackup.Verify(localMap,localProfile,forgedId);}
+            catch(InvalidDataException){notCommitted=true;}
+            Check(notCommitted,
+                "incorrect backup completion marker never authenticates a world package");
+            File.WriteAllText(marker,"1");
+            using(var oversized=new FileStream(m,FileMode.Open,
+                FileAccess.Write,FileShare.None))
+                oversized.SetLength(12_000_001);
+            bool hugeDenied=false;
+            try{UntamedWorldBackup.Verify(localMap,localProfile,forgedId);}
+            catch(InvalidDataException){hugeDenied=true;}
+            Check(hugeDenied,
+                "oversized world backup manifest denied before JSON allocation");
+            File.WriteAllText(m,originalManifest);
+            using(var oversized=new FileStream(marker,FileMode.Open,
+                FileAccess.Write,FileShare.None))
+                oversized.SetLength(17);
+            bool markerDenied=false;
+            try{UntamedWorldBackup.Verify(localMap,localProfile,forgedId);}
+            catch(InvalidDataException){markerDenied=true;}
+            Check(markerDenied,
+                "oversized world backup complete marker denied");
+            Directory.Delete(folder,true);
+        }
+        Check(UntamedWorldBackup.Verify(localMap,localProfile,point).Files==3 &&
+              File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup) &&
+              File.ReadAllBytes(charFile).SequenceEqual(survivorBeforeBackup),
+            "original verified backup and restored world/player bytes unchanged after negative metadata tests");
         File.WriteAllBytes(Path.Combine(localWorld,"broken.arkprofile"),Array.Empty<byte>());
         preview=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=localMap.Id});
