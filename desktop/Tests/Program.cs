@@ -4272,6 +4272,126 @@ try
         Check(File.ReadAllBytes(ini).SequenceEqual(bytesBefore),
             "historical original GameUserSettings.ini bytes remain IDENTICAL after every attach test");
     }
+
+    // Native original ACTIVE/DONE Store Start bridge: simulate the execution
+    // boundary but NEVER call Process.Start or connect to the original UNC.
+    // Actual production path uses the real source guard and OS process proof.
+    {
+        string historicalRoot=Path.Combine(root,"historical-active-launch");
+        Directory.CreateDirectory(historicalRoot);
+        string exe=Path.Combine(historicalRoot,"ArkAscendedServer.exe");
+        File.WriteAllBytes(exe,new byte[]{77,90});
+        Check(LegacyStoreV1ProcessObserver.PotentialOriginalWriter(exe,
+                "ArkAscendedServer.exe",exe),
+            "original Store Start blocks an existing ASA process with the same executable");
+        Check(LegacyStoreV1ProcessObserver.PotentialOriginalWriter(exe,
+                "AsaApiLoader.exe",Path.Combine(historicalRoot,"AsaApiLoader.exe")),
+            "original Store Start blocks an existing ASA API loader from the same installation");
+        Check(LegacyStoreV1ProcessObserver.PotentialOriginalWriter(exe,
+                "ArkAscendedServer.exe",null),
+            "unreadable original ASA process path never proves the installation stopped");
+        Check(!LegacyStoreV1ProcessObserver.PotentialOriginalWriter(exe,
+                "ArkAscendedServer.exe",Path.Combine(root,"other-install",
+                    "ArkAscendedServer.exe")),
+            "an unrelated ASA binary on another installation does not falsely claim the local map");
+        Check(!LegacyStoreV1ProcessObserver.PotentialOriginalWriter(exe,
+                "Unrelated.exe",exe),
+            "unrelated processes never block original Store local process identity");
+
+        await using var historic=new ClusterService("obsidian-native-original-start",
+            Path.Combine(root,"historic-start-profile"),
+            _=>new ProcessCheck(false,"Synthetic stopped source",null,true));
+        var storeMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Ragnarok",InstallationPath=historicalRoot,
+            ExecutablePath=exe,HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=new string('A',64),
+            HistoricalMapKey="Ragnarok_WP",
+            GamePort=7787,QueryPort=27017,RconPort=37025,
+            RconPasswordProtected=SecureStore.Protect("SyntheticOriginalRcon!"),
+            Arguments=""
+        };
+        historic.AddMap(storeMap);
+        int launches=0,prepared=0;
+        bool changedPlan=false;
+        LegacyStoreV1NativeStartPlan Prepare(LocalMap original)
+        {
+            prepared++;
+            Check(original.Id==storeMap.Id&&original.HistoricalStoreProtected,
+                "native original Store Start checks locally registered historical map");
+            return new("Ragnarok_WP?listen -Port=7787 -usestore -log",
+                new string(changedPlan?'C':'B',64),7787,27017,37025,
+                "SYNTHETIC_TWO_HOST_SOURCE_TEST_ONLY");
+        }
+        ProcessIdentity Start(Guid mapId,string fingerprint,bool confirmed)
+        {
+            launches++;
+            Check(mapId==storeMap.Id&&fingerprint==new string('B',64)&&confirmed,
+                "native real Start executor receives exactly its approved fingerprint and map");
+            return new ProcessIdentity{
+                Pid=42101,StartedUtc=DateTimeOffset.UtcNow,
+                ExecutablePath=exe,Arguments="SYNTHETIC_NO_ACTUAL_PROCESS"
+            };
+        }
+        using(var bridge=new DesktopHistoricalActiveStartBridge(historic,
+            Prepare,Start))
+        {
+            var unknown=await Call(bridge.HandleAsync,"historical.activeStartStatus",
+                new{mapId=Guid.NewGuid()});
+            Check(!unknown.GetProperty("ok").GetBoolean(),
+                "original Store Start status refuses maps not owned by this host");
+            var status=await Call(bridge.HandleAsync,"historical.activeStartStatus",
+                new{mapId=storeMap.Id});
+            IsOk(status,"native original Store Start read-only process status");
+            Check(!status.GetProperty("data").GetProperty("running").GetBoolean()&&
+                  status.GetProperty("data").GetProperty("rconConfigured").GetBoolean(),
+                "registered Store-v1 map reports stopped process and attached original RCON");
+
+            var preview=await Call(bridge.HandleAsync,"historical.activeStartPreview",
+                new{mapId=storeMap.Id});
+            IsOk(preview,"real native original Store-v1 Start is available after source preflight");
+            Check(preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                  !preview.GetProperty("data").GetProperty("conversionAllowed").GetBoolean()&&
+                  !preview.ToString().Contains(historicalRoot,StringComparison.OrdinalIgnoreCase)&&
+                  !preview.ToString().Contains("Ragnarok_WP?listen",StringComparison.Ordinal),
+                "original Store Start preview proves source shape without exposing command line or source paths");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var withoutPhrase=await Call(bridge.HandleAsync,"historical.activeStartApply",
+                new{token,confirm=true,typedApproval="START"});
+            Check(!withoutPhrase.GetProperty("ok").GetBoolean()&&launches==0,
+                "historical two-host Store Start cannot run without exact typed operator phrase");
+            changedPlan=true;
+            var moved=await Call(bridge.HandleAsync,"historical.activeStartApply",
+                new{token,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
+            Check(!moved.GetProperty("ok").GetBoolean()&&launches==0,
+                "changed original two-host source fingerprint blocks Start before spawning");
+            changedPlan=false;
+            // Preview remains intact on source mismatch but still requires
+            // explicit second attempt and fresh source verification.
+            var newPreview=await Call(bridge.HandleAsync,"historical.activeStartPreview",
+                new{mapId=storeMap.Id});
+            IsOk(newPreview,"operator can start a fresh source-verification attempt");
+            token=newPreview.GetProperty("data").GetProperty("token").GetString()!;
+            var started=await Call(bridge.HandleAsync,"historical.activeStartApply",
+                new{token,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
+            IsOk(started,"native original Store-v1 Start calls owned executor only with valid typed consent");
+            var receipt=started.GetProperty("data");
+            Check(receipt.GetProperty("pid").GetInt32()==42101&&
+                  !receipt.GetProperty("readyCertified").GetBoolean()&&
+                  !receipt.GetProperty("conversionPerformed").GetBoolean()&&
+                  !receipt.GetProperty("originalStoreMetadataChanged").GetBoolean()&&
+                  !receipt.GetProperty("gameClientRejoinVerified").GetBoolean(),
+                "native historical Start reports real PID only and never invents gameplay, Store conversion or travel proof");
+            var replay=await Call(bridge.HandleAsync,"historical.activeStartApply",
+                new{token,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
+            Check(!replay.GetProperty("ok").GetBoolean()&&launches==1,
+                "original Store-v1 Start token is one-shot and never silently retries a process");
+            Check(prepared>=4,
+                "original Store Start checks source fingerprint before both preflight and apply");
+            Check(historic.Config.LocalMaps.Single().Arguments=="" &&
+                  historic.Config.LocalMaps.Single().LastProcess==null,
+                "synthetic Start never changes original launch profile or Store source files");
+        }
+    }
     Console.WriteLine("PASS all native bridge checks (synthetic local fixtures, no ASA launch)");
 }
 finally
