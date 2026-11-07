@@ -850,7 +850,10 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
       reject(new Error("UM-NATIVE-TIMEOUT-OPERATION-STATUS-UNKNOWN"));
     }, timeoutFor(method));
     pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
-    try { webview.postMessage({ id, method, ...args }); }
+    // Native route and correlation ID are assigned LAST: a forwarded payload
+    // may contain an untyped "id" or "method" at runtime. It must never
+    // replace the allowlisted operation chosen by this client bridge.
+    try { webview.postMessage({ ...args, id, method }); }
     catch {
       pending.delete(id);
       clearTimeout(timer);
