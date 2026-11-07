@@ -63,17 +63,33 @@ public sealed class DesktopEmbeddedStoreBridge : IDisposable
                 parsedId==Guid.Empty||
                 !data.TryGetProperty("method",out var method)||
                 method.ValueKind!=JsonValueKind.String||
-                method.GetString() is not ("store.inspectCopy" or "store.inspectArchive"))
+                method.GetString() is not ("store.inspectCopy" or "store.inspectArchive" or "store.compareArchives"))
                 return Error(null,"UM-STORE-COPY-REQUEST");
             id=parsedId.ToString("D");
             bool archiveMode=method.GetString()=="store.inspectArchive";
+            bool compareMode=method.GetString()=="store.compareArchives";
             // The renderer is never allowed to pass a filesystem path.
             if(data.TryGetProperty("path",out _)||data.TryGetProperty("root",out _)||
-                data.TryGetProperty("file",out _)||data.TryGetProperty("archive",out _))
+                data.TryGetProperty("file",out _)||data.TryGetProperty("archive",out _)||
+                data.TryGetProperty("beforeArchive",out _)||
+                data.TryGetProperty("afterArchive",out _))
                 return Error(id,"UM-STORE-COPY-PATH-DENIED");
             await serial.WaitAsync();
             try
             {
+                if(compareMode)
+                {
+                    // Two native folder pickers, never a renderer-supplied path.
+                    string? before=pickArchive();
+                    if(string.IsNullOrWhiteSpace(before))
+                        return Error(id,"UM-STORE-COPY-CANCELLED");
+                    string? after=pickArchive();
+                    if(string.IsNullOrWhiteSpace(after))
+                        return Error(id,"UM-STORE-COPY-CANCELLED");
+                    var comparison=await Task.Run(()=>
+                        OfflineAsaArchiveComparison.Compare(before,after));
+                    return Ok(id,comparison);
+                }
                 string? path=archiveMode?pickArchive():pickCopy();
                 if(string.IsNullOrWhiteSpace(path))
                     return Error(id,"UM-STORE-COPY-CANCELLED");
