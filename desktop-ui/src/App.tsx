@@ -20,6 +20,7 @@ import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { HistoricalRconAttach } from "./HistoricalRconAttach";
 import { HistoricalActiveStartPanel } from "./HistoricalActiveStartPanel";
 import { HistoricalRconLivePanel } from "./HistoricalRconLivePanel";
+import { HistoricalGracefulStopPanel } from "./HistoricalGracefulStopPanel";
 import { PremiumDashboard } from "./PremiumDashboard";
 import { ClusterMapGallery } from "./ClusterMapGallery";
 import { MapCover } from "./MapArtwork";
@@ -1426,6 +1427,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       </div>
       {map.storeProtected&&<HistoricalRconAttach mapId={mapId} onConfigured={onConfigured}/>}
       {map.storeProtected&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
+      {map.storeProtected&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
       {map.gamePort>0 && !map.storeProtected && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && !map.storeProtected && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && !map.storeProtected && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
