@@ -24,7 +24,7 @@ A program **nem tartalmaz SQL/MariaDB motort vagy adatbázis-kezelőt**; az ASA-
 ## Windows tesztbuild
 ```powershell
 cd desktop-ui
-npm ci
+npm install --no-audit --no-fund
 npm run build
 npm run test:ui
 cd ../desktop

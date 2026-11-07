@@ -811,8 +811,23 @@ declare global {
   }
 }
 
-const pending = new Map<string, { resolve(value: unknown): void; reject(reason: Error): void }>();
+// Every request must settle. Previously a failed/closed native handler could
+// leave its Promise and map entry alive forever, freezing the UI. A timeout
+// does NOT imply that a mutating operation was rolled back or safe to retry.
+const pending = new Map<string, {
+  resolve(value: unknown): void; reject(reason: Error): void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
 const webview = window.chrome?.webview;
+
+function timeoutFor(method: WireRequest["method"]): number {
+  if (method === "updates.prepare") return 10 * 60_000; // verified GitHub installer download
+  if (method === "store.inspectArchive" || method === "store.compareArchives" ||
+      method === "store.inspectCopy" || method === "historical.localParity" ||
+      method === "historical.pairedEvidence" || method === "backup.create" ||
+      method === "backup.restore") return 60 * 60_000; // bounded large-file workflows
+  return 120_000;
+}
 
 webview?.addEventListener("message", (event) => {
   const msg = event.data;
@@ -820,6 +835,7 @@ webview?.addEventListener("message", (event) => {
   const waiting = pending.get(msg.id);
   if (!waiting) return;
   pending.delete(msg.id);
+  clearTimeout(waiting.timer);
   if (msg.ok) waiting.resolve(msg.data);
   else waiting.reject(new Error(msg.error || "UM-UNKNOWN"));
 });
@@ -828,9 +844,21 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
   if (!webview) return Promise.reject(new Error("UM-NATIVE-UNAVAILABLE"));
   const id = crypto.randomUUID();
   return new Promise<T>((resolve, reject) => {
-    pending.set(id, { resolve: (value) => resolve(value as T), reject });
-    try { webview.postMessage({ id, method, ...args }); }
-    catch { pending.delete(id); reject(new Error("UM-NATIVE-UNAVAILABLE")); }
+    const timer = setTimeout(() => {
+      if (!pending.has(id)) return;
+      pending.delete(id);
+      reject(new Error("UM-NATIVE-TIMEOUT-OPERATION-STATUS-UNKNOWN"));
+    }, timeoutFor(method));
+    pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
+    // Native route and correlation ID are assigned LAST: a forwarded payload
+    // may contain an untyped "id" or "method" at runtime. It must never
+    // replace the allowlisted operation chosen by this client bridge.
+    try { webview.postMessage({ ...args, id, method }); }
+    catch {
+      pending.delete(id);
+      clearTimeout(timer);
+      reject(new Error("UM-NATIVE-UNAVAILABLE"));
+    }
   });
 }
 

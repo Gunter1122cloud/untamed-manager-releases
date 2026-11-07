@@ -24,7 +24,30 @@ public sealed class ObsidianWindow : Form
     internal static bool RequiresGlobalBridgeGate(string? method) =>
         !string.Equals(method, "updates.prepare", StringComparison.Ordinal) &&
         !string.Equals(method, "store.inspectCopy", StringComparison.Ordinal) &&
-        !string.Equals(method, "store.inspectArchive", StringComparison.Ordinal);
+        !string.Equals(method, "store.inspectArchive", StringComparison.Ordinal) &&
+        !string.Equals(method, "store.compareArchives", StringComparison.Ordinal);
+    // A malformed bridge request must never escape an async-void WebView2
+    // event handler and terminate the Windows Manager. Keep native exception
+    // details and private machine paths out of renderer responses.
+    internal static string NativeErrorResponse(string raw)
+    {
+        string? id=null;
+        try
+        {
+            if(raw.Length <= 1_500_000)
+            {
+                using var doc=JsonDocument.Parse(raw);
+                if(doc.RootElement.ValueKind==JsonValueKind.Object &&
+                   doc.RootElement.TryGetProperty("id",out var field) &&
+                   field.ValueKind==JsonValueKind.String &&
+                   Guid.TryParse(field.GetString(),out var guid) && guid!=Guid.Empty)
+                    id=guid.ToString("D");
+            }
+        }
+        catch(JsonException) { /* Untrusted syntax: return an uncorrelated error */ }
+        return JsonSerializer.Serialize(new{id,ok=false,error="UM-NATIVE-UNEXPECTED-FAILURE"});
+    }
+
     // Windows-native chrome is styled through DWM. Keep the regular system
     // caption/buttons so taskbar, resize, snap, accessibility and DPI work.
     // DWM may reject an attribute on older builds; these are best-effort only.
@@ -257,7 +280,11 @@ public sealed class ObsidianWindow : Form
             core.WebMessageReceived += async (_, e) =>
             {
                 if (!IsAppUrl(e.Source)) return;
-                string incoming = e.WebMessageAsJson;
+                string incoming;
+                try { incoming = e.WebMessageAsJson; }
+                catch (Exception) { return; }
+                try
+                {
                 string? methodName = null;
                 bool credentialRoute = false;
                 bool draftRoute = false;
@@ -414,6 +441,20 @@ public sealed class ObsidianWindow : Form
                     }
                 }
                 finally { if (requireGlobalGate) _bridgeGate.Release(); }
+                }
+                catch (Exception)
+                {
+                    // File races, unexpected JSON members and a disposed
+                    // WebView must not tear down the native Manager. Release
+                    // any global mutation gate via the inner finally above.
+                    try
+                    {
+                        if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
+                            _browser.CoreWebView2.PostWebMessageAsJson(
+                                NativeErrorResponse(incoming));
+                    }
+                    catch (Exception) { /* Window is closing; no renderer remains */ }
+                }
             };
             if (_smokeTest)
                 core.NavigationCompleted += async (_, args) =>

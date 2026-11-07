@@ -8,7 +8,7 @@ Ez a jelenlegi, felhasználó által kiválasztott asztali alkalmazás: **offlin
 ## Fordítás (elkülönített Windows tesztgépen)
 ```powershell
 cd desktop-ui
-npm ci
+npm install --no-audit --no-fund
 npm run build
 npm run test:ui
 cd ../desktop

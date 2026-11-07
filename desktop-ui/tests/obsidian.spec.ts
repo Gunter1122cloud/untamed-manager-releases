@@ -1004,6 +1004,41 @@ test("crash restore marker blocks new snapshot and restore actions in native bac
   await expect(page.getByRole("button",{name:"Visszaállítás"})).toBeDisabled();
 });
 
+test("dropped native WebView response expires its Promise and rejects without an automatic mutation retry",async({page})=>{
+  await page.clock.install();
+  await page.goto("/");
+  await page.evaluate(async()=>{
+    const host=window as unknown as {
+      chrome:{webview:{postMessage:(message:{id:string;method:string})=>void}};
+      __rpcFailure?:Promise<string>;__droppedNativeRequests?:number
+    };
+    const webview=host.chrome.webview;
+    const original=webview.postMessage.bind(webview);
+    host.__droppedNativeRequests=0;
+    webview.postMessage=(message)=>{
+      if(message.method==="updates.status"){
+        host.__droppedNativeRequests=(host.__droppedNativeRequests??0)+1;
+        return; // Synthetic abandoned native RPC; no response ever arrives.
+      }
+      original(message);
+    };
+    const bridge=await import("/src/bridge.ts");
+    host.__rpcFailure=bridge.managerBridge.updateStatus()
+      .then(()=>"unexpected-success")
+      .catch((error:Error)=>error.message);
+  });
+  await page.clock.fastForward(121_000);
+  const observed=await page.evaluate(async()=>{
+    const host=window as unknown as {
+      __rpcFailure:Promise<string>;__droppedNativeRequests:number
+    };
+    return {error:await host.__rpcFailure,dropped:host.__droppedNativeRequests};
+  });
+  expect(observed).toEqual({
+    error:"UM-NATIVE-TIMEOUT-OPERATION-STATUS-UNKNOWN",dropped:1
+  });
+});
+
 test("Update Center verifies Obsidian-only installer and requires explicit two-stage native approval",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Frissítések"}).click();
