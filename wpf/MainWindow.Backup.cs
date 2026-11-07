@@ -20,7 +20,7 @@ public partial class MainWindow
         var plugins=new CheckBox{Content="Helyi pluginfájlok, konfigurációk és tartós adatok",IsChecked=false,Foreground=Brushes.White};
         string defaultRoot=Path.Combine(_cluster.Store.Root,"local-backups",map.Id.ToString("N"));
         var folder=new TextBox{Text=defaultRoot,Height=35,Foreground=Brushes.White,Background=Panel};
-        var status=Label("Nincs elkészült mentés. Restore és SQL/Cluster Vault-írás letiltva.",12,Soft);
+        var status=Label("Nincs elkészült mentés. Éles ASA/Store-v1 restore és Cluster Vault-írás letiltva.",12,Soft);
         int counted=0;
         Button? create=null;
         create=Btn("Ellenőrzött fájlmentés létrehozása",async ()=>
@@ -38,7 +38,7 @@ public partial class MainWindow
                 string output=Path.Combine(folder.Text.Trim(),
                     DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..8]);
                 if(WinMessageBox.Show("Ez LEÁLLÍTOTT mapról készülő, SHA-256-tal ellenőrzött fájlmásolat.\n"+
-                    "Nem minősül bizonyítottan konzisztens ASA/SQL/Store mentésnek.\n\n"+output+
+                    "Nem minősül bizonyítottan konzisztens ASA/Store mentésnek.\n\n"+output+
                     "\n\nFolytatod?","Helyi mentés",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
                 status.Text="Mentés folyamatban...";counted=0;if(create!=null)create.IsEnabled=false;
                 var result=await Task.Run(()=>LocalBackupWorkflow.Create(map,state,output,chosen,_=>{
@@ -85,7 +85,7 @@ public partial class MainWindow
         });
         return V(
             Label("Csak helyileg regisztrált, igazoltan leállított mapról készíthető offline fájlmásolat.",12,Aqua),
-            Label("Az SQL, a közös Cluster Vault és a kétgépes clustertranszfer nem része ennek a mentésnek.",12,Soft),
+            Label("A külső adatbázis, a közös Cluster Vault és a kétgépes transzfer nem része ennek a helyi mapmentésnek.",12,Soft),
             world,ini,plugins,
             Label("Helyi célkönyvtár (nem lehet a map gyökerén belül)",12,Aqua),folder,
             Btn("Célmappa kiválasztása",()=>{
