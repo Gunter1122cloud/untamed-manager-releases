@@ -13,8 +13,9 @@
     <ApplicationIcon>../wpf/Assets/UntamedManager.ico</ApplicationIcon>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
-  <!-- Identical Core sources and package baseline as the working Supervisor.
-       This migration does not move or modify production Core or the WPF build. -->
+  <!-- Obsidian Command is the supported Windows Manager.
+       It reuses selected shared C# Core implementation sources; historical
+       WPF screens are not shipped, maintained or required by this host. -->
   <ItemGroup>
     <Compile Remove="Tests/**/*.cs" />
     <!-- Shipping Obsidian: shared runtime Core only. No database writers,
