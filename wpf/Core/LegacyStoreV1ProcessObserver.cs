@@ -188,6 +188,42 @@ public static class LegacyStoreV1ProcessObserver
         catch(Exception){return false;}
     }
 
+    /// <summary>
+    /// The legacy agent could launch an original ACTIVE Store map through
+    /// AsaApiLoader.exe instead of ArkAscendedServer.exe. Its loader may share
+    /// the same Win64 directory with a DIFFERENT original map. Ignore that
+    /// running loader ONLY when the native registered other map explicitly
+    /// selected ASA API, and its full WMI command line matches the ORIGINAL
+    /// -usestore/map/port/mod/session grammar for that other map.
+    /// A loader for the requested map, unknown process, missing opt-in,
+    /// changed arguments or inaccessible WMI is never ignored.
+    /// </summary>
+    internal static bool ProvenDistinctOwnedApiLoader(string? commandLine,
+        string expectedServer,LocalMap requested,IEnumerable<LocalMap> localMaps)
+    {
+        if(string.IsNullOrWhiteSpace(commandLine)||requested==null||
+           localMaps==null||string.IsNullOrWhiteSpace(expectedServer))
+            return false;
+        try
+        {
+            string server=Path.GetFullPath(expectedServer);
+            string loader=Path.Combine(Path.GetDirectoryName(server)!,"AsaApiLoader.exe");
+            return localMaps.Any(other=>other!=null&&other.Id!=Guid.Empty&&
+                other.Id!=requested.Id&&other.HistoricalStoreProtected&&
+                other.StartWithAsaApi&&
+                other.GamePort!=requested.GamePort&&
+                other.QueryPort!=requested.QueryPort&&
+                other.RconPort!=requested.RconPort&&
+                Path.GetFullPath(other.ExecutablePath).Equals(
+                    server,StringComparison.OrdinalIgnoreCase)&&
+                !string.IsNullOrWhiteSpace(other.ApiLoaderPath)&&
+                Path.GetFullPath(other.ApiLoaderPath).Equals(
+                    loader,StringComparison.OrdinalIgnoreCase)&&
+                MatchesOriginalActiveCommand(commandLine,loader,other));
+        }
+        catch(Exception){return false;}
+    }
+
     public static ProcessCheck ObserveStoppedForNativeStart(LocalMap map)=>
         ObserveStoppedForNativeStart(map,Array.Empty<LocalMap>());
 
@@ -213,9 +249,12 @@ public static class LegacyStoreV1ProcessObserver
                 // Inaccessible command lines never prove a different map.
                 // The EXE, legacy ?listen token, ports, mod ordering,
                 // session flags and locally REGISTERED map must all match.
+                string? command=Convert.ToString(item["CommandLine"]);
                 if(name.Equals("ArkAscendedServer.exe",StringComparison.OrdinalIgnoreCase)&&
-                   ProvenDistinctOwnedMap(Convert.ToString(item["CommandLine"]),
-                       map.ExecutablePath,map,locallyRegisteredMaps))
+                   ProvenDistinctOwnedMap(command,map.ExecutablePath,map,locallyRegisteredMaps))
+                    continue;
+                if(name.Equals("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase)&&
+                   ProvenDistinctOwnedApiLoader(command,map.ExecutablePath,map,locallyRegisteredMaps))
                     continue;
                 return new(false,"UM-HISTORICAL-PROCESS-FAMILY-NOT-STOPPED",null,false);
             }
