@@ -86,3 +86,12 @@
   border:1px solid #3b6357;border-radius:7px;padding:9px;background:#1d3936;}
 .uk-store-copy-metrics strong{font-size:19px;color:#9ceec6;font-variant-numeric:tabular-nums;}
 @media(max-width:790px){.uk-store-copy-metrics{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+.uk-store-archive-scroller{margin-top:11px;overflow-x:auto;max-height:310px;overflow-y:auto;
+  border:1px solid #3a5f55;border-radius:7px;}
+.uk-store-archive-table{width:100%;border-collapse:collapse;text-align:left;
+  font-size:11px;white-space:nowrap;color:#d8e9e2;}
+.uk-store-archive-table th{background:#223e38;color:#a9eecf;position:sticky;top:0;
+  padding:9px 10px;font-size:10.5px;font-weight:600;}
+.uk-store-archive-table td{padding:8px 10px;border-top:1px solid #35564d;}
+.uk-store-archive-table td:nth-last-child(-n+2){font-variant-numeric:tabular-nums;text-align:right;}
