@@ -412,6 +412,14 @@ export type UpdateCheck = {
   evidence:"GITHUB_RELEASE_METADATA_NOT_AN_INSTALLER";
 };
 
+export type ScheduledStoppedBackupState={
+  mapId:string;mapName:string;enabled:boolean;
+  intervalMinutes:number|null;nextDueUtc:string|null;
+  lastAttemptUtc:string|null;lastStatus:string;lastPoint:string|null;
+  runnerState:string;storeProtected:boolean;
+  automaticRestoreAllowed:false;automaticServerStopAllowed:false;
+  evidence:"PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS";
+};
 export type WorldBackupPoint={
   id:string;createdUtc:string;kind:"manual"|"protective";
   files:number;bytes:number;characters:number;tribes:number;verified:true;
@@ -979,6 +987,12 @@ export const managerBridge = {
     request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
   pluginToggleApply: (token:string) =>
     request<PluginToggleReceipt>("plugins.toggleApply",{token,confirm:true}),
+  backupScheduleStatus: (mapId:string) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleStatus",{mapId}),
+  backupScheduleCreate: (mapId:string,intervalMinutes:number) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true}),
+  backupScheduleDisable: (mapId:string) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleDisable",{mapId,confirm:true}),
   backupHistory: (mapId:string) =>
     request<WorldBackupHistory>("backup.history",{mapId}),
   backupPreview: (mapId:string) =>
