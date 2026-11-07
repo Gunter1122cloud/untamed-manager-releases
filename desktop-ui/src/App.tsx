@@ -17,6 +17,7 @@ import {
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
+import { HistoricalRconAttach } from "./HistoricalRconAttach";
 import { PremiumDashboard } from "./PremiumDashboard";
 import { ClusterMapGallery } from "./ClusterMapGallery";
 import { MapCover } from "./MapArtwork";
@@ -1421,8 +1422,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
           <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A történeti Store-v1 átvétel, automatikus restart és nem igazolt SaveComplete utáni leállítás továbbra is külön védelem alatt áll.</div>
         </Panel>
       </div>
-      {map.gamePort>0 && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
-      {map.gamePort>0 && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {map.storeProtected&&<HistoricalRconAttach mapId={mapId} onConfigured={onConfigured}/>}
+      {map.gamePort>0 && !map.storeProtected && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && !map.storeProtected && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
