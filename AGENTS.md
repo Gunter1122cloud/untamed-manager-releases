@@ -13,5 +13,11 @@ The user expressly abandoned the former native WPF UI. Do **not** resume native 
 - One supported release channel and updater identity: `v1.4.0-obsidian-preview.<run>`, native desktop `UntamedDesktop.exe`, `Untamed_Obsidian_Desktop_Preview_Setup.exe`. The installed release tag must be preserved in the Setup/Portable, hashed, and checked independently of WPF releases.
 - Do not reintroduce the abandoned SQL/MariaDB GUI, historic three-SQL archive/restore, or expose secrets in GitHub releases or the React UI.
 
+## Mandatory externally proven ASA function parity (user decision 2026-11-07)
+- If a relevant ASA operation is **demonstrably implemented and tested in another Manager**, it is a **required working capability of Obsidian Command**, not optional or dismissible because we have not yet run our own integration test. Label the requirement: **"REFERENCIÁVAL IGAZOLT – NÁLUNK IS KÖTELEZŐEN MŰKÖDNIE KELL"**.
+- Keep two **separate** fields: (1) mandatory reference-proven target behavior and (2) actual local implementation/test evidence. Do not present a foreign test as an Obsidian live test or claim a protected Store-v1 operation is already live-certified. Lack of local testing is a reason to complete implementation and acceptance, **not to remove or downgrade the feature**.
+- For character/tribe/tribute, mandatory parity includes complete world+embedded-store preservation, the separate shared cluster/transfer data, verified backups and restore safeguards, A→B→A survivor/items/dinos travel across the two five-map hosts, and safe failure handling.
+- Source-level reference matrix and mandatory acceptance conditions: [docs/development/ASA-REFERENCE-PROVEN-MANDATORY-20261107.md](docs/development/ASA-REFERENCE-PROVEN-MANDATORY-20261107.md). Preserve original writer/session safety guards until our own live tests certify them.
+
 ## Next work
 Audit and implement changes **only in `desktop/`, `desktop-ui/`, shared `wpf/Core/`, and the Obsidian CI/updater where unavoidable**. Old WPF GUI is not a parallel delivery target. Document any remaining real-ASA blockers instead of asserting they passed synthetic tests.
