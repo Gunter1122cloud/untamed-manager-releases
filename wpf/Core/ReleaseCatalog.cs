@@ -20,7 +20,7 @@ public sealed record ReleaseOrder(Version Version, int? Preview) : IComparable<R
     }
     public static ReleaseOrder? Parse(string tag)
     {
-        var m=Regex.Match(tag,@"\Av?(\d+)\.(\d+)\.(\d+)(?:-wpf-preview\.(\d+))?\z");
+        var m=Regex.Match(tag,@"\Av?(\d+)\.(\d+)\.(\d+)(?:-wpf-(?:preview|asa-only)\.(\d+))?\z");
         if(!m.Success || !Version.TryParse($"{m.Groups[1]}.{m.Groups[2]}.{m.Groups[3]}",out var version))return null;
         int? preview=null;
         if(m.Groups[4].Success)
