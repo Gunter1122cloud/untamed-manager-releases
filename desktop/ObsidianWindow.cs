@@ -15,6 +15,14 @@ namespace UntamedDesktop;
 public sealed class ObsidianWindow : Form
 {
     private const string AppOrigin = "https://untamed-app.example";
+
+    // Staging an installer is isolated from ASA maps and local configuration.
+    // It can take minutes on a slow connection, so the WebView host must not
+    // block Dashboard/RCON/status RPCs behind the global command gate.
+    // Final update.install still takes the global gate before handing off
+    // to the external updater and closing the Manager.
+    internal static bool RequiresGlobalBridgeGate(string? method) =>
+        !string.Equals(method, "updates.prepare", StringComparison.Ordinal);
     // Windows-native chrome is styled through DWM. Keep the regular system
     // caption/buttons so taskbar, resize, snap, accessibility and DPI work.
     // DWM may reject an attribute on older builds; these are best-effort only.
@@ -245,6 +253,7 @@ public sealed class ObsidianWindow : Form
             {
                 if (!IsAppUrl(e.Source)) return;
                 string incoming = e.WebMessageAsJson;
+                string? methodName = null;
                 bool credentialRoute = false;
                 bool draftRoute = false;
                 bool modCopyRoute = false;
@@ -282,6 +291,7 @@ public sealed class ObsidianWindow : Form
                         method.ValueKind == JsonValueKind.String)
                     {
                         string? name = method.GetString();
+                        methodName = name;
                         credentialRoute = name is
                             "curseforge.credentialStatus" or
                             "curseforge.credentialSave" or
@@ -346,7 +356,8 @@ public sealed class ObsidianWindow : Form
                     }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
-                await _bridgeGate.WaitAsync();
+                bool requireGlobalGate = RequiresGlobalBridgeGate(methodName);
+                if (requireGlobalGate) await _bridgeGate.WaitAsync();
                 try
                 {
                     string response = apiCoreRoute ? await _apiCore.HandleAsync(incoming)
@@ -394,7 +405,7 @@ public sealed class ObsidianWindow : Form
                         BeginInvoke(new Action(Close));
                     }
                 }
-                finally { _bridgeGate.Release(); }
+                finally { if (requireGlobalGate) _bridgeGate.Release(); }
             };
             if (_smokeTest)
                 core.NavigationCompleted += async (_, args) =>
