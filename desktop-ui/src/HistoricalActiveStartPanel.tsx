@@ -8,8 +8,8 @@ import {managerBridge,type HistoricalActiveStartPreview,
  * old-session/two-peer/INI/port/process preflight and an additional typed
  * confirmation. No WebView-supplied launch arguments or original paths.
  */
-export function HistoricalActiveStartPanel({mapId,onStarted}:{
-  mapId:string;onStarted:()=>Promise<void>
+export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
+  mapId:string;rconAttached:boolean;onStarted:()=>Promise<void>
 }){
   const [state,setState]=useState<HistoricalActiveStartStatus|null>(null);
   const [preview,setPreview]=useState<HistoricalActiveStartPreview|null>(null);
