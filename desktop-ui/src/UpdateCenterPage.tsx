@@ -3,12 +3,24 @@ import {AlertTriangle,CheckCircle2,CloudDownload,GitBranch,HardDrive,Info,
   RefreshCw,ShieldCheck,ServerCog} from "lucide-react";
 import {managerBridge,type UpdateStatus,type UpdateCheck,type UpdatePrepared} from "./bridge";
 
+
+function previewVersion(raw:string|undefined):string {
+  if(!raw)return "Beolvasás...";
+  const match=/^(\d+[.]\d+[.]\d+)(?:[.]\d+)?$/.exec(raw);
+  return match?`${match[1]} Preview`:"Nem azonosított verzió";
+}
+function buildLabel(tag:string|undefined):string {
+  const match=/^v\d+[.]\d+[.]\d+-obsidian-preview[.](\d+)$/.exec(tag??"");
+  return match?`Build #${match[1]}`:(tag?"Korábbi telepítési jelölő":"Fejlesztői build");
+}
+
 /** Real GitHub Releases metadata: read-only. The release signature/digest and
  * external updater must be verified before installation can be enabled. */
 export function UpdateCenterPage(){
   const [current,setCurrent]=useState<UpdateStatus|null>(null);
   const [latest,setLatest]=useState<UpdateCheck|null>(null);
-  const [channel,setChannel]=useState<"stable"|"preview">("preview");
+  // One active Obsidian release channel; historical WPF is never selectable.
+  const channel:"preview"="preview";
   const [loading,setLoading]=useState(false);
   const [prepared,setPrepared]=useState<UpdatePrepared|null>(null);
   const [approved,setApproved]=useState(false);
@@ -66,9 +78,9 @@ export function UpdateCenterPage(){
         <header className="premium-panel-heading"><h2><ServerCog size={19}/> Jelenlegi telepítés</h2></header>
         <div className="uk-updates-inner">
           <div className="uk-updates-info-row"><span><HardDrive size={16}/> Programverzió</span>
-            <strong>{current?.runningVersion??"Beolvasás..."}</strong></div>
-          <div className="uk-updates-info-row"><span><GitBranch size={16}/> Telepített kiadvány</span>
-            <strong>{current?.installedTag||"Fejlesztői / nem címkézett build"}</strong></div>
+            <strong>{previewVersion(current?.runningVersion)}</strong></div>
+          <div className="uk-updates-info-row"><span><GitBranch size={16}/> Technikai build</span>
+            <strong>{buildLabel(current?.installedTag)}</strong></div>
           <div className="uk-updates-info-row"><span><ShieldCheck size={16}/> Forrás</span>
             <strong>Gunter1122cloud / GitHub Releases</strong></div>
           <div className="uk-updates-info-row"><span><Info size={16}/> Automatikus telepítés</span>
@@ -80,16 +92,8 @@ export function UpdateCenterPage(){
       <section className="premium-panel uk-updates-discovery">
         <header className="premium-panel-heading"><h2><CloudDownload size={19}/> Új verzió ellenőrzése</h2></header>
         <div className="uk-updates-inner">
-          <label className="uk-updates-channel">Kiadási csatorna
-            <select aria-label="Frissítési csatorna" value={channel}
-              disabled={loading} onChange={e=>{
-                setChannel(e.target.value as "stable"|"preview");setLatest(null);setError("");
-                setPrepared(null);setApproved(false);
-              }}>
-              <option value="stable">Stabil kiadások (amint elérhetők)</option>
-              <option value="preview">Obsidian Preview (jelenlegi kiadási ág)</option>
-            </select>
-          </label>
+          <p className="uk-updates-channel"><strong>Obsidian Command Preview</strong> — az egyetlen támogatott kiadási ág.
+            A régi WPF nem választható frissítési forrásként.</p>
           <button type="button" className="primary uk-updates-check" onClick={()=>{void check();}}
             disabled={loading}>
             <RefreshCw size={18} className={loading?"spin":""}/>
@@ -101,7 +105,8 @@ export function UpdateCenterPage(){
               latest.newer?"Új kiadás érhető el":"Kiadás ellenőrizve":
               "Nincs ellenőrizhető kiadás ebben a csatornában"}</strong>
             {latest.found&&<>
-              <div><span>Verzió</span><b>{latest.tag}</b></div>
+              <div><span>Programverzió</span><b>{latest.version} Preview</b></div>
+              <div><span>Technikai kiadás</span><small>{latest.tag}</small></div>
               <div><span>Telepítő</span><b>{latest.assetName}</b></div>
               <div className="uk-updates-hash"><span>SHA-256 (kiadási adat)</span>
                 <code>{latest.sha256}</code></div>
