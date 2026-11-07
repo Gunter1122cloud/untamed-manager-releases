@@ -159,32 +159,73 @@ public static class LegacyStoreV1ProcessObserver
         catch(Exception){return true;}
     }
 
-    public static ProcessCheck ObserveStoppedForNativeStart(LocalMap map)
+    /// <summary>
+    /// One ORIGINAL ASA EXE may legitimately run several owned maps with
+    /// different ?listen/port/mod switches. Ignore another process ONLY
+    /// when it matches the EXACT original source grammar of a distinct,
+    /// locally registered historical map. An unknown, third-party or
+    /// malformed process using the same executable remains a hard blocker.
+    /// This cannot be used as cross-host writer/session authority.
+    /// </summary>
+    internal static bool ProvenDistinctOwnedMap(string? commandLine,
+        string expectedExe,LocalMap requested,IEnumerable<LocalMap> localMaps)
     {
-        if(map==null||!map.HistoricalStoreProtected||map.Id==Guid.Empty)
+        if(requested==null||localMaps==null||
+           string.IsNullOrWhiteSpace(commandLine)||
+           string.IsNullOrWhiteSpace(expectedExe))return false;
+        try
+        {
+            string exe=Path.GetFullPath(expectedExe);
+            return localMaps.Any(other=>other!=null&&other.Id!=requested.Id&&
+                other.Id!=Guid.Empty&&other.HistoricalStoreProtected&&
+                other.GamePort!=requested.GamePort&&
+                other.QueryPort!=requested.QueryPort&&
+                other.RconPort!=requested.RconPort&&
+                Path.GetFullPath(other.ExecutablePath).Equals(
+                    exe,StringComparison.OrdinalIgnoreCase)&&
+                MatchesOriginalActiveCommand(commandLine,exe,other));
+        }
+        catch(Exception){return false;}
+    }
+
+    public static ProcessCheck ObserveStoppedForNativeStart(LocalMap map)=>
+        ObserveStoppedForNativeStart(map,Array.Empty<LocalMap>());
+
+    public static ProcessCheck ObserveStoppedForNativeStart(LocalMap map,
+        IEnumerable<LocalMap> locallyRegisteredMaps)
+    {
+        if(map==null||!map.HistoricalStoreProtected||map.Id==Guid.Empty||
+           locallyRegisteredMaps==null)
             throw new UnauthorizedAccessException("Only an imported historical map can be launched");
         try
         {
             if(!CanonicalLocalExecutable(map.ExecutablePath))
                 return new(false,"UM-HISTORICAL-PROCESS-BINARY-UNKNOWN",null,false);
             using var query=new ManagementObjectSearcher(
-                "SELECT ProcessId, Name, ExecutablePath FROM Win32_Process");
+                "SELECT ProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process");
             using var found=query.Get();
             foreach(ManagementObject item in found)
             {
                 string name=Convert.ToString(item["Name"])??"";
-                if(PotentialOriginalWriter(map.ExecutablePath,name,
-                    Convert.ToString(item["ExecutablePath"])))
-                    return new(false,"UM-HISTORICAL-PROCESS-FAMILY-NOT-STOPPED",null,false);
+                string? path=Convert.ToString(item["ExecutablePath"]);
+                if(!PotentialOriginalWriter(map.ExecutablePath,name,path))
+                    continue;
+                // Inaccessible command lines never prove a different map.
+                // The EXE, legacy ?listen token, ports, mod ordering,
+                // session flags and locally REGISTERED map must all match.
+                if(name.Equals("ArkAscendedServer.exe",StringComparison.OrdinalIgnoreCase)&&
+                   ProvenDistinctOwnedMap(Convert.ToString(item["CommandLine"]),
+                       map.ExecutablePath,map,locallyRegisteredMaps))
+                    continue;
+                return new(false,"UM-HISTORICAL-PROCESS-FAMILY-NOT-STOPPED",null,false);
             }
-            // This is an OS enumeration, not a declaration that the game has
-            // committed SaveComplete or that player/tribe/tribute data is valid.
-            return new(false,"UM-HISTORICAL-EXACT-EXE-FAMILY-STOPPED",null,true);
+            // OS process-family absence for THIS map; a different,
+            // positively identified original ASA map may still be running.
+            return new(false,"UM-HISTORICAL-MAP-STOPPED_OTHER_VERIFIED_MAPS_IGNORED",
+                null,true);
         }
         catch(Exception)
         {
-            // WMI denial, unsupported process info or incomplete enumeration
-            // is unknown, never an affirmative proof of a stopped server.
             return new(false,"UM-HISTORICAL-PROCESS-ENUMERATION-UNAVAILABLE",null,false);
         }
     }
