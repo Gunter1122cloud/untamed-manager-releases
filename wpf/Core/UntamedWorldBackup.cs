@@ -33,6 +33,8 @@ public static class UntamedWorldBackup
         bool Restored,bool OldWorldRetained,string PreviousDirectory);
 
     private const int MaxFiles=100000;
+    private const int MaxManifestBytes=12_000_000;
+    private const int MaxCompleteMarkerBytes=16;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private static string Guard(string candidate)
     {
@@ -189,19 +191,51 @@ public static class UntamedWorldBackup
         new(id,m.CreatedUtc,m.Kind,m.Files.Length,Total(m.Files),
             m.Files.Count(f=>f.Relative.EndsWith(".arkprofile",StringComparison.OrdinalIgnoreCase)),
             m.Files.Count(f=>f.Relative.EndsWith(".arktribe",StringComparison.OrdinalIgnoreCase)));
+    // SHA-verified backup archives are still user/operator-selected local
+    // files and may be truncated, linked or modified by another process.
+    // Never allocate an unbounded File.ReadAllText buffer before validating
+    // their metadata. An incomplete or malformed package is NOT restorable.
+    private static byte[] ReadMetadata(string path,int minimum,int maximum)
+    {
+        if((File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-BACKUP-METADATA-LINK-DENIED");
+        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,
+            FileShare.Read,65536,FileOptions.SequentialScan);
+        if(stream.Length<minimum||stream.Length>maximum)
+            throw new InvalidDataException("UM-BACKUP-METADATA-SIZE");
+        byte[] bytes=new byte[checked((int)stream.Length)];
+        stream.ReadExactly(bytes);
+        if(stream.ReadByte()!=-1)
+            throw new InvalidDataException("UM-BACKUP-METADATA-CHANGED");
+        return bytes;
+    }
+    private static void RequireCommitted(string folder)
+    {
+        string marker=Path.Combine(folder,"complete");
+        if(!File.Exists(marker) ||
+           Encoding.UTF8.GetString(ReadMetadata(marker,1,MaxCompleteMarkerBytes))!="1")
+            throw new InvalidDataException("UM-BACKUP-INCOMPLETE");
+    }
+
     private static Manifest Read(string folder,Guid owner,string map,string install)
     {
         string file=Path.Combine(folder,"manifest.json"),data=Path.Combine(folder,"files");
-        if(!File.Exists(Path.Combine(folder,"complete"))||
-           !File.Exists(file)||new FileInfo(file).Length>12_000_000)
+        RequireCommitted(folder);
+        if(!File.Exists(file))
             throw new InvalidDataException("UM-BACKUP-INCOMPLETE");
-        var m=JsonSerializer.Deserialize<Manifest>(File.ReadAllText(file),Json)??
+        var m=JsonSerializer.Deserialize<Manifest>(
+            ReadMetadata(file,2,MaxManifestBytes),Json)??
             throw new InvalidDataException("UM-BACKUP-MANIFEST-INVALID");
+        // System.Text.Json accepts null elements/properties despite the
+        // C# record's nonnullable declaration. Reject BEFORE any full-world
+        // SHA-256 scan or potentially destructive restore operation.
         if(m.Schema!=1||m.Owner!=owner||m.MapKey!=map||
            !string.Equals(m.Installation,install,StringComparison.OrdinalIgnoreCase)||
            m.Kind is not ("manual" or "protective")||
            m.Files is null||m.Files.Length is <1 or >MaxFiles||
-           m.Files.Any(x=>x.Bytes<0||x.Sha256.Length!=64||
+           m.Files.Any(x=>x is null||x.Bytes<0||
+               string.IsNullOrWhiteSpace(x.Relative)||
+               x.Sha256 is null||x.Sha256.Length!=64||
                !x.Sha256.All(Uri.IsHexDigit)||
                SafeRelative(x.Relative).Length==0)||
            m.Files.Select(x=>x.Relative).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=m.Files.Length)
@@ -292,9 +326,10 @@ public static class UntamedWorldBackup
             {
                 if((File.GetAttributes(folder)&FileAttributes.ReparsePoint)!=0)continue;
                 string path=Path.Combine(folder,"manifest.json");
-                if(!File.Exists(Path.Combine(folder,"complete"))||!File.Exists(path)||
-                   new FileInfo(path).Length is <=0 or >12_000_000)continue;
-                using var doc=JsonDocument.Parse(File.ReadAllText(path));
+                if(!File.Exists(path))continue;
+                RequireCommitted(folder);
+                using var doc=JsonDocument.Parse(
+                    ReadMetadata(path,2,MaxManifestBytes));
                 var json=doc.RootElement;
                 if(json.ValueKind!=JsonValueKind.Object ||
                    !json.TryGetProperty("owner",out var owner) ||
