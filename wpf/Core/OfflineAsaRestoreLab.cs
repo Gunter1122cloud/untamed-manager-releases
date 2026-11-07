@@ -24,6 +24,10 @@ public static class OfflineAsaRestoreLab
     private const string Index="restore-lab-index.json";
     private const string IndexHash="restore-lab-index.sha256";
     private const string Complete="complete";
+    // Copied lab metadata is untrusted even after the archive was verified.
+    // Bound bytes BEFORE hashing and JSON parsing, not after allocation.
+    private const int MaxLabIndexBytes=32*1024*1024;
+    private const int MaxLabMarkerBytes=128;
     private const string Evidence="ISOLATED_ASA_ONLY_RESTORE_FILES_VERIFIED_NOT_GAMEPLAY";
 
     private static string LabPath(string value)
@@ -55,6 +59,20 @@ public static class OfflineAsaRestoreLab
             Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("ASA restore path escapes target");
         return full;
+    }
+    private static byte[] ReadBoundedLabMetadata(string file,int maximum)
+    {
+        if(!File.Exists(file)||(File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("Missing or linked ASA lab metadata");
+        using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,
+            FileShare.Read,65536,FileOptions.SequentialScan);
+        if(stream.Length is <1 || stream.Length>maximum)
+            throw new InvalidDataException("ASA restore lab metadata exceeds size limit");
+        var bytes=new byte[checked((int)stream.Length)];
+        stream.ReadExactly(bytes);
+        if(stream.ReadByte()!=-1)
+            throw new InvalidDataException("ASA restore lab metadata changed during read");
+        return bytes;
     }
     private static string Hash(string file)
     {
@@ -159,13 +177,18 @@ public static class OfflineAsaRestoreLab
     {
         if(!staging&&root.EndsWith(".incomplete",StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Incomplete lab restore cannot be accepted");
-        if(!Directory.Exists(root)||!File.Exists(Within(root,Index)) ||
-           !File.Exists(Within(root,IndexHash))||!File.Exists(Within(root,Complete)) ||
-           !Hash(Within(root,Index)).Equals(
-               File.ReadAllText(Within(root,IndexHash)).Trim(),StringComparison.OrdinalIgnoreCase))
+        if(!Directory.Exists(root))
+            throw new InvalidDataException("Missing ASA restore lab");
+        byte[] indexBytes=ReadBoundedLabMetadata(Within(root,Index),MaxLabIndexBytes);
+        string digest=System.Text.Encoding.UTF8.GetString(
+            ReadBoundedLabMetadata(Within(root,IndexHash),MaxLabMarkerBytes)).Trim();
+        if(digest.Length!=64||digest.Any(c=>!Uri.IsHexDigit(c))||
+           !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(digest),
+               SHA256.HashData(indexBytes)))
             throw new InvalidDataException("Missing or changed ASA restore index");
-        var report=JsonSerializer.Deserialize<AsaRestoreLabReport>(
-            File.ReadAllText(Within(root,Index)))
+        string marker=System.Text.Encoding.UTF8.GetString(
+            ReadBoundedLabMetadata(Within(root,Complete),MaxLabMarkerBytes)).Trim();
+        var report=JsonSerializer.Deserialize<AsaRestoreLabReport>(indexBytes)
             ??throw new InvalidDataException("Unreadable ASA restore index");
         var original=report.SourceArchive;
         if(report.Schema!=1||report.SourceBatch==Guid.Empty||
@@ -178,7 +201,7 @@ public static class OfflineAsaRestoreLab
            (original.Schema==3 && original.Config is not {Length:>0}) ||
            report.MapFiles==null ||
            report.MapFiles.Length!=original.Maps.Sum(m=>m.Files) ||
-           File.ReadAllText(Within(root,Complete)).Trim()!=report.SourceBatch.ToString("N"))
+           marker!=report.SourceBatch.ToString("N"))
             throw new InvalidDataException("Isolated ASA restore metadata is incomplete");
         if(Directory.GetFiles(root).Length!=3 ||
            Directory.GetDirectories(root).Length!=(original.Schema==3?4:3))
