@@ -919,7 +919,7 @@ test("two-host character travel workbench captures exactly five local maps witho
   await expect(inventory).toContainText("1 további vizsgálatot igényel");
   await expect(inventory.locator("tbody tr")).toHaveCount(10);
   await expect(inventory).toContainText("EMBEDDED_INDEX_NOT_READABLE");
-  await expect(inventory).toContainText("nem igazol");
+  await expect(inventory).toContainText("Nem igazol");
 
   await page.getByRole("button",{name:"Helyi 5 map ellenőrzése"}).click();
   await expect(page.getByText("Az öt helyi map fájlleltára nyugalomban készült; ez nem karakterigazolás.")).toBeVisible();
