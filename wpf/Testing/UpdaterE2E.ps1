@@ -49,6 +49,12 @@ try {
         $script:activeStartedUtc=[DateTimeOffset]::UtcNow
         Invoke-Checked -Program $installer -Parameters @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOCLOSEAPPLICATIONS',"/DIR=$application")
         if (!(Test-Path $appExe)) { throw 'Isolated initial installation missing' }
+        $expectedShippedTag=(Get-Content -LiteralPath (Join-Path $Distribution 'installed-release.txt') -Raw).Trim()
+        $installedTagFile=Join-Path $application 'installed-release.txt'
+        if (!(Test-Path -LiteralPath $installedTagFile) -or
+            (Get-Content -LiteralPath $installedTagFile -Raw).Trim() -ne $expectedShippedTag) {
+            throw 'Installer did not preserve its exact GitHub WPF release tag'
+        }
         New-Item -ItemType Directory -Path (Join-Path $application 'dependencies') | Out-Null
         [IO.File]::WriteAllText((Join-Path $application 'dependencies/previous.dll'),'synthetic previous dependency')
         [IO.File]::WriteAllText((Join-Path $application 'user-settings.json'),'synthetic preserved settings')
@@ -72,6 +78,15 @@ try {
         if ([IO.File]::ReadAllText((Join-Path $application 'dependencies/previous.dll')) -ne 'synthetic previous dependency') { throw 'Dependency not preserved' }
         if ([IO.File]::ReadAllText((Join-Path $application 'user-settings.json')) -ne 'synthetic preserved settings') { throw 'Configuration not preserved' }
         if ([IO.File]::ReadAllText($external) -ne 'synthetic external map list') { throw 'External profile mutated' }
+        $tagAfterUpdate=(Get-Content -LiteralPath $installedTagFile -Raw).Trim()
+        $expectedAfterUpdate=if($scenario -eq 'success') {
+            'v1.6.1-wpf-preview.1'
+        } else {
+            $expectedShippedTag
+        }
+        if($tagAfterUpdate -ne $expectedAfterUpdate) {
+            throw "Installed release channel/tag lost across update or rollback: $tagAfterUpdate"
+        }
         if ($scenario -ne 'success') {
             $journal = Get-Content (Join-Path $backup 'update-transaction.json') -Raw | ConvertFrom-Json
             $actualFiles = @(Get-ChildItem -LiteralPath $application -File -Recurse)
