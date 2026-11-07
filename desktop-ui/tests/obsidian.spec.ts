@@ -878,6 +878,10 @@ test("two-host character travel workbench captures exactly five local maps witho
   await page.goto("/");
   await page.getByRole("button",{name:"Karakterutazás teszt"}).click();
   await expect(page.getByRole("heading",{name:"Karakterutazás tesztközpont"})).toBeVisible();
+  const mandatory=page.getByRole("region",{name:"Referenciával igazolt, kötelező működés"});
+  await expect(mandatory).toContainText("REFERENCIÁVAL IGAZOLT – NÁLUNK IS KÖTELEZŐEN MŰKÖDNIE KELL");
+  await expect(mandatory).toContainText("Saját éles Store-v1 igazolás: még nincs");
+  await expect(mandatory).toContainText("két map egy Windows gépen");
   await page.getByRole("button",{name:"Helyi 5 map ellenőrzése"}).click();
   await expect(page.getByText("Az öt helyi map fájlleltára nyugalomban készült; ez nem karakterigazolás.")).toBeVisible();
   await expect(page.locator(".uk-travel-map-results>div")).toHaveCount(5);
