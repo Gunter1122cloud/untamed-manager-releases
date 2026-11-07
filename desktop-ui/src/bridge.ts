@@ -637,6 +637,25 @@ export type HistoricalRconReadResponse = {
   storeTouched:false;saveCompleteProven:false;
   evidence:"ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON";
 };
+export type HistoricalGracefulStopPreview = {
+  token:string;mapId:string;mapName:string;pid:number;rconPort:number;
+  originalTwoPeersVerified:true;usesSaveWorld:true;usesDoExit:true;
+  forceKillAllowed:false;automaticRestart:false;originalStoreTouched:false;
+  evidence:"ORIGINAL_STORE_V1_SAVEWORLD_DOEXIT_PREFLIGHT_ONLY";
+};
+export type HistoricalGracefulStopQueued = {
+  jobId:string;started:true;automaticRetry:false;
+  forceKill:false;storeTouched:false;
+  evidence:"ORIGINAL_STORE_V1_REAL_STOP_JOB_QUEUED";
+};
+export type HistoricalGracefulStopStatus = {
+  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  step:string;changedUtc:string;confirmedStopped:boolean;
+  preExitSaveLogAndWorldObserved:boolean;
+  finalDoExitSaveCertified:false;gameClientRejoinVerified:false;
+  automaticRetry:false;forceKill:false;storeTouched:false;
+  evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_DOEXIT_STATE";
+};
 export type HistoricalPairEvidence = {
   files:number; maps:number; peers:number;
   sessionConsistent:boolean; configHashesVerified:boolean;
@@ -853,6 +872,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" |
    "historical.rconLiveStatus" | "historical.rconPlayers" |
    "historical.rconGameLog" | "historical.rconChatLog" |
+   "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
+   "historical.gracefulStopStatus" |
   "api.coreRelease" | "api.corePreview" | "api.coreApply" |
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
@@ -1136,6 +1157,14 @@ export const managerBridge = {
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
     request<HistoricalLaunchEvidence>("historical.launchEvidence",{archive,mapId,command}),
+  historicalGracefulStopPreview: (mapId:string) =>
+    request<HistoricalGracefulStopPreview>("historical.gracefulStopPreview",{mapId}),
+  historicalGracefulStopApply: (token:string,typedApproval:string) =>
+    request<HistoricalGracefulStopQueued>("historical.gracefulStopApply",{
+      token,typedApproval,confirm:true
+    }),
+  historicalGracefulStopStatus: (jobId:string) =>
+    request<HistoricalGracefulStopStatus>("historical.gracefulStopStatus",{jobId}),
   historicalRconLiveStatus: (mapId:string) =>
     request<HistoricalRconLiveStatus>("historical.rconLiveStatus",{mapId}),
   historicalRconPlayers: (mapId:string) =>

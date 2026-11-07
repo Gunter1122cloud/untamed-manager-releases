@@ -4488,6 +4488,140 @@ try
         Check(File.ReadAllBytes(ini).SequenceEqual(originalIni),
             "every native original Store RCON query preserves exact ASA INI file bytes");
     }
+
+    // ORIGINAL ACTIVE Store-v1 graceful stop uses the real operation lease
+    // and native two-stage approved queue, but synthetic process and RCON
+    // callbacks only. Never start real ASA or touch a live Store directory.
+    {
+        string stopRoot=Path.Combine(root,"historical-original-graceful-stop");
+        string binary=Path.Combine(stopRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(binary);
+        string exe=Path.Combine(binary,"ArkAscendedServer.exe");
+        File.WriteAllBytes(exe,new byte[]{77,90,0,2});
+        string cfg=Path.Combine(stopRoot,"ShooterGame","Saved","Config","WindowsServer");
+        Directory.CreateDirectory(cfg);
+        const string originalPassword="OriginalStoreStopPass!2026";
+        const int port=37175,oldPid=43571;
+        string ini=Path.Combine(cfg,"GameUserSettings.ini");
+        File.WriteAllText(ini,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
+            "RCONPort="+port+"\r\nServerAdminPassword="+originalPassword+"\r\n");
+        byte[] originalIni=File.ReadAllBytes(ini);
+        await using var clusterForStop=new ClusterService("historical-graceful-stop",
+            Path.Combine(root,"historical-graceful-stop-profile"),
+            _=>new ProcessCheck(false,"Synthetic external state",null,true));
+        var originalStopMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Scorched Earth",InstallationPath=stopRoot,
+            ExecutablePath=exe,HistoricalStoreProtected=true,
+            HistoricalMapKey="ScorchedEarth_WP",
+            HistoricalArchiveSha256=new string('A',64),
+            GamePort=7887,QueryPort=27187,RconPort=port,
+            RconPasswordProtected=SecureStore.Protect(originalPassword)
+        };
+        clusterForStop.AddMap(originalStopMap);
+        var startedAt=new DateTimeOffset(2026,11,7,10,5,0,TimeSpan.Zero);
+        const string expectedDigest="BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+        bool exited=false,failDuringDispatch=false;
+        int dispatched=0;
+        ProcessCheck Running(LocalMap m)=>exited
+            ?new ProcessCheck(false,"Synthetic stopped",null,true)
+            :new ProcessCheck(true,"Synthetic owned",new ProcessIdentity{
+                Pid=oldPid,StartedUtc=startedAt,
+                ExecutablePath=exe,Arguments="ORIGINAL_SOURCE_SYNTHETIC"},false);
+        ProcessCheck ConfirmStopped(LocalMap m)=>new ProcessCheck(
+            false,exited?"Synthetic exit complete":"Still alive",null,exited);
+        string OldSource(LocalMap m)=>expectedDigest;
+        bool Owns(int rcon,int pid)=>rcon==port&&pid==oldPid;
+        LegacyStoreV1GracefulStop.Owned Observe(Guid id)=>
+            LegacyStoreV1GracefulStop.Preview(clusterForStop,id,Running,OldSource,Owns);
+        Task<AsaGracefulStopReceipt> Execute(Guid id,int pid,DateTimeOffset at,
+            string source,Action<string> stage)=>
+            LegacyStoreV1GracefulStop.StopAsync(clusterForStop,id,pid,at,source,
+                TimeSpan.FromSeconds(6),inspect:Running,stopped:ConfirmStopped,
+                source:OldSource,portOwner:Owns,
+                execute:async(map,identity,verify,ct)=>{
+                    verify();dispatched++;
+                    if(failDuringDispatch)
+                        throw new IOException("Synthetic interruption after durable mutation marker");
+                    stage("Synthetic SaveWorld and DoExit dispatched");
+                    verify();
+                    exited=true;
+                    await Task.CompletedTask;
+                    return true;
+                },stage:stage);
+        using(var stopBridge=new DesktopHistoricalGracefulStopBridge(clusterForStop,
+            Observe,Execute))
+        {
+            var missing=await Call(stopBridge.HandleAsync,"historical.gracefulStopPreview",
+                new{mapId=Guid.NewGuid()});
+            Check(!missing.GetProperty("ok").GetBoolean(),
+                "original Store stop refuses remote and unregistered maps before any RCON");
+            var preview=await Call(stopBridge.HandleAsync,"historical.gracefulStopPreview",
+                new{mapId=originalStopMap.Id});
+            IsOk(preview,"native two-stage original Store SaveWorld+DoExit preflight");
+            Check(preview.GetProperty("data").GetProperty("usesSaveWorld").GetBoolean()&&
+                  preview.GetProperty("data").GetProperty("usesDoExit").GetBoolean()&&
+                  !preview.GetProperty("data").GetProperty("forceKillAllowed").GetBoolean()&&
+                  !preview.ToString().Contains(originalPassword,StringComparison.Ordinal),
+                "original Store stop binds real source/PID but never leaks credentials or offers Kill");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var wrong=await Call(stopBridge.HandleAsync,"historical.gracefulStopApply",
+                new{token,confirm=true,typedApproval="DOEXIT"});
+            Check(!wrong.GetProperty("ok").GetBoolean()&&dispatched==0,
+                "no original Store SaveWorld/DoExit before exact typed confirmation");
+            var queued=await Call(stopBridge.HandleAsync,"historical.gracefulStopApply",
+                new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
+            IsOk(queued,"original Store SaveWorld+DoExit real native operation queued");
+            string jobId=queued.GetProperty("data").GetProperty("jobId").GetString()!;
+            var replay=await Call(stopBridge.HandleAsync,"historical.gracefulStopApply",
+                new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "original historical Stop permit cannot dispatch twice");
+            JsonElement status=default;
+            for(int i=0;i<40;i++)
+            {
+                status=await Call(stopBridge.HandleAsync,"historical.gracefulStopStatus",
+                    new{jobId});
+                if(status.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(30);
+            }
+            IsOk(status,"original historical Store stop final native status");
+            Check(status.GetProperty("data").GetProperty("state").GetString()=="completed"&&
+                  status.GetProperty("data").GetProperty("confirmedStopped").GetBoolean()&&
+                  status.GetProperty("data").GetProperty("preExitSaveLogAndWorldObserved").GetBoolean()&&
+                  !status.GetProperty("data").GetProperty("finalDoExitSaveCertified").GetBoolean()&&
+                  dispatched==1,
+                "real Stop state requires verified PID exit and keeps final DoExit/fsync unverified");
+            Check(clusterForStop.Operations.Observe(stopRoot)?.Phase==
+                  UntamedOperationPhase.Completed,
+                "original Store stop commits OS journal after verified PID exit");
+
+            // A second, interrupted mutation leaves NeedsOperator forever.
+            exited=false;failDuringDispatch=true;
+            var again=await Call(stopBridge.HandleAsync,"historical.gracefulStopPreview",
+                new{mapId=originalStopMap.Id});
+            IsOk(again,"second independent original Store Stop preview");
+            token=again.GetProperty("data").GetProperty("token").GetString()!;
+            var interrupted=await Call(stopBridge.HandleAsync,"historical.gracefulStopApply",
+                new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
+            IsOk(interrupted,"synthetic interrupted Store stop starts distinct native job");
+            jobId=interrupted.GetProperty("data").GetProperty("jobId").GetString()!;
+            for(int i=0;i<40;i++)
+            {
+                status=await Call(stopBridge.HandleAsync,"historical.gracefulStopStatus",
+                    new{jobId});
+                if(status.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(30);
+            }
+            Check(status.GetProperty("data").GetProperty("state").GetString()=="needsOperator"&&
+                  clusterForStop.Operations.Observe(stopRoot)?.Phase==
+                    UntamedOperationPhase.NeedsOperator&&dispatched==2,
+                "interrupted Store-v1 SaveWorld/DoExit remains durably blocked without automatic retries");
+        }
+        Check(File.ReadAllBytes(ini).SequenceEqual(originalIni),
+            "original ASA INI remains byte-identical after successful and interrupted Stop tests");
+    }
     Console.WriteLine("PASS all native bridge checks (synthetic local fixtures, no ASA launch)");
 }
 finally
