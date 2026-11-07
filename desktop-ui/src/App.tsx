@@ -19,6 +19,7 @@ import { InitialMapSetup } from "./InitialMapSetup";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { HistoricalRconAttach } from "./HistoricalRconAttach";
 import { HistoricalActiveStartPanel } from "./HistoricalActiveStartPanel";
+import { HistoricalRconLivePanel } from "./HistoricalRconLivePanel";
 import { PremiumDashboard } from "./PremiumDashboard";
 import { ClusterMapGallery } from "./ClusterMapGallery";
 import { MapCover } from "./MapArtwork";
@@ -1442,7 +1443,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="backups" && <BackupCenter mapId={mapId} snapshot={snapshot}/>}
     {section==="logs" && <LogsCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
-    {section==="rcon" && <RconReadOnlyPanel mapId={mapId}/>}
+    {section==="rcon" && (map.storeProtected
+      ?<HistoricalRconLivePanel mapId={mapId} running={map.running}/>
+      :<RconReadOnlyPanel mapId={mapId}/>)}
   </div>;
 }
 
