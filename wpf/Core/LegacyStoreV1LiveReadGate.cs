@@ -81,7 +81,6 @@ public static class LegacyStoreV1LiveReadGate
         var content=new Dictionary<string,byte[]>(StringComparer.Ordinal){{"shared.json",raw}};
         return VaultReadSnapshot.Json(content,"shared.json");
     }
-    private static bool Missing(string path)=>!File.Exists(path)&&!Directory.Exists(path);
     private static void DemandUnchanged(string path,byte[] expected)
     {
         byte[] current=ReadShared(path);
@@ -187,11 +186,10 @@ public static class LegacyStoreV1LiveReadGate
            !NormalRoot(Text(record,"root")).Equals(
                NormalRoot(map.InstallationPath),StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-STORE-LIVE-MAP-OWNERSHIP-MISMATCH");
-        string running=Path.Combine(share,"running.json");
-        string mutation=Path.Combine(share,"mutation.lock");
-        string cancelled=Path.Combine(share,"cancelled.json");
         string attempted=Path.Combine(share,"attempted.json");
-        if(!Missing(running)||!Missing(mutation)||!Missing(cancelled))
+        if(!LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(share,"running.json")||
+           !LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(share,"mutation.lock")||
+           !LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(share,"cancelled.json"))
             throw new InvalidOperationException("UM-STORE-LIVE-RECOVERY-MARKER-REQUIRES-OPERATOR");
         byte[] attemptedRaw=ReadShared(attempted);
         using(var attemptedDoc=Json(attemptedRaw))
@@ -201,7 +199,9 @@ public static class LegacyStoreV1LiveReadGate
         for(int i=0;i<2;i++)
             DemandUnchanged(Path.Combine(share,peerIds[i]+".json"),peerBytes[i]);
         DemandUnchanged(attempted,attemptedRaw);
-        if(!Missing(running)||!Missing(mutation)||!Missing(cancelled))
+        if(!LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(share,"running.json")||
+           !LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(share,"mutation.lock")||
+           !LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(share,"cancelled.json"))
             throw new InvalidOperationException("UM-STORE-LIVE-SHARED-MARKER-CHANGED");
         // Proof covers original active coordination only. Launch/client
         // acceptance is a separate operation; no source bytes changed.

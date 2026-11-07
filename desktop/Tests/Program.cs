@@ -171,17 +171,105 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
       DesktopReadOnlyBridge.MatchesPublishedMapId(map.Id,map.Id.ToString("N")) &&
       !DesktopReadOnlyBridge.MatchesPublishedMapId(map.Id,Guid.NewGuid().ToString("D")),
     "dashboard map ownership resolves D/N GUID formats but never a foreign map");
+// Original Store-v1 process reattach must validate the entire active
+// source launch grammar. It may classify an OS process but NEVER own,
+// start, stop or write the original Store session.
+{
+    string observedExe=Path.Combine(root,"physical-original-process-grammar",
+        "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+    var historicCommandMap=new LocalMap{
+        Id=Guid.NewGuid(),Name="Aberration",
+        InstallationPath=Path.Combine(root,"physical-original-process-grammar"),
+        ExecutablePath=observedExe,HistoricalStoreProtected=true,
+        HistoricalMapKey="Aberration_WP",GamePort=7797,QueryPort=27015,
+        HistoricalEnabledMods=new List<string>{"123456","789012"},
+        HistoricalPassiveMods=new List<string>{"123456"}
+    };
+    var exactArgs=LegacyStoreV1ActiveLaunch.Build(
+        new LegacyStoreV1ActiveLaunch.Input("Aberration_WP",7797,27015,
+            historicCommandMap.HistoricalEnabledMods,
+            historicCommandMap.HistoricalPassiveMods,
+            VaultProtocol.ClusterId,@"\\original-test\store","active","")
+    ).Arguments;
+    string originalCommand="\""+observedExe+"\" "+string.Join(" ",exactArgs);
+    bool Match(string command)=>LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+        command,observedExe,historicCommandMap);
+    Check(Match(originalCommand),
+        "historical physical process accepts source-compatible ACTIVE-only canonical launch string");
+    Check(!Match(originalCommand+" -converttostore") &&
+          !Match(originalCommand+" -convertfromstore") &&
+          !Match(originalCommand+" -usestore") &&
+          !Match(originalCommand+" -UnknownExtraFlag") &&
+          !Match(originalCommand.Replace("-Port=7797","-Port=7798",StringComparison.Ordinal)) &&
+          !Match(originalCommand.Replace("-clusterid=KovaCluster",
+              "-clusterid=UntamedKingdom",StringComparison.Ordinal)) &&
+          !Match(originalCommand.Replace("-mods=123456,789012",
+              "-mods=789012,123456",StringComparison.Ordinal)),
+        "historical observer denies reconversion, repeated Store flag, unknown switches, changed ports, cluster ID or mod order");
+    Check(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+        originalCommand,Path.Combine(root,"different","ArkAscendedServer.exe"),
+        historicCommandMap) &&
+        !Match(originalCommand.Replace("Aberration_WP?listen","Aberration_WP")),
+        "historical observer requires exact executable ownership and ?listen map switch");
+    string otherMapCommand=originalCommand.Replace(
+        "Aberration_WP?listen","TheIsland_WP?listen",StringComparison.Ordinal);
+    Check(LegacyStoreV1ProcessObserver.DefinitelyDifferentMap(
+              otherMapCommand,observedExe,"Aberration_WP") &&
+          !LegacyStoreV1ProcessObserver.DefinitelyDifferentMap(
+              originalCommand,observedExe,"Aberration_WP") &&
+          !LegacyStoreV1ProcessObserver.DefinitelyDifferentMap(
+              originalCommand.Replace("-Port=7797","-Port=7798",StringComparison.Ordinal),
+              observedExe,"Aberration_WP"),
+        "five original maps sharing one ASA EXE are distinguished by their canonical first map token, while corrupt same-map ports stay uncertain");
+    Directory.CreateDirectory(Path.GetDirectoryName(observedExe)!);
+    File.WriteAllText(observedExe,"SYNTHETIC TEST ONLY NOT AN ASA EXECUTABLE");
+    var physical=LegacyStoreV1ProcessObserver.Observe(historicCommandMap);
+    Check(!physical.Running&&!physical.ConfirmedStopped&&physical.Identity==null,
+        "absent/unverifiable original Store process cannot be certified stopped or owned");
+    var markerRoot=Path.Combine(root,"synthetic-store-marker-evidence");
+    Directory.CreateDirectory(markerRoot);
+    Check(LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"mutation.lock"),
+        "truly missing original coordination marker is recognized read-only");
+    string mutationFile=Path.Combine(markerRoot,"mutation.lock");
+    File.WriteAllText(mutationFile,"SYNTHETIC-DO-NOT-UNLOCK");
+    Check(!LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"mutation.lock"),
+        "existing durable Store mutation lock always blocks live readiness");
+    Directory.CreateDirectory(Path.Combine(markerRoot,"running.json"));
+    Check(!LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"running.json"),
+        "even a malformed directory in place of a running marker blocks live readiness");
+    bool unknownMarkerRefused=false;
+    try{LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"not-allowed.json");}
+    catch(InvalidDataException){unknownMarkerRefused=true;}
+    Check(unknownMarkerRefused,
+        "shared Store marker probe rejects an arbitrary injected SMB name");
+    Directory.Delete(Path.Combine(markerRoot,"running.json"));
+    File.Delete(mutationFile);
+    Directory.Delete(markerRoot);
+    bool missingShareDenied=false;
+    try{LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"mutation.lock");}
+    catch(InvalidDataException){missingShareDenied=true;}
+    Check(missingShareDenied,
+        "missing/inaccessible coordination parent is not interpreted as an absent Store lock");
+}
 // A live historical Store-v1 server must NOT appear stopped merely
 // because its START command is locked. Monitoring is READ-ONLY and cannot
 // confer Start/Stop, Store write or remote lifecycle authority.
 {
     string historicRoot=Path.Combine(root,"historical-status-only");
     int observations=0;
+    // The test runner itself is the safe synthetic observed PID. This is
+    // NOT a fake claim of ASA game readiness; only local OS identity is used.
+    using var observedSelf=System.Diagnostics.Process.GetCurrentProcess();
+    var identity=new ProcessIdentity{
+        Pid=observedSelf.Id,
+        StartedUtc=new DateTimeOffset(observedSelf.StartTime.ToUniversalTime()),
+        ExecutablePath=Environment.ProcessPath??"",Arguments="SYNTHETIC-PROCESS-TEST"
+    };
     await using var history=new ClusterService("historical-observer",
         Path.Combine(historicRoot,"profile"),
         _=>{
             Interlocked.Increment(ref observations);
-            return new ProcessCheck(true,"Existing ASA process observed (synthetic)",null);
+            return new ProcessCheck(true,"Existing ASA process observed (synthetic)",identity);
         });
     var historic=new LocalMap {
         Id=Guid.NewGuid(),Name="Aberration",InstallationPath=historicRoot,
@@ -200,6 +288,24 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
           status.Status.Contains("Existing ASA process observed",StringComparison.Ordinal) &&
           !history.Check(historic).Running,
         "historical Store map is observed as running but remains lifecycle-locked");
+    var historicalOps=new DesktopOperationsCenterBridge(history);
+    var observed=await Call(historicalOps.HandleAsync,"operations.map",
+        new{mapId=historic.Id});
+    IsOk(observed,"native Operations Center accepts protected Store map observation");
+    var observedMap=observed.GetProperty("data").GetProperty("maps")[0];
+    Check(observedMap.GetProperty("running").GetBoolean() &&
+          observedMap.GetProperty("pid").GetInt32()==identity.Pid &&
+          observedMap.GetProperty("memoryVerified").GetBoolean() &&
+          observedMap.GetProperty("storeProtected").GetBoolean() &&
+          !observedMap.GetProperty("lifecycleActionsVerified").GetBoolean() &&
+          observedMap.GetProperty("evidence").GetString()==
+            "HISTORICAL_STORE_V1_PROCESS_OBSERVATION_NO_LIFECYCLE_RIGHTS" &&
+          !history.Check(historic).Running,
+        "protected historical map shows verified physical PID/RAM while actual Start/Stop remains blocked");
+    var unauthorized=await Call(historicalOps.HandleAsync,"operations.start",
+        new{mapId=historic.Id});
+    Check(IsError(unauthorized,"UM-METHOD-DENIED"),
+        "historical status never becomes a command bridge despite running PID");
 }
 try
 {

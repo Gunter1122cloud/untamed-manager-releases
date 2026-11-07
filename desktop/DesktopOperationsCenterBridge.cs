@@ -172,7 +172,22 @@ public sealed class DesktopOperationsCenterBridge
 
     private object Describe(LocalMap map,DateTimeOffset now)
     {
-        var state=cluster.Check(map);
+        bool storeProtected=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
+        ProcessCheck state;
+        try
+        {
+            // Lifecycle authorization is NOT process telemetry. Check()
+            // intentionally denies historical Store maps before inspecting
+            // Windows; show the actual observed identity instead of falsely
+            // reporting a running legacy ASA as stopped. No control granted.
+            state=storeProtected ? cluster.ObserveLocalProcessesReadOnly(map)
+                : cluster.Check(map);
+        }
+        catch(Exception)
+        {
+            state=new ProcessCheck(false,
+                "Helyi folyamatellenőrzés nem végezhető el",null);
+        }
         bool running=state.Running && !state.ConfirmedStopped &&
             state.Identity is {Pid:>0};
         int? pid=running?state.Identity!.Pid:null;
@@ -197,20 +212,22 @@ public sealed class DesktopOperationsCenterBridge
             }
             catch(Exception) { /* OS access denied or PID vanished: unknown */ }
         }
-        bool historical=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
         return new {
             mapId=map.Id.ToString("D"), mapName=map.Name,
             running,confirmedStopped=state.ConfirmedStopped && !state.Running,
             status=state.Status, pid, startedUtc=started, uptimeSeconds,
             memoryMiB, memoryVerified, maintenance=map.Maintenance,
-            storeProtected=historical,gamePort=map.GamePort,
+            storeProtected,gamePort=map.GamePort,
             queryPort=map.QueryPort,
             rconConfigured=map.RconPort>0 && map.RconHost=="127.0.0.1" &&
                 !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
             rconPort=map.RconPort>0?map.RconPort:(int?)null,
             autoStartConfigured=map.AutoStart,
             lifecycleActionsVerified=false,
-            evidence="EXACT_LOCAL_PROCESS_IDENTITY_NO_NETWORK_OR_FILE_WRITE"
+            observationOnly=true,
+            evidence=map.HistoricalStoreProtected?
+                "HISTORICAL_STORE_V1_PROCESS_OBSERVATION_NO_LIFECYCLE_RIGHTS":
+                "EXACT_LOCAL_PROCESS_IDENTITY_NO_NETWORK_OR_FILE_WRITE"
         };
     }
 
