@@ -93,6 +93,23 @@ test.beforeEach(async ({ page }) => {
     const iniToken="00000000-0000-4000-8000-000000003333";
     const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string }) => {
       switch (m.method) {
+        case "store.inspectArchive": return {
+          batch:"b8d0c49f-cc87-42e0-b312-a0485c82f101",
+          maps:10,indexScannedMaps:9,needsReviewMaps:1,
+          archiveFilesSha256Verified:true,liveConsistencyCertified:false,
+          productionRestoreAllowed:false,characterTravelVerified:false,
+          evidence:"OFFLINE_TEN_MAP_WORLD_STORE_INDEX_AUDIT_ONLY",
+          results:Array.from({length:10},(_,i)=>({
+            host:i<5?"HP":"RYZEN",
+            mapId:"00000000-0000-4000-8000-"+String(i+1).padStart(12,"0"),
+            package:"synthetic-map-"+i,
+            status:i===9?"EMBEDDED_INDEX_NOT_READABLE":"INDEX_SCANNED",
+            profileCandidates:i===9?0:2,tribeCandidates:i===9?0:1,
+            unclassifiedCandidates:0,supersededEntries:0,
+            indexBoundsVerified:i!==9,gameplayVerified:false,
+            characterTravelVerified:false
+          }))
+        };
         case "store.inspectCopy": return {
           fileName:"TheIsland_WP.ark",state:"INDEX_SCANNED",
           format:1,storeBytes:412,sections:2,profileCandidates:2,
@@ -896,6 +913,14 @@ test("two-host character travel workbench captures exactly five local maps witho
   await expect(embedded).toContainText("2 karakterindex-bejegyzés");
   await expect(embedded).toContainText("1 tribe-index-bejegyzés");
   await expect(embedded).toContainText("a Store-v1 írásvédelem változatlan követelmény");
+  await embedded.getByRole("button",{name:"Teljes 10-map archívum Store-indexeinek vizsgálata"}).click();
+  const inventory=embedded.getByRole("region",{name:"Tízmapos beágyazott Store-leltár"});
+  await expect(inventory).toContainText("9 olvasható index");
+  await expect(inventory).toContainText("1 további vizsgálatot igényel");
+  await expect(inventory.locator("tbody tr")).toHaveCount(10);
+  await expect(inventory).toContainText("EMBEDDED_INDEX_NOT_READABLE");
+  await expect(inventory).toContainText("nem igazol");
+
   await page.getByRole("button",{name:"Helyi 5 map ellenőrzése"}).click();
   await expect(page.getByText("Az öt helyi map fájlleltára nyugalomban készült; ez nem karakterigazolás.")).toBeVisible();
   await expect(page.locator(".uk-travel-map-results>div")).toHaveCount(5);
