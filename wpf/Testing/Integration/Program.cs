@@ -996,6 +996,27 @@ try
     Assert(ReleaseCatalog.Select(releaseJson,repo,UpdateChannel.Stable)==null,"Stable channel excludes previews");
     var selectedPreview=ReleaseCatalog.Select(releaseJson,repo,UpdateChannel.Preview)!;
     Assert(selectedPreview.Tag.EndsWith(".10"),"Preview version 10 sorts after preview 2");
+    string asaOnlyJson=System.Text.Json.JsonSerializer.Serialize(new[]{
+        Release("v2.0.0-wpf-preview.10",true),
+        Release("v2.0.0-wpf-asa-only.963",true),
+        Release("v2.0.0-wpf-asa-only.962",true)});
+    var asaOnly=ReleaseCatalog.Select(asaOnlyJson,repo,UpdateChannel.Preview)!;
+    Assert(asaOnly.Tag=="v2.0.0-wpf-asa-only.963" &&
+           asaOnly.AssetName=="UntamedManager-2.0.0-SETUP.exe",
+        "Published ASA-only WPF release is discovered with the correct native installer");
+    Assert(ReleaseCatalog.Select(asaOnlyJson,repo,UpdateChannel.Stable)==null,
+        "Stable channel never offers the ASA-only prerelease");
+    Assert(ReleaseCatalog.IsNewer(asaOnly,new Version(2,0,0),"v2.0.0-wpf-asa-only.962"),
+        "ASA-only WPF run numbers can be upgraded in preview channel");
+    Assert(!ReleaseCatalog.IsNewer(asaOnly,new Version(2,0,0),"v2.0.0"),
+        "Stable installed release is never replaced by a same-version ASA-only preview");
+    Assert(ReleaseOrder.Parse("v1.6.1-wpf-asa-only.963") is {Preview:963} &&
+           ReleaseOrder.Parse("v1.6.1-obsidian-preview.963")==null,
+        "Exact published WPF ASA tag accepted, unrelated desktop channel rejected");
+    string asaTampered=System.Text.Json.JsonSerializer.Serialize(new[]{
+        Release("v2.0.0-wpf-asa-only.964",true,false,"sha256:invalid")});
+    Assert(ReleaseCatalog.Select(asaTampered,repo,UpdateChannel.Preview)==null,
+        "ASA-only WPF release without valid GitHub SHA-256 digest is rejected");
     Assert(ReleaseCatalog.IsNewer(selectedPreview,new Version(1,0,0),"v2.0.0-wpf-preview.2"),"Preview-to-preview upgrade allowed");
     Assert(!ReleaseCatalog.IsNewer(selectedPreview,new Version(2,0,0),"v2.0.0"),"Stable never downgrades to same-version preview");
     string stableJson=System.Text.Json.JsonSerializer.Serialize(new[]{Release("v2.0.0",false),Release("v2.0.0-wpf-preview.10",true)});
