@@ -1,5 +1,9 @@
 #define MyAppName "Untamed Kingdom — Obsidian Command PREVIEW"
-#define MyAppVersion "1.4.0"
+// The version is supplied from desktop/Version.props by CI. No local duplicate.
+#ifndef ObsidianVersion
+  #error "ObsidianVersion required: use /DObsidianVersion from desktop/Version.props"
+#endif
+#define MyAppVersion ObsidianVersion
 #ifndef BuildDir
   #define BuildDir "..\publish"
 #endif
