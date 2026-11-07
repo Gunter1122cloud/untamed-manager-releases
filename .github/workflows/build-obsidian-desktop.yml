@@ -208,7 +208,13 @@ jobs:
               !(Test-Path (Join-Path $target 'ui/index.html'))) {
             throw "Obsidian Setup missing executable, updater or offline React UI"
           }
-          Write-Output "PASS: Obsidian Setup installs exact version, updater and React UI"
+          $smoke = Start-Process -FilePath (Join-Path $target 'UntamedDesktop.exe') -ArgumentList '--smoke-test' -PassThru
+          if (!$smoke.WaitForExit(90000)) {
+            try { $smoke.Kill() } catch {}
+            throw "Installed Obsidian WebView2 application did not complete smoke test"
+          }
+          if ($smoke.ExitCode -ne 0) { throw "Installed Obsidian WebView2 smoke failed: $($smoke.ExitCode)" }
+          Write-Output "PASS: Obsidian Setup installs exact version, updater and starts packaged WebView2 React UI"
       - name: SHA-256 checksums
         shell: pwsh
         run: |
