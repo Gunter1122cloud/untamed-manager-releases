@@ -4431,6 +4431,34 @@ try
             new[]{storeMap,otherOriginalMap}),
             "another process with different map key but wrong source port stays blocked");
 
+        // Kova can launch another ALREADY-ACTIVE original Store map through
+        // AsaApiLoader.exe with the same source -usestore arguments. This
+        // loader does not block an unrelated original map's Start or Stop
+        // when its exact registered owner and original arguments are proven.
+        string otherLoader=Path.Combine(Path.GetDirectoryName(exe)!,"AsaApiLoader.exe");
+        otherOriginalMap.StartWithAsaApi=true;
+        otherOriginalMap.ApiLoaderPath=otherLoader;
+        string originalLoaderCommand="\"" + otherLoader + "\" " + otherArgs;
+        Check(LegacyStoreV1ProcessObserver.ProvenDistinctOwnedApiLoader(
+                originalLoaderCommand,exe,storeMap,new[]{storeMap,otherOriginalMap}),
+            "separate original registered Store map's exact ASA API Loader launch does not block another map");
+        Check(!LegacyStoreV1ProcessObserver.ProvenDistinctOwnedApiLoader(
+                originalLoaderCommand,exe,storeMap,new[]{storeMap}),
+            "unregistered original ASA API Loader remains a hard process-family blocker");
+        Check(!LegacyStoreV1ProcessObserver.ProvenDistinctOwnedApiLoader(
+                originalLoaderCommand+" -converttostore",exe,storeMap,
+                new[]{storeMap,otherOriginalMap}),
+            "ASA API Loader requesting a second Store conversion is never considered a safe other map");
+        Check(!LegacyStoreV1ProcessObserver.ProvenDistinctOwnedApiLoader(
+                originalLoaderCommand.Replace("-Port=7847","-Port=7787"),
+                exe,storeMap,new[]{storeMap,otherOriginalMap}),
+            "source-mismatched ASA API Loader port never proves legitimate other-map ownership");
+        otherOriginalMap.StartWithAsaApi=false;
+        Check(!LegacyStoreV1ProcessObserver.ProvenDistinctOwnedApiLoader(
+                originalLoaderCommand,exe,storeMap,new[]{storeMap,otherOriginalMap}),
+            "unconfigured loader mode cannot be guessed from an EXE path or process name");
+        otherOriginalMap.StartWithAsaApi=true;
+
         int launches=0,prepared=0;
         bool changedPlan=false;
         LegacyStoreV1NativeStartPlan Prepare(LocalMap original)
