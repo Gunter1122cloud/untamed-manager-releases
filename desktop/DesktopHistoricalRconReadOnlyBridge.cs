@@ -157,6 +157,10 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
                 if(response==null)
                     return Error(id,"UM-ORIGINAL-RCON-NO-RESPONSE");
                 if(response.Length>32_768)response=response[..32_768];
+                // ASA logs are untrusted; never forward the current original
+                // DPAPI credential even when a plugin has echoed it in a log.
+                response=UntamedPresentation.Redact(response).Replace(
+                    password,"[REDACTED]",StringComparison.Ordinal);
                 return Ok(id,new{
                     mapId=ownedMap.Id,mapName=ownedMap.Name,
                     command,response,observedUtc=DateTimeOffset.UtcNow,
