@@ -16,10 +16,13 @@ public sealed record AsaOfflineMapInput(string Host,Guid Map,string Name,string 
 public sealed record AsaOfflineMap(string Host,Guid Map,string Name,
     string PackageRelativePath,int Files,long Bytes,string ManifestSha256);
 public sealed record AsaOfflineTransfer(string RelativePath,long Bytes,string Sha256);
+public sealed record AsaOfflineConfig(string Host,Guid Map,string RelativePath,
+    long Bytes,string Sha256);
 public sealed record AsaOfflinePackage(int Schema,Guid Batch,DateTimeOffset CreatedUtc,
     AsaOfflineMap[] Maps,AsaOfflineTransfer[] Transfer,
     bool LiveConsistencyCertified,bool LiveStoreWriterCertified,
-    bool RestoreToProductionAllowed,string Evidence);
+    bool RestoreToProductionAllowed,string Evidence,
+    AsaOfflineConfig[]? Config=null);
 
 public static class OfflineAsaClusterArchive
 {
@@ -27,6 +30,9 @@ public static class OfflineAsaClusterArchive
     private const string HashFile="asa-cluster-index.sha256";
     private const string Completed="complete";
     private const string TransferFolder="TRANSFER";
+    private const string ConfigurationFolder="CONFIG";
+    private const long MaxConfigBytes=256L*1024*1024;
+    private const int MaxConfigFiles=3000;
     private const string Evidence="OFFLINE_TEN_MAP_FILE_INTEGRITY_PLUS_COPIED_CLUSTER_DATA_ONLY";
     private const int MaxFiles=50000;
 
@@ -118,13 +124,71 @@ public static class OfflineAsaClusterArchive
             throw new InvalidDataException("Offline copy lacks original Store operation metadata");
         return result;
     }
+
+    // Optional full server-configuration copies, prepared on a separate test
+    // computer. Source layout: HP/CONFIG/<map-guid>/WindowsServer/*.ini,
+    // similarly on RYZEN. Incomplete or one-sided copies fail closed.
+    private static AsaOfflineConfig[] InventoryConfig(string source,string host,
+        AsaOfflineMapInput[] ownedMaps)
+    {
+        string root=Path.Combine(source,ConfigurationFolder);
+        if(!Directory.Exists(root))return Array.Empty<AsaOfflineConfig>();
+        Fixed(root);
+        var dirs=Directory.GetDirectories(root);
+        if(dirs.Length!=ownedMaps.Length ||
+           dirs.Any(dir=>!ownedMaps.Any(m=>Path.GetFileName(dir)
+               .Equals(m.Map.ToString("N"),StringComparison.OrdinalIgnoreCase))))
+            throw new InvalidDataException("Configuration map ownership mismatch");
+        var result=new List<AsaOfflineConfig>();
+        long bytesTotal=0;
+        foreach(var map in ownedMaps)
+        {
+            string mapFolder=Fixed(Path.Combine(root,map.Map.ToString("N")));
+            if(!Directory.Exists(mapFolder))
+                throw new InvalidDataException("Configuration map copy missing");
+            string windows=Path.Combine(mapFolder,"WindowsServer");
+            if(!Directory.Exists(windows) ||
+               !File.Exists(Path.Combine(windows,"Game.ini")) ||
+               !File.Exists(Path.Combine(windows,"GameUserSettings.ini")))
+                throw new InvalidDataException("Configuration pair incomplete");
+            var stack=new Stack<string>();stack.Push(mapFolder);
+            while(stack.Count>0)
+            {
+                string current=stack.Pop();
+                Fixed(current);
+                foreach(string dir in Directory.GetDirectories(current))
+                    stack.Push(Fixed(dir));
+                foreach(string file in Directory.GetFiles(current))
+                {
+                    if(result.Count>=MaxConfigFiles)
+                        throw new InvalidDataException("Too many configuration files");
+                    if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0)
+                        throw new InvalidDataException("Linked configuration file");
+                    string relative=Path.GetRelativePath(mapFolder,file);
+                    Inside(mapFolder,relative);
+                    var info=new FileInfo(file);
+                    if(info.Length>16L*1024*1024 ||
+                       (bytesTotal=checked(bytesTotal+info.Length))>MaxConfigBytes)
+                        throw new InvalidDataException("Configuration copy too large");
+                    result.Add(new(host,map.Map,
+                        Path.Combine(host,map.Map.ToString("N"),relative),
+                        info.Length,Sha(file)));
+                }
+            }
+        }
+        return result.OrderBy(x=>x.RelativePath,StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     private static (AsaOfflineMapInput[] Maps,string[] Roots) ScanMaps(
         string hpRoot,string ryzenRoot)
     {
         var inputs=new List<AsaOfflineMapInput>();
         foreach(var (source,host) in new[]{(hpRoot,"HP"),(ryzenRoot,"RYZEN")})
         {
-            var dirs=Directory.GetDirectories(source);
+            var dirs=Directory.GetDirectories(source)
+                .Where(p=>!Path.GetFileName(p).Equals(ConfigurationFolder,
+                    StringComparison.OrdinalIgnoreCase)).ToArray();
             if(dirs.Length!=5)throw new InvalidDataException(host+" requires five offline map packages");
             foreach(var directory in dirs)
             {
@@ -155,8 +219,16 @@ public static class OfflineAsaClusterArchive
         var (maps,roots)=ScanMaps(hp,ryzen);
         if(roots.Any(x=>Within(x,transfer)||Within(transfer,x)))
             throw new InvalidDataException("Transfer source overlaps map package");
+        bool hpHasConfig=Directory.Exists(Path.Combine(hp,ConfigurationFolder));
+        bool ryzenHasConfig=Directory.Exists(Path.Combine(ryzen,ConfigurationFolder));
+        if(hpHasConfig!=ryzenHasConfig)
+            throw new InvalidDataException("Both hosts require copied configurations");
+        var configs=InventoryConfig(hp,"HP",maps.Where(m=>m.Host=="HP").ToArray())
+            .Concat(InventoryConfig(ryzen,"RYZEN",maps.Where(m=>m.Host=="RYZEN").ToArray()))
+            .OrderBy(x=>x.RelativePath,StringComparer.OrdinalIgnoreCase).ToArray();
         var transfers=InventoryTransfer(transfer);
         long size=transfers.Aggregate(0L,(sum,item)=>checked(sum+item.Bytes));
+        size=configs.Aggregate(size,(sum,item)=>checked(sum+item.Bytes));
         foreach(var map in maps)
         {
             var verified=TestBackupPackage.Verify(map.Package,map.Map);
@@ -202,8 +274,29 @@ public static class OfflineAsaClusterArchive
                 Inside(copiedTransfer,entry.RelativePath),entry.Bytes,entry.Sha256);
         if(!InventoryTransfer(transfer).SequenceEqual(transfers))
             throw new IOException("Transfer source membership or contents changed during copy");
-        var report=new AsaOfflinePackage(2,Guid.NewGuid(),DateTimeOffset.UtcNow,
-            entries.ToArray(),transfers,false,false,false,Evidence);
+        if(configs.Length>0)
+        {
+            foreach(var entry in configs)
+            {
+                string ownerRoot=entry.Host=="HP"?hp:ryzen;
+                string prefix=entry.Host+Path.DirectorySeparatorChar;
+                if(!entry.RelativePath.StartsWith(prefix,StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Configuration owner prefix mismatch");
+                string from=Inside(Path.Combine(ownerRoot,ConfigurationFolder),
+                    entry.RelativePath[prefix.Length..]);
+                string to=Inside(Path.Combine(stage,ConfigurationFolder),
+                    entry.RelativePath);
+                CopyChecked(from,to,entry.Bytes,entry.Sha256);
+            }
+            var copiedConfigs=InventoryConfig(hp,"HP",maps.Where(m=>m.Host=="HP").ToArray())
+                .Concat(InventoryConfig(ryzen,"RYZEN",maps.Where(m=>m.Host=="RYZEN").ToArray()))
+                .OrderBy(x=>x.RelativePath,StringComparer.OrdinalIgnoreCase).ToArray();
+            if(!copiedConfigs.SequenceEqual(configs))
+                throw new IOException("Configuration source changed during archive creation");
+        }
+        var report=new AsaOfflinePackage(configs.Length>0?3:2,Guid.NewGuid(),
+            DateTimeOffset.UtcNow,entries.ToArray(),transfers,
+            false,false,false,Evidence,configs.Length>0?configs:null);
         string index=Inside(stage,Index);
         DurableText(index,JsonSerializer.Serialize(report));
         DurableText(Inside(stage,HashFile),Sha(index));
@@ -226,7 +319,9 @@ public static class OfflineAsaClusterArchive
         var manifest=JsonSerializer.Deserialize<AsaOfflinePackage>(
             File.ReadAllText(Inside(root,Index)))
             ??throw new InvalidDataException("Missing ASA archive manifest");
-        if(manifest.Schema!=2||manifest.Batch==Guid.Empty||
+        if(manifest.Schema is not (2 or 3) || manifest.Batch==Guid.Empty||
+           (manifest.Schema==2 && manifest.Config is {Length:>0}) ||
+           (manifest.Schema==3 && manifest.Config is not {Length:>0}) ||
            manifest.LiveConsistencyCertified||manifest.LiveStoreWriterCertified||
            manifest.RestoreToProductionAllowed||manifest.Evidence!=Evidence||
            manifest.Maps==null||manifest.Maps.Length!=10||
@@ -238,7 +333,8 @@ public static class OfflineAsaClusterArchive
             throw new InvalidDataException("ASA-only archive scope/identity invalid");
         if(File.ReadAllText(Inside(root,Completed)).Trim()!=manifest.Batch.ToString("N"))
             throw new InvalidDataException("Archive completion marker invalid");
-        if(Directory.GetFiles(root).Length!=3 || Directory.GetDirectories(root).Length!=3)
+        if(Directory.GetFiles(root).Length!=3 ||
+           Directory.GetDirectories(root).Length!=(manifest.Schema==3?4:3))
             throw new InvalidDataException("Offline archive contains unexpected root members");
         foreach(var host in new[]{"HP","RYZEN"})
             if(Directory.GetDirectories(Inside(root,host)).Length!=5 ||
@@ -255,6 +351,46 @@ public static class OfflineAsaClusterArchive
             var verified=TestBackupPackage.Verify(path,map.Map);
             if(verified.Files.Count!=map.Files||verified.Files.Sum(x=>x.Size)!=map.Bytes)
                 throw new InvalidDataException("Map file list or bytes changed");
+        }
+
+        if(manifest.Schema==3)
+        {
+            string cfg=Inside(root,ConfigurationFolder);
+            if(!Directory.Exists(cfg) || manifest.Config==null ||
+               manifest.Config.Length>MaxConfigFiles ||
+               manifest.Config.Select(x=>x.RelativePath)
+                   .Distinct(StringComparer.OrdinalIgnoreCase).Count()!=manifest.Config.Length)
+                throw new InvalidDataException("Configuration archive index invalid");
+            var expected=manifest.Config.OrderBy(x=>x.RelativePath,
+                StringComparer.OrdinalIgnoreCase).ToArray();
+            foreach(var entry in expected)
+            {
+                if(entry.Host is not ("HP" or "RYZEN") || entry.Map==Guid.Empty ||
+                   !manifest.Maps.Any(m=>m.Host==entry.Host&&m.Map==entry.Map) ||
+                   !entry.RelativePath.StartsWith(entry.Host+Path.DirectorySeparatorChar+
+                       entry.Map.ToString("N")+Path.DirectorySeparatorChar,
+                       StringComparison.OrdinalIgnoreCase) ||
+                   entry.Bytes<0||entry.Sha256.Length!=64||
+                   !entry.Sha256.All(Uri.IsHexDigit))
+                    throw new InvalidDataException("Configuration archive owner invalid");
+                string source=Inside(cfg,entry.RelativePath);
+                Fixed(Path.GetDirectoryName(source)!);
+                if(new FileInfo(source).Length!=entry.Bytes ||
+                   !Sha(source).Equals(entry.Sha256,StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Configuration archive hash mismatch");
+            }
+            var actual=Directory.GetFiles(cfg,"*",SearchOption.AllDirectories)
+                .Select(p=>Path.GetRelativePath(cfg,p))
+                .OrderBy(x=>x,StringComparer.OrdinalIgnoreCase).ToArray();
+            if(!actual.SequenceEqual(expected.Select(x=>x.RelativePath),
+                   StringComparer.OrdinalIgnoreCase))
+                throw new InvalidDataException("Configuration archive member changed");
+            foreach(var map in manifest.Maps)
+                foreach(string essential in new[]{"Game.ini","GameUserSettings.ini"})
+                    if(!expected.Any(c=>c.Host==map.Host&&c.Map==map.Map&&
+                        c.RelativePath.EndsWith(Path.Combine("WindowsServer",essential),
+                            StringComparison.OrdinalIgnoreCase)))
+                        throw new InvalidDataException("Mandatory configuration file missing");
         }
         string copied=Inside(root,TransferFolder);
         var actual=InventoryTransfer(copied);
