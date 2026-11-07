@@ -3,6 +3,7 @@ import {Archive,AlertTriangle,CheckCircle2,HardDrive,
   RefreshCcw,ShieldCheck,Save,RotateCcw,LockKeyhole} from "lucide-react";
 import {managerBridge,type PublicMap,type WorldBackupCreated,
   type WorldBackupHistory,type WorldBackupPoint,type WorldBackupPreview,
+  type ScheduledStoppedBackupState,
   type WorldBackupRestored} from "./bridge";
 
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
@@ -13,11 +14,48 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const [confirmName,setConfirmName]=useState("");
   const [receipt,setReceipt]=useState<WorldBackupCreated|WorldBackupRestored|null>(null);
   const [busy,setBusy]=useState(false);
+  const [scheduled,setScheduled]=useState<ScheduledStoppedBackupState|null>(null);
+  const [scheduleMinutes,setScheduleMinutes]=useState(120);
+  const [scheduleConfirm,setScheduleConfirm]=useState(false);
+  const [scheduleBusy,setScheduleBusy]=useState(false);
+  const [scheduleNotice,setScheduleNotice]=useState("");
   const [error,setError]=useState("");
   useEffect(()=>{
     if(selectedMap)setChosen(selectedMap);
   },[selectedMap]);
   const current=useMemo(()=>maps.find(m=>m.id===chosen),[maps,chosen]);
+  const reloadSchedule=useCallback(async()=>{
+    if(!chosen)return;
+    const answer=await managerBridge.backupScheduleStatus(chosen);
+    setScheduled(answer);
+    return answer;
+  },[chosen]);
+  useEffect(()=>{
+    let active=true;
+    setScheduled(null);setScheduleConfirm(false);setScheduleNotice("");
+    void managerBridge.backupScheduleStatus(chosen).then(result=>{
+      if(active)setScheduled(result);
+    }).catch(()=>{
+      if(active)setScheduleNotice("Az automatikus mentések állapota nem olvasható.");
+    });
+    return ()=>{active=false;};
+  },[chosen]);
+  const changeSchedule=async(enable:boolean)=>{
+    if(!current||!scheduleConfirm||scheduleBusy)return;
+    setScheduleBusy(true);setScheduleNotice("");
+    try{
+      const result=enable
+        ?await managerBridge.backupScheduleCreate(chosen,scheduleMinutes)
+        :await managerBridge.backupScheduleDisable(chosen);
+      setScheduled(result);setScheduleConfirm(false);
+      setScheduleNotice(enable?
+        "Ütemezés bekapcsolva. Mentés csak igazoltan leállított, nem Store-v1 mapnál készül.":
+        "Az ütemezés kikapcsolva. Meglévő archívum nem törlődött.");
+    }catch(e){
+      setScheduleNotice("Ütemezés nem módosítható: "+
+        (e instanceof Error?e.message:"natív védelem megtagadta"));
+    }finally{setScheduleBusy(false);}
+  };
   const reload=useCallback(async()=>{
     if(!chosen)return;
     setError("");setBusy(true);setHistory(null);setPending(null);setRestoreTarget(null);
@@ -90,6 +128,41 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <button className="primary" type="button" disabled={!chosen||busy||current?.running||history?.recoveryRequired}
           onClick={()=>{void preview();}}><Save size={15}/> Világmentés készítése</button>
       </div>
+      <section className="uk-world-backup-confirm" aria-label="Ütemezett világmentés">
+        <div>
+          <b>Automatikus mentés – csak leállított helyi mapról</b>
+          <p>Az engedélyezett időpontban a Manager ellenőrzi, hogy az ASA map igazoltan leállt-e.
+            Futó vagy bizonytalan állapotú mapot kihagy; nem küld SaveWorld/RCON parancsot, nem állítja le,
+            nem indítja újra és nem állítja vissza a szervert. Store-v1 mapokra nem engedélyezhető.
+            A mentések külön SHA-256 archívumba kerülnek, automatikus törlés nélkül.</p>
+          {scheduled&&<p role="status">
+            Állapot: <b>{scheduled.enabled?"Bekapcsolva":"Kikapcsolva"}</b>
+            {" · "}{scheduled.lastStatus}
+            {scheduled.nextDueUtc?" · Következő: "+new Date(scheduled.nextDueUtc).toLocaleString("hu-HU"):""}
+            {scheduled.lastPoint?" · Utolsó pont: "+scheduled.lastPoint.slice(0,8)+"…":""}
+            {" · Motor: "}{scheduled.runnerState}
+          </p>}
+          <label>Ismétlés percben (60–10080)
+            <input aria-label="Automatikus mentés időköze percben" type="number"
+              min={60} max={10080} step={30} value={scheduleMinutes}
+              disabled={scheduleBusy||Boolean(current?.storeProtected)}
+              onChange={e=>setScheduleMinutes(Number(e.target.value))}/>
+          </label>
+          <label><input aria-label="Automatikus mentés jóváhagyása" type="checkbox"
+            checked={scheduleConfirm} disabled={scheduleBusy}
+            onChange={e=>setScheduleConfirm(e.target.checked)}/>
+            Kifejezetten jóváhagyom ennek a helyi mapnak az ütemezését vagy kikapcsolását.</label>
+          {scheduleNotice&&<p role="status">{scheduleNotice}</p>}
+        </div>
+        <button type="button" className="primary" disabled={scheduleBusy||!scheduleConfirm||
+          !scheduled||Boolean(current?.storeProtected)||!Number.isInteger(scheduleMinutes)||
+          scheduleMinutes<60||scheduleMinutes>10080}
+          onClick={()=>{void changeSchedule(true);}}>Mentés ütemezése</button>
+        <button type="button" className="secondary" disabled={scheduleBusy||!scheduleConfirm||!scheduled?.enabled}
+          onClick={()=>{void changeSchedule(false);}}>Ütemezés kikapcsolása</button>
+        <button type="button" className="secondary" disabled={scheduleBusy}
+          onClick={()=>{void reloadSchedule().catch(()=>setScheduleNotice("Az ütemezés nem olvasható."));}}>Állapot frissítése</button>
+      </section>
       {history?.recoveryRequired&&<div className="uk-world-backup-error" role="alert"><AlertTriangle size={19}/>
         Megszakadt világ-visszaállítás jelzője található. Ne indítsd a mapot és
         ne készíts új mentést, amíg a megőrzött előző világ és a védőmentés
@@ -132,7 +205,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         {history?.points.length ? history.points.map(p=><div className="uk-world-backup-line" key={p.id}>
           <span className="uk-world-backup-point-icon"><HardDrive size={17}/></span>
           <span className="uk-world-backup-point">
-            <b>{new Date(p.createdUtc).toLocaleString("hu-HU")} · {p.kind==="protective"?"Védőmentés":"Kézi mentés"}</b>
+            <b>{new Date(p.createdUtc).toLocaleString("hu-HU")} · {p.kind==="protective"?"Védőmentés":p.id===scheduled?.lastPoint?"Ütemezett mentés":"Kézi mentés"}</b>
             <small>{p.files} fájl · {p.characters} külön profil · {p.tribes} külön tribe fájl · {(p.bytes/1024/1024).toFixed(1)} MiB</small>
           </span>
           <span className="uk-world-backup-verified"><CheckCircle2 size={14}/> SHA-256</span>
