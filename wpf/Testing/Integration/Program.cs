@@ -112,6 +112,7 @@ try
     await VerifiedRestartTests.Run();
     ClusterTransferConsistencyTests.Run();
     ClusterBackupInventoryTests.Run();
+    OfflineAsaOnlyReleaseTests.Run(root);
     ClusterBatchArchiveTests.Run(root);
     ClusterRestoreCoordinatorTests.Run(root);
     ClusterVaultTests.Run(root);
