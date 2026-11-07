@@ -232,7 +232,7 @@ public static class ModStateController
             {
                 var observed=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==baselineId);
                 if(observed==null || !baseline.Matches(observed))
-                    throw new IOException("Mod copy baseline changed; reload required");
+                    throw new InvalidOperationException("Mod copy baseline changed; reload required");
             }
             foreach(var edit in requests)
             {
