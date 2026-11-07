@@ -21,5 +21,12 @@
     <Compile Remove="Updater/**/*.cs" />
     <Compile Remove="Testing/**/*.cs" />
     <Compile Remove="Supervisor/**/*.cs" />
+    <!-- The shipped native WPF Manager is also database-free. Legacy SQL
+         sources remain in git for historical tests only; not in the EXE. -->
+    <Compile Remove="MainWindow.Sql.cs" />
+    <Compile Remove="Core/MariaDb*.cs" />
+    <Compile Remove="Core/OfflineSqlArchive.cs" />
+    <Compile Remove="Core/OfflineClusterBackup.cs" />
+    <Compile Remove="Core/ClusterRestoreCoordinator.cs" />
   </ItemGroup>
 </Project>
