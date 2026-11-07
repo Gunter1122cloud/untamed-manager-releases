@@ -89,7 +89,7 @@ cluster.AddMap(map);
     }
     using(var db=new Microsoft.Data.Sqlite.SqliteConnection(
         new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{
-            DataSource=world,Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadWriteCreate
+            DataSource=world,Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadWrite,Pooling=falseCreate,Pooling=false
         }.ToString()))
     {
         db.Open();
