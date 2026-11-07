@@ -4587,6 +4587,13 @@ try
         using(var stopBridge=new DesktopHistoricalGracefulStopBridge(clusterForStop,
             Observe,Execute))
         {
+            var freshRecovery=await Call(stopBridge.HandleAsync,
+                "historical.gracefulStopRecovery",
+                new{mapId=originalStopMap.Id});
+            IsOk(freshRecovery,"original Store Stop durable recovery for clean map");
+            Check(freshRecovery.GetProperty("data").GetProperty("phase").GetString()=="None"&&
+                  !freshRecovery.GetProperty("data").GetProperty("blocked").GetBoolean(),
+                "original Store clean map has no durable pending recovery work");
             var missing=await Call(stopBridge.HandleAsync,"historical.gracefulStopPreview",
                 new{mapId=Guid.NewGuid()});
             Check(!missing.GetProperty("ok").GetBoolean(),
@@ -4631,6 +4638,14 @@ try
             Check(clusterForStop.Operations.Observe(stopRoot)?.Phase==
                   UntamedOperationPhase.Completed,
                 "original Store stop commits OS journal after verified PID exit");
+            var completedRecovery=await Call(stopBridge.HandleAsync,
+                "historical.gracefulStopRecovery",new{mapId=originalStopMap.Id});
+            Check(completedRecovery.GetProperty("data").GetProperty("phase")
+                    .GetString()=="Completed"&&
+                  !completedRecovery.GetProperty("data").GetProperty("blocked")
+                    .GetBoolean(),
+                "completed historical Stop journal does not need an automatic unlock");
+
 
             // A second, interrupted mutation leaves NeedsOperator forever.
             exited=false;failDuringDispatch=true;
@@ -4654,6 +4669,44 @@ try
                   clusterForStop.Operations.Observe(stopRoot)?.Phase==
                     UntamedOperationPhase.NeedsOperator&&dispatched==2,
                 "interrupted Store-v1 SaveWorld/DoExit remains durably blocked without automatic retries");
+            var blockedRecovery=await Call(stopBridge.HandleAsync,
+                "historical.gracefulStopRecovery",new{mapId=originalStopMap.Id});
+            Check(blockedRecovery.GetProperty("data").GetProperty("phase")
+                    .GetString()=="NeedsOperator"&&
+                  blockedRecovery.GetProperty("data").GetProperty("blocked")
+                    .GetBoolean()&&
+                  blockedRecovery.GetProperty("data").GetProperty("requiresOperator")
+                    .GetBoolean()&&
+                  !blockedRecovery.GetProperty("data").GetProperty("lockCleared")
+                    .GetBoolean(),
+                "an interrupted historical Stop reports durable operator-needed block without lock deletion");
+            var noPreview=await Call(stopBridge.HandleAsync,
+                "historical.gracefulStopPreview",new{mapId=originalStopMap.Id});
+            Check(!noPreview.GetProperty("ok").GetBoolean()&&dispatched==2,
+                "historical RCON Stop cannot issue a new preview after interrupted journal");
+        }
+        // Simulate a completely NEW Manager process/bridge after exit. No
+        // in-memory job or original source token survives, but the durable
+        // journal must remain readable and prohibit implicit retry.
+        using(var restarted=new DesktopHistoricalGracefulStopBridge(clusterForStop,
+            Observe,Execute))
+        {
+            var resumed=await Call(restarted.HandleAsync,
+                "historical.gracefulStopRecovery",new{mapId=originalStopMap.Id});
+            IsOk(resumed,"new Manager observes old Stop journal without in-memory job");
+            Check(resumed.GetProperty("data").GetProperty("phase")
+                    .GetString()=="NeedsOperator"&&
+                  resumed.GetProperty("data").GetProperty("requiresOperator")
+                    .GetBoolean()&&
+                  !resumed.GetProperty("data").GetProperty("inMemoryRunning")
+                    .GetBoolean()&&
+                  resumed.GetProperty("data").GetProperty("jobId").ValueKind==
+                    JsonValueKind.Null,
+                "new Manager correctly flags historical pending Stop without pretending to resume old worker");
+            var rejected=await Call(restarted.HandleAsync,
+                "historical.gracefulStopPreview",new{mapId=originalStopMap.Id});
+            Check(!rejected.GetProperty("ok").GetBoolean()&&dispatched==2,
+                "restarted Manager refuses automatic Store SaveWorld or DoExit retry");
         }
         Check(File.ReadAllBytes(ini).SequenceEqual(originalIni),
             "original ASA INI remains byte-identical after successful and interrupted Stop tests");
