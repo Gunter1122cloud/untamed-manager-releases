@@ -165,7 +165,7 @@ jobs:
           Copy-Item desktop/publish/installed-release.txt desktop-artifacts/installed-release.txt -Force
           $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path desktop-artifacts/Untamed_Obsidian_Desktop_Preview_Portable.zip).Path)
           try {
-            if (!$zip.Entries.Where({$_.FullName -eq "installed-release.txt"}).Any()) {
+            if (@($zip.Entries | Where-Object { $_.FullName -eq 'installed-release.txt' }).Count -ne 1) {
               throw "Portable ZIP does not contain installed-release.txt"
             }
           } finally { $zip.Dispose() }
