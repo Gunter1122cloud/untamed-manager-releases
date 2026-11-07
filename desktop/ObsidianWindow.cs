@@ -107,6 +107,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopHistoricalRconAttachBridge _historicalRcon;
     private readonly DesktopHistoricalActiveStartBridge _historicalStart;
     private readonly DesktopHistoricalRconReadOnlyBridge _historicalReadOnlyRcon;
+    private readonly DesktopHistoricalRconAdminBridge _historicalAdminRcon;
     private readonly DesktopHistoricalGracefulStopBridge _historicalStop;
     private readonly DesktopUpdateStatusBridge _updates = new();
     private readonly DesktopObsidianUpdateInstallBridge _updateInstall;
@@ -153,6 +154,7 @@ public sealed class ObsidianWindow : Form
         _historicalRcon = new DesktopHistoricalRconAttachBridge(_bridge.LocalCluster);
         _historicalStart = new DesktopHistoricalActiveStartBridge(_bridge.LocalCluster);
         _historicalReadOnlyRcon = new DesktopHistoricalRconReadOnlyBridge(_bridge.LocalCluster);
+        _historicalAdminRcon = new DesktopHistoricalRconAdminBridge(_bridge.LocalCluster);
         _historicalStop = new DesktopHistoricalGracefulStopBridge(_bridge.LocalCluster);
         _rcon = new DesktopRconReadOnlyBridge(_bridge.LocalCluster);
         _rconAdmin = new DesktopRconAdminBridge(_bridge.LocalCluster);
@@ -230,6 +232,7 @@ public sealed class ObsidianWindow : Form
             _historicalRcon.Dispose();
             _historicalStart.Dispose();
             _historicalReadOnlyRcon.Dispose();
+            _historicalAdminRcon.Dispose();
             _historicalStop.Dispose();
             _embeddedStore.Dispose();
             _rconConfig.Dispose();
@@ -327,6 +330,7 @@ public sealed class ObsidianWindow : Form
                 bool historicalRconRoute = false;
                 bool historicalStartRoute = false;
                 bool historicalReadOnlyRconRoute = false;
+                bool historicalAdminRconRoute = false;
                 bool historicalStopRoute = false;
                 bool pluginStateRoute = false;
                 bool pluginZipRoute = false;
@@ -417,6 +421,8 @@ public sealed class ObsidianWindow : Form
                         historicalStopRoute = name is "historical.gracefulStopPreview" or
                             "historical.gracefulStopApply" or "historical.gracefulStopStatus" or
                             "historical.gracefulStopRecovery";
+                        historicalAdminRconRoute = name is "historical.adminPreview" or
+                            "historical.adminSend";
                         historicalReadOnlyRconRoute = name is "historical.rconLiveStatus" or
                             "historical.rconPlayers" or "historical.rconGameLog" or
                             "historical.rconChatLog";
@@ -468,6 +474,7 @@ public sealed class ObsidianWindow : Form
                                         : freshRoute ? await _freshInstall.HandleAsync(incoming)
                                             : initialRoute ? await _initialMapSetup.HandleAsync(incoming)
                                                 : historicalStopRoute ? await _historicalStop.HandleAsync(incoming)
+                                                 : historicalAdminRconRoute ? await _historicalAdminRcon.HandleAsync(incoming)
                                                  : historicalReadOnlyRconRoute ? await _historicalReadOnlyRcon.HandleAsync(incoming)
                                                  : historicalStartRoute ? await _historicalStart.HandleAsync(incoming)
                                                  : historicalRconRoute ? await _historicalRcon.HandleAsync(incoming)

@@ -80,6 +80,9 @@ test.beforeEach(async ({ page }) => {
     const originalStopToken="00000000-0000-4000-8000-000000001696";
     const originalStopJob="00000000-0000-4000-8000-000000001697";
     let originalStopQueued=false;
+    const historicalAdminToken="00000000-0000-4000-8000-000000001695";
+    let historicalAdminPending=false;
+    let historicalAdminCommand="";
     let oldStopNeedsOperator=false;
     (window as typeof window & {
       __UNTAMED_ORIGINAL_STOP_CRASH_RECOVERY__?:()=>void
@@ -415,6 +418,43 @@ test.beforeEach(async ({ page }) => {
             automaticRetryAllowed:false,
             evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED"
           };
+        }
+        case "historical.adminPreview": {
+          historicalAdminPending=false;
+          if(m.mapId!==two||!historicalActiveStarted||
+             !historicalRconAttached||!originalRconSourceValid||
+             !originalRconPortOwner||oldStopNeedsOperator)
+            throw new Error("Synthetic original Store admin source not ready");
+          const act=m.action as string;
+          if(!["broadcast","serverChat","wildWipe","custom"].includes(act))
+            throw new Error("Synthetic original Store admin action denied");
+          if(act==="custom"&&/saveworld|doexit|restart/i.test(m.message))
+            throw new Error("Original Store lifecycle belongs to a separate path");
+          historicalAdminCommand=act==="broadcast"?"Broadcast "+m.message:
+            act==="serverChat"?"ServerChat "+m.message:
+            act==="wildWipe"?"DestroyWildDinos":m.message;
+          historicalAdminPending=true;
+          return {token:historicalAdminToken,mapId:two,mapName:"Astraeos",
+            action:act,command:historicalAdminCommand,
+            approvalWord:act==="wildWipe"?"STORE-V1 DINÓTÖRLÉS":"STORE-V1 ADMIN",
+            dangerous:act==="wildWipe"||act==="custom",
+            expiresUtc:"2026-11-07T23:00:00Z",originalStoreActive:true,
+            dispatched:false,gameClientVerified:false,
+            originalStoreMetadataWritten:false,
+            evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_PREVIEW"};
+        }
+        case "historical.adminSend": {
+          const expected=historicalAdminCommand==="DestroyWildDinos"
+            ?"STORE-V1 DINÓTÖRLÉS":"STORE-V1 ADMIN";
+          if(!historicalAdminPending||m.token!==historicalAdminToken||
+             m.confirm!==true||m.typedApproval!==expected)
+            throw new Error("Synthetic original Store admin approval denied");
+          historicalAdminPending=false;
+          return {mapId:two,mapName:"Astraeos",action:"original",
+            command:historicalAdminCommand,response:"Synthetic original RCON admin dispatched",
+            commandSent:true,oneShot:true,originalStoreMetadataWritten:false,
+            saveCompleteProven:false,gameplayEffectVerified:false,
+            evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_SINGLE_SEND"};
         }
         case "historical.rconLiveStatus": return {
           mapId:two,mapName:"Astraeos",
@@ -1703,6 +1743,46 @@ test("original Store-v1 RCON console actually queries local player, game and cha
   await expect(panel.getByText("Synthetic original ASA GetChat")).toBeVisible();
   await expect(panel.getByRole("button",{name:/SaveWorld|DoExit|Parancs elküldése/})).toHaveCount(0);
   await expect(panel.getByText(/közös Store-restore biztonságát/)).toBeVisible();
+});
+
+test("original Store-v1 admin RCON requires exact one-time native approval and excludes lifecycle commands",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"});
+  await expect(panel).toBeVisible();
+  await panel.getByLabel("Küldendő üzenet").fill("Hello Store");
+  await panel.getByRole("button",{name:"Eredeti adminparancs ellenőrzése"}).click();
+  const approval=panel.getByRole("region",{name:"Store-v1 adminparancs végső jóváhagyása"});
+  await expect(approval).toBeVisible();
+  await expect(approval.getByText("Broadcast Hello Store")).toBeVisible();
+  const send=approval.getByRole("button",{name:"Adminparancs egyszeri elküldése"});
+  await expect(send).toBeDisabled();
+  await approval.getByLabel("Jóváhagyom a helyi Store-v1 RCON műveletet.").check();
+  await approval.getByLabel(/Írd be pontosan: STORE-V1 ADMIN/).fill("ADMIN");
+  await expect(send).toBeDisabled();
+  await approval.getByLabel(/Írd be pontosan: STORE-V1 ADMIN/).fill("STORE-V1 ADMIN");
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(panel.getByText(/Egyszeri RCON-parancs elküldve: Broadcast Hello Store/))
+    .toBeVisible();
+  await expect(send).toHaveCount(0);
+  await panel.getByLabel("Admin RCON parancstípus").selectOption("wildWipe");
+  await panel.getByRole("button",{name:"Eredeti adminparancs ellenőrzése"}).click();
+  const danger=panel.getByRole("region",{name:"Store-v1 adminparancs végső jóváhagyása"});
+  await expect(danger.getByText("DestroyWildDinos")).toBeVisible();
+  const sendWipe=danger.getByRole("button",{name:"Adminparancs egyszeri elküldése"});
+  await danger.getByLabel("Jóváhagyom a helyi Store-v1 RCON műveletet.").check();
+  await danger.getByLabel(/Írd be pontosan: STORE-V1 DINÓTÖRLÉS/).fill("STORE-V1 ADMIN");
+  await expect(sendWipe).toBeDisabled();
+  await danger.getByLabel(/Írd be pontosan: STORE-V1 DINÓTÖRLÉS/).fill("STORE-V1 DINÓTÖRLÉS");
+  await sendWipe.click();
+  await expect(panel.getByText(/Egyszeri RCON-parancs elküldve: DestroyWildDinos/))
+    .toBeVisible();
 });
 
 test("original Store-v1 real SaveWorld then DoExit requires exact typed approval, shows durable result and no Kill",async({page})=>{

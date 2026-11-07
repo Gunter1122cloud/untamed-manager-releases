@@ -4711,6 +4711,132 @@ try
         Check(File.ReadAllBytes(ini).SequenceEqual(originalIni),
             "original ASA INI remains byte-identical after successful and interrupted Stop tests");
     }
+
+    // The original ACTIVE Store-v1 admin queue sends ACTUAL native RCON
+    // only under two-host source, exact PID, typed approval and a durable
+    // installation lease. All OS/RCON execution is synthetic here.
+    {
+        string adminRoot=Path.Combine(root,"historical-original-admin-owned");
+        string adminBin=Path.Combine(adminRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(adminBin);
+        string adminExe=Path.Combine(adminBin,"ArkAscendedServer.exe");
+        File.WriteAllBytes(adminExe,new byte[]{77,90,2,6});
+        string adminIniDir=Path.Combine(adminRoot,"ShooterGame","Saved",
+            "Config","WindowsServer");
+        Directory.CreateDirectory(adminIniDir);
+        const string adminPassword="OriginalAdminTestSecret!2026";
+        const int adminPort=37195,adminPid=43814;
+        string adminIni=Path.Combine(adminIniDir,"GameUserSettings.ini");
+        File.WriteAllText(adminIni,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
+            "RCONPort="+adminPort+"\r\nServerAdminPassword="+adminPassword+"\r\n");
+        byte[] originalAdminIni=File.ReadAllBytes(adminIni);
+        await using var adminCluster=new ClusterService("original-admin-rcon",
+            Path.Combine(root,"historical-admin-profile"),
+            _=>new ProcessCheck(false,"Synthetic unused",null,true));
+        var originalAdminMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Valguero",InstallationPath=adminRoot,
+            ExecutablePath=adminExe,HistoricalStoreProtected=true,
+            HistoricalMapKey="Valguero_WP",
+            HistoricalArchiveSha256=new string('A',64),
+            GamePort=7897,QueryPort=27197,RconPort=adminPort,
+            RconPasswordProtected=SecureStore.Protect(adminPassword)
+        };
+        adminCluster.AddMap(originalAdminMap);
+        int adminSent=0,verifiedAfterAuthentication=0;
+        bool adminSourceReady=true;
+        var adminStarted=new DateTimeOffset(2026,11,7,10,10,0,TimeSpan.Zero);
+        string adminSource=new string('B',64);
+        LegacyStoreV1GracefulStop.Owned ProofAdmin(Guid target)
+        {
+            if(target!=originalAdminMap.Id||!adminSourceReady)
+                throw new InvalidDataException("Synthetic original Store source invalid");
+            return new(originalAdminMap,new ProcessIdentity{
+                Pid=adminPid,StartedUtc=adminStarted,
+                ExecutablePath=adminExe,Arguments="SYNTHETIC_ORIGINAL_ACTIVE"
+            },adminSource);
+        }
+        using(var adminBridge=new DesktopHistoricalRconAdminBridge(
+            adminCluster,ProofAdmin,(host,port,password,command,recheck,ct)=>{
+                recheck();verifiedAfterAuthentication++;
+                Check(host=="127.0.0.1"&&port==adminPort&&password==adminPassword,
+                    "original Store admin RCON uses only local owned listener and current-user DPAPI password");
+                Check(command is "Broadcast Hello Store" or "DestroyWildDinos",
+                    "original Store admin RCON never sends lifecycle commands from arbitrary input");
+                adminSent++;
+                return Task.FromResult("ServerAdminPassword="+adminPassword);
+            }))
+        {
+            var forbidden=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="custom",message="SaveWorld"});
+            Check(!forbidden.GetProperty("ok").GetBoolean()&&adminSent==0,
+                "original Store admin RCON cannot bypass the separate SaveWorld/DoExit lifecycle");
+            var unknown=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=Guid.NewGuid(),action="broadcast",message="test"});
+            Check(!unknown.GetProperty("ok").GetBoolean(),
+                "original Store admin RCON refuses unregistered or remote maps");
+            var preview=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="broadcast",message="Hello Store"});
+            IsOk(preview,"original Store real admin native Broadcast preview");
+            Check(preview.GetProperty("data").GetProperty("approvalWord").GetString()
+                    =="STORE-V1 ADMIN"&&
+                  !preview.ToString().Contains(adminPassword,StringComparison.Ordinal),
+                "original Store admin preview supplies strong typed consent without leaking password");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var wrong=await Call(adminBridge.HandleAsync,"historical.adminSend",
+                new{token,confirm=true,typedApproval="ADMIN"});
+            Check(!wrong.GetProperty("ok").GetBoolean()&&adminSent==0,
+                "original Store admin RCON cannot send with wrong operator phrase");
+            var retry=await Call(adminBridge.HandleAsync,"historical.adminSend",
+                new{token,confirm=true,typedApproval="STORE-V1 ADMIN"});
+            Check(!retry.GetProperty("ok").GetBoolean()&&adminSent==0,
+                "original Store admin RCON confirmation token is consumed on failure");
+            preview=await Call(adminBridge.HandleAsync,"historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="broadcast",message="Hello Store"});
+            IsOk(preview,"fresh original Store admin preflight after denied attempt");
+            token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var success=await Call(adminBridge.HandleAsync,"historical.adminSend",
+                new{token,confirm=true,typedApproval="STORE-V1 ADMIN"});
+            IsOk(success,"real original Store admin Broadcast dispatched under durable local lease");
+            Check(success.GetProperty("data").GetProperty("commandSent").GetBoolean()&&
+                  success.GetProperty("data").GetProperty("oneShot").GetBoolean()&&
+                  !success.GetProperty("data").GetProperty("response")
+                    .GetString()!.Contains(adminPassword,StringComparison.Ordinal)&&
+                  adminCluster.Operations.Observe(adminRoot)?.Phase==
+                    UntamedOperationPhase.Completed&&
+                  adminSent==1&&verifiedAfterAuthentication==1,
+                "original Store admin RCON redacts secrets and commits journal only after one authenticated dispatch");
+            var replay=await Call(adminBridge.HandleAsync,"historical.adminSend",
+                new{token,confirm=true,typedApproval="STORE-V1 ADMIN"});
+            Check(!replay.GetProperty("ok").GetBoolean()&&adminSent==1,
+                "original Store admin command cannot be sent again with the same token");
+            adminSourceReady=false;
+            var changed=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="broadcast",message="no source"});
+            Check(!changed.GetProperty("ok").GetBoolean()&&adminSent==1,
+                "invalidated original two-host Store session blocks fresh admin RCON");
+            adminSourceReady=true;
+            preview=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="wildWipe",message=""});
+            IsOk(preview,"original Store dangerous wild wipe requires a separate preview");
+            Check(preview.GetProperty("data").GetProperty("approvalWord").GetString()
+                    =="STORE-V1 DINÓTÖRLÉS",
+                "dangerous original Store admin action needs exact stronger typed approval");
+            token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var wipe=await Call(adminBridge.HandleAsync,"historical.adminSend",
+                new{token,confirm=true,typedApproval="STORE-V1 DINÓTÖRLÉS"});
+            IsOk(wipe,"original Store admin wild wipe can be dispatched exactly once with explicit consent");
+            Check(adminSent==2,
+                "two separate original Store admin approvals dispatched exactly twice in total");
+        }
+        Check(File.ReadAllBytes(adminIni).SequenceEqual(originalAdminIni),
+            "original ASA GameUserSettings.ini stays byte-identical after approved Store RCON admin tests");
+    }
+
     Console.WriteLine("PASS all native bridge checks (synthetic local fixtures, no ASA launch)");
 }
 finally
