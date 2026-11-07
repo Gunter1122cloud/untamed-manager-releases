@@ -1508,7 +1508,7 @@ test("historical Store RCON attaches only existing INI with native approval and 
   await expect(apply).toBeEnabled();
   await apply.click();
   await expect(attach.getByText(/RCON-port: 37145/)).toBeVisible();
-  await expect(attach.getByText(/A Store-fájlok nem módosultak/)).toBeVisible();
+  await expect(attach.getByText(/Store-fájlok nem módosultak/)).toBeVisible();
   await expect(attach.getByRole("button",{name:"RCON átvétel véglegesítése"})).toHaveCount(0);
 });
 
