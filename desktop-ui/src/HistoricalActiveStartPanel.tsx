@@ -24,7 +24,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       if(active)setState(v);
     }).catch(()=>{if(active)setError("A történeti Store-v1 folyamatállapot nem ellenőrizhető.");});
     return ()=>{active=false;};
-  },[mapId]);
+  },[mapId,rconAttached]);
   const inspect=async()=>{
     if(busy||state?.running||!state?.rconConfigured)return;
     setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
