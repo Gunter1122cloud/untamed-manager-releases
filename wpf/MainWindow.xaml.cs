@@ -381,7 +381,7 @@ public partial class MainWindow : Window
             });
         var storage=Area("Biztonság és adatok","03 / PROTECT",
             "Store-v1 kompatibilitás, mentések, LAN és helyi konfiguráció.",new[]{
-                ("Cluster Vault / SQL","data"),("LAN párosítás","lan"),
+                ("Cluster Vault / ASA","data"),("LAN párosítás","lan"),
                 ("Release readiness","readiness"),("Manager-panelek","extensions"),
                 ("Beállítóvarázsló","setup")
             });
