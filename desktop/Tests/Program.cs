@@ -3012,6 +3012,31 @@ try
             "unapproved or unknown installer staging token is never replayable");
     }
 
+    // Canonical Obsidian 2.0.0 Preview can upgrade an earlier 1.4.0
+    // Obsidian installation. Legacy WPF releases cannot cross this boundary.
+    {
+        string newTag="v2.0.0-obsidian-preview.1499";
+        var newRelease=new UpdateRelease(new Version(2,0,0),newTag,
+            "Single-product preview fixture",
+            "https://github.com/"+ObsidianReleaseCatalog.Repository+
+                "/releases/download/"+newTag+"/"+ObsidianReleaseCatalog.Installer,
+            new string('c',64),ObsidianReleaseCatalog.Installer);
+        Check(ObsidianReleaseCatalog.IsTrusted(newRelease)&&
+              ObsidianReleaseCatalog.IsNewer(newRelease,new Version(1,4,0,0),
+                  "v1.4.0-obsidian-preview.1478")&&
+              !ObsidianReleaseCatalog.IsNewer(newRelease,new Version(1,6,1,0),
+                  "v1.6.1-wpf-asa-only.967")&&
+              !ObsidianReleaseCatalog.IsNewer(newRelease,new Version(2,0,0,0),
+                  newTag),
+            "Obsidian 2.0 upgrades prior Obsidian only, never WPF or the same build");
+        Check(ObsidianReleaseCatalog.IsNewer(newRelease,new Version(2,0,0,0),"")&&
+              !ObsidianReleaseCatalog.IsNewer(newRelease,new Version(2,0,1,0),""),
+            "untagged four-part .NET assembly version uses three-part SemVer correctly");
+        Check(!ObsidianReleaseCatalog.IsTrusted(newRelease with{
+                AssetName="UntamedManager-1.6.1-SETUP.exe"}),
+            "obsolete WPF installer stays outside canonical Obsidian release identity");
+    }
+
     // Real native Plugin Center mutations only in a disposable synthetic
     // installation. Both local maps sharing the plugin folder must be stopped.
     {

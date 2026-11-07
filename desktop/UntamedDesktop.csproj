@@ -7,12 +7,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>UntamedDesktop</AssemblyName>
-    <Version>1.4.0</Version>
-    <AssemblyVersion>1.4.0.0</AssemblyVersion>
-    <FileVersion>1.4.0.0</FileVersion>
     <ApplicationIcon>../wpf/Assets/UntamedManager.ico</ApplicationIcon>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
+  <Import Project="Version.props" />
   <!-- Obsidian Command is the supported Windows Manager.
        It reuses selected shared C# Core implementation sources; historical
        WPF screens are not shipped, maintained or required by this host. -->

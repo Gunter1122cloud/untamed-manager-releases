@@ -1,253 +1,27 @@
-name: Untamed Manager WPF Windows Build
-# Historical native WPF + shared Core regression suite, MANUAL ONLY.
-# Obsidian Command React/WebView2 is the one shipping Windows Manager.
+name: Legacy Store-v1 reference tests (manual, no release)
+
+# The native WPF GUI is retired. Keep read-only Core regressions available
+# without building, packaging, publishing or advertising another Manager.
 on:
   workflow_dispatch:
-concurrency:
-  group: untamed-wpf-${{ github.ref }}
-  cancel-in-progress: true
+
 permissions:
   contents: read
+
 jobs:
-  build:
-    runs-on: windows-latest
-    timeout-minutes: 25
+  legacy-store-regression:
+    runs-on: windows-2025
+    timeout-minutes: 15
     steps:
-      - name: Check out WPF source
+      - name: Check out shared Store-v1 reference Core
         uses: actions/checkout@v4
-      - name: Install .NET SDK 10
-        uses: actions/setup-dotnet@v5
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Restore checked-in T-Rex artwork
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          New-Item -ItemType Directory -Force wpf/Assets | Out-Null
-          $json = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/21f8154d985845935a30bac3a33914ab7c449575" | ConvertFrom-Json
-          if ($json.encoding -ne "base64") { throw "Image blob not base64" }
-          [IO.File]::WriteAllBytes("wpf/Assets/kingdom-hero.jpg",[Convert]::FromBase64String(($json.content -replace '\s','')))
-          if ((Get-Item "wpf/Assets/kingdom-hero.jpg").Length -lt 1000) { throw "Image incomplete" }
-          $atlas = gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/0e482cc9b6389908588d11846789ec8fbd434320" | ConvertFrom-Json
-          if ($atlas.encoding -ne "base64") { throw "Map atlas blob invalid" }
-          [IO.File]::WriteAllBytes("wpf/Assets/map-atlas.jpg",[Convert]::FromBase64String(($atlas.content -replace '\s','')))
-          if ((Get-Item "wpf/Assets/map-atlas.jpg").Length -lt 3000) { throw "Map atlas incomplete" }
-          $ico=gh api "repos/$env:GITHUB_REPOSITORY/git/blobs/7d6fa69a40eac8b7cf343e0f39223d776d4131c2" | ConvertFrom-Json
-          if ($ico.encoding -ne "base64") { throw "Icon blob invalid" }
-          [IO.File]::WriteAllBytes("wpf/Assets/UntamedManager.ico",[Convert]::FromBase64String(($ico.content -replace '\s','')))
-          if ((Get-Item "wpf/Assets/UntamedManager.ico").Length -lt 800) { throw "Icon file incomplete" }
-      - name: Prepare ten original WPF map card artworks
-        shell: pwsh
-        run: |
-          ./wpf/PrepareArtwork.ps1
-      - name: Check source files
-        shell: pwsh
-        run: |
-          if (!(Test-Path 'wpf/UntamedManager.csproj')) { throw "Missing WPF project" }
-          if (!(Test-Path 'wpf/MainWindow.xaml')) { throw "Missing window" }
-          if (!(Test-Path 'wpf/MainWindow.xaml.cs')) { throw "Missing codebehind" }
-      - name: Isolated lab path policy and native resource caps (no guest boot)
-        shell: pwsh
-        run: |
-          ./tools/lab/Test-IsolatedLab.ps1
-      - name: Compile WPF for Windows x64
-        shell: pwsh
-        run: |
-          dotnet publish wpf/UntamedManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o dist --nologo
-          if ($LASTEXITCODE -ne 0) { throw "WPF publish failed" }
-          if (!(Test-Path "dist/UntamedManager.exe")) { throw "EXE not produced" }
-          Get-Item "dist/UntamedManager.exe" | Select-Object Name,Length
-          Get-FileHash "dist/UntamedManager.exe" -Algorithm SHA256
-      - name: Read-only Store-v1 metadata regressions (synthetic inputs only)
+      - name: Read-only historical Store-v1 compatibility tests
         shell: pwsh
         run: |
           dotnet run --project wpf/Testing/StoreV1/StoreV1.csproj -c Release
-          if ($LASTEXITCODE -ne 0) { throw "Store-v1 read-only regressions failed" }
-      - name: Build independent Windows updater
-        shell: pwsh
-        run: |
-          dotnet publish wpf/Updater/UntamedUpdater.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -o "$env:RUNNER_TEMP/untamed-updater" --nologo
-          if ($LASTEXITCODE -ne 0) { throw "Updater publish failed" }
-          Copy-Item "$env:RUNNER_TEMP/untamed-updater/UntamedUpdater.exe" "dist/UntamedUpdater.exe"
-          if (!(Test-Path "dist/UntamedUpdater.exe")) { throw "Updater helper missing" }
-      - name: Build and run independent read-only supervisor
-        shell: pwsh
-        run: |
-          dotnet publish wpf/Supervisor/UntamedSupervisor.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$env:RUNNER_TEMP/supervisor" --nologo
-          if ($LASTEXITCODE -ne 0) { throw "Supervisor build failed" }
-          Copy-Item "$env:RUNNER_TEMP/supervisor/UntamedSupervisor.exe" dist/UntamedSupervisor.exe
-          & dist/UntamedSupervisor.exe --once --root "$env:RUNNER_TEMP/supervisor-profile"
-          if ($LASTEXITCODE -ne 0) { throw "Supervisor run failed" }
-          if (!(Test-Path "$env:RUNNER_TEMP/supervisor-profile/supervisor-heartbeat.json")) { throw "Missing independent heartbeat" }
-      - name: Isolated Windows service lifecycle test
-        shell: pwsh
-        run: |
-          $serviceName = "UntamedSupervisor-CI-$env:GITHUB_RUN_ID"
-          $serviceRoot = Join-Path $env:RUNNER_TEMP "supervisor-service-profile"
-          $workerExe = Join-Path $env:GITHUB_WORKSPACE "dist/UntamedSupervisor.exe"
-          $binary = '"{0}" --service --service-name "{1}" --root "{2}"' -f $workerExe,$serviceName,$serviceRoot
-          New-Service -Name $serviceName -BinaryPathName $binary -StartupType Manual | Out-Null
-          try {
-            Start-Service $serviceName
-            Start-Sleep -Seconds 3
-            if ((Get-Service $serviceName).Status -ne 'Running') { throw "Supervisor service failed" }
-            Stop-Service $serviceName
-            if ((Get-Service $serviceName).Status -ne 'Stopped') { throw "Supervisor service did not stop" }
-          } finally {
-            Stop-Service $serviceName -ErrorAction SilentlyContinue
-            sc.exe delete $serviceName
-          }
-      - name: Windows two-Manager integration tests with fake server process
-        shell: pwsh
-        run: |
-          dotnet publish wpf/Testing/FakeAsa/FakeAsa.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP/FakeAsa" --nologo
-          if ($LASTEXITCODE -ne 0) { throw "FakeAsa fixture build failed" }
-          dotnet publish wpf/Testing/FakeSteamCMD/FakeSteamCMD.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP/FakeSteamCMD" --nologo
-          if ($LASTEXITCODE -ne 0) { throw "FakeSteamCMD fixture build failed" }
-          dotnet run --project wpf/Testing/Integration/Integration.csproj -c Release -- "$env:RUNNER_TEMP/FakeAsa/FakeAsa.exe" "$env:GITHUB_WORKSPACE/dist/UntamedSupervisor.exe" "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" "$env:RUNNER_TEMP/FakeSteamCMD/FakeSteamCMD.exe"
-          if ($LASTEXITCODE -ne 0) { throw "Two-manager LAN/process persistence tests failed" }
-      - name: Windows runtime startup smoke test
-        shell: pwsh
-        run: |
-          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--smoke-test" -PassThru
-          $finished = $p.WaitForExit(90000)
-          $logDir = Join-Path $env:LOCALAPPDATA "UntamedManager/WPF"
-          if (Test-Path "$logDir/smoke.log") { Get-Content "$logDir/smoke.log" }
-          if (Test-Path "$logDir/crash.log") { Get-Content "$logDir/crash.log" -Tail 50 }
-          if (-not $finished) { $p.Kill(); throw "WPF smoke test timed out" }
-          if ($p.ExitCode -ne 0) { throw "WPF initialization failed with exit code $($p.ExitCode)" }
-      - name: Render actual WPF dashboard and key pages
-        shell: pwsh
-        env:
-          UNTAMED_SCREENSHOT_PATH: ${{ github.workspace }}/dist/UntamedManager-preview.png
-          UNTAMED_SCREENSHOT_GALLERY: '1'
-        run: |
-          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--screenshot-test" -PassThru
-          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "WPF screenshot render timeout" }
-          if ($p.ExitCode -ne 0) {
-            $logDir=Join-Path $env:LOCALAPPDATA "UntamedManager/WPF"
-            if(Test-Path "$logDir/crash.log"){Get-Content "$logDir/crash.log" -Tail 35}
-            throw "WPF screenshot generation failed"
-          }
-          if (!(Test-Path "$env:UNTAMED_SCREENSHOT_PATH")) { throw "WPF screenshot output missing" }
-          if ((Get-Item "$env:UNTAMED_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF screenshot unexpectedly small" }
-          foreach ($page in @("servers","mods","plugins","cluster","backups","settings","ini","logs",
-            "rcon","monitoring","schedules","recovery","operations","network","data",
-            "steam","license","lan","readiness","extensions","setup",
-            "demo-dashboard","demo-servers","demo-cluster","demo-mods","demo-plugins","demo-logs",
-            "demo-ini","demo-rcon","demo-backups","demo-schedules","demo-monitoring",
-            "demo-recovery","demo-settings")) {
-            $file = Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-$page.png"
-            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 8000) { throw "Missing or invalid WPF screenshot: $page" }
-          }
-          foreach ($step in 1..5) {
-            $file=Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-map-setup-step$step.png"
-            if (!(Test-Path $file) -or (Get-Item $file).Length -lt 8000) {
-              throw "Map setup wizard screenshot missing or invalid: step $step"
-            }
-          }
-      - name: Test 1366, 1600 and 1920 desktop layouts with WPF render
-        shell: pwsh
-        run: |
-          foreach ($size in @("910x512","1366x768","1600x900","1920x1080")) {
-            $parts=$size.Split("x")
-            $env:UNTAMED_CAPTURE_WIDTH=$parts[0]
-            $env:UNTAMED_CAPTURE_HEIGHT=$parts[1]
-            $env:UNTAMED_SCREENSHOT_GALLERY="0"
-            $env:UNTAMED_SCREENSHOT_PATH=Join-Path "$env:GITHUB_WORKSPACE/dist/UI-Screenshots" "UntamedManager-layout-$size.png"
-            $p=Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--screenshot-test" -PassThru
-            if(-not $p.WaitForExit(50000)){ $p.Kill(); throw "WPF layout rendering timeout: $size" }
-            if($p.ExitCode -ne 0){ throw "WPF layout rendering failed: $size" }
-            if(!(Test-Path $env:UNTAMED_SCREENSHOT_PATH) -or
-                (Get-Item $env:UNTAMED_SCREENSHOT_PATH).Length -lt 8000){
-                throw "WPF layout screenshot invalid: $size"
-            }
-            Write-Output "PASS WPF rendered layout $size"
-          }
-      - name: Render actual WPF splash screen
-        shell: pwsh
-        env:
-          UNTAMED_SPLASH_SCREENSHOT_PATH: ${{ github.workspace }}/dist/UI-Screenshots/UntamedManager-splash.png
-        run: |
-          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE/dist/UntamedManager.exe" -ArgumentList "--splash-screenshot-test" -PassThru
-          if (-not $p.WaitForExit(45000)) { $p.Kill(); throw "WPF splash render timeout" }
-          if ($p.ExitCode -ne 0) { throw "WPF splash render failed" }
-          if (!(Test-Path "$env:UNTAMED_SPLASH_SCREENSHOT_PATH") -or
-              (Get-Item "$env:UNTAMED_SPLASH_SCREENSHOT_PATH").Length -lt 8000) { throw "WPF splash screenshot missing" }
-      - name: Save verified GUI screenshots
-        uses: actions/upload-artifact@v4
-        with:
-          name: UntamedManager-WPF-UI-gallery
-          path: |
-            dist/UntamedManager-preview.png
-            dist/UI-Screenshots/*.png
-          if-no-files-found: error
-      - name: Package complete portable test build
-        shell: pwsh
-        run: |
-          # The version marker lets the installed Preview updater compare
-          # subsequent same-assembly-version releases without re-install loops.
-          $tag = "v1.6.1-wpf-asa-only.${{ github.run_number }}"
-          Set-Content -Path "dist/installed-release.txt" -Value $tag -NoNewline -Encoding utf8
-          if ((Get-Content "dist/installed-release.txt" -Raw) -ne $tag) { throw "Release tag stamp mismatch" }
-          Compress-Archive -Path dist/UntamedManager.exe,dist/UntamedUpdater.exe,dist/UntamedSupervisor.exe,dist/installed-release.txt -DestinationPath dist/UntamedManager-1.6.1-win-x64.zip
-          @("UntamedManager.exe","UntamedUpdater.exe","UntamedSupervisor.exe","installed-release.txt","UntamedManager-1.6.1-win-x64.zip") | ForEach-Object {
-            $value = Get-FileHash (Join-Path "dist" $_) -Algorithm SHA256
-            "$($value.Hash.ToLower())  $_"
-          } | Set-Content dist/SHA256SUMS.txt
-      - name: Save Windows EXE
-        uses: actions/upload-artifact@v4
-        with:
-          name: UntamedManager-WPF-v1.6.1-windows-x64
-          path: |
-            dist/UntamedManager.exe
-            dist/UntamedUpdater.exe
-            dist/UntamedSupervisor.exe
-            dist/installed-release.txt
-            dist/UntamedManager-1.6.1-win-x64.zip
-            dist/SHA256SUMS.txt
-          if-no-files-found: error
-      - name: Build per-user Windows installer
-        shell: pwsh
-        run: |
-          $iscc = "${env:ProgramFiles(x86)}\\Inno Setup 6\\ISCC.exe"
-          if (!(Test-Path $iscc)) {
-            choco install innosetup --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
-          }
-          if (!(Test-Path $iscc)) { throw "ISCC.exe missing" }
-          & $iscc "wpf/installer/UntamedManager.iss"
-          if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
-          if (!(Test-Path "dist/UntamedManager-1.6.1-SETUP.exe")) { throw "Windows setup missing" }
-          $setupHash = Get-FileHash "dist/UntamedManager-1.6.1-SETUP.exe" -Algorithm SHA256
-          "$($setupHash.Hash.ToLower())  UntamedManager-1.6.1-SETUP.exe" | Add-Content dist/SHA256SUMS.txt
-          $setupHash
-      - name: Actual isolated installer updater health failure and recovery tests
-        shell: pwsh
-        run: |
-          ./wpf/Testing/UpdaterE2E.ps1 -Distribution "$env:GITHUB_WORKSPACE/dist" -FakeServer "$env:RUNNER_TEMP/FakeAsa/FakeAsa.exe"
-          if ($LASTEXITCODE -ne 0) { throw "Updater end-to-end tests failed" }
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: UntamedManager-WPF-v1.6.1-installer
-          path: |
-            dist/UntamedManager-1.6.1-SETUP.exe
-            dist/SHA256SUMS.txt
-          if-no-files-found: error
-  # Historical database fixture only. The shipped Manager is SQL-free:
-  # never require MariaDB to build, test or release either Windows desktop.
-  # Operators may explicitly run the old isolated fixture on demand.
-  real-sql:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-      - name: Real isolated MariaDB logical dump and empty-target restore
-        shell: pwsh
-        run: ./wpf/Testing/MariaDb/Run-RealSql.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Historical Store-v1 regression failed" }
+          Write-Output "Shared reference Core only. No WPF EXE, Setup, ZIP or release produced."

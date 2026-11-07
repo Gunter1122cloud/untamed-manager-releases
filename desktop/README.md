@@ -2,6 +2,9 @@
 
 Ez a jelenlegi, felhasználó által kiválasztott asztali alkalmazás: **offline React/TypeScript UI a `desktop-ui/` alatt, helyi WinForms/WebView2 shell, és .NET 10 C# native bridge-ek**. A korábbi WPF Manager UI-t **nem** fejlesztjük tovább.
 
+## Egységes kiadási azonosító
+**Obsidian Command 2.0.0 Preview**. A fejlesztői verziók nem külön termékek: a `desktop/Version.props` az egyetlen natív verzióforrás, a React csomagnak ehhez kell igazodnia, és a telepítő ugyanebből kapja az alkalmazásverziót. A Preview build sorszámát csak a GitHub release tag/hibakeresés használja. Részletek: [központi verziószabály](../docs/release/OBSIDIAN-ONE-PRODUCT-VERSION-POLICY.md).
+
 ## Fordítás (elkülönített Windows tesztgépen)
 ```powershell
 cd desktop-ui

@@ -151,7 +151,22 @@ jobs:
       - name: Stamp EXACT Obsidian Command release tag (Setup + Portable)
         shell: pwsh
         run: |
-          $tag = "v1.4.0-obsidian-preview.${{ github.run_number }}"
+
+          [xml]$versionXml = Get-Content desktop/Version.props -Raw
+          $version = [string]$versionXml.Project.PropertyGroup.ObsidianProductVersion
+          if ($version -notmatch '^[0-9]+[.][0-9]+[.][0-9]+$') {
+            throw "Invalid canonical product version"
+          }
+          $nativeVersion = (& dotnet msbuild desktop/UntamedDesktop.csproj -getProperty:Version).Trim()
+          $uiVersion = (Get-Content desktop-ui/package.json -Raw | ConvertFrom-Json).version
+          if ($version -ne $nativeVersion -or $version -ne $uiVersion) {
+            throw "Obsidian version split detected (Version.props vs native vs React)"
+          }
+          $fileVersion = (Get-Item desktop/publish/UntamedDesktop.exe).VersionInfo.FileVersion
+          if (!$fileVersion.StartsWith("$version.")) {
+            throw "Published EXE version mismatch"
+          }
+          $tag = "v$version-obsidian-preview.${{ github.run_number }}"
           Set-Content -LiteralPath desktop/publish/installed-release.txt -Value $tag -NoNewline -Encoding utf8
           if ((Get-Content desktop/publish/installed-release.txt -Raw) -ne $tag) {
             throw "Obsidian installed-release tag stamp failed"
@@ -187,7 +202,10 @@ jobs:
           }
           if (!$iscc) { throw "ISCC not found" }
           $publish = (Resolve-Path desktop/publish).Path
-          & $iscc "/DBuildDir=$publish" desktop/installer/ObsidianPreview.iss
+
+          [xml]$versionXml = Get-Content desktop/Version.props -Raw
+          $version = [string]$versionXml.Project.PropertyGroup.ObsidianProductVersion
+          & $iscc "/DObsidianVersion=$version" "/DBuildDir=$publish" desktop/installer/ObsidianPreview.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
       - name: Validate Obsidian Setup installs exact version marker on isolated CI machine
         shell: pwsh
@@ -198,7 +216,10 @@ jobs:
             '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',
             "/DIR=$target",'/NOCLOSEAPPLICATIONS') -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Obsidian installer failed: $($proc.ExitCode)" }
-          $expected = "v1.4.0-obsidian-preview.${{ github.run_number }}"
+
+          [xml]$versionXml = Get-Content desktop/Version.props -Raw
+          $version = [string]$versionXml.Project.PropertyGroup.ObsidianProductVersion
+          $expected = "v$version-obsidian-preview.${{ github.run_number }}"
           $marker = Join-Path $target 'installed-release.txt'
           if (!(Test-Path $marker) -or (Get-Content $marker -Raw) -ne $expected) {
             throw "Obsidian Setup lost exact GitHub version marker"
@@ -254,14 +275,32 @@ jobs:
           sha256sum -c SHA256SUMS.txt
           test -s Untamed_Obsidian_Desktop_Preview_Portable.zip
           test -s Untamed_Obsidian_Desktop_Preview_Setup.exe
-          test "$(cat installed-release.txt)" = "v1.4.0-obsidian-preview.${{ github.run_number }}"
+
+          TAG="$(cat installed-release.txt)"
+          [[ "$TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+-obsidian-preview[.][0-9]+$ ]] || {
+            echo "Invalid Obsidian build identity" >&2; exit 1;
+          }
+          [[ "$TAG" == *".${{ github.run_number }}" ]] || {
+            echo "Build number does not match tested artifacts" >&2; exit 1;
+          }
       - name: Publish opt-in test release without claiming Store-v1 certification
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: v1.4.0-obsidian-preview.${{ github.run_number }}
           COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh release create "$TAG"             release-assets/Untamed_Obsidian_Desktop_Preview_Portable.zip             release-assets/Untamed_Obsidian_Desktop_Preview_Setup.exe             release-assets/installed-release.txt             release-assets/SHA256SUMS.txt             --repo "$GH_REPO" --target "$COMMIT"             --title "Untamed Manager 1.4.0 – Windows test release ($TAG)"             --notes "Windows CI / native bridge / Playwright / WebView2 smoke passed. Not an approved live Store-v1 5+5 migration or character-travel release. SQL is excluded from the desktop assembly; original Store/session and production ASA machines remain untouched. Install on a separate Windows test PC."             --prerelease
+
+          TAG="$(cat release-assets/installed-release.txt)"
+          VERSION="${TAG#v}"
+          VERSION="${VERSION%%-obsidian-preview.*}"
+          gh release create "$TAG" \
+            release-assets/Untamed_Obsidian_Desktop_Preview_Portable.zip \
+            release-assets/Untamed_Obsidian_Desktop_Preview_Setup.exe \
+            release-assets/installed-release.txt \
+            release-assets/SHA256SUMS.txt \
+            --repo "$GH_REPO" --target "$COMMIT" \
+            --title "Obsidian Command $VERSION Preview · build #${{ github.run_number }}" \
+            --notes "ONE SUPPORTED MANAGER: Obsidian Command React + WebView2. Windows CI / native bridge / Playwright / WebView2 smoke passed. Old WPF releases are historical; do not install them as Obsidian updates. Live Store-v1 5+5 migration and character travel remain unverified. SQL excluded; original ASA data untouched. Install on a separate Windows test PC." \
+            --prerelease
