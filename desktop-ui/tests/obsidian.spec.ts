@@ -1022,7 +1022,7 @@ test("dropped native WebView response expires its Promise and rejects without an
       }
       original(message);
     };
-    const bridge=await import("../src/bridge");
+    const bridge=await import("/src/bridge.ts");
     host.__rpcFailure=bridge.managerBridge.updateStatus()
       .then(()=>"unexpected-success")
       .catch((error:Error)=>error.message);
