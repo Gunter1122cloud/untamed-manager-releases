@@ -141,6 +141,25 @@ public sealed class RecurringReadOnlyRunner
         }
         finally{if(held)gate.ReleaseMutex();}
     }
+    /// <summary>
+    /// Authoritative persisted due slots for the native UI, NOT projections
+    /// recalculated from the time of each Dashboard refresh. One bounded
+    /// journal read covers all schedules and never claims or runs a job.
+    /// </summary>
+    public IReadOnlyDictionary<Guid,DateTimeOffset> DueDates()
+    {
+        using var gate=new Mutex(false,mutexName);
+        bool held=false;
+        try
+        {
+            try{held=gate.WaitOne(TimeSpan.FromSeconds(5));}
+            catch(AbandonedMutexException){held=true;}
+            if(!held)throw new IOException("Recurring runner busy");
+            return ReadStore().Cursors.ToDictionary(x=>x.Job,x=>x.NextDueUtc);
+        }
+        finally{if(held)gate.ReleaseMutex();}
+    }
+
     public RecurringJobReceipt[] Recent(int max=100)
     {
         if(max<1||max>500)throw new ArgumentOutOfRangeException(nameof(max));
