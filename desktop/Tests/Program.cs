@@ -488,6 +488,9 @@ try
         Check(StoreV1Fingerprint.Compute(memberCanonical.RootElement)==
               StoreV1Fingerprint.Compute(memberFormatted.RootElement),
             "original Store DONE member source hash accepts same ordered member data with different JSON whitespace");
+        Check(StoreV1Fingerprint.Compute(memberCanonical.RootElement)==
+              "E98B421DF586505CAADFC7709A5738B36826C7B35F17F09ED4D2BD6181A9F8BF",
+            "original Store DONE members hash matches Node.js JSON.stringify SHA-256 known-good vector");
         Check(StoreV1Fingerprint.Compute(memberCanonical.RootElement)!=
               StoreV1Fingerprint.Compute(memberReordered.RootElement),
             "original Store DONE member source hash rejects changed original map order");
