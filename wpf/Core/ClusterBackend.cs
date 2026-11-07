@@ -533,6 +533,84 @@ public sealed class ClusterService : IAsyncDisposable
     }
     public void Save() => Store.Save(Config);
 
+    private readonly object _recurringScheduleGate=new();
+
+    /// <summary>
+    /// Independent snapshot for the background read-only supervisor. Unlike
+    /// the live mutable ManagerConfig list, this copy cannot be modified by
+    /// a concurrent renderer request after the tick has begun.
+    /// </summary>
+    public RecurringSchedule[] SnapshotRecurringSchedules()
+    {
+        lock(_recurringScheduleGate)
+            return JsonSerializer.Deserialize<RecurringSchedule[]>(
+                JsonSerializer.Serialize(Config.RecurringSchedules))
+                ??throw new InvalidDataException("Recurring schedule configuration invalid");
+    }
+
+    private static bool ReadOnlyScheduleKind(OperationalTaskKind kind)=>
+        kind is OperationalTaskKind.Observation or OperationalTaskKind.ModCheck
+            or OperationalTaskKind.ApiCheck or OperationalTaskKind.SteamCheck;
+
+    /// <summary>
+    /// The only autonomous jobs the user may enable through the Obsidian
+    /// UI. Staged ConfigStore write is optimistic and atomic; on disk conflict
+    /// or IO failure, the live list is unchanged. No lifecycle/RCON job can
+    /// be enabled through this API.
+    /// </summary>
+    public RecurringSchedule CreateReadOnlySchedule(Guid mapId,
+        OperationalTaskKind kind,int minutes)
+    {
+        if(mapId==Guid.Empty||!ReadOnlyScheduleKind(kind)||
+           minutes is <5 or >10080)
+            throw new InvalidDataException("Invalid read-only schedule specification");
+        lock(_recurringScheduleGate)
+        {
+            var staged=JsonSerializer.Deserialize<ManagerConfig>(
+                JsonSerializer.Serialize(Config))
+                ??throw new InvalidDataException("Manager settings cannot be staged");
+            if(staged.RecurringSchedules==null||staged.RecurringSchedules.Count>=100||
+               !staged.LocalMaps.Any(m=>m.Id==mapId))
+                throw new InvalidOperationException("Local schedule capacity or ownership denied");
+            if(staged.RecurringSchedules.Any(j=>j!=null&&j.Map==mapId&&
+               j.Kind==kind&&j.Enabled))
+                throw new InvalidOperationException("An identical local inspection is already enabled");
+            var job=new RecurringSchedule{
+                Id=Guid.NewGuid(),Map=mapId,Kind=kind,
+                Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=minutes,
+                Enabled=true,NoticeRequired=true
+            };
+            staged.RecurringSchedules.Add(job);
+            Store.Save(staged);
+            Config.RecurringSchedules.Clear();
+            Config.RecurringSchedules.AddRange(staged.RecurringSchedules);
+            return job;
+        }
+    }
+
+    public RecurringSchedule DisableReadOnlySchedule(Guid id)
+    {
+        if(id==Guid.Empty)throw new InvalidDataException("Invalid recurring job ID");
+        lock(_recurringScheduleGate)
+        {
+            var staged=JsonSerializer.Deserialize<ManagerConfig>(
+                JsonSerializer.Serialize(Config))
+                ??throw new InvalidDataException("Manager settings cannot be staged");
+            var job=staged.RecurringSchedules.SingleOrDefault(j=>j.Id==id);
+            if(job==null||!ReadOnlyScheduleKind(job.Kind)||
+               !staged.LocalMaps.Any(m=>m.Id==job.Map))
+                throw new UnauthorizedAccessException("Only locally owned read-only jobs can be disabled");
+            if(job.Enabled)
+            {
+                job.Enabled=false;
+                Store.Save(staged);
+                Config.RecurringSchedules.Clear();
+                Config.RecurringSchedules.AddRange(staged.RecurringSchedules);
+            }
+            return job;
+        }
+    }
+
     /// <summary>
     /// Commit only settings through the existing optimistic ConfigStore
     /// transaction. The callback sees an isolated staged copy: an exception,
