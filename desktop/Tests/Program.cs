@@ -211,6 +211,16 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
         historicCommandMap) &&
         !Match(originalCommand.Replace("Aberration_WP?listen","Aberration_WP")),
         "historical observer requires exact executable ownership and ?listen map switch");
+    string otherMapCommand=originalCommand.Replace(
+        "Aberration_WP?listen","TheIsland_WP?listen",StringComparison.Ordinal);
+    Check(LegacyStoreV1ProcessObserver.DefinitelyDifferentMap(
+              otherMapCommand,observedExe,"Aberration_WP") &&
+          !LegacyStoreV1ProcessObserver.DefinitelyDifferentMap(
+              originalCommand,observedExe,"Aberration_WP") &&
+          !LegacyStoreV1ProcessObserver.DefinitelyDifferentMap(
+              originalCommand.Replace("-Port=7797","-Port=7798",StringComparison.Ordinal),
+              observedExe,"Aberration_WP"),
+        "five original maps sharing one ASA EXE are distinguished by their canonical first map token, while corrupt same-map ports stay uncertain");
     Directory.CreateDirectory(Path.GetDirectoryName(observedExe)!);
     File.WriteAllText(observedExe,"SYNTHETIC TEST ONLY NOT AN ASA EXECUTABLE");
     var physical=LegacyStoreV1ProcessObserver.Observe(historicCommandMap);
