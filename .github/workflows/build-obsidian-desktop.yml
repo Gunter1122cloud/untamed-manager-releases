@@ -236,6 +236,13 @@ jobs:
           }
           if ($smoke.ExitCode -ne 0) { throw "Installed Obsidian WebView2 smoke failed: $($smoke.ExitCode)" }
           Write-Output "PASS: Obsidian Setup installs exact version, updater and starts packaged WebView2 React UI"
+      - name: Reject tampered or unpinned Obsidian Setup before updater mutation
+        shell: pwsh
+        run: |
+          ./desktop/Tests/ObsidianUpdaterPinE2E.ps1 `
+            -Setup "desktop-artifacts/Untamed_Obsidian_Desktop_Preview_Setup.exe" `
+            -Updater "desktop/publish/UntamedUpdater.exe" `
+            -DesktopExe "desktop/publish/UntamedDesktop.exe"
       - name: SHA-256 checksums
         shell: pwsh
         run: |
