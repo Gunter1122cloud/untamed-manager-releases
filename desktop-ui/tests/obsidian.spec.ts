@@ -65,6 +65,8 @@ test.beforeEach(async ({ page }) => {
         Object.assign(state.local.maps[1],{storeProtected:true});
         localBackupMap=two;localBackupSaved=true;
       };
+    let historicalRconAttached=false;
+    const historicalRconToken="00000000-0000-4000-8000-000000001699";
     let lanListen=0,lanPeer="",lanPeerPort=0,lanConfigured=false;
     let lanExpectedId="";
     let lanApproval="";
@@ -330,6 +332,34 @@ test.beforeEach(async ({ page }) => {
             .map(kind=>({kind,exactlySame:true})),
           evidence:"ORIGINAL_LOCAL_FOUR_FILE_BYTE_PARITY_OFFLINE_NO_LIVE_WRITER"
         };
+        case "historical.rconStatus": return {
+          mapId:two,mapName:"Astraeos",configured:historicalRconAttached,
+          port:historicalRconAttached?37145:0,
+          verifiedIni:historicalRconAttached,
+          originalStoreTouched:false,
+          evidence:"HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY"
+        };
+        case "historical.rconPreview": {
+          if(m.mapId!==two||m.rconPort!==37145||
+             m.password!=="HistoricalRconPass!2026")
+            throw new Error("Synthetic original RCON INI mismatch");
+          return {
+            token:historicalRconToken,mapId:two,mapName:"Astraeos",
+            rconPort:37145,existingIniVerified:true,
+            originalActiveDoneVerified:true,
+            originalStoreTouched:false,serverStarted:false,
+            evidence:"HISTORICAL_RCON_EXISTING_INI_PREVIEW_ONLY"
+          };
+        }
+        case "historical.rconApply": {
+          if(m.token!==historicalRconToken||m.confirm!==true||historicalRconAttached)
+            throw new Error("Synthetic one-shot RCON approval required");
+          historicalRconAttached=true;
+          state.local.maps[1].rconConfigured=true;
+          return {mapId:two,mapName:"Astraeos",configured:true,rconPort:37145,
+            originalStoreTouched:false,iniModified:false,serverStarted:false,
+            evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED"};
+        }
         case "historical.localStatus": return {
           found:true,localFilesVerified:true,configHashVerified:true,
           localLockVerified:true,allLocalMapsActive:true,
@@ -1454,6 +1484,32 @@ test("local map card opens map-specific details, functional tabs, back navigatio
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await expect(page.getByRole("heading",{name:"Szerverek"})).toBeVisible();
   await page.screenshot({path:"test-results/map-detail-navigation-1600.png",fullPage:true});
+});
+
+test("historical Store RCON attaches only existing INI with native approval and without any Store write",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const attach=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await expect(attach).toBeVisible();
+  await expect(attach.getByText(/Eredeti fájlok érintetlenek/)).toBeVisible();
+  await attach.getByLabel("Meglévő ASA RCON-port").fill("37145");
+  await attach.getByLabel("Eredeti ASA ServerAdminPassword").fill("HistoricalRconPass!2026");
+  await attach.getByRole("button",{name:"Eredeti RCON előellenőrzése"}).click();
+  const confirm=attach.getByRole("region",{name:"Store-v1 RCON jóváhagyása"});
+  await expect(confirm).toBeVisible();
+  const apply=attach.getByRole("button",{name:"RCON átvétel véglegesítése"});
+  await expect(apply).toBeDisabled();
+  await expect(attach.locator('input[type="password"]')).toHaveValue("");
+  await confirm.getByText(/Jóváhagyom az eredeti RCON-kapcsolat/).click();
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(attach.getByText(/RCON-port: 37145/)).toBeVisible();
+  await expect(attach.getByText(/A Store-fájlok nem módosultak/)).toBeVisible();
+  await expect(attach.getByRole("button",{name:"RCON átvétel véglegesítése"})).toHaveCount(0);
 });
 
 test("real admin RCON UI requires two-stage approval and exact typed phrase for destructive actions",async({page})=>{
