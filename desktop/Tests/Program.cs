@@ -2556,7 +2556,8 @@ try
         Check(IsError(invalidMap,"UM-TRAVEL-EVIDENCE-UNVERIFIED"),
             "null map in externally supplied snapshot fails closed without an exception");
         var nullFile=System.Text.Json.Nodes.JsonNode.Parse(request.beforeA)!.AsObject();
-        nullFile["maps"]![0]!["files"]!.AsArray()[0]=null;
+        nullFile["maps"]!.AsArray()
+            .First(m=>m!["name"]!.GetValue<string>()=="The Island")!["files"]!.AsArray()[0]=null;
         var invalidFile=await Call(travelA.HandleAsync,"travel.compare",new{
             beforeA=nullFile.ToJsonString(),request.beforeB,request.afterA,
             request.afterB,request.sourceMap,request.destinationMap,request.profileId
@@ -2564,7 +2565,8 @@ try
         Check(IsError(invalidFile,"UM-TRAVEL-EVIDENCE-UNVERIFIED"),
             "null proof object in supplied character snapshot is rejected");
         var nullDigest=System.Text.Json.Nodes.JsonNode.Parse(request.beforeA)!.AsObject();
-        nullDigest["maps"]![0]!["files"]![0]!["sha256"]=null;
+        nullDigest["maps"]!.AsArray()
+            .First(m=>m!["name"]!.GetValue<string>()=="The Island")!["files"]![0]!["sha256"]=null;
         var invalidDigest=await Call(travelA.HandleAsync,"travel.compare",new{
             beforeA=nullDigest.ToJsonString(),request.beforeB,request.afterA,
             request.afterB,request.sourceMap,request.destinationMap,request.profileId
