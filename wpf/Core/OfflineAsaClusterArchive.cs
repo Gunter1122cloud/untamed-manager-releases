@@ -73,6 +73,23 @@ public static class OfflineAsaClusterArchive
         using var data=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.Read);
         return Convert.ToHexString(SHA256.HashData(data));
     }
+    // File metadata from sealed offline copies is untrusted. Read each JSON
+    // input and its tiny digest/complete marker under its own shared-read
+    // handle, with size checked BEFORE allocating bytes.
+    private static byte[] ReadBounded(string file,int maximum)
+    {
+        if(!File.Exists(file)||(File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("Missing or linked archive metadata");
+        using var source=new FileStream(file,FileMode.Open,FileAccess.Read,
+            FileShare.Read,65536,FileOptions.SequentialScan);
+        if(source.Length is <1 || source.Length>maximum)
+            throw new InvalidDataException("Offline archive metadata exceeds size limit");
+        var data=new byte[checked((int)source.Length)];
+        source.ReadExactly(data);
+        if(source.ReadByte()!=-1)
+            throw new InvalidDataException("Offline archive metadata changed during read");
+        return data;
+    }
     private static void DurableText(string file,string text)
     {
         using var stream=new FileStream(file,FileMode.CreateNew,FileAccess.Write,FileShare.None);
@@ -316,16 +333,16 @@ public static class OfflineAsaClusterArchive
     {
         if(!internalStage&&root.EndsWith(".incomplete",StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Incomplete archive cannot be trusted");
-        string indexPath=Inside(root,Index);
-        var info=new FileInfo(indexPath);
-        if(!Directory.Exists(root)||!info.Exists||
-           info.Length is <20 or >MaxIndexBytes ||
-           !File.Exists(Inside(root,HashFile))||!File.Exists(Inside(root,Completed)) ||
-           !Sha(indexPath).Equals(File.ReadAllText(Inside(root,HashFile)).Trim(),
+        if(!Directory.Exists(root))
+            throw new InvalidDataException("Offline archive directory is missing");
+        byte[] indexBytes=ReadBounded(Inside(root,Index),checked((int)MaxIndexBytes));
+        string expectedHash=System.Text.Encoding.UTF8.GetString(
+            ReadBounded(Inside(root,HashFile),128)).Trim();
+        if(indexBytes.Length<20 ||
+           !Convert.ToHexString(SHA256.HashData(indexBytes)).Equals(expectedHash,
                StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Offline archive incomplete, oversized or index modified");
-        var manifest=JsonSerializer.Deserialize<AsaOfflinePackage>(
-            File.ReadAllText(Inside(root,Index)))
+        var manifest=JsonSerializer.Deserialize<AsaOfflinePackage>(indexBytes)
             ??throw new InvalidDataException("Missing ASA archive manifest");
         if(manifest.Schema is not (2 or 3) || manifest.Batch==Guid.Empty||
            (manifest.Schema==2 && manifest.Config is {Length:>0}) ||
@@ -339,7 +356,8 @@ public static class OfflineAsaClusterArchive
            manifest.Maps.Select(m=>m.Map).Distinct().Count()!=10 ||
            manifest.Maps.Select(m=>m.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=10)
             throw new InvalidDataException("ASA-only archive scope/identity invalid");
-        if(File.ReadAllText(Inside(root,Completed)).Trim()!=manifest.Batch.ToString("N"))
+        if(System.Text.Encoding.UTF8.GetString(
+            ReadBounded(Inside(root,Completed),128)).Trim()!=manifest.Batch.ToString("N"))
             throw new InvalidDataException("Archive completion marker invalid");
         if(Directory.GetFiles(root).Length!=3 ||
            Directory.GetDirectories(root).Length!=(manifest.Schema==3?4:3))
