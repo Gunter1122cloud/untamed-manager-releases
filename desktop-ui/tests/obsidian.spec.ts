@@ -77,6 +77,9 @@ test.beforeEach(async ({ page }) => {
       };
     let originalRconSourceValid=true;
     let originalRconPortOwner=true;
+    const originalStopToken="00000000-0000-4000-8000-000000001696";
+    const originalStopJob="00000000-0000-4000-8000-000000001697";
+    let originalStopQueued=false;
     let lanListen=0,lanPeer="",lanPeerPort=0,lanConfigured=false;
     let lanExpectedId="";
     let lanApproval="";
@@ -432,6 +435,40 @@ test.beforeEach(async ({ page }) => {
             response:"Synthetic original ASA "+command,observedUtc:"2026-11-07T17:00:00Z",
             readOnly:true,storeTouched:false,saveCompleteProven:false,
             evidence:"ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON"};
+        }
+        case "historical.gracefulStopPreview": {
+          if(!historicalRconAttached||!historicalActiveStarted||
+             !originalRconSourceValid||!originalRconPortOwner||m.mapId!==two)
+            throw new Error("Original RCON owner or Store session invalid");
+          return {
+            token:originalStopToken,mapId:two,mapName:"Astraeos",
+            pid:42101,rconPort:37145,originalTwoPeersVerified:true,
+            usesSaveWorld:true,usesDoExit:true,forceKillAllowed:false,
+            automaticRestart:false,originalStoreTouched:false,
+            evidence:"ORIGINAL_STORE_V1_SAVEWORLD_DOEXIT_PREFLIGHT_ONLY"
+          };
+        }
+        case "historical.gracefulStopApply": {
+          if(m.token!==originalStopToken||m.confirm!==true||
+             m.typedApproval!=="STORE-V1 SAVEWORLD DOEXIT"||originalStopQueued||
+             !historicalActiveStarted)
+            throw new Error("Original Store Stop approval invalid");
+          originalStopQueued=true;
+          return {jobId:originalStopJob,started:true,
+            automaticRetry:false,forceKill:false,storeTouched:false,
+            evidence:"ORIGINAL_STORE_V1_REAL_STOP_JOB_QUEUED"};
+        }
+        case "historical.gracefulStopStatus": {
+          if(!originalStopQueued||m.jobId!==originalStopJob)
+            throw new Error("Original Store Stop job unknown");
+          historicalActiveStarted=false;
+          state.local.maps[1].running=false;state.local.maps[1].status="Leállítva";
+          return {jobId:originalStopJob,state:"completed",step:"Régi ASA PID kilépett",
+            changedUtc:"2026-11-07T18:35:00Z",
+            confirmedStopped:true,preExitSaveLogAndWorldObserved:true,
+            finalDoExitSaveCertified:false,gameClientRejoinVerified:false,
+            automaticRetry:false,forceKill:false,storeTouched:false,
+            evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_DOEXIT_STATE"};
         }
         case "historical.localStatus": return {
           found:true,localFilesVerified:true,configHashVerified:true,
@@ -1644,6 +1681,31 @@ test("original Store-v1 RCON console actually queries local player, game and cha
   await expect(panel.getByText("Synthetic original ASA GetChat")).toBeVisible();
   await expect(panel.getByRole("button",{name:/SaveWorld|DoExit|Parancs elküldése/})).toHaveCount(0);
   await expect(panel.getByText(/közös Store-restore biztonságát/)).toBeVisible();
+});
+
+test("original Store-v1 real SaveWorld then DoExit requires exact typed approval, shows durable result and no Kill",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
+  await expect(panel).toBeVisible();
+  await panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"}).click();
+  const approval=panel.getByRole("region",{name:"Eredeti Store-v1 leállítás jóváhagyása"});
+  await expect(approval).toBeVisible();
+  const apply=approval.getByRole("button",{name:"SaveWorld és szabályos DoExit"});
+  await expect(apply).toBeDisabled();
+  await approval.getByLabel("Pontos jóváhagyó szöveg").fill("DOEXIT");
+  await expect(apply).toBeDisabled();
+  await approval.getByLabel("Pontos jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD DOEXIT");
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(panel.getByText(/A régi ASA-folyamat szabályosan kilépett/)).toBeVisible();
+  await expect(panel.getByText(/mentésjelzés megfigyelve/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:/Kill|Erőltetett|Újraindítás/})).toHaveCount(0);
 });
 
 test("real admin RCON UI requires two-stage approval and exact typed phrase for destructive actions",async({page})=>{
