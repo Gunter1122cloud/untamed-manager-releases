@@ -450,9 +450,28 @@ try
         });
         bool aliasDenied=false;
         try{LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
-            sourceConfig,aliasChanged);}
+            sourceConfig,aliasChanged,(_,_)=>false);}
         catch(InvalidDataException){aliasDenied=true;}
         Check(aliasDenied,"UNC hostname alias mismatch is not silently promoted to Store writer ownership");
+        Check(!LegacyStoreV1PeerTopology.SameOriginalUncDirectory(
+                @"C:\\synthetic",@"C:\\synthetic"),
+            "a local drive cannot pose as an original SMB UNC Store root");
+        // Inject a synthetic *filesystem-identity decision* only in this
+        // isolated test; production uses Windows volume+file-ID comparison.
+        LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
+            sourceConfig,aliasChanged,(left,right)=>
+                left.StartsWith(@"\\",StringComparison.Ordinal)&&
+                right.StartsWith(@"\\",StringComparison.Ordinal));
+        Check(true,"physically verified original UNC alias may differ in text without rewriting source hashes");
+        var changedOtherField=JsonSerializer.SerializeToElement(new{
+            id="KovaCluster",mode="shared",path=@"\\other-host\synthetic",
+            members=localMaps.Reverse().ToArray()
+        });
+        bool otherMismatchDenied=false;
+        try{LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
+            sourceConfig,changedOtherField,(_,_)=>true);}
+        catch(InvalidDataException){otherMismatchDenied=true;}
+        Check(otherMismatchDenied,"a proven UNC alias never permits changed owner/member order or other original config fields");
     }
 
     // The original shared-store.mjs coordinator is fail-closed:
