@@ -30,7 +30,7 @@ public static class ObsidianReleaseCatalog
     {
         var result=new HttpClient{Timeout=TimeSpan.FromSeconds(22)};
         result.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("UntamedObsidian","1.4"));
+            new ProductInfoHeaderValue("UntamedObsidian","2.0"));
         result.DefaultRequestHeaders.Accept.Add(
             new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return result;
