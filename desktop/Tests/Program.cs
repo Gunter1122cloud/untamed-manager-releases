@@ -2976,6 +2976,7 @@ try
     Check(!ObsidianWindow.RequiresGlobalBridgeGate("updates.prepare") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectCopy") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectArchive") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("store.compareArchives") &&
           ObsidianWindow.RequiresGlobalBridgeGate("updates.install") &&
           ObsidianWindow.RequiresGlobalBridgeGate("servers.restartApply") &&
           ObsidianWindow.RequiresGlobalBridgeGate(null),
