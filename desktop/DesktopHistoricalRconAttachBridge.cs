@@ -123,12 +123,12 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null||!map.HistoricalStoreProtected)
                         return Fail(id,"UM-HISTORICAL-RCON-OWNED-ONLY");
-                    bool configured=map.RconPort is >=1024 and <=65535&&
+                    bool attached=map.RconPort is >=1024 and <=65535&&
                         !string.IsNullOrWhiteSpace(map.RconPasswordProtected);
                     return Ok(id,new{
-                        mapId,mapName=map.Name,configured,
-                        port=configured?map.RconPort:0,
-                        verifiedIni=configured&&rconProof(map),
+                        mapId,mapName=map.Name,configured=attached,
+                        port=attached?map.RconPort:0,
+                        verifiedIni=attached&&rconProof(map),
                         originalStoreTouched=false,
                         evidence="HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY"
                     });
