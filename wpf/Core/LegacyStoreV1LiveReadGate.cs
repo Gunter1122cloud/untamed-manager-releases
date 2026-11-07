@@ -143,7 +143,8 @@ public static class LegacyStoreV1LiveReadGate
         if(peers.ValueKind!=JsonValueKind.Array||peers.GetArrayLength()!=2||
            !Str(op,"session",session)||
            !Str(op,"cluster",VaultProtocol.ClusterId)||
-           !Str(op,"path",path)||
+           !LegacyStoreV1PeerTopology.SameOriginalUncDirectory(
+               path,SharedRoot(Text(op,"path")))||
            Need(op,"schema").GetInt32()!=1)
             throw new InvalidDataException("UM-STORE-LIVE-OPERATION-INVALID");
         var peerIds=peers.EnumerateArray().Select(x=>x.GetString()??"").ToArray();
@@ -167,7 +168,8 @@ public static class LegacyStoreV1LiveReadGate
                !Str(peer,"phase","done")||
                !Str(config,"id",VaultProtocol.ClusterId)||
                !Str(config,"mode","shared")||
-               !Str(config,"path",path)||
+               !LegacyStoreV1PeerTopology.SameOriginalUncDirectory(
+                   path,SharedRoot(Text(config,"path")))||
                !StoreV1Fingerprint.Matches(config,Text(peer,"configHash"))||
                owned.ValueKind!=JsonValueKind.Array||owned.GetArrayLength()!=5||
                selected.ValueKind!=JsonValueKind.Array||selected.GetArrayLength()!=5||
