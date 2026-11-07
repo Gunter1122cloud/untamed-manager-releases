@@ -120,6 +120,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly DesktopEmbeddedStoreBridge _embeddedStore;
     private readonly DesktopWorldBackupBridge _worldBackup;
+    private readonly DesktopScheduledStoppedBackupSupervisor _scheduledBackups;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -158,7 +159,9 @@ public sealed class ObsidianWindow : Form
         _lan = new DesktopLanSettingsBridge(_bridge.LocalCluster);
         _travel = new DesktopStoreTravelEvidenceBridge(_bridge.LocalCluster);
         _embeddedStore = new DesktopEmbeddedStoreBridge();
-        _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster);
+        _scheduledBackups = new DesktopScheduledStoppedBackupSupervisor(_bridge.LocalCluster);
+        _worldBackup = new DesktopWorldBackupBridge(_bridge.LocalCluster,
+            scheduledBackups:_scheduledBackups);
         Text = "Untamed Kingdom — Obsidian Command";
         Width = 1510;
         Height = 880;
@@ -193,6 +196,7 @@ public sealed class ObsidianWindow : Form
                 // Restarts only the Manager-side read-only schedule loop;
                 // never starts/stops any ARK server or touches shared Store.
                 _readOnlySupervisor.Start();
+                _scheduledBackups.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
                 catch (Exception) { /* UI remains usable; peer status stays unknown */ }
             }
@@ -210,6 +214,7 @@ public sealed class ObsidianWindow : Form
         FormClosed += (_, _) =>
         {
             _readOnlySupervisor.Dispose();
+            _scheduledBackups.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
@@ -359,7 +364,9 @@ public sealed class ObsidianWindow : Form
                         travelRoute = name is "travel.capture" or "travel.compare";
                         embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
-                            "backup.create" or "backup.restorePreview" or "backup.restore";
+                            "backup.create" or "backup.restorePreview" or "backup.restore" or
+                            "backup.scheduleStatus" or "backup.scheduleCreate" or
+                            "backup.scheduleDisable";
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";

@@ -19,6 +19,7 @@ public sealed class DesktopWorldBackupBridge
 {
     private readonly ClusterService cluster;
     private readonly Func<LocalMap,ProcessCheck> inspect;
+    private readonly DesktopScheduledStoppedBackupSupervisor? scheduled;
     private readonly SemaphoreSlim serial=new(1,1);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private sealed record Ticket(Guid Token,Guid MapId,string Point,string Root,
@@ -26,10 +27,12 @@ public sealed class DesktopWorldBackupBridge
     private Ticket? pending;
 
     public DesktopWorldBackupBridge(ClusterService cluster,
-        Func<LocalMap,ProcessCheck>? processInspector=null)
+        Func<LocalMap,ProcessCheck>? processInspector=null,
+        DesktopScheduledStoppedBackupSupervisor? scheduledBackups=null)
     {
         this.cluster=cluster??throw new ArgumentNullException(nameof(cluster));
         inspect=processInspector??(map=>new WindowsProcessInspector().InspectFamily(map));
+        scheduled=scheduledBackups;
     }
     private LocalMap Owned(Guid mapId)
     {
@@ -63,11 +66,57 @@ public sealed class DesktopWorldBackupBridge
             id=request.ToString("D");
             string? method=methodRaw.GetString();
             if(method is not ("backup.history" or "backup.preview" or
-                "backup.create" or "backup.restorePreview" or "backup.restore"))
+                "backup.create" or "backup.restorePreview" or "backup.restore" or
+                "backup.scheduleStatus" or "backup.scheduleCreate" or
+                "backup.scheduleDisable"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
             {
+                if(method is "backup.scheduleStatus" or "backup.scheduleCreate" or
+                    "backup.scheduleDisable")
+                {
+                    if(scheduled==null)
+                        return Fail(id,"UM-BACKUP-SCHEDULER-UNAVAILABLE");
+                    if(!root.TryGetProperty("mapId",out var scheduledMap)||
+                       scheduledMap.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(scheduledMap.GetString(),out var scheduledId)||
+                       scheduledId==Guid.Empty)
+                        return Fail(id,"UM-BACKUP-INVALID-MAP");
+                    var owned=Owned(scheduledId);
+                    if(method=="backup.scheduleCreate")
+                    {
+                        if(!root.TryGetProperty("confirm",out var approval)||
+                           approval.ValueKind!=JsonValueKind.True||
+                           !root.TryGetProperty("intervalMinutes",out var interval)||
+                           interval.ValueKind!=JsonValueKind.Number||
+                           !interval.TryGetInt32(out int minutes))
+                            return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
+                        scheduled.Configure(owned.Id,minutes);
+                    }
+                    else if(method=="backup.scheduleDisable")
+                    {
+                        if(!root.TryGetProperty("confirm",out var approval)||
+                           approval.ValueKind!=JsonValueKind.True)
+                            return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
+                        scheduled.Disable(owned.Id);
+                    }
+                    var row=scheduled.Snapshot().SingleOrDefault(x=>x.MapId==owned.Id);
+                    return Ok(id,new{
+                        mapId=owned.Id,mapName=owned.Name,
+                        enabled=row?.Enabled??false,
+                        intervalMinutes=row?.IntervalMinutes,
+                        nextDueUtc=row?.NextDueUtc,
+                        lastAttemptUtc=row?.LastAttemptUtc,
+                        lastStatus=row?.LastStatus??"not-configured",
+                        lastPoint=row?.LastPoint,
+                        runnerState=scheduled.RuntimeState,
+                        storeProtected=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(owned),
+                        automaticRestoreAllowed=false,
+                        automaticServerStopAllowed=false,
+                        evidence="PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS"
+                    });
+                }
                 if(method=="backup.history")
                 {
                     if(!root.TryGetProperty("mapId",out var m)||

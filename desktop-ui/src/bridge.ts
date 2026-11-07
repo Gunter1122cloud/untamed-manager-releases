@@ -412,6 +412,14 @@ export type UpdateCheck = {
   evidence:"GITHUB_RELEASE_METADATA_NOT_AN_INSTALLER";
 };
 
+export type ScheduledStoppedBackupState={
+  mapId:string;mapName:string;enabled:boolean;
+  intervalMinutes:number|null;nextDueUtc:string|null;
+  lastAttemptUtc:string|null;lastStatus:string;lastPoint:string|null;
+  runnerState:string;storeProtected:boolean;
+  automaticRestoreAllowed:false;automaticServerStopAllowed:false;
+  evidence:"PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS";
+};
 export type WorldBackupPoint={
   id:string;createdUtc:string;kind:"manual"|"protective";
   files:number;bytes:number;characters:number;tribes:number;verified:true;
@@ -796,6 +804,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
+  "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
   "travel.capture" | "travel.compare" | "store.inspectCopy" | "store.inspectArchive" | "store.compareArchives";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   mapId?: string; term?: string; page?: number; credential?: string;
@@ -979,6 +988,12 @@ export const managerBridge = {
     request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
   pluginToggleApply: (token:string) =>
     request<PluginToggleReceipt>("plugins.toggleApply",{token,confirm:true}),
+  backupScheduleStatus: (mapId:string) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleStatus",{mapId}),
+  backupScheduleCreate: (mapId:string,intervalMinutes:number) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleCreate",{mapId,intervalMinutes,confirm:true}),
+  backupScheduleDisable: (mapId:string) =>
+    request<ScheduledStoppedBackupState>("backup.scheduleDisable",{mapId,confirm:true}),
   backupHistory: (mapId:string) =>
     request<WorldBackupHistory>("backup.history",{mapId}),
   backupPreview: (mapId:string) =>
