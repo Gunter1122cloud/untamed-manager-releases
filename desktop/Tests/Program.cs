@@ -4311,6 +4311,42 @@ try
             Arguments=""
         };
         historic.AddMap(storeMap);
+
+        // The original ten-map cluster may share ONE ASA EXE between maps.
+        // Ignore another process only when it is an EXACT, different, locally
+        // registered original Store-v1 map with source-accurate flags.
+        var otherOriginalMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="The Island",
+            InstallationPath=historicalRoot,ExecutablePath=exe,
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=new string('A',64),
+            HistoricalMapKey="TheIsland_WP",
+            GamePort=7847,QueryPort=27087,RconPort=37087,
+            HistoricalEnabledMods=new List<string>(),
+            HistoricalPassiveMods=new List<string>()
+        };
+        string otherArgs=string.Join(" ",LegacyStoreV1ActiveLaunch.Build(new(
+            otherOriginalMap.HistoricalMapKey,
+            otherOriginalMap.GamePort,otherOriginalMap.QueryPort,
+            otherOriginalMap.HistoricalEnabledMods,
+            otherOriginalMap.HistoricalPassiveMods,
+            "KovaCluster",@"\\192.0.2.1\shared","active","")).Arguments);
+        string otherCommand="\"" + exe + "\" " + otherArgs;
+        Check(LegacyStoreV1ProcessObserver.ProvenDistinctOwnedMap(
+            otherCommand,exe,storeMap,new[]{storeMap,otherOriginalMap}),
+            "legitimate original same-EXE different owned map is not a false stop/start blocker");
+        Check(!LegacyStoreV1ProcessObserver.ProvenDistinctOwnedMap(
+            otherCommand,exe,storeMap,new[]{storeMap}),
+            "unregistered same-EXE process always blocks original Store-v1 start");
+        Check(!LegacyStoreV1ProcessObserver.ProvenDistinctOwnedMap(
+            otherCommand+" -converttostore",exe,storeMap,
+            new[]{storeMap,otherOriginalMap}),
+            "same-EXE source conversion switch is not accepted as a safe different map");
+        Check(!LegacyStoreV1ProcessObserver.ProvenDistinctOwnedMap(
+            otherCommand.Replace("-Port=7847","-Port=7787"),exe,storeMap,
+            new[]{storeMap,otherOriginalMap}),
+            "another process with different map key but wrong source port stays blocked");
+
         int launches=0,prepared=0;
         bool changedPlan=false;
         LegacyStoreV1NativeStartPlan Prepare(LocalMap original)
