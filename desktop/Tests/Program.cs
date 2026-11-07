@@ -488,6 +488,15 @@ try
         LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
             sourceConfig,matchingConfig);
         Check(true,"source local lock and local shared DONE peer have exactly matching original configuration");
+        string originalLocalConfigHash=StoreV1Fingerprint.Compute(sourceConfig);
+        Check(StoreV1Fingerprint.Matches(sourceConfig,originalLocalConfigHash),
+            "original local lock configHash exactly matches its current local cluster configuration");
+        var staleLocalCluster=JsonSerializer.SerializeToElement(new{
+            id="KovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
+            members=localMaps.Reverse().ToArray()
+        });
+        Check(!StoreV1Fingerprint.Matches(staleLocalCluster,originalLocalConfigHash),
+            "stale original lock configHash must block changed member ordering despite self-consistent saved lock");
         var aliasChanged=JsonSerializer.SerializeToElement(new{
             id="KovaCluster",mode="shared",path=@"\\other-host\synthetic",
             members=localMaps
