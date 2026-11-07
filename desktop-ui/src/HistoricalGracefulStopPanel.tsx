@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Shield,Square,LockKeyhole} from "lucide-react";
 import {managerBridge,type HistoricalGracefulStopPreview,
-  type HistoricalGracefulStopStatus} from "./bridge";
+  type HistoricalGracefulStopStatus,type HistoricalGracefulStopRecovery} from "./bridge";
 
 /**
  * Original ACTIVE/DONE Store shutdown is intentional and one-shot:
@@ -16,13 +16,34 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   const [phrase,setPhrase]=useState("");
   const [job,setJob]=useState<HistoricalGracefulStopStatus|null>(null);
   const [jobId,setJobId]=useState("");
+  const [recovery,setRecovery]=useState<HistoricalGracefulStopRecovery|null>(null);
+  const [recoveryChecked,setRecoveryChecked]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const notified=useRef(false);
   useEffect(()=>{
+    let active=true;
     setPreview(null);setPhrase("");setJob(null);setJobId("");
+    setRecovery(null);setRecoveryChecked(false);
     setError("");setNotice("");notified.current=false;
+    managerBridge.historicalGracefulStopRecovery(mapId).then(result=>{
+      if(!active)return;
+      setRecovery(result);setRecoveryChecked(true);
+      if(result.inMemoryRunning&&result.jobId)
+        setJobId(result.jobId); // resume polling after React view remount
+      if(result.requiresOperator)
+        setError("Korábban megszakadt művelet tartós naplója található. "+
+          "Ne indíts új SaveWorld/DoExit vagy Start műveletet. "+
+          "Ellenőrizd az eredeti ASA PID-et, mentésnaplót és a helyi művelet állapotát.");
+    }).catch(()=>{
+      if(active){
+        setRecoveryChecked(true);
+        setError("A tartós Store-v1 műveleti napló nem ellenőrizhető. "+
+          "Biztonsági okból az új leállítás tiltott.");
+      }
+    });
+    return ()=>{active=false;};
   },[mapId]);
   useEffect(()=>{
     if(!jobId)return;
@@ -40,6 +61,9 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
           setNotice("A régi ASA-folyamat szabályosan kilépett. Az új SaveWorld "+
             "napló- és világfájl-bizonyíték rendelkezésre áll; "+
             "a végső DoExit fsync és játékbeli karakterutazás még külön vizsgálandó.");
+          try{
+            setRecovery(await managerBridge.historicalGracefulStopRecovery(mapId));
+          }catch{/* Keep original job receipt; never infer unlock from a failed read. */}
           await onStopped();
         }
         if(result.state==="needsOperator"&&!notified.current){
@@ -59,7 +83,8 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     return ()=>{alive=false;window.clearInterval(interval);};
   },[jobId,onStopped]);
   const inspect=async()=>{
-    if(busy||jobId||!running)return;
+    if(busy||jobId||!running||!recoveryChecked||
+       !recovery||recovery.blocked)return;
     setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
     try{setPreview(await managerBridge.historicalGracefulStopPreview(mapId));}
     catch{
@@ -96,11 +121,27 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
         újraindítás, Store-konverzió vagy shared lock törlése.</p>
       <div className="settings-actions">
         <button className="secondary" type="button"
-          disabled={busy||!running||!!preview||!!jobId}
+          disabled={busy||!running||!!preview||!!jobId||
+            !recoveryChecked||!recovery||recovery.blocked}
           onClick={()=>{void inspect();}}>
           <Shield size={16}/> Eredeti SaveWorld/DoExit előellenőrzése
         </button>
       </div>
+      {recovery?.blocked&&<div className="warning-inline" role="region"
+        aria-label="Tartós Store-v1 műveleti helyreállítás">
+        <AlertTriangle size={18}/>
+        <div>
+          <b>Korábbi műveleti napló · {recovery.phase}</b>
+          <p>{recovery.inMemoryRunning
+            ?"A natív Stop-folyamat még fut. A napló és az eredeti session érintetlen."
+            :"A művelet lezárása nincs biztonságosan igazolva. "+
+              "A Manager nem oldja fel automatikusan a zárolást és nem "+
+              "küld új SaveWorld/DoExit parancsot."}</p>
+          <p>{recovery.requiresOperator
+            ?"Kézi ellenőrzés szükséges az újabb műveletek előtt."
+            :"A folyamat állapotát a natív háttérfeladatból figyeljük."}</p>
+        </div>
+      </div>}
       {preview&&<div className="warning-inline" role="region"
           aria-label="Eredeti Store-v1 leállítás jóváhagyása">
         <AlertTriangle size={18}/>
