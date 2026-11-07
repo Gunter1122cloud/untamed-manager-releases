@@ -190,7 +190,16 @@ public static class LegacyStoreV1LiveReadGate
                 owned.EnumerateArray().Select(x=>Text(x,"map")).ToArray(),
                 selected.EnumerateArray().Select(x=>x.GetString()??"").ToArray()));
             if(peerIds[i].Equals(deviceId,StringComparison.OrdinalIgnoreCase))
+            {
+                // The local durable lock must select exactly the five maps
+                // recorded by THIS original DONE peer, in their original
+                // order. A SetEquals ownership check alone is insufficient:
+                // the original protocol also pins the ordered selection.
+                LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
+                    Need(localLock,"selected"),
+                    selected.EnumerateArray().Select(x=>x.GetString()??"").ToArray());
                 LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(cluster,config);
+            }
             foreach(var item in owned.EnumerateArray())
                 if(!members.Add(Text(item,"map")))
                     throw new InvalidDataException("UM-STORE-LIVE-DUPLICATE-MAP");
