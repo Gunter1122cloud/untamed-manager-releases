@@ -60,6 +60,38 @@ public static class LegacyStoreV1PeerTopology
     }
 
     /// <summary>
+    /// The ORIGINAL durable local shared-store-lock-v1.json selection is the
+    /// writer-ownership boundary. The local peer's completed DONE selection
+    /// must preserve its exact ordered string sequence, not merely the same
+    /// set of five owned GUIDs. Reordering, GUID casing changes, duplicates,
+    /// missing entries or a foreign map are NOT silently normalized; the
+    /// original source checks the JSON ordered selection hash.
+    /// This helper only reads data; it never rewrites the historical lock.
+    /// </summary>
+    public static void RequireOriginalLocalSelection(
+        JsonElement originalLocalSelected,IReadOnlyList<string> originalDonePeerSelected)
+    {
+        if(originalLocalSelected.ValueKind!=JsonValueKind.Array||
+           originalLocalSelected.GetArrayLength()!=5||
+           originalDonePeerSelected==null||originalDonePeerSelected.Count!=5)
+            throw new InvalidDataException("UM-STORE-LOCK-SELECTED-FIVE-REQUIRED");
+
+        var found=new HashSet<Guid>();
+        int index=0;
+        foreach(var value in originalLocalSelected.EnumerateArray())
+        {
+            if(value.ValueKind!=JsonValueKind.String||
+               value.GetString() is not string selected||
+               !Guid.TryParse(selected,out var id)||id==Guid.Empty||
+               !found.Add(id)||
+               !string.Equals(selected,originalDonePeerSelected[index],
+                   StringComparison.Ordinal))
+                throw new InvalidDataException("UM-STORE-LOCK-SELECTED-DONE-PEER-DIFFERS");
+            index++;
+        }
+    }
+
+    /// <summary>
     /// A shared peer record bearing the original local device ID must be the
     /// EXACT source configuration recorded in its local locked profile.
     /// UNC hostname aliases, member order, root or backup-path differences
