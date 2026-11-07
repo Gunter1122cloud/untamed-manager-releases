@@ -2,4 +2,12 @@
 <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
 <EnableWindowsTargeting>true</EnableWindowsTargeting><Nullable>enable</Nullable>
 <ImplicitUsings>enable</ImplicitUsings><AssemblyName>UntamedIntegration</AssemblyName></PropertyGroup>
-<ItemGroup><ProjectReference Include="../../UntamedManager.csproj"/></ItemGroup></Project>
+<ItemGroup>
+  <ProjectReference Include="../../UntamedManager.csproj"/>
+  <!-- Historical SQL regression fixtures belong to the TEST runner only.
+       The shipped native WPF and modern desktop EXEs both exclude them. -->
+  <Compile Include="../../Core/MariaDb*.cs" Link="LegacySql/%(Filename)%(Extension)" />
+  <Compile Include="../../Core/OfflineSqlArchive.cs" Link="LegacySql/OfflineSqlArchive.cs" />
+  <Compile Include="../../Core/OfflineClusterBackup.cs" Link="LegacySql/OfflineClusterBackup.cs" />
+  <Compile Include="../../Core/ClusterRestoreCoordinator.cs" Link="LegacySql/ClusterRestoreCoordinator.cs" />
+</ItemGroup></Project>
