@@ -4745,7 +4745,7 @@ try
         int adminSent=0,verifiedAfterAuthentication=0;
         bool adminSourceReady=true;
         var adminStarted=new DateTimeOffset(2026,11,7,10,10,0,TimeSpan.Zero);
-        const string adminSource=new string('B',64);
+        string adminSource=new string('B',64);
         LegacyStoreV1GracefulStop.Owned ProofAdmin(Guid target)
         {
             if(target!=originalAdminMap.Id||!adminSourceReady)
