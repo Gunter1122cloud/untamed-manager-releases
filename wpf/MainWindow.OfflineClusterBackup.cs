@@ -73,7 +73,7 @@ public partial class MainWindow
             Label("5+5 mapos ASA / Store offline archívum – SQL nélkül",20,Mint,true),
             Label("Öt HP + öt Ryzen, korábban ellenőrzött Untamed map-mentéscsomag. "+
                 "A transfer könyvtár kizárólag az eredeti Store-v1 állományok "+
-                "külön elkészített másolata lehet, benne a .kova-store-v1/operation.json fájllal. "+
+                "külön elkészített másolata lehet, az eredeti Store-v1 műveleti metaadatokkal. "+
                 "A Manager nem hajt végre új Store-konverziót.",12,Soft),
             Label("HP: öt offline map mentéscsomag szülőkönyvtára",12,Aqua),hp,
             Btn("HP másolatmappa",()=>Pick(hp,"Öt leállított HP map külön másolt mentéscsomagjai")),
