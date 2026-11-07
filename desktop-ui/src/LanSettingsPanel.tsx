@@ -6,26 +6,34 @@ import "./lan-pairing.css";
 export function LanSettingsPanel(){
   const [status,setStatus]=useState<LanStatus|null>(null);
   const [listen,setListen]=useState("0");
-  const [peer,setPeer]=useState("");
-  const [expectedHostId,setExpectedHostId]=useState("");
-  const [port,setPort]=useState("0");
+  const [hostId,setHostId]=useState("");
+  const [hostName,setHostName]=useState("");
+  const [address,setAddress]=useState("");
+  const [port,setPort]=useState("39290");
   const [secret,setSecret]=useState("");
   const [reveal,setReveal]=useState(false);
+  const [action,setAction]=useState<"upsert"|"remove">("upsert");
   const [preview,setPreview]=useState<LanPreview|null>(null);
   const [working,setWorking]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+
   const reload=useCallback(async()=>{
     try{
       const s=await managerBridge.lanStatus();
-      setStatus(s);
-      setListen(String(s.listenPort));setPeer(s.peerAddress);
-      setExpectedHostId(s.expectedPeerHostId??"");
-      setPort(String(s.peerPort));
+      setStatus({...s,peers:s.peers??[]});
+      setListen(String(s.listenPort));
     }catch{setError("A natív LAN-beállítás nem olvasható.");}
   },[]);
   useEffect(()=>{void reload();},[reload]);
   const invalidate=()=>{setPreview(null);setNotice("");setError("");};
+  const choosePeer=(id:string)=>{
+    const selected=status?.peers.find(x=>x.hostId===id);
+    setHostId(id);
+    if(selected){setHostName(selected.hostName);setAddress(selected.address);setPort(String(selected.port));}
+    if(!id){setHostName("");setAddress("");setPort("39290");}
+    invalidate();
+  };
   const generate=()=>{
     const random=crypto.getRandomValues(new Uint8Array(32));
     setSecret(Array.from(random,b=>b.toString(16).padStart(2,"0")).join(""));
@@ -34,33 +42,34 @@ export function LanSettingsPanel(){
   const preflight=async(event:FormEvent)=>{
     event.preventDefault();invalidate();
     const local=Number(listen),other=Number(port);
-    if(!Number.isInteger(local)||!Number.isInteger(other)||
-       !([0].includes(local)||local>=1024&&local<=65535)||
-       !([0].includes(other)||other>=1024&&other<=65535)){
-      setError("A LAN-port 0 (kikapcsolva) vagy 1024–65535 lehet.");return;
+    if(!Number.isInteger(local)||local!==0&&(local<1024||local>65535)){
+      setError("A helyi LAN-port 0 (kikapcsolva) vagy 1024–65535 lehet.");return;
     }
-    if(peer.trim().length===0 && other!==0){
-      setError("Távoli cím nélkül a peer-portnak 0-nak kell lennie.");return;
+    if(!/^[0-9a-fA-F]{32}$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(hostId.trim())||
+       hostId.replaceAll("-","").toLowerCase()===status?.localHostId?.replaceAll("-","").toLowerCase()){
+      setError("Adj meg egy másik Managerhez tartozó, tartós Host ID-t.");return;
     }
-    if((local!==0 || other!==0) &&
-       (!/^[0-9a-fA-F]{32}$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(expectedHostId.trim()) ||
-        expectedHostId.replaceAll("-","").toLowerCase()===status?.localHostId?.replaceAll("-","").toLowerCase())){
-      setError("Add meg a másik gép LAN oldalán látható saját Host ID-t. A helyi azonosító nem használható peernek.");return;
-    }
-    if(secret && secret.length<24){
-      setError("A két Manager közös kulcsa legalább 24 karakter legyen.");return;
+    if(action==="upsert"){
+      if(!hostName.trim()||!address.trim()||!Number.isInteger(other)||other<1024||other>65535){
+        setError("A peer neve, privát IPv4-címe és fogadóportja kötelező.");return;
+      }
+      if(secret&&secret.length<24){setError("A közös kulcs legalább 24 karakter legyen.");return;}
+    }else if(!peerList.some(x=>x.hostId===hostId.trim()||x.hostId.toLowerCase()===hostId.trim().toLowerCase())){
+      setError("Eltávolításhoz válassz egy már párosított gazdagépet.");return;
+    }else if(peerList.length===1&&local!==0){
+      setError("Az utolsó peer eltávolításához előbb állítsd a helyi fogadóportot 0-ra.");return;
     }
     setWorking(true);
     try{
-      const p=await managerBridge.lanPreview(local,peer.trim(),other,expectedHostId.trim(),secret);
+      const p=await managerBridge.lanPreview(local,hostId.trim(),hostName.trim(),address.trim(),other,secret,action);
       setPreview(p);
-      // The native bridge retains the one-time approval token; the sensitive
-      // plaintext must not remain in component state during final approval.
+      // The native bridge retains the one-time approval token; plaintext does
+      // not remain in React state while the operator reviews the change.
       setSecret("");setReveal(false);
     }catch(e){
-      setError("A LAN-párosítás ellenőrzése sikertelen ("+
+      setError("A LAN-változtatás előnézete elutasítva ("+
         (e instanceof Error?e.message:"UM-LAN-INVALID-PRIVATE-PEER")+
-        "). Csak saját 10.x / 172.16–31.x / 192.168.x IPv4-cím engedélyezett.");
+        "). Csak privát IPv4-cím engedélyezett.");
     }finally{setWorking(false);}
   };
   const save=async()=>{
@@ -68,108 +77,117 @@ export function LanSettingsPanel(){
     const token=preview.token;setPreview(null);setWorking(true);setError("");
     try{
       await managerBridge.lanApply(token);
-      setNotice("A helyi párosítás mentve. A LAN-listener újraindításához csak a Managert kell újraindítani, az ASA mapokat nem.");
+      setNotice(preview.action==="remove"?"A peer eltávolítva a helyi Manager-profilból.":
+        "A peer mentve a helyi Manager-profilba.");
       await reload();
     }catch(e){
       setError("A helyi LAN-profil mentése elutasítva ("+
         (e instanceof Error?e.message:"UM-LAN-SAFE-UPDATE-FAILED")+").");
     }finally{setWorking(false);}
   };
+  const peerList=status?.peers??[];
+
   return <section className="glass panel lan-pairing-panel">
-    <div className="panel-head"><h2><Network size={19}/> Kétgépes LAN-párosítás</h2>
-      <span className="mod-tag green">Helyi Manager / peer csak olvasás</span></div>
+    <div className="panel-head"><h2><Network size={19}/> Többgépes LAN-párosítás</h2>
+      <span className="mod-tag green">Hitelesített állapot / távoli művelet nélkül</span></div>
     <div className="panel-inner">
-      <p className="muted small">A HP és a Ryzen Manager ugyanazzal a közös kulccsal, egymás privát IPv4-címére csatlakozik.
-        Mindkét gépen külön kell megadni a fogadóportot és a másik gép címét.
-        A távoli szervervezérlés és Store-v1 írás nem engedélyezett.</p>
+      <p className="muted small">Tetszőleges számú Manager párosítható külön Host ID-val, privát IPv4-címmel és saját DPAPI-védett kulccsal.
+        A kapcsolat kizárólag hitelesített állapotot olvas; távoli Start/Stop, RCON és Store-v1 írás nincs engedélyezve.</p>
       <div className="lan-status" role="status">
         {status?.remoteFresh?<Wifi size={17}/>:<WifiOff size={17}/>}
         <div><strong>{status?.hostName||"Helyi gazdagép"}</strong>
-          <span>{status?.remoteState||"LAN-konfiguráció lekérése..."}</span>
-          <small>Közös kulcs: {status?.pairingKeyConfigured?"helyileg, védetten beállítva":"nincs beállítva"}</small>
-          <small>Saját Host ID (a másik gépre ezt másold): <code>{status?.localHostId||"—"}</code></small>
+          <span>{status?.remoteState||"LAN-konfiguráció lekérése…"}</span>
+          <small>{peerList.filter(x=>x.online).length} / {peerList.length} peer elérhető</small>
+          <small>Saját Host ID (a társított Manageren ezt rögzítsd): <code>{status?.localHostId||"—"}</code></small>
         </div>
         <button type="button" className="quiet" disabled={working} aria-label="LAN állapot újraolvasása"
           onClick={()=>{void reload();}}><RefreshCw size={16}/></button>
       </div>
-      {status?.originalStorePair&&<section className="lan-store-proof" aria-label="Eredeti kétgépes Store-v1 egyezőség">
-        <div className="lan-store-heading"><Shield size={18}/>
-          <strong>Eredeti Store-v1 · kétgépes összevetés</strong>
-          <span>{status.originalStorePair.copiedMetadataPairMatches?
-            "Történeti metaadatok egyeznek":"További ellenőrzés szükséges"}</span>
-        </div>
+      {peerList.length>0&&<section className="lan-peer-list" data-testid="lan-peer-list" aria-label="Párosított gazdagépek">
+        <h3>Párosított gazdagépek ({peerList.length})</h3>
+        {peerList.map(peer=><button type="button" className="lan-peer-row" key={peer.hostId}
+          onClick={()=>choosePeer(peer.hostId)} aria-label={`Szerkesztés: ${peer.hostName}`}>
+          <span className={peer.online?"peer-dot online":"peer-dot"}/>
+          <strong>{peer.hostName}</strong><code>{peer.hostId}</code>
+          <span>{peer.address}:{peer.port}</span>
+          <small>{peer.online?`${peer.mapCount} map · friss`:peer.stateCode}</small>
+        </button>)}
+      </section>}
+      {status?.originalStorePair&&<section className="lan-store-proof" data-testid="lan-store-proof" aria-label="Eredeti többhostos Store-v1 egyezőség">
+        <div className="lan-store-heading"><Shield size={18}/><strong>Eredeti Store-v1 · helyi összevetés</strong>
+          <span>{status.originalStorePair.copiedMetadataPairMatches?"Történeti metaadatok egyeznek":"További ellenőrzés szükséges"}</span></div>
         <div className="lan-store-grid">
-          <div><span>Azonos Store-session</span>
-            <b>{status.originalStorePair.sameSharedSession?"Egyező":"Nem igazolt"}</b></div>
-          <div><span>Azonos UNC-megosztás</span>
-            <b>{status.originalStorePair.sameSharedPath?"Egyező":"Nem igazolt"}</b></div>
-          <div><span>Külön gazdagépazonosítók</span>
-            <b>{status.originalStorePair.distinctDeviceIds?"Igazolt":"Nem igazolt"}</b></div>
-          <div><span>5 + 5 aktív Store-map</span>
-            <b>{status.originalStorePair.bothHaveFiveActiveMaps?"Igazolt":"Nem igazolt"}</b></div>
+          <div><span>Azonos Store-session</span><b>{status.originalStorePair.sameSharedSession?"Egyező":"Nem igazolt"}</b></div>
+          <div><span>Azonos UNC-megosztás</span><b>{status.originalStorePair.sameSharedPath?"Egyező":"Nem igazolt"}</b></div>
+          <div><span>Külön gazdagépazonosítók</span><b>{status.originalStorePair.distinctDeviceIds?"Igazolt":"Nem igazolt"}</b></div>
+          <div><span>Öt aktív Store-map gazdagépenként</span><b>{status.originalStorePair.bothHaveFiveActiveMaps?"Igazolt":"Nem igazolt"}</b></div>
         </div>
-        <p className="muted small">A vizsgálat kizárólag hitelesített LAN-státuszt és a két gép
-          eredeti, helyileg olvasott Store-fájljainak hash-eit használja. Az eredeti UNC-útvonal
-          és azonosítók nem kerülnek átküldésre. Az egyezés nem igazolja az élő
-          kizárólagos Store-írójogot vagy a karakterutazást; szerverindítást nem old fel.</p>
+        <p className="muted small">Ez csak hitelesített, olvasási célú metaadat-összevetés. Nem igazol Store-írójogot vagy karakterutazást.</p>
       </section>}
       <form className="lan-settings-form" onSubmit={e=>{void preflight(e);}}>
+        <label>Művelet
+          <select data-testid="lan-action" aria-label="Peer mĹ±velet" value={action} onChange={e=>{setAction(e.target.value as "upsert"|"remove");invalidate();}} disabled={working}>
+            <option value="upsert">Peer hozzáadása vagy frissítése</option>
+            <option value="remove">Peer eltávolítása</option>
+          </select>
+        </label>
         <label>Helyi fogadóport (0 = kikapcsolva)
-          <input aria-label="Helyi LAN port" inputMode="numeric" value={listen}
+          <input data-testid="lan-listen-port" aria-label="Helyi LAN port" inputMode="numeric" value={listen}
             onChange={e=>{setListen(e.target.value);invalidate();}} disabled={working}/>
         </label>
-        <label>Másik Manager privát IPv4-címe
-          <input aria-label="Másik LAN cím" value={peer} placeholder="192.168.1.200"
-            onChange={e=>{setPeer(e.target.value);invalidate();}} disabled={working}/>
+        <label className="lan-peer-picker">Meglévő peer betöltése
+          <select data-testid="lan-peer-select" aria-label="Select paired peer" value="" disabled={working||!peerList.length}
+            onChange={e=>choosePeer(e.target.value)}>
+            <option value="">Új peer / kézi megadás</option>
+            {peerList.map(item=><option value={item.hostId} key={item.hostId}>{item.hostName} · {item.address}</option>)}
+          </select>
         </label>
-        <label>Másik Manager tartós Host ID-ja
-          <input aria-label="Elvárt távoli Host ID" spellCheck={false}
-            value={expectedHostId} placeholder="A másik Manager saját Host ID-ja"
-            maxLength={40} onChange={e=>{setExpectedHostId(e.target.value);invalidate();}}
-            disabled={working}/>
+        <label>Távoli tartós Host ID
+          <input data-testid="lan-host-id" aria-label="Remote Host ID" spellCheck={false} value={hostId}
+            placeholder="A távoli Manager saját Host ID-ja" maxLength={40}
+            onChange={e=>{setHostId(e.target.value);invalidate();}} disabled={working}/>
         </label>
-        <label>Másik Manager fogadóportja
-          <input aria-label="Távoli LAN port" inputMode="numeric" value={port}
-            onChange={e=>{setPort(e.target.value);invalidate();}} disabled={working}/>
-        </label>
-        <label className="lan-secret">Közös párosítási kulcs – mindkét gépen ugyanaz
-          <input aria-label="LAN közös kulcs" type={reveal?"text":"password"}
-            autoComplete="off" spellCheck={false} maxLength={256} value={secret}
-            placeholder={status?.pairingKeyConfigured?"Már van beállított kulcs – üresen hagyva megtartjuk":"Legalább 24 karakter"}
-            onChange={e=>{setSecret(e.target.value);invalidate();}} disabled={working}/>
-          <span className="lan-secret-actions">
-            <button type="button" className="secondary" disabled={working} onClick={generate}>
-              <KeyRound size={15}/> Biztonságos kulcs generálása</button>
-            <button type="button" className="quiet" disabled={working||!secret}
-              onClick={()=>setReveal(v=>!v)}>{reveal?"Elrejtés":"Megjelenítés"}</button>
-          </span>
-        </label>
-        <button className="secondary" type="submit" disabled={working}>
-          <Shield size={16}/> LAN beállítások ellenőrzése
+        {action==="upsert"&&<>
+          <label>Gazdagép megjelenített neve
+            <input data-testid="lan-host-name" aria-label="Remote host name" value={hostName} maxLength={100}
+              onChange={e=>{setHostName(e.target.value);invalidate();}} disabled={working}/>
+          </label>
+          <label>Távoli Manager privát IPv4-címe
+            <input data-testid="lan-address" aria-label="Remote Manager private IPv4 address" value={address} placeholder="192.168.1.200"
+              onChange={e=>{setAddress(e.target.value);invalidate();}} disabled={working}/>
+          </label>
+          <label>Távoli Manager fogadóportja
+            <input data-testid="lan-peer-port" aria-label="Remote LAN port" inputMode="numeric" value={port}
+              onChange={e=>{setPort(e.target.value);invalidate();}} disabled={working}/>
+          </label>
+          <label className="lan-secret">Párosítási kulcs · üresen hagyva a meglévő kulcs marad
+            <input data-testid="lan-key" aria-label="LAN pairing key" type={reveal?"text":"password"} autoComplete="off"
+              spellCheck={false} maxLength={256} value={secret}
+              placeholder="Új peerhez legalább 24 karakter" onChange={e=>{setSecret(e.target.value);invalidate();}} disabled={working}/>
+            <span className="lan-secret-actions">
+              <button type="button" className="secondary" disabled={working} onClick={generate}><KeyRound size={15}/> Véletlen kulcs készítése</button>
+              <button type="button" className="quiet" disabled={working||!secret} onClick={()=>setReveal(v=>!v)}>{reveal?"Elrejtés":"Megjelenítés"}</button>
+            </span>
+          </label>
+        </>}
+        <button data-testid="lan-preview-button" className="secondary" type="submit" disabled={working||action==="remove"&&!hostId}>
+          <Shield size={16}/> Változtatás ellenőrzése
         </button>
       </form>
-      {preview&&<div className="lan-preview" role="region" aria-label="LAN párosítás jóváhagyása">
-        <b><CheckCircle2 size={17}/> Biztonságos helyi előnézet</b>
-        <p>Fogadóport: {preview.listenPort||"ki"} · Peer:
-          {" "}{preview.peerAddress||"nincs"}:{preview.peerPort||"—"}.
-          A párosítás csak Manager-újraindítás után lép életbe.</p>
-        <p>Engedélyezett távoli gazdagép: <code>{preview.expectedPeerHostId||"nincs"}</code>. Más Host ID-val rendelkező válasz elutasítva.</p>
-        <p>Új közös kulcs: {preview.pairingKeyWillChange?"igen, DPAPI-védetten mentjük":"nem, a régit megtartjuk"}.
-          Másik gazdagépen nem végzünk műveletet.</p>
+      {preview&&<div className="lan-preview" data-testid="lan-preview" role="region" aria-label="LAN-változtatás jóváhagyása">
+        <b><CheckCircle2 size={17}/> Helyi változtatás előnézete</b>
+        <p>{preview.action==="remove"?"Peer eltávolítása":"Peer mentése"}: {preview.hostName||preview.hostId} · helyi fogadóport: {preview.listenPort||"kikapcsolva"}.</p>
+        {preview.action==="upsert"&&<p>Távoli cím: {preview.peerAddress}:{preview.peerPort}. A kulcs {preview.pairingKeyWillChange?"új DPAPI-védett értékre cserélődik":"változatlan marad"}.</p>}
+        <p>A beállítás csak ezen a Manageren lép életbe újraindítás után. A távoli géphez nem küldünk módosító parancsot.</p>
         <div className="lan-preview-actions">
-          <button className="primary" type="button" disabled={working}
-            onClick={()=>{void save();}}>Párosítás helyi mentése</button>
-          <button className="secondary" type="button" disabled={working}
-            onClick={()=>setPreview(null)}>Mégse</button>
+          <button data-testid="lan-save-button" className="primary" type="button" disabled={working} onClick={()=>{void save();}}>Helyi beállítás mentése</button>
+          <button className="secondary" type="button" disabled={working} onClick={()=>setPreview(null)}>Mégse</button>
         </div>
       </div>}
-      {notice&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{notice}</div>}
+      {notice&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{notice} A LAN-listener újraindításához a Managert kell újraindítani, az ASA mapokat nem.</div>}
       {error&&<div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
-      <div className="warning-inline"><Shield size={16}/>
-        A közös kulcs nem kerül visszaolvasásra a Windows DPAPI-tárolóból.
-        A párválasztás mindkét oldalon külön, a másik gép saját Host ID-jával történjen.
-        Ha most generáltál új kulcsot, már az ellenőrzés előtt jegyezd fel a másik Manager számára.
-        Tűzfalat, routert, adatbázist és ASA-fájlokat nem módosítunk.</div>
+      <div className="warning-inline"><Shield size={16}/> A kulcs titkosított formában marad helyben, és nem olvasható vissza a React felületre.
+        A párosítás mindkét Manageren külön, a másik fél Host ID-jával történjen. Tűzfalat, ASA-fájlt vagy Kova-profilt nem módosítunk.</div>
     </div>
   </section>;
 }

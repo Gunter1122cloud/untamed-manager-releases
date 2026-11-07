@@ -179,6 +179,80 @@ public sealed class ClusterRegistryService
         });
     }
 
+    /// <summary>
+    /// Reconciles only metadata received over an authenticated, HostId-pinned
+    /// LAN status exchange. It never imports paths, credentials, launch args,
+    /// or remote files, and does not advance registry revision for unchanged data.
+    /// </summary>
+    public bool SynchronizeAuthenticatedPeer(HostStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        string id=ClusterRegistrySchema.NormalizeHostId(status.HostId);
+        if(StringComparer.OrdinalIgnoreCase.Equals(id,owner.Config.LocalHostId))
+            throw new InvalidDataException("A local host cannot be registered as its own peer");
+        string name=ClusterRegistrySchema.NormalizeText(status.HostName,100,"Host name");
+        if(status.Maps==null)throw new InvalidDataException("Peer map list is missing");
+        var maps=status.Maps.Select(m=>{
+            if(m==null||!Guid.TryParse(m.Id,out var mapId)||mapId==Guid.Empty)
+                throw new InvalidDataException("Peer map identity is invalid");
+            return(MapId:mapId,MapName:ClusterRegistrySchema.NormalizeText(m.Name,100,"Peer map name"));
+        }).ToArray();
+        if(maps.Select(x=>x.MapId).Distinct().Count()!=maps.Length)
+            throw new InvalidDataException("Peer map IDs are duplicated");
+
+        var before=Snapshot().HostRegistry;
+        var currentHost=before.Hosts.SingleOrDefault(x=>
+            StringComparer.OrdinalIgnoreCase.Equals(x.HostId,id));
+        bool changed=currentHost==null||currentHost.IsLocal||!currentHost.IsPaired||
+            !StringComparer.Ordinal.Equals(currentHost.HostName,name);
+        foreach(var map in maps)
+        {
+            if(owner.Config.LocalMaps.Any(x=>x.Id==map.MapId))
+                throw new UnauthorizedAccessException("Remote peer cannot claim a locally owned map ID");
+            var current=before.Maps.SingleOrDefault(x=>x.MapId==map.MapId);
+            if(current!=null&&!StringComparer.OrdinalIgnoreCase.Equals(current.HostId,id))
+                throw new UnauthorizedAccessException("Remote peer cannot change map ownership");
+            if(current==null||current.LocalConfigurationPresent||
+               !StringComparer.Ordinal.Equals(current.MapName,map.MapName))changed=true;
+        }
+        if(!changed)return false;
+
+        owner.UpdateClusterRegistry(null,config=>{
+            var host=config.HostRegistry.Hosts.SingleOrDefault(x=>
+                StringComparer.OrdinalIgnoreCase.Equals(x.HostId,id));
+            if(host==null)
+            {
+                host=new RegisteredHost{HostId=id,HostName=name,IsLocal=false,IsPaired=true};
+                config.HostRegistry.Hosts.Add(host);
+            }
+            else
+            {
+                if(host.IsLocal)throw new InvalidDataException("Remote peer conflicts with local host identity");
+                host.HostName=name;host.IsPaired=true;
+            }
+            foreach(var map in maps)
+            {
+                var current=config.HostRegistry.Maps.SingleOrDefault(x=>x.MapId==map.MapId);
+                if(current!=null&&!StringComparer.OrdinalIgnoreCase.Equals(current.HostId,id))
+                    throw new UnauthorizedAccessException("Remote peer cannot change map ownership");
+                if(current==null)
+                {
+                    config.HostRegistry.Maps.Add(new RegisteredMap{
+                        MapId=map.MapId,HostId=id,MapName=map.MapName,
+                        LocalConfigurationPresent=false
+                    });
+                }
+                else
+                {
+                    current.MapName=map.MapName;
+                    current.LocalConfigurationPresent=false;
+                }
+            }
+            return true;
+        });
+        return true;
+    }
+
     public RegisteredCluster CreateCluster(string clusterId, string name,
         string transferDirectory, string? backupDirectory = null)
     {

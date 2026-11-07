@@ -67,6 +67,9 @@ public sealed class ManagerConfig
     public HostRegistry HostRegistry { get; set; } = new();
     public ClusterRegistry ClusterRegistry { get; set; } = new();
     public int ListenPort { get; set; } = 0; // Opt-in; 0 disables LAN listener.
+    // Pairwise authenticated peer connections. The legacy singular fields
+    // below remain for additive migration and are mirrored to the first peer.
+    public List<LanPeerConfig> LanPeers { get; set; } = new();
     public string PeerAddress { get; set; } = ""; // IPv4/host, configured explicitly by user.
     // Mandatory durable identity pin; an IP address or shared secret alone is not a peer identity.
     // Existing profiles fail closed until the operator explicitly pairs the second host.
@@ -95,6 +98,32 @@ public sealed class ManagerConfig
     public List<ScheduledTask> ScheduledTasks { get; set; } = new();
     public List<RecurringSchedule> RecurringSchedules { get; set; } = new();
     public List<LocalMap> LocalMaps { get; set; } = new();
+}
+
+/// <summary>One explicitly paired remote Manager. The key is always DPAPI ciphertext at rest.</summary>
+public sealed class LanPeerConfig
+{
+    public string HostId { get; set; } = "";
+    public string HostName { get; set; } = "";
+    public string Address { get; set; } = "";
+    public int Port { get; set; }
+    public string PairingKeyProtected { get; set; } = "";
+}
+
+/// <summary>Short-lived trusted listener input; SharedSecret must never be persisted or serialized.</summary>
+public sealed record LanPeerTrust(string HostId,string Address,string SharedSecret);
+
+/// <summary>Read-only runtime view of a configured LAN peer; no secret or remote path is included.</summary>
+public sealed class LanPeerObservation
+{
+    public string HostId { get; init; } = "";
+    public string HostName { get; init; } = "";
+    public string Address { get; init; } = "";
+    public int Port { get; init; }
+    public bool IsFresh { get; init; }
+    public DateTimeOffset? LastSuccessUtc { get; init; }
+    public string StateCode { get; init; } = "UM-PEER-NOT-CONTACTED";
+    public HostStatus? Snapshot { get; init; }
 }
 public sealed class PublicMapStatus
 {
@@ -126,17 +155,52 @@ public sealed class WireEnvelope
 public static class SecureStore
 {
     // DPAPI binds secrets to the Windows user account. No cleartext credentials in JSON.
+    private sealed record TestProtector(Func<string,string> Protect,Func<string,string> Unprotect);
+    private static readonly AsyncLocal<TestProtector?> IsolatedTestProtector=new();
+    internal static IDisposable UseTestProtectorForTests(Func<string,string> protect,
+        Func<string,string> unprotect)
+    {
+        ArgumentNullException.ThrowIfNull(protect);ArgumentNullException.ThrowIfNull(unprotect);
+        var prior=IsolatedTestProtector.Value;
+        IsolatedTestProtector.Value=new TestProtector(protect,unprotect);
+        return new TestProtectorScope(prior);
+    }
+    private sealed class TestProtectorScope(TestProtector? prior):IDisposable
+    {
+        private int disposed;
+        public void Dispose(){if(Interlocked.Exchange(ref disposed,1)==0)IsolatedTestProtector.Value=prior;}
+    }
     public static string Protect(string plain)
     {
         if (string.IsNullOrEmpty(plain)) return "";
+        if(IsolatedTestProtector.Value is { } test)return test.Protect(plain);
         var data = ProtectedData.Protect(Encoding.UTF8.GetBytes(plain), null, DataProtectionScope.CurrentUser);
         return Convert.ToBase64String(data);
     }
     public static string Unprotect(string encrypted)
     {
         if (string.IsNullOrEmpty(encrypted)) return "";
+        if(IsolatedTestProtector.Value is { } test)return test.Unprotect(encrypted);
         var data = ProtectedData.Unprotect(Convert.FromBase64String(encrypted), null, DataProtectionScope.CurrentUser);
         return Encoding.UTF8.GetString(data);
+    }
+    internal static byte[] ProtectBytes(byte[] plain)
+    {
+        ArgumentNullException.ThrowIfNull(plain);
+        if(IsolatedTestProtector.Value is { } test)
+            return Encoding.UTF8.GetBytes(test.Protect(Convert.ToBase64String(plain)));
+        return ProtectedData.Protect(plain,null,DataProtectionScope.CurrentUser);
+    }
+    internal static byte[] UnprotectBytes(byte[] encrypted)
+    {
+        ArgumentNullException.ThrowIfNull(encrypted);
+        if(IsolatedTestProtector.Value is { } test)
+        {
+            try{return Convert.FromBase64String(test.Unprotect(Encoding.UTF8.GetString(encrypted)));}
+            catch(Exception ex) when(ex is not OutOfMemoryException)
+            {throw new CryptographicException("Protected test binding is invalid",ex);}
+        }
+        return ProtectedData.Unprotect(encrypted,null,DataProtectionScope.CurrentUser);
     }
 }
 public sealed class ConfigStore
@@ -344,32 +408,54 @@ public sealed class PeerStatusListener : IAsyncDisposable
 {
     private readonly TcpListener _listener;
     private readonly Func<HostStatus> _status;
-    private readonly byte[] _key;
+    private readonly PeerKey[] _peers;
     private readonly CancellationTokenSource _cts=new();
-    private readonly IPAddress? _expectedRemoteIp;
     private int _activeRequests;
-    private const int MaximumConcurrentRequests=4;
+    private const int MaximumConcurrentRequests=32;
     private readonly Dictionary<string,long> _seen = new();
     private readonly object _lock=new();
     private Task? _loop;
     private int _disposed;
+
+    private sealed record PeerKey(string HostId,IPAddress? Address,byte[] Key);
+
+    /// <summary>Compatibility constructor for the original single-peer protocol.</summary>
     public PeerStatusListener(int port, string sharedSecret, Func<HostStatus> getStatus,
         string? expectedRemoteAddress=null)
+        : this(port,new[]{new LanPeerTrust("",expectedRemoteAddress??"",sharedSecret)},getStatus,
+            allowLegacyHostId:true)
+    { }
+
+    /// <summary>Listener authenticated against every configured peer's own IP pin and DPAPI-unwrapped key.</summary>
+    public PeerStatusListener(int port,IEnumerable<LanPeerTrust> peers,
+        Func<HostStatus> getStatus)
+        : this(port,peers,getStatus,allowLegacyHostId:false)
+    { }
+
+    private PeerStatusListener(int port,IEnumerable<LanPeerTrust> peers,
+        Func<HostStatus> getStatus,bool allowLegacyHostId)
     {
         if (port is < 1024 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
-        if (sharedSecret.Length < 24) throw new ArgumentException("Pairing secret must be at least 24 characters");
-        // Reject other LAN hosts before parsing even an authenticated request.
-        // Listening on an explicit local interface / Windows firewall scope is
-        // additionally recommended in production.
-        if(!string.IsNullOrWhiteSpace(expectedRemoteAddress))
+        ArgumentNullException.ThrowIfNull(peers);
+        ArgumentNullException.ThrowIfNull(getStatus);
+        var trusted=new List<PeerKey>();
+        foreach(var peer in peers)
         {
-            if(!IPAddress.TryParse(expectedRemoteAddress,out var remote) ||
-               remote.AddressFamily!=AddressFamily.InterNetwork)
+            if(peer==null || peer.SharedSecret.Length<24)
+                throw new ArgumentException("Pairing secret must be at least 24 characters",nameof(peers));
+            IPAddress? remote=null;
+            if(!string.IsNullOrWhiteSpace(peer.Address) &&
+               (!IPAddress.TryParse(peer.Address,out remote) ||
+                remote.AddressFamily!=AddressFamily.InterNetwork))
                 throw new InvalidDataException("Expected LAN peer must have a literal IPv4 address");
-            _expectedRemoteIp=remote;
+            if(!allowLegacyHostId && (!Guid.TryParse(peer.HostId,out var hostId)||hostId==Guid.Empty))
+                throw new InvalidDataException("Every authenticated peer needs a pinned Host ID");
+            trusted.Add(new(peer.HostId??"",remote,
+                SHA256.HashData(Encoding.UTF8.GetBytes(peer.SharedSecret))));
         }
+        if(trusted.Count==0)throw new InvalidDataException("At least one authenticated peer is required");
         _listener=new TcpListener(IPAddress.Any,port);
-        _key=SHA256.HashData(Encoding.UTF8.GetBytes(sharedSecret));
+        _peers=trusted.ToArray();
         _status=getStatus;
     }
     public void Start() { _listener.Start(); _loop=Task.Run(AcceptAsync); }
@@ -379,10 +465,9 @@ public sealed class PeerStatusListener : IAsyncDisposable
         {
             try {
                 var socket=await _listener.AcceptTcpClientAsync(_cts.Token);
-                // No arbitrary host can reserve the scarce request slots.
-                if(_expectedRemoteIp!=null &&
-                   (socket.Client.RemoteEndPoint is not IPEndPoint source ||
-                    !source.Address.Equals(_expectedRemoteIp)))
+                // Unconfigured source IPs cannot reserve request slots or reach JSON parsing.
+                if(socket.Client.RemoteEndPoint is not IPEndPoint source ||
+                   !_peers.Any(p=>p.Address==null||p.Address.Equals(source.Address)))
                 {
                     socket.Dispose();
                     continue;
@@ -414,37 +499,44 @@ public sealed class PeerStatusListener : IAsyncDisposable
         using var stream=socket.GetStream();
         var frame=JsonSerializer.Deserialize<WireEnvelope>(await Framing.Read(stream,deadline.Token))
             ?? throw new InvalidDataException("Missing frame");
-        if (!Verify(frame)) return;
-        byte[] request=Convert.FromBase64String(frame.PayloadBase64);
-        // LAN requests are strictly read-only again. Remote update commands
-        // cannot affect this Manager's independent local maintenance queue.
-        if(Encoding.UTF8.GetString(StatusCipher.Decrypt(_key,request))!="GET_STATUS")return;
-        byte[] payload=JsonSerializer.SerializeToUtf8Bytes(_status());
-        await Framing.Write(stream,
-            JsonSerializer.SerializeToUtf8Bytes(Sign(StatusCipher.Encrypt(_key,payload),frame.Nonce)),
-            deadline.Token);
+        var source=(socket.Client.RemoteEndPoint as IPEndPoint)?.Address;
+        if(source==null)return;
+        foreach(var peer in _peers.Where(p=>p.Address==null||p.Address.Equals(source)))
+        {
+            if(!Verify(frame,peer))continue;
+            byte[] request=Convert.FromBase64String(frame.PayloadBase64);
+            // LAN requests are strictly read-only. Remote update/lifecycle
+            // commands cannot affect this Manager's independent local maps.
+            if(Encoding.UTF8.GetString(StatusCipher.Decrypt(peer.Key,request))!="GET_STATUS")return;
+            byte[] payload=JsonSerializer.SerializeToUtf8Bytes(_status());
+            await Framing.Write(stream,
+                JsonSerializer.SerializeToUtf8Bytes(Sign(StatusCipher.Encrypt(peer.Key,payload),frame.Nonce,peer.Key)),
+                deadline.Token);
+            return;
+        }
     }
-    private WireEnvelope Sign(byte[] payload, string requestNonce)
+    private static WireEnvelope Sign(byte[] payload,string requestNonce,byte[] key)
     {
         var f=new WireEnvelope { UnixSeconds=DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             Nonce=requestNonce,PayloadBase64=Convert.ToBase64String(payload)};
-        f.SignatureHex=Convert.ToHexString(HMACSHA256.HashData(_key,Encoding.UTF8.GetBytes(
+        f.SignatureHex=Convert.ToHexString(HMACSHA256.HashData(key,Encoding.UTF8.GetBytes(
             $"{f.UnixSeconds}\n{f.Nonce}\n{f.PayloadBase64}")));
         return f;
     }
-    private bool Verify(WireEnvelope f)
+    private bool Verify(WireEnvelope f,PeerKey peer)
     {
         long now=DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (Math.Abs(now-f.UnixSeconds)>45 || f.Nonce.Length!=32 || f.PayloadBase64.Length>240000) return false;
-        byte[] expected=HMACSHA256.HashData(_key,Encoding.UTF8.GetBytes(
+        byte[] expected=HMACSHA256.HashData(peer.Key,Encoding.UTF8.GetBytes(
             $"{f.UnixSeconds}\n{f.Nonce}\n{f.PayloadBase64}"));
         byte[] claimed;
         try {claimed=Convert.FromHexString(f.SignatureHex);}catch{return false;}
         if(!CryptographicOperations.FixedTimeEquals(expected,claimed))return false;
         lock(_lock) {
             foreach(var expired in _seen.Where(x=>x.Value<now-60).Select(x=>x.Key).ToArray())_seen.Remove(expired);
-            if (_seen.ContainsKey(f.Nonce) || _seen.Count>=4096)return false;
-            _seen[f.Nonce]=now;
+            string replayKey=peer.HostId+":"+f.Nonce;
+            if (_seen.ContainsKey(replayKey) || _seen.Count>=4096)return false;
+            _seen[replayKey]=now;
         }
         return true;
     }
@@ -477,6 +569,18 @@ public static class PeerStatusClient
 {
     public static async Task<HostStatus> Query(string host,int port,string sharedSecret,
         CancellationToken cancellationToken=default)
+        => await QueryCore(host,port,sharedSecret,null,cancellationToken);
+
+    public static async Task<HostStatus> Query(string host,int port,string sharedSecret,
+        string expectedHostId,CancellationToken cancellationToken=default)
+    {
+        if(!Guid.TryParse(expectedHostId,out var expected)||expected==Guid.Empty)
+            throw new InvalidDataException("LAN peer HostId is not pinned");
+        return await QueryCore(host,port,sharedSecret,expected.ToString("D"),cancellationToken);
+    }
+
+    private static async Task<HostStatus> QueryCore(string host,int port,string sharedSecret,
+        string? expectedHostId,CancellationToken cancellationToken)
     {
         if (sharedSecret.Length<24) throw new ArgumentException("Pairing key too short");
         using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -505,8 +609,10 @@ public static class PeerStatusClient
             ?? throw new InvalidDataException("Invalid status response");
         // Frame size alone does not validate an authenticated peer's data schema.
         if(!Guid.TryParse(status.HostId,out var remoteId) || remoteId==Guid.Empty ||
+           (expectedHostId!=null&&!StringComparer.OrdinalIgnoreCase.Equals(
+               remoteId.ToString("D"),expectedHostId)) ||
            string.IsNullOrWhiteSpace(status.HostName) || status.HostName.Length>128 ||
-           status.Maps==null || status.Maps.Count>25 ||
+           status.Maps==null ||
            status.Maps.Any(m=>m==null || !Guid.TryParse(m.Id,out var id) ||
                id==Guid.Empty || string.IsNullOrWhiteSpace(m.Name) ||
                m.Name.Length>160 || m.Status==null || m.Status.Length>512 ||
@@ -526,6 +632,7 @@ public sealed partial class ClusterService : IAsyncDisposable
     private readonly WindowsProcessInspector _inspector=new();
     private readonly Func<LocalMap, ProcessCheck> _inspect;
     private readonly bool _customInspector;
+    private readonly Func<LegacyStoreV1PeerProof?> _legacyStoreProof;
     // Dashboard/LAN telemetry is NOT a lifecycle safety decision.
     // Short caching avoids scanning every Windows process ten times on
     // every polling tick across two managers. Start/Stop/Restore always
@@ -534,17 +641,52 @@ public sealed partial class ClusterService : IAsyncDisposable
     private HostStatus? _telemetryCache;
     private long _telemetryTick;
     private static readonly TimeSpan TelemetryTtl=TimeSpan.FromMilliseconds(900);
+    private readonly object _peerStatusGate=new();
+    private readonly SemaphoreSlim _peerPollGate=new(1,1);
+    private static readonly AsyncLocal<bool> _loopbackLanTestScope=new();
+    private readonly Dictionary<string,LanPeerObservation> _peerObservations=
+        new(StringComparer.OrdinalIgnoreCase);
     private PeerStatusListener? _listener;
-    private bool _remoteReachable;
-    public bool RemoteIsFresh=>_remoteReachable && RemoteSnapshot!=null && StatusFreshness.IsFresh(RemoteSnapshot.ObservedUtc,DateTimeOffset.UtcNow);
-    public HostStatus? RemoteSnapshot { get; private set; }
+    public bool RemoteIsFresh=>PeerObservations.Any(x=>x.IsFresh);
+    public HostStatus? RemoteSnapshot=>PeerObservations.FirstOrDefault(x=>x.IsFresh)?.Snapshot;
     public string RemoteMessage { get; private set; }="Nincs peer beállítva";
+    public IReadOnlyList<LanPeerObservation> PeerObservations
+    {
+        get
+        {
+            lock(_peerStatusGate)
+                return Config.LanPeers.Select(peer=>_peerObservations.TryGetValue(peer.HostId,out var state)
+                    ?CopyObservation(state)
+                    :new LanPeerObservation{HostId=peer.HostId,HostName=peer.HostName,
+                        Address=peer.Address,Port=peer.Port}).ToArray();
+        }
+    }
     public ClusterService(string profile = "default",string? rootOverride=null,
-        Func<LocalMap, ProcessCheck>? inspect = null)
+        Func<LocalMap, ProcessCheck>? inspect = null,
+        Func<LegacyStoreV1PeerProof?>? legacyStoreProof=null)
     {
         Store=new ConfigStore(profile,rootOverride);
         Operations=new UntamedOperationCoordinator();
+        _legacyStoreProof=legacyStoreProof??(rootOverride==null
+            ?()=>LegacyStoreV1PeerProof.FromCurrentUserLegacyProfile()
+            :()=>null);
         Config=Store.EnsureInitialized();
+        if(Config.LanPeers==null)Config.LanPeers=new List<LanPeerConfig>();
+        if(Config.LanPeers.Count==0 && Guid.TryParse(Config.ExpectedPeerHostId,out var legacyPeerId) &&
+           legacyPeerId!=Guid.Empty && !string.IsNullOrWhiteSpace(Config.PeerAddress) &&
+           Config.PeerPort is >=1024 and <=65535 &&
+           !string.IsNullOrWhiteSpace(Config.PairingKeyProtected))
+        {
+            // Migrate the former single-peer profile without changing its
+            // DPAPI ciphertext, peer ID, address, port, or listener setting.
+            Config.LanPeers.Add(new LanPeerConfig{
+                HostId=legacyPeerId.ToString("D"),
+                HostName="Peer "+legacyPeerId.ToString("N")[..8],
+                Address=Config.PeerAddress,Port=Config.PeerPort,
+                PairingKeyProtected=Config.PairingKeyProtected
+            });
+            Store.Save(Config);
+        }
         // Upgrade historic local-map profiles additively in the same atomic
         // config file. The source LocalMaps list and all existing settings stay
         // intact; Kova Store-v1 world/transfer files are outside this path.
@@ -553,6 +695,12 @@ public sealed partial class ClusterService : IAsyncDisposable
         _customInspector=inspect!=null;
         _inspect=inspect ?? _inspector.Inspect;
     }
+    public LegacyStoreV1PeerProof? ReadLegacyStoreV1PeerProof()=>_legacyStoreProof();
+    private static LanPeerObservation CopyObservation(LanPeerObservation value)=>new(){
+        HostId=value.HostId,HostName=value.HostName,Address=value.Address,Port=value.Port,
+        IsFresh=value.IsFresh,LastSuccessUtc=value.LastSuccessUtc,StateCode=value.StateCode,
+        Snapshot=value.Snapshot==null?null:CopyTelemetry(value.Snapshot)
+    };
     public void Save() => Store.Save(Config);
 
     private readonly object _recurringScheduleGate=new();
@@ -653,6 +801,13 @@ public sealed partial class ClusterService : IAsyncDisposable
         if(staged.LocalHostId!=Config.LocalHostId ||
            JsonSerializer.Serialize(staged.LocalMaps)!=
                JsonSerializer.Serialize(Config.LocalMaps) ||
+           JsonSerializer.Serialize(staged.LanPeers)!=
+                JsonSerializer.Serialize(Config.LanPeers) ||
+           staged.ListenPort!=Config.ListenPort ||
+           staged.PeerAddress!=Config.PeerAddress ||
+           staged.PeerPort!=Config.PeerPort ||
+           staged.ExpectedPeerHostId!=Config.ExpectedPeerHostId ||
+           staged.PairingKeyProtected!=Config.PairingKeyProtected ||
            JsonSerializer.Serialize(staged.ScheduledTasks)!=
                JsonSerializer.Serialize(Config.ScheduledTasks) ||
            JsonSerializer.Serialize(staged.RecurringSchedules)!=
@@ -695,6 +850,89 @@ public sealed partial class ClusterService : IAsyncDisposable
         Config.SteamWaitPlayersMinutes=staged.SteamWaitPlayersMinutes;
         Config.SteamRestartAfterUpdate=staged.SteamRestartAfterUpdate;
         Config.SteamPostUpdateProbeMinutes=staged.SteamPostUpdateProbeMinutes;
+    }
+
+    /// <summary>
+    /// Atomically replaces only local LAN peer configuration. Peer secrets
+    /// arrive as DPAPI ciphertext and are never copied into HostRegistry or UI DTOs.
+    /// </summary>
+    public void UpdateLanConfiguration(int listenPort,IEnumerable<LanPeerConfig> peers)
+    {
+        ArgumentNullException.ThrowIfNull(peers);
+        if(listenPort!=0&&listenPort is not (>=1024 and <=65535))
+            throw new InvalidDataException("LAN listen port is invalid");
+        var normalized=new List<LanPeerConfig>();
+        foreach(var input in peers)
+        {
+            if(input==null)throw new InvalidDataException("LAN peer entry is missing");
+            string id=ClusterRegistrySchema.NormalizeHostId(input.HostId);
+            if(StringComparer.OrdinalIgnoreCase.Equals(id,Config.LocalHostId))
+                throw new InvalidDataException("A Manager cannot pair with its own Host ID");
+            string name=ClusterRegistrySchema.NormalizeText(input.HostName,100,"Peer host name");
+            if(!IPAddress.TryParse(input.Address,out var address)||
+               address.AddressFamily!=AddressFamily.InterNetwork||!PrivateIPv4(address))
+                throw new InvalidDataException("LAN peer must use a private IPv4 address");
+            if(input.Port is <1024 or >65535)
+                throw new InvalidDataException("LAN peer port is invalid");
+            if(string.IsNullOrWhiteSpace(input.PairingKeyProtected)||
+               SecureStore.Unprotect(input.PairingKeyProtected).Length<24)
+                throw new InvalidDataException("LAN peer pairing key is unavailable");
+            normalized.Add(new LanPeerConfig{
+                HostId=id,HostName=name,Address=address.ToString(),Port=input.Port,
+                PairingKeyProtected=input.PairingKeyProtected
+            });
+        }
+        if(normalized.Select(x=>x.HostId).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=normalized.Count)
+            throw new InvalidDataException("Duplicate LAN peer Host ID");
+
+        var staged=JsonSerializer.Deserialize<ManagerConfig>(JsonSerializer.Serialize(Config))
+            ??throw new InvalidDataException("Manager settings cannot be staged");
+        staged.ListenPort=listenPort;
+        staged.LanPeers=normalized;
+        // Keep old clients/profile readers usable while the new registry is
+        // introduced; only the first peer is mirrored into legacy fields.
+        var first=normalized.FirstOrDefault();
+        staged.PeerAddress=first?.Address??"";
+        staged.PeerPort=first?.Port??0;
+        staged.ExpectedPeerHostId=first?.HostId??"";
+        staged.PairingKeyProtected=first?.PairingKeyProtected??"";
+        Store.Save(staged);
+        Config.ListenPort=staged.ListenPort;
+        Config.LanPeers=staged.LanPeers.Select(x=>new LanPeerConfig{
+            HostId=x.HostId,HostName=x.HostName,Address=x.Address,Port=x.Port,
+            PairingKeyProtected=x.PairingKeyProtected
+        }).ToList();
+        Config.PeerAddress=staged.PeerAddress;
+        Config.PeerPort=staged.PeerPort;
+        Config.ExpectedPeerHostId=staged.ExpectedPeerHostId;
+        Config.PairingKeyProtected=staged.PairingKeyProtected;
+        lock(_peerStatusGate)
+        {
+            var configured=Config.LanPeers.Select(x=>x.HostId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach(string removed in _peerObservations.Keys.Where(x=>!configured.Contains(x)).ToArray())
+                _peerObservations.Remove(removed);
+        }
+        RemoteMessage=Config.LanPeers.Count==0?"Nincs párosított peer":
+            $"{Config.LanPeers.Count} hitelesített peer beállítva; Manager-újraindítás szükséges";
+    }
+
+    private static bool PrivateIPv4(IPAddress address)
+    {
+        var bytes=address.GetAddressBytes();
+        return bytes[0]==10 || (bytes[0]==172&&bytes[1] is >=16 and <=31) ||
+            (bytes[0]==192&&bytes[1]==168) ||
+            (_loopbackLanTestScope.Value&&IPAddress.IsLoopback(address));
+    }
+    internal static IDisposable UseLoopbackLanForTests()
+    {
+        bool prior=_loopbackLanTestScope.Value;
+        _loopbackLanTestScope.Value=true;
+        return new LoopbackTestScope(prior);
+    }
+    private sealed class LoopbackTestScope(bool prior):IDisposable
+    {
+        private int disposed;
+        public void Dispose(){if(Interlocked.Exchange(ref disposed,1)==0)_loopbackLanTestScope.Value=prior;}
     }
     public void AddMap(LocalMap map)
     {
@@ -1035,7 +1273,7 @@ public sealed partial class ClusterService : IAsyncDisposable
     private HostStatus BuildLocalStatus()
     {
         return new HostStatus{
-            OriginalStoreV1=LegacyStoreV1PeerProof.FromCurrentUserLegacyProfile(),
+            OriginalStoreV1=_legacyStoreProof(),
             HostId=Config.LocalHostId,HostName=Config.LocalHostName,ObservedUtc=DateTimeOffset.UtcNow,
             Maps=Config.LocalMaps.Select(map=>{
                 // Historical Store-v1 start remains HARD-LOCKED by Check().
@@ -1085,38 +1323,95 @@ public sealed partial class ClusterService : IAsyncDisposable
     {
         if(_listener!=null)return;
         if(Config.ListenPort==0)return;
-        string key=SecureStore.Unprotect(Config.PairingKeyProtected);
-        if(key.Length<24)throw new InvalidOperationException("Configure shared pairing key first");
-        if(string.IsNullOrWhiteSpace(Config.PeerAddress) ||
-           !Guid.TryParse(Config.ExpectedPeerHostId,out var expectedId) ||
-           expectedId==Guid.Empty || Config.ExpectedPeerHostId==Config.LocalHostId)
-            throw new InvalidOperationException("LAN requires an explicitly pinned second host");
-        _listener=new PeerStatusListener(Config.ListenPort,key,LocalStatus,Config.PeerAddress);
+        var peers=Config.LanPeers??new List<LanPeerConfig>();
+        if(peers.Count==0)return;
+        var trusted=peers.Select(peer=>new LanPeerTrust(peer.HostId,peer.Address,
+            SecureStore.Unprotect(peer.PairingKeyProtected))).ToArray();
+        _listener=new PeerStatusListener(Config.ListenPort,trusted,LocalStatus);
         _listener.Start();
         await Task.CompletedTask;
     }
+
+    public async Task<IReadOnlyList<LanPeerObservation>> PollPeersAsync(CancellationToken ct=default)
+    {
+        await _peerPollGate.WaitAsync(ct);
+        try
+        {
+            var peers=(Config.LanPeers??new List<LanPeerConfig>()).Select(x=>new LanPeerConfig{
+                HostId=x.HostId,HostName=x.HostName,Address=x.Address,Port=x.Port,
+                PairingKeyProtected=x.PairingKeyProtected
+            }).ToArray();
+            if(peers.Length==0)
+            {
+                lock(_peerStatusGate)_peerObservations.Clear();
+                RemoteMessage="Nincs párosított peer";
+                return Array.Empty<LanPeerObservation>();
+            }
+            // Bounded parallel socket work avoids an unbounded task burst.
+            // Registry persistence is serialized afterwards because all peers
+            // update the same optimistic local profile.
+            var outcomes=new (HostStatus? Snapshot,string State)[peers.Length];
+            await Parallel.ForEachAsync(Enumerable.Range(0,peers.Length),
+                new ParallelOptions{MaxDegreeOfParallelism=8,CancellationToken=ct},
+                async(index,token)=>
+                {
+                    var peer=peers[index];
+                    HostStatus? snapshot=null;
+                    string state="UM-PEER-UNAVAILABLE";
+                    try
+                    {
+                        string secret=SecureStore.Unprotect(peer.PairingKeyProtected);
+                        snapshot=await PeerStatusClient.Query(peer.Address,peer.Port,secret,peer.HostId,token);
+                        if(!StatusFreshness.IsFresh(snapshot.ObservedUtc,DateTimeOffset.UtcNow))
+                        {snapshot=null;state="UM-PEER-STALE";}
+                        else state="UM-PEER-ONLINE";
+                    }
+                    catch(OperationCanceledException) when(token.IsCancellationRequested){throw;}
+                    catch(Exception){state="UM-PEER-UNAVAILABLE";}
+                    outcomes[index]=(snapshot,state);
+                });
+            for(int i=0;i<peers.Length;i++)
+            {
+                var peer=peers[i];
+                var(snapshot,state)=outcomes[i];
+                if(snapshot!=null&&state=="UM-PEER-ONLINE")
+                {
+                    try{Registry.SynchronizeAuthenticatedPeer(snapshot);}
+                    catch(Exception ex) when(ex is InvalidDataException or
+                        UnauthorizedAccessException or InvalidOperationException or KeyNotFoundException)
+                    {state="UM-PEER-REGISTRY-SYNC-FAILED";}
+                }
+                SetPeerObservation(peer,snapshot,state);
+            }
+            var result=PeerObservations;
+            int online=result.Count(x=>x.IsFresh);
+            RemoteMessage=$"{online}/{result.Count} hitelesített peer elérhető";
+            return result;
+        }
+        finally {_peerPollGate.Release();}
+    }
+
+    private void SetPeerObservation(LanPeerConfig peer,HostStatus? snapshot,string state)
+    {
+        lock(_peerStatusGate)
+        {
+            _peerObservations.TryGetValue(peer.HostId,out var old);
+            bool fresh=snapshot!=null && StatusFreshness.IsFresh(
+                snapshot.ObservedUtc,DateTimeOffset.UtcNow);
+            _peerObservations[peer.HostId]=new LanPeerObservation{
+                HostId=peer.HostId,HostName=snapshot?.HostName??peer.HostName,
+                Address=peer.Address,Port=peer.Port,IsFresh=fresh,
+                LastSuccessUtc=fresh?snapshot!.ObservedUtc:old?.LastSuccessUtc,
+                StateCode=state,
+                Snapshot=fresh?CopyTelemetry(snapshot!):old?.Snapshot
+            };
+        }
+    }
+
     public async Task<HostStatus?> PollPeerAsync(CancellationToken ct=default)
     {
-        if(string.IsNullOrWhiteSpace(Config.PeerAddress)||Config.PeerPort==0){
-            RemoteMessage="Peer nincs beállítva";RemoteSnapshot=null;return null;}
-        try {
-            if(!Guid.TryParse(Config.ExpectedPeerHostId,out var expectedId) ||
-               expectedId==Guid.Empty ||
-               !Guid.TryParse(Config.LocalHostId,out var localId) ||
-               expectedId==localId)
-                throw new InvalidDataException("LAN peer identity is not pinned");
-            var snapshot=await PeerStatusClient.Query(Config.PeerAddress,Config.PeerPort,
-                SecureStore.Unprotect(Config.PairingKeyProtected),ct);
-            if(!Guid.TryParse(snapshot.HostId,out var returnedId) ||
-               returnedId!=expectedId)
-                throw new InvalidDataException("LAN peer HostId does not match the pinned device");
-            if(!StatusFreshness.IsFresh(snapshot.ObservedUtc,DateTimeOffset.UtcNow))throw new InvalidDataException("Peer measurement is stale");
-            RemoteSnapshot=snapshot;_remoteReachable=true;RemoteMessage="LAN kapcsolat működik";return snapshot;
-        }
-        catch(Exception ex) {
-            RemoteMessage="A másik gép offline vagy nem hitelesíthető: "+ex.Message;
-            _remoteReachable=false;return null; // Preserve last observation, explicitly stale.
-        }
+        var peers=await PollPeersAsync(ct);
+        return peers.FirstOrDefault(x=>x.IsFresh)?.Snapshot;
     }
     public async ValueTask DisposeAsync()
     {

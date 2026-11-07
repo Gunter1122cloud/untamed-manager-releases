@@ -272,7 +272,7 @@ public static class UntamedWorldBackup
             throw new InvalidOperationException("UM-BACKUP-RESTORE-RECOVERY-REQUIRED");
     }
     public static Point Create(LocalMap map,string profile,Func<ProcessCheck> process,
-        string kind="manual")
+        string kind="manual",UntamedOperationCoordinator? operationCoordinator=null)
     {
         if(kind is not ("manual" or "protective"))throw new ArgumentException(nameof(kind));
         string world=World(map),archive=ArchiveRoot(profile,map),key=MapKey(map);
@@ -282,7 +282,7 @@ public static class UntamedWorldBackup
         Directory.CreateDirectory(archive);
         if(new DriveInfo(Path.GetPathRoot(archive)!).AvailableFreeSpace<size+64L*1024*1024)
             throw new IOException("UM-BACKUP-NOT-ENOUGH-SPACE");
-        using var lease=new UntamedOperationCoordinator().Acquire(
+        using var lease=(operationCoordinator??new UntamedOperationCoordinator()).Acquire(
             map.InstallationPath,UntamedOperationKind.Backup);
         Stopped(process);
         var uuid=Guid.NewGuid().ToString("D");
@@ -379,7 +379,8 @@ public static class UntamedWorldBackup
         return AsPoint(g.ToString("D"),m);
     }
     public static RestoreReceipt Restore(LocalMap map,string profile,string point,
-        Func<ProcessCheck> process,Action? beforeSwap=null)
+        Func<ProcessCheck> process,Action? beforeSwap=null,
+        UntamedOperationCoordinator? operationCoordinator=null)
     {
         if(HasLiveOrHistoricalStore(map))
             throw new UnauthorizedAccessException(
@@ -400,8 +401,9 @@ public static class UntamedWorldBackup
         // Take a real protective backup before acquiring the swap lease.
         // Create acquires its own installation lock; nesting the same
         // cross-process lock could deadlock on Windows.
-        var protective=Create(map,profile,process,"protective");
-        using var lease=new UntamedOperationCoordinator().Acquire(
+        var coordinator=operationCoordinator??new UntamedOperationCoordinator();
+        var protective=Create(map,profile,process,"protective",coordinator);
+        using var lease=coordinator.Acquire(
             map.InstallationPath,UntamedOperationKind.Backup);
         Stopped(process);
         if(!Scan(world,key).SequenceEqual(current))

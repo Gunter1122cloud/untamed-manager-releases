@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using UntamedDesktop;
@@ -33,14 +34,38 @@ static int FindFreeTestPort(bool udp,params int[] excluded)
     return Enumerable.Range(40000,25000).First(port=>
         !used.Contains(port)&&!excluded.Contains(port));
 }
-static void IsOk(JsonElement value,string context)=>
-    Check(value.GetProperty("ok").GetBoolean(),context);
+static void IsOk(JsonElement value,string context)
+{
+    bool ok=value.GetProperty("ok").GetBoolean();
+    string code=value.TryGetProperty("error",out var error)?error.GetString()??"unknown":"unknown";
+    Check(ok,ok?context:context+" ["+code+"]");
+}
 static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
 string root=Path.Combine(Path.GetTempPath(),
     "Untamed-Obsidian-Native-Bridge-Tests-"+Guid.NewGuid().ToString("N"));
+using var operationJournalScope=UntamedOperationCoordinator.UseIsolatedRootForTests(
+    Path.Combine(root,"operation-journals"));
+IDisposable? testSecretProtector=null;
+try
+{
+    const string probe="ISOLATED-DPAPI-PROBE";
+    if(SecureStore.Unprotect(SecureStore.Protect(probe))!=probe)
+        throw new CryptographicException("DPAPI round-trip failed");
+}
+catch(CryptographicException)
+{
+    // The sandbox account has no loaded Windows DPAPI profile. Keep tests
+    // isolated with reversible synthetic ciphertext; production remains DPAPI.
+    testSecretProtector=SecureStore.UseTestProtectorForTests(
+        plain=>"TEST-PROTECTED:"+Convert.ToBase64String(Encoding.UTF8.GetBytes(plain)),
+        encoded=>encoded.StartsWith("TEST-PROTECTED:",StringComparison.Ordinal)
+            ?Encoding.UTF8.GetString(Convert.FromBase64String(encoded[15..]))
+            :throw new CryptographicException("Unexpected test secret format"));
+}
+using var testSecretProtectorScope=testSecretProtector;
 string profile=Path.Combine(root,"profile");
 string installation=Path.Combine(root,"asa-install");
 Directory.CreateDirectory(installation);
@@ -828,33 +853,114 @@ try
         var current=await Call(lan.HandleAsync,"lan.status");
         IsOk(current,"LAN status reports persisted settings without secret");
         Check(current.GetProperty("data").GetProperty("pairingKeyConfigured").GetBoolean() &&
-              current.GetProperty("data").GetProperty("expectedPeerHostId").GetString()==remoteHostId &&
+              Guid.Parse(current.GetProperty("data").GetProperty("expectedPeerHostId").GetString()!)==Guid.Parse(remoteHostId) &&
               current.GetProperty("data").GetProperty("localHostId").GetString()==cluster.Config.LocalHostId &&
               !current.ToString().Contains(pairSecret,StringComparison.Ordinal),
             "read-only LAN status never returns pairing secret");
+
+        const string secondPairSecret="SECOND-SYNTHETIC-PAIR-SECRET-NEVER-LOG";
+        string secondHostId=Guid.NewGuid().ToString("D");
+        var secondPrepared=await Call(lan.HandleAsync,"lan.preview",new{
+            peerAction="upsert",listenPort=39290,hostId=secondHostId,hostName="Synthetic West",
+            peerAddress="10.44.1.23",peerPort=39292,pairingKey=secondPairSecret});
+        IsOk(secondPrepared,"second independent LAN peer passes local-only preview");
+        var secondToken=secondPrepared.GetProperty("data").GetProperty("token").GetString()!;
+        IsOk(await Call(lan.HandleAsync,"lan.apply",new{token=secondToken,confirm=true}),
+            "second LAN peer is saved through the local profile transaction");
+        Check(cluster.Config.LanPeers.Count==2 &&
+              cluster.Config.LanPeers.Select(x=>x.HostId).Distinct(StringComparer.OrdinalIgnoreCase).Count()==2 &&
+              SecureStore.Unprotect(cluster.Config.LanPeers.Single(x=>Guid.Parse(x.HostId)==Guid.Parse(secondHostId)).PairingKeyProtected)==secondPairSecret &&
+              !File.ReadAllText(cluster.Store.FilePath).Contains(secondPairSecret,StringComparison.Ordinal),
+            "N-peer profile keeps independent DPAPI keys and no plaintext at rest");
+        var twoPeers=await Call(lan.HandleAsync,"lan.status");
+        Check(twoPeers.GetProperty("data").GetProperty("peers").GetArrayLength()==2 &&
+              !twoPeers.ToString().Contains(secondPairSecret,StringComparison.Ordinal),
+            "LAN status returns all peers without returning any key");
+        var removePrepared=await Call(lan.HandleAsync,"lan.preview",new{
+            peerAction="remove",listenPort=39290,hostId=remoteHostId});
+        IsOk(removePrepared,"one paired peer can be removed by its pinned Host ID");
+        var removeToken=removePrepared.GetProperty("data").GetProperty("token").GetString()!;
+        IsOk(await Call(lan.HandleAsync,"lan.apply",new{token=removeToken,confirm=true}),
+            "peer removal applies only to local Manager configuration");
+        Check(cluster.Config.LanPeers.Count==1&&Guid.Parse(cluster.Config.LanPeers[0].HostId)==Guid.Parse(secondHostId)&&
+              cluster.Config.PeerAddress=="10.44.1.23"&&cluster.Config.PeerPort==39292,
+            "removing one peer preserves the other and refreshes legacy mirrors");
+        var lastPeerBlocked=await Call(lan.HandleAsync,"lan.preview",new{
+            peerAction="remove",listenPort=39290,hostId=secondHostId});
+        Check(IsError(lastPeerBlocked,"UM-LAN-LAST-PEER-LISTENER-MUST_DISABLE"),
+            "last peer cannot be removed while its local listener remains enabled");
+        var disableAndRemove=await Call(lan.HandleAsync,"lan.preview",new{
+            peerAction="remove",listenPort=0,hostId=secondHostId});
+        IsOk(disableAndRemove,"last peer can be removed with the local listener disabled");
+        IsOk(await Call(lan.HandleAsync,"lan.apply",new{
+            token=disableAndRemove.GetProperty("data").GetProperty("token").GetString(),confirm=true}),
+            "last peer removal saves only the local Manager settings");
+        Check(cluster.Config.LanPeers.Count==0&&cluster.Config.ListenPort==0,
+            "final peer removal leaves no unused local LAN listener enabled");
     }
 
-    // Two-host transport proof on loopback only: the real AES/HMAC LAN
-    // protocol must reply to an authenticated peer and reject wrong secrets.
-    // This never opens or contacts an actual cluster machine.
+    // Three-host transport proof on loopback only: each pinned HostId has an
+    // independent key, authenticated status, and local-only listener. No ASA
+    // ports are used and no external address is contacted.
     {
-        var probe=new System.Net.Sockets.TcpListener(
-            System.Net.IPAddress.Loopback,0);
-        probe.Start();
-        int freePort=((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        await using var peerListener=new PeerStatusListener(freePort,
-            "SYNTHETIC-SHARED-PAIR-SECRET-NEVER-LOG",cluster.LocalStatus);
-        peerListener.Start();
-        var response=await PeerStatusClient.Query("127.0.0.1",freePort,
-            "SYNTHETIC-SHARED-PAIR-SECRET-NEVER-LOG");
-        Check(response.HostId==cluster.Config.LocalHostId &&
-              response.Maps.Any(x=>x.Name=="The Island"),
-            "authenticated real local TCP peer returns native map observation");
+        string lanRoot=Path.Combine(root,"three-host-lan");
+        Func<LocalMap,ProcessCheck> stopped=_=>new ProcessCheck(false,"synthetic host fixture",null,true);
+        await using var hostA=new ClusterService("lan-host-a",Path.Combine(lanRoot,"a"),stopped);
+        await using var hostB=new ClusterService("lan-host-b",Path.Combine(lanRoot,"b"),stopped);
+        await using var hostC=new ClusterService("lan-host-c",Path.Combine(lanRoot,"c"),stopped);
+        var mapB=new LocalMap{Id=Guid.NewGuid(),Name="Synthetic Host B Map",
+            InstallationPath=Path.Combine(lanRoot,"b-map")};
+        var mapC=new LocalMap{Id=Guid.NewGuid(),Name="Synthetic Host C Map",
+            InstallationPath=Path.Combine(lanRoot,"c-map")};
+        hostB.AddMap(mapB);hostC.AddMap(mapC);
+        var probes=Enumerable.Range(0,3).Select(_=>new System.Net.Sockets.TcpListener(
+            System.Net.IPAddress.Loopback,0)).ToArray();
+        foreach(var probe in probes)probe.Start();
+        int[] ports=probes.Select(x=>((System.Net.IPEndPoint)x.LocalEndpoint).Port).ToArray();
+        foreach(var probe in probes)probe.Stop();
+        int portA=ports[0],portB=ports[1],portC=ports[2];
+        const string keyAB="SYNTHETIC-A-B-PAIRING-SECRET-NEVER-LOG";
+        const string keyAC="SYNTHETIC-A-C-PAIRING-SECRET-NEVER-LOG";
+        using var loopbackPeers=ClusterService.UseLoopbackLanForTests();
+        hostA.UpdateLanConfiguration(portA,new[]{
+            new LanPeerConfig{HostId=hostB.Config.LocalHostId,HostName="Synthetic B",Address="127.0.0.1",
+                Port=portB,PairingKeyProtected=SecureStore.Protect(keyAB)},
+            new LanPeerConfig{HostId=hostC.Config.LocalHostId,HostName="Synthetic C",Address="127.0.0.1",
+                Port=portC,PairingKeyProtected=SecureStore.Protect(keyAC)}});
+        hostB.UpdateLanConfiguration(portB,new[]{
+            new LanPeerConfig{HostId=hostA.Config.LocalHostId,HostName="Synthetic A",Address="127.0.0.1",
+                Port=portA,PairingKeyProtected=SecureStore.Protect(keyAB)}});
+        hostC.UpdateLanConfiguration(portC,new[]{
+            new LanPeerConfig{HostId=hostA.Config.LocalHostId,HostName="Synthetic A",Address="127.0.0.1",
+                Port=portA,PairingKeyProtected=SecureStore.Protect(keyAC)}});
+        await hostA.BeginLanAsync();await hostB.BeginLanAsync();await hostC.BeginLanAsync();
+        var observedA=await hostA.PollPeersAsync();
+        var observedB=await hostB.PollPeersAsync();
+        var observedC=await hostC.PollPeersAsync();
+        Check(observedA.Count==2&&observedA.All(x=>x.IsFresh)&&
+              observedB.Single().IsFresh&&observedC.Single().IsFresh,
+            "three synthetic Managers poll authenticated LAN status through configured peer lists");
+        Check(observedA.Single(x=>x.HostId==hostB.Config.LocalHostId).Snapshot!.Maps.Any(x=>x.Id==mapB.Id.ToString("D"))&&
+              observedA.Single(x=>x.HostId==hostC.Config.LocalHostId).Snapshot!.Maps.Any(x=>x.Id==mapC.Id.ToString("D")),
+            "authenticated status preserves each synthetic peer's uneven local map inventory");
+        Check(hostA.Config.HostRegistry.Hosts.Count(x=>!x.IsLocal&&x.IsPaired)==2&&
+              hostA.Config.HostRegistry.Maps.Any(x=>x.MapId==mapB.Id&&
+                  x.HostId==hostB.Config.LocalHostId&& !x.LocalConfigurationPresent)&&
+              hostA.Config.HostRegistry.Maps.Any(x=>x.MapId==mapC.Id&&
+                  x.HostId==hostC.Config.LocalHostId&& !x.LocalConfigurationPresent),
+            "authenticated N-host poll reconciles only remote host and map ownership metadata");
+        long registryRevision=hostA.Config.ClusterRegistry.Revision;
+        await hostA.PollPeersAsync();
+        Check(hostA.Config.ClusterRegistry.Revision==registryRevision,
+            "unchanged authenticated peer heartbeat does not rewrite registry revision");
+        bool wrongIdentityDenied=false;
+        try{await PeerStatusClient.Query("127.0.0.1",portA,keyAB,hostB.Config.LocalHostId);}
+        catch(InvalidDataException){wrongIdentityDenied=true;}
+        Check(wrongIdentityDenied,"LAN client rejects a valid-key response from the wrong pinned Host ID");
         bool wrongSecretDenied=false;
         try {
-            await PeerStatusClient.Query("127.0.0.1",freePort,
-                "INVALID-SYNTHETIC-SHARED-SECRET-12345");
+            await PeerStatusClient.Query("127.0.0.1",portA,
+                "INVALID-SYNTHETIC-SHARED-SECRET-12345",hostA.Config.LocalHostId);
         } catch(Exception) {wrongSecretDenied=true;}
         Check(wrongSecretDenied,
             "LAN transport rejects HMAC and encryption with incorrect shared key");
