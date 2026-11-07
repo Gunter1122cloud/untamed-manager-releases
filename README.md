@@ -1,28 +1,29 @@
-# Untamed Manager – frissítési kiadások
+# Untamed Kingdom — Obsidian Command
 
-Ez a nyilvános tárhely az **Untamed Manager Windows-telepítőinek** kiadására szolgál. A Manager használata külön Cloudflare-licenchez kötött.
+**Az Untamed Manager fejlesztési és kiadási alkalmazása az Obsidian Command.** Ez a Windowsra telepíthető, helyben futó **React + TypeScript + WebView2 + .NET 10/C#** program, **nem a régi natív WPF Manager**.
 
-## Első kiadás: v0.5.0
+## Kód és kiadás
+- `desktop-ui/`: jóváhagyott prémium React Dashboard, Mod Center és egyéb képernyők, helyben csomagolt grafika.
+- `desktop/`: helyi Windows/WebView2 host, ellenőrzött, típusos C# műveleti bridge-ek, natív tesztek és Inno Setup.
+- `wpf/Core/`: a Managerrel megosztott korábbi C# Core, Store-v1 és folyamatkezelési logika. **Nem** jelenti, hogy a WPF UI az aktuális program.
+- `.github/workflows/build-obsidian-desktop.yml`: egyetlen automatikusan publikálandó Windows kiadási út.
+- `wpf/`: történeti UI, külön futtatható kompatibilitási/regressziós referencia. **Nem készül új automatikus WPF release.**
 
-1. A [New release](https://github.com/Gunter1122cloud/untamed-manager-releases/releases/new) oldalon adj meg egy új taget: `v0.5.0`.
-2. A kiadás címe: `Untamed Manager v0.5.0`.
-3. Csatold a **pontosan** `UntamedManager-0.5.0.exe` nevű telepítőt.
-4. Kattints a **Publish release** gombra.
-5. Ellenőrizd, hogy ez a fájl letölthető-e:
-   https://github.com/Gunter1122cloud/untamed-manager-releases/releases/download/v0.5.0/UntamedManager-0.5.0.exe
-6. Ezután a helyi Cloudflare-admin tokennel közzé kell tenni a frissítési jegyzéket a `/v1/admin/releases/publish` végponton; csak ezután jelenhet meg a Manager Frissítés menüjében.
+Aktuális kiadások: [Obsidian Command GitHub Releases](https://github.com/Gunter1122cloud/untamed-manager-releases/releases). Csak az **`obsidian-preview`** címkékhez tartozó `Untamed_Obsidian_Desktop_Preview_Setup.exe` / Portable ZIP telepíthető az Obsidian Commandhoz. A `wpf-asa-only` kiadások régi, eltérő alkalmazást jelentenek, és nem kompatibilisek az Obsidian frissítőjével.
 
-A Release megléte **nem jelenti automatikusan**, hogy a Cloudflare kiadási jegyzék frissült.
+## Biztonsági és fejlesztési döntések
+A végleges irányról szóló rögzítés: [AGENTS.md](AGENTS.md). A jóváhagyott React-kinézetet, a saját mapok helyi kezelését és a kétgépes, hitelesített LAN megfigyelést meg kell őrizni.
 
-## Biztonság
+A program **nem tartalmaz SQL/MariaDB motort vagy adatbázis-kezelőt**; az ASA-pluginok külön MariaDB-szolgáltatása érintetlen. A működő történeti Store-v1 karakter- és transferadatok nem alakíthatók át vagy írhatók felül. Éles, 5+5 mapos karakterutazás sikerét nem bizonyítják a szintetikus Windows CI-tesztek; a telepítést és valódi szervercsatlakozást külön Windows tesztgépen kell elfogadni.
 
-- A GitHub kiadási fájl nyilvánosan letölthető. A licencellenőrzés az alkalmazásban történik.
-- **Soha ne tölts fel** licenckulcsot, Cloudflare-admin tokent, `.secrets` könyvtárat, privát aláírókulcsot, ASA-karaktermentést vagy gépauditot.
-- A frissítéseket a kliensnek digitális aláírással és SHA-256-tal kell ellenőriznie.
-- Az új v0.5 még fejlesztői kiadás: a kétgépes éles ASA/Store integráció nincs kész; csak elkülönített tesztgépen próbáld ki.
+## Windows tesztbuild
+```powershell
+cd desktop-ui
+npm ci
+npm run build
+npm run test:ui
+cd ../desktop
+dotnet publish UntamedDesktop.csproj -c Release -r win-x64 --self-contained true
+```
 
-## Licenckiszolgáló
-
-`https://untamed-license-hub.untamedkingdom.workers.dev`
-
-**Ez a repository nem az éles szerverek adatait tárolja, hanem csak a programkiadásokat.**
+Az alkalmazás használatához Microsoft Edge WebView2 Runtime szükséges, de nincs szükség helyi webszerverre vagy runtime CDN-re. Titkokat, privát licenckulcsokat, mentéseket és éles szerveradatokat tilos a GitHubra feltölteni.
