@@ -146,6 +146,15 @@ export type PluginInventory = {
     binaries: Array<{ name: string; version: string; bytes: number }> }>;
 };
 
+export type EmbeddedStoreCopyReport = {
+  fileName:string;state:string;format:number;storeBytes:number;
+  sections:number;profileCandidates:number;tribeCandidates:number;
+  unclassifiedCandidates:number;supersededEntries:number;duplicateKeys:number;
+  indexBoundsVerified:boolean;sourceUnchanged:boolean;
+  gameplayVerified:false;characterTravelVerified:false;
+  evidence:"OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY";
+};
+
 export type TravelMapProof = {
   mapId:string;mapName:string;confirmedStopped:boolean;
   saveDirectoryFound:boolean;ambiguousLayout:boolean;
@@ -738,7 +747,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
-  "travel.capture" | "travel.compare";
+  "travel.capture" | "travel.compare" | "store.inspectCopy";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
@@ -802,6 +811,7 @@ export const managerBridge = {
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
   operationsMap: (mapId:string) => request<OperationsSnapshot>("operations.map",{mapId}),
   dashboard: () => request<DashboardSnapshot>("dashboard.snapshot"),
+  embeddedStoreInspectCopy: () => request<EmbeddedStoreCopyReport>("store.inspectCopy"),
   travelCapture: () => request<TravelCapture>("travel.capture"),
   travelCompare: (p:{
     beforeA:string;beforeB:string;afterA:string;afterB:string;
