@@ -440,7 +440,7 @@ test.beforeEach(async ({ page }) => {
             dangerous:act==="wildWipe"||act==="custom",
             expiresUtc:"2026-11-07T23:00:00Z",originalStoreActive:true,
             dispatched:false,gameClientVerified:false,
-            originalStoreModified:false,
+            originalStoreMetadataWritten:false,
             evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_PREVIEW"};
         }
         case "historical.adminSend": {
@@ -452,7 +452,7 @@ test.beforeEach(async ({ page }) => {
           historicalAdminPending=false;
           return {mapId:two,mapName:"Astraeos",action:"original",
             command:historicalAdminCommand,response:"Synthetic original RCON admin dispatched",
-            commandSent:true,oneShot:true,originalStoreModified:false,
+            commandSent:true,oneShot:true,originalStoreMetadataWritten:false,
             saveCompleteProven:false,gameplayEffectVerified:false,
             evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_SINGLE_SEND"};
         }
