@@ -25,6 +25,7 @@ public sealed class DesktopScheduledStoppedBackupSupervisor : IDisposable
 {
     private sealed class State
     {
+        public State() { } // Explicit public ctor for System.Text.Json.
         public List<ScheduledStoppedBackup> Schedules { get; set; }=new();
     }
     private const int MaximumJournalBytes=512_000;
