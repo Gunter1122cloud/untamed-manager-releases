@@ -1865,6 +1865,74 @@ try
         catch(InvalidDataException){rejected=true;}
         Check(rejected,"missing required configuration never silently creates a world-only archive");
 
+        // Real SQLite .ark files inside a SEALED ten-map archive: only the
+        // locally copied data is scanned. Nine deliberately non-SQLite worlds
+        // must be reported as unknown, not incorrectly marked as lost players.
+        string storeMapDir=Path.Combine(archiveLab,"new-offline-sqlite-world");
+        Directory.CreateDirectory(storeMapDir);
+        string worldCopy=Path.Combine(storeMapDir,"World0.ark");
+        using(var db=new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{
+                DataSource=worldCopy,
+                Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadWriteCreate,
+                Pooling=false
+            }.ToString()))
+        {
+            db.Open();
+            using var cmd=db.CreateCommand();
+            cmd.CommandText="CREATE TABLE custom(key TEXT PRIMARY KEY,value BLOB)";
+            cmd.ExecuteNonQuery();
+            using var data=db.CreateCommand();
+            data.CommandText="INSERT INTO custom(key,value) VALUES($key,$value)";
+            data.Parameters.AddWithValue("$key","GameModeCustomBytes");
+            data.Parameters.AddWithValue("$value",new byte[]{
+                1,0,0,0, 0,0,0,0, 0,0,0,0
+            });
+            data.ExecuteNonQuery();
+        }
+        string storeHp=Path.Combine(archiveLab,"index-audit-hp");
+        string storeRyzen=Path.Combine(archiveLab,"index-audit-ryzen");
+        Directory.CreateDirectory(storeHp);Directory.CreateDirectory(storeRyzen);
+        for(int i=0;i<ids.Length;i++)
+            TestBackupPackage.Create(i==0?storeMapDir:
+                Path.Combine(archiveLab,"synthetic-save-"+i),
+                Path.Combine(i<5?storeHp:storeRyzen,"map-"+i),ids[i],
+                "Offline sealed Store index audit fixture");
+        string indexArchive=Path.Combine(archiveLab,"index-audit-archive");
+        var sealedIndexArchive=OfflineAsaClusterArchive.BuildFromFolders(
+            storeHp,storeRyzen,transfer,indexArchive);
+        var indexAudit=EmbeddedStoreArchiveInspector.Inspect(indexArchive);
+        Check(indexAudit.Batch==sealedIndexArchive.Batch&&indexAudit.Maps==10&&
+              indexAudit.Results.Length==10&&indexAudit.IndexScannedMaps==1&&
+              indexAudit.NeedsReviewMaps==9&&indexAudit.ArchiveFilesSha256Verified&&
+              !indexAudit.ProductionRestoreAllowed&&!indexAudit.CharacterTravelVerified&&
+              indexAudit.Results.Count(m=>m.Status=="INDEX_SCANNED")==1&&
+              indexAudit.Results.Count(m=>m.Status=="EMBEDDED_INDEX_NOT_READABLE")==9,
+            "verified 10-map archive reports actual SQLite Store index vs unknown world copies without fake gameplay proof");
+        using(var indexBridge=new DesktopEmbeddedStoreBridge(
+            ()=>worldCopy,()=>indexArchive))
+        {
+            var wire=await Call(indexBridge.HandleAsync,"store.inspectArchive");
+            IsOk(wire,"native archive picker enumerates actual signed ten-map worlds");
+            Check(wire.GetProperty("data").GetProperty("maps").GetInt32()==10&&
+                  wire.GetProperty("data").GetProperty("indexScannedMaps").GetInt32()==1&&
+                  wire.GetProperty("data").GetProperty("results").GetArrayLength()==10&&
+                  !wire.ToString().Contains(indexArchive,StringComparison.OrdinalIgnoreCase),
+                "WebView receives only bounded map-level Store proof, no archive folder path");
+            var injected=await Call(indexBridge.HandleAsync,"store.inspectArchive",
+                new{archive=indexArchive});
+            Check(IsError(injected,"UM-STORE-COPY-PATH-DENIED"),
+                "web renderer cannot select arbitrary archive path");
+        }
+        File.AppendAllText(Path.Combine(indexArchive,"HP",ids[0].ToString("N"),
+            "data","World0.ark"),"BROKEN");
+        bool indexTamperDenied=false;
+        try{EmbeddedStoreArchiveInspector.Inspect(indexArchive);}
+        catch(InvalidDataException){indexTamperDenied=true;}
+        Check(indexTamperDenied,
+            "tampered world hash blocks all ten-map Store archive index conclusions");
+
+
     }
 
     // Plugin config.json is an existing local file. Native editor supports
@@ -2814,6 +2882,8 @@ try
     // A large installer download must not freeze unrelated local map status
     // and RCON RPCs. Final update handoff still waits for serialized writes.
     Check(!ObsidianWindow.RequiresGlobalBridgeGate("updates.prepare") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectCopy") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectArchive") &&
           ObsidianWindow.RequiresGlobalBridgeGate("updates.install") &&
           ObsidianWindow.RequiresGlobalBridgeGate("servers.restartApply") &&
           ObsidianWindow.RequiresGlobalBridgeGate(null),

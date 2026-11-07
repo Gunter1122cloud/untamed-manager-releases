@@ -22,7 +22,9 @@ public sealed class ObsidianWindow : Form
     // Final update.install still takes the global gate before handing off
     // to the external updater and closing the Manager.
     internal static bool RequiresGlobalBridgeGate(string? method) =>
-        !string.Equals(method, "updates.prepare", StringComparison.Ordinal);
+        !string.Equals(method, "updates.prepare", StringComparison.Ordinal) &&
+        !string.Equals(method, "store.inspectCopy", StringComparison.Ordinal) &&
+        !string.Equals(method, "store.inspectArchive", StringComparison.Ordinal);
     // Windows-native chrome is styled through DWM. Keep the regular system
     // caption/buttons so taskbar, resize, snap, accessibility and DPI work.
     // DWM may reject an attribute on older builds; these are best-effort only.
@@ -318,7 +320,7 @@ public sealed class ObsidianWindow : Form
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare";
-                        embeddedStoreRoute = name is "store.inspectCopy";
+                        embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore";
                         pluginStateRoute = name is

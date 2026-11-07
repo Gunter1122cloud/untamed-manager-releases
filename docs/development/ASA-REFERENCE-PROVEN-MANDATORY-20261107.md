@@ -71,3 +71,15 @@ Az Obsidian Command natív C# `EmbeddedStoreReadOnlyInspector` és `DesktopEmbed
 - A Microsoft.Data.Sqlite csomag itt kizárólag az ASA mentésállomány passzív olvasója; **nem** jelenti Manager SQL-adatbázis, DB-üzemeltetés vagy MariaDB-integráció visszavezetését.
 
 Az indexszkenner elfogadását nem szabad összekeverni egy teljes, visszaállítható karakter- és tribe-mentéssel. A kötelező referencia-paritás és a teljes kétgépes restore/utazás a további P0 feladat.
+
+## 7. Offline tízmapos beágyazott Store-leltár
+
+A `EmbeddedStoreArchiveInspector` csak a már létrehozott és teljes SHA-256 ellenőrzésen átesett, helyi `OfflineAsaClusterArchive` csomagot vizsgálja. A Windows natív mappaválasztóját az `store.inspectArchive` útvonal használja: a React frontend **nem adhat meg tetszőleges fájl- vagy mappaútvonalat**.
+
+- A tíz mapot és tulajdonosát az eredeti, ellenőrzött archívumindexből veszi; minden map világfájljának indexét legfeljebb kis `substr` szeletekkel olvassa.
+- Nem hash-eli újra másodszor a teljes világállományt: a csomagellenőrzés elvégzi az egyszeri teljes hashvizsgálatot, az egyes kis mapindexek SHA-256-ja pedig külön ellenőrzött.
+- Nem jósolja meg a karakterek számát egy hagyományos `.arkprofile` fájl alapján. Nem-SQLite, ismeretlen vagy több lehetséges világfájlnál figyelmeztető, nem tanúsító állapotot ad.
+- A kliens kizárólag mapenkénti rekordszámokat és a szükséges felülvizsgálatot látja: nincs túlélőazonosító, tulajdonosi adat, nyers profil, helyi mappanév vagy új Store-writer.
+- A `CI-TESZTELT` állapot csak mesterséges világfájlok, lokális archívum és Windows/WebView2 UI-próbák után használható; a valódi kétgépes 5+5 karakterutazás továbbra is külön P0 cél.
+
+A megoldás teljesítménykritikus, mert a két kiszolgálón a nagy mapok hash-ellenőrzése jelentős lemezművelet. A hosszú futású offline indexellenőrzés nem foglalja le a globális Dashboard/RCON kérések sorát.

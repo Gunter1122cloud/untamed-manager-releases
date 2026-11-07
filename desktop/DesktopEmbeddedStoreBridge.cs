@@ -16,11 +16,16 @@ namespace UntamedDesktop;
 public sealed class DesktopEmbeddedStoreBridge : IDisposable
 {
     private readonly Func<string?> pickCopy;
+    private readonly Func<string?> pickArchive;
     private readonly SemaphoreSlim serial=new(1,1);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
-    public DesktopEmbeddedStoreBridge(Func<string?>? picker=null)=>
+    public DesktopEmbeddedStoreBridge(Func<string?>? picker=null,
+        Func<string?>? archivePicker=null)
+    {
         pickCopy=picker??PickNative;
+        pickArchive=archivePicker??PickArchiveNative;
+    }
 
     private static string? PickNative()
     {
@@ -31,6 +36,15 @@ public sealed class DesktopEmbeddedStoreBridge : IDisposable
             RestoreDirectory=true
         };
         return dialog.ShowDialog()==DialogResult.OK?dialog.FileName:null;
+    }
+
+    private static string? PickArchiveNative()
+    {
+        using var dialog=new FolderBrowserDialog{
+            Description="Válaszd ki a KÉSZ, SHA-256-tal ellenőrzött OFFLINE 10-map archívumot",
+            ShowNewFolderButton=false
+        };
+        return dialog.ShowDialog()==DialogResult.OK?dialog.SelectedPath:null;
     }
 
     public async Task<string> HandleAsync(string raw)
@@ -49,27 +63,30 @@ public sealed class DesktopEmbeddedStoreBridge : IDisposable
                 parsedId==Guid.Empty||
                 !data.TryGetProperty("method",out var method)||
                 method.ValueKind!=JsonValueKind.String||
-                method.GetString()!="store.inspectCopy")
+                method.GetString() is not ("store.inspectCopy" or "store.inspectArchive"))
                 return Error(null,"UM-STORE-COPY-REQUEST");
             id=parsedId.ToString("D");
+            bool archiveMode=method.GetString()=="store.inspectArchive";
             // The renderer is never allowed to pass a filesystem path.
             if(data.TryGetProperty("path",out _)||data.TryGetProperty("root",out _)||
-                data.TryGetProperty("file",out _))
+                data.TryGetProperty("file",out _)||data.TryGetProperty("archive",out _))
                 return Error(id,"UM-STORE-COPY-PATH-DENIED");
             await serial.WaitAsync();
             try
             {
-                string? path=pickCopy();
+                string? path=archiveMode?pickArchive():pickCopy();
                 if(string.IsNullOrWhiteSpace(path))
                     return Error(id,"UM-STORE-COPY-CANCELLED");
-                var report=await Task.Run(()=>EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(path));
+                object report=await Task.Run<object>(()=>archiveMode?
+                    EmbeddedStoreArchiveInspector.Inspect(path):
+                    EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(path));
                 return Ok(id,report);
             }
             finally{serial.Release();}
         }
         catch(Exception ex) when(ex is IOException or UnauthorizedAccessException
             or ArgumentException or InvalidOperationException or InvalidDataException
-            or JsonException or SqliteException)
+            or JsonException or SqliteException or OverflowException)
         {
             return Error(id,"UM-STORE-COPY-INSPECT-FAILED");
         }
