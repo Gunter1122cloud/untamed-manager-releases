@@ -658,6 +658,7 @@ export type PluginJsonApplied = {
 
 export type OfflineAsaArchivePreview = {
   token:string;hpCopies:5;ryzenCopies:5;transferMetadataPresent:true;
+  configurationCopiesPresent:boolean;
   hpFolderName:string;ryzenFolderName:string;
   transferFolderName:string;destinationFolderName:string;
   requiresExplicitApproval:true;originalStoreTouched:false;sqlUsed:false;
@@ -670,6 +671,7 @@ export type OfflineAsaArchiveStarted = {
 export type OfflineAsaArchiveStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   code:string;archiveName:string;verifiedMaps:number;transferFiles:number;
+  configurationFiles:number;
   changedUtc:string;liveConsistencyCertified:false;storeWriterCertified:false;
   productionRestoreAllowed:false;sqlUsed:false;evidence:string;
 };
