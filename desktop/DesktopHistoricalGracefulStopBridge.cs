@@ -23,6 +23,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
+        public Guid MapId;
+        public Job(Guid mapId){MapId=mapId;}
         public string State="queued",Step="preflight";
         public bool ConfirmedStopped,PreExitSaveObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
@@ -85,6 +87,39 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         };
     }
 
+    private object Recover(Guid mapId)
+    {
+        var map=Owned(mapId);
+        if(map==null||!map.HistoricalStoreProtected)
+            throw new UnauthorizedAccessException("UM-ORIGINAL-STOP-RECOVERY-LOCAL-ONLY");
+        // The journal is the durable authority across GUI/Manager crashes.
+        // It is always READ ONLY here; no phase reset, retry, TTL unlock,
+        // original Store/INI mutation or process launch is permitted.
+        var journal=cluster.Operations.Observe(map.InstallationPath);
+        Job? running;
+        lock(sync)
+            running=currentJob!=null&&currentJob.MapId==mapId&&
+                currentJob.State is "queued" or "running"?currentJob:null;
+        bool blocked=journal!=null&&journal.Phase is
+            UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
+            UntamedOperationPhase.NeedsOperator;
+        bool needsOperator=journal!=null&&(
+            journal.Phase==UntamedOperationPhase.NeedsOperator||
+            blocked&&running==null);
+        return new{
+            mapId,operationId=journal?.Operation,
+            phase=journal?.Phase.ToString()??"None",
+            operationKind=journal?.Kind.ToString()??"None",
+            updatedUtc=journal?.UpdatedUtc,
+            blocked,requiresOperator=needsOperator,
+            inMemoryRunning=running!=null,
+            jobId=running?.Id,
+            automaticRecovery=false,automaticRetry=false,
+            sharedStoreMutated=false,lockCleared=false,
+            evidence="ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY"
+        };
+    }
+
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
@@ -103,11 +138,18 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             string? method=action.GetString();
             if(method is not ("historical.gracefulStopPreview" or
                 "historical.gracefulStopApply" or
-                "historical.gracefulStopStatus"))
+                "historical.gracefulStopStatus" or
+                "historical.gracefulStopRecovery"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
             {
+                if(method=="historical.gracefulStopRecovery")
+                {
+                    if(!GuidValue(request,"mapId",out var recoveryMapId))
+                        return Fail(id,"UM-ORIGINAL-STOP-RECOVERY-MAP");
+                    return Ok(id,Recover(recoveryMapId));
+                }
                 if(method=="historical.gracefulStopStatus")
                 {
                     if(!GuidValue(request,"jobId",out var jobId)||
@@ -130,6 +172,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     if(original==null||!original.HistoricalStoreProtected||
                        original.Maintenance)
                         return Fail(id,"UM-ORIGINAL-STOP-LOCAL-ONLY");
+                    // A durable installation journal blocks even a new
+                    // approval PREVIEW after a previous crash. Its read-only
+                    // recovery screen must appear before any new RCON action.
+                    if(cluster.Operations.Observe(original.InstallationPath)?.Phase is
+                        UntamedOperationPhase.Prepared or
+                        UntamedOperationPhase.Mutating or
+                        UntamedOperationPhase.NeedsOperator)
+                        return Fail(id,"UM-ORIGINAL-STOP-DURABLE-RECOVERY-REQUIRED");
                     var owned=await Task.Run(()=>preview(mapId));
                     if(!ReferenceEquals(owned.Map,original)||
                        owned.Process.Pid<=0||
@@ -170,7 +220,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                    rechecked.Process.StartedUtc!=approved.StartedUtc||
                    rechecked.SourceSha!=approved.SourceSha)
                     return Fail(id,"UM-ORIGINAL-STOP-ORIGINAL-SOURCE-CHANGED");
-                var job=new Job();currentJob=job;
+                var job=new Job(map.Id);currentJob=job;
                 _=Task.Run(async()=>{
                     Update(job,"running","Eredeti SaveWorld → log+világfájl → DoExit");
                     try
