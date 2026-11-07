@@ -510,6 +510,7 @@ public sealed class ClusterService : IAsyncDisposable
     public ManagerConfig Config { get; private set; }
     private readonly WindowsProcessInspector _inspector=new();
     private readonly Func<LocalMap, ProcessCheck> _inspect;
+    private readonly bool _customInspector;
     // Dashboard/LAN telemetry is NOT a lifecycle safety decision.
     // Short caching avoids scanning every Windows process ten times on
     // every polling tick across two managers. Start/Stop/Restore always
@@ -529,6 +530,7 @@ public sealed class ClusterService : IAsyncDisposable
         Store=new ConfigStore(profile,rootOverride);
         Operations=new UntamedOperationCoordinator();
         Config=Store.EnsureInitialized();
+        _customInspector=inspect!=null;
         _inspect=inspect ?? _inspector.Inspect;
     }
     public void Save() => Store.Save(Config);
@@ -728,6 +730,16 @@ public sealed class ClusterService : IAsyncDisposable
     {
         if(map==null || !Config.LocalMaps.Contains(map))
             throw new UnauthorizedAccessException("Only locally registered maps can be observed");
+        if(map.HistoricalStoreProtected)
+        {
+            // Historical imports intentionally have Arguments="", so the
+            // normal exact-argument inspector cannot recognize them. Perform
+            // a separate source-compatible physical process observation.
+            // Test-injected observers remain injectable; this path cannot
+            // authorize LaunchFreshAsa, LaunchLocal, RCON, Stop or Store writes.
+            return _customInspector?_inspect(map):
+                LegacyStoreV1ProcessObserver.Observe(map);
+        }
         if(map.StartWithAsaApi || !string.IsNullOrWhiteSpace(map.ApiLoaderPath))
             return _inspector.InspectFamily(map);
         return _inspect(map);
