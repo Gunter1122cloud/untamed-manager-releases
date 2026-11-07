@@ -7,7 +7,7 @@ $ErrorActionPreference='Stop'
 if (-not $env:CI -or -not $env:RUNNER_TEMP) {
     throw 'Isolated CI only: no updater tamper test on production'
 }
-$root=Join-Path $env:RUNNER_TEMP ("Obsidian-Updater-ShaPin-"+[Guid]::NewGuid().ToString('N'))
+$root=Join-Path ([IO.Path]::GetTempPath()) ("Obsidian-Updater-ShaPin-"+[Guid]::NewGuid().ToString('N'))
 $app=Join-Path $root 'app'
 $backup=Join-Path $root 'backup'
 New-Item -ItemType Directory -Force $app | Out-Null
@@ -37,7 +37,10 @@ function Invoke-PinTest {
   if ($null -eq $p) { throw 'Updater failed to start' }
   try {
     if (-not $p.WaitForExit(45000)) {
-      $p.Kill(); $p.WaitForExit(); throw 'Updater SHA pin test timed out'
+      $p.Kill(); $p.WaitForExit();
+      $reportExists=Test-Path -LiteralPath $resultFile
+      throw ("Updater SHA pin test timed out; ciRoot="+$root+
+        "; nativeTemp="+[IO.Path]::GetTempPath()+"; reportExists="+$reportExists)
     }
     if ($p.ExitCode -eq 0) { throw 'Tampered or unpinned Obsidian package wrongly accepted' }
   } finally { $p.Dispose() }
