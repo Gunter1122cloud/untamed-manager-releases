@@ -89,7 +89,7 @@ cluster.AddMap(map);
     }
     using(var db=new Microsoft.Data.Sqlite.SqliteConnection(
         new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{
-            DataSource=world,Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadWrite,Pooling=falseCreate,Pooling=false
+            DataSource=world,Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadWriteCreate,Pooling=false
         }.ToString()))
     {
         db.Open();
@@ -130,7 +130,7 @@ cluster.AddMap(map);
     // An invalid index must never become a positive character or tribe proof.
     using(var db=new Microsoft.Data.Sqlite.SqliteConnection(
         new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{
-            DataSource=world,Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadWrite
+            DataSource=world,Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadWrite,Pooling=false
         }.ToString()))
     {
         db.Open();
