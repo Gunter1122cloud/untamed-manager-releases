@@ -477,6 +477,21 @@ try
         Refuse(new[]{valid[0],valid[1] with{
             MemberIds=new[]{"not-a-guid",remoteMaps[1],remoteMaps[2],remoteMaps[3],remoteMaps[4]}}},
             "invalid map identity cannot enter the original Store ownership table");
+        // The original peer member-list parity hashes canonical ordered JSON,
+        // rather than comparing incidental on-disk whitespace formatting.
+        using var memberCanonical=JsonDocument.Parse(
+            """[{"id":"abc","map":"Island"},{"id":"def","map":"Center"}]""");
+        using var memberFormatted=JsonDocument.Parse(
+            """[ { "id" : "abc" , "map" : "Island" }, { "id" : "def" , "map" : "Center" } ]""");
+        using var memberReordered=JsonDocument.Parse(
+            """[{"id":"def","map":"Center"},{"id":"abc","map":"Island"}]""");
+        Check(StoreV1Fingerprint.Compute(memberCanonical.RootElement)==
+              StoreV1Fingerprint.Compute(memberFormatted.RootElement),
+            "original Store DONE member source hash accepts same ordered member data with different JSON whitespace");
+        Check(StoreV1Fingerprint.Compute(memberCanonical.RootElement)!=
+              StoreV1Fingerprint.Compute(memberReordered.RootElement),
+            "original Store DONE member source hash rejects changed original map order");
+
         var sourceConfig=JsonSerializer.SerializeToElement(new{
             id="KovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
             members=localMaps
