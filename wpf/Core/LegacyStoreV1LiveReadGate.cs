@@ -99,15 +99,19 @@ public static class LegacyStoreV1LiveReadGate
         if(map==null||!map.HistoricalStoreProtected||map.Id==Guid.Empty||
            string.IsNullOrWhiteSpace(map.HistoricalMapKey))
             throw new UnauthorizedAccessException("UM-STORE-LIVE-HISTORICAL-MAP-ONLY");
-        var report=LegacyStoreV1LocalReader.Inspect(originalLocalProfile);
-        if(!report.LocalSnapshotReady||report.Maps.Length!=5)
-            throw new InvalidDataException("UM-STORE-LIVE-LOCAL-NOT-ACTIVE");
+        // Pin the ORIGINAL four local metadata files before validating them.
+        // FileShare.Read held until the full two-peer shared inspection ends:
+        // a concurrent local lock/session replacement must not slip through
+        // the previous "validate, close, reopen" race window.
         using var held=new VaultReadSnapshot();
         string local=VaultReadSnapshot.LocalPath(originalLocalProfile,true);
         byte[] clusterRaw=held.Read(Path.Combine(local,"cluster-v1.json"),1048576);
         byte[] deviceRaw=held.Read(Path.Combine(local,"shared-store-device-v1.json"),1048576);
         byte[] lockRaw=held.Read(Path.Combine(local,"shared-store-lock-v1.json"),1048576);
         byte[] storeRaw=held.Read(Path.Combine(local,"cluster-store-v1.json"),1048576);
+        var report=LegacyStoreV1LocalReader.Inspect(originalLocalProfile);
+        if(!report.LocalSnapshotReady||report.Maps.Length!=5)
+            throw new InvalidDataException("UM-STORE-LIVE-LOCAL-NOT-ACTIVE");
         var files=new Dictionary<string,byte[]>{
             ["cluster.json"]=clusterRaw,["device.json"]=deviceRaw,
             ["lock.json"]=lockRaw,["store.json"]=storeRaw};
@@ -148,6 +152,7 @@ public static class LegacyStoreV1LiveReadGate
            !peerIds.Contains(deviceId,StringComparer.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-STORE-LIVE-PEERS-INVALID");
         var members=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var topology=new List<LegacyStoreV1PeerTopology.Peer>();
         int done=0;byte[][] peerBytes=new byte[2][];
         for(int i=0;i<2;i++)
         {
@@ -172,11 +177,25 @@ public static class LegacyStoreV1LiveReadGate
             if(ids.Count!=5||selected.EnumerateArray().Any(x=>
                !ids.Contains(x.GetString()??"")))
                 throw new InvalidDataException("UM-STORE-LIVE-PEER-SELECTED-MISMATCH");
+            topology.Add(new LegacyStoreV1PeerTopology.Peer(
+                peerIds[i],
+                owned.EnumerateArray().Select(x=>Text(x,"id")).ToArray(),
+                owned.EnumerateArray().Select(x=>Text(x,"map")).ToArray(),
+                selected.EnumerateArray().Select(x=>x.GetString()??"").ToArray()));
+            if(peerIds[i].Equals(deviceId,StringComparison.OrdinalIgnoreCase))
+                LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(cluster,config);
             foreach(var item in owned.EnumerateArray())
                 if(!members.Add(Text(item,"map")))
                     throw new InvalidDataException("UM-STORE-LIVE-DUPLICATE-MAP");
             done++;
         }
+        // No two peers may claim the same GUID under different map names.
+        // The shared LOCAL peer's identity must include the imported map.
+        LegacyStoreV1PeerTopology.Validate(deviceId,topology);
+        if(!topology.Where(x=>x.DeviceId.Equals(deviceId,StringComparison.OrdinalIgnoreCase))
+            .SelectMany(x=>x.MemberIds).Any(x=>
+                Guid.TryParse(x,out var candidate)&&candidate==map.Id))
+            throw new InvalidDataException("UM-STORE-LIVE-MAP-NOT-OWNED-BY-LOCAL-PEER");
         var records=Need(store,"maps");
         if(records.ValueKind!=JsonValueKind.Object||
            !records.TryGetProperty(map.Id.ToString("D"),out var record)||

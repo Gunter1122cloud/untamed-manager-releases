@@ -388,6 +388,73 @@ try
         Check(conflictingMapRefused,"registered map name cannot silently save into a different map token");
     }
 
+    // Store-v1 two-host writer identities are exclusive, not just ten names.
+    // A valid local + remote DONE snapshot must contain two distinct device
+    // identities, ten unique map GUIDs and exact per-peer selected membership.
+    {
+        string localDevice=Guid.NewGuid().ToString("D");
+        string remoteDevice=Guid.NewGuid().ToString("D");
+        string[] localMaps=Enumerable.Range(0,5)
+            .Select(_=>Guid.NewGuid().ToString("D")).ToArray();
+        string[] remoteMaps=Enumerable.Range(0,5)
+            .Select(_=>Guid.NewGuid().ToString("D")).ToArray();
+        var valid=new[]{
+            new LegacyStoreV1PeerTopology.Peer(localDevice,localMaps,
+                Enumerable.Range(0,5).Select(i=>"Map_A_"+i).ToArray(),localMaps),
+            new LegacyStoreV1PeerTopology.Peer(remoteDevice,remoteMaps,
+                Enumerable.Range(0,5).Select(i=>"Map_B_"+i).ToArray(),remoteMaps)
+        };
+        LegacyStoreV1PeerTopology.Validate(localDevice,valid);
+        Check(true,"two unique original Store-v1 peers with five disjoint owned and selected maps pass read-only topology verification");
+        void Refuse(LegacyStoreV1PeerTopology.Peer[] peers,string description,
+            string? device=null)
+        {
+            bool denied=false;
+            try{LegacyStoreV1PeerTopology.Validate(device??localDevice,peers);}
+            catch(InvalidDataException){denied=true;}
+            Check(denied,description);
+        }
+        Refuse(new[]{valid[0],valid[1] with{DeviceId=localDevice}},
+            "duplicate original device ID rejects shared writer topology");
+        Refuse(new[]{valid[0],valid[1]},"original remote device cannot be treated as an unregistered third owner",
+            Guid.NewGuid().ToString("D"));
+        Refuse(new[]{valid[0],valid[1] with{
+            MemberIds=new[]{localMaps[0],remoteMaps[1],remoteMaps[2],remoteMaps[3],remoteMaps[4]}}},
+            "the same map GUID on two different hosts is a blocked writer collision");
+        Refuse(new[]{valid[0],valid[1] with{
+            MapNames=new[]{"Map_A_0","Map_B_1","Map_B_2","Map_B_3","Map_B_4"}}},
+            "different GUIDs with the same map name cannot silently share two writers");
+        Refuse(new[]{valid[0],valid[1] with{
+            SelectedIds=new[]{remoteMaps[0],remoteMaps[0],remoteMaps[2],remoteMaps[3],remoteMaps[4]}}},
+            "duplicated selected map in a DONE peer is rejected");
+        Refuse(new[]{valid[0],valid[1] with{
+            SelectedIds=new[]{remoteMaps[0],remoteMaps[1],remoteMaps[2],remoteMaps[3],Guid.NewGuid().ToString("D")}}},
+            "selected map not owned by the remote peer is rejected");
+        Refuse(new[]{valid[0],valid[1] with{
+            MemberIds=new[]{"not-a-guid",remoteMaps[1],remoteMaps[2],remoteMaps[3],remoteMaps[4]}}},
+            "invalid map identity cannot enter the original Store ownership table");
+        var sourceConfig=JsonSerializer.SerializeToElement(new{
+            id="KovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
+            members=localMaps
+        });
+        var matchingConfig=JsonSerializer.SerializeToElement(new{
+            id="KovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
+            members=localMaps
+        });
+        LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
+            sourceConfig,matchingConfig);
+        Check(true,"source local lock and local shared DONE peer have exactly matching original configuration");
+        var aliasChanged=JsonSerializer.SerializeToElement(new{
+            id="KovaCluster",mode="shared",path=@"\\other-host\synthetic",
+            members=localMaps
+        });
+        bool aliasDenied=false;
+        try{LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
+            sourceConfig,aliasChanged);}
+        catch(InvalidDataException){aliasDenied=true;}
+        Check(aliasDenied,"UNC hostname alias mismatch is not silently promoted to Store writer ownership");
+    }
+
     // The original shared-store.mjs coordinator is fail-closed:
     // permanent local lock + 2 DONE peers + ACTIVE Store record,
     // no orphaned running or mutation markers and no TTL auto-release.
