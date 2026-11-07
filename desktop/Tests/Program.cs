@@ -406,6 +406,50 @@ try
         };
         LegacyStoreV1PeerTopology.Validate(localDevice,valid);
         Check(true,"two unique original Store-v1 peers with five disjoint owned and selected maps pass read-only topology verification");
+
+        // Original source preserves the ordered FIVE GUID selections in the
+        // local durable shared-store-lock-v1.json AND the matching DONE peer.
+        // Membership equality alone is insufficient for writer/session reuse.
+        var durableLockSelection=JsonSerializer.SerializeToElement(localMaps);
+        LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
+            durableLockSelection,valid[0].SelectedIds);
+        Check(true,"original durable local lock and DONE peer have exact ordered writer map selections");
+        void RejectLocalSelection(string[] candidate,string description)
+        {
+            bool denied=false;
+            try
+            {
+                LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
+                    JsonSerializer.SerializeToElement(candidate),valid[0].SelectedIds);
+            }
+            catch(InvalidDataException){denied=true;}
+            Check(denied,description);
+        }
+        RejectLocalSelection(localMaps.Reverse().ToArray(),
+            "reordered local lock map selections cannot silently reuse the original completed DONE peer session");
+        RejectLocalSelection(new[]{localMaps[0],localMaps[0],
+            localMaps[2],localMaps[3],localMaps[4]},
+            "duplicated local lock selection is rejected before any original writer lifecycle");
+        RejectLocalSelection(new[]{remoteMaps[0],localMaps[1],
+            localMaps[2],localMaps[3],localMaps[4]},
+            "foreign peer map cannot enter the local original durable writer lock");
+        RejectLocalSelection(localMaps[..4],
+            "an incomplete original local selected map list blocks ACTIVE Store operations");
+        RejectLocalSelection(new[]{"not-a-guid",localMaps[1],
+            localMaps[2],localMaps[3],localMaps[4]},
+            "malformed selected local map GUID is never converted into writer authority");
+        RejectLocalSelection(new[]{localMaps[0].ToUpperInvariant(),
+            localMaps[1],localMaps[2],localMaps[3],localMaps[4]},
+            "original source ordered JSON selection digest rejects silently normalized GUID casing");
+        bool missingLocalSelectionDenied=false;
+        try
+        {
+            LegacyStoreV1PeerTopology.RequireOriginalLocalSelection(
+                JsonSerializer.SerializeToElement(new{invalid=true}),valid[0].SelectedIds);
+        }
+        catch(InvalidDataException){missingLocalSelectionDenied=true;}
+        Check(missingLocalSelectionDenied,
+            "malformed original local lock selected field is not treated as an empty/unlocked Store");
         void Refuse(LegacyStoreV1PeerTopology.Peer[] peers,string description,
             string? device=null)
         {
