@@ -1006,6 +1006,10 @@ try
         "Published ASA-only WPF release is discovered with the correct native installer");
     Assert(ReleaseCatalog.Select(asaOnlyJson,repo,UpdateChannel.Stable)==null,
         "Stable channel never offers the ASA-only prerelease");
+    Assert(ReleaseCatalog.IsNewer(asaOnly,new Version(2,0,0),""),
+        "Legacy untagged WPF can opt into a newer same-version preview");
+    Assert(!ReleaseCatalog.IsNewer(asaOnly,new Version(2,0,0),"invalid-installed-tag"),
+        "Malformed nonempty installed tag cannot silently lower stable downgrade protection");
     Assert(ReleaseCatalog.IsNewer(asaOnly,new Version(2,0,0),"v2.0.0-wpf-asa-only.962"),
         "ASA-only WPF run numbers can be upgraded in preview channel");
     Assert(!ReleaseCatalog.IsNewer(asaOnly,new Version(2,0,0),"v2.0.0"),
