@@ -507,7 +507,7 @@ test.beforeEach(async ({ page }) => {
         case "cluster.offlinePreview":
           offlineArchiveApproved=false;
           return {token:offlineArchiveToken,hpCopies:5,ryzenCopies:5,
-            transferMetadataPresent:true,hpFolderName:"HP-offline",
+            transferMetadataPresent:true,configurationCopiesPresent:true,hpFolderName:"HP-offline",
             ryzenFolderName:"Ryzen-offline",transferFolderName:"Store-copy",
             destinationFolderName:"Test-artifacts",requiresExplicitApproval:true,
             originalStoreTouched:false,sqlUsed:false,
@@ -525,6 +525,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-CLUSTER-ARCHIVE-JOB-NOT-FOUND");
           return {jobId:offlineArchiveJob,state:"completed",code:"SHA256_VERIFIED",
             archiveName:"Untamed-ASA-Offline-synthetic",verifiedMaps:10,transferFiles:3,
+            configurationFiles:20,
             changedUtc:"2026-11-06T22:00:00Z",liveConsistencyCertified:false,
             storeWriterCertified:false,productionRestoreAllowed:false,sqlUsed:false,
             evidence:"OFFLINE_FILE_INTEGRITY_ONLY_NO_LIVE_WRITER"};
@@ -1671,11 +1672,13 @@ test("SQL-free offline cluster archive requires four native folders and explicit
   const prepared=panel.getByRole("region",{name:"SQL-mentes clusterarchívum előnézete"});
   await expect(prepared).toContainText("HP: 5 map");
   await expect(prepared).toContainText("Ryzen: 5 map");
+  await expect(prepared).toContainText("Mindkét gépről mellékelve");
   await expect(prepared.getByRole("button",{name:"Offline archívum készítése"})).toBeDisabled();
   await prepared.getByRole("checkbox").check();
   await prepared.getByRole("button",{name:"Offline archívum készítése"}).click();
   await panel.getByRole("button",{name:"Állapot ellenőrzése"}).click();
-  await expect(panel).toContainText("10 map és 3 transferállomány SHA-256-tal igazolva");
+  await expect(panel).toContainText("10 map, 3 transferállomány és");
+  await expect(panel).toContainText("20 konfigurációs állomány SHA-256-tal igazolva");
   await expect(panel).toContainText("nem élő többgépes pillanatkép");
   await expect(panel).not.toContainText("SQL mentés kész");
 });
