@@ -1693,6 +1693,25 @@ try
         Check(oversizedRejected,
             "oversized offline manifest rejected before JSON deserialization");
 
+        // The archive builder initially inspects all ten package headers.
+        // A 16 MiB+ manifest must be rejected BEFORE any new archive stage
+        // is created or the full ten-map world hashes are scanned.
+        string firstPackageManifest=Path.Combine(hp,"map0","manifest.json");
+        byte[] goodManifest=File.ReadAllBytes(firstPackageManifest);
+        using(var oversizedInput=new FileStream(firstPackageManifest,
+            FileMode.Open,FileAccess.Write,FileShare.None))
+            oversizedInput.SetLength(16L*1024*1024+1);
+        string deniedArchive=Path.Combine(archiveLab,"preflight-oversize-rejected");
+        bool firstPassDenied=false;
+        try{OfflineAsaClusterArchive.BuildFromFolders(hp,ryzen,transfer,deniedArchive);}
+        catch(InvalidDataException){firstPassDenied=true;}
+        Check(firstPassDenied&&!Directory.Exists(deniedArchive)&&
+              !Directory.Exists(deniedArchive+".incomplete"),
+            "5+5 archive preflight rejects oversized map header before any copy");
+        File.WriteAllBytes(firstPackageManifest,goodManifest);
+        Check(TestBackupPackage.Verify(Path.Combine(hp,"map0"),ids[0]).MapId==ids[0],
+            "synthetic original map package remains fully verifiable after negative preflight");
+
         string destination=Path.Combine(archiveLab,"verified-asa-package");
         var report=OfflineAsaClusterArchive.BuildFromFolders(hp,ryzen,transfer,destination);
         Check(report.Schema==2&&report.Maps.Length==10&&
