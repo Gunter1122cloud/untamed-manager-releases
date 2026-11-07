@@ -69,6 +69,14 @@ test.beforeEach(async ({ page }) => {
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
     const historicalStartToken="00000000-0000-4000-8000-000000001698";
     let historicalActiveStarted=false;
+    (window as typeof window & {__UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void})
+      .__UNTAMED_ORIGINAL_RCON_TEST_READY__=()=>{
+        Object.assign(state.local.maps[1],{storeProtected:true,rconConfigured:true,
+          running:true,status:"Fut"});
+        historicalRconAttached=true;historicalActiveStarted=true;
+      };
+    let originalRconSourceValid=true;
+    let originalRconPortOwner=true;
     let lanListen=0,lanPeer="",lanPeerPort=0,lanConfigured=false;
     let lanExpectedId="";
     let lanApproval="";
@@ -398,6 +406,32 @@ test.beforeEach(async ({ page }) => {
             automaticRetryAllowed:false,
             evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED"
           };
+        }
+        case "historical.rconLiveStatus": return {
+          mapId:two,mapName:"Astraeos",
+          configured:historicalRconAttached,
+          processVerified:historicalActiveStarted&&originalRconSourceValid,
+          portOwned:originalRconPortOwner&&historicalActiveStarted,
+          pid:historicalActiveStarted?42101:null,
+          permitted:historicalActiveStarted&&historicalRconAttached&&
+            originalRconSourceValid&&originalRconPortOwner,
+          allowedCommands:historicalActiveStarted&&originalRconSourceValid&&
+            originalRconPortOwner?["ListPlayers","GetGameLog","GetChat"]:[],
+          storeTouched:false,saveCompleteProven:false,
+          evidence:"ORIGINAL_ACTIVE_SOURCE_WMI_PID_TCP_OWNER_READY"
+        };
+        case "historical.rconPlayers":
+        case "historical.rconGameLog":
+        case "historical.rconChatLog": {
+          if(!historicalActiveStarted||!historicalRconAttached||
+             !originalRconSourceValid||!originalRconPortOwner||m.mapId!==two)
+            throw new Error("Original Store PID/source/RCON owner not verified");
+          const command=m.method==="historical.rconPlayers"?"ListPlayers":
+            m.method==="historical.rconGameLog"?"GetGameLog":"GetChat";
+          return {mapId:two,mapName:"Astraeos",command,
+            response:"Synthetic original ASA "+command,observedUtc:"2026-11-07T17:00:00Z",
+            readOnly:true,storeTouched:false,saveCompleteProven:false,
+            evidence:"ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON"};
         }
         case "historical.localStatus": return {
           found:true,localFilesVerified:true,configHashVerified:true,
@@ -1588,6 +1622,28 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await expect(historic.getByText(/valódi Windows ASA PID: 42101/)).toBeVisible();
   await expect(historic.getByText(/Nincs automatikus Start\/Restart/)).toBeVisible();
   await expect(spawn).toHaveCount(0);
+});
+
+test("original Store-v1 RCON console actually queries local player, game and chat logs and never exposes write commands",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 RCON konzol"});
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText(/Igazolt · PID 42101/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Játékoslista lekérdezése"})).toBeEnabled();
+  await panel.getByRole("button",{name:"Játékoslista lekérdezése"}).click();
+  await expect(panel.getByText("Synthetic original ASA ListPlayers")).toBeVisible();
+  await panel.getByRole("button",{name:"ASA játéknapló"}).click();
+  await expect(panel.getByText("Synthetic original ASA GetGameLog")).toBeVisible();
+  await panel.getByRole("button",{name:"ASA chatnapló"}).click();
+  await expect(panel.getByText("Synthetic original ASA GetChat")).toBeVisible();
+  await expect(panel.getByRole("button",{name:/SaveWorld|DoExit|Parancs elküldése/})).toHaveCount(0);
+  await expect(panel.getByText(/közös Store-restore biztonságát/)).toBeVisible();
 });
 
 test("real admin RCON UI requires two-stage approval and exact typed phrase for destructive actions",async({page})=>{
