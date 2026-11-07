@@ -29,6 +29,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "..\..\dist\UntamedManager.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\UntamedUpdater.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\UntamedSupervisor.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\installed-release.txt"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{userprograms}\Untamed Manager"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
 
