@@ -35,6 +35,9 @@ public static class OfflineAsaClusterArchive
     private const int MaxConfigFiles=3000;
     private const string Evidence="OFFLINE_TEN_MAP_FILE_INTEGRITY_PLUS_COPIED_CLUSTER_DATA_ONLY";
     private const int MaxFiles=50000;
+    // The ten-map signed index is still operator-supplied data. Validate its
+    // bound before hashing/deserializing to avoid enormous JSON allocations.
+    private const long MaxIndexBytes=32L*1024*1024;
 
     private static string Fixed(string input)
     {
@@ -313,11 +316,14 @@ public static class OfflineAsaClusterArchive
     {
         if(!internalStage&&root.EndsWith(".incomplete",StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Incomplete archive cannot be trusted");
-        if(!Directory.Exists(root)||!File.Exists(Inside(root,Index))||
+        string indexPath=Inside(root,Index);
+        var info=new FileInfo(indexPath);
+        if(!Directory.Exists(root)||!info.Exists||
+           info.Length is <20 or >MaxIndexBytes ||
            !File.Exists(Inside(root,HashFile))||!File.Exists(Inside(root,Completed)) ||
-           !Sha(Inside(root,Index)).Equals(File.ReadAllText(Inside(root,HashFile)).Trim(),
+           !Sha(indexPath).Equals(File.ReadAllText(Inside(root,HashFile)).Trim(),
                StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Offline archive incomplete or index modified");
+            throw new InvalidDataException("Offline archive incomplete, oversized or index modified");
         var manifest=JsonSerializer.Deserialize<AsaOfflinePackage>(
             File.ReadAllText(Inside(root,Index)))
             ??throw new InvalidDataException("Missing ASA archive manifest");
