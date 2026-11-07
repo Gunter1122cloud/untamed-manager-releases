@@ -13,6 +13,20 @@ public static class OfflineAsaOnlyReleaseTests
 
     public static void Run(string root)
     {
+        var shipping=typeof(ClusterService).Assembly;
+        foreach(string forbidden in new[]{
+            "UntamedManager.Core.MariaDbCompatibility",
+            "UntamedManager.Core.MariaDbDumpAdapter",
+            "UntamedManager.Core.OfflineSqlArchive",
+            "UntamedManager.Core.OfflineClusterBackup",
+            "UntamedManager.Core.ClusterRestoreCoordinator"})
+            Check(shipping.GetType(forbidden,false)==null,
+                "native WPF shipping assembly excludes historical SQL type "+forbidden);
+        var window=shipping.GetType("UntamedManager.MainWindow",true)!;
+        Check(window.GetMethod("ShowSqlBackupControls",
+            System.Reflection.BindingFlags.NonPublic|
+            System.Reflection.BindingFlags.Instance)==null,
+            "native WPF shipping window has no SQL backup/restore handler");
         string baseDir=Path.Combine(root,"asa-only-wpf-offline");
         string hp=Path.Combine(baseDir,"HP"),ryzen=Path.Combine(baseDir,"Ryzen");
         string transfer=Path.Combine(baseDir,"transfer-copy");
