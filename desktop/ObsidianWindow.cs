@@ -415,7 +415,8 @@ public sealed class ObsidianWindow : Form
                         initialRoute = name is "servers.initialStatus" or
                             "servers.initialPreview" or "servers.initialApply";
                         historicalStopRoute = name is "historical.gracefulStopPreview" or
-                            "historical.gracefulStopApply" or "historical.gracefulStopStatus";
+                            "historical.gracefulStopApply" or "historical.gracefulStopStatus" or
+                            "historical.gracefulStopRecovery";
                         historicalReadOnlyRconRoute = name is "historical.rconLiveStatus" or
                             "historical.rconPlayers" or "historical.rconGameLog" or
                             "historical.rconChatLog";

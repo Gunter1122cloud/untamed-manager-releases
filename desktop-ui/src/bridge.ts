@@ -648,6 +648,17 @@ export type HistoricalGracefulStopQueued = {
   forceKill:false;storeTouched:false;
   evidence:"ORIGINAL_STORE_V1_REAL_STOP_JOB_QUEUED";
 };
+export type HistoricalGracefulStopRecovery = {
+  mapId:string;operationId:string|null;
+  phase:"None"|"Prepared"|"Mutating"|"Completed"|
+    "CancelledBeforeMutation"|"NeedsOperator";
+  operationKind:string;updatedUtc:string|null;
+  blocked:boolean;requiresOperator:boolean;
+  inMemoryRunning:boolean;jobId:string|null;
+  automaticRecovery:false;automaticRetry:false;
+  sharedStoreMutated:false;lockCleared:false;
+  evidence:"ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY";
+};
 export type HistoricalGracefulStopStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;confirmedStopped:boolean;
@@ -873,7 +884,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    "historical.rconLiveStatus" | "historical.rconPlayers" |
    "historical.rconGameLog" | "historical.rconChatLog" |
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
-   "historical.gracefulStopStatus" |
+   "historical.gracefulStopStatus" | "historical.gracefulStopRecovery" |
   "api.coreRelease" | "api.corePreview" | "api.coreApply" |
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
@@ -1157,6 +1168,8 @@ export const managerBridge = {
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
     request<HistoricalLaunchEvidence>("historical.launchEvidence",{archive,mapId,command}),
+  historicalGracefulStopRecovery: (mapId:string) =>
+    request<HistoricalGracefulStopRecovery>("historical.gracefulStopRecovery",{mapId}),
   historicalGracefulStopPreview: (mapId:string) =>
     request<HistoricalGracefulStopPreview>("historical.gracefulStopPreview",{mapId}),
   historicalGracefulStopApply: (token:string,typedApproval:string) =>
