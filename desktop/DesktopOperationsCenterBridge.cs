@@ -106,8 +106,19 @@ public sealed class DesktopOperationsCenterBridge
             var maps = cluster.Config.LocalMaps
                 .Where(m => method == "operations.snapshot" || m.Id == selectedId)
                 .Take(50).Select(m => Describe(m,now)).ToArray();
+            // Read the persisted due cursor, not a moving estimate relative
+            // to each screen refresh. If journal access fails, expose the
+            // distinction explicitly and keep all server operations blocked.
+            IReadOnlyDictionary<Guid,DateTimeOffset> durableDue=
+                new System.Collections.Generic.Dictionary<Guid,DateTimeOffset>();
+            string journalState=supervisor?.RuntimeState??"not-configured";
+            if(supervisor!=null&&method=="operations.snapshot")
+            {
+                try{durableDue=supervisor.DueDates();}
+                catch(Exception){journalState="journal-unavailable";}
+            }
             var schedules = method == "operations.snapshot"
-                ? cluster.Config.RecurringSchedules.Take(200).Select(job => {
+                ? cluster.SnapshotRecurringSchedules().Take(200).Select(job => {
                     var owned=cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==job.Map);
                     try {
                         var due=OperationalScheduler.Next(job,now,
@@ -116,7 +127,9 @@ public sealed class DesktopOperationsCenterBridge
                             id=job.Id.ToString("D"), mapId=job.Map.ToString("D"),
                             mapName=owned?.Name ?? "Nincs helyi map",
                             kind=job.Kind.ToString(),frequency=job.Frequency.ToString(),
-                            enabled=job.Enabled, nextUtc=(DateTimeOffset?)due.DueUtc,
+                            enabled=job.Enabled,
+                            nextUtc=(DateTimeOffset?)(durableDue.TryGetValue(job.Id,out var actualDue)?
+                                actualDue:due.DueUtc),
                             state=due.Status, autoExecutionPermitted=due.AutoExecutionPermitted
                         };
                     }catch(Exception) {
@@ -131,7 +144,7 @@ public sealed class DesktopOperationsCenterBridge
                 }).ToArray()
                 : Array.Empty<object>();
             RecurringJobReceipt[] receipts=Array.Empty<RecurringJobReceipt>();
-            string supervisorState=supervisor?.RuntimeState??"not-configured";
+            string supervisorState=journalState;
             if(supervisor!=null&&method=="operations.snapshot")
             {
                 try{receipts=supervisor.Recent(40);}
