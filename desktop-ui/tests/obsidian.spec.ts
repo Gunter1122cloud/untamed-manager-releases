@@ -80,6 +80,12 @@ test.beforeEach(async ({ page }) => {
     const originalStopToken="00000000-0000-4000-8000-000000001696";
     const originalStopJob="00000000-0000-4000-8000-000000001697";
     let originalStopQueued=false;
+    let oldStopNeedsOperator=false;
+    (window as typeof window & {
+      __UNTAMED_ORIGINAL_STOP_CRASH_RECOVERY__?:()=>void
+    }).__UNTAMED_ORIGINAL_STOP_CRASH_RECOVERY__=()=>{
+      oldStopNeedsOperator=true;
+    };
     let lanListen=0,lanPeer="",lanPeerPort=0,lanConfigured=false;
     let lanExpectedId="";
     let lanApproval="";
@@ -436,9 +442,25 @@ test.beforeEach(async ({ page }) => {
             readOnly:true,storeTouched:false,saveCompleteProven:false,
             evidence:"ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON"};
         }
+        case "historical.gracefulStopRecovery": return {
+          mapId:two,
+          operationId:oldStopNeedsOperator?originalStopJob:null,
+          phase:oldStopNeedsOperator?"NeedsOperator":
+            originalStopQueued?"Completed":"None",
+          operationKind:oldStopNeedsOperator||originalStopQueued?"Launch":"None",
+          updatedUtc:oldStopNeedsOperator||originalStopQueued
+            ?"2026-11-07T18:35:00Z":null,
+          blocked:oldStopNeedsOperator,
+          requiresOperator:oldStopNeedsOperator,
+          inMemoryRunning:false,jobId:null,
+          automaticRecovery:false,automaticRetry:false,
+          sharedStoreMutated:false,lockCleared:false,
+          evidence:"ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY"
+        };
         case "historical.gracefulStopPreview": {
           if(!historicalRconAttached||!historicalActiveStarted||
-             !originalRconSourceValid||!originalRconPortOwner||m.mapId!==two)
+             !originalRconSourceValid||!originalRconPortOwner||m.mapId!==two||
+             oldStopNeedsOperator)
             throw new Error("Original RCON owner or Store session invalid");
           return {
             token:originalStopToken,mapId:two,mapName:"Astraeos",
@@ -1706,6 +1728,27 @@ test("original Store-v1 real SaveWorld then DoExit requires exact typed approval
   await expect(panel.getByText(/mentésjelzés megfigyelve/)).toBeVisible();
   await expect(panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"})).toBeDisabled();
   await expect(panel.getByRole("button",{name:/Kill|Erőltetett|Újraindítás/})).toHaveCount(0);
+});
+
+test("old original Store Stop NEEDS_OPERATOR journal survives UI remount and disables SaveWorld/DoExit without resetting old locks",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_STOP_CRASH_RECOVERY__?:()=>void
+  }).__UNTAMED_ORIGINAL_STOP_CRASH_RECOVERY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
+  const journal=panel.getByRole("region",{name:"Tartós Store-v1 műveleti helyreállítás"});
+  await expect(journal).toBeVisible();
+  await expect(journal.getByText(/Korábbi műveleti napló/)).toBeVisible();
+  await expect(journal.getByText(/Kézi ellenőrzés szükséges/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Eredeti SaveWorld/DoExit előellenőrzése"}))
+    .toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld és szabályos DoExit"}))
+    .toHaveCount(0);
 });
 
 test("real admin RCON UI requires two-stage approval and exact typed phrase for destructive actions",async({page})=>{
