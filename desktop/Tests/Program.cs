@@ -53,9 +53,15 @@ cluster.AddMap(map);
         "UntamedManager.Core.MariaDbDumpAdapter",
         "UntamedManager.Core.OfflineSqlArchive",
         "UntamedManager.Core.OfflineClusterBackup",
-        "UntamedManager.Core.ClusterRestoreCoordinator"})
+        "UntamedManager.Core.ClusterRestoreCoordinator",
+        "UntamedManager.Core.DemoWorkspace",
+        "UntamedManager.Core.IsolatedFakeAsaSession",
+        "UntamedManager.Core.SyntheticRestore",
+        "UntamedManager.Core.SteamCmdTestRunner",
+        "UntamedManager.Core.RecoverySimulator",
+        "UntamedManager.Core.VaultFixtureAudit"})
         Check(application.GetType(forbidden,false)==null,
-            "shipping desktop excludes old SQL and 3-SQL restore: "+forbidden);
+            "shipping Obsidian desktop excludes SQL, legacy WPF demos and fake test harness: "+forbidden);
 }
 // The real dashboard once compared N-format LAN IDs with D-format owned map
 // IDs and silently hid maintenance / Store protection / RCON flags.
