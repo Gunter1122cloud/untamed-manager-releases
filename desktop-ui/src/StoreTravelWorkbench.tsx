@@ -1,7 +1,7 @@
 import {useMemo,useState} from "react";
 import {AlertTriangle,CheckCircle2,ClipboardCopy,FileCheck2,
   FileWarning,HardDrive,LockKeyhole,RefreshCw,Server,ShieldCheck,Users} from "lucide-react";
-import {managerBridge,type EmbeddedStoreCopyReport,type TravelCapture,type TravelComparison} from "./bridge";
+import {managerBridge,type EmbeddedStoreArchiveReport,type EmbeddedStoreCopyReport,type TravelCapture,type TravelComparison} from "./bridge";
 
 type Slot="beforeA"|"beforeB"|"afterA"|"afterB";
 const slots:Array<{key:Slot;label:string;subtitle:string}>= [
@@ -29,6 +29,7 @@ function parse(raw:string):Snapshot|null{
 const seed={beforeA:"",beforeB:"",afterA:"",afterB:""};
 function EmbeddedStoreCopyInspector(){
   const [data,setData]=useState<EmbeddedStoreCopyReport|null>(null);
+  const [archive,setArchive]=useState<EmbeddedStoreArchiveReport|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   async function inspect(){
@@ -36,6 +37,13 @@ function EmbeddedStoreCopyInspector(){
     setBusy(true);setData(null);setError("");
     try{setData(await managerBridge.embeddedStoreInspectCopy());}
     catch{setError("A helyi .ark MÁSOLAT nem elemezhető. A forrás nem változott. Ellenőrizd, hogy leállított világ teljes offline másolatát választottad-e.");}
+    finally{setBusy(false);}
+  }
+  async function inspectArchive(){
+    if(busy)return;
+    setBusy(true);setArchive(null);setError("");
+    try{setArchive(await managerBridge.embeddedStoreInspectArchive());}
+    catch{setError("Az offline 10-map archívum fájlleltára vagy beágyazott indexe nem ellenőrizhető. Az eredeti fájlok érintetlenek.");}
     finally{setBusy(false);}
   }
   return <section className="premium-panel uk-store-copy-panel" aria-label="Beágyazott Store-v1 ellenőrzése">
@@ -49,6 +57,29 @@ function EmbeddedStoreCopyInspector(){
         onClick={()=>{void inspect();}}>
         <FileCheck2 size={16}/>{busy?"Offline Store index elemzése...":"Offline .ark másolat megvizsgálása"}
       </button>
+      <button type="button" className="secondary uk-travel-primary" disabled={busy}
+        onClick={()=>{void inspectArchive();}}>
+        <HardDrive size={16}/>{busy?"Offline ellenőrzés folyamatban...":
+          "Teljes 10-map archívum Store-indexeinek vizsgálata"}
+      </button>
+      {archive&&<section className="uk-store-copy-result"
+        aria-label="Tízmapos beágyazott Store-leltár">
+        <strong>{archive.maps} map ellenőrizve: {archive.indexScannedMaps} olvasható index,
+          {archive.needsReviewMaps} további vizsgálatot igényel</strong>
+        <p>A világ-, konfigurációs és transfer-állományok SHA-256 fájlintegritása:
+          {archive.archiveFilesSha256Verified?" ellenőrizve":" nem igazolt"}.
+          Nem igazol karakterbelépést, tribe-tulajdont vagy tényleges clusterutazást.</p>
+        <div className="uk-store-archive-scroller">
+          <table className="uk-store-archive-table">
+            <thead><tr><th>Gép</th><th>Mapcsomag</th><th>Index státusza</th>
+              <th>Karakterjelölt</th><th>Tribe-jelölt</th></tr></thead>
+            <tbody>{archive.results.map(m=><tr key={m.mapId}>
+              <td>{m.host}</td><td>{m.package}</td><td>{m.status}</td>
+              <td>{m.profileCandidates}</td><td>{m.tribeCandidates}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </section>}
       {data&&<div role="status" className="uk-store-copy-result">
         <b>{data.fileName} · {data.state}</b>
         <div className="uk-store-copy-metrics">
