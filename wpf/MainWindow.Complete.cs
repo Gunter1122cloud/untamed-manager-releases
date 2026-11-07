@@ -114,7 +114,7 @@ public partial class MainWindow
 
     private void ShowSetupWizard()
     {
-        Header("Kezdeti beállítás / Tesztgép","Géphez kötött map-regisztráció. Nem importálunk automatikusan meglévő karakter- vagy SQL-adatokat.");
+        Header("Kezdeti beállítás / Tesztgép","Géphez kötött map-regisztráció. Nem importálunk automatikusan meglévő karakter- vagy adatbázis-adatokat.");
         Add(Box(V(
             Label("1. Jelenlegi Manager profil",20,Mint,true),
             Label("Gép: "+_cluster.Config.LocalHostName+" · Profil: "+App.ProfileName+
@@ -130,79 +130,28 @@ public partial class MainWindow
         Add(Box(V(
             Label("3. Üzemeltetés előfeltételei",19,Mint,true),
             Label("Éles ASA SaveWorld-igazolás és kétgépes Store-kompatibilitás még nem bizonyított. "+
-                "Valódi MariaDB-mentés és új, üres célra restore a Mentések oldalon elérhető; "+
+                "A MariaDB a Managertől függetlenül fut, SQL-művelet nincs a programban; "+
                 "teljes clusterrestore, éles ASA Stop/Restart/Kill és SteamCMD-frissítés még nem engedélyezett.",12,Soft),
             Btn("Recovery Center megnyitása",()=>Navigate("recovery")),
             Btn("Mentésellenőrzés megnyitása",()=>Navigate("backups")),
-            Btn("Cluster Vault / SQL központ",()=>Navigate("data")))));
+            Btn("Cluster Vault / ASA központ",()=>Navigate("data")))));
         ShowVaultProfilePreviewControls();
     }
 
     private void ShowDataSafetyCenter()
     {
-        Header("Untamed Cluster Vault és SQL",
-            "Offline Vault/SQL archívumok; valódi MariaDB-mentés és üres célra restore a Mentések oldalon.");
-        Add(Label("MariaDB referencia: "+MariaDbCompatibility.DeploymentBaseline+
-            ". A 11.4-es ág nem automatikus frissítési cél; dump/restore előtt a szerver és az eszközök verzióját külön igazolni kell.",12,Aqua));
+        Header("Untamed Cluster Vault / ASA adatbiztonság",
+            "Eredeti Store-v1 metaadatok és SQL-mentes, 5+5 mapos offline archívum.");
         Add(Box(V(
-            Label("Adatbiztonsági kapuk – Release Candidate",19,Mint,true),
-            Label("Valódi MariaDB-dump és ellenőrzött új, üres célra történő SQL-restore: a Mentések oldalon. "+
-                "Meglévő SQL-adatbázis felülírása, teljes clusterrestore, Cluster Vault-konverzió "+
-                "és karakter/tribe módosítás továbbra sem engedélyezett. "+
-                "Az SQL-csomag épsége önmagában nem bizonyít karaktertranszfer-kompatibilitást.",12,Soft),
-            Btn("Valódi SQL-mentés és üres célra visszatöltés",()=>Navigate("backups")))));
-        var database=new ComboBox{ItemsSource=OfflineSqlArchive.SupportedDatabases,
-            SelectedIndex=0,Foreground=Brushes.White,Background=Panel};
-        var selected=new TextBox{Height=34,IsReadOnly=true,
-            Foreground=Brushes.White,Background=Panel};
-        var sqlStatus=Label("Még nincs kiválasztott offline .sql fájl.",12,Soft);
-        string? recent=null;
-        Add(Box(V(
-            Label("MariaDB offline SQL csomagolás – SHA-256",19,Mint,true),
-            Label("Válassz egy már exportált arkshop.sql, arkpermissions.sql vagy lethalquests.sql fájlt. "+
-                "Nem futtatunk SQL parancsot vagy mysqldump-ot. A csomag helyileg, külön mappába kerül.",12,Soft),
-            database,selected,
-            Btn("Offline SQL fájl kiválasztása",()=>{
-                using var picker=new Forms.OpenFileDialog{
-                    Title="Offline SQL tesztfájl kiválasztása",
-                    Filter="SQL dump (*.sql)|*.sql",CheckFileExists=true};
-                if(picker.ShowDialog()==Forms.DialogResult.OK)selected.Text=picker.FileName;
-            }),
-            Btn("SHA-256 ellenőrzött offline csomag készítése",()=>{
-                try
-                {
-                    var result=OfflineSqlArchive.ImportFixture(_cluster.Store.Root,
-                        selected.Text.Trim(),(string)database.SelectedItem,
-                        Guid.Parse(_cluster.Config.LocalHostId));
-                    recent=result.Package;
-                    sqlStatus.Text=result.Database+": "+result.Bytes+" bájt; SHA-256 "+
-                        result.Sha256+"\n"+result.Scope+"\nHelyi mentés: "+result.Package;
-                }
-                catch(Exception ex){sqlStatus.Text="SQL csomag megtagadva: "+UntamedPresentation.Redact(ex.Message);
-                    WriteLog("offline-sql",ex);}
-            }),
-            Btn("Csomag integritásának újraellenőrzése",()=>{
-                try
-                {
-                    if(recent==null)throw new InvalidOperationException("Nincs mentett csomag");
-                    var item=OfflineSqlArchive.Verify(recent,(string)database.SelectedItem,
-                        Guid.Parse(_cluster.Config.LocalHostId));
-                    sqlStatus.Text="SHA-256 OK: "+item.Sha256+
-                        "\nEz csak offline csomag. A valódi MariaDB-műveletek a Mentések oldalon találhatók.";
-                }
-                catch(Exception ex){sqlStatus.Text="Csomag ellenőrzése sikertelen: "+UntamedPresentation.Redact(ex.Message);}
-            }),
-            Btn("SQL visszaállítás szimulálása (csak TEMP mappába)",()=>{
-                try
-                {
-                    if(recent==null)throw new InvalidOperationException("Nincs ellenőrzött csomag");
-                    string path=OfflineSqlArchive.SimulateRestore(recent,
-                        (string)database.SelectedItem,Guid.Parse(_cluster.Config.LocalHostId));
-                    sqlStatus.Text="KIZÁRÓLAG OFFLINE SZIMULÁCIÓ: SHA-256 szerint ép fájl:\n"+
-                        path+"\nValódi MariaDB import NEM történt.";
-                }
-                catch(Exception ex){sqlStatus.Text="Restore-szimuláció elutasítva: "+UntamedPresentation.Redact(ex.Message);}
-            }),sqlStatus)));
+            Label("10 map · 2 host · Store-v1 sértetlenség",19,Mint,true),
+            Label("A MariaDB a pluginok külön futó szolgáltatása. "+
+                "Az Untamed Manager nem kér SQL-belépési adatokat, "+
+                "nem készít dumpot és nem végez adatbázis-visszaállítást.",12,Soft),
+            Label("A működő karakter-, tribe-, implant-, inventory- és dinoszauruszadatok "+
+                "megtartása elsőbbséget élvez. Az eredeti Store-v1 session/lock "+
+                "és a clustertransfer fájljai automatikusan nem írhatók át.",12,Aqua),
+            Btn("SQL-mentes ASA offline archívum megnyitása",
+                ()=>Navigate("backups")))));
         ShowClusterVaultArchiveCenter();
         ShowStoreAliasProof();
         ShowUntamedManagerArchiveAudit();

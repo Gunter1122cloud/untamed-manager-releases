@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,172 +12,126 @@ namespace UntamedManager;
 
 public partial class MainWindow
 {
+    // Offline-only: existing SHA-verified 5+5 stopped-map backup packages and
+    // the operator's SEPARATE COPY of the original Store/transfer directory.
+    // No SQL, no Kova session creation, no server stop/start, no UNC writer.
     private void ShowOfflineClusterBackupWizard()
     {
-        TextBox NewBox()=>new(){Height=34,IsReadOnly=true,
+        TextBox Folder()=>new(){Height=34,IsReadOnly=true,
             Foreground=Brushes.White,Background=Panel};
-        var hp=NewBox();var ryzen=NewBox();var sql=NewBox();var target=NewBox();
-        var status=Label("Válaszd ki az ELŐZETESEN MÁSOLT 5+5 map és 3 SQL "+
-            "mentéscsomagot a külön Windows tesztgépen.",12,Soft);
-        void Pick(TextBox field,string caption)
+        var hp=Folder();
+        var ryzen=Folder();
+        var transfer=Folder();
+        var output=Folder();
+        var status=Label("Válaszd ki az előzetesen elkészített, HELYI másolatokat: "+
+            "öt HP és öt Ryzen mentéscsomag, valamint a közös Store/transfer fájlok másolata.",12,Soft);
+        void Pick(TextBox target,string description)
         {
-            using var dialog=new Forms.FolderBrowserDialog{Description=caption};
-            if(dialog.ShowDialog()==Forms.DialogResult.OK)field.Text=dialog.SelectedPath;
+            using var box=new Forms.FolderBrowserDialog{Description=description};
+            if(box.ShowDialog()==Forms.DialogResult.OK)target.Text=box.SelectedPath;
         }
-        Button? build=null;
-        build=Btn("5+5 map és 3 SQL OFFLINE archívum összeállítása",async ()=>{
-            if(build!=null)build.IsEnabled=false;
+        Button? create=null;
+        create=Btn("SQL-mentes, 10-map offline ASA archívum készítése",async ()=>{
+            if(create!=null)create.IsEnabled=false;
             try
             {
-                var p1=hp.Text.Trim();var p2=ryzen.Text.Trim();
-                var p3=sql.Text.Trim();var dest=Path.Combine(target.Text.Trim(),
-                    "Untamed-Offline-Cluster-"+DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")+"-"+
+                string hpCopy=hp.Text.Trim(),ryzenCopy=ryzen.Text.Trim(),
+                    transferCopy=transfer.Text.Trim(),parent=output.Text.Trim();
+                if(!Directory.Exists(hpCopy)||!Directory.Exists(ryzenCopy)||
+                   !Directory.Exists(transferCopy)||!Directory.Exists(parent))
+                    throw new InvalidDataException("Mind a négy létező, elkülönített mappa szükséges");
+                string destination=Path.Combine(parent,"Untamed-ASA-Offline-"+
+                    DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")+"-"+
                     Guid.NewGuid().ToString("N")[..8]);
                 if(WinMessageBox.Show(
-                    "Ez 13 korábban elkészített, kizárólag HELYI mentéscsomagból "+
-                    "valós SHA-256 ellenőrzött fájlmásolatot épít.\n"+
-                    "ÉLES ASA-MENTÉST, SQL-DUMPOT ÉS KOVA STORE-MENTÉST NEM VÉGEZ. "+
-                    "A kétgépes konzisztenciát NEM bizonyítja.\n\n"+
-                    "Cél: "+dest+"\n\nFolytatod?",
-                    "Offline 10-map archívum",MessageBoxButton.YesNo,
+                    "Ez a művelet csak ELŐRE elkészített offline helyi másolatokból "+
+                    "állít össze új SHA-256-tal ellenőrzött archívumot. "+
+                    "A közös Store/transfer mappa eredetije nem módosul. "+
+                    "Nem készít adatbázis-mentést, és nem igazol élő kétgépes "+
+                    "karakterutazási vagy pillanatkép-konzisztenciát.\n\n"+
+                    "Cél: "+destination+"\n\nJóváhagyod?",
+                    "Untamed ASA / Store offline archívum",MessageBoxButton.YesNo,
                     MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-                status.Text="Offline csomagolás folyamatban; források nem módosulnak...";
-                var result=await Task.Run(()=>OfflineClusterBackup.BuildFromFolders(
-                    p1,p2,p3,dest));
-                status.Text="OFFLINE FÁJLINTEGRITÁS ARCHÍVUM KÉSZ\n"+
-                    "Map-csomagok: "+result.Items.Count(x=>x.Host!="SQL")+
-                    " · SQL-exportok: "+result.Items.Count(x=>x.Host=="SQL")+
-                    "\nCsomag: "+dest+"\n"+result.Disclaimer;
+                status.Text="10 map és Store/transfer fájlintegritás ellenőrzése...";
+                var result=await Task.Run(()=>
+                    OfflineAsaClusterArchive.BuildFromFolders(
+                        hpCopy,ryzenCopy,transferCopy,destination));
+                status.Text="OFFLINE SHA-256 ARCHÍVUM KÉSZ\nMapok: "+result.Maps.Length+
+                    " (HP: 5, Ryzen: 5) · Transferállományok: "+result.Transfer.Length+
+                    "\nCsomag: "+destination+
+                    "\nÉLŐ STORE-V1 KONZISZTENCIA NINCS IGAZOLVA; éles restore letiltva.";
             }
             catch(Exception ex)
             {
-                status.Text="UM-OFFLINE-BACKUP: a másolás nem fejeződött be."+
-                    "\nFélbemaradt .incomplete könyvtárat kézzel kell megvizsgálni.";
-                WriteLog("offline-cluster-archive",ex);
+                WriteLog("asa-offline-cluster-backup",ex);
+                status.Text="A csomag nem tekinthető elkészültnek. "+
+                    "A félbemaradt .incomplete mappát kézzel ellenőrizd.";
             }
-            finally{if(build!=null)build.IsEnabled=true;}
+            finally{if(create!=null)create.IsEnabled=true;}
         });
         Add(Box(V(
-            Label("v"+UiVersion+" · Kétgépes OFFLINE archívum / 10 map + 3 SQL",20,Mint,true),
-            Label("Másolt backup-csomagok: HP mappában 5 mapcsomag, Ryzen mappában 5; "+
-                "SQL mappában arkshop / arkpermissions / lethalquests almappák. "+
-                "Minden mappának korábban elkészített Untamed manifest.json + data + complete "+
-                "állományt kell tartalmaznia. Az eredeti hostokkal nem kommunikál.",12,Soft),
-            Label("HP – öt map offline mentésmappája",12,Aqua),hp,
-            Btn("HP mappa kijelölése",()=>Pick(hp,"HP offline 5 backup-mappa")),
-            Label("Ryzen – öt map offline mentésmappája",12,Aqua),ryzen,
-            Btn("Ryzen mappa kijelölése",()=>Pick(ryzen,"Ryzen offline 5 backup-mappa")),
-            Label("SQL – három offline export csomag",12,Aqua),sql,
-            Btn("SQL mappa kijelölése",()=>Pick(sql,"arkshop / arkpermissions / lethalquests csomagok")),
-            Label("Célkönyvtár a külön tesztgépen",12,Aqua),target,
-            Btn("Célkönyvtár kijelölése",()=>Pick(target,"Üres hely külön a forrásoktól")),
-            build,
-            Btn("37 komponenses teljes OFFLINE batch – katalógus alapján",async ()=>{
-                using var input=new Forms.OpenFileDialog{
-                    Filter="Untamed offline batch JSON (*.json)|*.json",
-                    Title="37 ellenőrzött fájl és 5+5 map tulajdonosi katalógusa",
-                    CheckFileExists=true};
-                if(input.ShowDialog()!=Forms.DialogResult.OK)return;
-                using var output=new Forms.FolderBrowserDialog{
-                    Description="Új OFFLINE batch szülőmappája (a forrásfájloktól külön)"};
-                if(output.ShowDialog()!=Forms.DialogResult.OK)return;
-                string catalog=input.FileName;
-                string destination=Path.Combine(output.SelectedPath,
-                    "Untamed-Batch-"+Guid.NewGuid().ToString("N"));
-                if(WinMessageBox.Show(
-                    "A helyi katalógusban felsorolt 37 fájlt ellenőrzi és ÚJ offline "+
-                    "könyvtárba másolja. Nem végez éles Store/ASA/SQL műveletet "+
-                    "és nem bizonyít karaktertranszfer-konzisztenciát.\n\n"+
-                    "Cél: "+destination+"\n\nFolytatod?",
-                    "Untamed offline 37-komponenses batch",
-                    MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-                status.Text="37 komponens ellenőrzése és tartós offline másolása...";
+            Label("5+5 mapos ASA / Store offline archívum – SQL nélkül",20,Mint,true),
+            Label("Öt HP + öt Ryzen, korábban ellenőrzött Untamed map-mentéscsomag. "+
+                "A transfer könyvtár kizárólag az eredeti Store-v1 állományok "+
+                "külön elkészített másolata lehet, az eredeti Store-v1 műveleti metaadatokkal. "+
+                "A Manager nem hajt végre új Store-konverziót.",12,Soft),
+            Label("HP: öt offline map mentéscsomag szülőkönyvtára",12,Aqua),hp,
+            Btn("HP másolatmappa",()=>Pick(hp,"Öt leállított HP map külön másolt mentéscsomagjai")),
+            Label("Ryzen: öt offline map mentéscsomag szülőkönyvtára",12,Aqua),ryzen,
+            Btn("Ryzen másolatmappa",()=>Pick(ryzen,"Öt leállított Ryzen map külön másolt mentéscsomagjai")),
+            Label("Store/transfer: eredeti közös mappa ELŐRE elkészített helyi másolata",12,Aqua),transfer,
+            Btn("Transfer másolatmappa",()=>Pick(transfer,"Eredeti Store/transfer könyvtár helyi MÁSOLATA")),
+            Label("Új archívum szülőmappája (különálló helyi lemez)",12,Aqua),output,
+            Btn("Célmappa kijelölése",()=>Pick(output,"Új SQL-mentes archívum szülőmappája")),
+            create,
+            Btn("Meglévő ASA offline archívum SHA-256 ellenőrzése",async ()=>{
+                using var box=new Forms.FolderBrowserDialog{
+                    Description="Korábban elkészített Untamed-ASA-Offline archívum"};
+                if(box.ShowDialog()!=Forms.DialogResult.OK)return;
                 try
                 {
-                    var result=await Task.Run(()=>
-                        ClusterBatchCatalogImport.BuildFromCatalog(catalog,destination));
-                    status.Text="OFFLINE BATCH ELKÉSZÜLT · "+result.Components.Length+
-                        " fájl SHA-256 ellenőrzött"+
-                        "\nCsomag: "+destination+
-                        "\nASA/STORE/SQL konzisztencia: ÉLESBEN NEM IGAZOLT.";
+                    status.Text="A teljes archívum fájlonkénti SHA-256 ellenőrzése...";
+                    var report=await Task.Run(()=>
+                        OfflineAsaClusterArchive.Verify(box.SelectedPath));
+                    status.Text="ARCHÍVUM ÉP · "+report.Maps.Length+" map · "+
+                        report.Transfer.Length+" transferfájl · "+report.Batch+
+                        "\nÉles karakterutazás nem igazolt.";
                 }
                 catch(Exception ex)
                 {
-                    WriteLog("offline-37-catalog",ex);
-                    status.Text="UM-37-BATCH: nem készült teljes batch. "+
-                        "Az esetleges .incomplete mappa külön vizsgálandó.";
+                    WriteLog("asa-offline-cluster-verify",ex);
+                    status.Text="Archívum ellenőrzése sikertelen; nem használható visszaállításhoz.";
                 }
             }),
-            Btn("Meglévő OFFLINE clusterarchívum ellenőrzése",async ()=>{
-                using var dialog=new Forms.FolderBrowserDialog{
-                    Description="Korábban létrehozott Untamed-Offline-Cluster mappa"};
-                if(dialog.ShowDialog()!=Forms.DialogResult.OK)return;
-                try
-                {
-                    var result=await Task.Run(()=>OfflineClusterBackup.Verify(dialog.SelectedPath));
-                    status.Text="ARCHÍVUM SHA-256 ÉP: "+result.Items.Length+
-                        " csomag, batch "+result.Batch+
-                        "\n"+result.Disclaimer;
-                }
-                catch(Exception ex){status.Text="Archívum nem ellenőrizhető: "+
-                    UntamedPresentation.Redact(ex.Message);}
-            }),
-            Btn("Félbeszakadt 37-elemes backupnapló ellenőrzése",async ()=>{
-                using var picker=new Forms.FolderBrowserDialog{
-                    Description="Válaszd ki a félbeszakadt .incomplete offline batch mappát"};
-                if(picker.ShowDialog()!=Forms.DialogResult.OK)return;
-                string selected=picker.SelectedPath;
-                string original=selected.EndsWith(".incomplete",
-                    StringComparison.OrdinalIgnoreCase)?
-                    selected[..^".incomplete".Length]:selected;
-                try
-                {
-                    var progress=await Task.Run(()=>
-                        ClusterBatchArchive.InspectInterrupted(original));
-                    status.Text=(progress.NeedsOperator?
-                        "T07 BACKUP – OPERÁTORI VIZSGÁLAT SZÜKSÉGES":
-                        "Nincs befejezetlen másolás")+
-                        "\nEllenőrzött fájlok: "+progress.VerifiedFiles+
-                        "\nBatch: "+(progress.BatchId?.ToString("N")??"nem igazolt")+
-                        "\n"+progress.Reason+
-                        "\nAutomatikus újraindítás vagy törlés: NINCS.";
-                }
-                catch(Exception ex)
-                {
-                    WriteLog("offline-batch-progress",ex);
-                    status.Text="UM-BACKUP-JOURNAL: a másolás naplója nem ellenőrizhető. "+
-                        "Automatikus folytatás nincs.";
-                }
-            }),
-            Btn("10 map + 3 SQL visszaállítási PRÓBA – kizárólag izolált TEMP",async ()=>{
-                using var dialog=new Forms.FolderBrowserDialog{
-                    Description="Válassz hitelesített offline clusterarchívumot (13 csomag)"};
-                if(dialog.ShowDialog()!=Forms.DialogResult.OK)return;
-                string archive=dialog.SelectedPath;
+            Btn("10 map + transfer próba-visszaállítás – kizárólag TEMP labor",async ()=>{
+                using var box=new Forms.FolderBrowserDialog{
+                    Description="Válassz már elkészült SQL-mentes ASA archívumot"};
+                if(box.ShowDialog()!=Forms.DialogResult.OK)return;
+                string archive=box.SelectedPath;
                 string destination=Path.Combine(Path.GetTempPath(),
-                    "Untamed-Isolated-Restore-"+Guid.NewGuid().ToString("N"));
+                    "Untamed-AsaRestore-Lab-"+Guid.NewGuid().ToString("N"));
                 if(WinMessageBox.Show(
-                    "A 10 map játékfájljait és 3 SQL-exportját egy ÚJ, elkülönített "+
-                    "TEMP könyvtárba másolja. Nem állít vissza valódi ASA/Store/SQL "+
-                    "szolgáltatást és nem írja felül a meglévő fájlokat.\n"+
-                    "Cél: "+destination+"\n\nFolytatod?",
-                    "Izolált offline restore-próba",MessageBoxButton.YesNo,
-                    MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-                status.Text="Izolált restore fájlmásolás és SHA-256 ellenőrzés...";
+                    "Az archívumot egy véletlenszerű, ÚJ Windows TEMP könyvtárba "+
+                    "ellenőrzötten kibontja. Nem ír vissza ASA vagy Store/transfer "+
+                    "szerverfájlt, és nem importál adatbázist.\n\n"+
+                    "Cél: "+destination+"\n\nJóváhagyod?",
+                    "Csak elkülönített próba-visszaállítás",
+                    MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+                status.Text="Próba-visszaállítás és világfájl SHA-256 ellenőrzés...";
                 try
                 {
                     var result=await Task.Run(()=>
-                        ClusterRestoreCoordinator.MaterializeToLab(archive,destination));
-                    status.Text="IZOLÁLT RESTORE-FÁJLOK ELKÉSZÜLTEK\n"+
-                        "Mapok: "+result.Maps.Length+" · SQL-exportok: "+result.Sql.Length+
-                        "\nKönyvtár: "+destination+
-                        "\nÉLES ASA/SQL/STORE VISSZAÁLLÍTÁS NEM TÖRTÉNT.";
+                        OfflineAsaRestoreLab.MaterializeToLab(archive,destination));
+                    status.Text="PRÓBA-VISSZAÁLLÍTÁS FÁJLINTEGRITÁSA ÉP · "+
+                        result.SourceArchive.Maps.Length+" map · "+
+                        result.MapFiles.Length+" világfájl"+
+                        "\nLabor: "+destination+
+                        "\nJátékbeli működés és éles Store-v1 írás NEM bizonyított.";
                 }
                 catch(Exception ex)
                 {
-                    WriteLog("isolated-cluster-restore",ex);
-                    status.Text="UM-RESTORE-LAB: visszaállítási próba elutasítva. "+
-                        "Az esetleges .incomplete mappa külön operátori vizsgálatot igényel.";
+                    WriteLog("asa-offline-restore-lab",ex);
+                    status.Text="Izolált restore sikertelen; .incomplete mappa operátori ellenőrzést igényel.";
                 }
             }),status)));
     }

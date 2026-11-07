@@ -301,7 +301,7 @@ public partial class MainWindow
         Add(grid);
         Add(Box(V(Label("MŰVELETI ÁLLAPOT",15,Mint,true),operationStatus,latestStatus)));
 
-        Add(new Expander{Header="Haladó mentési funkciók · retenció, SQL, teljes leltár",
+        Add(new Expander{Header="Haladó mentési funkciók · retenció, ASA offline archívum, leltár",
             Padding=new Thickness(10),Margin=new Thickness(0,3,9,14),
             IsExpanded=false,Content=advancedHost});
 
@@ -318,7 +318,7 @@ public partial class MainWindow
                 Label("Az összes regisztrált helyi map SHA-256 csomagellenőrzése.",12,Soft))));
             int before=PageBody.Children.Count;
             ShowMultiMapBackupOverview();
-            ShowSqlBackupControls();
+            ShowOfflineClusterBackupWizard();
             ShowRetentionPreviewControls();
             foreach(var e in PageBody.Children.Cast<UIElement>().Skip(before).ToArray())
             {
@@ -337,7 +337,7 @@ public partial class MainWindow
     {
         var holder=new StackPanel();
         int before=PageBody.Children.Count;
-        ShowSqlBackupControls();
+        ShowOfflineClusterBackupWizard();
         ShowMultiMapBackupOverview();
         ShowRetentionPreviewControls();
         foreach(var e in PageBody.Children.Cast<UIElement>().Skip(before).ToArray())
@@ -345,7 +345,7 @@ public partial class MainWindow
             PageBody.Children.Remove(e);
             holder.Children.Add(e);
         }
-        Add(new Expander{Header="Haladó SQL / helyi leltár / retenció",
+        Add(new Expander{Header="Haladó ASA offline archívum / leltár / retenció",
             IsExpanded=false,Padding=new Thickness(10),Content=holder});
     }
 }

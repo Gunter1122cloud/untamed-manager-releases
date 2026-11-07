@@ -294,7 +294,11 @@ jobs:
           gh release view $tag --repo $repo --json isDraft,isPrerelease,tagName --jq '{draft: .isDraft, prerelease: .isPrerelease, tag: .tagName}'
           if($LASTEXITCODE -ne 0){ throw "Published premium release is not readable" }
 
+  # Historical database fixture only. The shipped Manager is SQL-free:
+  # never require MariaDB to build, test or release either Windows desktop.
+  # Operators may explicitly run the old isolated fixture on demand.
   real-sql:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -306,3 +310,62 @@ jobs:
         shell: pwsh
         run: ./wpf/Testing/MariaDb/Run-RealSql.ps1
 
+
+  # A self-contained native WPF distribution is also downloadable after
+  # the complete Windows UI, integration, setup and updater tests pass.
+  # SQL is excluded from the WPF EXE; historical SQL fixtures do not gate it.
+  # Game-world/Store-v1 production travel is not certified by fake ASA tests.
+  publish-wpf-prerelease:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download tested WPF portable artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: UntamedManager-WPF-v1.6.1-windows-x64
+          path: portable
+      - name: Download tested WPF installer and final SHA-256 manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: UntamedManager-WPF-v1.6.1-installer
+          path: installer
+      - name: Verify all five release files against final manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp portable/UntamedManager.exe portable/UntamedUpdater.exe \
+             portable/UntamedSupervisor.exe \
+             portable/UntamedManager-1.6.1-win-x64.zip release-assets/
+          cp installer/UntamedManager-1.6.1-SETUP.exe \
+             installer/SHA256SUMS.txt release-assets/
+          cd release-assets
+          sha256sum -c SHA256SUMS.txt
+          test -s UntamedManager.exe
+          test -s UntamedUpdater.exe
+          test -s UntamedSupervisor.exe
+          test -s UntamedManager-1.6.1-win-x64.zip
+          test -s UntamedManager-1.6.1-SETUP.exe
+      - name: Publish verified native WPF prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v1.6.1-wpf-asa-only.${{ github.run_number }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            release-assets/UntamedManager.exe \
+            release-assets/UntamedUpdater.exe \
+            release-assets/UntamedSupervisor.exe \
+            release-assets/UntamedManager-1.6.1-win-x64.zip \
+            release-assets/UntamedManager-1.6.1-SETUP.exe \
+            release-assets/SHA256SUMS.txt \
+            --repo "$GH_REPO" --target "$SHA" \
+            --title "Untamed Manager 1.6.1 – native WPF Windows ($TAG)" \
+            --notes "Windows WPF, Store-v1 read-only regression, fake ASA two-Manager LAN, real GUI rendering, updater rollback and installer tests passed. SQL/MariaDB removed from this shipping WPF application; ASA-only 5+5 offline archive with copied transfer and isolated TEMP restore. Production live character travel and active historical Store-v1 writer handover are NOT certified. Install on the separate Windows test machine before any production migration." \
+            --prerelease
