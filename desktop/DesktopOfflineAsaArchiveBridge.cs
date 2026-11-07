@@ -26,6 +26,7 @@ public sealed class DesktopOfflineAsaArchiveBridge : IDisposable
         public string Name="";
         public int VerifiedMaps;
         public int TransferFiles;
+        public int ConfigurationFiles;
         public DateTimeOffset Changed=DateTimeOffset.UtcNow;
     }
     private readonly Func<string,string?> pick;
@@ -57,19 +58,21 @@ public sealed class DesktopOfflineAsaArchiveBridge : IDisposable
         lock(job)return new{
             jobId=job.Id,state=job.State,code=job.Code,
             archiveName=job.Name,verifiedMaps=job.VerifiedMaps,
-            transferFiles=job.TransferFiles,changedUtc=job.Changed,
+            transferFiles=job.TransferFiles,
+            configurationFiles=job.ConfigurationFiles,changedUtc=job.Changed,
             liveConsistencyCertified=false,storeWriterCertified=false,
             productionRestoreAllowed=false,sqlUsed=false,
             evidence="OFFLINE_FILE_INTEGRITY_ONLY_NO_LIVE_WRITER"
         };
     }
     private static void Stage(Job job,string state,string code,
-        string name="",int maps=0,int transfers=0)
+        string name="",int maps=0,int transfers=0,int config=0)
     {
         lock(job)
         {
             job.State=state;job.Code=code;job.Name=name;
             job.VerifiedMaps=maps;job.TransferFiles=transfers;
+            job.ConfigurationFiles=config;
             job.Changed=DateTimeOffset.UtcNow;
         }
     }
@@ -130,14 +133,20 @@ public sealed class DesktopOfflineAsaArchiveBridge : IDisposable
                         return Fail(id,"UM-CLUSTER-ARCHIVE-FOLDERS-MISSING");
                     // Stop early if selections are not offline copies. Native
                     // Core repeats exhaustive path, map and hash validation.
-                    if(Directory.GetDirectories(hp).Length!=5 ||
-                       Directory.GetDirectories(ryzen).Length!=5 ||
+                    bool hpConfig=Directory.Exists(Path.Combine(hp,"CONFIG"));
+                    bool ryzenConfig=Directory.Exists(Path.Combine(ryzen,"CONFIG"));
+                    int HostMapCount(string source)=>Directory.GetDirectories(source)
+                        .Count(path=>!Path.GetFileName(path).Equals("CONFIG",
+                            StringComparison.OrdinalIgnoreCase));
+                    if(HostMapCount(hp)!=5||HostMapCount(ryzen)!=5||
+                       hpConfig!=ryzenConfig ||
                        !File.Exists(Path.Combine(transfer,".kova-store-v1","operation.json")))
                         return Fail(id,"UM-CLUSTER-ARCHIVE-COPY-INCOMPLETE");
                     var token=Guid.NewGuid();
                     pending=new(token,hp,ryzen,transfer,parent,DateTimeOffset.UtcNow);
                     return Ok(id,new{
                         token,hpCopies=5,ryzenCopies=5,
+                        configurationCopiesPresent=hpConfig&&ryzenConfig,
                         transferMetadataPresent=true,
                         hpFolderName=Name(hp),ryzenFolderName=Name(ryzen),
                         transferFolderName=Name(transfer),destinationFolderName=Name(parent),
@@ -169,7 +178,7 @@ public sealed class DesktopOfflineAsaArchiveBridge : IDisposable
                         var report=OfflineAsaClusterArchive.BuildFromFolders(
                             approved.Hp,approved.Ryzen,approved.Transfer,archive);
                         Stage(job,"completed","SHA256_VERIFIED",Name(archive),
-                            report.Maps.Length,report.Transfer.Length);
+                            report.Maps.Length,report.Transfer.Length,report.Config?.Length??0);
                     }
                     catch(Exception)
                     {
