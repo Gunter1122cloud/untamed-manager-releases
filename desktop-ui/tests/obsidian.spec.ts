@@ -27,6 +27,7 @@ test.beforeEach(async ({ page }) => {
         observedUtc: "2026-11-05T12:00:00Z",
         maps: [{ id: "peer-1", name: "Ragnarok", running: true, status: "Fut", gamePort: 7827, steamBuildId: null, steamUpdateState: "Nem ellenőrizhető" }]
       },
+      remotes: null as Array<any>|null,
       peerMessage: ""
     };
     (window as typeof window & {__UNTAMED_EMPTY_FIXTURE__?:()=>void})
@@ -93,6 +94,58 @@ test.beforeEach(async ({ page }) => {
     const lanPeers:{hostId:string;hostName:string;address:string;port:number;keyConfigured:boolean}[]=[];
     let lanApproval="";
     let lanPending:{action:"upsert"|"remove";listenPort:number;hostId:string;hostName:string;address:string;port:number}|null=null;
+    let clusterRevision=1;
+    let clusterClusters=[
+      {clusterId:"fixture-alpha",name:"Fixture Alpha",transferDirectory:"C:\\Synthetic\\Alpha\\Transfer",backupDirectory:"C:\\Synthetic\\Alpha\\Backup",createdUtc:"2026-11-08T00:00:00Z",updatedUtc:"2026-11-08T00:00:00Z"},
+      {clusterId:"fixture-beta",name:"Fixture Beta",transferDirectory:"C:\\Synthetic\\Beta\\Transfer",backupDirectory:"C:\\Synthetic\\Beta\\Backup",createdUtc:"2026-11-08T00:00:00Z",updatedUtc:"2026-11-08T00:00:00Z"},
+      {clusterId:"fixture-gamma",name:"Fixture Gamma",transferDirectory:"C:\\Synthetic\\Gamma\\Transfer",backupDirectory:"C:\\Synthetic\\Gamma\\Backup",createdUtc:"2026-11-08T00:00:00Z",updatedUtc:"2026-11-08T00:00:00Z"}
+    ];
+    let clusterAssignments:Array<{mapId:string;clusterId:string}>=[
+      {mapId:one,clusterId:"fixture-alpha"},{mapId:two,clusterId:"fixture-beta"},
+      {mapId:"peer-1",clusterId:"fixture-gamma"}
+    ];
+    let clusterApproval="";
+    let clusterPending:{clusterId:string;mapIds:string[];preview:any}|null=null;
+    const peerRows=()=>Array.isArray(state.remotes)?state.remotes:(state.remote?[state.remote]:[]);
+    const allFixtureMaps=()=>[
+      ...state.local.maps.map(map=>({map,hostId:state.local.hostId,hostName:state.local.hostName,local:true})),
+      ...peerRows().flatMap((peer:any)=>peer.maps.map((map:any)=>({map,hostId:peer.hostId,hostName:peer.hostName,local:false})))
+    ];
+    const clusterRegistrySnapshot=()=>({schemaVersion:1,revision:clusterRevision,
+      hostRegistry:{schemaVersion:1,localHostId:state.local.hostId,hosts:[
+        {hostId:state.local.hostId,hostName:state.local.hostName,isLocal:true,isPaired:true,registeredUtc:"2026-11-08T00:00:00Z"},
+        ...peerRows().map((peer:any)=>({hostId:peer.hostId,hostName:peer.hostName,isLocal:false,
+          isPaired:peer.fresh!==false,registeredUtc:"2026-11-08T00:00:00Z"}))
+      ],maps:allFixtureMaps().map(({map,hostId,local}:any)=>({mapId:map.id,hostId,mapName:map.name,
+        localConfigurationPresent:local,registeredUtc:"2026-11-08T00:00:00Z"}))},
+      clusterRegistry:{schemaVersion:1,revision:clusterRevision,clusters:clusterClusters,
+        mapAssignments:clusterAssignments}});
+    const applyLargeHostFixture=()=>{
+      const makeId=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+      const makeMap=(id:string,name:string,index:number,protectedStore=false)=>({id,name,
+        running:index%2===0,status:index%2===0?"Fut":"Leállítva",gamePort:7700+(index%200),
+        steamBuildId:null,steamUpdateState:"Nem ellenőrizhető",...(protectedStore?{storeProtected:true}:{})});
+      state.local.hostId="fixture-host-1";state.local.hostName="LAB-NODE-1";
+      state.local.maps=Array.from({length:26},(_,i)=>makeMap(makeId(i+1),
+        i===0?"The Island":`Local Map ${i+1}`,i,i===0));
+      state.remotes=Array.from({length:3},(_,hostIndex)=>({
+        hostId:`fixture-host-${hostIndex+2}`,hostName:`LAB-NODE-${hostIndex+2}`,
+        observedUtc:hostIndex===2?null:"2026-11-08T00:00:00Z",
+        lastSuccessUtc:hostIndex===2?"2026-11-07T23:30:00Z":"2026-11-08T00:00:00Z",
+        fresh:hostIndex!==2,stateCode:hostIndex===2?"UM-PEER-UNAVAILABLE":"OK",
+        maps:Array.from({length:26},(_,i)=>makeMap(makeId(27+hostIndex*26+i),
+          `Node ${hostIndex+2} Map ${i+1}`,i))
+      }));
+      state.remote=state.remotes[0];
+      clusterClusters=["alpha","beta","gamma"].map(name=>({clusterId:`fixture-${name}`,
+        name:`Fixture ${name[0].toUpperCase()}${name.slice(1)}`,
+        transferDirectory:`C:\\Synthetic\\${name}\\Transfer`,backupDirectory:`C:\\Synthetic\\${name}\\Backup`,
+        createdUtc:"2026-11-08T00:00:00Z",updatedUtc:"2026-11-08T00:00:00Z"}));
+      clusterAssignments=allFixtureMaps().map((entry:any,index:number)=>({
+        mapId:entry.map.id,clusterId:clusterClusters[index%clusterClusters.length].clusterId}));
+      clusterRevision=1;
+    };
+    if(new URLSearchParams(window.location.search).get("fixture")==="large")applyLargeHostFixture();
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
@@ -119,7 +172,7 @@ test.beforeEach(async ({ page }) => {
     const opsJobId="00000000-0000-4000-8000-000000009988";
     let opsJobCreated=false;
     let opsJobEnabled=false;
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;jobId?:string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
       switch (m.method) {
         case "store.inspectArchive": return {
           batch:"b8d0c49f-cc87-42e0-b312-a0485c82f101",
@@ -745,6 +798,66 @@ test.beforeEach(async ({ page }) => {
             requiresManagerRestart:true,secretReturned:false,
             remoteWritesAllowed:false,
             evidence:"ATOMIC_LOCAL_LAN_PAIRING_DPAPI_PROFILE_ONLY"};
+        case "cluster.registry.snapshot": return clusterRegistrySnapshot();
+        case "cluster.create": {
+          if(clusterClusters.some(cluster=>cluster.clusterId===m.clusterId))throw new Error("UM-CLUSTER-ALREADY-EXISTS");
+          const created={clusterId:m.clusterId||"",name:m.name||"",transferDirectory:m.transferDirectory||"",
+            backupDirectory:m.backupDirectory||"",createdUtc:"2026-11-08T00:00:00Z",updatedUtc:"2026-11-08T00:00:00Z"};
+          clusterClusters=[...clusterClusters,created];clusterRevision++;
+          return created;
+        }
+        case "cluster.update": {
+          const index=clusterClusters.findIndex(cluster=>cluster.clusterId===m.clusterId);
+          if(index<0)throw new Error("UM-CLUSTER-NOT-FOUND");
+          const updated={...clusterClusters[index],name:m.name||"",transferDirectory:m.transferDirectory||"",
+            backupDirectory:m.backupDirectory||"",updatedUtc:"2026-11-08T00:00:01Z"};
+          clusterClusters=clusterClusters.map((cluster,i)=>i===index?updated:cluster);clusterRevision++;
+          return updated;
+        }
+        case "cluster.membership.preview": {
+          const clusterId=m.clusterId||"";
+          if(!clusterClusters.some(cluster=>cluster.clusterId===clusterId))throw new Error("UM-CLUSTER-NOT-FOUND");
+          const requested=[...new Set((m.mapIds||[]).map(id=>id.toLowerCase()))];
+          const metadata=new Map(allFixtureMaps().map((entry:any)=>[entry.map.id.toLowerCase(),entry]));
+          const change=(mapId:string,previous:string|null,target:string|null)=>{
+            const entry=metadata.get(mapId.toLowerCase()) as any;
+            return {mapId:entry.map.id,mapName:entry.map.name,hostId:entry.hostId,
+              hostName:entry.hostName,previousClusterId:previous,targetClusterId:target};
+          };
+          const additions:any[]=[],moves:any[]=[],removals:any[]=[],errors:string[]=[];
+          const requestedSet=new Set(requested);
+          for(const assignment of clusterAssignments.filter(item=>item.clusterId===clusterId))
+            if(!requestedSet.has(assignment.mapId.toLowerCase()))
+              removals.push(change(assignment.mapId,clusterId,null));
+          for(const mapId of requested){
+            const entry=metadata.get(mapId) as any;
+            if(!entry){errors.push("UNKNOWN_MAP:"+mapId);continue;}
+            const previous=clusterAssignments.find(item=>item.mapId.toLowerCase()===mapId)?.clusterId??null;
+            if(entry.map.storeProtected&&previous!==clusterId){errors.push("STORE_V1_PROTECTED:"+mapId);continue;}
+            if(previous!==clusterId){
+              const item=change(mapId,previous,clusterId);
+              if(previous)moves.push(item);else additions.push(item);
+            }
+          }
+          const preview={baseRevision:clusterRevision,clusterId,requestedMapIds:requested,
+            additions,removals,moves,errors,isValid:errors.length===0};
+          clusterApproval=preview.isValid?"fixture-cluster-approval":"";
+          clusterPending=preview.isValid?{clusterId,mapIds:requested,preview}:null;
+          return {token:clusterApproval||null,preview};
+        }
+        case "cluster.membership.apply": {
+          if(m.token!==clusterApproval||m.confirm!==true||!clusterPending)
+            throw new Error("UM-CLUSTER-APPROVAL-REQUIRED");
+          const pending=clusterPending;
+          const selected=new Set(pending.mapIds);
+          clusterAssignments=clusterAssignments.filter(item=>
+            item.clusterId!==pending.clusterId&&!selected.has(item.mapId.toLowerCase()));
+          clusterAssignments.push(...pending.mapIds.map(mapId=>({mapId,clusterId:pending.clusterId})));
+          clusterRevision++;clusterApproval="";clusterPending=null;
+          return {clusterId:pending.clusterId,revision:clusterRevision,
+            addedCount:pending.preview.additions.length,removedCount:pending.preview.removals.length,
+            movedCount:pending.preview.moves.length,appliedUtc:"2026-11-08T00:00:02Z"};
+        }
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
         case "ini.open": return {token:iniToken,mapId:one,file:m.file||"Game.ini",content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
@@ -1223,6 +1336,75 @@ test("N-host LAN pairing adds, lists and removes peers without exposing keys",as
   await page.getByTestId("lan-save-button").click();
   await expect(page.getByTestId("lan-peer-list")).toHaveCount(0);
   await page.screenshot({path:"test-results/uk-n-host-lan-pairing-1366.png",fullPage:false});
+});
+
+test("N-host dashboard and map gallery render four hosts, 104 maps, per-host filters and stale peer state",async({page})=>{
+  await page.setViewportSize({width:1366,height:768});
+  await page.goto("/?fixture=large");
+  await expect(page.getByText("4 host · 2 online peer")).toBeVisible();
+  await expect(page.getByText("Helyi + 3 LAN-peer")).toBeVisible();
+  await expect(page.getByRole("table",{name:"Cluster szerverlista"}).getByRole("row")).toHaveCount(105);
+  await page.getByRole("button",{name:"Kártyák",exact:true}).click();
+  const gallery=page.getByRole("region",{name:"Szervergaléria"});
+  const hostFilter=page.getByRole("combobox",{name:"Gazdagép szűrő"});
+  await expect(hostFilter.locator("option")).toHaveCount(6);
+  await hostFilter.selectOption("host:fixture-host-3");
+  await expect(gallery.locator(".uk-gallery-tile")).toHaveCount(26);
+  await expect(gallery.locator(".uk-host-map-group")).toContainText("LAB-NODE-3");
+  await hostFilter.selectOption("remote");
+  await expect(gallery.locator(".uk-gallery-tile.is-remote")).toHaveCount(78);
+  await expect(gallery.getByText("ELAVULT / OFFLINE")).toBeVisible();
+  await expect(gallery.locator(".uk-gallery-catalog")).toHaveCount(0);
+});
+
+test("multi-cluster membership filters 100+ maps, protects Store-v1 and applies moves only after preview approval",async({page})=>{
+  await page.setViewportSize({width:1440,height:900});
+  await page.goto("/?fixture=large");
+  const navigation=page.getByRole("navigation",{name:"Fő navigáció"});
+  await navigation.getByRole("button",{name:"Cluster",exact:true}).click();
+  await expect(page.locator(".cluster-registry-metrics > div").nth(0)).toContainText("4");
+  await expect(page.locator(".cluster-registry-metrics > div").nth(1)).toContainText("104");
+  await expect(page.locator(".cluster-registry-map")).toHaveCount(104);
+  const hostFilter=page.getByRole("combobox",{name:"Cluster gazdagép szűrő"});
+  await hostFilter.selectOption("fixture-host-3");
+  await expect(page.locator(".cluster-registry-map")).toHaveCount(26);
+  await expect(page.locator(".cluster-registry-map-group legend")).toContainText("LAB-NODE-3");
+  await hostFilter.selectOption("all");
+
+  await page.getByRole("combobox",{name:"Kiválasztott cluster"}).selectOption("fixture-beta");
+  await page.getByRole("textbox",{name:"Cluster map keresése"}).fill("The Island");
+  const protectedMap=page.getByRole("checkbox",{name:/The Island/});
+  await expect(protectedMap).toBeDisabled();
+  await expect(page.getByText("Kova Store-v1 védett")).toBeVisible();
+
+  await page.getByRole("textbox",{name:"Cluster map keresése"}).fill("Local Map 4");
+  const movedMap=page.getByRole("checkbox",{name:/Local Map 4/});
+  await expect(movedMap).not.toBeChecked();
+  await movedMap.check();
+  await page.getByRole("button",{name:"Tagságváltozás előnézete"}).click();
+  const preview=page.getByRole("region",{name:"Map-tagság előnézete"});
+  await expect(preview).toContainText("1 áthelyezés");
+  await page.getByRole("button",{name:"Előnézet jóváhagyása és mentése"}).click();
+  await expect(page.getByRole("status")).toContainText("1 áthelyezés");
+  await page.getByRole("combobox",{name:"Kiválasztott cluster"}).selectOption("fixture-alpha");
+  await expect(page.getByRole("checkbox",{name:/Local Map 4/})).not.toBeChecked();
+});
+
+test("cluster screen creates and edits a cluster through the native bridge contract",async({page})=>{
+  await page.goto("/?fixture=large");
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  await page.getByRole("button",{name:"Új cluster"}).click();
+  await page.getByRole("textbox",{name:"Clusterazonosító"}).fill("fixture-delta");
+  await page.getByRole("textbox",{name:"Megjelenített név"}).fill("Fixture Delta");
+  await page.getByRole("textbox",{name:"Közös transferkönyvtár"}).fill("C:\\Synthetic\\Delta\\Transfer");
+  await page.getByRole("textbox",{name:"Cluster-mentések könyvtára"}).fill("C:\\Synthetic\\Delta\\Backup");
+  await page.getByRole("button",{name:"Cluster létrehozása"}).click();
+  const selected=page.getByRole("combobox",{name:"Kiválasztott cluster"});
+  await expect(selected).toHaveValue("fixture-delta");
+  await page.getByRole("textbox",{name:"Megjelenített név"}).fill("Fixture Delta Updated");
+  await page.getByRole("button",{name:"Cluster beállításainak mentése"}).click();
+  await expect(selected.locator("option:checked")).toContainText("Fixture Delta Updated");
 });
 
 test("two-host character travel workbench captures exactly five local maps without unlocking Store",async({page})=>{

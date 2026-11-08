@@ -199,6 +199,9 @@
 .uk-host-map-group.remote .uk-host-map-heading-label{color:#9ec8e0;}
 .uk-host-map-heading>b {font-size:12px;font-weight:740;overflow:hidden;
   max-width:35vw;white-space:nowrap;text-overflow:ellipsis;}
+.uk-host-freshness{padding:4px 7px;border:1px solid #437c63;border-radius:5px;
+  color:#9fe6c6;background:#173b34;font-size:9px;font-weight:750;letter-spacing:.06em;}
+.uk-host-freshness.stale{border-color:#8e6942;color:#f0c884;background:#3b3021;}
 .uk-host-map-heading>span:last-child {margin-left:auto;background:#173b34;
   border:1px solid #437c63;border-radius:5px;color:#9fe6c6;
   font-size:9px;padding:4px 7px;font-weight:750;letter-spacing:.08em;}

@@ -139,6 +139,7 @@ button,select,input {accent-color:#2cbf91;}
 .premium-host-heading b {display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .premium-host-heading small {display:block;color:#9dc3b9;margin-top:4px;font-size:10px;}
 .online-indicator {display:inline-block;width:7px;height:7px;border-radius:50%;background:#43e884;margin-right:3px;}
+.offline-indicator {display:inline-block;width:7px;height:7px;border-radius:50%;background:#e2a85a;margin-right:3px;}
 .premium-count-pill {padding:4px 8px;border:1px solid #49685f;color:#6febba;background:#19362f;border-radius:6px;white-space:nowrap;font-size:10px;}
 .premium-resources {display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:9px;}
 .premium-resources>div {min-width:0;}

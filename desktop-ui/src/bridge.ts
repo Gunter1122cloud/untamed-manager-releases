@@ -85,7 +85,10 @@ export type LocalHost = {
 export type RemoteHost = {
   hostName: string;
   hostId: string;
-  observedUtc: string;
+  observedUtc: string | null;
+  lastSuccessUtc?: string | null;
+  fresh?: boolean;
+  stateCode?: string;
   maps: PublicMap[];
 };
 
@@ -124,9 +127,17 @@ export type DashboardSnapshot = {
   mode: "LIVE_READ_ONLY";
   observedUtc: string;
   local: LocalHost;
+  /** All configured peers, including stale/offline peers with their last safe observation. */
+  remotes?: RemoteHost[];
+  /** Compatibility projection for older native bridge builds. */
   remote: RemoteHost | null;
   peerMessage: string;
 };
+
+export function dashboardRemotes(snapshot:DashboardSnapshot):RemoteHost[]{
+  if(Array.isArray(snapshot.remotes))return snapshot.remotes;
+  return snapshot.remote?[snapshot.remote]:[];
+}
 
 export type CurseForgeMod = {
   id: number; name: string; summary: string; website: string | null;
