@@ -39,7 +39,7 @@ export function ModBasketWorkspace({mapId,mapName,items,onUpdate,onClear,onSaved
       token=initial.draftId;
       let result=initial;
       for(const item of items){
-        if(!/^\\d{5,12}$/.test(item.id))throw new Error("INVALID_MOD_ID");
+        if(!/^\d{5,12}$/.test(item.id))throw new Error("INVALID_MOD_ID");
         result=await managerBridge.stageModDraft(token,item.id,item.mode);
       }
       setPreview(result);
