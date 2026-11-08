@@ -44,6 +44,7 @@ import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
 import { NativeMapScheduler } from "./NativeMapScheduler";
+import { MapMaintenancePanel } from "./MapMaintenancePanel";
 import { LanSettingsPanel } from "./LanSettingsPanel";
 import { ClusterRegistryPanel } from "./ClusterRegistryPanel";
 import { MultiHostBackupPanel } from "./MultiHostBackupPanel";
@@ -1599,6 +1600,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
           <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A történeti Store-v1 indítás külön eredeti ACTIVE/DONE ellenőrzéssel és kétlépcsős natív jóváhagyással használható. A karakterutazás, SaveComplete és közös Store-restore igazolása továbbra is külön követelmény.</div>
         </Panel>
       </div>
+      <MapMaintenancePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>
       {map.storeProtected&&<HistoricalRconAttach mapId={mapId} onConfigured={onConfigured}/>}
       {map.storeProtected&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
       {map.storeProtected&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}

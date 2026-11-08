@@ -922,6 +922,58 @@ try
         }
     }
 
+    // P0 map settings use the original ClusterService.ReplaceMap CAS and
+    // the existing installation coordinator. Never touch live ASA/RCON/Store.
+    {
+        string isolated=Path.Combine(root,"p0-maintenance-native-fixture");
+        Directory.CreateDirectory(isolated);
+        await using var ownCluster=new ClusterService("p0-maintenance",isolated);
+        var maintenanceMap=new LocalMap {
+            Id=Guid.NewGuid(),Name="P0 Maintenance Fixture",
+            InstallationPath=Path.Combine(isolated,"server"),
+            ExecutablePath=Path.Combine(isolated,"server","ShooterGame",
+                "Binaries","Win64","ArkAscendedServer.exe"),
+            Arguments="TheIsland_WP?SessionName=MaintenanceFixture",
+            GamePort=48777,QueryPort=48778,RconPort=48779
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(maintenanceMap.ExecutablePath)!);
+        // The process inspector requires a registered binary path; the fixture
+        // is synthetic bytes only and is NEVER executed by any test action.
+        File.WriteAllBytes(maintenanceMap.ExecutablePath,new byte[]{0x4D,0x5A,0x00,0x00});
+        ownCluster.AddMap(maintenanceMap);
+        var maintenance=new DesktopMapMaintenanceBridge(ownCluster);
+        var status=await Call(maintenance.HandleAsync,"maps.maintenanceStatus",
+            new{mapId=maintenanceMap.Id});
+        IsOk(status,"native map maintenance status is available on local fixture");
+        Check(status.GetProperty("data").GetProperty("permitted").GetBoolean() &&
+              !status.GetProperty("data").GetProperty("maintenance").GetBoolean(),
+            "stopped fresh local fixture can configure its maintenance state");
+        var noApproval=await Call(maintenance.HandleAsync,"maps.maintenanceSet",
+            new{mapId=maintenanceMap.Id,maintenance=true,confirm=false});
+        Check(IsError(noApproval,"UM-MAP-MAINTENANCE-CONFIRM"),
+            "map maintenance mutation requires explicit approval");
+        var enabled=await Call(maintenance.HandleAsync,"maps.maintenanceSet",
+            new{mapId=maintenanceMap.Id,maintenance=true,confirm=true});
+        IsOk(enabled,"approved map maintenance state persisted via native Core");
+        Check(ownCluster.Config.LocalMaps.Single(m=>m.Id==maintenanceMap.Id).Maintenance &&
+              !enabled.GetProperty("data").GetProperty("serverProcessModified").GetBoolean(),
+            "maintenance switch changes only the Manager profile, no ASA process");
+        var off=await Call(maintenance.HandleAsync,"maps.maintenanceSet",
+            new{mapId=maintenanceMap.Id,maintenance=false,confirm=true});
+        IsOk(off,"maintenance switch can be safely disabled");
+        Check(!ownCluster.Config.LocalMaps.Single(m=>m.Id==maintenanceMap.Id).Maintenance,
+            "reversible local maintenance setting saves with original map identity");
+        var denied=await Call(maintenance.HandleAsync,"maps.maintenanceSet",
+            new{mapId=Guid.NewGuid(),maintenance=true,confirm=true});
+        Check(IsError(denied,"UM-MAP-NOT-OWNED"),
+            "remote or unknown maps cannot be changed using a local profile endpoint");
+        ownCluster.Config.LocalMaps.Single(m=>m.Id==maintenanceMap.Id).HistoricalStoreProtected=true;
+        var protectedAttempt=await Call(maintenance.HandleAsync,"maps.maintenanceSet",
+            new{mapId=maintenanceMap.Id,maintenance=true,confirm=true});
+        Check(IsError(protectedAttempt,"UM-MAP-MAINTENANCE-STOPPED-NONSTORE-ONLY"),
+            "historical Store-v1 map cannot bypass maintenance profile guard");
+    }
+
     // Two hosts must each persist only their own LAN profile and DPAPI key.
     // No network listener or remote command runs during the isolated fixture.
     {
