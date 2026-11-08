@@ -399,7 +399,7 @@ export type StoppedSteamStatus = {
   protectedFilesIntact:boolean;restartPerformed:false;storeTouched:false;
 };
 export type RconConfigStatus = {
-  mapId:string;mapName:string;configured:boolean;permitted:boolean;
+  mapId:string;mapName:string;rconPort:number;configured:boolean;permitted:boolean;
   evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE";
 };
 export type RconConfigPreview = {
