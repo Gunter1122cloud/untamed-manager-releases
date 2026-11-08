@@ -29,6 +29,20 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - name: Guard against retired WPF SQL GUI and accidental Core deletion
+        shell: pwsh
+        run: |
+          if (Test-Path wpf/MainWindow.Sql.cs) { throw "Retired WPF SQL UI has re-entered the repository" }
+          [xml]$desktop = Get-Content desktop/UntamedDesktop.csproj -Raw
+          if ($desktop.Project.PropertyGroup.UseWPF -eq 'true') { throw "Obsidian must not use WPF GUI" }
+          if (!(Test-Path wpf/Core/MariaDbDumpAdapter.cs) -or
+              !(Test-Path wpf/Core/LegacyStoreV1LiveReadGate.cs) -or
+              !(Test-Path wpf/Updater/UntamedUpdater.csproj)) {
+            throw "A required legacy compatibility or updater source was removed"
+          }
+          if (!(Test-Path wpf/Testing/Integration/Integration.csproj)) {
+            throw "Legacy regressions must remain accessible"
+          }
       - name: Retain original approved visual reference for fidelity QA
         uses: actions/upload-artifact@v4
         with:
