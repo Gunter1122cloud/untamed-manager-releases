@@ -9,16 +9,21 @@ export type LanStatus = {
   hostName:string; localHostId:string; expectedPeerHostId:string;
   listenPort:number; peerAddress:string; peerPort:number;
   pairingKeyConfigured:boolean; remoteFresh:boolean; remoteState:string;
+  peers:LanPeerStatus[];
   secretReturned:false; peerWritesAllowed:false; evidence:string;
 };
+export type LanPeerStatus = {
+  hostId:string;hostName:string;address:string;port:number;keyConfigured:boolean;
+  online:boolean;lastSuccessUtc:string|null;stateCode:string;mapCount:number;
+};
 export type LanPreview = {
-  token:string;listenPort:number;peerAddress:string;peerPort:number;
-  expectedPeerHostId:string;pairingKeyWillChange:boolean;requiresManagerRestart:true;remoteWritesAllowed:false;
+  token:string;action:"upsert"|"remove";listenPort:number;hostId:string;
+  hostName?:string;peerAddress?:string;peerPort:number;
+  pairingKeyWillChange:boolean;requiresManagerRestart:true;remoteWritesAllowed:false;
   evidence:string;
 };
 export type LanSaved = {
-  saved:true;listenPort:number;peerAddress:string;peerPort:number;
-  expectedPeerHostId:string;
+  saved:true;action:"upsert"|"remove";listenPort:number;hostId:string;peerCount:number;
   requiresManagerRestart:true;secretReturned:false;remoteWritesAllowed:false;
   evidence:string;
 };
@@ -942,6 +947,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "cluster.create" | "cluster.update" | "cluster.membership.preview" | "cluster.membership.apply" |
   "travel.capture" | "travel.compare" | "store.inspectCopy" | "store.inspectArchive" | "store.compareArchives";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
+  peerAction?:"upsert"|"remove";
   mapId?: string; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
   position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
@@ -1040,10 +1046,10 @@ export const managerBridge = {
   clusterMembershipApply: (token:string) =>
     request<ClusterMembershipReceipt>("cluster.membership.apply",{token,confirm:true}),
   lanStatus: () => request<LanStatus>("lan.status"),
-  lanPreview: (listenPort:number,peerAddress:string,peerPort:number,
-    expectedPeerHostId:string,pairingKey:string) =>
+  lanPreview: (listenPort:number,hostId:string,hostName:string,peerAddress:string,
+    peerPort:number,pairingKey:string,peerAction:"upsert"|"remove"="upsert") =>
     request<LanPreview>("lan.preview",{
-      listenPort,peerAddress,peerPort,expectedPeerHostId,pairingKey
+      listenPort,hostId,hostName,peerAddress,peerPort,pairingKey,peerAction
     }),
   lanApply: (token:string) => request<LanSaved>("lan.apply",{token,confirm:true}),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),

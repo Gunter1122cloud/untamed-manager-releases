@@ -111,8 +111,8 @@ public sealed class DirectoryUpdateTransaction
         var hashes=Scan(application);
         Copy(application,Path.Combine(root,"snapshot"),hashes);
         Verify(application,hashes);
-        byte[] binding=ProtectedData.Protect(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
-            new OwnerBinding(root,application,SnapshotHash(hashes)))),null,DataProtectionScope.CurrentUser);
+        byte[] binding=LocalDataProtection.ProtectBytes(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
+            new OwnerBinding(root,application,SnapshotHash(hashes)))));
         using(var owner=new FileStream(BindingFile,FileMode.CreateNew,FileAccess.Write,FileShare.None))
         {owner.Write(binding);owner.Flush(true);}
         Write(new(application,"prepared",hashes));
@@ -133,7 +133,7 @@ public sealed class DirectoryUpdateTransaction
         OwnerBinding binding;
         try
         {
-            byte[] bytes=ProtectedData.Unprotect(File.ReadAllBytes(BindingFile),null,DataProtectionScope.CurrentUser);
+            byte[] bytes=LocalDataProtection.UnprotectBytes(File.ReadAllBytes(BindingFile));
             binding=JsonSerializer.Deserialize<OwnerBinding>(bytes)??throw new IOException("Missing update owner binding");
         }
         catch(Exception e) when(e is CryptographicException or JsonException)

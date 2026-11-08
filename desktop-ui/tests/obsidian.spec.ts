@@ -89,9 +89,10 @@ test.beforeEach(async ({ page }) => {
     }).__UNTAMED_ORIGINAL_STOP_CRASH_RECOVERY__=()=>{
       oldStopNeedsOperator=true;
     };
-    let lanListen=0,lanPeer="",lanPeerPort=0,lanConfigured=false;
-    let lanExpectedId="";
+    let lanListen=0;
+    const lanPeers:{hostId:string;hostName:string;address:string;port:number;keyConfigured:boolean}[]=[];
     let lanApproval="";
+    let lanPending:{action:"upsert"|"remove";listenPort:number;hostId:string;hostName:string;address:string;port:number}|null=null;
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
@@ -118,7 +119,7 @@ test.beforeEach(async ({ page }) => {
     const opsJobId="00000000-0000-4000-8000-000000009988";
     let opsJobCreated=false;
     let opsJobEnabled=false;
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; kind?:string;intervalMinutes?:number;jobId?:string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;jobId?:string }) => {
       switch (m.method) {
         case "store.inspectArchive": return {
           batch:"b8d0c49f-cc87-42e0-b312-a0485c82f101",
@@ -698,34 +699,49 @@ test.beforeEach(async ({ page }) => {
           },
           hostName:state.local.hostName,
           localHostId:"00000000-0000-4000-8000-000000000001",
-          expectedPeerHostId:lanExpectedId,
-          listenPort:lanListen,peerAddress:lanPeer,peerPort:lanPeerPort,
-          pairingKeyConfigured:lanConfigured,remoteFresh:false,
+          expectedPeerHostId:lanPeers[0]?.hostId||"",
+          listenPort:lanListen,peerAddress:lanPeers[0]?.address||"",peerPort:lanPeers[0]?.port||0,
+          pairingKeyConfigured:lanPeers.some(x=>x.keyConfigured),remoteFresh:false,
+          peers:lanPeers.map(x=>({...x,online:false,lastSuccessUtc:null,stateCode:"UM-PEER-UNAVAILABLE",mapCount:0})),
           remoteState:"Nem érhető el friss, hitelesített peer-állapot",
           secretReturned:false,peerWritesAllowed:false,
           evidence:"DPAPI_LOCAL_LAN_SETTINGS_READ_ONLY"
         };
         case "lan.preview":
-          if(m.peerAddress!=="192.168.1.200" || (m.pairingKey||"").length<24 ||
-             !m.expectedPeerHostId)
+          if(m.peerAction==="remove"){
+            if(!lanPeers.some(x=>x.hostId.toLowerCase()===m.hostId?.toLowerCase()))
+              throw new Error("UM-LAN-PEER-NOT-FOUND");
+            if(lanPeers.length===1&&m.listenPort!==0)
+              throw new Error("UM-LAN-LAST-PEER-LISTENER-MUST-DISABLE");
+          }else if((m.peerAddress!=="192.168.1.200"&&m.peerAddress!=="10.44.1.23") ||
+             !m.hostName || !m.hostId || (m.pairingKey||"").length<24)
             throw new Error("UM-LAN-INVALID-PRIVATE-PEER");
           lanApproval="00000000-0000-4000-8000-000000000955";
-          return {token:lanApproval,listenPort:m.listenPort,
-            peerAddress:m.peerAddress,peerPort:m.peerPort,
-            expectedPeerHostId:m.expectedPeerHostId,
+          lanPending={action:m.peerAction==="remove"?"remove":"upsert",listenPort:m.listenPort||0,
+            hostId:m.hostId||"",hostName:m.hostName||"",address:m.peerAddress||"",port:m.peerPort||0};
+          return {token:lanApproval,action:lanPending.action,listenPort:lanPending.listenPort,
+            hostId:lanPending.hostId,hostName:lanPending.hostName,
+            peerAddress:lanPending.address,peerPort:lanPending.port,
             pairingKeyWillChange:true,requiresManagerRestart:true,
             remoteWritesAllowed:false,
             evidence:"LOCAL_LAN_PAIRING_PREFLIGHT_NO_NETWORK_OR_FILE_WRITE"};
         case "lan.apply":
-          if(m.token!==lanApproval||m.confirm!==true)
+          if(m.token!==lanApproval||m.confirm!==true||!lanPending)
             throw new Error("UM-LAN-EXPLICIT-APPROVAL-REQUIRED");
           lanApproval="";
-          lanListen=39290;lanPeer="192.168.1.200";lanPeerPort=39291;
-          lanExpectedId="00000000-0000-4000-8000-000000000002";
-          lanConfigured=true;
-          return {saved:true,listenPort:lanListen,
-            peerAddress:lanPeer,peerPort:lanPeerPort,
-            expectedPeerHostId:lanExpectedId,
+          lanListen=lanPending.listenPort;
+          if(lanPending.action==="remove"){
+            const index=lanPeers.findIndex(x=>x.hostId.toLowerCase()===lanPending!.hostId.toLowerCase());
+            if(index>=0)lanPeers.splice(index,1);
+          }else{
+            const next={hostId:lanPending.hostId,hostName:lanPending.hostName,address:lanPending.address,
+              port:lanPending.port,keyConfigured:true};
+            const index=lanPeers.findIndex(x=>x.hostId.toLowerCase()===next.hostId.toLowerCase());
+            if(index<0)lanPeers.push(next);else lanPeers[index]=next;
+          }
+          const applied=lanPending;lanPending=null;
+          return {saved:true,action:applied.action,listenPort:lanListen,
+            hostId:applied.hostId,peerCount:lanPeers.length,
             requiresManagerRestart:true,secretReturned:false,
             remoteWritesAllowed:false,
             evidence:"ATOMIC_LOCAL_LAN_PAIRING_DPAPI_PROFILE_ONLY"};
@@ -1154,30 +1170,59 @@ test("read-only operations scheduler requires approval, shows durable receipt an
   await expect(page.locator(".ops-schedules")).not.toContainText("Szerver automatikus újraindítása");
 });
 
-test("two-host LAN pairing is guarded, native-only, private and never exposes key",async({page})=>{
+test("N-host LAN pairing adds, lists and removes peers without exposing keys",async({page})=>{
   await page.setViewportSize({width:1366,height:768});
   await page.goto("/");
-  await page.getByRole("button",{name:"Beállítások"}).click();
-  await expect(page.getByRole("heading",{name:"Kétgépes LAN-párosítás"})).toBeVisible();
-  const originalSource=page.getByRole("region",{name:"Eredeti kétgépes Store-v1 egyezőség"});
-  await expect(originalSource).toContainText("Azonos Store-session");
-  await expect(originalSource).toContainText("NEM IGAZOLT", {ignoreCase:true});
-  await expect(originalSource).not.toContainText("Éles írás engedélyezett");
-  await expect(page.getByText(/Közös kulcs: nincs beállítva/)).toBeVisible();
-  await page.getByRole("textbox",{name:"Helyi LAN port"}).fill("39290");
-  await page.getByRole("textbox",{name:"Másik LAN cím"}).fill("192.168.1.200");
-  await page.getByRole("textbox",{name:"Elvárt távoli Host ID"}).fill("00000000-0000-4000-8000-000000000002");
-  await page.getByRole("textbox",{name:"Távoli LAN port"}).fill("39291");
-  await page.getByLabel("LAN közös kulcs").fill("SYNTHETIC-ONLY-LAN-SHARED-KEY-36");
-  await page.getByRole("button",{name:"LAN beállítások ellenőrzése"}).click();
-  await expect(page.getByRole("region",{name:"LAN párosítás jóváhagyása"})).toBeVisible();
-  await expect(page.getByLabel("LAN közös kulcs")).toHaveValue("");
-  await page.getByRole("button",{name:"Párosítás helyi mentése"}).click();
-  await expect(page.getByText(/A helyi párosítás mentve/)).toBeVisible();
-  await expect(page.getByText(/helyileg, védetten beállítva/)).toBeVisible();
-  await expect(page.getByLabel("LAN közös kulcs")).toHaveValue("");
-  await expect(page.locator(".lan-pairing-panel")).not.toContainText("SYNTHETIC-ONLY-LAN-SHARED-KEY-36");
-  await page.screenshot({path:"test-results/uk-two-host-lan-pairing-1366.png",fullPage:false});
+  await page.getByRole("button",{name:/Be.*ll/}).click();
+  await expect(page.getByRole("heading",{name:/LAN-p/})).toBeVisible();
+  await expect(page.getByTestId("lan-store-proof")).toContainText("Store-session");
+  const secretA="SYNTHETIC-ONLY-LAN-SHARED-KEY-36";
+  await page.getByTestId("lan-listen-port").fill("39290");
+  await page.getByTestId("lan-host-id").fill("00000000-0000-4000-8000-000000000002");
+  await page.getByTestId("lan-host-name").fill("Synthetic Manager B");
+  await page.getByTestId("lan-address").fill("192.168.1.200");
+  await page.getByTestId("lan-peer-port").fill("39291");
+  await page.getByTestId("lan-key").fill(secretA);
+  await page.getByTestId("lan-preview-button").click();
+  await expect(page.getByTestId("lan-preview")).toBeVisible();
+  await expect(page.getByTestId("lan-key")).toHaveValue("");
+  await page.getByTestId("lan-save-button").click();
+  await expect(page.getByTestId("lan-peer-list")).toContainText("Synthetic Manager B");
+  await expect(page.locator(".lan-pairing-panel")).not.toContainText(secretA);
+
+  const secretB="SYNTHETIC-ONLY-LAN-SECOND-KEY-42";
+  await page.getByTestId("lan-host-id").fill("00000000-0000-4000-8000-000000000003");
+  await page.getByTestId("lan-host-name").fill("Synthetic Manager C");
+  await page.getByTestId("lan-address").fill("10.44.1.23");
+  await page.getByTestId("lan-peer-port").fill("39292");
+  await page.getByTestId("lan-key").fill(secretB);
+  await page.getByTestId("lan-preview-button").click();
+  await page.getByTestId("lan-save-button").click();
+  const peers=page.getByTestId("lan-peer-list");
+  await expect(peers).toContainText("Synthetic Manager B");
+  await expect(peers).toContainText("Synthetic Manager C");
+  await expect(peers.locator(".lan-peer-row")).toHaveCount(2);
+  await expect(page.locator(".lan-pairing-panel")).not.toContainText(secretB);
+
+  await page.getByTestId("lan-action").selectOption("remove");
+  await page.getByTestId("lan-peer-select").selectOption("00000000-0000-4000-8000-000000000002");
+  await page.getByTestId("lan-preview-button").click();
+  await expect(page.getByTestId("lan-preview")).toContainText(/Peer/);
+  await page.getByTestId("lan-save-button").click();
+  await expect(peers.locator(".lan-peer-row")).toHaveCount(1);
+  await expect(peers).not.toContainText("Synthetic Manager B");
+  await expect(peers).toContainText("Synthetic Manager C");
+  await page.getByTestId("lan-action").selectOption("remove");
+  await page.getByTestId("lan-peer-select").selectOption("00000000-0000-4000-8000-000000000003");
+  await page.getByTestId("lan-preview-button").click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByTestId("lan-preview")).toHaveCount(0);
+  await page.getByTestId("lan-listen-port").fill("0");
+  await page.getByTestId("lan-preview-button").click();
+  await expect(page.getByTestId("lan-preview")).toBeVisible();
+  await page.getByTestId("lan-save-button").click();
+  await expect(page.getByTestId("lan-peer-list")).toHaveCount(0);
+  await page.screenshot({path:"test-results/uk-n-host-lan-pairing-1366.png",fullPage:false});
 });
 
 test("two-host character travel workbench captures exactly five local maps without unlocking Store",async({page})=>{

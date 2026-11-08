@@ -9,4 +9,4 @@
     <AssemblyName>UntamedUpdater</AssemblyName>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
-<ItemGroup><Compile Include="../Core/DirectoryUpdateTransaction.cs" Link="DirectoryUpdateTransaction.cs" /></ItemGroup><ItemGroup><Compile Include="../Core/UpdateHistory.cs" Link="UpdateHistory.cs" /></ItemGroup><ItemGroup><Compile Include="../Core/EventJournal.cs" Link="EventJournal.cs" /></ItemGroup></Project>
+<ItemGroup><Compile Include="../Core/DirectoryUpdateTransaction.cs" Link="DirectoryUpdateTransaction.cs" /><Compile Include="../Core/LocalDataProtection.cs" Link="LocalDataProtection.cs" /></ItemGroup><ItemGroup><Compile Include="../Core/UpdateHistory.cs" Link="UpdateHistory.cs" /></ItemGroup><ItemGroup><Compile Include="../Core/EventJournal.cs" Link="EventJournal.cs" /></ItemGroup></Project>

@@ -21,11 +21,30 @@ public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Oper
 public sealed class UntamedOperationCoordinator
 {
     private readonly string stateRoot;
-    public static string DefaultRoot=>Path.Combine(Environment.GetFolderPath(
+    private static readonly AsyncLocal<string?> IsolatedTestRoot=new();
+    public static string DefaultRoot=>IsolatedTestRoot.Value??Path.Combine(Environment.GetFolderPath(
         Environment.SpecialFolder.CommonApplicationData),"UntamedManager","Operations-v1");
     public UntamedOperationCoordinator(string? stateRoot=null)
     {
         this.stateRoot=LocalPath(stateRoot??DefaultRoot);
+    }
+    // Test-only scope, visible to the isolated Windows test assembly through
+    // InternalsVisibleTo. Every default coordinator created within the async
+    // test flow writes its journal beneath the test's temporary root instead
+    // of machine-wide ProgramData. The shipping UI has no bridge for this.
+    internal static IDisposable UseIsolatedRootForTests(string root)
+    {
+        string? prior=IsolatedTestRoot.Value;
+        IsolatedTestRoot.Value=LocalPath(root);
+        return new TestRootScope(prior);
+    }
+    private sealed class TestRootScope(string? prior):IDisposable
+    {
+        private int disposed;
+        public void Dispose()
+        {
+            if(Interlocked.Exchange(ref disposed,1)==0)IsolatedTestRoot.Value=prior;
+        }
     }
     public static string ResourceKey(string installation)
     {

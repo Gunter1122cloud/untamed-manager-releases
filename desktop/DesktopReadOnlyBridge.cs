@@ -116,14 +116,27 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 
     private async Task<object> GetDashboardAsync()
     {
-        // Poll only the explicitly configured authenticated LAN peer.
-        // No remote commands, no Store writers and no production lifecycle calls.
-        await _cluster.PollPeerAsync();
+        // Poll every explicitly configured, individually pinned LAN peer.
+        // The Core throttles concurrent sockets; no remote commands, Store
+        // writers, or production lifecycle calls are available here.
+        await _cluster.PollPeersAsync();
         return await Task.Run<object>(() =>
         {
             var local = _cluster.LocalStatus();
             var resources = LocalHostResourceProbe.Read();
             var remote = _cluster.RemoteIsFresh ? _cluster.RemoteSnapshot : null;
+            var remotes=_cluster.PeerObservations.Select(peer=>new{
+                hostName=peer.HostName,hostId=peer.HostId,
+                observedUtc=peer.Snapshot?.ObservedUtc,
+                lastSuccessUtc=peer.LastSuccessUtc,
+                fresh=peer.IsFresh,stateCode=peer.StateCode,
+                maps=peer.Snapshot==null?Array.Empty<PublicMapStatus>():
+                    peer.Snapshot.Maps.Select(m=>new PublicMapStatus{
+                        Id=m.Id,Name=m.Name,Running=m.Running,Status=m.Status,
+                        GamePort=m.GamePort,SteamBuildId=m.SteamBuildId,
+                        SteamUpdateState=m.SteamUpdateState
+                    }).ToArray()
+            }).ToArray();
             return new
             {
                 mode = "LIVE_READ_ONLY",
@@ -162,6 +175,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                         steamBuildId = m.SteamBuildId, steamUpdateState = m.SteamUpdateState
                     }).ToArray()
                 },
+                remotes,
                 peerMessage = _cluster.RemoteMessage
             };
         });
