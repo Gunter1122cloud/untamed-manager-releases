@@ -4840,7 +4840,8 @@ try
                 "unknown Loader parent PID cannot be guessed from a surviving ASA child");
             Check(!LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
                 sourceChild,exe,loaderPath,pinnedChild,
-                pinnedLoader with {Arguments="UNVERIFIED_LOADER"}),
+                new ProcessIdentity{Pid=pinnedLoader.Pid,StartedUtc=pinnedLoader.StartedUtc,
+                    ExecutablePath=pinnedLoader.ExecutablePath,Arguments="UNVERIFIED_LOADER"}),
                 "a prior unverified Loader observation cannot authorize orphan reattach");
         }
 
