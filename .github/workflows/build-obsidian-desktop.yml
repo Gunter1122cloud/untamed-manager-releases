@@ -115,6 +115,11 @@ jobs:
           if ((Get-Item desktop/publish/UntamedUpdater.exe).Length -lt 1000000) {
             throw "Updater is not a self-contained single-file executable"
           }
+      - name: Test versioned N-host offline backup and TEMP restore Core
+        shell: pwsh
+        run: |
+          dotnet run --project wpf/Testing/MultiHostBackup/MultiHostBackup.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "N-host offline archive Core regressions failed" }
       - name: Run real native C# bridge integration tests (isolated synthetic Windows files)
         shell: pwsh
         run: |
