@@ -61,6 +61,15 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
         <option value="replace">Replace – cél modlistájának teljes cseréje</option>
       </select>
     </label>
+    <div className="draft-actions">
+      <button type="button" className="secondary" disabled={busy||!sourceAllowed||eligible.length===0}
+        onClick={()=>{setTargets(eligible.map(m=>m.id));invalidate();}}>
+        Összes jogosult helyi célmap kijelölése ({eligible.length})
+      </button>
+      <button type="button" className="quiet" disabled={busy||targets.length===0}
+        onClick={()=>{setTargets([]);invalidate();}}>Kijelölések törlése</button>
+      <span className="muted small">{targets.length} / {eligible.length} helyi célmap</span>
+    </div>
     <div className="premium-mod-copy-targets" role="group" aria-label="Célmapok kiválasztása">
       {eligible.length===0?<p className="muted small">Nincs biztonságosan szerkeszthető további helyi map.</p>:
         eligible.map(map=><label key={map.id} className="plugin-row">
