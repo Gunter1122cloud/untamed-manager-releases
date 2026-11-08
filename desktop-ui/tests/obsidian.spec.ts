@@ -772,7 +772,7 @@ test.beforeEach(async ({ page }) => {
               nextUtc:"2026-11-07T12:00:00Z",
               state:opsJobEnabled?"read-only-preview":"disabled",
               autoExecutionPermitted:false
-            }]:[])],schedulingIsReadOnly:true,
+            }]:[])].filter(job=>m.method==="operations.snapshot"||job.mapId===m.mapId),schedulingIsReadOnly:true,
             supervisorState:"active",
             scheduleReceipts:opsJobCreated?[{
               job:opsJobId,map:one,slotUtc:"2026-11-07T11:30:00Z",
@@ -1324,6 +1324,17 @@ test("read-only operations scheduler requires approval, shows durable receipt an
   await expect(page.getByRole("button",{name:"Kikapcsolás"})).toHaveCount(0);
   await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
   await expect(page.locator(".ops-schedules")).not.toContainText("Szerver automatikus újraindítása");
+});
+
+test("map-only scheduling never exposes another local map's tasks",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Ütemező"}).click();
+  await expect(page.locator(".ops-scheduler-map")).toContainText("Astraeos");
+  await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(0);
+  await expect(page.getByRole("combobox",{name:"Ütemezett ellenőrzés mapja"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Ellenőrzés bekapcsolása"})).toBeDisabled();
 });
 
 test("N-host LAN pairing adds, lists and removes peers without exposing keys",async({page})=>{
