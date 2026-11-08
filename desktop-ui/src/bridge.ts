@@ -757,6 +757,7 @@ export type HistoricalAdminRconReceipt = {
 export type HistoricalRestartPreview = {
   token:string;mapId:string;mapName:string;pid:number;rconPort:number;
   usesSaveWorld:true;usesDoExit:true;launchesOriginalActive:true;
+  launchMode:"asaApiLoader"|"directAsa";
   conversionAllowed:false;automaticRetry:false;
   gameplayReadinessCertified:false;originalStoreTouched:false;
   evidence:"ORIGINAL_STORE_V1_RESTART_TWO_STAGE_PREFLIGHT";
@@ -776,6 +777,7 @@ export type HistoricalRestartRecovery = {
 export type HistoricalRestartStatus = {
   jobId:string;mapId:string;state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;oldPid:number;newPid:number;
+  launchMode:"asaApiLoader"|"directAsa";
   oldProcessStopped:boolean;preExitSaveLogAndWorldObserved:boolean;
   readyCertified:false;gameClientRejoinVerified:false;
   finalDoExitSaveCertified:false;automaticRetry:false;
