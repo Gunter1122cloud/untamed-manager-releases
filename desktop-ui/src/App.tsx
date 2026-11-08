@@ -1181,9 +1181,19 @@ function IniCenter({ snapshot, selected, setSelected }: {
       setOpened(fresh); setContent(fresh.content);
     } catch(e) {
       const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
-      setError(code==="UM-INI-STOP-REQUIRED"
-        ? "A map nincs igazoltan leállítva, vagy karbantartás folyik. Az INI-szerkesztés tiltva."
-        : "A regisztrált map INI-fájlja nem nyitható meg biztonságosan ("+code+").");
+      const message:Record<string,string>={
+        "UM-INI-STOP-REQUIRED":"A map nincs igazoltan leállítva, vagy karbantartás folyik. Az INI-szerkesztés tiltva.",
+        "UM-INI-INSTALLATION-MISSING":"A regisztrált ASA telepítési gyökér hiányzik vagy nem helyi útvonal. Ellenőrizd a map regisztrációját.",
+        "UM-INI-SERVER-EXE-MISSING":"A regisztrált telepítésben nem található az elvárt ArkAscendedServer.exe. Ellenőrizd a SteamCMD telepítés útvonalát.",
+        "UM-INI-CONFIG-DIRECTORY-MISSING":"Az ASA még nem hozta létre a Saved/Config/WindowsServer mappát. Első indítás előtt ez normális lehet. Állítsd be a mapot, majd készítsd elő az első RCON-konfigurációt.",
+        "UM-INI-GAME-MISSING":"A Game.ini még nem létezik. Ez önmagában nem telepítési hiba; az ASA első indítása után próbáld újra.",
+        "UM-INI-GUS-MISSING":"A GameUserSettings.ini még nem létezik. Új, leállított mapnál az első RCON-előkészítő jóváhagyással hozhatja létre.",
+        "UM-INI-ACCESS-DENIED":"A Windows megtagadta az INI olvasását. Ellenőrizd a jogosultságokat.",
+        "UM-INI-PATH-OR-CONTENT-UNSAFE":"Az INI útvonala, linkje vagy tartalma nem felelt meg a biztonsági ellenőrzésnek.",
+        "UM-INI-CONFLICT-OR-IO-ERROR":"Az INI fájl zárolt, megváltozott vagy nem olvasható biztonságosan.",
+        "UM-HISTORICAL-STORE-LOCKED":"A történeti Store-v1 map konfigurációja védett."
+      };
+      setError(message[code]??"A natív INI-ellenőrzés megtagadta a megnyitást ("+code+").");
     } finally { setBusy(false); }
   };
   const showPreview = async () => {
