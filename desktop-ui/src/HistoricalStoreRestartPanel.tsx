@@ -121,7 +121,7 @@ export function HistoricalStoreRestartPanel({mapId,running,onRestarted}:{
         aria-label="Store-v1 újraindítás jóváhagyása">
         <AlertTriangle size={18}/>
         <div>
-          <b>{preview.mapName} · régi ASA PID {preview.pid} · RCON {preview.rconPort} · {preview.launchMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b>
+          <b>{preview.mapName} · régi PID {preview.pid} · RCON {preview.rconPort} · {preview.launchMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b>
           <p>Ez valódi leállítás, majd új ASA-indítás. Az indítás új előellenőrzése
             a leállítás után is meghiúsulhat, ekkor kézi beavatkozás szükséges.
             Pontosan írd be: STORE-V1 SAVEWORLD DOEXIT START</p>
