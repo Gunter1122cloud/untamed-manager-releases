@@ -4813,6 +4813,37 @@ try
             new[]{storeMap,otherOriginalMap}),
             "another process with different map key but wrong source port stays blocked");
 
+        // Loader can exit while its independently verified ASA child survives.
+        // Only the exact, previously persisted PID + creation-time pair can
+        // authorize read-only reattach; syntactic Store launch flags alone
+        // cannot reconstruct the lost parent/child relationship.
+        {
+            var loaderPath=Path.Combine(Path.GetDirectoryName(exe)!,"AsaApiLoader.exe");
+            var loaderCreated=new DateTimeOffset(2026,11,8,10,0,0,TimeSpan.Zero);
+            var childCreated=loaderCreated.AddSeconds(6);
+            var sourceChild=new ObservedProcess(57104,57103,childCreated,exe,
+                "HISTORICAL_STORE_V1_SOURCE_VERIFIED");
+            var pinnedLoader=new ProcessIdentity{Pid=57103,StartedUtc=loaderCreated,
+                ExecutablePath=loaderPath,Arguments="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"};
+            var pinnedChild=new ProcessIdentity{Pid=57104,StartedUtc=childCreated,
+                ExecutablePath=exe,Arguments="HISTORICAL_STORE_V1_API_CHILD_VERIFIED"};
+            Check(LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
+                sourceChild,exe,loaderPath,pinnedChild,pinnedLoader),
+                "original API orphan remains reattachable with exact old verified process family");
+            Check(!LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
+                sourceChild with {StartedUtc=childCreated.AddSeconds(1)},
+                exe,loaderPath,pinnedChild,pinnedLoader),
+                "reused ASA PID with different creation time cannot reattach to old Loader");
+            Check(!LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
+                sourceChild with {ParentPid=57102},
+                exe,loaderPath,pinnedChild,pinnedLoader),
+                "unknown Loader parent PID cannot be guessed from a surviving ASA child");
+            Check(!LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
+                sourceChild,exe,loaderPath,pinnedChild,
+                pinnedLoader with {Arguments="UNVERIFIED_LOADER"}),
+                "a prior unverified Loader observation cannot authorize orphan reattach");
+        }
+
         // Kova can launch another ALREADY-ACTIVE original Store map through
         // AsaApiLoader.exe with the same source -usestore arguments. This
         // loader does not block an unrelated original map's Start or Stop
