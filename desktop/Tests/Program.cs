@@ -4979,6 +4979,56 @@ try
         storeMap.ApiLoaderPath="";
     }
 
+    // Read-only upstream ASA API cache identity is bound to the actual
+    // ArkAscendedServer.exe byte hash, never an unrelated build or UNC file.
+    {
+        string apiRoot=Path.Combine(root,"synthetic-api-cache-identity");
+        string binary=Path.Combine(apiRoot,"ShooterGame","Binaries","Win64");
+        string exe=Path.Combine(binary,"ArkAscendedServer.exe");
+        string cache=Path.Combine(binary,"ArkApi","Cache");
+        Directory.CreateDirectory(cache);
+        File.WriteAllBytes(exe,new byte[]{0x4D,0x5A,0,1,2,3,4,5,6,7,8,9});
+        string hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(exe)))
+            .ToLowerInvariant();
+        var missing=AsaApiCacheProbe.Inspect(apiRoot,exe);
+        Check(missing.State=="UM-API-CACHE-NO-LOCAL-KEY"&&
+              missing.ExecutableSha256==hash&&!missing.RuntimeCertified,
+            "official API cache probe does not fabricate absent local cache proof");
+        string key=Path.Combine(cache,"cached_key.cache");
+        File.WriteAllText(key,new string('f',64));
+        var wrong=AsaApiCacheProbe.Inspect(apiRoot,exe);
+        Check(wrong.State=="UM-API-CACHE-EXE-HASH-MISMATCH"&&
+              !wrong.KeyMatchesExecutable,
+            "a different ASA exe SHA-256 never authorizes another build's cache");
+        File.WriteAllText(key,JsonSerializer.Serialize(new{
+            version=1,executable_hash=hash,
+            cache_directory="../unknown",last_modified="synthetic"
+        }));
+        Check(AsaApiCacheProbe.Inspect(apiRoot,exe).State==
+              "UM-API-CACHE-KEY-INVALID",
+            "malformed or traversing official generation-directory metadata is rejected");
+        string generation="generations/"+hash+"-1-2-3";
+        string generationPath=Path.Combine(cache,"generations",hash+"-1-2-3");
+        Directory.CreateDirectory(generationPath);
+        File.WriteAllBytes(Path.Combine(generationPath,"cached_offsets.cache"),
+            new byte[]{1,2,3});
+        File.WriteAllBytes(Path.Combine(generationPath,"cached_bitfields.cache"),
+            new byte[]{4,5,6});
+        File.WriteAllText(key,JsonSerializer.Serialize(new{
+            version=1,executable_hash=hash,cache_directory=generation,
+            last_modified="synthetic"
+        }));
+        var candidate=AsaApiCacheProbe.Inspect(apiRoot,exe);
+        Check(candidate.State=="UM-API-CACHE-HASH-BOUND-CANDIDATE"&&
+              candidate.KeyMatchesExecutable&&candidate.CandidateFilesPresent&&
+              !candidate.RuntimeCertified,
+            "hash-bound API cache generation is observed but never certified runtime-loaded");
+        File.AppendAllText(exe,"modified");
+        Check(AsaApiCacheProbe.Inspect(apiRoot,exe).State==
+              "UM-API-CACHE-EXE-HASH-MISMATCH",
+            "mutated ASA executable invalidates previously matching cache metadata");
+    }
+
     // Actual original Store-v1 RCON channel is distinct from fresh ASA
     // endpoints and permits exactly the three READ-ONLY commands. No WMI,
     // real socket, ASA Process.Start, or original live Store access in tests.
