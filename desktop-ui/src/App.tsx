@@ -48,7 +48,7 @@ import { LanSettingsPanel } from "./LanSettingsPanel";
 import { ClusterRegistryPanel } from "./ClusterRegistryPanel";
 import { MultiHostBackupPanel } from "./MultiHostBackupPanel";
 
-type Page = "operations" | "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "travel" | "map";
+type Page = "operations" | "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
   { page: "dashboard", label: "Áttekintés", icon: LayoutDashboard },
   { page: "servers", label: "Szerverek", icon: Server },
@@ -59,7 +59,6 @@ const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> =
   { page: "operations", label: "Üzemeltetés", icon: CalendarClock },
   { page: "steam", label: "Új map", icon: HardDrive },
   { page: "updates", label: "Frissítések", icon: CloudDownload },
-  { page: "travel", label: "Karakterutazás teszt", icon: Activity },
   { page: "logs", label: "Naplók", icon: FileText },
   { page: "ini", label: "INI szerkesztő", icon: FileText },
   { page: "settings", label: "Beállítások", icon: Settings2 },
@@ -1504,6 +1503,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
     </div>
     <ClusterRegistryPanel protectedMapIds={protectedMapIds}/>
     <MultiHostBackupPanel/>
+    <StoreTravelWorkbench/>
   </>;
 }
 type MapSection = "overview" | "monitor" | "scheduler" | "steam" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
@@ -1723,7 +1723,6 @@ export function App() {
           {page === "backups" && <BackupCenter snapshot={snapshot}/>}
           {page === "operations" && <OperationsCenter onOpenMap={selectMap}/>}
           {page === "updates" && <UpdateCenterPage/>}
-          {page === "travel" && <StoreTravelWorkbench/>}
           {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh} initialMapName={steamMap}/>}
           {page === "logs" && <LogsCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "settings" && <SettingsCenter/>}
