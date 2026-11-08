@@ -226,6 +226,35 @@ public static class LegacyStoreV1ProcessObserver
         catch(Exception){return false;}
     }
 
+    /// <summary>
+    /// An orphan ASA child is authorized for read-only reattach only when a
+    /// previous exact parent/child observation was pinned to the local profile.
+    /// Bare source arguments or a reused PID can never prove Loader ancestry.
+    /// Pure function also exercised by isolated synthetic Windows tests.
+    /// </summary>
+    internal static bool PreviouslyVerifiedOriginalApiChild(
+        ObservedProcess child,string expectedServer,string expectedLoader,
+        ProcessIdentity? priorChild,ProcessIdentity? priorLoader)
+    {
+        if(priorChild==null||priorLoader==null||child.Pid<=0||
+           child.ParentPid<=0||priorLoader.Pid<=0||
+           priorChild.Arguments!="HISTORICAL_STORE_V1_API_CHILD_VERIFIED"||
+           priorLoader.Arguments!="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"||
+           priorChild.Pid!=child.Pid||priorLoader.Pid!=child.ParentPid||
+           priorChild.StartedUtc!=child.StartedUtc||
+           priorLoader.StartedUtc>child.StartedUtc)return false;
+        try
+        {
+            return Path.GetFullPath(child.ExecutablePath).Equals(
+                Path.GetFullPath(expectedServer),StringComparison.OrdinalIgnoreCase)&&
+                Path.GetFullPath(priorChild.ExecutablePath).Equals(
+                    Path.GetFullPath(expectedServer),StringComparison.OrdinalIgnoreCase)&&
+                Path.GetFullPath(priorLoader.ExecutablePath).Equals(
+                    Path.GetFullPath(expectedLoader),StringComparison.OrdinalIgnoreCase);
+        }
+        catch(Exception){return false;}
+    }
+
     public static ProcessCheck ObserveStoppedForNativeStart(LocalMap map)=>
         ObserveStoppedForNativeStart(map,Array.Empty<LocalMap>());
 
@@ -363,17 +392,8 @@ public static class LegacyStoreV1ProcessObserver
                 // creation-time pair. Neither PID is inferred or guessed.
                 var pinnedChild=map.LastProcess;
                 var pinnedParent=map.LastLoader;
-                if(pinnedChild is {Pid:>0}&&pinnedParent is {Pid:>0}&&
-                   pinnedChild.Arguments=="HISTORICAL_STORE_V1_API_CHILD_VERIFIED"&&
-                   pinnedParent.Arguments=="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"&&
-                   childOnly.Pid==pinnedChild.Pid&&
-                   childOnly.StartedUtc==pinnedChild.StartedUtc&&
-                   childOnly.ParentPid==pinnedParent.Pid&&
-                   pinnedParent.StartedUtc<=childOnly.StartedUtc&&
-                   Path.GetFullPath(pinnedChild.ExecutablePath).Equals(exe,
-                       StringComparison.OrdinalIgnoreCase)&&
-                   Path.GetFullPath(pinnedParent.ExecutablePath).Equals(loader,
-                       StringComparison.OrdinalIgnoreCase))
+                if(PreviouslyVerifiedOriginalApiChild(
+                    childOnly,exe,loader,pinnedChild,pinnedParent))
                     return new(true,
                         "Fut · korábban igazolt API gyermekfolyamat; Loader már kilépett",
                         new ProcessIdentity{
