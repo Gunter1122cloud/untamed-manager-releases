@@ -57,8 +57,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         folder=Path.GetFullPath(root);
         if(new DriveInfo(Path.GetPathRoot(folder)!).DriveType!=DriveType.Fixed)
             throw new InvalidDataException("UM-ASA-SCHEDULE-FIXED-DISK");
-        CheckLinks();
         path=Path.Combine(folder,"native-asa-schedules-v1.json");
+        CheckLinks();
         var key=Convert.ToHexString(SHA256.HashData(
             Encoding.UTF8.GetBytes(folder.ToUpperInvariant())))[..28];
         mutexName=@"Global\Untamed-NativeAsaSchedules-"+key;
@@ -331,6 +331,16 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     {
         if(kind=="SaveWorld")
         {
+            var map=Owned(mapId);
+            // Shared installation coordinator prevents manual Stop/Restart or
+            // SteamCMD from overlapping this scheduled SaveWorld command.
+            using var lease=cluster.Operations.Acquire(map.InstallationPath,
+                UntamedOperationKind.Backup);
+            var check=cluster.Check(map);
+            if(!check.Running||check.ConfirmedStopped||check.Identity is not {Pid:>0} ||
+               !safeMap(map))
+                throw new InvalidOperationException("UM-ASA-SCHEDULE-SAVE-NOT-OWNED");
+            lease.MarkMutationStarted();
             var prepared=Decode(await rcon.HandleAsync(
                 Message("rcon.saveWorld",new {mapId,confirm=true})));
             if(!prepared.GetProperty("nativeWitnessAvailable").GetBoolean()||
@@ -344,7 +354,10 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 var check=Decode(await rcon.HandleAsync(
                     Message("rcon.saveStatus",new {mapId,watchId})));
                 if(check.GetProperty("combinedSaveEvidenceObserved").GetBoolean())
+                {
+                    lease.Complete();
                     return "ASA_LOG_AND_WORLD_STABLE_PREEXIT_NO_FSYNC_CERTIFICATION";
+                }
                 var stage=check.GetProperty("stage").GetString();
                 if(stage is "LOG_ROTATED_OR_TRUNCATED" or "WORLD_LINKED" or
                     "LOG_FILE_LINKED" or "LOG_CHANGED")
