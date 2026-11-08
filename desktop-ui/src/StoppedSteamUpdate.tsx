@@ -2,7 +2,7 @@ import {useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue} from "./bridge";
 
-export function StoppedSteamUpdate({maps}:{maps:PublicMap[]}) {
+export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapId?:string}) {
   const [selected,setSelected]=useState("");
   const [preview,setPreview]=useState<StoppedSteamPreview|null>(null);
   const [job,setJob]=useState<StoppedSteamStatus|null>(null);
@@ -11,7 +11,11 @@ export function StoppedSteamUpdate({maps}:{maps:PublicMap[]}) {
   const [approved,setApproved]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
-  const mapId=maps.some(m=>m.id===selected)?selected:(maps[0]?.id??"");
+  // A map page locks selection to its own locally registered map. Never
+  // silently fall back to a different map if the ID disappeared.
+  const mapId=fixedMapId!==undefined
+    ?(maps.some(m=>m.id===fixedMapId)?fixedMapId:"")
+    :(maps.some(m=>m.id===selected)?selected:(maps[0]?.id??""));
 
   useEffect(()=>{setPreview(null);setApproved(false);},[mapId]);
   useEffect(()=>{
@@ -72,14 +76,16 @@ export function StoppedSteamUpdate({maps}:{maps:PublicMap[]}) {
     <header className="premium-panel-heading">
       <h2><HardDrive size={19}/> Valódi SteamCMD-frissítés – leállított mapok</h2>
     </header>
-    <p>A meglévő C# Core készít védőmentést, ellenőrzi a fájlokat és gépenként sorban frissít. A másik gazdagép teljesen független.</p>
+    <p>A meglévő C# Core készít védőmentést, ellenőrzi a fájlokat és gépenként sorban frissít. A másik gazdagép teljesen független. Az előellenőrzés a helyi buildet és a biztonságos frissítés feltételeit ellenőrzi; önmagában nem igazolja, hogy újabb Steam build jelent meg.</p>
     <div className="uk-rcon-admin-grid">
-      <label>Helyi map
-        <select aria-label="SteamCMD frissítés map" value={mapId} disabled={busy||!!jobId||!mapId}
-          onChange={e=>setSelected(e.target.value)}>
-          {maps.map(map=><option key={map.id} value={map.id}>{map.name}</option>)}
-        </select>
-      </label>
+      {fixedMapId!==undefined
+        ?<div className="map-info-line"><span>Helyi map</span><strong>{maps.find(m=>m.id===mapId)?.name??"Nem található"}</strong></div>
+        :<label>Helyi map
+          <select aria-label="SteamCMD frissítés map" value={mapId} disabled={busy||!!jobId||!mapId}
+            onChange={e=>setSelected(e.target.value)}>
+            {maps.map(map=><option key={map.id} value={map.id}>{map.name}</option>)}
+          </select>
+        </label>}
       <button type="button" className="secondary" disabled={!mapId||busy||!!jobId||Boolean(journal?.needsOperatorReview)}
         onClick={()=>{void check();}}><RefreshCw size={16}/> Frissítés előellenőrzése</button>
     </div>
