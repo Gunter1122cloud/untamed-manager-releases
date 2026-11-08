@@ -57,7 +57,7 @@ const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> =
   { page: "plugins", label: "Pluginok", icon: Plug },
   { page: "backups", label: "Mentések", icon: Archive },
   { page: "operations", label: "Üzemeltetés", icon: CalendarClock },
-  { page: "steam", label: "SteamCMD", icon: HardDrive },
+  { page: "steam", label: "Új map", icon: HardDrive },
   { page: "updates", label: "Frissítések", icon: CloudDownload },
   { page: "travel", label: "Karakterutazás teszt", icon: Activity },
   { page: "logs", label: "Naplók", icon: FileText },
@@ -1187,7 +1187,7 @@ function SteamCenter({ snapshot, onRegistered, initialMapName }: {
   }, []);
   useEffect(() => { void reload(); }, [reload]);
   return <>
-    <div className="page-intro"><span className="eyebrow">VALVE STEAMCMD / INSTALLED BUILD</span><h1>SteamCMD Center</h1>
+    <div className="page-intro"><span className="eyebrow">VALVE STEAMCMD / INSTALLED BUILD</span><h1>Új ASA map telepítése</h1>
       <p>Valódi C#-os helyi telepítés és külön jóváhagyott SteamCMD-frissítés leállított mapokon. Az éles Store-v1 szervervezérlés ettől független.</p></div>
     <Panel title="Regisztrált ASA mapok" action={<button className="quiet" onClick={() => { void reload(); }} disabled={busy}><RefreshCw size={16}/> Ellenőrzés</button>}>
       {snapshot.local.maps.length===0 && <div className="empty">Nincs hozzáadott helyi telepítés.</div>}
@@ -1209,7 +1209,6 @@ function SteamCenter({ snapshot, onRegistered, initialMapName }: {
         <span className="mod-tag amber">Kézi előellenőrzés</span>
       </div>)}
     </Panel>
-    <StoppedSteamUpdate maps={snapshot.local.maps}/>
     <FreshAsaSteamWizard onRegistered={onRegistered} initialMapName={initialMapName}/>
     <Panel title="Új map · konfigurációs előkészítés">
       <p className="muted small">Az új telepítés után a szerver nevének és portjainak ellenőrzött beállítása a map Áttekintés oldalán érhető el. A javaslat önmagában nem indít SteamCMD-műveletet.</p>
@@ -1507,7 +1506,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
     <MultiHostBackupPanel/>
   </>;
 }
-type MapSection = "overview" | "monitor" | "scheduler" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
+type MapSection = "overview" | "monitor" | "scheduler" | "steam" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
 function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   snapshot:DashboardSnapshot;mapId:string;onBack:()=>void;
   setSelected:(value:string)=>void;onConfigured:()=>Promise<void>
@@ -1542,7 +1541,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   const sections: Array<{id:MapSection;name:string}>=[
     {id:"overview",name:"Áttekintés"},{id:"monitor",name:"Üzemeltetés"},
-    {id:"scheduler",name:"Ütemező"},{id:"mods",name:"Modok"},
+    {id:"scheduler",name:"Ütemező"},{id:"steam",name:"Frissítés"},{id:"mods",name:"Modok"},
     {id:"plugins",name:"Pluginok / ASA API"},{id:"ini",name:"INI"},
     {id:"backups",name:"Mentések"},{id:"logs",name:"Naplók"},
     {id:"rcon",name:"RCON / Konzol"}
@@ -1595,6 +1594,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
             <button className="primary" onClick={()=>setSection("mods")}><Layers3 size={17}/> Modok kezelése</button>
             <button className="secondary" onClick={()=>setSection("ini")}><FileText size={17}/> INI szerkesztése</button>
             <button className="secondary" onClick={()=>setSection("monitor")}><Activity size={17}/> PID / RAM / állapot</button>
+            <button className="secondary" onClick={()=>setSection("steam")}><RefreshCw size={17}/> Frissítés ellenőrzése</button>
           </div>
           <div className="warning-inline"><Shield size={17}/> Frissen telepített helyi map indítása jóváhagyással elérhető. A történeti Store-v1 indítás külön eredeti ACTIVE/DONE ellenőrzéssel és kétlépcsős natív jóváhagyással használható. A karakterutazás, SaveComplete és közös Store-restore igazolása továbbra is külön követelmény.</div>
         </Panel>
@@ -1622,6 +1622,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       <NativeMapScheduler mapId={mapId}/>
       <OperationsCenter selectedMapId={mapId} showScheduler onOpenMap={()=>setSection("overview")}/>
     </>}
+    {section==="steam" && (map.storeProtected
+      ?<div className="warning-inline" role="alert"><Shield size={17}/> Történeti Store-v1 map: automatikus vagy kézi SteamCMD-frissítést ezen az útvonalon nem engedélyezünk.</div>
+      :<StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>)}
     {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>} 
     {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
