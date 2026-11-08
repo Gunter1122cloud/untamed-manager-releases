@@ -715,8 +715,9 @@ try
             new{mapId=map.Id});
         IsOk(oneMap,"owned map details return one verified local diagnostic snapshot");
         Check(oneMap.GetProperty("data").GetProperty("maps").GetArrayLength()==1 &&
-              oneMap.GetProperty("data").GetProperty("schedules").GetArrayLength()==0,
-            "map inspection is bounded and never creates recurring jobs");
+              oneMap.GetProperty("data").GetProperty("schedules").GetArrayLength()==1 &&
+              !oneMap.GetProperty("data").GetProperty("schedules")[0].GetProperty("enabled").GetBoolean(),
+            "map inspection reads only this map persisted schedule, never creates recurring jobs");
     }
 
     // Ticking the durable operational scheduler must produce REAL local,

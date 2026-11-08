@@ -43,12 +43,13 @@ function OperationCard({map,onOpen}:{map:OperationsMap;onOpen:(id:string)=>void}
   </article>;
 }
 
-export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string)=>void;selectedMapId?:string}){
+export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{onOpenMap:(id:string)=>void;selectedMapId?:string;showScheduler?:boolean}){
   const [snapshot,setSnapshot]=useState<OperationsSnapshot|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [filter,setFilter]=useState<"all"|"running"|"attention">("all");
   const [scheduleMap,setScheduleMap]=useState("");
+  useEffect(()=>{if(selectedMapId)setScheduleMap(selectedMapId);},[selectedMapId]);
   const [scheduleKind,setScheduleKind]=useState<ReadOnlyScheduleKind>("Observation");
   const [scheduleMinutes,setScheduleMinutes]=useState(30);
   const [scheduleApproved,setScheduleApproved]=useState(false);
@@ -71,7 +72,7 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
   const addReadOnlySchedule=async()=>{
     setScheduleBusy(true);setScheduleNotice("");
     try{
-      if(!scheduleApproved||!scheduleMap||scheduleMinutes<5||
+      if(!scheduleApproved||!scheduleMap||(selectedMapId&&scheduleMap!==selectedMapId)||scheduleMinutes<5||
          scheduleMinutes>10080||!Number.isInteger(scheduleMinutes))
         throw new Error("UM-OPS-INVALID-READONLY-SCHEDULE");
       const saved=await managerBridge.operationsScheduleCreate(
@@ -102,6 +103,10 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
     filter==="all"||(filter==="running"?x.running:
     x.maintenance||x.storeProtected||(!x.running&&!x.confirmedStopped))
   ),[snapshot,filter]);
+  const mapSchedules=useMemo(()=>(snapshot?.schedules??[]).filter(x=>
+    !selectedMapId||x.mapId===selectedMapId),[snapshot,selectedMapId]);
+  const mapReceipts=useMemo(()=>(snapshot?.scheduleReceipts??[]).filter(x=>
+    !selectedMapId||x.map===selectedMapId),[snapshot,selectedMapId]);
   return <section className="ops-center">
     {!selectedMapId&&<div className="page-intro">
       <span className="eyebrow">NATIVE / HELYI ÜZEMELTETÉS</span><h1>Üzemeltetés</h1>
@@ -124,20 +129,40 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
     {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
     {!snapshot&&!error&&<div role="status" className="empty">Helyi Windows-folyamatok ellenőrzése...</div>}
     {snapshot&&<>
-      <div className="ops-summary">
+      {!selectedMapId&&<div className="ops-summary">
         <div><Server size={20}/><strong>{snapshot.maps.length}</strong><span>Helyi map</span></div>
         <div><Activity size={20}/><strong>{snapshot.maps.filter(x=>x.running).length}</strong><span>Igazoltan fut</span></div>
         <div><Shield size={20}/><strong>{snapshot.maps.filter(x=>x.storeProtected).length}</strong><span>Store-v1 védett</span></div>
         <div><CalendarClock size={20}/><strong>{snapshot.schedules.length}</strong><span>Mentett ütemezés</span></div>
-      </div>
-      {visible.length===0?<div className="empty">A szűrőnek megfelelő helyi map nem található.</div>:
-        <div className="ops-grid">
+      </div>}
+      {(!selectedMapId||!showScheduler)&&(visible.length===0?<div className="empty">A szűrőnek megfelelő helyi map nem található.</div>:
+        selectedMapId?<div className="ops-grid">
           {visible.map(map=><OperationCard key={map.mapId} map={map} onOpen={onOpenMap}/>)}
-        </div>}
-      {!selectedMapId&&<section className="premium-panel ops-schedules">
+        </div>:<div className="ops-compact-scroll">
+          <table className="ops-compact-table" aria-label="Helyi mapok összesített állapota">
+            <thead><tr><th>Map</th><th>Állapot</th><th>PID</th><th>ASA RAM</th>
+              <th>Következő ellenőrzés</th><th>Részletek</th></tr></thead>
+            <tbody>{visible.map(map=>{
+              const next=snapshot.schedules.filter(s=>s.mapId===map.mapId&&s.enabled&&s.nextUtc)
+                .sort((a,b)=>Date.parse(a.nextUtc!)-Date.parse(b.nextUtc!))[0];
+              return <tr key={map.mapId}>
+                <td><strong>{map.mapName}</strong></td>
+                <td><span className={"ops-state "+(map.running?"running":map.confirmedStopped?"stopped":"unknown")}>
+                  {map.running?"Fut":map.confirmedStopped?"Leállítva":"Nem igazolt"}</span></td>
+                <td>{map.pid??"Nem mérhető"}</td>
+                <td>{map.memoryVerified&&map.memoryMiB!==null?
+                  map.memoryMiB.toLocaleString("hu-HU")+" MiB":"Nem mérhető"}</td>
+                <td>{next?localDate(next.nextUtc):"Nincs beállítva"}</td>
+                <td><button type="button" className="secondary" onClick={()=>onOpenMap(map.mapId)}>
+                  <Terminal size={15}/> Map megnyitása</button></td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>)}
+      {selectedMapId&&showScheduler&&<section className="premium-panel ops-schedules">
         <header className="premium-panel-heading"><h2><CalendarClock size={19}/> Meglévő ütemezések</h2>
           <span className="premium-small-muted">Core / Budapest időzóna</span></header>
-        <p>Az engedélyezett, kizárólag olvasó ellenőrzések a Windows Managerben, percenkénti felügyelettel és tartós naplóval futnak. A kimaradt alkalmakat nem ismétli meg. Szerverindítás, restart, SaveWorld, SteamCMD, SQL és Store-v1 írás továbbra is tiltva.</p>
+        <p>Itt kizárólag a kiválasztott map automatikus, csak olvasó ellenőrzéseit állíthatod. A SaveWorld és az automatikus újraindítás külön natív végrehajtást igényel, ezért ezeket ez a panel még nem kínálja. A kimaradt ellenőrzések nem futnak újra.</p>
         <p className="premium-small-muted" role="status">
           Helyi ellenőrző motor: {snapshot.supervisorState==="active"?
             "AKTÍV":snapshot.supervisorState==="journal-unavailable"?
@@ -145,14 +170,9 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
                 "Ellenőrzési hiba – manuális vizsgálat":snapshot.supervisorState??"Ismeretlen"}
         </p>
         <div className="ops-schedule-editor">
-          <label>Helyi map
-            <select aria-label="Ütemezett ellenőrzés mapja"
-              value={scheduleMap} disabled={scheduleBusy}
-              onChange={e=>setScheduleMap(e.target.value)}>
-              <option value="">Válassz helyi mapot</option>
-              {snapshot.maps.map(m=><option key={m.mapId} value={m.mapId}>{m.mapName}</option>)}
-            </select>
-          </label>
+          <div className="ops-scheduler-map"><span>Kiválasztott helyi map</span>
+            <strong>{snapshot.maps.find(m=>m.mapId===selectedMapId)?.mapName??"Nem található"}</strong>
+          </div>
           <label>Ellenőrzés
             <select aria-label="Csak olvasó ellenőrzés típusa"
               value={scheduleKind} disabled={scheduleBusy}
@@ -176,7 +196,7 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
             Jóváhagyom a helyi, csak olvasó ütemezés módosítását.
           </label>
           <button type="button" className="secondary"
-            disabled={!scheduleApproved||!scheduleMap||scheduleBusy||
+            disabled={!scheduleApproved||!scheduleMap||scheduleMap!==selectedMapId||scheduleBusy||
               !Number.isInteger(scheduleMinutes)||scheduleMinutes<5||
               scheduleMinutes>10080}
             onClick={()=>{void addReadOnlySchedule();}}>
@@ -184,12 +204,12 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
           </button>
         </div>
         {scheduleNotice&&<p role="status">{scheduleNotice}</p>}
-        {snapshot.schedules.length===0?<p className="ops-empty-schedule">
-          Még nincs mentett ismétlődő ütemezés ezen a gépen.</p>:
+        {mapSchedules.length===0?<p className="ops-empty-schedule">
+          Ezen a mapon még nincs mentett, csak olvasó ellenőrzés.</p>:
           <div className="ops-schedule-scroll">
             <table className="ops-schedule-table"><thead><tr>
               <th>Map</th><th>Művelet</th><th>Ismétlés</th><th>Következő időpont</th><th>Állapot</th>
-            </tr></thead><tbody>{snapshot.schedules.map(s=><tr key={s.id}>
+            </tr></thead><tbody>{mapSchedules.map(s=><tr key={s.id}>
               <td>{s.mapName}</td><td>{s.kind}</td><td>{s.frequency}</td>
               <td>{localDate(s.nextUtc)}</td>
               <td>{!s.enabled?"Kikapcsolva":s.state==="read-only-preview"?
@@ -205,12 +225,12 @@ export function OperationsCenter({onOpenMap,selectedMapId}:{onOpenMap:(id:string
             </tr>)}</tbody></table>
           </div>}
         <h3>Végrehajtási napló (legutóbbi 40 esemény)</h3>
-        {(snapshot.scheduleReceipts??[]).length===0?
+        {mapReceipts.length===0?
           <p className="ops-empty-schedule">Még nincs végrehajtott helyi ellenőrzés. Az új ütemezés az első alkalommal csak a következő időpontot rögzíti.</p>:
           <div className="ops-schedule-scroll">
             <table className="ops-schedule-table"><thead><tr>
               <th>Map</th><th>Esedékesség</th><th>Állapot</th><th>Bizonyíték</th>
-            </tr></thead><tbody>{(snapshot.scheduleReceipts??[]).slice().reverse()
+            </tr></thead><tbody>{mapReceipts.slice().reverse()
               .map((r,i)=><tr key={r.job+"-"+r.slotUtc+"-"+i}>
                 <td>{snapshot.maps.find(m=>m.mapId===r.map)?.mapName??"Ismeretlen map"}</td>
                 <td>{localDate(r.slotUtc)}</td>

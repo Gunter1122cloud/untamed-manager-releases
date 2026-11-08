@@ -66,3 +66,14 @@
 .ops-schedule-editor>button{height:39px;white-space:normal}
 .ops-schedules h3{margin:19px 0 8px;font-size:14px;color:#e0f3e8}
 .ops-schedule-table td button{margin-left:9px;padding:5px 8px;font-size:11px}
+
+/* P0: the central operations page is an overview, not a duplicated editor. */
+.ops-compact-scroll{min-width:0;max-width:100%;overflow-x:auto;border:1px solid #355c53;border-radius:12px;background:#142f32}
+.ops-compact-table{border-collapse:collapse;width:100%;min-width:730px;font-size:13px;color:#e1f0e7}
+.ops-compact-table th{text-align:left;color:#a8d6c5;font-size:12px;font-weight:650;padding:13px 15px;background:#1a3b3d}
+.ops-compact-table td{padding:14px 15px;border-top:1px solid #36564f;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ops-compact-table td:first-child{min-width:150px;white-space:normal}
+.ops-compact-table tbody tr:hover{background:#20423f}
+.ops-compact-table td button{display:inline-flex;align-items:center;gap:7px;font-size:12px}
+.ops-scheduler-map{display:flex;flex-direction:column;gap:5px;justify-content:center;min-width:150px;flex:1 1 175px;color:#b8dace;font-size:12px}
+.ops-scheduler-map strong{font-size:14px;color:#edf8ee}

@@ -1506,7 +1506,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
     <MultiHostBackupPanel/>
   </>;
 }
-type MapSection = "overview" | "monitor" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
+type MapSection = "overview" | "monitor" | "scheduler" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";
 function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   snapshot:DashboardSnapshot;mapId:string;onBack:()=>void;
   setSelected:(value:string)=>void;onConfigured:()=>Promise<void>
@@ -1540,7 +1540,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const map=snapshot.local.maps.find(m=>m.id===mapId);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   const sections: Array<{id:MapSection;name:string}>=[
-    {id:"overview",name:"Áttekintés"},{id:"monitor",name:"Üzemeltetés"},{id:"mods",name:"Modok"},
+    {id:"overview",name:"Áttekintés"},{id:"monitor",name:"Üzemeltetés"},
+    {id:"scheduler",name:"Ütemező"},{id:"mods",name:"Modok"},
     {id:"plugins",name:"Pluginok / ASA API"},{id:"ini",name:"INI"},
     {id:"backups",name:"Mentések"},{id:"logs",name:"Naplók"},
     {id:"rcon",name:"RCON / Konzol"}
@@ -1616,6 +1617,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       </div>}
     </>}
     {section==="monitor" && <OperationsCenter selectedMapId={mapId} onOpenMap={()=>setSection("overview")}/>}
+    {section==="scheduler" && <OperationsCenter selectedMapId={mapId} showScheduler onOpenMap={()=>setSection("overview")}/>}
     {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>} 
     {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
