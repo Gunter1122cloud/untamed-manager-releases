@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,RefreshCw,Shield,Terminal,Users,Save} from "lucide-react";
 import {managerBridge,type RconStatus,type RconPlayers,type RconReadLog,type RconWorldSave,type RconSaveStatus,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
 
@@ -24,9 +24,20 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
   const [configDone,setConfigDone]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
+  const requestSerial=useRef(0);
+  const portLoadedFor=useRef("");
+  useEffect(()=>{
+    // Every map change invalidates pending native answers and any unsaved
+    // credential, approval token or confirmation from the previous map.
+    requestSerial.current++;
+    setRconPassword("");setConfig(null);setConfigPreview(null);setConfigDone(false);
+    setRconPort("37015");setCreateNewIni(true);
+  },[mapId]);
   const load=useCallback(async()=>{
     if(!mapId)return;
-    setBusy(true);setError("");setStatus(null);setResult(null);setReadLog(null);
+    const request=++requestSerial.current;
+    setBusy(true);setError("");setStatus(null);setConfigPreview(null);
+    setResult(null);setReadLog(null);
     setSaveReceipt(null);setSaveEvidence(null);setSaveApproved(false);
     setAdminDraft(null);setAdminApproved(false);setAdminTyped("");setAdminReceipt(null);
     try{
@@ -35,31 +46,44 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
       const [rcon,configuration]=await Promise.allSettled([
         managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
       ]);
+      if(request!==requestSerial.current)return;
       if(rcon.status!=="fulfilled")throw new Error("UM-RCON-STATUS-UNAVAILABLE");
       setStatus(rcon.value);
-      setConfig(configuration.status==="fulfilled"?configuration.value:null);
+      const nextConfig=configuration.status==="fulfilled"?configuration.value:null;
+      setConfig(nextConfig);
+      if(portLoadedFor.current!==mapId){
+        portLoadedFor.current=mapId;
+        setRconPort(nextConfig?.rconPort && nextConfig.rconPort>=1024 &&
+          nextConfig.rconPort<=65535?String(nextConfig.rconPort):"37015");
+      }
     }
-    catch{setError("A helyi RCON-állapot nem ellenőrizhető. Egyetlen parancs sem került elküldésre.");}
-    finally{setBusy(false);}
+    catch{if(request===requestSerial.current)
+      setError("A helyi RCON-állapot nem ellenőrizhető. Egyetlen parancs sem került elküldésre.");}
+    finally{if(request===requestSerial.current)setBusy(false);}
   },[mapId]);
   useEffect(()=>{void load();},[load]);
   const previewConfiguration=async()=>{
     if(busy||!config?.permitted||rconPassword.length<12)return;
+    const request=requestSerial.current;
     setBusy(true);setError("");setConfigPreview(null);setConfigDone(false);
     try{
-      setConfigPreview(await managerBridge.rconConfigPreview(
-        mapId,Number(rconPort),rconPassword,createNewIni));
+      const result=await managerBridge.rconConfigPreview(
+        mapId,Number(rconPort),rconPassword,createNewIni);
+      if(request===requestSerial.current)setConfigPreview(result);
     }catch{
-      setError("Az RCON-konfiguráció ellenőrzése sikertelen. A mapnak leállítva kell lennie; meglévő INI esetén az eredeti portnak és jelszónak egyeznie kell.");
-    }finally{setBusy(false);}
+      if(request===requestSerial.current)
+        setError("Az RCON-konfiguráció ellenőrzése sikertelen. A mapnak leállítva kell lennie; meglévő INI esetén az eredeti portnak és jelszónak egyeznie kell.");
+    }finally{if(request===requestSerial.current)setBusy(false);}
   };
   const commitConfiguration=async()=>{
     if(!configPreview||busy)return;
     const token=configPreview.token;
+    const request=requestSerial.current;
     setConfigPreview(null);setRconPassword("");
     setBusy(true);setError("");
     try{
       await managerBridge.rconConfigApply(token);
+      if(request!==requestSerial.current)return;
       setConfigDone(true);
       // A committed native receipt cannot be revoked by a subsequent read.
       // Do not invite repeated bootstrap writes when status refresh fails.
@@ -67,14 +91,17 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
         const [nextStatus,nextConfig]=await Promise.all([
           managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
         ]);
+        if(request!==requestSerial.current)return;
         setStatus(nextStatus);setConfig(nextConfig);
         if(onConfigured)await onConfigured();
       } catch {
-        setError("A natív RCON-konfiguráció mentve, de az állapotfrissítés nem sikerült. Ne ismételd meg az INI-előkészítést; frissítsd a Manager állapotát.");
+        if(request===requestSerial.current)
+          setError("A natív RCON-konfiguráció mentve, de az állapotfrissítés nem sikerült. Ne ismételd meg az INI-előkészítést; frissítsd a Manager állapotát.");
       }
     }catch{
-      setError("A natív RCON-beállítás nem fejeződött be. A szerver nem indult el; ellenőrizd a helyi állapotot.");
-    }finally{setBusy(false);}
+      if(request===requestSerial.current)
+        setError("A natív RCON-beállítás nem fejeződött be. A szerver nem indult el; ellenőrizd a helyi állapotot.");
+    }finally{if(request===requestSerial.current)setBusy(false);}
   };
   const list=async()=>{
     if(!status?.permitted||busy)return;
