@@ -19,5 +19,12 @@ The user expressly abandoned the former native WPF UI. Do **not** resume native 
 - For character/tribe/tribute, mandatory parity includes complete world+embedded-store preservation, the separate shared cluster/transfer data, verified backups and restore safeguards, A→B→A survivor/items/dinos travel across the two five-map hosts, and safe failure handling.
 - Source-level reference matrix and mandatory acceptance conditions: [docs/development/ASA-REFERENCE-PROVEN-MANDATORY-20261107.md](docs/development/ASA-REFERENCE-PROVEN-MANDATORY-20261107.md). Preserve original writer/session safety guards until our own live tests certify them.
 
+## Canonical implementation ledger and ongoing integration (2026-11-08)
+
+- [Single implementation/status matrix](docs/development/OBSIDIAN-CANONICAL-IMPLEMENTATION-STATUS.md) and [master issue #12](https://github.com/Gunter1122cloud/untamed-manager-releases/issues/12) are authoritative. Classify code present in main, synthetic CI, and actual ASA acceptance **separately**.
+- [PR #58](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/58) merged as `eb3f4f6` after success on head `caf8c6a` (Windows CI #1565). Its N-host offline SHA-256 archive and TEMP-only restore/recovery code is **MAIN, #53 PARTIAL**, not to be duplicated or rewritten. Do not claim live SaveComplete, production restore, Kova Store-v1 writer parity or A→B→A character/tribe travel without later evidence.
+- The eight historical closed/unmerged PRs #3, #5, #6, #7, #9, #10, #11, #13 were previously confirmed as `main` ancestry: do not reapply their changes.
+- Do not delete legacy components merely by their folder name: validate call sites, build, installer, updater, Store-v1 compatibility and regression tests, then isolate deletions in their own commits. Avoid changing production UK-HOME hosts or data.
+
 ## Next work
-Audit and implement changes **only in `desktop/`, `desktop-ui/`, shared `wpf/Core/`, and the Obsidian CI/updater where unavoidable**. Old WPF GUI is not a parallel delivery target. Document any remaining real-ASA blockers instead of asserting they passed synthetic tests.
+Finish only actually missing or partial acceptance paths in `desktop/`, `desktop-ui/`, shared `wpf/Core/`, and the Obsidian CI/updater where unavoidable. Remove abandoned active WPF GUI/release and SQL GUI paths only after proving they are unused by the current build or compatibility adapters. Old WPF GUI is not a parallel delivery target. Document remaining real-ASA blockers rather than asserting they passed synthetic tests.
