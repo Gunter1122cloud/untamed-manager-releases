@@ -4991,6 +4991,155 @@ try
             "every native original Store RCON query preserves exact ASA INI file bytes");
     }
 
+    // REAL Store-v1 SaveWorld-only executes the same Core source/PID/RCON
+    // ownership checks as graceful Stop, but never calls DoExit.
+    // All RCON effects and process observations below are synthetic.
+    {
+        string saveRoot=Path.Combine(root,"historical-original-save-only");
+        string saveBin=Path.Combine(saveRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(saveBin);
+        string exe=Path.Combine(saveBin,"ArkAscendedServer.exe");
+        File.WriteAllBytes(exe,new byte[]{77,90,0,2});
+        string config=Path.Combine(saveRoot,"ShooterGame","Saved","Config","WindowsServer");
+        Directory.CreateDirectory(config);
+        const string password="OriginalStoreSaveOnlyTest2026";
+        const int rconPort=37205,expectedPid=43631;
+        string ini=Path.Combine(config,"GameUserSettings.ini");
+        File.WriteAllText(ini,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
+            "RCONPort="+rconPort+"\r\nServerAdminPassword="+password+"\r\n");
+        byte[] beforeIni=File.ReadAllBytes(ini);
+        await using var saveCluster=new ClusterService("store-save-only-synthetic",
+            Path.Combine(root,"store-save-only-profile"),
+            _=>new ProcessCheck(false,"Synthetic process",null,true));
+        var map=new LocalMap{
+            Id=Guid.NewGuid(),Name="The Center",HistoricalStoreProtected=true,
+            HistoricalMapKey="TheCenter_WP",HistoricalArchiveSha256=new string('A',64),
+            InstallationPath=saveRoot,ExecutablePath=exe,
+            GamePort=7889,QueryPort=27189,RconPort=rconPort,
+            RconPasswordProtected=SecureStore.Protect(password)
+        };
+        saveCluster.AddMap(map);
+        var processStart=new DateTimeOffset(2026,11,7,11,0,0,TimeSpan.Zero);
+        const string sourceSha="EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE";
+        int saveDispatches=0,exitDispatches=0;
+        bool shouldFail=false;
+        ProcessCheck Running(LocalMap current)=>new(true,"Synthetic ACTIVE owner",
+            new ProcessIdentity{Pid=expectedPid,StartedUtc=processStart,
+                ExecutablePath=exe,Arguments="ORIGINAL_STORE_SYNTHETIC"},false);
+        string Source(LocalMap current)=>sourceSha;
+        bool RconOwned(int port,int pid)=>port==rconPort&&pid==expectedPid;
+        LegacyStoreV1GracefulStop.Owned Probe(Guid id)=>
+            LegacyStoreV1GracefulStop.Preview(saveCluster,id,Running,Source,RconOwned);
+        Task<AsaGracefulStopReceipt> ForbiddenStop(Guid id,int pid,DateTimeOffset at,
+            string source,Action<string> report)
+        {
+            exitDispatches++;
+            return Task.FromException<AsaGracefulStopReceipt>(
+                new InvalidOperationException("SaveWorld-only may never call Stop"));
+        }
+        Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt> Save(Guid id,int pid,
+            DateTimeOffset at,string source,Action<string> report)=>
+            LegacyStoreV1GracefulStop.SaveWorldOnlyAsync(saveCluster,id,pid,at,
+                source,TimeSpan.FromSeconds(6),
+                inspect:Running,source:Source,portOwner:RconOwned,
+                execute:async (selected,identity,verify,token)=>{
+                    verify();saveDispatches++;
+                    if(shouldFail)throw new IOException("Synthetic mid-SaveWorld interruption");
+                    report("Synthetic SaveWorld dispatched without DoExit");
+                    verify();
+                    await Task.CompletedTask;
+                    return true;
+                },stage:report);
+        using(var bridge=new DesktopHistoricalGracefulStopBridge(saveCluster,
+            Probe,ForbiddenStop,Save))
+        {
+            var unauthorized=await Call(bridge.HandleAsync,
+                "historical.saveWorldPreview",new{mapId=Guid.NewGuid()});
+            Check(!unauthorized.GetProperty("ok").GetBoolean()&&saveDispatches==0,
+                "SaveWorld-only denies foreign maps before any RCON dispatch");
+            var preview=await Call(bridge.HandleAsync,"historical.saveWorldPreview",
+                new{mapId=map.Id});
+            IsOk(preview,"original ACTIVE Store SaveWorld-only preflight");
+            Check(!preview.GetProperty("data").GetProperty("usesDoExit").GetBoolean()&&
+                preview.GetProperty("data").GetProperty("usesSaveWorld").GetBoolean()&&
+                !preview.GetRawText().Contains(password,StringComparison.Ordinal),
+                "SaveWorld-only preview is explicit and never reveals Store credentials");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var wrongKind=await Call(bridge.HandleAsync,"historical.gracefulStopApply",
+                new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
+            Check(!wrongKind.GetProperty("ok").GetBoolean()&&saveDispatches==0,
+                "SaveWorld-only approval cannot be replayed as graceful Stop");
+            var wrongPhrase=await Call(bridge.HandleAsync,"historical.saveWorldApply",
+                new{token,confirm=true,typedApproval="SAVEWORLD"});
+            Check(!wrongPhrase.GetProperty("ok").GetBoolean()&&saveDispatches==0,
+                "Store SaveWorld requires the exact typed approval");
+            var queued=await Call(bridge.HandleAsync,"historical.saveWorldApply",
+                new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD"});
+            IsOk(queued,"Store SaveWorld-only native task queued");
+            string jobId=queued.GetProperty("data").GetProperty("jobId").GetString()!;
+            var replay=await Call(bridge.HandleAsync,"historical.saveWorldApply",
+                new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD"});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "SaveWorld-only approval token cannot dispatch twice");
+            JsonElement status=default;
+            for(int i=0;i<80;i++)
+            {
+                status=await Call(bridge.HandleAsync,"historical.saveWorldStatus",
+                    new{jobId});
+                if(status.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(30);
+            }
+            Check(status.GetProperty("data").GetProperty("state").GetString()=="completed"&&
+                  status.GetProperty("data").GetProperty("kind").GetString()=="SaveWorldOnly"&&
+                  !status.GetProperty("data").GetProperty("confirmedStopped").GetBoolean()&&
+                  saveDispatches==1&&exitDispatches==0,
+                "Store SaveWorld executes exactly once without DoExit or process shutdown");
+            Check(saveCluster.Operations.Observe(saveRoot)?.Phase==
+                    UntamedOperationPhase.Completed,
+                "successfully observed original Store SaveWorld closes its durable journal");
+            // Failure after claim permanently requires operator review, not retry.
+            shouldFail=true;
+            var second=await Call(bridge.HandleAsync,"historical.saveWorldPreview",
+                new{mapId=map.Id});
+            IsOk(second,"new independently approved original Store SaveWorld preview");
+            token=second.GetProperty("data").GetProperty("token").GetString()!;
+            queued=await Call(bridge.HandleAsync,"historical.saveWorldApply",
+                new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD"});
+            IsOk(queued,"synthetic interrupted Store SaveWorld job started");
+            jobId=queued.GetProperty("data").GetProperty("jobId").GetString()!;
+            for(int i=0;i<80;i++)
+            {
+                status=await Call(bridge.HandleAsync,"historical.saveWorldStatus",
+                    new{jobId});
+                if(status.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(30);
+            }
+            Check(status.GetProperty("data").GetProperty("state").GetString()=="needsOperator"&&
+                  saveCluster.Operations.Observe(saveRoot)?.Phase==
+                    UntamedOperationPhase.NeedsOperator&&
+                  saveDispatches==2&&exitDispatches==0,
+                "failed SaveWorld leaves persistent NeedsOperator and never dispatches DoExit");
+            var blocked=await Call(bridge.HandleAsync,"historical.saveWorldPreview",
+                new{mapId=map.Id});
+            Check(!blocked.GetProperty("ok").GetBoolean()&&saveDispatches==2,
+                "unresolved original Store operation blocks another SaveWorld");
+        }
+        using(var again=new DesktopHistoricalGracefulStopBridge(saveCluster,
+            Probe,ForbiddenStop,Save))
+        {
+            var recovery=await Call(again.HandleAsync,
+                "historical.gracefulStopRecovery",new{mapId=map.Id});
+            Check(recovery.GetProperty("data").GetProperty("requiresOperator").GetBoolean()&&
+                  recovery.GetProperty("data").GetProperty("blocked").GetBoolean()&&
+                  !recovery.GetProperty("data").GetProperty("inMemoryRunning").GetBoolean(),
+                "fresh Manager observes prior Store SaveWorld interruption without auto-replay");
+        }
+        Check(File.ReadAllBytes(ini).SequenceEqual(beforeIni)&&exitDispatches==0,
+            "SaveWorld-only never edits original ASA INI or runs DoExit");
+    }
+
     // ORIGINAL ACTIVE Store-v1 graceful stop uses the real operation lease
     // and native two-stage approved queue, but synthetic process and RCON
     // callbacks only. Never start real ASA or touch a live Store directory.
