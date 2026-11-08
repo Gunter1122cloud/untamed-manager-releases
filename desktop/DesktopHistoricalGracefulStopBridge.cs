@@ -133,6 +133,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             blocked,requiresOperator=needsOperator,
             inMemoryRunning=running!=null,
             jobId=running?.Id,
+            // Distinguish the live task kind without exposing Store secrets.
+            // Durable journal state alone cannot safely infer a resumed RCON action.
+            activeJobKind=running?.Kind,
             automaticRecovery=false,automaticRetry=false,
             sharedStoreMutated=false,lockCleared=false,
             evidence="ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY"

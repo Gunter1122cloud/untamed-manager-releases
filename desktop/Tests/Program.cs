@@ -5053,6 +5053,9 @@ try
         const string sourceSha="EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE";
         int saveDispatches=0,exitDispatches=0;
         bool shouldFail=false;
+        bool pauseFirst=true;
+        var releaseFirstSave=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         ProcessCheck Running(LocalMap current)=>new(true,"Synthetic ACTIVE owner",
             new ProcessIdentity{Pid=expectedPid,StartedUtc=processStart,
                 ExecutablePath=exe,Arguments="ORIGINAL_STORE_SYNTHETIC"},false);
@@ -5074,6 +5077,7 @@ try
                 inspect:Running,source:Source,portOwner:RconOwned,
                 execute:async (selected,identity,verify,token)=>{
                     verify();saveDispatches++;
+                    if(pauseFirst)await releaseFirstSave.Task.WaitAsync(token);
                     if(shouldFail)throw new IOException("Synthetic mid-SaveWorld interruption");
                     report("Synthetic SaveWorld dispatched without DoExit");
                     verify();
@@ -5107,6 +5111,18 @@ try
                 new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD"});
             IsOk(queued,"Store SaveWorld-only native task queued");
             string jobId=queued.GetProperty("data").GetProperty("jobId").GetString()!;
+            var inFlight=await Call(bridge.HandleAsync,
+                "historical.gracefulStopRecovery",new{mapId=saveMap.Id});
+            IsOk(inFlight,"original SaveWorld native operation reattach read");
+            Check(inFlight.GetProperty("data").GetProperty("inMemoryRunning").GetBoolean()&&
+                  inFlight.GetProperty("data").GetProperty("activeJobKind").GetString()=="SaveWorldOnly"&&
+                  inFlight.GetProperty("data").GetProperty("jobId").GetString()==jobId,
+                "SaveWorld UI reattaches to exact native live job identity, not Stop");
+            var wrongStatus=await Call(bridge.HandleAsync,
+                "historical.gracefulStopStatus",new{jobId});
+            Check(!wrongStatus.GetProperty("ok").GetBoolean(),
+                "Stop status cannot be used to replay or impersonate SaveWorld job");
+            pauseFirst=false;releaseFirstSave.TrySetResult(true);
             var replay=await Call(bridge.HandleAsync,"historical.saveWorldApply",
                 new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD"});
             Check(!replay.GetProperty("ok").GetBoolean(),
@@ -5163,7 +5179,9 @@ try
                 "historical.gracefulStopRecovery",new{mapId=saveMap.Id});
             Check(recovery.GetProperty("data").GetProperty("requiresOperator").GetBoolean()&&
                   recovery.GetProperty("data").GetProperty("blocked").GetBoolean()&&
-                  !recovery.GetProperty("data").GetProperty("inMemoryRunning").GetBoolean(),
+                  !recovery.GetProperty("data").GetProperty("inMemoryRunning").GetBoolean()&&
+                  recovery.GetProperty("data").GetProperty("activeJobKind").ValueKind==
+                    JsonValueKind.Null,
                 "fresh Manager observes prior Store SaveWorld interruption without auto-replay");
         }
         Check(File.ReadAllBytes(ini).SequenceEqual(beforeIni)&&exitDispatches==0,

@@ -765,6 +765,7 @@ export type HistoricalGracefulStopRecovery = {
   operationKind:string;updatedUtc:string|null;
   blocked:boolean;requiresOperator:boolean;
   inMemoryRunning:boolean;jobId:string|null;
+  activeJobKind:"Stop"|"SaveWorldOnly"|null;
   automaticRecovery:false;automaticRetry:false;
   sharedStoreMutated:false;lockCleared:false;
   evidence:"ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY";

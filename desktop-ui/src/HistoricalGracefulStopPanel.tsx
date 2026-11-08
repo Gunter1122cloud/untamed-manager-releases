@@ -30,8 +30,10 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     managerBridge.historicalGracefulStopRecovery(mapId).then(result=>{
       if(!active)return;
       setRecovery(result);setRecoveryChecked(true);
-      if(result.inMemoryRunning&&result.jobId)
-        setJobId(result.jobId); // resume polling after React view remount
+      if(result.inMemoryRunning&&result.jobId&&result.activeJobKind==="Stop")
+        setJobId(result.jobId); // only reattach to the original Stop job
+      else if(result.inMemoryRunning)
+        setError("Másik Store-v1 művelet fut. Nem indítunk új leállítást.");
       if(result.requiresOperator)
         setError("Korábban megszakadt művelet tartós naplója található. "+
           "Ne indíts új SaveWorld/DoExit vagy Start műveletet. "+
