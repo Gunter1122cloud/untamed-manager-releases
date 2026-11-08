@@ -16,7 +16,8 @@ namespace UntamedManager.Core;
 /// </summary>
 internal sealed record LegacyStoreV1NativeStartPlan(string Arguments,
     string Fingerprint,int GamePort,int QueryPort,int RconPort,
-    string SourceEvidence,bool UseApi=false);
+    string SourceEvidence,bool UseApi=false,
+    string ApiCacheState="UM-API-CACHE-NOT-APPLICABLE");
 
 internal static class LegacyStoreV1NativeStartPlanner
 {
@@ -98,6 +99,7 @@ internal static class LegacyStoreV1NativeStartPlanner
         // Explicit opt-in chooses the Loader; finding a Loader.exe on disk
         // never selects it implicitly.
         string launchMode="DIRECT_ASA";
+        string cacheState="UM-API-CACHE-NOT-APPLICABLE";
         if(map.StartWithAsaApi)
         {
             var exact=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(map))
@@ -120,8 +122,13 @@ internal static class LegacyStoreV1NativeStartPlanner
                 "Binaries","Win64","config.json");
             using var configRead=File.OpenRead(config);
             var cfgHash=Convert.ToHexString(SHA256.HashData(configRead));
+            var localCache=AsaApiCacheProbe.Inspect(map.InstallationPath,map.ExecutablePath);
+            cacheState=localCache.State;
+            // Missing cache is not a reason to substitute another ASA build's
+            // archive. Official AsaApi performs SHA-bound acquisition itself;
+            // Process.Start never means that acquisition has completed.
             launchMode="ASA_API:"+string.Join(":",inspection.Binaries.Select(
-                x=>x.Sha256))+":"+cfgHash;
+                x=>x.Sha256))+":"+cfgHash+":"+cacheState;
         }
         string originalIniSha=Convert.ToHexString(SHA256.HashData(ini));
         string evidence=string.Join("\n",map.Id.ToString("D"),
@@ -135,6 +142,6 @@ internal static class LegacyStoreV1NativeStartPlanner
             map.StartWithAsaApi?
                 "ORIGINAL_STORE_V1_API_LOADER_NATIVE_PREFLIGHT_NOT_RUNTIME_CERTIFIED":
                 "ORIGINAL_TWO_PEER_ACTIVE_DONE_AND_EXACT_ASA_RCON_NATIVE_START_PREPARED",
-            map.StartWithAsaApi);
+            map.StartWithAsaApi,cacheState);
     }
 }
