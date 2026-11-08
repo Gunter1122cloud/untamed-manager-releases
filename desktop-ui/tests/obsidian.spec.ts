@@ -2027,6 +2027,23 @@ test("720px desktop sidebar scroll reaches Settings and INI without clipping", a
   await expect(page.getByRole("heading",{name:"INI szerkesztő"})).toBeVisible();
 });
 
+test("map-owned Mod Center retains its source map and uses existing native multi-map copy",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"Modok",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Modok – The Island"})).toBeVisible();
+  await expect(page.getByLabel("Modok forrásmapja")).toHaveText("The Island");
+  await expect(page.getByRole("combobox",{name:"Helyi map"})).toHaveCount(0);
+  await page.getByRole("tab",{name:"Másolás több mapra"}).click();
+  const copy=page.getByRole("region",{name:"Modlista másolása több mapra"});
+  await expect(copy.getByRole("group",{name:"Célmapok kiválasztása"})).toContainText("Astraeos");
+  await copy.getByRole("group",{name:"Célmapok kiválasztása"}).getByRole("checkbox").first().check();
+  await copy.getByRole("button",{name:"Változások előnézete"}).click();
+  await expect(copy.getByRole("region",{name:"Többmapos modmásolás előnézete"})).toContainText("Astraeos");
+  await expect(page.getByRole("heading",{name:"Modok – The Island"})).toBeVisible();
+  await expect(page.getByRole("region",{name:"Többmapos modmásolás előnézete"}).getByRole("button",{name:"Jóváhagyás és mentés"})).toBeDisabled();
+});
+
 test("local map card opens map-specific details, functional tabs, back navigation and blocks RCON", async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
