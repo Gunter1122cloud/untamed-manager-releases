@@ -5610,6 +5610,116 @@ try
             "native Store Restart touches no original GameUserSettings INI bytes");
     }
 
+    // Original Store-v1 API Loader restart remains strictly one-shot:
+    // SaveWorld/DoExit must complete before a NEW Loader parent spawn, and
+    // the completed Restart journal MUST contain the observed ASA child PID,
+    // never the Loader parent. No real process or RCON is used.
+    {
+        string apiRestartRoot=Path.Combine(root,"historical-api-restart-synthetic");
+        string binary=Path.Combine(apiRestartRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(binary);
+        string exe=Path.Combine(binary,"ArkAscendedServer.exe");
+        string loader=Path.Combine(binary,"AsaApiLoader.exe");
+        File.WriteAllBytes(exe,new byte[]{77,90,7,5});
+        File.WriteAllBytes(loader,new byte[]{77,90,7,6});
+        await using var apiCluster=new ClusterService("api-restart-synthetic",
+            Path.Combine(root,"api-restart-profile"),
+            _=>new ProcessCheck(false,"Synthetic Windows only",null,true));
+        var apiMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Genesis",
+            HistoricalStoreProtected=true,
+            HistoricalMapKey="Genesis_WP",
+            HistoricalArchiveSha256=new string('D',64),
+            InstallationPath=apiRestartRoot,ExecutablePath=exe,
+            ApiLoaderPath=loader,StartWithAsaApi=true,
+            GamePort=7901,QueryPort=27201,RconPort=37401,
+            RconPasswordProtected=SecureStore.Protect("SyntheticApiRestartOnly")
+        };
+        apiCluster.AddMap(apiMap);
+        var oldTime=new DateTimeOffset(2026,11,8,13,0,0,TimeSpan.Zero);
+        var newParentTime=oldTime.AddSeconds(15);
+        int apiStopCount=0,apiSpawnCount=0;
+        LegacyStoreV1GracefulStop.Owned ApiProbe(Guid mapId)=>
+            mapId==apiMap.Id?
+                new(apiMap,new ProcessIdentity{Pid=64001,
+                    StartedUtc=oldTime,ExecutablePath=exe,
+                    Arguments="SYNTHETIC_OLD_API_CHILD"},new string('E',64)):
+                throw new UnauthorizedAccessException("synthetic foreign map");
+        Task<AsaGracefulStopReceipt> ApiStop(Guid mapId,int pid,
+            DateTimeOffset started,string source,Guid restartId,
+            Action<string> stage)
+        {
+            apiStopCount++;
+            var journal=new AsaManualRestartJournal(apiRestartRoot).Observe();
+            Check(mapId==apiMap.Id&&pid==64001&&started==oldTime&&
+                  source==new string('E',64)&&journal?.Id==restartId&&
+                  journal.Phase==AsaRestartPhase.Stopping,
+                "Loader Restart begins with exactly approved old ASA child and Stop journal");
+            stage("Synthetic SaveWorld and DoExit confirmed");
+            return Task.FromResult(new AsaGracefulStopReceipt(mapId,pid,
+                true,false,true,DateTimeOffset.UtcNow,"SYNTHETIC_API_STOP"){
+                    PreExitSaveLogAndWorldObserved=true
+                });
+        }
+        ProcessIdentity ApiStart(Guid mapId,Guid restartId,Action<string> stage)
+        {
+            apiSpawnCount++;
+            var journal=new AsaManualRestartJournal(apiRestartRoot).Observe();
+            Check(apiStopCount==1&&mapId==apiMap.Id&&
+                  journal?.Id==restartId&&journal.Phase==AsaRestartPhase.Starting,
+                "Loader Process.Start occurs only after the old ASA child was stopped");
+            stage("Synthetic Loader parent spawned");
+            return new ProcessIdentity{Pid=64002,
+                StartedUtc=newParentTime,ExecutablePath=loader,
+                Arguments="SYNTHETIC_API_LOADER_PARENT"};
+        }
+        ProcessCheck ApiObserve(LocalMap map)=>
+            new(true,"Synthetic parent and child from same owner",
+                new ProcessIdentity{Pid=64003,
+                    StartedUtc=newParentTime.AddSeconds(1),ExecutablePath=exe,
+                    Arguments="SYNTHETIC_API_CHILD"},false,
+                new ProcessIdentity{Pid=64002,
+                    StartedUtc=newParentTime,ExecutablePath=loader,
+                    Arguments="SYNTHETIC_API_PARENT"});
+        using(var apiRestart=new DesktopHistoricalRestartBridge(apiCluster,
+            ApiProbe,ApiStop,ApiStart,ApiObserve,
+            (port,pid)=>port==37401&&pid==64003))
+        {
+            var preview=await Call(apiRestart.HandleAsync,
+                "historical.restartPreview",new{mapId=apiMap.Id});
+            IsOk(preview,"native original API Loader Restart source preview");
+            Check(preview.GetProperty("data").GetProperty("launchMode").GetString()
+                    =="asaApiLoader",
+                "Loader Restart preview cannot silently downgrade to direct ASA");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var launched=await Call(apiRestart.HandleAsync,
+                "historical.restartApply",new{
+                    token,confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT START"
+                });
+            IsOk(launched,"synthetic Loader manual restart queued");
+            string jobId=launched.GetProperty("data").GetProperty("jobId").GetString()!;
+            JsonElement result=default;
+            for(int k=0;k<100;k++)
+            {
+                result=await Call(apiRestart.HandleAsync,
+                    "historical.restartStatus",new{jobId});
+                if(result.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(25);
+            }
+            Check(result.GetProperty("data").GetProperty("state").GetString()=="completed"&&
+                  result.GetProperty("data").GetProperty("launchMode").GetString()
+                    =="asaApiLoader"&&
+                  result.GetProperty("data").GetProperty("newPid").GetInt32()==64003&&
+                  apiStopCount==1&&apiSpawnCount==1,
+                "Loader Restart completion requires a verified ASA CHILD and owned RCON");
+            var journal=new AsaManualRestartJournal(apiRestartRoot).Observe();
+            Check(journal?.Phase==AsaRestartPhase.Completed&&
+                  journal.NewPid==64003,
+                "durable Store Restart journal records child PID, never Loader parent");
+        }
+    }
+
     // ORIGINAL ACTIVE Store-v1 graceful stop uses the real operation lease
     // and native two-stage approved queue, but synthetic process and RCON
     // callbacks only. Never start real ASA or touch a live Store directory.
