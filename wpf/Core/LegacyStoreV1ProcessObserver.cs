@@ -237,7 +237,7 @@ public static class LegacyStoreV1ProcessObserver
         ProcessIdentity? priorChild,ProcessIdentity? priorLoader)
     {
         if(priorChild==null||priorLoader==null||child.Pid<=0||
-           child.ParentPid<=0||priorLoader.Pid<=0||
+           priorLoader.Pid<=0||
            priorChild.Arguments!="HISTORICAL_STORE_V1_API_CHILD_VERIFIED"||
            priorLoader.Arguments!="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"||
            priorChild.Pid!=child.Pid||priorLoader.Pid!=child.ParentPid||
