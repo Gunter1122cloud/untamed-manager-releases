@@ -39,5 +39,6 @@ Restore verifies the complete archive and current registry ownership. A new sand
 - `dotnet run --project wpf/Testing/MultiHostBackup/MultiHostBackup.csproj -c Release` — archive, hash, interrupted-stage, sandbox replacement, explicit rollback, and crash-recovery Core regressions.
 - `dotnet build desktop/Tests/DesktopBridgeTests.csproj -c Release` and `dotnet run --project desktop/Tests/DesktopBridgeTests.csproj -c Release --no-build` — synthetic registry scale and native bridge integration, including rejection of production-root targets.
 - `npm run build` and `npm run test:ui -- --workers=1` — React/TypeScript and single-worker browser regressions.
+- `.github/workflows/build-obsidian-desktop.yml` runs `desktop/Tests/ObsidianSetupPathE2E.ps1` on Windows: invalid target rejection, quoted special/long install path, installed WebView2 smoke, and uninstall in the isolated runner temp directory.
 
 All test data is synthetic. The replacement transaction is limited to generated TEMP sandboxes; tests do not start ASA/Kova, bind configured ASA ports, or issue live RCON. These results do not establish real ASA server, Store-v1 writer, character travel, SaveComplete, or live restore behavior.
