@@ -73,13 +73,14 @@ export function PortableModProfilePanel({maps,sourceMapId,onApplied}:{
     </label>
     <div className="draft-actions">
       <button type="button" className="secondary" disabled={working||eligible.length===0}
-        onClick={()=>{setTargets(eligible.map(map=>map.id));invalidate();}}>
-        Összes jogosult helyi map kijelölése ({eligible.length})
+        onClick={()=>{setTargets(eligible.slice(0,25).map(map=>map.id));invalidate();}}>
+        {eligible.length>25?"Első 25 jogosult helyi map":"Összes jogosult helyi map"} kijelölése ({Math.min(eligible.length,25)})
       </button>
       <button type="button" className="quiet" disabled={working||targets.length===0}
         onClick={()=>{setTargets([]);invalidate();}}>Kijelölések törlése</button>
       <span className="muted small">{targets.length} / {eligible.length} helyi map</span>
     </div>
+    {eligible.length>25&&<p className="warning-inline">A natív előnézet legfeljebb 25 célmapot fogad egyszerre. A többi helyi map külön, jóváhagyott kötegben állítható be; ez nem globális host/map korlát.</p>}
     <div className="premium-mod-copy-targets" role="group" aria-label="Modprofil célmapok">
       {eligible.length===0?<p className="muted small">Nincs helyben szerkeszthető map.</p>:
         eligible.map(map=><label key={map.id} className="plugin-row">
