@@ -1,0 +1,205 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
+namespace UntamedManager.Core;
+
+/// <summary>
+/// Enrollment of an *unused* locally installed ASA SteamCMD map into a
+/// versioned Obsidian cluster. Never migrates an existing world and NEVER
+/// writes an original Kova ACTIVE/DONE journal, session or transfer file.
+/// Transfer metadata is taken only from the already approved ClusterRegistry.
+/// Multi-host transfer identity requires a separate peer-backed certificate
+/// and is deliberately not inferred from one machine's UNC path.
+/// </summary>
+public static class FreshStoreEnrollmentPolicy
+{
+    public sealed record Plan(Guid MapId,string ClusterId,string TransferDirectory,
+        string Arguments,string InstalledBuild,long RegistryRevision,
+        string Fingerprint,string Evidence);
+
+    public static bool IsEnrolled(LocalMap map)=>
+        map!=null&&!string.IsNullOrWhiteSpace(map.FreshStoreClusterId);
+
+    private static void Deny(string code)=>throw new InvalidDataException(code);
+
+    private static string SafeTransfer(string transfer)
+    {
+        if(string.IsNullOrWhiteSpace(transfer)||transfer.Length>500||
+           !Path.IsPathFullyQualified(transfer)||
+           transfer.StartsWith(@"\\?\",StringComparison.Ordinal)||
+           transfer.StartsWith(@"\\.\",StringComparison.Ordinal)||
+           transfer.Any(c=>char.IsWhiteSpace(c)||c is '"' or '<' or '>' or
+               '|' or '?' or '*' or '\0')||
+           transfer.Split('\\','/').Any(x=>x is "." or ".."))
+            Deny("UM-FRESH-STORE-TRANSFER-PATH-UNSAFE");
+        string path=Path.GetFullPath(transfer);
+        if(!Directory.Exists(path))
+            Deny("UM-FRESH-STORE-TRANSFER-PATH-NOT-FOUND");
+        // Read-only Windows file-ID identity check. This proves the local
+        // path exists, NOT that an independently paired peer sees the same
+        // directory. Cross-host clusters remain blocked below.
+        if(!StorePathIdentity.CompareDirectories(path,path).SameFileSystemObject)
+            Deny("UM-FRESH-STORE-TRANSFER-IDENTITY-UNVERIFIED");
+        return path;
+    }
+
+    private static string ValidateBaseArguments(LocalMap map,string arguments)
+    {
+        // Require the existing native initial-setup grammar rather than
+        // accepting arbitrary WebView-supplied process command lines.
+        if(string.IsNullOrWhiteSpace(arguments)||arguments.Length>4096||
+           arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase)||
+           arguments.Contains("convert",StringComparison.OrdinalIgnoreCase)||
+           arguments.Contains("-clusterid",StringComparison.OrdinalIgnoreCase)||
+           arguments.Contains("ClusterDirOverride",StringComparison.OrdinalIgnoreCase)||
+           arguments.Contains('\r')||arguments.Contains('\n'))
+            Deny("UM-FRESH-STORE-BASE-ARGS-UNSAFE");
+        var session=Regex.Match(arguments,
+            "\\?SessionName=\"(?<name>[^\"\\r\\n]{1,75})\"",
+            RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100));
+        if(!session.Success||
+           !arguments.Equals(AsaSteamMapCatalog.LaunchArguments(map.Name,
+                session.Groups["name"].Value,map.GamePort,map.QueryPort),
+                StringComparison.Ordinal))
+            Deny("UM-FRESH-STORE-NATIVE-SETUP-REQUIRED");
+        return arguments;
+    }
+
+    private static RegisteredCluster ExistingCluster(ClusterService cluster,
+        LocalMap map,string clusterId)
+    {
+        if(string.IsNullOrWhiteSpace(clusterId))
+            Deny("UM-FRESH-STORE-CLUSTER-NOT-SELECTED");
+        string normalized=ClusterRegistrySchema.NormalizeClusterId(clusterId);
+        if(normalized.Equals("kovacluster",StringComparison.OrdinalIgnoreCase))
+            Deny("UM-FRESH-STORE-KOVA-CLUSTER-RESERVED");
+        var snapshot=cluster.Registry.Snapshot();
+        var entry=snapshot.ClusterRegistry.Clusters.SingleOrDefault(x=>
+            x.ClusterId.Equals(normalized,StringComparison.Ordinal));
+        if(entry==null)Deny("UM-FRESH-STORE-CLUSTER-NOT-REGISTERED");
+        var matches=snapshot.ClusterRegistry.MapAssignments.Where(x=>
+            x.MapId==map.Id).ToArray();
+        if(matches.Length!=1||!matches[0].ClusterId.Equals(normalized,
+            StringComparison.Ordinal))
+            Deny("UM-FRESH-STORE-MAP-MEMBERSHIP-REQUIRED");
+        string owner=ClusterRegistrySchema.NormalizeHostId(cluster.Config.LocalHostId);
+        if(!snapshot.HostRegistry.Maps.Any(x=>
+            x.MapId==map.Id&&x.LocalConfigurationPresent&&
+            x.HostId.Equals(owner,StringComparison.OrdinalIgnoreCase)))
+            Deny("UM-FRESH-STORE-MAP-NOT-LOCAL-OWNER");
+        var members=snapshot.ClusterRegistry.MapAssignments.Where(x=>
+            x.ClusterId.Equals(normalized,StringComparison.Ordinal)).Select(x=>x.MapId)
+            .ToHashSet();
+        if(snapshot.HostRegistry.Maps.Any(x=>members.Contains(x.MapId)&&
+            !x.HostId.Equals(owner,StringComparison.OrdinalIgnoreCase)))
+            Deny("UM-FRESH-STORE-REMOTE-TRANSFER-NOT-CERTIFIED");
+        return entry!;
+    }
+
+    public static Plan Prepare(ClusterService cluster,LocalMap map,string clusterId)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+        ArgumentNullException.ThrowIfNull(map);
+        if(!cluster.Config.LocalMaps.Contains(map)||map.Id==Guid.Empty||
+           map.HistoricalStoreProtected||IsEnrolled(map)||
+           KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
+           !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+           map.Maintenance||map.AutoStart||
+           map.LastProcess!=null||map.LastLoader!=null||
+           map.StartWithAsaApi||
+           !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))
+            Deny("UM-FRESH-STORE-UNUSED-LOCAL-MAP-ONLY");
+        if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
+           !FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+            Deny("UM-FRESH-STORE-NEW-STEAM-INSTALL-REQUIRED");
+        string build=AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)
+            ??throw new InvalidDataException("UM-FRESH-STORE-STEAM-BUILD-MISSING");
+        if(build.Length==0)Deny("UM-FRESH-STORE-STEAM-BUILD-MISSING");
+        var state=cluster.Check(map);
+        if(state.Running||!state.ConfirmedStopped||
+           state.Identity!=null||state.LoaderIdentity!=null)
+            Deny("UM-FRESH-STORE-ASA-NOT-PROVEN-STOPPED");
+        var registered=ExistingCluster(cluster,map,clusterId);
+        string transfer=SafeTransfer(registered.TransferDirectory);
+        var root=Path.GetFullPath(map.InstallationPath);
+        if(cluster.Config.LocalMaps.Any(x=>x.Id!=map.Id&&
+           !string.IsNullOrWhiteSpace(x.InstallationPath)&&
+           Path.GetFullPath(x.InstallationPath).Equals(root,
+               StringComparison.OrdinalIgnoreCase)))
+            Deny("UM-FRESH-STORE-INSTALL-OWNERSHIP-CONFLICT");
+        // Refuse a previously used world, tribute, player or tribe save even
+        // when the requested map's .ark is missing or a 0 KB placeholder.
+        foreach(string folder in new[]{
+            Path.Combine(root,"ShooterGame","Saved","SavedArks"),
+            Path.Combine(root,"ShooterGame","Saved","SavedArksLocal")
+        })
+        {
+            if(!Directory.Exists(folder))continue;
+            var info=new DirectoryInfo(folder);
+            if((info.Attributes&FileAttributes.ReparsePoint)!=0||
+               Directory.EnumerateFileSystemEntries(folder,"*",
+                   SearchOption.AllDirectories).Any())
+                Deny("UM-FRESH-STORE-EXISTING-SAVE-OR-REPARSE");
+        }
+        string baseArgs=ValidateBaseArguments(map,map.Arguments);
+        string normalized=ClusterRegistrySchema.NormalizeClusterId(clusterId);
+        string args=baseArgs+" -clusterid="+normalized+
+            " -ClusterDirOverride="+transfer+" -usestore";
+        if(args.Length>8192)
+            Deny("UM-FRESH-STORE-ARGUMENTS-TOO-LONG");
+        var registry=cluster.Registry.Snapshot();
+        string material=JsonSerializer.Serialize(map)+"\n"+registry.Revision+
+            "\n"+normalized+"\n"+transfer+"\n"+args+"\n"+build;
+        string fingerprint=Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(material)));
+        return new(map.Id,normalized,transfer,args,build,
+            registry.Revision,fingerprint,"NEW_EMPTY_STORE_V1_METADATA_ONLY");
+    }
+
+    /// <summary>
+    /// Recheck pinned local metadata before Start/Stop/SaveWorld. No
+    /// historical map, changed cluster assignment or cross-host alias
+    /// can silently become a new Store writer.
+    /// </summary>
+    public static void DemandEnrolled(ClusterService cluster,LocalMap map)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+        ArgumentNullException.ThrowIfNull(map);
+        if(!cluster.Config.LocalMaps.Contains(map)||!IsEnrolled(map)||
+           map.HistoricalStoreProtected||
+           !string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot))
+            Deny("UM-FRESH-STORE-NOT-OWNED-OR-HISTORICAL");
+        string clusterId=ClusterRegistrySchema.NormalizeClusterId(
+            map.FreshStoreClusterId);
+        var registered=ExistingCluster(cluster,map,clusterId);
+        string transfer=SafeTransfer(registered.TransferDirectory);
+        if(!string.Equals(transfer,map.FreshStoreTransferDirectory,
+            StringComparison.OrdinalIgnoreCase))
+            Deny("UM-FRESH-STORE-TRANSFER-REGISTRY-CHANGED");
+        string suffix=" -clusterid="+clusterId+
+            " -ClusterDirOverride="+transfer+" -usestore";
+        string args=map.Arguments;
+        if(!args.EndsWith(suffix,StringComparison.Ordinal)||
+           args.Contains("converttostore",StringComparison.OrdinalIgnoreCase)||
+           args.Contains("convertfromstore",StringComparison.OrdinalIgnoreCase))
+            Deny("UM-FRESH-STORE-CONVERSION-OR-PROFILE-CHANGED");
+        ValidateBaseArguments(map,args[..^suffix.Length]);
+        if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+            Deny("UM-FRESH-STORE-LOCAL-EXE-OR-RECOVERY-INVALID");
+        var root=Path.GetFullPath(map.InstallationPath);
+        if(cluster.Config.LocalMaps.Any(x=>x.Id!=map.Id&&
+           !string.IsNullOrWhiteSpace(x.InstallationPath)&&
+           Path.GetFullPath(x.InstallationPath).Equals(root,
+               StringComparison.OrdinalIgnoreCase)))
+            Deny("UM-FRESH-STORE-INSTALL-OWNERSHIP-CONFLICT");
+    }
+}

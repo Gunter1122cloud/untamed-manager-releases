@@ -43,10 +43,11 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
     }
     private bool Eligible(LocalMap map)
     {
-        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) || map.Maintenance ||
+        bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
+        if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
            (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-               StringComparison.OrdinalIgnoreCase)||
+               StringComparison.OrdinalIgnoreCase)))||map.Maintenance||
            map.GamePort is <1024 or >65535 ||
            map.QueryPort is <1024 or >65535 ||
            string.IsNullOrWhiteSpace(map.Arguments) ||
@@ -68,8 +69,13 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
             return false;
         if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             return false;
-        if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
-           !AsaRconConfigurationEvidence.Matches(map))return false;
+        if(newStore)
+        {
+            try{FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);}
+            catch(Exception){return false;}
+        }
+        else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map))return false;
+        if(!AsaRconConfigurationEvidence.Matches(map))return false;
         var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
         if(restart!=null&&restart.Phase!=AsaRestartPhase.Completed)return false;
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);

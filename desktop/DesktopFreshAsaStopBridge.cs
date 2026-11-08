@@ -60,16 +60,18 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
             StringComparison.OrdinalIgnoreCase)&&a.Arguments==b.Arguments;
     private ProcessIdentity Require(LocalMap map)
     {
-        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||map.Maintenance||
+        bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
+        if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
            (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-               StringComparison.OrdinalIgnoreCase)||
-           !AsaReadyProbe.IsRegisteredServerBinary(map)||
+               StringComparison.OrdinalIgnoreCase)))||
+           map.Maintenance||!AsaReadyProbe.IsRegisteredServerBinary(map)||
            map.RconHost!="127.0.0.1"||
            map.RconPort is <1024 or >65535 ||
            string.IsNullOrWhiteSpace(map.RconPasswordProtected))
             throw new InvalidOperationException("Local non-Store RCON configuration required");
-        FreshAsaInstallationSafety.Demand(cluster,map);
+        if(newStore)FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+        else FreshAsaInstallationSafety.Demand(cluster,map);
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
         var state=cluster.Check(map);
         if(!state.Running||state.ConfirmedStopped||

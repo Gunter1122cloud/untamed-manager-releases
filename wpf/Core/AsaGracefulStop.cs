@@ -48,16 +48,18 @@ public static class AsaGracefulStop
             throw new ArgumentOutOfRangeException(nameof(timeout));
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId)
             ??throw new UnauthorizedAccessException("Local ASA map is not registered");
-        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||map.Maintenance||
-           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
-           (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-               StringComparison.OrdinalIgnoreCase)||
-           !AsaReadyProbe.IsRegisteredServerBinary(map))
+        bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
+        if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
+            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+            (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
+                StringComparison.OrdinalIgnoreCase)))||
+           map.Maintenance||!AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidOperationException("Historical or unverified map cannot stop");
         if(map.RconHost!="127.0.0.1"||map.RconPort is <1024 or >65535||
            string.IsNullOrWhiteSpace(map.RconPasswordProtected))
             throw new InvalidDataException("Local RCON is required for graceful stop");
-        FreshAsaInstallationSafety.Demand(cluster,map);
+        if(newStore)FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+        else FreshAsaInstallationSafety.Demand(cluster,map);
         var restartJournal=new AsaManualRestartJournal(map.InstallationPath);
         restartJournal.DemandAuthorizedStop(approvedRestartId);
         var owns=listenerOwner??RconPortOwnership.IsOwnedListener;
@@ -81,7 +83,8 @@ public static class AsaGracefulStop
         Verify();
         using var lease=cluster.Operations.Acquire(map.InstallationPath,
             UntamedOperationKind.Launch);
-        FreshAsaInstallationSafety.Demand(cluster,map);
+        if(newStore)FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+        else FreshAsaInstallationSafety.Demand(cluster,map);
         restartJournal.DemandAuthorizedStop(approvedRestartId);
         if(!AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new InvalidOperationException("UM-ASA-STOP-LOCAL-BINARY-CHANGED");
