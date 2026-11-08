@@ -6,8 +6,8 @@ import {managerBridge,type FreshAsaStartPreview,type FreshAsaStartStatus,type Fr
 // launch arguments, credentials or Store data in WebView2 storage.
 const recentStartReceipts=new Map<string,string>();
 
-export function FreshAsaStartPanel({mapId,onStarted,journalBlocked}:{
-  mapId:string;onStarted:()=>Promise<void>;journalBlocked:boolean
+export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
+  mapId:string;onStarted:()=>Promise<void>;onOpenRcon?:()=>void;journalBlocked:boolean
 }){
   const [observed,setObserved]=useState<FreshAsaStartStatus|null>(null);
   const [preview,setPreview]=useState<FreshAsaStartPreview|null>(null);
@@ -106,7 +106,9 @@ export function FreshAsaStartPanel({mapId,onStarted,journalBlocked}:{
         onClick={()=>setPreview(null)}>Mégsem</button>
     </div>}
     {message&&<div className="success-inline" role="status"><CheckCircle2 size={18}/>{message}</div>}
-    {error&&<div className="warning-inline" role="alert"><AlertTriangle size={18}/>{error}</div>}
+    {error&&<div className="warning-inline" role="alert"><AlertTriangle size={18}/>{error}
+      {onOpenRcon&&<button type="button" className="secondary" onClick={onOpenRcon}>RCON előkészítés megnyitása</button>}
+    </div>}
     <p className="muted tiny"><Shield size={14}/> Nem használ karakterkonverziót, nem ír a Store-v1-be, nem indít másik hostot, és nincs automatikus második Start-kísérlet.</p>
   </section>;
 }
