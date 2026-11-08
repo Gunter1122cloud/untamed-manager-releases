@@ -1135,7 +1135,7 @@ public sealed partial class ClusterService : IAsyncDisposable
     /// restarts or force-kills the game, or auto-retries a failed launch.
     /// </summary>
     public ProcessIdentity LaunchOriginalActiveStoreAsa(Guid mapId,
-        string approvedFingerprint,bool explicitlyApproved)
+        string approvedFingerprint,bool explicitlyApproved,Guid? approvedRestartId=null)
     {
         if(!explicitlyApproved||mapId==Guid.Empty||
            string.IsNullOrWhiteSpace(approvedFingerprint)||
@@ -1144,14 +1144,14 @@ public sealed partial class ClusterService : IAsyncDisposable
             throw new UnauthorizedAccessException("UM-STORE-NATIVE-EXPLICIT-APPROVAL");
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId) ??
             throw new UnauthorizedAccessException("UM-STORE-NATIVE-LOCAL-OWNER-REQUIRED");
-        var preview=LegacyStoreV1NativeStartPlanner.Prepare(this,map);
+        var preview=LegacyStoreV1NativeStartPlanner.Prepare(this,map,approvedRestartId);
         if(!string.Equals(preview.Fingerprint,approvedFingerprint,StringComparison.Ordinal))
             throw new InvalidDataException("UM-STORE-NATIVE-SOURCE-CHANGED");
         using var lease=Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch);
         var current=Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId);
         if(!ReferenceEquals(current,map))
             throw new InvalidOperationException("UM-STORE-NATIVE-MAP-CHANGED");
-        var inspected=LegacyStoreV1NativeStartPlanner.Prepare(this,map);
+        var inspected=LegacyStoreV1NativeStartPlanner.Prepare(this,map,approvedRestartId);
         if(!string.Equals(inspected.Fingerprint,approvedFingerprint,StringComparison.Ordinal)||
            inspected.Arguments!=preview.Arguments)
             throw new InvalidOperationException("UM-STORE-NATIVE-PREFLIGHT-CHANGED");

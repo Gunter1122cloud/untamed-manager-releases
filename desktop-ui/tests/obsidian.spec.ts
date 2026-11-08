@@ -95,6 +95,19 @@ test.beforeEach(async ({ page }) => {
     let originalRconPortOwner=true;
     const originalStopToken="00000000-0000-4000-8000-000000001696";
     const originalStopJob="00000000-0000-4000-8000-000000001697";
+    const originalRestartToken="00000000-0000-4000-8000-000000001688";
+    const originalRestartJob="00000000-0000-4000-8000-000000001689";
+    let originalRestartApproved=false;
+    let originalRestartQueued=false;
+    let originalRestartFail=false;
+    let originalRestartSends=0;
+    (window as typeof window & {
+      __UNTAMED_RESTART_FAIL__?:()=>void;
+      __UNTAMED_RESTART_SENDS__?:()=>number;
+    }).__UNTAMED_RESTART_FAIL__=()=>{originalRestartFail=true;};
+    (window as typeof window & {
+      __UNTAMED_RESTART_SENDS__?:()=>number;
+    }).__UNTAMED_RESTART_SENDS__=()=>originalRestartSends;
     let originalStopQueued=false;
     const originalSaveToken="00000000-0000-4000-8000-000000001692";
     const originalSaveJob="00000000-0000-4000-8000-000000001693";
@@ -573,6 +586,68 @@ test.beforeEach(async ({ page }) => {
             response:"Synthetic original ASA "+command,observedUtc:"2026-11-07T17:00:00Z",
             readOnly:true,storeTouched:false,saveCompleteProven:false,
             evidence:"ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON"};
+        }
+        case "historical.restartRecovery": {
+          return {mapId:two,
+            phase:originalRestartFail&&originalRestartQueued?"NeedsOperator":
+              originalRestartQueued?"Completed":"None",
+            entryBelongsToMap:originalRestartQueued,
+            blocked:oldStopNeedsOperator||
+              (originalRestartFail&&originalRestartQueued),
+            requiresOperator:oldStopNeedsOperator||
+              (originalRestartFail&&originalRestartQueued),
+            inMemoryRunning:false,jobId:null,
+            oldPid:originalRestartQueued?42101:null,
+            newPid:originalRestartQueued&&!originalRestartFail?42102:0,
+            automaticRecovery:false,automaticRetry:false,
+            originalStoreTouched:false,lockCleared:false,
+            evidence:"ORIGINAL_STORE_V1_DURABLE_RESTART_RECOVERY_READ_ONLY"};
+        }
+        case "historical.restartPreview": {
+          if(m.mapId!==two||!historicalRconAttached||
+             !historicalActiveStarted||oldStopNeedsOperator||
+             !originalRconSourceValid||!originalRconPortOwner||
+             originalRestartQueued||originalRestartApproved)
+            throw new Error("Original Store Restart blocked");
+          originalRestartApproved=true;
+          return {token:originalRestartToken,mapId:two,mapName:"Astraeos",
+            pid:42101,rconPort:37145,usesSaveWorld:true,
+            usesDoExit:true,launchesOriginalActive:true,
+            conversionAllowed:false,automaticRetry:false,
+            gameplayReadinessCertified:false,originalStoreTouched:false,
+            evidence:"ORIGINAL_STORE_V1_RESTART_TWO_STAGE_PREFLIGHT"};
+        }
+        case "historical.restartApply": {
+          if(m.token!==originalRestartToken||m.confirm!==true||
+             m.typedApproval!=="STORE-V1 SAVEWORLD DOEXIT START"||
+             !originalRestartApproved||originalRestartQueued)
+            throw new Error("Original Store Restart approval mismatch");
+          originalRestartQueued=true;
+          originalRestartApproved=false;originalRestartSends++;
+          return {jobId:originalRestartJob,started:true,
+            automaticRetry:false,forceKill:false,storeTouched:false,
+            evidence:"ORIGINAL_STORE_V1_MANUAL_RESTART_JOB_QUEUED"};
+        }
+        case "historical.restartStatus": {
+          if(!originalRestartQueued||m.jobId!==originalRestartJob)
+            throw new Error("Original Store Restart job missing");
+          if(originalRestartFail)
+            return {jobId:originalRestartJob,mapId:two,state:"needsOperator",
+              step:"Synthetic new spawn failed",changedUtc:"2026-11-08T18:40:00Z",
+              oldPid:42101,newPid:0,oldProcessStopped:true,
+              preExitSaveLogAndWorldObserved:true,
+              readyCertified:false,gameClientRejoinVerified:false,
+              finalDoExitSaveCertified:false,automaticRetry:false,
+              forceKill:false,storeTouched:false,
+              evidence:"ORIGINAL_STORE_V1_NATIVE_MANUAL_RESTART_JOB"};
+          return {jobId:originalRestartJob,mapId:two,state:"completed",
+            step:"Új eredeti ASA PID létrejött",changedUtc:"2026-11-08T18:40:00Z",
+            oldPid:42101,newPid:42102,oldProcessStopped:true,
+            preExitSaveLogAndWorldObserved:true,
+            readyCertified:false,gameClientRejoinVerified:false,
+            finalDoExitSaveCertified:false,automaticRetry:false,
+            forceKill:false,storeTouched:false,
+            evidence:"ORIGINAL_STORE_V1_NATIVE_MANUAL_RESTART_JOB"};
         }
         case "historical.gracefulStopRecovery": return {
           mapId:two,
@@ -2431,6 +2506,63 @@ test("original Store-v1 SaveWorld-only refuses unresolved durable journal withou
   await expect(panel.getByText(/Befejezetlen Store-v1 műveleti napló/)).toBeVisible();
   await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
   await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
+});
+
+test("original Store-v1 manual Restart requires exact two-stage approval and displays new PID without claiming gameplay readiness",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
+  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+    .toBeEnabled();
+  await panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}).click();
+  const approval=panel.getByRole("region",{name:"Store-v1 újraindítás jóváhagyása"});
+  await expect(approval).toContainText("régi PID 42101");
+  const apply=approval.getByRole("button",{name:"Store-v1 Restart végrehajtása"});
+  await expect(apply).toBeDisabled();
+  await approval.getByLabel("Store-v1 újraindítás jóváhagyó szöveg")
+    .fill("STORE-V1 SAVEWORLD DOEXIT");
+  await expect(apply).toBeDisabled();
+  await approval.getByLabel("Store-v1 újraindítás jóváhagyó szöveg")
+    .fill("STORE-V1 SAVEWORLD DOEXIT START");
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(panel.getByText(/Új eredeti ASA PID: 42102/)).toBeVisible();
+  await expect(panel.getByText(/Régi PID 42101 → új PID 42102/)).toBeVisible();
+  await expect(panel).toContainText("játékbeli csatlakozás és karakterutazás");
+  const sent=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_SENDS__?:()=>number
+  }).__UNTAMED_RESTART_SENDS__?.());
+  expect(sent).toBe(1);
+  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+    .toBeDisabled();
+});
+
+test("original Store-v1 Restart fails closed after synthetic Stop-to-Start crash and never auto-retries",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_FAIL__?:()=>void
+  }).__UNTAMED_RESTART_FAIL__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 manuális újraindítás"});
+  await panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}).click();
+  const approval=panel.getByRole("region",{name:"Store-v1 újraindítás jóváhagyása"});
+  await approval.getByLabel("Store-v1 újraindítás jóváhagyó szöveg")
+    .fill("STORE-V1 SAVEWORLD DOEXIT START");
+  await approval.getByRole("button",{name:"Store-v1 Restart végrehajtása"}).click();
+  await expect(panel.getByText(/A Store-v1 Restart megszakadt/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Store-v1 újraindítás előellenőrzése"}))
+    .toBeDisabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RESTART_SENDS__?:()=>number
+  }).__UNTAMED_RESTART_SENDS__?.())).toBe(1);
 });
 
 test("original Store-v1 real SaveWorld then DoExit requires exact typed approval, shows durable result and no Kill",async({page})=>{

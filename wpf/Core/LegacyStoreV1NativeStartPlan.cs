@@ -23,7 +23,7 @@ internal static class LegacyStoreV1NativeStartPlanner
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
 
     internal static LegacyStoreV1NativeStartPlan Prepare(ClusterService cluster,
-        LocalMap map)
+        LocalMap map,Guid? approvedRestartId=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         if(map==null||!cluster.Config.LocalMaps.Contains(map)||
@@ -44,7 +44,15 @@ internal static class LegacyStoreV1NativeStartPlanner
            !AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException("UM-STORE-NATIVE-EXE-RCON-PARITY");
         var prior=new AsaManualRestartJournal(map.InstallationPath);
-        prior.DemandNoPending();
+        if(approvedRestartId is Guid restartId)
+        {
+            var record=prior.Observe();
+            if(record==null||record.Id!=restartId||record.MapId!=map.Id||
+               record.Phase!=AsaRestartPhase.Starting)
+                throw new InvalidOperationException("UM-ORIGINAL-RESTART-START-NOT-AUTHORIZED");
+            prior.DemandAuthorizedStart(restartId);
+        }
+        else prior.DemandNoPending();
         if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("UM-STORE-NATIVE-BACKUP-RECOVERY");
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);

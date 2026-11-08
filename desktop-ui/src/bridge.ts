@@ -105,7 +105,7 @@ export type PublicMap = {
   storeProtected?: boolean;  // only populated for locally owned maps
   /** Read-only native state, never Start/Stop or Store-session authorization. */
   storeLifecycleState?: "running"|"preflightRequired"|"needsConfiguration"|
-    "needsOperator"|"maintenance"|"protected";
+    "needsOperator"|"restartPending"|"maintenance"|"protected";
   maintenance?: boolean;     // local configuration, not runtime health
   rconConfigured?: boolean;  // credentials set, not connection verification
 };
@@ -736,6 +736,35 @@ export type HistoricalAdminRconReceipt = {
   gameplayEffectVerified:false;
   evidence:"ORIGINAL_STORE_ACTIVE_ADMIN_RCON_SINGLE_SEND";
 };
+
+export type HistoricalRestartPreview = {
+  token:string;mapId:string;mapName:string;pid:number;rconPort:number;
+  usesSaveWorld:true;usesDoExit:true;launchesOriginalActive:true;
+  conversionAllowed:false;automaticRetry:false;
+  gameplayReadinessCertified:false;originalStoreTouched:false;
+  evidence:"ORIGINAL_STORE_V1_RESTART_TWO_STAGE_PREFLIGHT";
+};
+export type HistoricalRestartQueued = {
+  jobId:string;started:true;automaticRetry:false;forceKill:false;storeTouched:false;
+  evidence:"ORIGINAL_STORE_V1_MANUAL_RESTART_JOB_QUEUED";
+};
+export type HistoricalRestartRecovery = {
+  mapId:string;phase:"None"|"Stopping"|"Starting"|"Completed"|"NeedsOperator";
+  entryBelongsToMap:boolean;blocked:boolean;requiresOperator:boolean;
+  inMemoryRunning:boolean;jobId:string|null;oldPid:number|null;newPid:number|null;
+  automaticRecovery:false;automaticRetry:false;
+  originalStoreTouched:false;lockCleared:false;
+  evidence:"ORIGINAL_STORE_V1_DURABLE_RESTART_RECOVERY_READ_ONLY";
+};
+export type HistoricalRestartStatus = {
+  jobId:string;mapId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  step:string;changedUtc:string;oldPid:number;newPid:number;
+  oldProcessStopped:boolean;preExitSaveLogAndWorldObserved:boolean;
+  readyCertified:false;gameClientRejoinVerified:false;
+  finalDoExitSaveCertified:false;automaticRetry:false;
+  forceKill:false;storeTouched:false;
+  evidence:"ORIGINAL_STORE_V1_NATIVE_MANUAL_RESTART_JOB";
+};
 export type HistoricalGracefulStopPreview = {
   token:string;mapId:string;mapName:string;pid:number;rconPort:number;
   originalTwoPeersVerified:true;usesSaveWorld:true;usesDoExit:true;
@@ -1063,6 +1092,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    "historical.gracefulStopStatus" | "historical.gracefulStopRecovery" |
    "historical.saveWorldPreview" | "historical.saveWorldApply" |
    "historical.saveWorldStatus" |
+   "historical.restartPreview" | "historical.restartApply" |
+   "historical.restartStatus" | "historical.restartRecovery" |
    "historical.adminPreview" | "historical.adminSend" |
   "api.coreRelease" | "api.corePreview" | "api.coreApply" |
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
@@ -1417,6 +1448,16 @@ export const managerBridge = {
     request<HistoricalAdminRconReceipt>("historical.adminSend",{
       token,confirm:true,typedApproval
     }),
+  historicalRestartRecovery: (mapId:string) =>
+    request<HistoricalRestartRecovery>("historical.restartRecovery",{mapId}),
+  historicalRestartPreview: (mapId:string) =>
+    request<HistoricalRestartPreview>("historical.restartPreview",{mapId}),
+  historicalRestartApply: (token:string,typedApproval:string) =>
+    request<HistoricalRestartQueued>("historical.restartApply",{
+      token,typedApproval,confirm:true
+    }),
+  historicalRestartStatus: (jobId:string) =>
+    request<HistoricalRestartStatus>("historical.restartStatus",{jobId}),
   historicalGracefulStopRecovery: (mapId:string) =>
     request<HistoricalGracefulStopRecovery>("historical.gracefulStopRecovery",{mapId}),
   historicalGracefulStopPreview: (mapId:string) =>
