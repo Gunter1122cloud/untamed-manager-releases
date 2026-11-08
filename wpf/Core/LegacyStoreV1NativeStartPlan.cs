@@ -127,8 +127,9 @@ internal static class LegacyStoreV1NativeStartPlanner
             // Missing cache is not a reason to substitute another ASA build's
             // archive. Official AsaApi performs SHA-bound acquisition itself;
             // Process.Start never means that acquisition has completed.
-            launchMode="ASA_API:"+string.Join(":",inspection.Binaries.Select(
-                x=>x.Sha256))+":"+cfgHash+":"+cacheState;
+            launchMode="ASA_API:"+localCache.ExecutableSha256+":"+
+                string.Join(":",inspection.Binaries.Select(x=>x.Sha256))+
+                ":"+cfgHash+":"+cacheState;
         }
         string originalIniSha=Convert.ToHexString(SHA256.HashData(ini));
         string evidence=string.Join("\n",map.Id.ToString("D"),
