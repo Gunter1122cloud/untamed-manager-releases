@@ -1357,7 +1357,7 @@ try
             var wrongRootPreview=await Call(setup.HandleAsync,"servers.initialPreview",
                 new{mapId=valguero.Id,sessionName="Wrong Root",
                     gamePort=testGamePort,queryPort=testQueryPort});
-            Check(IsError(wrongRootPreview,"UM-INITIAL-ALREADY-CONFIGURED") &&
+            Check(IsError(wrongRootPreview,"UM-INITIAL-EXECUTABLE-INVALID") &&
                   valguero.GamePort==0 && valguero.Arguments=="",
                 "initial preview rejects an unrelated existing EXE without profile mutation");
         }
