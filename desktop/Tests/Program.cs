@@ -4975,6 +4975,47 @@ try
             Check(!duplicate.GetProperty("ok").GetBoolean()&&apiLaunches==1,
                 "API loader original Store spawn remains one-shot across a repeated request");
         }
+        // The optional API choice is saved only after a new, stopped-map,
+        // owner-only native approval; it never invokes Process.Start.
+        int modeChecks=0;
+        using(var modeBridge=new DesktopHistoricalActiveStartBridge(historic,
+            preparation:null,launcher:null,
+            loaderModePreflight:(map,useApi)=>{
+                modeChecks++;
+                return map.Id==storeMap.Id&&map.HistoricalStoreProtected;
+            }))
+        {
+            var modePreview=await Call(modeBridge.HandleAsync,
+                "historical.loaderModePreview",
+                new{mapId=storeMap.Id,useApi=false});
+            IsOk(modePreview,"Store API Loader opt-out native preference preview");
+            string modeToken=modePreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            var unauthorized=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",new{token=modeToken,confirm=false});
+            Check(!unauthorized.GetProperty("ok").GetBoolean()&&
+                  storeMap.StartWithAsaApi,
+                "native Loader preference cannot be changed without explicit approval");
+            var applied=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",new{token=modeToken,confirm=true});
+            IsOk(applied,"stopped original Store map supports saved direct ASA opt-out");
+            Check(!storeMap.StartWithAsaApi&&apiLaunches==1,
+                "native Store launch switch writes only local preference, not ASA process");
+            var replay=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",new{token=modeToken,confirm=true});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "Store API mode preview token is one-shot");
+            var optIn=await Call(modeBridge.HandleAsync,
+                "historical.loaderModePreview",new{mapId=storeMap.Id,useApi=true});
+            IsOk(optIn,"original Store API Loader opt-in requires stopped native preflight");
+            modeToken=optIn.GetProperty("data").GetProperty("token").GetString()!;
+            var enabled=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",new{token=modeToken,confirm=true});
+            IsOk(enabled,"original Store API Loader opt-in saved only after approval");
+            Check(storeMap.StartWithAsaApi&&modeChecks>=4&&
+                  storeMap.Arguments==""&&storeMap.ApiLoaderArguments=="",
+                "native Loader mode cannot persist original UNC or Store switches");
+        }
         storeMap.StartWithAsaApi=false;
         storeMap.ApiLoaderPath="";
     }
