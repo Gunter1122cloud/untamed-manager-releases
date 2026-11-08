@@ -37,7 +37,8 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
         Func<string,int,string,string,CancellationToken,Task<string>>? dispatch)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
-        inspect=processInspector??LegacyStoreV1ProcessObserver.Observe;
+        inspect=processInspector??(map=>LegacyStoreV1ProcessObserver.Observe(
+            map,cluster.Config.LocalMaps));
         source=sourceGuard??(map=>
             LegacyStoreV1LiveReadGate.InspectOriginalActive(map,
                 Path.Combine(Environment.GetFolderPath(
