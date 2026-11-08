@@ -65,6 +65,12 @@ A [#64](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/64) ere
 - A PR kizárólag UI és regresszió; nem változtatott a `DesktopInitialMapSetupBridge`, `DesktopIniBridge`, `DesktopRconConfigurationBridge`, `FreshAsaInstallationSafety` vagy Store-v1 őrző kódon. **Automatikus ASA Start nincs; a tényleges The Island elsőindítás helyszíni elfogadása továbbra is hiányzik.**
 - A kezdeti PR CI #1585 hibát adott az új teszten: a konfigurációs szakasz `configured=true` állapota elrejtette a sikeres RCON panel gombját. A `91f640c` fix valóban külön, mindig látható sikerállapotba helyezte; a #1586 ismételt CI sikeres.
 
+## 2026-11-08 – #67 INI ETag ütközés elkülönített natív hibakezelése (MAIN)
+
+[PR #67](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/67) **MERGED**, merge SHA `7a92ff295961ce2566d5624267b544e81ab9120e`; [Windows PR CI #1588](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42491887030) **SUCCESS** a pontos `54de4d1c60fddf3727cbe9eb974e3b3f617c0cfd` head SHA-n. A merge utáni main Windows CI #1589 eredménye külön ellenőrzendő.
+
+**TEST-001 / P0:** `wpf/Core/SafeConfigEditor.cs` az előnézet után megváltozott külső INI-t külön `ConfigEtagConflictException : IOException` típussal jelzi. A `desktop/DesktopIniBridge.cs` biztonságos `UM-INI-ETAG-MISMATCH` hibakódot ad; a `desktop-ui/src/App.tsx` magyar feloldási útvonalat mutat; a `desktop/Tests/Program.cs` natív regresszió igazolja, hogy a frissebb külső bájtok változatlanok maradnak. Az atomikus mentés, SHA-256, BOM/kódolás/sortörés, folyamatállapot- és Store-v1-védelem nem lazult. Valós felhasználói ASA teszt külön hátravan.
+
 ## Osztályozott forráskód – rendrakási ellenőrzés
 
 | Forrás / komponens | Állapot | Indok |
