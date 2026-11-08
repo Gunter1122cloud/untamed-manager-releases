@@ -199,7 +199,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     // The optional ASA API Loader is a separate P0. A direct
                     // restart must never stop an API-origin map and silently
                     // relaunch it without its original loader.
-                    if(map.StartWithAsaApi||!string.IsNullOrWhiteSpace(map.ApiLoaderPath)||
+                    if(map.StartWithAsaApi||
                        !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))
                         return Fail(id,"UM-ORIGINAL-RESTART-LOADER-NOT-SUPPORTED");
                     new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
@@ -237,7 +237,6 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 var original=Owned(approved.MapId);
                 if(original==null||!original.HistoricalStoreProtected||
                    original.Maintenance||original.StartWithAsaApi||
-                   !string.IsNullOrWhiteSpace(original.ApiLoaderPath)||
                    !string.IsNullOrWhiteSpace(original.ApiLoaderArguments)||
                    JsonSerializer.Serialize(original)!=approved.Profile||
                    original.RconPort!=approved.RconPort)
