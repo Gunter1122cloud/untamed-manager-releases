@@ -8,6 +8,12 @@ using System.Text.Json;
 
 namespace UntamedManager.Core;
 
+// Distinguish optimistic-concurrency conflicts from file locks and I/O failures.
+// Still derives from IOException for historical callers and regression tests.
+public sealed class ConfigEtagConflictException : IOException
+{
+    public ConfigEtagConflictException(string message) : base(message) { }
+}
 public enum ConfigKind { GameIni, PluginJson }
 public sealed record ConfigSnapshot(string Path,ConfigKind Kind,string Sha256,string Text,
     string EncodingId,string LineEnding,bool HasBom,long Bytes);
@@ -54,7 +60,7 @@ public static class SafeConfigEditor
         if(!preview.Changed)return "";
         if(!Hex(File.ReadAllBytes(baseline.Path)).Equals(baseline.Sha256,
             StringComparison.Ordinal))
-            throw new IOException("Config changed externally (ETag mismatch)");
+            throw new ConfigEtagConflictException("Config changed externally (ETag mismatch)");
         string target=baseline.Path;
         string token=Guid.NewGuid().ToString("N");
         string tmp=target+".untamed-stage-"+token;
@@ -67,7 +73,7 @@ public static class SafeConfigEditor
             if(!Hex(File.ReadAllBytes(tmp)).Equals(preview.NewSha256,StringComparison.Ordinal))
                 throw new IOException("Staged config checksum mismatch");
             if(!Hex(File.ReadAllBytes(target)).Equals(baseline.Sha256,StringComparison.Ordinal))
-                throw new IOException("Config changed during staging");
+                throw new ConfigEtagConflictException("Config changed during staging");
             // The UI passes a fresh OS process inspection here, immediately
             // before the atomic replacement. An externally started map must
             // not inherit the earlier 'stopped' decision from editor opening.

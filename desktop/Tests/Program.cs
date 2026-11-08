@@ -1053,8 +1053,8 @@ try
             "second INI preview succeeds");
         File.WriteAllText(iniFile,"[ServerSettings]\nEXTERNAL=1\n");
         var conflict=await Call(ini.HandleAsync,"ini.save",new{token=conflictToken});
-        Check(IsError(conflict,"UM-INI-CONFLICT-OR-IO-ERROR"),
-            "external INI modification defeats stale hash/ETag save");
+        Check(IsError(conflict,"UM-INI-ETAG-MISMATCH"),
+            "external INI modification is a distinct ETag conflict and preserves newer bytes");
         Check(File.ReadAllText(iniFile).Contains("EXTERNAL=1"),
             "external change preserved on failed staged save");
     }
