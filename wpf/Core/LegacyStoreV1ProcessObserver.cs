@@ -290,52 +290,102 @@ public static class LegacyStoreV1ProcessObserver
                 return new(false,
                     "Eredeti Store-v1 futtatható fájl nem igazolható",null);
             string exe=Path.GetFullPath(map.ExecutablePath);
-            var matches=new List<ProcessIdentity>();
+            string loader=Path.Combine(Path.GetDirectoryName(exe)!,"AsaApiLoader.exe");
+            var serverProcesses=new List<ObservedProcess>();
+            var loaderProcesses=new List<ObservedProcess>();
             bool uncertain=false;
             using var searcher=new ManagementObjectSearcher(
-                "SELECT ProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process");
+                "SELECT ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process");
             using var processes=searcher.Get();
             foreach(ManagementObject entry in processes)
             {
                 try
                 {
-                    if(!Path.GetFileName(exe).Equals(
-                        Convert.ToString(entry["Name"]),StringComparison.OrdinalIgnoreCase))
+                    string name=Convert.ToString(entry["Name"])??"";
+                    string? rawPath=Convert.ToString(entry["ExecutablePath"]);
+                    if(!PotentialOriginalWriter(exe,name,rawPath))
                         continue;
-                    string path=Convert.ToString(entry["ExecutablePath"])??"";
-                    if(string.IsNullOrWhiteSpace(path))
+                    // A missing path or unreadable source command is NEVER
+                    // evidence that an API child belongs to another map.
+                    if(string.IsNullOrWhiteSpace(rawPath))
                     {uncertain=true;continue;}
-                    if(!Path.GetFullPath(path).Equals(exe,
-                        StringComparison.OrdinalIgnoreCase))continue;
+                    string path=Path.GetFullPath(rawPath);
+                    bool api=path.Equals(loader,StringComparison.OrdinalIgnoreCase);
+                    bool server=path.Equals(exe,StringComparison.OrdinalIgnoreCase);
+                    if(!api&&!server)continue;
                     string command=Convert.ToString(entry["CommandLine"])??"";
-                    if(ProvenDistinctOwnedMap(command,exe,map,locallyRegisteredMaps))
-                        continue; // Exact registered peer and source command proven.
-                    if(!MatchesOriginalActiveCommand(command,exe,map))
+                    if(server&&ProvenDistinctOwnedMap(
+                        command,exe,map,locallyRegisteredMaps))
+                        continue;
+                    if(api&&ProvenDistinctOwnedApiLoader(
+                        command,exe,map,locallyRegisteredMaps))
+                        continue;
+                    if(!MatchesOriginalActiveCommand(command,api?loader:exe,map))
                     {uncertain=true;continue;}
-                    int id=Convert.ToInt32(entry["ProcessId"]);
-                    using var process=Process.GetProcessById(id);
+                    int pid=Convert.ToInt32(entry["ProcessId"]);
+                    int parentPid=Convert.ToInt32(entry["ParentProcessId"]);
+                    using var process=Process.GetProcessById(pid);
                     if(process.HasExited)continue;
                     var started=new DateTimeOffset(process.StartTime.ToUniversalTime());
-                    if(map.LastProcess!=null&&map.LastProcess.Pid==id &&
-                       Math.Abs((started-map.LastProcess.StartedUtc).TotalSeconds)>2)
+                    var persisted=api?map.LastLoader:map.LastProcess;
+                    if(persisted!=null&&persisted.Pid==pid &&
+                       Math.Abs((started-persisted.StartedUtc).TotalSeconds)>2)
                     {uncertain=true;continue;}
-                    matches.Add(new ProcessIdentity{
-                        Pid=id,StartedUtc=started,ExecutablePath=exe,
-                        // Never copy secrets or shared UNC path into an
-                        // in-memory/persisted process identity.
-                        Arguments="HISTORICAL_STORE_V1_READ_ONLY_OBSERVATION"
-                    });
+                    var observed=new ObservedProcess(pid,parentPid,started,path,
+                        "HISTORICAL_STORE_V1_SOURCE_VERIFIED");
+                    if(api)loaderProcesses.Add(observed);
+                    else serverProcesses.Add(observed);
                 }
                 catch(Exception)
                 {uncertain=true;}
             }
-            if(uncertain||matches.Count!=1)
-                return new(false,matches.Count>1?
-                    "Több eredeti ASA-folyamat: manuális ellenőrzés szükséges":
-                    "Eredeti Store-v1 folyamat nem azonosítható biztosan",null);
+            if(uncertain||serverProcesses.Count>1||loaderProcesses.Count>1)
+                return new(false,
+                    "Eredeti Store-v1 folyamatcsalád nem azonosítható egyértelműen",null);
+            if(!map.StartWithAsaApi)
+            {
+                // A loader for this map is never an authorized direct start.
+                if(loaderProcesses.Count!=0||serverProcesses.Count!=1)
+                    return new(false,
+                        "Eredeti Store-v1 közvetlen ASA-folyamat nem igazolt",null);
+                var direct=serverProcesses[0];
+                return new(true,"Fut · eredeti Store-v1 ASA processz ellenőrizve",
+                    new ProcessIdentity{Pid=direct.Pid,StartedUtc=direct.StartedUtc,
+                        ExecutablePath=direct.ExecutablePath,
+                        Arguments="HISTORICAL_STORE_V1_READ_ONLY_OBSERVATION"});
+            }
+            if(serverProcesses.Count!=1||loaderProcesses.Count!=1)
+                return new(false,
+                    loaderProcesses.Count==1&&serverProcesses.Count==0?
+                        "ASA API Loader fut, ASA gyermekfolyamat még nem igazolt":
+                        "ASA API Loader és eredeti ASA gyermekfolyamat nem igazolt",
+                    null,false,loaderProcesses.Count==1?new ProcessIdentity{
+                        Pid=loaderProcesses[0].Pid,
+                        StartedUtc=loaderProcesses[0].StartedUtc,
+                        ExecutablePath=loaderProcesses[0].ExecutablePath,
+                        Arguments="HISTORICAL_STORE_V1_API_LOADER_OBSERVATION"
+                    }:null);
+            var parent=loaderProcesses[0];
+            var child=serverProcesses[0];
+            var parentIdentity=new ProcessIdentity{
+                Pid=parent.Pid,StartedUtc=parent.StartedUtc,
+                ExecutablePath=parent.ExecutablePath,
+                Arguments="HISTORICAL_STORE_V1_SOURCE_VERIFIED"};
+            var childIdentity=new ProcessIdentity{
+                Pid=child.Pid,StartedUtc=child.StartedUtc,
+                ExecutablePath=child.ExecutablePath,
+                Arguments="HISTORICAL_STORE_V1_SOURCE_VERIFIED"};
+            if(!ProcessFamily.IsVerifiedPair(
+                new[]{parent,child},parentIdentity,childIdentity))
+                return new(false,
+                    "ASA API Loader szülő–gyermek PID kapcsolat nem igazolt",null);
+            // The child is the only ASA/RCON owner. The Loader PID must never
+            // be reported as a running ASA server or used for SaveWorld/Stop.
+            childIdentity.Arguments="HISTORICAL_STORE_V1_API_CHILD_VERIFIED";
+            parentIdentity.Arguments="HISTORICAL_STORE_V1_API_LOADER_VERIFIED";
             return new(true,
-                "Fut · eredeti Store-v1 ASA processz ellenőrizve (csak olvasás)",
-                matches[0]);
+                "Fut · eredeti Store-v1 ASA API Loader és gyermek PID igazolt",
+                childIdentity,false,parentIdentity);
         }
         catch(Exception)
         {
