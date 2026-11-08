@@ -798,8 +798,9 @@ function SharedModOverview({onPick,revision}: {
     </div>}
   </Panel>;
 }
-function Mods({ snapshot, selected, setSelected }: {
-  snapshot: DashboardSnapshot; selected: string; setSelected: (value: string) => void
+function Mods({ snapshot, selected, setSelected, mapLocked=false }: {
+  snapshot: DashboardSnapshot; selected: string; setSelected: (value: string) => void;
+  mapLocked?:boolean
 }) {
   const [info, setInfo] = useState<ConfiguredMods | null>(null);
   const [error, setError] = useState("");
@@ -840,10 +841,14 @@ function Mods({ snapshot, selected, setSelected }: {
     </div>
     <div className="premium-mod-map-picker">
       <Layers3 size={18}/>
-      <select aria-label="Helyi map" value={selected} onChange={e=>setSelected(e.target.value)}>
-        {snapshot.local.maps.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-      </select>
-      <span className="premium-small-muted">Az eredeti indítási paraméterek megőrzésével</span>
+      {mapLocked
+        ?<strong aria-label="Modok forrásmapja">{currentName}</strong>
+        :<select aria-label="Helyi map" value={selected} onChange={e=>setSelected(e.target.value)}>
+          {snapshot.local.maps.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>}
+      <span className="premium-small-muted">{mapLocked
+        ?"Ennek a mapnak a modlistáját szerkeszted. Más mapokra a Másolás fülön alkalmazhatod."
+        :"Az eredeti indítási paraméterek megőrzésével"}</span>
     </div>
     {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
     {savedNotice&&<div role="status" className="success-inline premium-mod-save-toast">
@@ -1627,7 +1632,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     {section==="steam" && (map.storeProtected
       ?<div className="warning-inline" role="alert"><Shield size={17}/> Történeti Store-v1 map: automatikus vagy kézi SteamCMD-frissítést ezen az útvonalon nem engedélyezünk.</div>
       :<StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>)}
-    {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>} 
+    {section==="mods" && <Mods key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>} 
     {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="backups" && <BackupCenter mapId={mapId} snapshot={snapshot}/>}
