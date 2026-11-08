@@ -687,6 +687,22 @@ export type HistoricalRconReceipt = {
   originalStoreTouched:false;iniModified:false;serverStarted:false;
   evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED";
 };
+export type FreshStoreEnrollmentStatus = {
+  mapId:string;mapName:string;enrolled:boolean;historicalProtected:boolean;
+  clusterId:string;startsServer:false;originalStoreTouched:false;evidence:string;
+};
+export type FreshStoreEnrollmentPreview = {
+  token:string;mapId:string;mapName:string;clusterId:string;
+  gamePort:number;queryPort:number;steamBuild:string;
+  transferIdentityCheckedLocally:true;remoteIdentityCertified:false;
+  conversionPerformed:false;serverStarted:false;originalStoreTouched:false;
+  automaticRetry:false;evidence:string;
+};
+export type FreshStoreEnrollmentReceipt = {
+  mapId:string;mapName:string;enrolled:true;clusterId:string;
+  conversionPerformed:false;serverStarted:false;originalStoreTouched:false;
+  requiresManualStart:true;evidence:string;
+};
 export type HistoricalLoaderModePreview = {
   token:string;mapId:string;mapName:string;useApi:boolean;
   mode:"asaApiLoader"|"directAsa";startsServer:false;
@@ -1104,7 +1120,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
-   "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
+   "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
    "historical.rconLiveStatus" | "historical.rconPlayers" |
    "historical.rconGameLog" | "historical.rconChatLog" |
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
@@ -1503,6 +1519,14 @@ export const managerBridge = {
     request<HistoricalRconReadResponse>("historical.rconGameLog",{mapId}),
   historicalRconChatLog: (mapId:string) =>
     request<HistoricalRconReadResponse>("historical.rconChatLog",{mapId}),
+  freshStoreEnrollmentStatus: (mapId:string) =>
+    request<FreshStoreEnrollmentStatus>("freshStore.enrollmentStatus",{mapId}),
+  freshStoreEnrollmentPreview: (mapId:string,clusterId:string) =>
+    request<FreshStoreEnrollmentPreview>("freshStore.enrollmentPreview",{mapId,clusterId}),
+  freshStoreEnrollmentApply: (token:string) =>
+    request<FreshStoreEnrollmentReceipt>("freshStore.enrollmentApply",{
+      token,confirm:true,typedApproval:"NEW EMPTY STORE"
+    }),
   historicalLoaderModePreview: (mapId:string,useApi:boolean) =>
     request<HistoricalLoaderModePreview>("historical.loaderModePreview",{mapId,useApi}),
   historicalLoaderModeApply: (token:string) =>
