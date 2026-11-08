@@ -858,7 +858,7 @@ function Mods({ snapshot, selected, setSelected }: {
         {id:"galaxy",name:"CurseForge katalógus",icon:Search},
         {id:"shared",name:"Közös modok",icon:Layers3},
         {id:"copy",name:"Másolás több mapra",icon:Copy},
-        {id:"profile",name:"Modprofilok HP / Ryzen",icon:Layers3}
+        {id:"profile",name:"Modprofilok – N host",icon:Layers3}
       ] as const).map(tab=><button type="button" key={tab.id} role="tab"
         aria-selected={workspaceTab===tab.id}
         className={workspaceTab===tab.id?"active":""}
