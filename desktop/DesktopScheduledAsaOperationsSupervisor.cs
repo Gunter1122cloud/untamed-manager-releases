@@ -354,14 +354,14 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             {
                 ct.ThrowIfCancellationRequested();
                 await Task.Delay(TimeSpan.FromSeconds(3),ct);
-                var check=Decode(await rcon.HandleAsync(
+                var saveStatus=Decode(await rcon.HandleAsync(
                     Message("rcon.saveStatus",new {mapId,watchId})));
-                if(check.GetProperty("combinedSaveEvidenceObserved").GetBoolean())
+                if(saveStatus.GetProperty("combinedSaveEvidenceObserved").GetBoolean())
                 {
                     lease.Complete();
                     return "ASA_LOG_AND_WORLD_STABLE_PREEXIT_NO_FSYNC_CERTIFICATION";
                 }
-                var stage=check.GetProperty("stage").GetString();
+                var stage=saveStatus.GetProperty("stage").GetString();
                 if(stage is "LOG_ROTATED_OR_TRUNCATED" or "WORLD_LINKED" or
                     "LOG_FILE_LINKED" or "LOG_CHANGED")
                     throw new InvalidOperationException("UM-ASA-SCHEDULE-SAVE-WITNESS_INVALID");
