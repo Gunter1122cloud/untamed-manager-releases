@@ -26,6 +26,7 @@ import { PremiumDashboard } from "./PremiumDashboard";
 import { ClusterMapGallery } from "./ClusterMapGallery";
 import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
+import {ModBasketWorkspace,type BasketMod} from "./ModBasketWorkspace";
 import { UpdateCenterPage } from "./UpdateCenterPage";
 import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
 import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
@@ -137,7 +138,7 @@ function HostCard({ host, local = false }: {
     <span className="host-count">{running}/{host.maps.length} fut</span>
   </div>;
 }
-function CurseForgeExplorer({ onPrepare }: { onPrepare?: (id: string) => void }) {
+function CurseForgeExplorer({ onPrepare,onBasketSelect,basketIds=[] }: { onPrepare?: (id: string) => void; onBasketSelect?:(id:string,name:string)=>void;basketIds?:string[] }) {
   const [term, setTerm] = useState("");
   const [categoryId, setCategoryId] = useState(0);
   const [sort, setSort] = useState(3);
@@ -333,7 +334,9 @@ function CurseForgeExplorer({ onPrepare }: { onPrepare?: (id: string) => void })
               onClick={() => { void loadMore(); }}>{filesBusy?"Betöltés...":"További fájlverziók"}</button>}
           </> : selectedBasic && <p className="muted">{selectedBasic.summary}</p>}
           <div className="cf-project-actions">
-            {onPrepare && <button className="primary" disabled={projectBusy} onClick={()=>onPrepare(String(selected))}>
+            {onBasketSelect && selectedBasic && <button className="primary" disabled={projectBusy||basketIds.includes(String(selected))} onClick={()=>onBasketSelect(String(selected),title)}>
+              <Layers3 size={16}/> {basketIds.includes(String(selected))?"Már a modkosárban":"Mod hozzáadása a kosárhoz"}</button>}
+            {!onBasketSelect && onPrepare && <button className="primary" disabled={projectBusy} onClick={()=>onPrepare(String(selected))}>
               <Layers3 size={16}/> Projekt ID előkészítése a modpiszkozatban</button>}
           </div>
           <div className="warning-inline"><Shield size={17}/>
@@ -679,11 +682,12 @@ function Mods({ snapshot, selected, setSelected }: {
   const [inventoryRevision,setInventoryRevision]=useState(0);
   const [workspaceTab,setWorkspaceTab]=useState<"installed"|"draft"|"galaxy"|"shared"|"copy"|"profile">("installed");
   const [savedNotice,setSavedNotice]=useState("");
+  const [basket,setBasket]=useState<BasketMod[]>([]);
   const currentName=info?.mapName||
     snapshot.local.maps.find(m=>m.id===selected)?.name||"Helyi map";
   useEffect(()=>{
     setCatalogPicked("");setDraftChanges(0);setPrefillMode("active");
-    setWorkspaceTab("installed");setSavedNotice("");
+    setWorkspaceTab("installed");setSavedNotice("");setBasket([]);
   },[selected]);
   useEffect(() => {
     let active = true;
@@ -702,6 +706,10 @@ function Mods({ snapshot, selected, setSelected }: {
     requestAnimationFrame(()=>scrollTo("mod-workspace-tabs"));
   };
   const onDraftProgress=useCallback((changes:number)=>setDraftChanges(changes),[]);
+  const addBasket=(id:string,name:string)=>{
+    if(!/^\\d{5,12}$/.test(id))return;
+    setBasket(previous=>previous.some(m=>m.id===id)?previous:[...previous,{id,name,mode:"active"}]);
+  };
   return <div className="premium-mod-page">
     <div className="page-intro premium-mod-intro">
       <span className="eyebrow">CLUSTER / {currentName.toLocaleUpperCase("hu-HU")} / MODOK</span>
@@ -782,7 +790,16 @@ function Mods({ snapshot, selected, setSelected }: {
     <div id="curseforge-catalog" className={workspaceTab==="galaxy"?
       "premium-catalog-area premium-tab-surface":"premium-catalog-area premium-tab-surface is-hidden"}
       aria-hidden={workspaceTab!=="galaxy"}>
-      <CurseForgeExplorer onPrepare={id=>prepare(id,"active")}/>
+      <CurseForgeExplorer onBasketSelect={addBasket} basketIds={basket.map(m=>m.id)}/>
+      <ModBasketWorkspace key={selected} mapId={selected} mapName={currentName}
+        items={basket} onUpdate={setBasket} onClear={()=>setBasket([])}
+        onSaved={saved=>{
+          setInventoryRevision(n=>n+1);
+          setInfo(current=>current?{...current,pending:saved.pending,
+            active:saved.active,passive:saved.passive,disabled:saved.disabled}:current);
+          setSavedNotice("A teljes modkosár biztonságosan mentve a helyi konfigurációba; ASA-betöltés nincs igazolva.");
+        }}
+        onCopy={()=>setWorkspaceTab("copy")}/>
     </div>
   </div>;
 }
