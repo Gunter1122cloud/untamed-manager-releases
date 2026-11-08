@@ -113,13 +113,14 @@ public sealed class DesktopOperationsCenterBridge
             IReadOnlyDictionary<Guid,DateTimeOffset> durableDue=
                 new System.Collections.Generic.Dictionary<Guid,DateTimeOffset>();
             string journalState=supervisor?.RuntimeState??"not-configured";
-            if(supervisor!=null&&method=="operations.snapshot")
+            if(supervisor!=null)
             {
                 try{durableDue=supervisor.DueDates();}
                 catch(Exception){journalState="journal-unavailable";}
             }
-            var schedules = method == "operations.snapshot"
-                ? cluster.SnapshotRecurringSchedules().Take(200).Select(job => {
+            var schedules = cluster.SnapshotRecurringSchedules()
+                .Where(job => method == "operations.snapshot" || job.Map == selectedId)
+                .Take(200).Select(job => {
                     var owned=cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==job.Map);
                     try {
                         var due=OperationalScheduler.Next(job,now,
@@ -142,11 +143,10 @@ public sealed class DesktopOperationsCenterBridge
                             state="invalid-schedule",autoExecutionPermitted=false
                         };
                     }
-                }).ToArray()
-                : Array.Empty<object>();
+                }).ToArray();
             RecurringJobReceipt[] receipts=Array.Empty<RecurringJobReceipt>();
             string supervisorState=journalState;
-            if(supervisor!=null&&method=="operations.snapshot")
+            if(supervisor!=null)
             {
                 try{receipts=supervisor.Recent(40);}
                 catch(Exception){supervisorState="journal-unavailable";}

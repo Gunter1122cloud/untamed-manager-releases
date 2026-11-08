@@ -761,7 +761,7 @@ test.beforeEach(async ({ page }) => {
               evidence:"EXACT_LOCAL_PROCESS_IDENTITY_NO_NETWORK_OR_FILE_WRITE"
             }));
           return {hostName:state.local.hostName,observedUtc:"2026-11-06T11:00:00Z",
-            maps,schedules:m.method==="operations.map"?[]:[{
+            maps,schedules:[{
               id:"00000000-0000-4000-8000-000000009987",mapId:one,
               mapName:"The Island",kind:"Observation",frequency:"Daily",
               enabled:false,nextUtc:"2026-11-07T06:30:00Z",
@@ -1284,14 +1284,14 @@ test("native Operations Center displays local PID RAM uptime and saved schedules
   await page.goto("/");
   await page.getByRole("button",{name:"Üzemeltetés",exact:true}).click();
   await expect(page.getByRole("heading",{name:"Üzemeltetés"})).toBeVisible();
-  await expect(page.locator(".ops-map")).toHaveCount(2);
-  await expect(page.locator(".ops-map").first()).toContainText("12345");
-  await expect(page.locator(".ops-map").first()).toContainText(/9\\s?234,5 MiB|9234,5 MiB/);
-  await expect(page.locator(".ops-map").last()).toContainText("Nem mérhető");
-  await expect(page.locator(".ops-schedule-table tbody tr")).toHaveCount(1);
+  await expect(page.locator(".ops-compact-table tbody tr")).toHaveCount(2);
+  await expect(page.locator(".ops-compact-table tbody tr").first()).toContainText("12345");
+  await expect(page.locator(".ops-compact-table tbody tr").first()).toContainText(/9\\s?234,5 MiB|9234,5 MiB/);
+  await expect(page.locator(".ops-compact-table tbody tr").last()).toContainText("Nem mérhető");
+  await expect(page.locator(".ops-schedule-table")).toHaveCount(0);
   await expect(page.getByText("Kikapcsolva",{exact:true})).toBeVisible();
   await expect(page.locator(".ops-center").getByText("Ragnarok")).toHaveCount(0);
-  await page.locator(".ops-map").first().getByRole("button",{name:"Map megnyitása"}).click();
+  await page.locator(".ops-compact-table tbody tr").first().getByRole("button",{name:"Map megnyitása"}).click();
   await expect(page.locator(".map-detail-hero")).toContainText("The Island");
   await page.getByRole("tab",{name:"Üzemeltetés"}).click();
   await expect(page.locator(".ops-map")).toHaveCount(1);
@@ -1302,10 +1302,11 @@ test("native Operations Center displays local PID RAM uptime and saved schedules
 test("read-only operations scheduler requires approval, shows durable receipt and can be disabled",async({page})=>{
   await page.setViewportSize({width:1366,height:768});
   await page.goto("/");
-  await page.getByRole("button",{name:"Üzemeltetés",exact:true}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await page.getByRole("tab",{name:"Ütemező"}).click();
   const add=page.getByRole("button",{name:"Ellenőrzés bekapcsolása"});
   await expect(add).toBeDisabled();
-  await page.getByRole("combobox",{name:"Ütemezett ellenőrzés mapja"}).selectOption(first);
   await page.getByRole("combobox",{name:"Csak olvasó ellenőrzés típusa"}).selectOption("Observation");
   await page.getByRole("spinbutton",{name:"Ellenőrzési időköz percben"}).fill("5");
   await expect(add).toBeDisabled();
