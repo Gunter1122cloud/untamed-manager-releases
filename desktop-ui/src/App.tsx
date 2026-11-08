@@ -3,7 +3,7 @@ import {
   AlertTriangle, Archive, ArrowRight, Boxes, CheckCircle2, ChevronRight,
   FileText, HardDrive, LayoutDashboard, Layers3, Monitor, CloudDownload, Activity,
   Grid2X2, List, CalendarClock, Copy,
-  Package, Plug, RefreshCw, Search, Server, Settings2, Shield, WifiOff
+  Package, Plug, Plus, RefreshCw, Search, Server, Settings2, Shield, WifiOff
 } from "lucide-react";
 import {
   managerBridge, dashboardRemotes, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
