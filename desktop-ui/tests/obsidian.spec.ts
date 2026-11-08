@@ -1698,7 +1698,7 @@ test("first-run premium gallery shows exactly ten discoverable maps with no inve
   await expect(page.locator(".uk-gallery-state.is-running")).toHaveCount(0);
   await expect(page.getByText("Választék · nem regisztrált szerverállapot")).toBeVisible();
   await page.getByRole("button",{name:"Astraeos · új szerver telepítése"}).click();
-  await expect(page.getByRole("heading",{name:"SteamCMD Center"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Új ASA map telepítése"})).toBeVisible();
   await page.screenshot({path:"test-results/uk-first-run-steamcmd-1366.png",fullPage:false});
 });
 
@@ -1877,12 +1877,18 @@ test("premium server browser opens local maps by keyboard and never issues remot
 test("Steam installation preflight and redacted log center are read-only and filterable", async ({page}) => {
   await page.setViewportSize({width:1366,height:768});
   await page.goto("/");
-  await page.getByRole("button", { name: "SteamCMD" }).click();
-  await expect(page.getByRole("heading", {name:"SteamCMD Center"})).toBeVisible();
+  await page.getByRole("button", { name: "Új map", exact:true }).click();
+  await expect(page.getByRole("heading", {name:"Új ASA map telepítése"})).toBeVisible();
   await expect(page.getByText("Build: 123456")).toBeVisible();
   await expect(page.getByText("2797", {exact:true})).toHaveCount(0);
   await expect(page.getByText("7797", {exact:true})).toBeVisible();
   await expect(page.getByText("Kézi előellenőrzés")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Frissítés előellenőrzése" })).toHaveCount(0);
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  await expect(page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"})).toBeVisible();
+  await expect(page.getByRole("combobox",{name:"SteamCMD frissítés map"})).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Frissítés előellenőrzése" })).toBeVisible();
   await page.screenshot({path:"test-results/steam-preflight-1366.png",fullPage:true});
 
@@ -2277,7 +2283,7 @@ test("CurseForge official Galaxy browses categories, projects, versions, and pre
 test("SteamCMD new ASA: choose map and Windows folder, one click starts download and registers verified files",async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
-  await page.getByRole("button",{name:"SteamCMD"}).click();
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
   await expect(page.getByText("Új ASA szerver · SteamCMD telepítés")).toBeVisible();
   await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("Valguero");
   await page.getByRole("button",{name:"Mappa kiválasztása"}).click();
@@ -2310,7 +2316,7 @@ test("Servers page offers immediate real ASA download separately from importing 
 
 test("SteamCMD simple path entry starts installation without advanced options or extra confirmation",async ({page})=>{
   await page.goto("/");
-  await page.getByRole("button",{name:"SteamCMD"}).click();
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
   await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Servers\\TheIsland");
   await expect(page.getByRole("button",{name:"ASA letöltés indítása"})).toBeEnabled();
   await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
@@ -2726,9 +2732,11 @@ test("native plugin ZIP install has explicit preview, approval, and verified res
 
 test("real stopped-map SteamCMD update is opt-in and reports verified outcome",async({page})=>{
   await page.goto("/");
-  await page.getByRole("button",{name:"SteamCMD"}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("button",{name:"Frissítés ellenőrzése"}).click();
   await expect(page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"})).toBeVisible();
-  await page.getByRole("combobox",{name:"SteamCMD frissítés map"}).selectOption(second);
+  await expect(page.getByRole("combobox",{name:"SteamCMD frissítés map"})).toHaveCount(0);
   await page.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
   await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toBeVisible();
   await expect(page.getByText(/Astraeos – jelenlegi build: 123456/)).toBeVisible();
@@ -2746,7 +2754,9 @@ test("interrupted SteamCMD queue survives UI restart and blocks accidental retry
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STEAM_INTERRUPTED__?:()=>void
   }).__UNTAMED_STEAM_INTERRUPTED__?.());
-  await page.getByRole("button",{name:"SteamCMD"}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
   await expect(page.getByText(/Helyi SteamCMD-napló: NeedsOperator/)).toBeVisible();
   await expect(page.getByText(/kézi ellenőrzés szükséges/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
