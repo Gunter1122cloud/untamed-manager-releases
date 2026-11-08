@@ -472,10 +472,36 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         }
         finally{tickGate.Release();}
     }
+    // Manager startup is NOT a delayed execution window: old unclaimed
+    // due times are advanced before arming the timer. A crash after a claim
+    // is already protected by LastClaimedUtc and the persisted next cursor.
+    public void SkipMissedOnManagerStart(DateTimeOffset now)
+    {
+        now=now.ToUniversalTime();
+        Locked(()=>{
+            var state=Read();
+            bool changed=false;
+            for(int i=0;i<state.Jobs.Count;i++)
+            {
+                var item=state.Jobs[i];
+                if(!item.Enabled||item.NextDueUtc>now)continue;
+                state.Jobs[i]=item with {
+                    NextDueUtc=Next(item,now),
+                    LastStatus="manager-start-skipped-no-replay",
+                    LastEvidence=""
+                };
+                changed=true;
+            }
+            if(changed)Write(state);
+            return true;
+        });
+    }
     public void Start()
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
         if(Interlocked.Exchange(ref started,1)!=0)return;
+        try {SkipMissedOnManagerStart(DateTimeOffset.UtcNow);}
+        catch(Exception) {Volatile.Write(ref runtimeState,"journal-recovery-needs-operator");return;}
         Volatile.Write(ref runtimeState,"active");
         loop=Task.Run(async()=>{
             using var timer=new PeriodicTimer(TimeSpan.FromMinutes(1));
