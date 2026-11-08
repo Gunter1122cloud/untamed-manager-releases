@@ -24,6 +24,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
     private readonly ClusterService cluster;
     private readonly Func<LocalMap,LegacyStoreV1NativeStartPlan> prepare;
     private readonly Func<Guid,string,bool,ProcessIdentity> start;
+    private readonly bool nativeLauncher;
     private readonly Func<LocalMap,bool,bool> modePreflight;
     private readonly SemaphoreSlim serial=new(1,1);
     private Pending? pending;
@@ -42,6 +43,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         prepare=preparation??(map=>LegacyStoreV1NativeStartPlanner.Prepare(cluster,map));
+        nativeLauncher=launcher==null;
         start=launcher??((map,fingerprint,approved)=>
             cluster.LaunchOriginalActiveStoreAsa(map,fingerprint,approved));
         modePreflight=loaderModePreflight??PhysicalModePreflight;
@@ -263,6 +265,41 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                    !string.Equals(Path.GetFullPath(identity.ExecutablePath),
                        Path.GetFullPath(expectedExe),StringComparison.OrdinalIgnoreCase))
                     return Fail(id,"UM-STORE-ACTIVE-PROCESS-UNVERIFIED");
+                if(approved.UseApi&&nativeLauncher)
+                {
+                    // Non-mutating, bounded observation after approved spawn.
+                    // Persist child identity ONLY after the actual Windows
+                    // parent-child relationship and child-owned RCON port
+                    // are independently reobserved. No RCON is dispatched.
+                    // Failed/unknown observation NEVER retries Process.Start.
+                    _=Task.Run(async()=>{
+                        try
+                        {
+                            var until=DateTimeOffset.UtcNow.AddMinutes(3);
+                            while(DateTimeOffset.UtcNow<until)
+                            {
+                                var seen=LegacyStoreV1ProcessObserver.Observe(
+                                    live,cluster.Config.LocalMaps);
+                                if(seen.Running&&
+                                   seen.Identity is {Pid:>0} child&&
+                                   seen.LoaderIdentity is {Pid:>0} parent&&
+                                   parent.Pid==identity.Pid&&
+                                   parent.StartedUtc==identity.StartedUtc&&
+                                   RconPortOwnership.IsOwnedListener(live.RconPort,child.Pid))
+                                {
+                                    cluster.RecordOriginalStoreApiPair(live.Id,seen);
+                                    return;
+                                }
+                                await Task.Delay(850);
+                            }
+                        }
+                        catch
+                        {
+                            // Keep the unverified state and operation evidence;
+                            // never infer success or start another process.
+                        }
+                    });
+                }
                 return Ok(id,new{
                     mapId=live!.Id,mapName=live.Name,
                     pid=identity.Pid,createdUtc=identity.StartedUtc,
