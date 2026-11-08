@@ -173,7 +173,7 @@ function CurseForgeExplorer({onPrepare,mapId,mapName,onBatchSaved,onCopyToMaps}:
   },[mapId]);
   const addToCart=()=>{
     const mod=details?.mod ?? selectedBasicForCart();
-    if(!mod || !/^\\d{5,12}$/.test(String(mod.id)) || batchPreview)return;
+    if(!mod || !/^\d{5,12}$/.test(String(mod.id)) || batchPreview)return;
     setCart(old=>old.some(x=>x.id===String(mod.id))?old:
       [...old,{id:String(mod.id),name:mod.name,mode:"active"}]);
     setBatchError("");setBatchNotice("");
