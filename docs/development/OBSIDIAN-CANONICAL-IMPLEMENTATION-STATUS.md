@@ -36,7 +36,19 @@ A Codex által elkészített és egyenként ellenőrzött új kód a megfelelő 
 
 ## Retired source cleanup – elkülönített PR #59
 
-A [#59](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/59) külön ágon törli a `wpf/MainWindow.Sql.cs` elvetett WPF háromadatbázisos SQL GUI-t. A fájlt a `wpf/UntamedManager.csproj` már korábban kizárta a fordításból; a `desktop/UntamedDesktop.csproj` kizárólag a közös `wpf/Core/*.cs` részt használja. A törlés **még nem MAIN**, amíg #59 Windows CI és merge be nem fejeződik. A történeti SQL regressziós forrás, Store-v1 Core, updater és WPF referenciatesztek megmaradnak. Ez nem jelenti a teljes korábbi WPF GUI eltávolítását: annak a történeti tesztprojektekre és projekthivatkozásokra gyakorolt hatása további felülvizsgálatot igényel.
+A [#59](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/59) **MAIN / MERGED** (`b72608b`): a `wpf/MainWindow.Sql.cs` elvetett WPF háromadatbázisos SQL GUI ténylegesen törölve. A pontos `b22cadf` headen a [Windows CI #1567](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42482924550) **SUCCESS**. A fájlt a `wpf/UntamedManager.csproj` már korábban kizárta a fordításból; a `desktop/UntamedDesktop.csproj` kizárólag a közös `wpf/Core/*.cs` részt használja. A `wpf/UntamedManager.csproj` redundáns compile-kizárása törölve, a `.github/workflows/build-obsidian-desktop.yml` pedig kompatibilitásvédő regressziós ellenőrzést kapott. A történeti SQL regressziós forrás, Store-v1 Core, updater és WPF referenciatesztek megmaradnak. Ez nem jelenti a teljes korábbi WPF GUI eltávolítását: annak a történeti tesztprojektekre és projekthivatkozásokra gyakorolt hatása további felülvizsgálatot igényel.
+
+## Osztályozott forráskód – rendrakási ellenőrzés
+
+| Forrás / komponens | Állapot | Indok |
+| --- | --- | --- |
+| `wpf/MainWindow.Sql.cs` | **ELVETVE / TÖRÖLVE #59** | Elavult WPF SQL GUI; a régi WPF csproj már kizárta a fordításból, az Obsidian csproj nem használja |
+| `wpf/MainWindow*.cs`, `wpf/App.xaml*`, WPF styles | **LEGACY GUI / NEM SZÁLLÍTOTT** | Obsidian nem fordítja be, de WPF projektet még hivatkoznak történeti integrációs tesztek; nem bizonyított az egész GUI fájlszintű törölhetősége |
+| `wpf/Core/LegacyStoreV1*.cs` | **LEGACY – MEGŐRZENDŐ** | Eredeti Kova Store-v1 session/lock és karaktervédelem |
+| `wpf/Core/MariaDb*.cs`, `wpf/Core/OfflineSqlArchive.cs` | **LEGACY TEST-ONLY** | Az Obsidian csproj kizárja; `wpf/Testing/Integration/Integration.csproj` hivatkozza; nem aktuális Manager SQL GUI |
+| `wpf/Core/MultiHostClusterBackupArchive.cs`, `wpf/Core/MultiHostSandboxRestoreTransaction.cs` | **MAIN + CI, RÉSZLEGES #53** | #58 offline backup / TEMP restore; éles restore és karakterutazás nincs bizonyítva |
+| `wpf/Updater/`, `wpf/Testing/` | **MEGŐRZENDŐ** | Aktív Obsidian külső updater és történeti regressziók |
+| `desktop/`, `desktop-ui/` | **AKTÍV** | Kizárólagos React/WebView2 Windows termék; regressziós ellenőrzés kötelező |
 
 ## Funkciómátrix – ne fejlesszük újra, ami már a kódban van
 
