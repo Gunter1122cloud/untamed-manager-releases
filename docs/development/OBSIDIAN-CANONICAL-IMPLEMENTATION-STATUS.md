@@ -71,6 +71,13 @@ A [#64](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/64) ere
 
 **TEST-001 / P0:** `wpf/Core/SafeConfigEditor.cs` az előnézet után megváltozott külső INI-t külön `ConfigEtagConflictException : IOException` típussal jelzi. A `desktop/DesktopIniBridge.cs` biztonságos `UM-INI-ETAG-MISMATCH` hibakódot ad; a `desktop-ui/src/App.tsx` magyar feloldási útvonalat mutat; a `desktop/Tests/Program.cs` natív regresszió igazolja, hogy a frissebb külső bájtok változatlanok maradnak. Az atomikus mentés, SHA-256, BOM/kódolás/sortörés, folyamatállapot- és Store-v1-védelem nem lazult. Valós felhasználói ASA teszt külön hátravan.
 
+## 2026-11-08 – #68 végrehajtott elsőbeállítás és RCON commit-visszaigazolás (MAIN)
+
+- [#68](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/68) **MERGED**, merge SHA `1d90fba39a5afdf60e7a4528f4e7cd296491424f`. A [PR Windows CI #1590](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42494482469) **SUCCESS** a pontos `0cc84cd383976b5eceee990d8d3ecb33eb27ce15` headen; a merge utáni [main CI #1591](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42494934701) ellenőrzendő.
+- `desktop-ui/src/InitialMapSetup.tsx` és `desktop-ui/src/RconReadOnlyPanel.tsx`: a sikeres natív profil/RCON beállítás mentése után jelentkező státuszlekérdezési hibát többé **nem** lehet sikertelen natív írásként kijelezni. Egyértelmű, nem ismétlő műveletet kérő figyelmeztetés jelenik meg; az egyszeri, jóváhagyott RCON bootstrap visszaigazolása megmarad.
+- `desktop-ui/tests/obsidian.spec.ts`: szintetikus Playwright fault injection a már sikeresen megtörtént RCON konfiguráció utáni státuszolvasási hibára. Pontosan **1** natív RCON apply és **0** ASA auto Start a tesztben.
+- A Core/Store-v1/INI-kódolás/BOM/ETag/atomikus fájlmentés és minden natív folyamat- és ownership-guard változatlan; valódi Windows-felhasználói The Island elfogadás **NINCS**.
+
 ## Osztályozott forráskód – rendrakási ellenőrzés
 
 | Forrás / komponens | Állapot | Indok |
