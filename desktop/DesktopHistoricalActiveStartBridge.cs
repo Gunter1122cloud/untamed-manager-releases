@@ -123,6 +123,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         token=permit.Token,mapId=map.Id,mapName=map.Name,
                         gamePort=permit.Game,queryPort=permit.Query,
                         rconPort=permit.Rcon,launchMode=permit.UseApi?"asaApiLoader":"directAsa",
+                        apiCacheState=plan.ApiCacheState,
+                        apiCacheRuntimeCertified=false,
                         originalTwoPeersVerified=true,
                         conversionAllowed=false,automaticRetryAllowed=false,
                         serverStarted=false,readyCertified=false,
