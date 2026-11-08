@@ -1527,9 +1527,10 @@ test("cluster screen creates and edits a cluster through the native bridge contr
   await expect(selected.locator("option:checked")).toContainText("Fixture Delta Updated");
 });
 
-test("two-host character travel workbench captures exactly five local maps without unlocking Store",async({page})=>{
+test("Cluster page owns character travel evidence without unlocking Store",async({page})=>{
   await page.goto("/");
-  await page.getByRole("button",{name:"Karakterutazás teszt"}).click();
+  await expect(page.getByLabel("Fő navigáció").getByRole("button",{name:"Karakterutazás teszt"})).toHaveCount(0);
+  await page.getByLabel("Fő navigáció").getByRole("button",{name:"Cluster",exact:true}).click();
   await expect(page.getByRole("heading",{name:"Karakterutazás tesztközpont"})).toBeVisible();
   const mandatory=page.getByRole("region",{name:"Referenciával igazolt, kötelező működés"});
   await expect(mandatory).toContainText("REFERENCIÁVAL IGAZOLT – NÁLUNK IS KÖTELEZŐEN MŰKÖDNIE KELL");
