@@ -44,7 +44,10 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     try{
       const receipt=await managerBridge.historicalActiveStartApply(
         token,"STORE-V1 ACTIVE START");
-      setNotice(receipt.mapName+" · valódi Windows ASA PID: "+receipt.pid+
+      setNotice(receipt.processRole==="loaderParent"?
+        receipt.mapName+" · ASA API Loader szülőfolyamat PID: "+receipt.loaderPid+
+        ". Az ASA gyermek PID, RCON és játékbeli készenlét még NEM igazolt.":
+        receipt.mapName+" · valódi Windows ASA PID: "+receipt.serverPid+
         ". Az indítás megtörtént, a játékbeli csatlakozás és SaveComplete külön ellenőrzendő.");
       try{setState(await managerBridge.historicalActiveStartStatus(mapId));}
       catch{setState(null);}
@@ -66,8 +69,11 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         már aktív adatformátumával indít. Az eredeti két peer, mapazonosító,
         lock, meglévő ASA/RCON INI, portok és leállított folyamat minden
         indítás előtt a natív Windows rétegben újraellenőrzésre kerül.</p>
+      <div className="details-line"><span>Kiválasztott indítás</span>
+        <b>{state?.requestedMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b></div>
       <div className="details-line"><span>Megfigyelt ASA</span>
-        <b>{state?.running?"Fut · PID "+(state.pid??"nem igazolt"):
+        <b>{state?.running?"Fut · ASA PID "+(state.serverPid??"nem igazolt"):
+          state?.loaderPid?"Loader PID "+state.loaderPid+" · ASA még nem igazolt":
           state?.confirmedStopped?"Leállítás igazolva":"Folyamatállapot nem igazolt"}</b></div>
       <div className="details-line"><span>Meglévő RCON</span>
         <b>{state?.rconConfigured?"Managerhez kapcsolva":"Előbb add meg az eredeti RCON-t"}</b></div>
@@ -84,7 +90,9 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         <div>
           <b>{preview.mapName} · Game {preview.gamePort} · Query {preview.queryPort}</b>
           <p>Mindkét eredeti Store peer ACTIVE/DONE állapota igazolt a
-            művelet előnézetében. A Manager valóban elindítja a helyi ASA EXE-t.
+            művelet előnézetében. A Manager a {preview.launchMode==="asaApiLoader"?
+              "helyi ASA API Loadert indítja; a gyermek ASA PID-et külön kell igazolni":
+              "helyi ASA EXE-t indítja"}.
             Nem konvertál, nem hoz létre új sessiont vagy shared lockot.</p>
           <label htmlFor="historical-start-phrase">
             Biztonsági megerősítés: írd be pontosan: STORE-V1 ACTIVE START
@@ -94,7 +102,8 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
           <div className="settings-actions">
             <button type="button" className="primary" disabled={busy||
               phrase!=="STORE-V1 ACTIVE START"} onClick={()=>{void start();}}>
-              <Play size={16}/> Eredeti Store-v1 ASA indítása
+              <Play size={16}/> {preview.launchMode==="asaApiLoader"?
+                "Eredeti Store-v1 API Loader indítása":"Eredeti Store-v1 ASA indítása"}
             </button>
             <button type="button" className="secondary" disabled={busy}
               onClick={()=>{setPreview(null);setPhrase("");}}>Mégse</button>
