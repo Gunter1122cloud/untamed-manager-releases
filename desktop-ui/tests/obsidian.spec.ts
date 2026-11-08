@@ -102,17 +102,22 @@ test.beforeEach(async ({ page }) => {
     let originalSavePending=false;
     let originalSaveDispatches=0;
     let originalSaveReattached=false;
+    let originalSaveHold=false;
     (window as typeof window & {
       __UNTAMED_ORIGINAL_SAVE_REATTACH__?:()=>void;
       __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
     }).__UNTAMED_ORIGINAL_SAVE_REATTACH__=()=>{
       originalSaveQueued=true;
       originalSaveReattached=true;
+      originalSaveHold=true;
       originalSaveDispatches=1; // a native task was already dispatched in another UI mount
     };
     (window as typeof window & {
       __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
     }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__=()=>originalSaveDispatches;
+    (window as typeof window & {
+      __UNTAMED_ORIGINAL_SAVE_RELEASE__?:()=>void;
+    }).__UNTAMED_ORIGINAL_SAVE_RELEASE__=()=>{originalSaveHold=false;};
     const historicalAdminToken="00000000-0000-4000-8000-000000001695";
     let historicalAdminPending=false;
     let historicalAdminCommand="";
@@ -616,11 +621,14 @@ test.beforeEach(async ({ page }) => {
         case "historical.saveWorldStatus": {
           if(!originalSaveQueued||m.jobId!==originalSaveJob)
             throw new Error("Original Store SaveWorld job unknown");
-          originalSaveReattached=false;
-          return {jobId:originalSaveJob,kind:"SaveWorldOnly",state:"completed",
-            step:"Store-v1 SaveWorld igazolva; az ASA tovább fut",
+          const held=originalSaveReattached&&originalSaveHold;
+          if(!held)originalSaveReattached=false;
+          return {jobId:originalSaveJob,kind:"SaveWorldOnly",
+            state:held?"running":"completed",
+            step:held?"Natív mentési művelet megfigyelése":
+              "Store-v1 SaveWorld igazolva; az ASA tovább fut",
             changedUtc:"2026-11-08T18:35:00Z",
-            confirmedStopped:false,preExitSaveLogAndWorldObserved:true,
+            confirmedStopped:false,preExitSaveLogAndWorldObserved:!held,
             finalDoExitSaveCertified:false,gameClientRejoinVerified:false,
             automaticRetry:false,forceKill:false,storeTouched:false,
             evidence:"ORIGINAL_STORE_V1_SAVEWORLD_ONLY_NO_DOEXIT_STATE"};
@@ -2390,7 +2398,8 @@ test("Store-v1 SaveWorld reattaches to exactly the original native job without r
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   const save=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
   const stop=page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"});
-  await expect(save.getByText(/SaveWorld befejezés/)).toBeVisible();
+  await expect(save.getByText(/visszacsatlakozva; nincs új RCON-küldés/)).toBeVisible();
+  await expect(stop.getByText(/Másik Store-v1 művelet fut/)).toBeVisible();
   await expect(stop.getByRole("button",{name:"Eredeti SaveWorld\/DoExit előellenőrzése"}))
     .toBeDisabled();
   await expect(save.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
@@ -2398,6 +2407,13 @@ test("Store-v1 SaveWorld reattaches to exactly the original native job without r
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.());
   expect(dispatches).toBe(1);
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_RELEASE__?:()=>void;
+  }).__UNTAMED_ORIGINAL_SAVE_RELEASE__?.());
+  await expect(save.getByText(/SaveWorld befejezés/)).toBeVisible();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
 });
 
 test("original Store-v1 SaveWorld-only refuses unresolved durable journal without RCON dispatch",async({page})=>{
