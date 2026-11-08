@@ -127,7 +127,8 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                 // Commit remains one-time: a successful save removes its token.
                 var owned=Owned(saved.MapId);
                 if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
-                if(!Initial(owned) || owned.Arguments!=saved.BaselineArguments ||
+                if(!Initial(owned) || !ServerExePresent(owned) ||
+                   owned.Arguments!=saved.BaselineArguments ||
                    owned.GamePort!=saved.BaselineGame ||
                    owned.QueryPort!=saved.BaselineQuery ||
                    !string.Equals(owned.ExecutablePath,saved.BaselineExe,
@@ -170,9 +171,11 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
     private static bool Initial(LocalMap map)=>
         !map.HistoricalStoreProtected && map.Arguments.Length==0 && map.GamePort==0 && map.QueryPort==0 &&
         map.RconPort==0 && !map.AutoStart && !map.Maintenance;
+    // The binary must belong to the registered local ASA installation.
+    // File.Exists alone could accept an unrelated map's EXE and configure
+    // a profile whose root and executable do not agree.
     private static bool ServerExePresent(LocalMap map)=>
-        !string.IsNullOrWhiteSpace(map.ExecutablePath) &&
-        File.Exists(map.ExecutablePath);
+        AsaReadyProbe.IsRegisteredServerBinary(map);
     private static bool GuidField(JsonElement root,string key,out Guid id)
     {
         id=Guid.Empty;
