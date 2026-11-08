@@ -882,6 +882,13 @@ try
         {
             Check(recovered.Snapshot().Length==3 && sent>=1,
                 "Manager relaunch reads durable native schedule journal without automatic replay");
+            int beforeMissed=sent;
+            var upcoming=recovered.Snapshot().Where(x=>x.Enabled)
+                .Select(x=>x.NextDueUtc).Min();
+            recovered.SkipMissedOnManagerStart(upcoming.AddMinutes(1));
+            Check(sent==beforeMissed&&recovered.Snapshot().Any(x=>
+                  x.LastStatus=="manager-start-skipped-no-replay"),
+                "Manager startup skips overdue native slots without late RCON or restart");
             var denyRemote=await Call(recovered.HandleAsync,"schedule.nativeSet",
                 new{mapId=Guid.NewGuid(),kind="Restart",frequency="Daily",
                     intervalMinutes=0,minuteOfDay=240,daysMask=127,confirm=true});
