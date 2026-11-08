@@ -25,7 +25,7 @@ internal static class LegacyStoreV1GracefulStop
 
     internal static Owned Require(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck> inspect,Func<LocalMap,string> source,
-        Func<int,int,bool> portOwner)
+        Func<int,int,bool> portOwner,Guid? approvedRestartId=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(inspect);
@@ -42,7 +42,16 @@ internal static class LegacyStoreV1GracefulStop
            !AsaRconConfigurationEvidence.Matches(map)||
            KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("UM-ORIGINAL-STOP-CONFIGURATION");
-        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+        var restart=new AsaManualRestartJournal(map.InstallationPath);
+        if(approvedRestartId is Guid restartId)
+        {
+            var record=restart.Observe();
+            if(record==null||record.Id!=restartId||record.MapId!=mapId||
+               record.Phase!=AsaRestartPhase.Stopping)
+                throw new InvalidOperationException("UM-ORIGINAL-RESTART-STOP-NOT-AUTHORIZED");
+            restart.DemandAuthorizedStop(restartId);
+        }
+        else restart.DemandNoPending();
         string fingerprint=source(map);
         if(fingerprint.Length!=64||fingerprint.Any(c=>!Uri.IsHexDigit(c)))
             throw new InvalidDataException("UM-ORIGINAL-STOP-SOURCE-NOT-ACTIVE");
@@ -82,7 +91,7 @@ internal static class LegacyStoreV1GracefulStop
         Func<LocalMap,string>? source=null,
         Func<int,int,bool>? portOwner=null,
         Func<LocalMap,ProcessIdentity,Action,CancellationToken,Task<bool>>? execute=null,
-        Action<string>? stage=null)
+        Action<string>? stage=null,Guid? approvedRestartId=null)
     {
         if(mapId==Guid.Empty||approvedPid<=0||approvedStart==default||
            string.IsNullOrWhiteSpace(approvedSource)||
@@ -96,14 +105,14 @@ internal static class LegacyStoreV1GracefulStop
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(maximum);
         var ct=deadline.Token;
-        var initial=Require(cluster,mapId,inspect,source,portOwner);
+        var initial=Require(cluster,mapId,inspect,source,portOwner,approvedRestartId);
         if(initial.Process.Pid!=approvedPid||
            initial.Process.StartedUtc!=approvedStart||
            !string.Equals(initial.SourceSha,approvedSource,StringComparison.Ordinal))
             throw new InvalidDataException("UM-ORIGINAL-STOP-SOURCE-OR-PID-CHANGED");
         using var lease=cluster.Operations.Acquire(initial.Map.InstallationPath,
             UntamedOperationKind.Launch);
-        var locked=Require(cluster,mapId,inspect,source,portOwner);
+        var locked=Require(cluster,mapId,inspect,source,portOwner,approvedRestartId);
         if(!ReferenceEquals(locked.Map,initial.Map)||
            !Same(locked.Process,initial.Process)||
            locked.SourceSha!=initial.SourceSha)
@@ -111,7 +120,7 @@ internal static class LegacyStoreV1GracefulStop
         void Verify()
         {
             ct.ThrowIfCancellationRequested();
-            var now=Require(cluster,mapId,inspect,source,portOwner);
+            var now=Require(cluster,mapId,inspect,source,portOwner,approvedRestartId);
             if(!ReferenceEquals(now.Map,locked.Map)||
                !Same(now.Process,locked.Process)||
                now.SourceSha!=locked.SourceSha)
