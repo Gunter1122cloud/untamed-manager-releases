@@ -1349,7 +1349,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                 return new PublicMapStatus {Id=map.Id.ToString("D"), Name=map.Name,
                     Running=c.Running,
                     Status=map.HistoricalStoreProtected
-                        ? c.Status+" · Store-v1 védett (Start/Stop jogosultság nélkül)"
+                        ? c.Status+" · Store-v1: natív műveletek külön előellenőrzéssel"
                         : c.Status,
                     GamePort=map.GamePort,
                     SteamBuildId=build,SteamUpdateState=steamState};
