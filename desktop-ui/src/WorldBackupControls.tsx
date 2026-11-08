@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useMemo,useState} from "react";
+import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {Archive,AlertTriangle,CheckCircle2,HardDrive,
   RefreshCcw,ShieldCheck,Save,RotateCcw,LockKeyhole} from "lucide-react";
 import {managerBridge,type PublicMap,type WorldBackupCreated,
@@ -20,14 +20,24 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const [scheduleBusy,setScheduleBusy]=useState(false);
   const [scheduleNotice,setScheduleNotice]=useState("");
   const [error,setError]=useState("");
+  const selectedRef=useRef(chosen);
+  // A stale response may finish after the operator chooses another map.
+  // It must never display the previous map's backup/restore approval.
   useEffect(()=>{
     if(selectedMap)setChosen(selectedMap);
   },[selectedMap]);
+  useEffect(()=>{
+    selectedRef.current=chosen;
+    setHistory(null);setPending(null);setRestoreTarget(null);
+    setConfirmName("");setReceipt(null);setError("");
+    setScheduleConfirm(false);setScheduleNotice("");
+  },[chosen]);
   const current=useMemo(()=>maps.find(m=>m.id===chosen),[maps,chosen]);
   const reloadSchedule=useCallback(async()=>{
     if(!chosen)return;
-    const answer=await managerBridge.backupScheduleStatus(chosen);
-    setScheduled(answer);
+    const requestedMap=chosen;
+    const answer=await managerBridge.backupScheduleStatus(requestedMap);
+    if(selectedRef.current===requestedMap)setScheduled(answer);
     return answer;
   },[chosen]);
   useEffect(()=>{
@@ -42,70 +52,93 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   },[chosen]);
   const changeSchedule=async(enable:boolean)=>{
     if(!current||!scheduleConfirm||scheduleBusy)return;
+    const requestedMap=chosen;
     setScheduleBusy(true);setScheduleNotice("");
     try{
       const result=enable
-        ?await managerBridge.backupScheduleCreate(chosen,scheduleMinutes)
-        :await managerBridge.backupScheduleDisable(chosen);
+        ?await managerBridge.backupScheduleCreate(requestedMap,scheduleMinutes)
+        :await managerBridge.backupScheduleDisable(requestedMap);
+      if(selectedRef.current!==requestedMap)return;
       setScheduled(result);setScheduleConfirm(false);
       setScheduleNotice(enable?
         "Ütemezés bekapcsolva. Mentés csak igazoltan leállított, nem Store-v1 mapnál készül.":
         "Az ütemezés kikapcsolva. Meglévő archívum nem törlődött.");
     }catch(e){
-      setScheduleNotice("Ütemezés nem módosítható: "+
+      if(selectedRef.current===requestedMap)setScheduleNotice("Ütemezés nem módosítható: "+
         (e instanceof Error?e.message:"natív védelem megtagadta"));
     }finally{setScheduleBusy(false);}
   };
   const reload=useCallback(async()=>{
     if(!chosen)return;
+    const requestedMap=chosen;
     setError("");setBusy(true);setHistory(null);setPending(null);setRestoreTarget(null);
-    try{setHistory(await managerBridge.backupHistory(chosen));}
-    catch{setError("A mentési előzmények nem ellenőrizhetők ezen a helyi mapon.");}
-    finally{setBusy(false);}
+    try{
+      const answer=await managerBridge.backupHistory(requestedMap);
+      if(selectedRef.current===requestedMap)setHistory(answer);
+    }catch{if(selectedRef.current===requestedMap)
+      setError("A mentési előzmények nem ellenőrizhetők ezen a helyi mapon.");}
+    finally{if(selectedRef.current===requestedMap)setBusy(false);}
   },[chosen]);
   useEffect(()=>{void reload();},[reload]);
   const preview=async()=>{
     if(!chosen||busy||current?.running||history?.recoveryRequired)return;
+    const requestedMap=chosen;
     setPending(null);setReceipt(null);setRestoreTarget(null);setConfirmName("");
     setBusy(true);setError("");
-    try{setPending(await managerBridge.backupPreview(chosen));}
-    catch{setError("Mentés nem indítható: igazoltan leállított helyi map és érvényes világfájl szükséges.");}
-    finally{setBusy(false);}
+    try{
+      const ticket=await managerBridge.backupPreview(requestedMap);
+      if(selectedRef.current===requestedMap && ticket.mapId===requestedMap)setPending(ticket);
+    }catch{if(selectedRef.current===requestedMap)
+      setError("Mentés nem indítható: igazoltan leállított helyi map és érvényes világfájl szükséges.");}
+    finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const create=async()=>{
     if(!pending||pending.action!=="BACKUP"||busy||current?.running||history?.recoveryRequired||pending.mapId!==chosen)return;
     setBusy(true);setError("");
-    const token=pending.token;setPending(null);
+    const token=pending.token;const requestedMap=chosen;setPending(null);
     try{
       const result=await managerBridge.backupCreate(token);
-      setReceipt(result);setHistory(await managerBridge.backupHistory(result.mapId));
+      if(selectedRef.current!==requestedMap || result.mapId!==requestedMap)return;
+      setReceipt(result);
+      const nextHistory=await managerBridge.backupHistory(requestedMap);
+      if(selectedRef.current===requestedMap)setHistory(nextHistory);
     }catch{
-      setError("A mentés nem készült el ellenőrzötten; az esetleges .pending csomag nem állítható vissza.");
-    }finally{setBusy(false);}
+      if(selectedRef.current===requestedMap)
+        setError("A mentés nem készült el ellenőrzötten; az esetleges .pending csomag nem állítható vissza.");
+    }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const restorePreview=async(point:WorldBackupPoint)=>{
     if(!chosen||busy||current?.running||current?.storeProtected||history?.recoveryRequired)return;
     setPending(null);setRestoreTarget(null);setConfirmName("");setReceipt(null);
     setBusy(true);setError("");
+    const requestedMap=chosen;
     try{
-      const ticket=await managerBridge.backupRestorePreview(chosen,point.id);
-      setPending(ticket);setRestoreTarget(point);
+      const ticket=await managerBridge.backupRestorePreview(requestedMap,point.id);
+      if(selectedRef.current===requestedMap && ticket.mapId===requestedMap){
+        setPending(ticket);setRestoreTarget(point);
+      }
     }catch{
-      setError("Visszaállítás zárolva: a mapnak leállítva kell lennie, a mentésnek ellenőrzöttnek. A Store-v1 karakterútvonal nem írható felül.");
-    }finally{setBusy(false);}
+      if(selectedRef.current===requestedMap)
+        setError("Visszaállítás zárolva: a mapnak leállítva kell lennie, a mentésnek ellenőrzöttnek. A Store-v1 karakterútvonal nem írható felül.");
+    }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const restore=async()=>{
     if(!pending||pending.action!=="RESTORE"||!current||
        confirmName!==current.name||busy||current.running||current.storeProtected||history?.recoveryRequired||pending.mapId!==chosen)return;
-    const token=pending.token;setPending(null);setRestoreTarget(null);
+    const token=pending.token;const requestedMap=chosen;
+    setPending(null);setRestoreTarget(null);
     setBusy(true);setError("");
     try{
       const result=await managerBridge.backupRestore(token,confirmName);
-      setReceipt(result);setHistory(await managerBridge.backupHistory(result.mapId));
-      setConfirmName("");
+      if(selectedRef.current!==requestedMap || result.mapId!==requestedMap)return;
+      setReceipt(result);
+      const nextHistory=await managerBridge.backupHistory(requestedMap);
+      if(selectedRef.current===requestedMap)setHistory(nextHistory);
+      if(selectedRef.current===requestedMap)setConfirmName("");
     }catch{
-      setError("A világ visszaállítása elakadt. Ellenőrizd a Manager eseménynaplóját és a megőrzött védőmentést; ne indítsd el automatikusan a mapot.");
-    }finally{setBusy(false);}
+      if(selectedRef.current===requestedMap)
+        setError("A világ visszaállítása elakadt. Ellenőrizd a Manager eseménynaplóját és a megőrzött védőmentést; ne indítsd el automatikusan a mapot.");
+    }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   return <section className="uk-world-backup premium-panel">
     <header className="premium-panel-heading">
@@ -117,8 +150,8 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <label>Helyi map
           <select aria-label="Mentendő helyi map"
             value={chosen} disabled={busy||Boolean(selectedMap)}
-            onChange={e=>{setChosen(e.target.value);setReceipt(null);
-              setPending(null);setRestoreTarget(null);setConfirmName("");}}>
+            onChange={e=>{selectedRef.current=e.target.value;setChosen(e.target.value);
+              setReceipt(null);setPending(null);setRestoreTarget(null);setConfirmName("");}}>
             {maps.map(m=><option key={m.id} value={m.id}>{m.name}
               {m.running?" · fut":" · leállítva"}</option>)}
           </select>
