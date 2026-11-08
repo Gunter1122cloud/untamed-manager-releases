@@ -1540,6 +1540,8 @@ try
         var status=await Call(rconSetup.HandleAsync,"rcon.configStatus",
             new{mapId=fresh.Id});
         IsOk(status,"new stopped non-Store map can configure RCON");
+        Check(status.GetProperty("data").GetProperty("rconPort").GetInt32()==fresh.RconPort,
+            "native RCON status returns the exact selected local map port");
         Check(status.GetProperty("data").GetProperty("permitted").GetBoolean(),
             "native RCON configuration is eligible only for safe local map");
         const string secret="A-strong-unique-test-secret";
@@ -1572,6 +1574,10 @@ try
         var configured=await Call(rconSetup.HandleAsync,"rcon.configApply",
             new{token,confirm=true});
         IsOk(configured,"native RCON bootstrap creates ASA INI and stores DPAPI credential");
+        var afterSetupStatus=await Call(rconSetup.HandleAsync,"rcon.configStatus",
+            new{mapId=fresh.Id});
+        Check(afterSetupStatus.GetProperty("data").GetProperty("rconPort").GetInt32()==testRconPort,
+            "native RCON status reflects the committed map-specific port");
         Check(File.Exists(iniPath) && File.ReadAllText(iniPath).Contains("RCONEnabled=True") &&
               cluster.Config.LocalMaps.Single(m=>m.Id==fresh.Id).RconPort==testRconPort &&
               SecureStore.Unprotect(cluster.Config.LocalMaps.Single(m=>m.Id==fresh.Id)

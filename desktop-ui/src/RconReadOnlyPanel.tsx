@@ -37,7 +37,12 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
       ]);
       if(rcon.status!=="fulfilled")throw new Error("UM-RCON-STATUS-UNAVAILABLE");
       setStatus(rcon.value);
-      setConfig(configuration.status==="fulfilled"?configuration.value:null);
+      const nextConfig=configuration.status==="fulfilled"?configuration.value:null;
+      setConfig(nextConfig);
+      // Port selection is read from the opened map's native configuration.
+      // The map-bound component key discards unsaved drafts on navigation.
+      if(nextConfig?.rconPort && nextConfig.rconPort>=1024&&nextConfig.rconPort<=65535)
+        setRconPort(String(nextConfig.rconPort));
     }
     catch{setError("A helyi RCON-állapot nem ellenőrizhető. Egyetlen parancs sem került elküldésre.");}
     finally{setBusy(false);}
