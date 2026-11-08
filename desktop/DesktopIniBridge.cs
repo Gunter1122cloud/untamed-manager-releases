@@ -81,21 +81,21 @@ public sealed class DesktopIniBridge : IDisposable
                        map.InstallationPath.StartsWith(@"\\",StringComparison.Ordinal) ||
                        !Directory.Exists(map.InstallationPath))
                         return Fail(id,"UM-INI-INSTALLATION-MISSING");
-                    // Existing imported local maps can use a verified executable
-                    // layout different from the fresh SteamCMD canonical layout.
-                    // The INI editor does not authorize launching that executable.
-                    if(string.IsNullOrWhiteSpace(map.ExecutablePath) ||
-                       !Path.IsPathFullyQualified(map.ExecutablePath) ||
-                       !File.Exists(map.ExecutablePath))
-                        return Fail(id,"UM-INI-SERVER-EXE-MISSING");
+                    // Existing valid INI files remain readable even when the
+                    // server executable is absent (historical offline config
+                    // inspection). An editor read never grants ASA start rights.
+                    bool executablePresent=!string.IsNullOrWhiteSpace(map.ExecutablePath) &&
+                        Path.IsPathFullyQualified(map.ExecutablePath) &&
+                        File.Exists(map.ExecutablePath);
                     string directory=Path.Combine(map.InstallationPath,"ShooterGame",
                         "Saved","Config","WindowsServer");
                     if(!Directory.Exists(directory))
-                        return Fail(id,"UM-INI-CONFIG-DIRECTORY-MISSING");
+                        return Fail(id,executablePresent?"UM-INI-CONFIG-DIRECTORY-MISSING":
+                            "UM-INI-SERVER-EXE-MISSING");
                     var path=Path.Combine(directory,file);
                     if(!File.Exists(path))
-                        return Fail(id,file=="Game.ini"?
-                            "UM-INI-GAME-MISSING":"UM-INI-GUS-MISSING");
+                        return Fail(id,!executablePresent?"UM-INI-SERVER-EXE-MISSING":
+                            file=="Game.ini"?"UM-INI-GAME-MISSING":"UM-INI-GUS-MISSING");
                     var snapshot=SafeConfigEditor.Read(path,map.InstallationPath,
                         ConfigKind.GameIni,check,map.Maintenance);
                     foreach(var existing in opened.Where(x=>x.Value.MapId==mapId)
