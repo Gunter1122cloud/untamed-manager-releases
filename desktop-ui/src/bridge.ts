@@ -689,23 +689,29 @@ export type HistoricalRconReceipt = {
 };
 export type HistoricalActiveStartStatus = {
   mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
-  pid:number|null;rconConfigured:boolean;originalStartAutomatic:false;
+  pid:number|null;serverPid:number|null;loaderPid:number|null;
+  requestedMode:"asaApiLoader"|"directAsa";
+  rconConfigured:boolean;originalStartAutomatic:false;
   saveCompleteProven:false;gameplayTravelVerified:false;
   evidence:"HISTORICAL_ORIGINAL_PROCESS_READ_ONLY_STATUS";
 };
 export type HistoricalActiveStartPreview = {
   token:string;mapId:string;mapName:string;gamePort:number;
-  queryPort:number;rconPort:number;originalTwoPeersVerified:true;
+  queryPort:number;rconPort:number;launchMode:"asaApiLoader"|"directAsa";
+  originalTwoPeersVerified:true;
   conversionAllowed:false;automaticRetryAllowed:false;
   serverStarted:false;readyCertified:false;gameplayTravelVerified:false;
   evidence:"ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT";
 };
 export type HistoricalActiveStartReceipt = {
   mapId:string;mapName:string;pid:number;createdUtc:string;startRequested:true;
+  launchMode:"asaApiLoader"|"directAsa";processRole:"loaderParent"|"asaServer";
+  loaderPid:number|null;serverPid:number|null;
   readyCertified:false;originalStoreMetadataChanged:false;
   conversionPerformed:false;gameClientRejoinVerified:false;
   automaticRetryAllowed:false;
-  evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED";
+  evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED" |
+    "ORIGINAL_STORE_V1_LOADER_PARENT_SPAWNED_CHILD_UNVERIFIED";
 };
 export type HistoricalRconLiveStatus = {
   mapId:string;mapName:string;configured:boolean;
