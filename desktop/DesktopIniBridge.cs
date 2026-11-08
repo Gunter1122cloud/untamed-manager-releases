@@ -81,13 +81,12 @@ public sealed class DesktopIniBridge : IDisposable
                        map.InstallationPath.StartsWith(@"\\",StringComparison.Ordinal) ||
                        !Directory.Exists(map.InstallationPath))
                         return Fail(id,"UM-INI-INSTALLATION-MISSING");
-                    string expectedExe=Path.Combine(map.InstallationPath,"ShooterGame",
-                        "Binaries","Win64","ArkAscendedServer.exe");
+                    // Existing imported local maps can use a verified executable
+                    // layout different from the fresh SteamCMD canonical layout.
+                    // The INI editor does not authorize launching that executable.
                     if(string.IsNullOrWhiteSpace(map.ExecutablePath) ||
                        !Path.IsPathFullyQualified(map.ExecutablePath) ||
-                       !string.Equals(Path.GetFullPath(map.ExecutablePath),
-                           Path.GetFullPath(expectedExe),StringComparison.OrdinalIgnoreCase) ||
-                       !File.Exists(expectedExe))
+                       !File.Exists(map.ExecutablePath))
                         return Fail(id,"UM-INI-SERVER-EXE-MISSING");
                     string directory=Path.Combine(map.InstallationPath,"ShooterGame",
                         "Saved","Config","WindowsServer");
