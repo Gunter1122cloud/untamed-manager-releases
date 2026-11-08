@@ -27,6 +27,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         public Guid Id=Guid.NewGuid();
         public Guid MapId;
         public int OldPid,NewPid;
+        public bool UseApi;
         public string State="queued",Step="preflight";
         public bool OldProcessStopped,PreExitSaveObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
@@ -37,6 +38,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
     private readonly Func<Guid,int,DateTimeOffset,string,Guid,Action<string>,
         Task<AsaGracefulStopReceipt>> stop;
     private readonly Func<Guid,Guid,Action<string>,ProcessIdentity> start;
+    private readonly Func<LocalMap,ProcessCheck> inspectFamily;
+    private readonly Func<int,int,bool> owner;
+    private readonly bool nativeLauncher;
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object sync=new();
     private Approval? pending;
@@ -52,9 +56,15 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         Func<Guid,LegacyStoreV1GracefulStop.Owned>? probe,
         Func<Guid,int,DateTimeOffset,string,Guid,Action<string>,
             Task<AsaGracefulStopReceipt>>? stopper,
-        Func<Guid,Guid,Action<string>,ProcessIdentity>? launcher)
+        Func<Guid,Guid,Action<string>,ProcessIdentity>? launcher,
+        Func<LocalMap,ProcessCheck>? apiInspector=null,
+        Func<int,int,bool>? apiPortOwner=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
+        nativeLauncher=launcher==null;
+        inspectFamily=apiInspector??(map=>
+            LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
+        owner=apiPortOwner??RconPortOwnership.IsOwnedListener;
         preview=probe??(map=>LegacyStoreV1GracefulStop.Preview(cluster,map));
         stop=stopper??((map,pid,started,source,restartId,report)=>
             LegacyStoreV1GracefulStop.StopAsync(cluster,map,pid,started,
@@ -106,6 +116,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
     {
         lock(sync)return new{
             jobId=job.Id,mapId=job.MapId,state=job.State,step=job.Step,
+            launchMode=job.UseApi?"asaApiLoader":"directAsa",
             changedUtc=job.ChangedUtc,
             oldPid=job.OldPid,newPid=job.NewPid,
             oldProcessStopped=job.OldProcessStopped,
@@ -196,10 +207,10 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null||!map.HistoricalStoreProtected||map.Maintenance)
                         return Fail(id,"UM-ORIGINAL-RESTART-LOCAL-ONLY");
-                    // The optional ASA API Loader is a separate P0. A direct
-                    // restart must never stop an API-origin map and silently
-                    // relaunch it without its original loader.
-                    if(map.StartWithAsaApi||
+                    // Preserve the exact per-map launch mode. A Loader-based
+                    // restart is permitted only when the verified ASA CHILD
+                    // owns RCON; never send DoExit to the Loader parent.
+                    if((map.StartWithAsaApi&&string.IsNullOrWhiteSpace(map.ApiLoaderPath))||
                        !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))
                         return Fail(id,"UM-ORIGINAL-RESTART-LOADER-NOT-SUPPORTED");
                     new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
@@ -217,6 +228,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     return Ok(id,new{
                         token=pending.Token,mapId,mapName=map.Name,
                         pid=owned.Process.Pid,rconPort=map.RconPort,
+                        launchMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
                         usesSaveWorld=true,usesDoExit=true,launchesOriginalActive=true,
                         conversionAllowed=false,automaticRetry=false,
                         gameplayReadinessCertified=false,originalStoreTouched=false,
@@ -236,7 +248,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 var approved=pending;pending=null;
                 var original=Owned(approved.MapId);
                 if(original==null||!original.HistoricalStoreProtected||
-                   original.Maintenance||original.StartWithAsaApi||
+                   original.Maintenance||
+                   (original.StartWithAsaApi&&
+                    string.IsNullOrWhiteSpace(original.ApiLoaderPath))||
                    !string.IsNullOrWhiteSpace(original.ApiLoaderArguments)||
                    JsonSerializer.Serialize(original)!=approved.Profile||
                    original.RconPort!=approved.RconPort)
@@ -259,7 +273,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     record=restart.Begin(original.Id,approved.Pid);
                     lease.Complete();
                 }
-                var job=new Job{MapId=original.Id,OldPid=approved.Pid};
+                var job=new Job{MapId=original.Id,OldPid=approved.Pid,
+                    UseApi=original.StartWithAsaApi};
                 current=job;
                 _=Task.Run(async()=>{
                     Update(job,"running","SaveWorld → stabil világfájl → DoExit");
@@ -276,20 +291,57 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         Update(job,"running","Régi eredeti PID kilépett; új indítás előellenőrzése",
                             oldStopped:true,saved:true);
                         restart.Change(record.Id,AsaRestartPhase.Starting);
-                        // The next operation is an ORIGINAL ACTIVE launch,
-                        // never a fresh map conversion, never API loader by default.
+                        // Start uses the SAME selected original mode. For
+                        // API mode Process.Start yields ONLY a Loader parent,
+                        // never an already verified ASA child.
                         var started=await Task.Run(()=>start(original.Id,record.Id,
                             stage=>Update(job,"running",stage)));
+                        string expectedExecutable=original.StartWithAsaApi?
+                            original.ApiLoaderPath:original.ExecutablePath;
                         if(started.Pid<=0||started.Pid==approved.Pid||
                            started.StartedUtc<=approved.StartedUtc||
                            !string.Equals(Path.GetFullPath(started.ExecutablePath),
-                             Path.GetFullPath(original.ExecutablePath),
+                             Path.GetFullPath(expectedExecutable),
                              StringComparison.OrdinalIgnoreCase))
                             throw new InvalidDataException(
                                 "UM-ORIGINAL-RESTART-NEW-PID-INVALID");
-                        restart.Change(record.Id,AsaRestartPhase.Completed,started.Pid);
-                        Update(job,"completed","Új eredeti ASA PID létrejött; játékbeli készenlét nem igazolt",
-                            newPid:started.Pid);
+                        int verifiedNewServerPid=started.Pid;
+                        if(original.StartWithAsaApi)
+                        {
+                            Update(job,"running",
+                                "ASA API Loader elindult; ASA gyermek PID és RCON ellenőrzése");
+                            bool verified=false;
+                            var limit=DateTimeOffset.UtcNow.AddMinutes(2);
+                            while(DateTimeOffset.UtcNow<limit)
+                            {
+                                var observed=inspectFamily(original);
+                                if(observed.Running&&
+                                   observed.Identity is {Pid:>0} apiChild&&
+                                   observed.LoaderIdentity is {Pid:>0} parent&&
+                                   parent.Pid==started.Pid&&
+                                   parent.StartedUtc==started.StartedUtc&&
+                                   apiChild.Pid!=approved.Pid&&
+                                   owner(original.RconPort,apiChild.Pid))
+                                {
+                                    if(nativeLauncher)
+                                        cluster.RecordOriginalStoreApiPair(
+                                            original.Id,observed);
+                                    verifiedNewServerPid=apiChild.Pid;
+                                    verified=true;
+                                    break;
+                                }
+                                await Task.Delay(500);
+                            }
+                            if(!verified)
+                                throw new InvalidOperationException(
+                                    "UM-ORIGINAL-RESTART-API-CHILD-NOT-VERIFIED");
+                        }
+                        restart.Change(record.Id,AsaRestartPhase.Completed,
+                            verifiedNewServerPid);
+                        Update(job,"completed",original.StartWithAsaApi?
+                            "Új ASA API gyermek PID és RCON tulajdonlás igazolt; játékbeli készenlét még nem":
+                            "Új eredeti ASA PID létrejött; játékbeli készenlét nem igazolt",
+                            newPid:verifiedNewServerPid);
                     }
                     catch(Exception)
                     {
