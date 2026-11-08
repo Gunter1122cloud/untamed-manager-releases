@@ -1,7 +1,7 @@
 import {useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Play,Shield} from "lucide-react";
 import {managerBridge,type HistoricalActiveStartPreview,
-  type HistoricalActiveStartStatus} from "./bridge";
+  type HistoricalActiveStartStatus,type HistoricalLoaderModePreview} from "./bridge";
 
 /**
  * Starts the ORIGINAL ACTIVE/DONE local ASA map only after a native
@@ -13,18 +13,47 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
 }){
   const [state,setState]=useState<HistoricalActiveStartStatus|null>(null);
   const [preview,setPreview]=useState<HistoricalActiveStartPreview|null>(null);
+  const [modePreview,setModePreview]=useState<HistoricalLoaderModePreview|null>(null);
   const [phrase,setPhrase]=useState("");
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
-    setState(null);setPreview(null);setPhrase("");setError("");setNotice("");
+    setState(null);setPreview(null);setModePreview(null);
+    setPhrase("");setError("");setNotice("");
     managerBridge.historicalActiveStartStatus(mapId).then(v=>{
       if(active)setState(v);
     }).catch(()=>{if(active)setError("A történeti Store-v1 folyamatállapot nem ellenőrizhető.");});
     return ()=>{active=false;};
   },[mapId,rconAttached]);
+  const changeMode=async()=>{
+    if(!state?.confirmedStopped||busy||preview||modePreview)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      setModePreview(await managerBridge.historicalLoaderModePreview(
+        mapId,state.requestedMode!=="asaApiLoader"));
+    }catch{
+      setError("Az indítási mód nem módosítható: az eredeti map folyamatállapota, "+
+        "RCON-ja, naplója vagy Loader/API előfeltétele nem igazolt.");
+    }finally{setBusy(false);}
+  };
+  const applyMode=async()=>{
+    if(!modePreview||busy)return;
+    const token=modePreview.token;
+    setModePreview(null);setBusy(true);setError("");setNotice("");
+    try{
+      const receipt=await managerBridge.historicalLoaderModeApply(token);
+      setPreview(null);
+      setNotice(receipt.mode==="asaApiLoader"?
+        "Az ASA API Loader indítási mód mentve; ASA-szerver nem indult.":
+        "A közvetlen ASA indítási mód mentve; ASA-szerver nem indult.");
+      setState(await managerBridge.historicalActiveStartStatus(mapId));
+    }catch{
+      setError("A módváltás nem igazolható. Nincs automatikus indítás. "+
+        "Ellenőrizd a helyi műveleti naplót és a map folyamatát.");
+    }finally{setBusy(false);}
+  };
   const inspect=async()=>{
     if(busy||state?.running||!state?.rconConfigured)return;
     setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
@@ -44,7 +73,10 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     try{
       const receipt=await managerBridge.historicalActiveStartApply(
         token,"STORE-V1 ACTIVE START");
-      setNotice(receipt.mapName+" · valódi Windows ASA PID: "+receipt.pid+
+      setNotice(receipt.processRole==="loaderParent"?
+        receipt.mapName+" · ASA API Loader szülőfolyamat PID: "+receipt.loaderPid+
+        ". Az ASA gyermek PID, RCON és játékbeli készenlét még NEM igazolt.":
+        receipt.mapName+" · valódi Windows ASA PID: "+(receipt.serverPid??receipt.pid)+
         ". Az indítás megtörtént, a játékbeli csatlakozás és SaveComplete külön ellenőrzendő.");
       try{setState(await managerBridge.historicalActiveStartStatus(mapId));}
       catch{setState(null);}
@@ -66,9 +98,36 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         már aktív adatformátumával indít. Az eredeti két peer, mapazonosító,
         lock, meglévő ASA/RCON INI, portok és leállított folyamat minden
         indítás előtt a natív Windows rétegben újraellenőrzésre kerül.</p>
+      <div className="details-line"><span>Kiválasztott indítás</span>
+        <b>{state?.requestedMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b></div>
       <div className="details-line"><span>Megfigyelt ASA</span>
-        <b>{state?.running?"Fut · PID "+(state.pid??"nem igazolt"):
+        <b>{state?.running?"Fut · ASA PID "+(state.serverPid??"nem igazolt"):
+          state?.loaderPid?"Loader PID "+state.loaderPid+" · ASA még nem igazolt":
           state?.confirmedStopped?"Leállítás igazolva":"Folyamatállapot nem igazolt"}</b></div>
+      <div className="settings-actions">
+        <button type="button" className="secondary"
+          disabled={busy||!state?.confirmedStopped||!!preview||!!modePreview||
+            !state?.rconConfigured} onClick={()=>{void changeMode();}}>
+          <Shield size={16}/> {state?.requestedMode==="asaApiLoader"?
+            "Közvetlen ASA mód választása":"ASA API Loader mód választása"}
+        </button>
+      </div>
+      {modePreview&&<div className="warning-inline" role="region"
+        aria-label="Eredeti Store-v1 indítási mód módosítása">
+        <Shield size={17}/>
+        <div>
+          <b>{modePreview.useApi?"ASA API Loader":"Közvetlen ASA"} indítás</b>
+          <p>Csak a helyi Manager maponkénti indítási kapcsolója módosul.
+            Nem indul szerver, nem változik Store-session, cluster-lock vagy
+            karakteradat. A következő Start külön előellenőrzést igényel.</p>
+          <div className="settings-actions">
+            <button type="button" className="primary" disabled={busy}
+              onClick={()=>{void applyMode();}}>Indítási mód jóváhagyása</button>
+            <button type="button" className="secondary" disabled={busy}
+              onClick={()=>setModePreview(null)}>Mégse</button>
+          </div>
+        </div>
+      </div>}
       <div className="details-line"><span>Meglévő RCON</span>
         <b>{state?.rconConfigured?"Managerhez kapcsolva":"Előbb add meg az eredeti RCON-t"}</b></div>
       <div className="settings-actions">
@@ -84,8 +143,16 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         <div>
           <b>{preview.mapName} · Game {preview.gamePort} · Query {preview.queryPort}</b>
           <p>Mindkét eredeti Store peer ACTIVE/DONE állapota igazolt a
-            művelet előnézetében. A Manager valóban elindítja a helyi ASA EXE-t.
+            művelet előnézetében. A Manager a {preview.launchMode==="asaApiLoader"?
+              "helyi ASA API Loadert indítja; a gyermek ASA PID-et külön kell igazolni":
+              "helyi ASA EXE-t indítja"}.
             Nem konvertál, nem hoz létre új sessiont vagy shared lockot.</p>
+          {preview.launchMode==="asaApiLoader"&&<p className="muted small">
+            Hivatalos API cache: {preview.apiCacheState}. A cache-kulcs és a
+            jelenlegi ASA EXE hashének egyezése még nem bizonyít API-modulbetöltést;
+            cache-hiánynál a hivatalos API saját cache-letöltése és
+            ellenőrzése szükséges.
+          </p>}
           <label htmlFor="historical-start-phrase">
             Biztonsági megerősítés: írd be pontosan: STORE-V1 ACTIVE START
           </label>
@@ -94,7 +161,8 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
           <div className="settings-actions">
             <button type="button" className="primary" disabled={busy||
               phrase!=="STORE-V1 ACTIVE START"} onClick={()=>{void start();}}>
-              <Play size={16}/> Eredeti Store-v1 ASA indítása
+              <Play size={16}/> {preview.launchMode==="asaApiLoader"?
+                "Eredeti Store-v1 API Loader indítása":"Eredeti Store-v1 ASA indítása"}
             </button>
             <button type="button" className="secondary" disabled={busy}
               onClick={()=>{setPreview(null);setPhrase("");}}>Mégse</button>

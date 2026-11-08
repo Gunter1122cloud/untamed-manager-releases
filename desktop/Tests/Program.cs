@@ -4813,6 +4813,38 @@ try
             new[]{storeMap,otherOriginalMap}),
             "another process with different map key but wrong source port stays blocked");
 
+        // Loader can exit while its independently verified ASA child survives.
+        // Only the exact, previously persisted PID + creation-time pair can
+        // authorize read-only reattach; syntactic Store launch flags alone
+        // cannot reconstruct the lost parent/child relationship.
+        {
+            var loaderPath=Path.Combine(Path.GetDirectoryName(exe)!,"AsaApiLoader.exe");
+            var loaderCreated=new DateTimeOffset(2026,11,8,10,0,0,TimeSpan.Zero);
+            var childCreated=loaderCreated.AddSeconds(6);
+            var sourceChild=new ObservedProcess(57104,57103,childCreated,exe,
+                "HISTORICAL_STORE_V1_SOURCE_VERIFIED");
+            var pinnedLoader=new ProcessIdentity{Pid=57103,StartedUtc=loaderCreated,
+                ExecutablePath=loaderPath,Arguments="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"};
+            var pinnedChild=new ProcessIdentity{Pid=57104,StartedUtc=childCreated,
+                ExecutablePath=exe,Arguments="HISTORICAL_STORE_V1_API_CHILD_VERIFIED"};
+            Check(LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
+                sourceChild,exe,loaderPath,pinnedChild,pinnedLoader),
+                "original API orphan remains reattachable with exact old verified process family");
+            Check(!LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
+                sourceChild with {StartedUtc=childCreated.AddSeconds(1)},
+                exe,loaderPath,pinnedChild,pinnedLoader),
+                "reused ASA PID with different creation time cannot reattach to old Loader");
+            Check(LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
+                sourceChild with {ParentPid=57102},
+                exe,loaderPath,pinnedChild,pinnedLoader),
+                "previously verified exact PID/start pair survives Windows parent PID reuse");
+            Check(!LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
+                sourceChild,exe,loaderPath,pinnedChild,
+                new ProcessIdentity{Pid=pinnedLoader.Pid,StartedUtc=pinnedLoader.StartedUtc,
+                    ExecutablePath=pinnedLoader.ExecutablePath,Arguments="UNVERIFIED_LOADER"}),
+                "a prior unverified Loader observation cannot authorize orphan reattach");
+        }
+
         // Kova can launch another ALREADY-ACTIVE original Store map through
         // AsaApiLoader.exe with the same source -usestore arguments. This
         // loader does not block an unrelated original map's Start or Stop
@@ -4921,6 +4953,153 @@ try
                   historic.Config.LocalMaps.Single().LastProcess==null,
                 "synthetic Start never changes original launch profile or Store source files");
         }
+        // The API option must still use the exact original Store source
+        // argument grammar. Its Process.Start receipt is ONLY the Loader
+        // parent, never a fabricated ASA child PID or runtime-ready status.
+        storeMap.StartWithAsaApi=true;
+        storeMap.ApiLoaderPath=otherLoader;
+        int apiLaunches=0;
+        using(var loaderBridge=new DesktopHistoricalActiveStartBridge(historic,
+            preparation:original=>{
+                Check(original.StartWithAsaApi&&original.Arguments==""&&
+                      original.ApiLoaderArguments=="",
+                    "historical API opt-in never persists Store/UNC launch arguments");
+                return new LegacyStoreV1NativeStartPlan(
+                    "Ragnarok_WP?listen -Port=7787 -usestore -log",
+                    new string('D',64),7787,27017,37025,
+                    "SYNTHETIC_API_PARENT_ONLY",true);
+            },
+            launcher:(mapId,fingerprint,approved)=>{
+                apiLaunches++;
+                Check(mapId==storeMap.Id&&approved&&
+                      fingerprint==new string('D',64),
+                    "only the locally owned explicitly approved API map reaches its launcher");
+                return new ProcessIdentity{
+                    Pid=52703,StartedUtc=DateTimeOffset.UtcNow,
+                    ExecutablePath=otherLoader,
+                    Arguments="SYNTHETIC_LOADER_PARENT_ONLY"
+                };
+            }))
+        {
+            var apiPreview=await Call(loaderBridge.HandleAsync,
+                "historical.activeStartPreview",new{mapId=storeMap.Id});
+            IsOk(apiPreview,"original Store API Loader opt-in native preview");
+            Check(apiPreview.GetProperty("data").GetProperty("launchMode").GetString()
+                    =="asaApiLoader"&&apiLaunches==0,
+                "API Loader preview is explicit and does not start an ASA process");
+            string approval=apiPreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            var apiStarted=await Call(loaderBridge.HandleAsync,
+                "historical.activeStartApply",
+                new{token=approval,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
+            IsOk(apiStarted,"original Store API Loader executes only after native approval");
+            var apiReceipt=apiStarted.GetProperty("data");
+            Check(apiLaunches==1&&
+                  apiReceipt.GetProperty("processRole").GetString()=="loaderParent"&&
+                  apiReceipt.GetProperty("loaderPid").GetInt32()==52703&&
+                  apiReceipt.GetProperty("serverPid").ValueKind==JsonValueKind.Null&&
+                  !apiReceipt.GetProperty("readyCertified").GetBoolean()&&
+                  !apiReceipt.GetProperty("gameClientRejoinVerified").GetBoolean(),
+                "Loader parent PID is never mistaken for a running ASA child or readiness");
+            var duplicate=await Call(loaderBridge.HandleAsync,
+                "historical.activeStartApply",
+                new{token=approval,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
+            Check(!duplicate.GetProperty("ok").GetBoolean()&&apiLaunches==1,
+                "API loader original Store spawn remains one-shot across a repeated request");
+        }
+        // The optional API choice is saved only after a new, stopped-map,
+        // owner-only native approval; it never invokes Process.Start.
+        int modeChecks=0;
+        using(var modeBridge=new DesktopHistoricalActiveStartBridge(historic,
+            preparation:null,launcher:null,
+            loaderModePreflight:(map,useApi)=>{
+                modeChecks++;
+                return map.Id==storeMap.Id&&map.HistoricalStoreProtected;
+            }))
+        {
+            var modePreview=await Call(modeBridge.HandleAsync,
+                "historical.loaderModePreview",
+                new{mapId=storeMap.Id,useApi=false});
+            IsOk(modePreview,"Store API Loader opt-out native preference preview");
+            string modeToken=modePreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            var unauthorized=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",new{token=modeToken,confirm=false});
+            Check(!unauthorized.GetProperty("ok").GetBoolean()&&
+                  storeMap.StartWithAsaApi,
+                "native Loader preference cannot be changed without explicit approval");
+            var applied=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",new{token=modeToken,confirm=true});
+            IsOk(applied,"stopped original Store map supports saved direct ASA opt-out");
+            Check(!storeMap.StartWithAsaApi&&apiLaunches==1,
+                "native Store launch switch writes only local preference, not ASA process");
+            var replay=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",new{token=modeToken,confirm=true});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "Store API mode preview token is one-shot");
+            var optIn=await Call(modeBridge.HandleAsync,
+                "historical.loaderModePreview",new{mapId=storeMap.Id,useApi=true});
+            IsOk(optIn,"original Store API Loader opt-in requires stopped native preflight");
+            modeToken=optIn.GetProperty("data").GetProperty("token").GetString()!;
+            var enabled=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",new{token=modeToken,confirm=true});
+            IsOk(enabled,"original Store API Loader opt-in saved only after approval");
+            Check(storeMap.StartWithAsaApi&&modeChecks>=4&&
+                  storeMap.Arguments==""&&storeMap.ApiLoaderArguments=="",
+                "native Loader mode cannot persist original UNC or Store switches");
+        }
+        storeMap.StartWithAsaApi=false;
+        storeMap.ApiLoaderPath="";
+    }
+
+    // Read-only upstream ASA API cache identity is bound to the actual
+    // ArkAscendedServer.exe byte hash, never an unrelated build or UNC file.
+    {
+        string apiRoot=Path.Combine(root,"synthetic-api-cache-identity");
+        string binary=Path.Combine(apiRoot,"ShooterGame","Binaries","Win64");
+        string exe=Path.Combine(binary,"ArkAscendedServer.exe");
+        string cache=Path.Combine(binary,"ArkApi","Cache");
+        Directory.CreateDirectory(cache);
+        File.WriteAllBytes(exe,new byte[]{0x4D,0x5A,0,1,2,3,4,5,6,7,8,9});
+        string hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(exe)))
+            .ToLowerInvariant();
+        var missing=AsaApiCacheProbe.Inspect(apiRoot,exe);
+        Check(missing.State=="UM-API-CACHE-NO-LOCAL-KEY"&&
+              missing.ExecutableSha256==hash&&!missing.RuntimeCertified,
+            "official API cache probe does not fabricate absent local cache proof");
+        string key=Path.Combine(cache,"cached_key.cache");
+        File.WriteAllText(key,new string('f',64));
+        var wrong=AsaApiCacheProbe.Inspect(apiRoot,exe);
+        Check(wrong.State=="UM-API-CACHE-EXE-HASH-MISMATCH"&&
+              !wrong.KeyMatchesExecutable,
+            "a different ASA exe SHA-256 never authorizes another build's cache");
+        File.WriteAllText(key,JsonSerializer.Serialize(new{
+            version=1,executable_hash=hash,
+            cache_directory="../unknown",last_modified="synthetic"
+        }));
+        Check(AsaApiCacheProbe.Inspect(apiRoot,exe).State==
+              "UM-API-CACHE-KEY-INVALID",
+            "malformed or traversing official generation-directory metadata is rejected");
+        string generation="generations/"+hash+"-1-2-3";
+        string generationPath=Path.Combine(cache,"generations",hash+"-1-2-3");
+        Directory.CreateDirectory(generationPath);
+        File.WriteAllBytes(Path.Combine(generationPath,"cached_offsets.cache"),
+            new byte[]{1,2,3});
+        File.WriteAllBytes(Path.Combine(generationPath,"cached_bitfields.cache"),
+            new byte[]{4,5,6});
+        File.WriteAllText(key,JsonSerializer.Serialize(new{
+            version=1,executable_hash=hash,cache_directory=generation,
+            last_modified="synthetic"
+        }));
+        var cacheCandidate=AsaApiCacheProbe.Inspect(apiRoot,exe);
+        Check(cacheCandidate.State=="UM-API-CACHE-HASH-BOUND-CANDIDATE"&&
+              cacheCandidate.KeyMatchesExecutable&&cacheCandidate.CandidateFilesPresent&&
+              !cacheCandidate.RuntimeCertified,
+            "hash-bound API cache generation is observed but never certified runtime-loaded");
+        File.AppendAllText(exe,"modified");
+        Check(AsaApiCacheProbe.Inspect(apiRoot,exe).State==
+              "UM-API-CACHE-EXE-HASH-MISMATCH",
+            "mutated ASA executable invalidates previously matching cache metadata");
     }
 
     // Actual original Store-v1 RCON channel is distinct from fresh ASA
@@ -5429,6 +5608,116 @@ try
         }
         Check(File.ReadAllBytes(ini).SequenceEqual(beforeRestartIni),
             "native Store Restart touches no original GameUserSettings INI bytes");
+    }
+
+    // Original Store-v1 API Loader restart remains strictly one-shot:
+    // SaveWorld/DoExit must complete before a NEW Loader parent spawn, and
+    // the completed Restart journal MUST contain the observed ASA child PID,
+    // never the Loader parent. No real process or RCON is used.
+    {
+        string apiRestartRoot=Path.Combine(root,"historical-api-restart-synthetic");
+        string binary=Path.Combine(apiRestartRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(binary);
+        string exe=Path.Combine(binary,"ArkAscendedServer.exe");
+        string loader=Path.Combine(binary,"AsaApiLoader.exe");
+        File.WriteAllBytes(exe,new byte[]{77,90,7,5});
+        File.WriteAllBytes(loader,new byte[]{77,90,7,6});
+        await using var apiCluster=new ClusterService("api-restart-synthetic",
+            Path.Combine(root,"api-restart-profile"),
+            _=>new ProcessCheck(false,"Synthetic Windows only",null,true));
+        var apiMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Genesis",
+            HistoricalStoreProtected=true,
+            HistoricalMapKey="Genesis_WP",
+            HistoricalArchiveSha256=new string('D',64),
+            InstallationPath=apiRestartRoot,ExecutablePath=exe,
+            ApiLoaderPath=loader,StartWithAsaApi=true,
+            GamePort=7901,QueryPort=27201,RconPort=37401,
+            RconPasswordProtected=SecureStore.Protect("SyntheticApiRestartOnly")
+        };
+        apiCluster.AddMap(apiMap);
+        var oldTime=new DateTimeOffset(2026,11,8,13,0,0,TimeSpan.Zero);
+        var newParentTime=oldTime.AddSeconds(15);
+        int apiStopCount=0,apiSpawnCount=0;
+        LegacyStoreV1GracefulStop.Owned ApiProbe(Guid mapId)=>
+            mapId==apiMap.Id?
+                new(apiMap,new ProcessIdentity{Pid=64001,
+                    StartedUtc=oldTime,ExecutablePath=exe,
+                    Arguments="SYNTHETIC_OLD_API_CHILD"},new string('E',64)):
+                throw new UnauthorizedAccessException("synthetic foreign map");
+        Task<AsaGracefulStopReceipt> ApiStop(Guid mapId,int pid,
+            DateTimeOffset started,string source,Guid restartId,
+            Action<string> stage)
+        {
+            apiStopCount++;
+            var journal=new AsaManualRestartJournal(apiRestartRoot).Observe();
+            Check(mapId==apiMap.Id&&pid==64001&&started==oldTime&&
+                  source==new string('E',64)&&journal?.Id==restartId&&
+                  journal.Phase==AsaRestartPhase.Stopping,
+                "Loader Restart begins with exactly approved old ASA child and Stop journal");
+            stage("Synthetic SaveWorld and DoExit confirmed");
+            return Task.FromResult(new AsaGracefulStopReceipt(mapId,pid,
+                true,false,true,DateTimeOffset.UtcNow,"SYNTHETIC_API_STOP"){
+                    PreExitSaveLogAndWorldObserved=true
+                });
+        }
+        ProcessIdentity ApiStart(Guid mapId,Guid restartId,Action<string> stage)
+        {
+            apiSpawnCount++;
+            var journal=new AsaManualRestartJournal(apiRestartRoot).Observe();
+            Check(apiStopCount==1&&mapId==apiMap.Id&&
+                  journal?.Id==restartId&&journal.Phase==AsaRestartPhase.Starting,
+                "Loader Process.Start occurs only after the old ASA child was stopped");
+            stage("Synthetic Loader parent spawned");
+            return new ProcessIdentity{Pid=64002,
+                StartedUtc=newParentTime,ExecutablePath=loader,
+                Arguments="SYNTHETIC_API_LOADER_PARENT"};
+        }
+        ProcessCheck ApiObserve(LocalMap map)=>
+            new(true,"Synthetic parent and child from same owner",
+                new ProcessIdentity{Pid=64003,
+                    StartedUtc=newParentTime.AddSeconds(1),ExecutablePath=exe,
+                    Arguments="SYNTHETIC_API_CHILD"},false,
+                new ProcessIdentity{Pid=64002,
+                    StartedUtc=newParentTime,ExecutablePath=loader,
+                    Arguments="SYNTHETIC_API_PARENT"});
+        using(var apiRestart=new DesktopHistoricalRestartBridge(apiCluster,
+            ApiProbe,ApiStop,ApiStart,ApiObserve,
+            (port,pid)=>port==37401&&pid==64003))
+        {
+            var preview=await Call(apiRestart.HandleAsync,
+                "historical.restartPreview",new{mapId=apiMap.Id});
+            IsOk(preview,"native original API Loader Restart source preview");
+            Check(preview.GetProperty("data").GetProperty("launchMode").GetString()
+                    =="asaApiLoader",
+                "Loader Restart preview cannot silently downgrade to direct ASA");
+            string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+            var launched=await Call(apiRestart.HandleAsync,
+                "historical.restartApply",new{
+                    token,confirm=true,typedApproval="STORE-V1 SAVEWORLD DOEXIT START"
+                });
+            IsOk(launched,"synthetic Loader manual restart queued");
+            string jobId=launched.GetProperty("data").GetProperty("jobId").GetString()!;
+            JsonElement result=default;
+            for(int k=0;k<100;k++)
+            {
+                result=await Call(apiRestart.HandleAsync,
+                    "historical.restartStatus",new{jobId});
+                if(result.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(25);
+            }
+            Check(result.GetProperty("data").GetProperty("state").GetString()=="completed"&&
+                  result.GetProperty("data").GetProperty("launchMode").GetString()
+                    =="asaApiLoader"&&
+                  result.GetProperty("data").GetProperty("newPid").GetInt32()==64003&&
+                  apiStopCount==1&&apiSpawnCount==1,
+                "Loader Restart completion requires a verified ASA CHILD and owned RCON");
+            var journal=new AsaManualRestartJournal(apiRestartRoot).Observe();
+            Check(journal?.Phase==AsaRestartPhase.Completed&&
+                  journal.NewPid==64003,
+                "durable Store Restart journal records child PID, never Loader parent");
+        }
     }
 
     // ORIGINAL ACTIVE Store-v1 graceful stop uses the real operation lease

@@ -1158,29 +1158,107 @@ public sealed partial class ClusterService : IAsyncDisposable
         var exact=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(map))
             ??throw new InvalidDataException("UM-STORE-NATIVE-CLONE");
         exact.Arguments=inspected.Arguments;
-        // Direct original ASA startup first; a loader is a different
-        // explicitly verified startup mode, never selected implicitly.
-        exact.StartWithAsaApi=false;
-        exact.ApiLoaderPath="";
-        exact.ApiLoaderArguments="";
+        // The original registered map contains NO persisted launch flags.
+        // The source-verified disposable clone alone receives Store arguments.
+        // An installed Loader is not opt-in: the map setting is authoritative.
+        exact.StartWithAsaApi=inspected.UseApi;
+        exact.ApiLoaderPath=inspected.UseApi?map.ApiLoaderPath:"";
+        exact.ApiLoaderArguments=inspected.UseApi?inspected.Arguments:"";
         lease.MarkMutationStarted(); // durable interruption marker BEFORE Process.Start
         var started=_inspector.Launch(exact);
+        string expectedExe=inspected.UseApi?map.ApiLoaderPath:map.ExecutablePath;
         if(started.Pid<=0||started.StartedUtc==default||
            !string.Equals(Path.GetFullPath(started.ExecutablePath),
-             Path.GetFullPath(map.ExecutablePath),StringComparison.OrdinalIgnoreCase)||
+             Path.GetFullPath(expectedExe),StringComparison.OrdinalIgnoreCase)||
            started.Arguments!=inspected.Arguments)
             throw new InvalidDataException("UM-STORE-NATIVE-SPAWN-IDENTITY-INVALID");
-        // Never persist the original shared UNC path and source switches.
-        // The read-only WMI observer will re-evaluate the true command line
-        // and exact PID/start-time after UI/Manager restart.
-        map.LastProcess=new ProcessIdentity{
+        // Process.Start proves ONLY the created parent. For Loader mode the
+        // ASA child PID and actual RCON readiness remain independently unknown.
+        // Never persist the source UNC path or private launch switches.
+        var redacted=new ProcessIdentity{
             Pid=started.Pid,StartedUtc=started.StartedUtc,
             ExecutablePath=started.ExecutablePath,
-            Arguments="HISTORICAL_STORE_V1_NATIVE_START"
+            Arguments=inspected.UseApi?
+                "HISTORICAL_STORE_V1_API_LOADER_START":
+                "HISTORICAL_STORE_V1_NATIVE_START"
         };
+        if(inspected.UseApi)
+        {
+            map.LastLoader=redacted;
+            map.LastProcess=null;
+        }
+        else
+        {
+            map.LastProcess=redacted;
+            map.LastLoader=null;
+        }
         Save();
         lease.Complete();
-        return map.LastProcess;
+        return redacted;
+    }
+
+    /// <summary>
+    /// Persist a verified original API Loader -> ASA child family once.
+    /// This is local Manager metadata ONLY: never writes Store/UNC/INI,
+    /// sends RCON or turns an unverified Loader PID into an ASA PID.
+    /// Called only when the physical observer already proved the exact
+    /// source grammar, parent PID, child PID and both creation timestamps.
+    /// </summary>
+    internal bool RecordOriginalStoreApiPair(Guid mapId,ProcessCheck expected)
+    {
+        var map=Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId)
+            ??throw new UnauthorizedAccessException("UM-STORE-API-PAIR-LOCAL-ONLY");
+        if(!map.HistoricalStoreProtected||!map.StartWithAsaApi||
+           !string.IsNullOrWhiteSpace(map.Arguments)||
+           !string.IsNullOrWhiteSpace(map.ApiLoaderArguments)||
+           expected==null||!expected.Running||expected.ConfirmedStopped||
+           expected.Identity is not {Pid:>0} child||
+           expected.LoaderIdentity is not {Pid:>0} parent||
+           child.Pid==parent.Pid||
+           !string.Equals(Path.GetFullPath(child.ExecutablePath),
+                Path.GetFullPath(map.ExecutablePath),StringComparison.OrdinalIgnoreCase)||
+           !string.Equals(Path.GetFullPath(parent.ExecutablePath),
+                Path.GetFullPath(map.ApiLoaderPath),StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("UM-STORE-API-PAIR-UNVERIFIED");
+        static bool Same(ProcessIdentity left,ProcessIdentity right)=>
+            left.Pid==right.Pid&&left.StartedUtc==right.StartedUtc&&
+            string.Equals(left.ExecutablePath,right.ExecutablePath,
+                StringComparison.OrdinalIgnoreCase);
+        using var lease=Operations.Acquire(map.InstallationPath,
+            UntamedOperationKind.Configuration);
+        var current=LegacyStoreV1ProcessObserver.Observe(map,Config.LocalMaps);
+        if(!current.Running||
+           current.Identity is not {Pid:>0} presentChild||
+           current.LoaderIdentity is not {Pid:>0} presentParent||
+           !Same(child,presentChild)||!Same(parent,presentParent))
+            throw new InvalidOperationException("UM-STORE-API-PAIR-CHANGED");
+        if(map.LastProcess!=null&&Same(map.LastProcess,presentChild)&&
+           map.LastLoader!=null&&Same(map.LastLoader,presentParent))
+        {
+            lease.Complete();
+            return false;
+        }
+        var oldChild=map.LastProcess;
+        var oldParent=map.LastLoader;
+        lease.MarkMutationStarted();
+        map.LastLoader=new ProcessIdentity{
+            Pid=presentParent.Pid,StartedUtc=presentParent.StartedUtc,
+            ExecutablePath=presentParent.ExecutablePath,
+            Arguments="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"
+        };
+        map.LastProcess=new ProcessIdentity{
+            Pid=presentChild.Pid,StartedUtc=presentChild.StartedUtc,
+            ExecutablePath=presentChild.ExecutablePath,
+            Arguments="HISTORICAL_STORE_V1_API_CHILD_VERIFIED"
+        };
+        try{Save();}
+        catch
+        {
+            map.LastLoader=oldParent;map.LastProcess=oldChild;
+            throw;
+        }
+        lease.Complete();
+        return true;
     }
 
     public ProcessIdentity LaunchLocal(Guid id)
@@ -1271,7 +1349,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                 return new PublicMapStatus {Id=map.Id.ToString("D"), Name=map.Name,
                     Running=c.Running,
                     Status=map.HistoricalStoreProtected
-                        ? c.Status+" · Store-v1 védett (Start/Stop jogosultság nélkül)"
+                        ? c.Status+" · Store-v1 védett: natív műveletek külön előellenőrzéssel"
                         : c.Status,
                     GamePort=map.GamePort,
                     SteamBuildId=build,SteamUpdateState=steamState};

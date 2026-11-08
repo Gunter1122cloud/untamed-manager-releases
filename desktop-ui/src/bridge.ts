@@ -687,25 +687,42 @@ export type HistoricalRconReceipt = {
   originalStoreTouched:false;iniModified:false;serverStarted:false;
   evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED";
 };
+export type HistoricalLoaderModePreview = {
+  token:string;mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";startsServer:false;
+  changesStore:false;requiresStoppedProcess:true;evidence:string;
+};
+export type HistoricalLoaderModeReceipt = {
+  mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";serverStarted:false;
+  originalStoreTouched:false;evidence:string;
+};
 export type HistoricalActiveStartStatus = {
   mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
-  pid:number|null;rconConfigured:boolean;originalStartAutomatic:false;
+  pid:number|null;serverPid:number|null;loaderPid:number|null;
+  requestedMode:"asaApiLoader"|"directAsa";
+  rconConfigured:boolean;originalStartAutomatic:false;
   saveCompleteProven:false;gameplayTravelVerified:false;
   evidence:"HISTORICAL_ORIGINAL_PROCESS_READ_ONLY_STATUS";
 };
 export type HistoricalActiveStartPreview = {
   token:string;mapId:string;mapName:string;gamePort:number;
-  queryPort:number;rconPort:number;originalTwoPeersVerified:true;
+  queryPort:number;rconPort:number;launchMode:"asaApiLoader"|"directAsa";
+  apiCacheState:string;apiCacheRuntimeCertified:false;
+  originalTwoPeersVerified:true;
   conversionAllowed:false;automaticRetryAllowed:false;
   serverStarted:false;readyCertified:false;gameplayTravelVerified:false;
   evidence:"ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT";
 };
 export type HistoricalActiveStartReceipt = {
   mapId:string;mapName:string;pid:number;createdUtc:string;startRequested:true;
+  launchMode:"asaApiLoader"|"directAsa";processRole:"loaderParent"|"asaServer";
+  loaderPid:number|null;serverPid:number|null;
   readyCertified:false;originalStoreMetadataChanged:false;
   conversionPerformed:false;gameClientRejoinVerified:false;
   automaticRetryAllowed:false;
-  evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED";
+  evidence:"ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED" |
+    "ORIGINAL_STORE_V1_LOADER_PARENT_SPAWNED_CHILD_UNVERIFIED";
 };
 export type HistoricalRconLiveStatus = {
   mapId:string;mapName:string;configured:boolean;
@@ -740,6 +757,7 @@ export type HistoricalAdminRconReceipt = {
 export type HistoricalRestartPreview = {
   token:string;mapId:string;mapName:string;pid:number;rconPort:number;
   usesSaveWorld:true;usesDoExit:true;launchesOriginalActive:true;
+  launchMode:"asaApiLoader"|"directAsa";
   conversionAllowed:false;automaticRetry:false;
   gameplayReadinessCertified:false;originalStoreTouched:false;
   evidence:"ORIGINAL_STORE_V1_RESTART_TWO_STAGE_PREFLIGHT";
@@ -759,6 +777,7 @@ export type HistoricalRestartRecovery = {
 export type HistoricalRestartStatus = {
   jobId:string;mapId:string;state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;oldPid:number;newPid:number;
+  launchMode:"asaApiLoader"|"directAsa";
   oldProcessStopped:boolean;preExitSaveLogAndWorldObserved:boolean;
   readyCertified:false;gameClientRejoinVerified:false;
   finalDoExitSaveCertified:false;automaticRetry:false;
@@ -1085,7 +1104,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
-   "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" |
+   "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
    "historical.rconLiveStatus" | "historical.rconPlayers" |
    "historical.rconGameLog" | "historical.rconChatLog" |
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
@@ -1106,7 +1125,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "travel.capture" | "travel.compare" | "store.inspectCopy" | "store.inspectArchive" | "store.compareArchives";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   peerAction?:"upsert"|"remove";
-  mapId?: string; term?: string; page?: number; credential?: string;
+  mapId?: string; useApi?:boolean; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
   position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
   token?: string; file?: IniFile; content?: string;
@@ -1484,6 +1503,10 @@ export const managerBridge = {
     request<HistoricalRconReadResponse>("historical.rconGameLog",{mapId}),
   historicalRconChatLog: (mapId:string) =>
     request<HistoricalRconReadResponse>("historical.rconChatLog",{mapId}),
+  historicalLoaderModePreview: (mapId:string,useApi:boolean) =>
+    request<HistoricalLoaderModePreview>("historical.loaderModePreview",{mapId,useApi}),
+  historicalLoaderModeApply: (token:string) =>
+    request<HistoricalLoaderModeReceipt>("historical.loaderModeApply",{token,confirm:true}),
   historicalActiveStartStatus: (mapId:string) =>
     request<HistoricalActiveStartStatus>("historical.activeStartStatus",{mapId}),
   historicalActiveStartPreview: (mapId:string) =>

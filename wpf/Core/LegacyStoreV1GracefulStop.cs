@@ -33,7 +33,13 @@ internal static class LegacyStoreV1GracefulStop
         ArgumentNullException.ThrowIfNull(portOwner);
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId)
             ??throw new UnauthorizedAccessException("UM-ORIGINAL-STOP-OWNED-MAP-REQUIRED");
-        if(!map.HistoricalStoreProtected||map.Maintenance||map.StartWithAsaApi||
+        if(!map.HistoricalStoreProtected||map.Maintenance||
+           !string.IsNullOrWhiteSpace(map.ApiLoaderArguments)||
+           (map.StartWithAsaApi&&
+            (string.IsNullOrWhiteSpace(map.ApiLoaderPath)||
+             !Path.GetFullPath(map.ApiLoaderPath).Equals(
+                Path.Combine(Path.GetDirectoryName(Path.GetFullPath(map.ExecutablePath))!,
+                    "AsaApiLoader.exe"),StringComparison.OrdinalIgnoreCase)))||
            !string.IsNullOrWhiteSpace(map.Arguments)||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
            map.RconHost!="127.0.0.1"||map.RconPort is <1024 or >65535||
@@ -58,6 +64,8 @@ internal static class LegacyStoreV1GracefulStop
         var state=inspect(map);
         if(!state.Running||state.ConfirmedStopped||
            state.Identity is not {Pid:>0} identity||
+           (map.StartWithAsaApi!=(state.LoaderIdentity is {Pid:>0}))||
+           (state.LoaderIdentity!=null&&state.LoaderIdentity.Pid==identity.Pid)||
            !portOwner(map.RconPort,identity.Pid))
             throw new InvalidOperationException("UM-ORIGINAL-STOP-PID-RCON-NOT-OWNED");
         return new(map,identity,fingerprint);
@@ -97,7 +105,7 @@ internal static class LegacyStoreV1GracefulStop
            string.IsNullOrWhiteSpace(approvedSource)||
            maximum<=TimeSpan.Zero||maximum>TimeSpan.FromMinutes(3))
             throw new InvalidDataException("UM-ORIGINAL-STOP-APPROVAL");
-        inspect??=LegacyStoreV1ProcessObserver.Observe;
+        inspect??=(map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
         stopped??=(map=>LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
             map,cluster.Config.LocalMaps));
         source??=OriginalSource;
@@ -209,7 +217,7 @@ internal static class LegacyStoreV1GracefulStop
            string.IsNullOrWhiteSpace(approvedSource)||
            maximum<=TimeSpan.Zero||maximum>TimeSpan.FromMinutes(3))
             throw new InvalidDataException("UM-ORIGINAL-SAVE-APPROVAL");
-        inspect??=LegacyStoreV1ProcessObserver.Observe;
+        inspect??=(map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
         source??=OriginalSource;
         portOwner??=RconPortOwnership.IsOwnedListener;
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -272,6 +280,7 @@ internal static class LegacyStoreV1GracefulStop
         Func<LocalMap,ProcessCheck>? inspect=null,
         Func<LocalMap,string>? source=null,
         Func<int,int,bool>? portOwner=null)=>
-        Require(cluster,mapId,inspect??LegacyStoreV1ProcessObserver.Observe,
+        Require(cluster,mapId,inspect??(map=>LegacyStoreV1ProcessObserver.Observe(
+                map,cluster.Config.LocalMaps)),
             source??OriginalSource,portOwner??RconPortOwnership.IsOwnedListener);
 }
