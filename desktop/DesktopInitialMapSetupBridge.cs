@@ -93,8 +93,10 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                         return Fail(id,"UM-INITIAL-INVALID-FIELDS");
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
-                    if(!Initial(map)||!ServerExePresent(map))
+                    if(!Initial(map))
                         return Fail(id,"UM-INITIAL-ALREADY-CONFIGURED");
+                    if(!ServerExePresent(map))
+                        return Fail(id,"UM-INITIAL-EXECUTABLE-INVALID");
                     var observed=cluster.Check(map);
                     if(!observed.ConfirmedStopped || observed.Running || map.Maintenance)
                         return Fail(id,"UM-INITIAL-STOP-REQUIRED");
