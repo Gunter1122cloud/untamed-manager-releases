@@ -111,6 +111,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopHistoricalRconReadOnlyBridge _historicalReadOnlyRcon;
     private readonly DesktopHistoricalRconAdminBridge _historicalAdminRcon;
     private readonly DesktopHistoricalGracefulStopBridge _historicalStop;
+    private readonly DesktopHistoricalRestartBridge _historicalRestart;
     private readonly DesktopUpdateStatusBridge _updates = new();
     private readonly DesktopObsidianUpdateInstallBridge _updateInstall;
     private readonly DesktopRconReadOnlyBridge _rcon;
@@ -173,6 +174,7 @@ public sealed class ObsidianWindow : Form
         _historicalReadOnlyRcon = new DesktopHistoricalRconReadOnlyBridge(_bridge.LocalCluster);
         _historicalAdminRcon = new DesktopHistoricalRconAdminBridge(_bridge.LocalCluster);
         _historicalStop = new DesktopHistoricalGracefulStopBridge(_bridge.LocalCluster);
+        _historicalRestart = new DesktopHistoricalRestartBridge(_bridge.LocalCluster);
         _rcon = new DesktopRconReadOnlyBridge(_bridge.LocalCluster);
         _rconAdmin = new DesktopRconAdminBridge(_bridge.LocalCluster);
         _rconConfig = new DesktopRconConfigurationBridge(_bridge.LocalCluster);
@@ -256,6 +258,7 @@ public sealed class ObsidianWindow : Form
             _historicalReadOnlyRcon.Dispose();
             _historicalAdminRcon.Dispose();
             _historicalStop.Dispose();
+            _historicalRestart.Dispose();
             _embeddedStore.Dispose();
             _rconConfig.Dispose();
             _steamUpdate.Dispose();
@@ -371,6 +374,7 @@ public sealed class ObsidianWindow : Form
                 bool historicalReadOnlyRconRoute = false;
                 bool historicalAdminRconRoute = false;
                 bool historicalStopRoute = false;
+                bool historicalRestartRoute = false;
                 bool pluginStateRoute = false;
                 bool pluginZipRoute = false;
                 bool pluginJsonRoute = false;
@@ -474,6 +478,9 @@ public sealed class ObsidianWindow : Form
                             "steam.freshRegister" or "steam.freshBrowse";
                         initialRoute = name is "servers.initialStatus" or
                             "servers.initialPreview" or "servers.initialApply";
+                        historicalRestartRoute = name is "historical.restartPreview" or
+                            "historical.restartApply" or "historical.restartStatus" or
+                            "historical.restartRecovery";
                         historicalStopRoute = name is "historical.gracefulStopPreview" or
                             "historical.gracefulStopApply" or "historical.gracefulStopStatus" or
                             "historical.gracefulStopRecovery" or "historical.saveWorldPreview" or
@@ -534,6 +541,7 @@ public sealed class ObsidianWindow : Form
                                     : discoveryRoute ? await _modCatalog.HandleAsync(incoming)
                                         : freshRoute ? await _freshInstall.HandleAsync(incoming)
                                             : initialRoute ? await _initialMapSetup.HandleAsync(incoming)
+                                                : historicalRestartRoute ? await _historicalRestart.HandleAsync(incoming)
                                                 : historicalStopRoute ? await _historicalStop.HandleAsync(incoming)
                                                  : historicalAdminRconRoute ? await _historicalAdminRcon.HandleAsync(incoming)
                                                  : historicalReadOnlyRconRoute ? await _historicalReadOnlyRcon.HandleAsync(incoming)

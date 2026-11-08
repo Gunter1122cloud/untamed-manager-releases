@@ -128,12 +128,15 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             running=current!=null&&current.MapId==mapId&&
                 current.State is "queued" or "running"?current:null;
         bool pendingRestart=entry!=null&&entry.Phase!=AsaRestartPhase.Completed;
+        var operation=cluster.Operations.Observe(map.InstallationPath);
+        bool pendingOperation=operation?.Phase is UntamedOperationPhase.Prepared or
+            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
         bool same=entry?.MapId==mapId;
         return new{
             mapId,phase=entry?.Phase.ToString()??"None",
             entryBelongsToMap=same,
-            blocked=pendingRestart,
-            requiresOperator=pendingRestart&&running==null,
+            blocked=pendingRestart||pendingOperation,
+            requiresOperator=(pendingRestart||pendingOperation)&&running==null,
             inMemoryRunning=running!=null,jobId=running?.Id,
             oldPid=entry?.OldPid,newPid=entry?.NewPid,
             automaticRecovery=false,automaticRetry=false,
@@ -193,6 +196,12 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null||!map.HistoricalStoreProtected||map.Maintenance)
                         return Fail(id,"UM-ORIGINAL-RESTART-LOCAL-ONLY");
+                    // The optional ASA API Loader is a separate P0. A direct
+                    // restart must never stop an API-origin map and silently
+                    // relaunch it without its original loader.
+                    if(map.StartWithAsaApi||!string.IsNullOrWhiteSpace(map.ApiLoaderPath)||
+                       !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))
+                        return Fail(id,"UM-ORIGINAL-RESTART-LOADER-NOT-SUPPORTED");
                     new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
                     var existing=cluster.Operations.Observe(map.InstallationPath);
                     if(existing?.Phase is UntamedOperationPhase.Prepared or
@@ -227,7 +236,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                 var approved=pending;pending=null;
                 var original=Owned(approved.MapId);
                 if(original==null||!original.HistoricalStoreProtected||
-                   original.Maintenance||
+                   original.Maintenance||original.StartWithAsaApi||
+                   !string.IsNullOrWhiteSpace(original.ApiLoaderPath)||
+                   !string.IsNullOrWhiteSpace(original.ApiLoaderArguments)||
                    JsonSerializer.Serialize(original)!=approved.Profile||
                    original.RconPort!=approved.RconPort)
                     return Fail(id,"UM-ORIGINAL-RESTART-MAP-CHANGED");
