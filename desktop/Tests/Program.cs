@@ -2066,6 +2066,25 @@ try
                   .GetProperty("needsOperatorReview").GetBoolean(),
             "completed restart is not falsely considered interrupted");
         var manualJournal=new AsaManualRestartJournal(stopRoot);
+        // A caller supplying a stale restart ID must not bypass the journal
+        // gate after a crash, removed journal, or completed prior restart.
+        var absentJournal=new AsaManualRestartJournal(
+            Path.Combine(root,"restart-approval-no-existing-map"),
+            Path.Combine(root,"restart-approval-isolated-journals"));
+        bool absentStopDenied=false,absentStartDenied=false;
+        try{absentJournal.DemandAuthorizedStop(Guid.NewGuid());}
+        catch(InvalidOperationException){absentStopDenied=true;}
+        try{absentJournal.DemandAuthorizedStart(Guid.NewGuid());}
+        catch(InvalidOperationException){absentStartDenied=true;}
+        Check(absentStopDenied&&absentStartDenied,
+            "explicit Restart Stop/Start IDs never authorize without a durable journal");
+        bool completedStopDenied=false,completedStartDenied=false;
+        try{manualJournal.DemandAuthorizedStop(finishedRestartJournal!.Id);}
+        catch(InvalidOperationException){completedStopDenied=true;}
+        try{manualJournal.DemandAuthorizedStart(finishedRestartJournal!.Id);}
+        catch(InvalidOperationException){completedStartDenied=true;}
+        Check(completedStopDenied&&completedStartDenied,
+            "completed Restart cannot be replayed with its old approved ID");
         var crash=manualJournal.Begin(stopLabMap.Id,44117);
         Check(crash.Phase==AsaRestartPhase.Stopping,
             "new restart writes durable journal before sending RCON");
