@@ -2663,3 +2663,28 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
 });
+
+test("CurseForge cart survives searches and uses native draft preview before a single save",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("tab",{name:"CurseForge katalógus"}).click();
+  const cart=page.getByRole("region",{name:"CurseForge többmodos kosár"});
+  await expect(cart).toContainText("modkosár (0)");
+  await page.getByRole("button",{name:"Hozzáadás a modkosárhoz"}).click();
+  await expect(cart).toContainText("modkosár (1)");
+  await page.getByRole("textbox",{name:"CurseForge mod keresése"}).fill("Shiny");
+  await page.getByRole("button",{name:"Keresés",exact:true}).click();
+  await expect(cart).toContainText("modkosár (1)");
+  await expect(page.getByRole("button",{name:"Már a kosárban"})).toBeDisabled();
+  await cart.getByRole("combobox",{name:"123456 kosár célállapot"}).selectOption("passive");
+  await cart.getByRole("button",{name:"Teljes modlista ellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"Többmodos natív előnézet"})).toBeVisible();
+  await expect(cart.getByRole("button",{name:"Modlista mentése"})).toBeDisabled();
+  await cart.getByText("Jóváhagyom a kijelölt helyi map konfigurációjának egyszeri mentését.").click();
+  await expect(cart.getByRole("button",{name:"Modlista mentése"})).toBeEnabled();
+  await cart.getByRole("button",{name:"Modlista mentése"}).click();
+  await expect(cart).toContainText("modkosár (0)");
+  await expect(cart).toContainText("ASA letöltés és modbetöltés még nincs igazolva");
+  await cart.getByRole("button",{name:"Átvitel más helyi mapokra"}).click();
+  await expect(page.getByRole("tab",{name:"Másolás több mapra"})).toHaveAttribute("aria-selected","true");
+});
