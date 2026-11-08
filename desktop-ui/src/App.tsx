@@ -1226,8 +1226,9 @@ function SteamCenter({ snapshot, onRegistered, initialMapName }: {
     </Panel>
   </>;
 }
-function LogsCenter({ snapshot, selected, setSelected }: {
-  snapshot: DashboardSnapshot; selected: string; setSelected: (value: string) => void
+function LogsCenter({ snapshot, selected, setSelected, mapLocked=false }: {
+  snapshot: DashboardSnapshot; selected: string; setSelected: (value: string) => void;
+  mapLocked?:boolean
 }) {
   const [result, setResult] = useState<LogTail | null>(null);
   const [error, setError] = useState("");
@@ -1267,9 +1268,11 @@ function LogsCenter({ snapshot, selected, setSelected }: {
     </div>
     <div className="log-toolbar premium-log-toolbar">
       <label className="log-select-label">Helyi map
-        <select aria-label="Napló mapja" value={selected} onChange={e => setSelected(e.target.value)}>
-          {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
+        {mapLocked
+          ?<strong aria-label="Napló forrásmapja">{snapshot.local.maps.find(m=>m.id===selected)?.name??"Nem található"}</strong>
+          :<select aria-label="Napló mapja" value={selected} onChange={e => setSelected(e.target.value)}>
+            {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>}
       </label>
       <label className="log-select-label">Szint
         <select aria-label="Naplószint" value={level} onChange={e => setLevel(e.target.value as typeof level)}>
@@ -1302,8 +1305,9 @@ function LogsCenter({ snapshot, selected, setSelected }: {
   </div>;
 }
 
-function IniCenter({ snapshot, selected, setSelected }: {
-  snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void
+function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
+  snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void;
+  mapLocked?:boolean
 }) {
   const [file, setFile] = useState<IniFile>("Game.ini");
   const [opened, setOpened] = useState<IniDocument | null>(null);
@@ -1374,9 +1378,11 @@ function IniCenter({ snapshot, selected, setSelected }: {
       <p>A valódi Game.ini és GameUserSettings.ini szerkesztése, eredeti kódolás és sortörés megőrzésével. Csak igazoltan leállított, helyi ASA mapnál.</p></div>
     <div className="ini-toolbar">
       <label>Helyi map
-        <select aria-label="INI mapja" value={selected} onChange={e=>setSelected(e.target.value)}>
-          {snapshot.local.maps.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
+        {mapLocked
+          ?<strong aria-label="INI forrásmapja">{snapshot.local.maps.find(m=>m.id===selected)?.name??"Nem található"}</strong>
+          :<select aria-label="INI mapja" value={selected} onChange={e=>setSelected(e.target.value)}>
+            {snapshot.local.maps.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>}
       </label>
       <label>INI-fájl
         <select aria-label="INI fájl" value={file} onChange={e=>setFile(e.target.value as IniFile)}>
@@ -1634,9 +1640,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       :<StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>)}
     {section==="mods" && <Mods key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>} 
     {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
-    {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
+    {section==="ini" && <IniCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="backups" && <BackupCenter mapId={mapId} snapshot={snapshot}/>}
-    {section==="logs" && <LogsCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
+    {section==="logs" && <LogsCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="rcon" && (map.storeProtected
       ?<><HistoricalRconLivePanel mapId={mapId} running={map.running}/>
         <HistoricalAdminRconPanel mapId={mapId} running={map.running}/></>
