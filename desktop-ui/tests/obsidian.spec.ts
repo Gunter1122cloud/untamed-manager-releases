@@ -663,6 +663,28 @@ test.beforeEach(async ({ page }) => {
             evidence:"VERIFIED_STEAM_FILES_REGISTERED_MANAGER_PROFILE_ONLY"};
         case "steam.freshCancel": return {cancelRequested:true};
         case "steam.freshDiscard": return {discarded:true};
+        case "rcon.configStatus": {
+          const map=state.local.maps.find(x=>x.id===m.mapId);
+          return {mapId:m.mapId,mapName:map?.name||"Ismeretlen map",
+            configured:Boolean((map as any)?.rconConfigured),
+            permitted:Boolean(map)&&map.gamePort>0&&!map.running&&!(map as any).storeProtected&&!(map as any).rconConfigured,
+            evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE"};
+        }
+        case "rcon.configPreview": {
+          if(m.password?.length<12 || !m.createIni)throw new Error("UM-RCON-CONFIG-FIELDS");
+          return {token:"00000000-0000-4000-8000-000000008879",
+            mapId:m.mapId,mapName:"Genesis Part 1",rconPort:m.rconPort,
+            createsNewIni:true,existingIniVerified:false,
+            evidence:"STOPPED_LOCAL_RCON_PREVIEW_NO_WRITES"};
+        }
+        case "rcon.configApply": {
+          if(!m.confirm)throw new Error("UM-RCON-CONFIG-CONFIRMATION");
+          const map=state.local.maps.find(x=>x.name==="Genesis Part 1");
+          if(map)(map as any).rconConfigured=true;
+          return {mapId:map?.id||"",mapName:"Genesis Part 1",
+            configured:true,rconPort:37015,createsNewIni:true,serverStarted:false,
+            evidence:"STOPPED_LOCAL_RCON_CONFIG_COMMITTED"};
+        }
         case "servers.initialStatus": {
           const map = state.local.maps.find(x=>x.id===m.mapId);
           if(!map)throw new Error("UM-MAP-NOT-OWNED");
@@ -2229,6 +2251,33 @@ test("Newly imported local map first setup saves session and UDP ports only afte
   await expect(page.getByText(/indítási profilja mentve/)).toBeVisible();
   await expect(page.getByText("7797").first()).toBeVisible();
   await page.screenshot({path:"test-results/asa-first-map-setup-1500.png",fullPage:true});
+});
+
+test("first setup follows one RCON bootstrap route and returns to native Start without automatic launch",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await page.getByRole("button",{name:"Beállítások ellenőrzése"}).click();
+  await page.getByText(/Jóváhagyom a regisztrált helyi map Manager-profiljának mentését/).click();
+  await page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"}).click();
+  const bootstrap=page.getByRole("button",{name:"Első RCON beállítása"});
+  await expect(bootstrap).toBeVisible();
+  await bootstrap.click();
+  await expect(page.getByRole("heading",{name:"RCON konzol",exact:true})).toBeVisible();
+  await page.getByRole("textbox",{name:"RCON beállítás jelszó"}).fill("SyntheticSafePassword2026!");
+  await page.getByRole("button",{name:"Beállítás ellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"RCON beállítás jóváhagyás"})).toBeVisible();
+  await page.getByRole("button",{name:"Beállítás véglegesítése"}).click();
+  await expect(page.getByRole("button",{name:"Vissza az ASA Start előnézethez"})).toBeVisible();
+  await page.getByRole("button",{name:"Vissza az ASA Start előnézethez"}).click();
+  await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Első RCON beállítása"})).toHaveCount(0);
 });
 
 test("original local Store-v1 five-map source proof is explicit and never enables launch",async({page})=>{
