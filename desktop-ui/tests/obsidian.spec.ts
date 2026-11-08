@@ -1214,8 +1214,12 @@ test.beforeEach(async ({ page }) => {
             available:true,sizeBytes:200000,gameVersions:["ASA"],dependencies:[],distributionState:"File available"}]
         };
         case "curseforge.browse": return {
-          gameId: 1234,totalCount: 25,page:m.page||0,hasMore:false,evidence:"OFFICIAL_CATALOG_METADATA_ONLY",
-          mods:[{id:123456,name:"Example Search Result",summary:"Synthetic catalog response for UI test",website:null,thumbnailUrl:null,authors:["Lab"],categories:["Structures"],screenshots:[],isAvailable:true,latestFile:null,modifiedUtc:null,downloadCount:15}]
+          gameId: 1234,totalCount: 25,page:m.page||0,
+          hasMore:m.term==="newmod" && (m.page||0)===0,
+          evidence:"OFFICIAL_CATALOG_METADATA_ONLY",
+          mods:[{id:m.term==="newmod"?(m.page===1?678901:567890):123456,
+            name:m.term==="newmod"?(m.page===1?"Basket Second Page":"Basket First Page"):"Example Search Result",
+            summary:"Synthetic catalog response for UI test",website:null,thumbnailUrl:null,authors:["Lab"],categories:["Structures"],screenshots:[],isAvailable:true,latestFile:null,modifiedUtc:null,downloadCount:15}]
         };
       }
       throw new Error("Denied");
@@ -2662,4 +2666,33 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
+});
+
+test("Mod Center basket persists across searches/pages and uses native approved save",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("tab",{name:"CurseForge katalógus"}).click();
+  const basket=page.getByRole("region",{name:"Többmodos CurseForge kosár"});
+  await expect(basket).toBeVisible();
+  await page.getByRole("button",{name:"Mod hozzáadása a kosárhoz"}).click();
+  await expect(basket.getByText("CurseForge ID: 123456")).toBeVisible();
+  await page.getByRole("textbox",{name:"CurseForge mod keresése"}).fill("newmod");
+  await page.getByRole("button",{name:"Keresés",exact:true}).click();
+  await page.getByRole("button",{name:"Mod hozzáadása a kosárhoz"}).click();
+  await expect(basket.getByText("CurseForge ID: 567890")).toBeVisible();
+  await page.getByRole("button",{name:"Következő"}).click();
+  await page.getByRole("button",{name:"Mod hozzáadása a kosárhoz"}).click();
+  await expect(basket.getByText("CurseForge ID: 678901")).toBeVisible();
+  await expect(basket.getByText("CurseForge ID: 123456")).toBeVisible();
+  await basket.getByRole("button",{name:"678901 feljebb"}).click();
+  await basket.getByRole("combobox",{name:"678901 kosárállapota"}).selectOption("passive");
+  await basket.getByRole("button",{name:"Teljes modlista natív előnézete"}).click();
+  const preview=basket.getByRole("region",{name:"Modkosár mentési előnézete"});
+  await expect(preview).toBeVisible();
+  await expect(preview.getByRole("button",{name:"Jóváhagyás és modlista mentése"})).toBeDisabled();
+  await preview.getByRole("checkbox").check();
+  await preview.getByRole("button",{name:"Jóváhagyás és modlista mentése"}).click();
+  await expect(basket).toContainText("ellenőrzötten mentve");
+  await basket.getByRole("button",{name:"Mentett lista alkalmazása több mapra"}).click();
+  await expect(page.getByRole("tab",{name:"Másolás több mapra"})).toHaveAttribute("aria-selected","true");
 });
