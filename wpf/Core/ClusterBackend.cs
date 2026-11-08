@@ -963,7 +963,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             // Test-injected observers remain injectable; this path cannot
             // authorize LaunchFreshAsa, LaunchLocal, RCON, Stop or Store writes.
             return _customInspector?_inspect(map):
-                LegacyStoreV1ProcessObserver.Observe(map);
+                LegacyStoreV1ProcessObserver.Observe(map,Config.LocalMaps);
         }
         if(map.StartWithAsaApi || !string.IsNullOrWhiteSpace(map.ApiLoaderPath))
             return _inspector.InspectFamily(map);
