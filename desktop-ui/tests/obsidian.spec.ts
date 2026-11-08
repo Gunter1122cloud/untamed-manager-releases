@@ -740,7 +740,7 @@ test.beforeEach(async ({ page }) => {
               .filter(j=>j.kind==="Restart"&&j.enabled&&
                 j.minuteOfDay===reboot.minuteOfDay&&Boolean(j.daysMask&reboot.daysMask))
               .map(()=>x.name));
-          return {mapId:m.mapId,runnerState:"fixture-no-asareal",jobs,restartConflicts,
+          return {mapId:m.mapId,runnerState:"fixture-no-asareal",jobs,history:[],restartConflicts,
             protectedStore:Boolean(map.storeProtected),autoUpdateAvailable:false,
             remoteExecutionAllowed:false};
         }
@@ -1388,6 +1388,8 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await page.getByRole("tab",{name:"Ütemező"}).click();
   const panel=page.locator(".native-schedule-panel");
   await expect(panel.getByText("Maponkénti szerverütemező")).toBeVisible();
+  await panel.getByText("Végrehajtási napló (0 bejegyzés)").click();
+  await expect(panel.getByText("Még nincs végrehajtási esemény ezen a mapon.")).toBeVisible();
   const save=panel.getByRole("region",{name:"SaveWorld ütemezése"});
   const restart=panel.getByRole("region",{name:"Újraindítás ütemezése"});
   await expect(save.getByRole("button",{name:"Ütemezés mentése"})).toBeDisabled();

@@ -37,8 +37,14 @@ export type NativeAsaScheduleTask = {
   lastStatus:string;lastEvidence:string;
   evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY";
 };
+export type NativeAsaExecutionEntry={
+  runId:string;mapId:string;kind:NativeScheduleKind;
+  scheduledUtc:string;claimedUtc:string;finishedUtc:string|null;
+  status:string;evidence:string;
+};
 export type NativeAsaScheduleStatus={
   mapId:string;runnerState:string;jobs:NativeAsaScheduleTask[];
+  history:NativeAsaExecutionEntry[];
   restartConflicts:string[];protectedStore:boolean;
   autoUpdateAvailable:false;remoteExecutionAllowed:false;
 };

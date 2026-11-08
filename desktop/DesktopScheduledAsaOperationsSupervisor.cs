@@ -21,14 +21,22 @@ public sealed record ScheduledAsaOperation(
     DateTimeOffset NextDueUtc,DateTimeOffset? LastClaimedUtc,
     string LastStatus,string LastEvidence);
 
+// Bounded, persisted execution evidence. A slot is recorded BEFORE dispatch;
+// after a crash an unfinished claim remains visible and is never auto-replayed.
+public sealed record ScheduledAsaExecution(
+    Guid RunId,Guid MapId,string Kind,DateTimeOffset ScheduledUtc,
+    DateTimeOffset ClaimedUtc,DateTimeOffset? FinishedUtc,string Status,string Evidence);
+
 public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
 {
     private sealed class State
     {
         public State() { }
         public List<ScheduledAsaOperation> Jobs {get;set;}=new();
+        public List<ScheduledAsaExecution> History {get;set;}=new();
     }
-    private const int MaxJournalBytes=2_000_000;
+    private const int MaxHistory=4096;
+    private const int MaxJournalBytes=4_000_000;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private readonly ClusterService cluster;
     private readonly DesktopRconReadOnlyBridge rcon;
@@ -111,7 +119,20 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 j.Fingerprint.Length!=64 || j.LastStatus.Length>90)||
            state.Jobs.GroupBy(j=>(j.MapId,j.Kind)).Any(group=>group.Count()>1))
             throw new InvalidDataException("UM-ASA-SCHEDULE-JOURNAL-INVALID");
+        if(state.History==null||state.History.Count>MaxHistory||
+           state.History.Any(e=>e==null||e.RunId==Guid.Empty||e.MapId==Guid.Empty||
+               (e.Kind!="SaveWorld"&&e.Kind!="Restart")||
+               string.IsNullOrWhiteSpace(e.Status)||e.Status.Length>90||
+               e.Evidence==null||e.Evidence.Length>240)||
+           state.History.GroupBy(e=>e.RunId).Any(g=>g.Count()>1))
+            throw new InvalidDataException("UM-ASA-SCHEDULE-HISTORY-INVALID");
         return state;
+    }
+    private static void AddHistory(State state,ScheduledAsaExecution entry)
+    {
+        state.History.Add(entry);
+        if(state.History.Count>MaxHistory)
+            state.History.RemoveRange(0,state.History.Count-MaxHistory);
     }
     private void Write(State state)
     {
@@ -187,6 +208,14 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
     public ScheduledAsaOperation[] Snapshot()=>
         Locked(()=>Read().Jobs.OrderBy(x=>x.MapId).ThenBy(x=>x.Kind).ToArray());
 
+    // Never expose other maps' history via a map-specific WebView request.
+    public ScheduledAsaExecution[] History(Guid mapId)
+    {
+        Owned(mapId);
+        return Locked(()=>Read().History.Where(x=>x.MapId==mapId)
+            .OrderByDescending(x=>x.ClaimedUtc).Take(100).ToArray());
+    }
+
     public ScheduledAsaOperation Configure(Guid mapId,string kind,string frequency,
         int intervalMinutes,int minuteOfDay,int daysMask)
     {
@@ -249,6 +278,11 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         lastEvidence=job.LastEvidence,
         evidence="DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY"
     };
+    private static object HistoryData(ScheduledAsaExecution entry)=>new {
+        runId=entry.RunId,mapId=entry.MapId,kind=entry.Kind,
+        scheduledUtc=entry.ScheduledUtc,claimedUtc=entry.ClaimedUtc,
+        finishedUtc=entry.FinishedUtc,status=entry.Status,evidence=entry.Evidence
+    };
     public Task<string> HandleAsync(string raw)
     {
         string? id=null;
@@ -275,6 +309,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 return Task.FromResult(Ok(id,new {
                     mapId,runnerState=RuntimeState,
                     jobs=Snapshot().Where(x=>x.MapId==mapId).Select(Data).ToArray(),
+                    history=History(mapId).Select(HistoryData).ToArray(),
                     restartConflicts=RestartConflicts(mapId),
                     protectedStore=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(Owned(mapId)),
                     autoUpdateAvailable=false,
@@ -405,6 +440,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
             {
                 token.ThrowIfCancellationRequested();
                 bool missed=now-observed.NextDueUtc>TimeSpan.FromMinutes(5);
+                var claimId=Guid.NewGuid();
                 bool dispatched=Locked(()=>{
                     var state=Read();
                     int ix=state.Jobs.FindIndex(x=>x.MapId==observed.MapId&&
@@ -414,11 +450,14 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     if(!actual.Enabled||actual.NextDueUtc!=observed.NextDueUtc||
                        actual.Fingerprint!=observed.Fingerprint)return false;
                     var next=Next(actual,now);
+                    var claimStatus=missed?"missed-no-catchup":"claimed-no-auto-retry";
                     state.Jobs[ix]=actual with {
                         NextDueUtc=next,LastClaimedUtc=now,
-                        LastStatus=missed?"missed-no-catchup":"claimed-no-auto-retry",
-                        LastEvidence=""
+                        LastStatus=claimStatus,LastEvidence=""
                     };
+                    AddHistory(state,new ScheduledAsaExecution(claimId,actual.MapId,
+                        actual.Kind,observed.NextDueUtc,now,missed?now:null,
+                        claimStatus,""));
                     Write(state);
                     return !missed;
                 });
@@ -460,6 +499,13 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                                 state.Jobs[ix]=state.Jobs[ix] with {
                                     LastStatus=status,LastEvidence=evidence
                                 };
+                                int historyIndex=state.History.FindIndex(x=>x.RunId==claimId);
+                                if(historyIndex>=0 &&
+                                   state.History[historyIndex].Status=="claimed-no-auto-retry")
+                                    state.History[historyIndex]=state.History[historyIndex] with {
+                                        FinishedUtc=DateTimeOffset.UtcNow,
+                                        Status=status,Evidence=evidence
+                                    };
                                 Write(state);
                             }
                             return true;
@@ -490,6 +536,9 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     LastStatus="manager-start-skipped-no-replay",
                     LastEvidence=""
                 };
+                AddHistory(state,new ScheduledAsaExecution(Guid.NewGuid(),item.MapId,
+                    item.Kind,item.NextDueUtc,now,now,
+                    "manager-start-skipped-no-replay",""));
                 changed=true;
             }
             if(changed)Write(state);

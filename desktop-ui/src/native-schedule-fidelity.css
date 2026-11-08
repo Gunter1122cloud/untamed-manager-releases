@@ -27,4 +27,11 @@
 .native-schedule-warning{display:flex;align-items:flex-start;gap:8px;border:1px solid #84673b;border-radius:9px;padding:12px;background:#403220;color:#ffe1aa;font-size:13px;line-height:1.5}
 .native-schedule-warning svg{flex-shrink:0}
 .native-schedule-foot{line-height:1.55}
+.native-schedule-history{border:1px solid #386359;background:#173339;border-radius:13px;padding:13px 16px}
+.native-schedule-history summary{cursor:pointer;color:#e6f5ec;font-size:14px;font-weight:650}
+.native-schedule-history details>p{margin:10px 0}
+.native-schedule-history-list{max-height:330px;overflow-y:auto;display:flex;flex-direction:column;gap:7px;margin-top:12px}
+.native-schedule-history-event{display:flex;flex-direction:column;gap:5px;border:1px solid #365b54;background:#1d3b3c;border-radius:9px;padding:11px 13px;overflow-wrap:anywhere}
+.native-schedule-history-event strong{color:#e9f6ef;font-size:13px}
+.native-schedule-history-event span,.native-schedule-history-event small{color:#b9d6ca;font-size:12px}
 @media(max-width:960px){.native-schedule-grid{grid-template-columns:1fr}}
