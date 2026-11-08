@@ -3,7 +3,7 @@ import {
   Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, Cpu, Plus,
   HardDrive, Map as MapIcon, Monitor, Search, Server, Shield, Users, WifiOff, Grid2X2, List
 } from "lucide-react";
-import type {DashboardSnapshot,PublicMap} from "./bridge";
+import {dashboardRemotes,type DashboardSnapshot,type PublicMap} from "./bridge";
 import {MapCover} from "./MapArtwork";
 import {ClusterMapGallery} from "./ClusterMapGallery";
 
@@ -58,14 +58,14 @@ function ServerRow({map,host,local,onSelect}:{
 
 function HostPanel({snapshot}:{snapshot:DashboardSnapshot}){
   const local=snapshot.local;
-  const remote=snapshot.remote;
+  const remotes=dashboardRemotes(snapshot);
   const ram=local.memoryTotalKiB&&local.memoryUsedKiB!=null
     ?Math.min(100,Math.max(0,local.memoryUsedKiB/local.memoryTotalKiB*100)):null;
   const cpu=local.cpuPercent!=null?Math.min(100,Math.max(0,local.cpuPercent)):null;
   const present=(v:number|null)=>v==null?"Nem mérhető":v.toFixed(0)+"%";
   return <section className="premium-panel premium-hosts">
     <header className="premium-panel-heading"><h2><Monitor size={19}/> Gazdagépek</h2>
-      <span className="premium-small-muted">{remote?"2 host adat":"1 helyi host"}</span></header>
+      <span className="premium-small-muted">{1+remotes.length} host · {remotes.filter(x=>x.fresh!==false).length} online peer</span></header>
     <div className="premium-host-body">
       <div className="premium-host-record">
         <div className="premium-host-heading">
@@ -80,14 +80,17 @@ function HostPanel({snapshot}:{snapshot:DashboardSnapshot}){
             <span className="premium-bar cyan"><span style={{width:(ram??0)+"%"}}/></span></div>
         </div>
       </div>
-      {remote?<div className="premium-host-record">
+      {remotes.length?remotes.map(remote=><div className="premium-host-record" key={remote.hostId}>
         <div className="premium-host-heading">
           <span className="premium-host-device"><Server size={20}/></span>
-          <div><b>{remote.hostName}</b><small><i className="online-indicator"/> Hitelesített LAN-adat</small></div>
+          <div><b>{remote.hostName}</b><small><i className={remote.fresh===false?"offline-indicator":"online-indicator"}/>
+            {remote.fresh===false?"Elavult / offline LAN-adat":"Hitelesített LAN-adat"}</small></div>
           <span className="premium-count-pill">{remote.maps.filter(x=>x.running).length}/{remote.maps.length} fut</span>
         </div>
-        <p className="premium-small-muted">Távoli CPU/RAM nincs hitelesítve · megfigyelés</p>
-      </div>:<div className="premium-host-offline"><WifiOff size={15}/>
+        <p className="premium-small-muted">Távoli CPU/RAM nincs hitelesítve · csak megfigyelés
+          {remote.lastSuccessUtc?` · utolsó sikeres mérés ${new Date(remote.lastSuccessUtc).toLocaleTimeString("hu-HU")}`:""}
+          {remote.stateCode?` · ${remote.stateCode}`:""}</p>
+      </div>):<div className="premium-host-offline"><WifiOff size={15}/>
         {snapshot.peerMessage||"Távoli peer még nincs csatlakoztatva"}</div>}
     </div>
   </section>;
@@ -98,16 +101,17 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
   // Approved Dashboard reference: compact table + right-side host/alerts.
   // The full artwork gallery remains an explicit toggle, not the default.
   const [view,setView]=useState<"gallery"|"table">("table");
-  const hosts=1+(snapshot.remote?1:0);
+  const remotes=useMemo(()=>dashboardRemotes(snapshot),[snapshot.remotes,snapshot.remote]);
+  const hosts=1+remotes.length;
   const local=snapshot.local.maps;
-  const peer=snapshot.remote?.maps??[];
+  const peer=useMemo(()=>remotes.flatMap(remote=>remote.maps),[remotes]);
   const maps=useMemo(()=>{
     const term=query.trim().toLocaleLowerCase("hu-HU");
     return [
       ...local.map(map=>({map,host:snapshot.local.hostName,isLocal:true})),
-      ...peer.map(map=>({map,host:snapshot.remote!.hostName,isLocal:false}))
+      ...remotes.flatMap(remote=>remote.maps.map(map=>({map,host:remote.hostName,isLocal:false})))
     ].filter(x=>x.map.name.toLocaleLowerCase("hu-HU").includes(term));
-  },[query,local,peer,snapshot.local.hostName,snapshot.remote]);
+  },[query,local,remotes,snapshot.local.hostName]);
   const running=[...local,...peer].filter(m=>m.running).length;
   return <div className="premium-dashboard">
     <section className="hero premium-dashboard-banner">
@@ -115,7 +119,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
         <span className="premium-kicker">UNTAMED KINGDOM / CLUSTER OVERVIEW</span>
         <strong className="uk-hero-title">UNTAMED KINGDOM <span>ASA CLUSTER</span></strong>
         <p className="premium-overview-subtitle">Szerverüzemeltetés · {snapshot.local.hostName} ·
-          {snapshot.remote?" kétgépes LAN-megfigyelés":" helyi Manager"}</p>
+          {remotes.length?` ${hosts} gazdagépes LAN-megfigyelés`:" helyi Manager"}</p>
       </div>
       <span className="premium-banner-mark" aria-hidden="true">UNTAMED <b>MANAGER</b></span>
     </section>
@@ -127,7 +131,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
       <Metric icon={Users} value="—" label="Játékosok"
         detail="Még nincs igazolt RCON-adat" tone="cyan"/>
       <Metric icon={Monitor} value={hosts} label="Gazdagép"
-        detail={snapshot.remote?"Helyi + hitelesített LAN":"Helyi gép"} tone="cyan"/>
+        detail={remotes.length?`Helyi + ${remotes.length} LAN-peer`:"Helyi gép"} tone="cyan"/>
     </div>
     <div className="premium-dashboard-grid">
       <section className="premium-panel premium-server-panel">
@@ -190,7 +194,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
           <div className="premium-event-row"><Activity size={17}/>
             <span>Futó mapok</span><b>{running}</b></div>
           <div className="premium-event-row"><Monitor size={17}/>
-            <span>Távoli állapot</span><b>{snapshot.remote?"LAN-adat elérhető":"Nincs peer"}</b></div>
+            <span>Távoli állapot</span><b>{remotes.length?`${remotes.filter(remote=>remote.fresh!==false).length}/${remotes.length} online`:"Nincs peer"}</b></div>
           <p className="premium-small-muted">Ezek állapotadatok, nem kitalált naplóesemények.</p>
         </section>
         <section className="premium-panel premium-security">

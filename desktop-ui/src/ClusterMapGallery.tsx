@@ -1,6 +1,6 @@
 import {useMemo,useState} from "react";
 import {ArrowRight,Plus,ShieldCheck,Server,Search,X,ChevronDown,Grid2X2,LockKeyhole,Wrench,RadioTower} from "lucide-react";
-import type {DashboardSnapshot,PublicMap} from "./bridge";
+import {dashboardRemotes,type DashboardSnapshot,type PublicMap} from "./bridge";
 import {MapCover} from "./MapArtwork";
 
 export const UK_MAPS=[
@@ -8,7 +8,7 @@ export const UK_MAPS=[
   "Valguero","Aberration","Scorched Earth","Extinction","Genesis Part 1"
 ] as const;
 
-type LocatedMap={map:PublicMap;host:string;local:boolean};
+type LocatedMap={map:PublicMap;host:string;hostId:string;local:boolean;fresh:boolean};
 type Props={
   snapshot:DashboardSnapshot;
   query:string;
@@ -61,20 +61,32 @@ function MapTile({entry,onSelect}:{entry:LocatedMap;onSelect:(id:string)=>void})
 
 export function ClusterMapGallery({snapshot,query,onSelect,onImport,onInstall}:Props){
   const [state,setState]=useState<"all"|"running"|"stopped">("all");
-  const [host,setHost]=useState<"all"|"local"|"remote">("all");
+  const [host,setHost]=useState("all");
+  const remotes=useMemo(()=>dashboardRemotes(snapshot),[snapshot.remotes,snapshot.remote]);
   const all=useMemo<LocatedMap[]>(()=>[
-    ...snapshot.local.maps.map(map=>({map,host:snapshot.local.hostName,local:true})),
-    ...(snapshot.remote?.maps??[]).map(map=>({
-      map,host:snapshot.remote?.hostName??"",local:false
-    }))
-  ],[snapshot.local.maps,snapshot.local.hostName,snapshot.remote]);
+    ...snapshot.local.maps.map(map=>({map,host:snapshot.local.hostName,
+      hostId:snapshot.local.hostId,local:true,fresh:true})),
+    ...remotes.flatMap(remote=>remote.maps.map(map=>({map,host:remote.hostName,
+      hostId:remote.hostId,local:false,fresh:remote.fresh!==false})))
+  ],[snapshot.local.maps,snapshot.local.hostName,snapshot.local.hostId,remotes]);
   const visible=useMemo(()=>all.filter(entry=>{
     const term=query.trim().toLocaleLowerCase("hu-HU");
     return (!term||entry.map.name.toLocaleLowerCase("hu-HU").includes(term)||
         entry.host.toLocaleLowerCase("hu-HU").includes(term))&&
       (state==="all"||(state==="running"?entry.map.running:!entry.map.running))&&
-      (host==="all"||(host==="local"?entry.local:!entry.local));
+      (host==="all"||(host==="local"?entry.local:host==="remote"?!entry.local:
+        host===`host:${entry.hostId}`));
   }),[all,query,state,host]);
+  const groups=useMemo(()=>{
+    const values=new Map<string,{host:string;local:boolean;fresh:boolean;entries:LocatedMap[]}>();
+    for(const entry of visible){
+      const key=entry.local?"local":`host:${entry.hostId}`;
+      let group=values.get(key);
+      if(!group){group={host:entry.host,local:entry.local,fresh:entry.fresh,entries:[]};values.set(key,group);}
+      group.entries.push(entry);
+    }
+    return [...values.entries()];
+  },[visible]);
   const catalog=UK_MAPS.filter(name=>!all.some(entry=>
     entry.map.name.toLocaleLowerCase("en-US")===name.toLocaleLowerCase("en-US")));
   return <div className="uk-cluster-gallery">
@@ -87,31 +99,33 @@ export function ClusterMapGallery({snapshot,query,onSelect,onImport,onInstall}:P
       </div>
       <label className="uk-gallery-host-filter">
         <Server size={15}/>
-        <select aria-label="Gazdagép szűrő" value={host}
-          onChange={e=>setHost(e.target.value as typeof host)}>
-          <option value="all">Mindkét gazdagép</option>
+        <select aria-label="Gazdagép szűrő" value={host} onChange={e=>setHost(e.target.value)}>
+          <option value="all">Minden gazdagép</option>
           <option value="local">Csak helyi</option>
-          <option value="remote">Csak távoli</option>
+          <option value="remote">Minden távoli gazdagép</option>
+          {remotes.map(remote=><option key={remote.hostId} value={`host:${remote.hostId}`}>
+            {remote.hostName}{remote.fresh===false?" · elavult / offline":" · online"}
+          </option>)}
         </select><ChevronDown size={14}/>
       </label>
       <span className="uk-gallery-result-count">{visible.length} MAP</span>
     </div>
     {visible.length>0?<div className="uk-host-map-groups" role="region"
       aria-label="Szervergaléria">
-      {([["local","HELYI GAZDAGÉP",visible.filter(entry=>entry.local)],
-        ["remote","LAN / CSAK MEGFIGYELÉS",visible.filter(entry=>!entry.local)]] as const)
-        .filter(group=>group[2].length>0)
-        .map(([kind,label,entries])=><section className={"uk-host-map-group "+kind}
-          key={kind}>
+      {groups.map(([key,group])=><section className={"uk-host-map-group "+(group.local?"local":"remote")}
+          key={key}>
           <header className="uk-host-map-heading">
             <span className="uk-host-map-heading-label">
-              {kind==="local"?<Server size={15}/>:<ShieldCheck size={15}/>}
-              {label}</span>
-            <b>{entries[0].host}</b>
-            <span>{entries.filter(entry=>entry.map.running).length}/{entries.length} FUT</span>
+              {group.local?<Server size={15}/>:<ShieldCheck size={15}/>}
+              {group.local?"HELYI GAZDAGÉP":"TÁVOLI · CSAK MEGFIGYELÉS"}</span>
+            <b>{group.host}</b>
+            <span className={group.local||group.fresh?"uk-host-freshness online":"uk-host-freshness stale"}>
+              {group.local?"HELYI":group.fresh?"ONLINE":"ELAVULT / OFFLINE"}
+            </span>
+            <span>{group.entries.filter(entry=>entry.map.running).length}/{group.entries.length} FUT</span>
           </header>
           <div className="uk-map-gallery-grid">
-            {entries.map(entry=><MapTile key={entry.host+entry.map.id}
+            {group.entries.map(entry=><MapTile key={entry.hostId+entry.map.id}
               entry={entry} onSelect={onSelect}/>)}
           </div>
         </section>)}
@@ -135,7 +149,7 @@ export function ClusterMapGallery({snapshot,query,onSelect,onImport,onInstall}:P
     </div>}
     {/* Keep uninstalled cluster maps selectable after the first local map
         has been registered. Remote-only filtering never offers local writes. */}
-    {catalog.length>0&&!query.trim()&&state==="all"&&host!=="remote"&&<div className="uk-gallery-catalog">
+    {catalog.length>0&&!query.trim()&&state==="all"&&(host==="all"||host==="local")&&<div className="uk-gallery-catalog">
       <div className="uk-gallery-catalog-heading">
         <span><Grid2X2 size={17}/> AZ UNTAMED KINGDOM 10 MAPJA</span>
         <small>Választék · nem regisztrált szerverállapot</small>

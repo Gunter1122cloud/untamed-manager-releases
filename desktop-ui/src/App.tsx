@@ -6,13 +6,13 @@ import {
   Package, Plug, RefreshCw, Search, Server, Settings2, Shield, WifiOff
 } from "lucide-react";
 import {
-  managerBridge, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
+  managerBridge, dashboardRemotes, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
   type LogTail, type ModDraftState, type ModDraftSave, type ModDraftMode,
   type IniFile, type IniDocument, type IniPreview, type LocalImportPreview,
   type SteamInstallations, type SuggestedPorts,
   type CurseForgeCategory, type CurseForgeFeatured, type CurseForgeProject, type CurseForgeFile,
   type PluginInventory, type PluginState, type PluginTogglePreview, type SharedModInventory, type DashboardSnapshot,
-  type PublicMap, type RemoteHost
+  type PublicMap
 } from "./bridge";
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
@@ -63,7 +63,8 @@ const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> =
   { page: "settings", label: "Beállítások", icon: Settings2 },
 ];
 
-function observedAt(raw: string): string {
+function observedAt(raw: string | null | undefined): string {
+  if(!raw)return "Nincs korábbi mérés";
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? "Ismeretlen" : d.toLocaleTimeString("hu-HU");
 }
@@ -465,7 +466,12 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
         onInstall={openInstall} onImport={()=>setImportMode("existing")}/>
     </Panel>:<>
       <Panel title={`Helyi mapok · ${snapshot.local.hostName}`}><MapTable maps={snapshot.local.maps} host={snapshot.local.hostName} filter={search} onPick={onSelect}/></Panel>
-      {snapshot.remote && <Panel title={`Távoli mapok · ${snapshot.remote.hostName}`}><MapTable maps={snapshot.remote.maps} host={snapshot.remote.hostName} filter={search}/></Panel>}
+      {dashboardRemotes(snapshot).map(remote=><Panel key={remote.hostId}
+        title={`Távoli mapok · ${remote.hostName}`}>
+        <p className="muted small">{remote.fresh===false?"Elavult / offline megfigyelés":"Hitelesített LAN-adat"}
+          {remote.lastSuccessUtc?` · utolsó sikeres mérés: ${observedAt(remote.lastSuccessUtc)}`:""}</p>
+        <MapTable maps={remote.maps} host={remote.hostName} filter={search}/>
+      </Panel>)}
     </>}
   </>;
 }
@@ -1328,13 +1334,25 @@ function SettingsCenter() {
 }
 
 function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
-  const remote: RemoteHost | null = snapshot.remote;
+  const remotes=dashboardRemotes(snapshot);
+  const protectedMapIds=useMemo(()=>new Set(snapshot.local.maps
+    .filter(map=>map.storeProtected).map(map=>map.id.toLowerCase())),[snapshot.local.maps]);
   return <><div className="page-intro"><span className="eyebrow">LAN / OWNERSHIP</span><h1>Cluster</h1><p>Gazdagépenként saját Manager, közös státusznézet, távoli parancsok nélkül.</p></div>
     <div className="cluster-grid">
       <Panel title="Ez a gazdagép"><HostCard host={snapshot.local} local/><MapTable maps={snapshot.local.maps} host={snapshot.local.hostName}/></Panel>
-      <Panel title="Távoli gazdagép">{remote ? <><HostCard host={remote}/><p className="muted small">Legutóbbi hitelesített mérés: {observedAt(remote.observedUtc)}</p><MapTable maps={remote.maps} host={remote.hostName}/></> : <div className="warning-inline"><WifiOff size={19}/>{snapshot.peerMessage || "Nincs friss távoli adat"}</div>}</Panel>
+      <Panel title={`Távoli gazdagépek · ${remotes.length}`}>
+        {remotes.length?remotes.map(remote=><section className="cluster-remote-host" key={remote.hostId}>
+          <HostCard host={remote}/>
+          <p className={remote.fresh===false?"warning-inline":"muted small"}>
+            {remote.fresh===false?"Elavult / offline · nincs friss hitelesített mérés":"Legutóbbi hitelesített mérés"}
+            {remote.lastSuccessUtc?` · ${observedAt(remote.lastSuccessUtc)}`:remote.observedUtc?` · ${observedAt(remote.observedUtc)}`:""}
+            {remote.stateCode?` · ${remote.stateCode}`:""}
+          </p>
+          <MapTable maps={remote.maps} host={remote.hostName}/>
+        </section>):<div className="warning-inline"><WifiOff size={19}/>{snapshot.peerMessage||"Nincs párosított távoli adat"}</div>}
+      </Panel>
     </div>
-    <ClusterRegistryPanel/>
+    <ClusterRegistryPanel protectedMapIds={protectedMapIds}/>
   </>;
 }
 type MapSection = "overview" | "monitor" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";

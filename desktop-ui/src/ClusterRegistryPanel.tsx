@@ -22,13 +22,15 @@ function RegistryPanel({title,children,action}:{
   </section>;
 }
 
-export function ClusterRegistryPanel() {
+export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protectedMapIds?:Set<string>}={}) {
   const [snapshot,setSnapshot]=useState<ClusterRegistrySnapshot|null>(null);
   const [clusterId,setClusterId]=useState("");
   const clusterIdRef=useRef(clusterId);
   const [fields,setFields]=useState<ClusterFields>(blankCluster);
   const [editing,setEditing]=useState(false);
   const [selectedMapIds,setSelectedMapIds]=useState<Set<string>>(new Set());
+  const [mapQuery,setMapQuery]=useState("");
+  const [mapHostFilter,setMapHostFilter]=useState("all");
   const [preview,setPreview]=useState<ClusterMembershipPreviewResult|null>(null);
   const [hostId,setHostId]=useState("");
   const [hostName,setHostName]=useState("");
@@ -81,6 +83,18 @@ export function ClusterRegistryPanel() {
     return [...groups.values()].sort((a,b)=>(a.host?.hostName??"").localeCompare(
       b.host?.hostName??"","hu-HU"));
   },[snapshot,owners]);
+  const visibleMapGroups=useMemo(()=>{
+    const needle=mapQuery.trim().toLocaleLowerCase("hu-HU");
+    return groupedMaps.map(group=>({...group,maps:group.maps.filter(map=>{
+      const hostId=group.host?.hostId??"";
+      const hostMatches=mapHostFilter==="all"||
+        (mapHostFilter==="local"?group.host?.isLocal===true:hostId===mapHostFilter);
+      const queryMatches=!needle||map.mapName.toLocaleLowerCase("hu-HU").includes(needle)||
+        map.mapId.toLocaleLowerCase("hu-HU").includes(needle)||
+        (group.host?.hostName??"").toLocaleLowerCase("hu-HU").includes(needle);
+      return hostMatches&&queryMatches;
+    })})).filter(group=>group.maps.length>0);
+  },[groupedMaps,mapQuery,mapHostFilter]);
 
   useEffect(()=>{
     if(!snapshot||!selectedCluster)return;
@@ -276,23 +290,40 @@ export function ClusterRegistryPanel() {
       {!selectedCluster&&<div className="empty">Először hozz létre vagy válassz clustert.</div>}
       {selectedCluster&&<>
         <p className="muted small">A map egy időben legfeljebb egy clusterhez tartozhat. A másik clusterből érkező map az előnézetben áthelyezésként jelenik meg.</p>
+        <div className="cluster-registry-map-controls">
+          <label className="cluster-registry-field">Map vagy gazdagép keresése
+            <input aria-label="Cluster map keresése" value={mapQuery}
+              onChange={e=>setMapQuery(e.target.value)} placeholder="Mapnév, GUID vagy host"/>
+          </label>
+          <label className="cluster-registry-field">Gazdagép szűrő
+            <select aria-label="Cluster gazdagép szűrő" value={mapHostFilter}
+              onChange={e=>setMapHostFilter(e.target.value)}>
+              <option value="all">Minden gazdagép</option>
+              <option value="local">Csak helyi</option>
+              {(snapshot?.hostRegistry.hosts??[]).filter(host=>!host.isLocal).map(host=>
+                <option key={host.hostId} value={host.hostId}>{host.hostName}</option>)}
+            </select>
+          </label>
+          <span className="muted small">{visibleMapGroups.reduce((sum,group)=>sum+group.maps.length,0)} map megjelenítve</span>
+        </div>
         <div className="cluster-registry-map-groups">
-          {groupedMaps.map(group=><fieldset className="cluster-registry-map-group" key={group.host?.hostId??"unknown"}>
+          {visibleMapGroups.map(group=><fieldset className="cluster-registry-map-group" key={group.host?.hostId??"unknown"}>
             <legend>{group.host?.hostName??"Ismeretlen gazdagép"} · {group.maps.length} map
               {!group.host?.isLocal&&<span> · {group.host?.isPaired?"LAN-párosított":"csak regiszteradat"}</span>}
             </legend>
             {group.maps.map(map=>{
               const inactive=group.host?.isLocal===true&&!map.localConfigurationPresent;
               const key=map.mapId.toLowerCase();
-              return <label className={"cluster-registry-map"+(inactive?" inactive":"")} key={key}>
-                <input type="checkbox" checked={selectedMapIds.has(key)} disabled={busy||inactive}
+              const protectedStore=protectedMapIds.has(key);
+              return <label className={"cluster-registry-map"+(inactive||protectedStore?" inactive":"")} key={key}>
+                <input type="checkbox" checked={selectedMapIds.has(key)} disabled={busy||inactive||protectedStore}
                   onChange={e=>toggleMap(map.mapId,e.target.checked)}/>
-                <span><b>{map.mapName}</b><small>{inactive?"Már nincs a helyi Managerben":map.mapId}</small></span>
-                {inactive&&<em>Inaktív</em>}
+                <span><b>{map.mapName}</b><small>{protectedStore?"Kova Store-v1 védett":inactive?"Már nincs a helyi Managerben":map.mapId}</small></span>
+                {(inactive||protectedStore)&&<em>{protectedStore?"Védett":"Inaktív"}</em>}
               </label>;
             })}
           </fieldset>)}
-          {groupedMaps.length===0&&<div className="empty">Még nincs regisztrált map. A helyi mapokat a Manager automatikusan felveszi.</div>}
+          {visibleMapGroups.length===0&&<div className="empty">Nincs regisztrált map a kiválasztott szűrőhöz.</div>}
         </div>
         <div className="cluster-registry-actions">
           <button className="secondary" type="button" disabled={busy}
