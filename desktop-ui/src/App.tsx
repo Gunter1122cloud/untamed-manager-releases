@@ -707,7 +707,7 @@ function Mods({ snapshot, selected, setSelected }: {
   };
   const onDraftProgress=useCallback((changes:number)=>setDraftChanges(changes),[]);
   const addBasket=(id:string,name:string)=>{
-    if(!/^\\d{5,12}$/.test(id))return;
+    if(!/^\d{5,12}$/.test(id))return;
     setBasket(previous=>previous.some(m=>m.id===id)?previous:[...previous,{id,name,mode:"active"}]);
   };
   return <div className="premium-mod-page">
