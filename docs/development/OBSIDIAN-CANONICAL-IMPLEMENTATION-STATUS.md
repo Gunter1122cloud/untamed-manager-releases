@@ -38,6 +38,16 @@ A Codex által elkészített és egyenként ellenőrzött új kód a megfelelő 
 
 A [#59](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/59) **MAIN / MERGED** (`b72608b`): a `wpf/MainWindow.Sql.cs` elvetett WPF háromadatbázisos SQL GUI ténylegesen törölve. A pontos `b22cadf` headen a [Windows CI #1567](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42482924550) **SUCCESS**. A merge utáni [main CI #1568](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42483346382) szintén **SUCCESS** a `b72608b` merge commiton. A fájlt a `wpf/UntamedManager.csproj` már korábban kizárta a fordításból; a `desktop/UntamedDesktop.csproj` kizárólag a közös `wpf/Core/*.cs` részt használja. A `wpf/UntamedManager.csproj` redundáns compile-kizárása törölve, a `.github/workflows/build-obsidian-desktop.yml` pedig kompatibilitásvédő regressziós ellenőrzést kapott. A történeti SQL regressziós forrás, Store-v1 Core, updater és WPF referenciatesztek megmaradnak. Ez nem jelenti a teljes korábbi WPF GUI eltávolítását: annak a történeti tesztprojektekre és projekthivatkozásokra gyakorolt hatása további felülvizsgálatot igényel.
 
+## 2026-11-08 – felhasználói P0/P1 regressziós követés
+
+| Teszt | Jelenlegi állapot | Forrás, bizonyíték, hiány |
+| --- | --- | --- |
+| **TEST-003 – első ASA beállítás / hiányzó Start** | **#60 MAIN + CI, éles elfogadás NINCS** | [#60](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/60) és [főági Windows CI #1575](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42486421043) SUCCESS. Az első konfiguráció explicit blocker-státuszokat és szintetikus regressziót kapott; a Windows-felhasználói The Island reprodukciót még ismételni kell. Nem szabad ismeretlen folyamatállapotból hamis stopped igazolást készíteni. |
+| **TEST-001 – friss telepítés hiányzó INI** | **#60 MAIN + CI, valós visszaellenőrzés NINCS** | Az `desktop/DesktopIniBridge.cs` hiányzó fájlt/mappát külön hibakóddal jelzi, a React UI magyar magyarázatot ad; nem hoz létre INI-t és nem ír Store-adatot. Az RCON első INI bootstrap a meglévő külön jóváhagyásos útvonalon marad. |
+| **TEST-002 – többmodos CurseForge kosár** | **#61 MAIN + PR CI, főági elfogadás folyamatban** | [#61](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/61), [Windows PR CI #1574](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42486276277) SUCCESS; merge SHA `1933d44d`. Modkosár, több keresés/lapozás, natív ModDraftSession előnézet, operátori jóváhagyás és lokális Copy átadás; ASA-modbetöltés nincs igazolva. |
+| **N-host modprofil átadás** | **RÉSZLEGES / #63 PR** | A meglévő `DesktopModProfileBridge.cs` natív JSON-export/import és helyi, jóváhagyott apply használható. [#63](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/63) külön N-host feliratozást és legfeljebb 25 célmapos, explicit kötegenkénti kijelölést tesztel. **Nincs automatikus távoli írás vagy LAN-modszinkron.** |
+| **Duplikált alternatív kosár** | **ELVETVE – #62 lezárva, nem merge-elve** | [#62](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/62) a meglévő #61 implementációval versenyzett; a történet megmaradt, kódja nincs a mainben. |
+
 ## Osztályozott forráskód – rendrakási ellenőrzés
 
 | Forrás / komponens | Állapot | Indok |
