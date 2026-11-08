@@ -1,0 +1,222 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Threading.Tasks;
+using UntamedDesktop;
+using UntamedManager.Core;
+
+internal static class ClusterRegistryTests
+{
+    private static void Check(bool value, string message)
+    {
+        if (!value) throw new InvalidOperationException("CLUSTER REGISTRY TEST FAILED: " + message);
+        Console.WriteLine("PASS cluster registry: " + message);
+    }
+
+    public static async Task Run(string testRoot)
+    {
+        string migrationRoot = Path.Combine(testRoot, "registry-migration");
+        Directory.CreateDirectory(migrationRoot);
+        string originalHost = Guid.Parse("00000000-0000-4000-8000-000000000101").ToString("N");
+        Guid originalMap = Guid.Parse("00000000-0000-4000-8000-000000000102");
+        string oldConfig = Path.Combine(migrationRoot, "cluster-config.json");
+        File.WriteAllText(oldConfig, JsonSerializer.Serialize(new
+        {
+            LocalHostId = originalHost,
+            LocalHostName = "Legacy Host",
+            LocalMaps = new[] { new { Id = originalMap, Name = "Legacy Island" } }
+        }));
+        string storeFixture = Path.Combine(migrationRoot, "historic-store-v1-bytes.fixture");
+        byte[] storeBytes = { 0, 1, 2, 0, 255, 64, 128, 9, 7, 6, 5 };
+        File.WriteAllBytes(storeFixture, storeBytes);
+        string storeHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(storeFixture)));
+        {
+            await using var migrated = new ClusterService("registry-migration", migrationRoot,
+                _ => new ProcessCheck(false, "Synthetic test only", null, true));
+            var snapshot = migrated.Registry.Snapshot();
+            Check(snapshot.HostRegistry.SchemaVersion == 1 && snapshot.ClusterRegistry.SchemaVersion == 1,
+                "older Manager profile gains versioned host and cluster schemas");
+            Check(snapshot.HostRegistry.LocalHostId == originalHost &&
+                snapshot.HostRegistry.Maps.Single().MapId == originalMap &&
+                snapshot.HostRegistry.Maps.Single().MapName == "Legacy Island",
+                "profile migration preserves existing host and map IDs and names");
+            var legacyCluster = migrated.Registry.CreateCluster("legacy-cluster", "Legacy Cluster",
+                Path.Combine(migrationRoot, "legacy-transfer"));
+            var assignment = migrated.Registry.PreviewMapAssignments(legacyCluster.ClusterId,
+                new[] { originalMap });
+            migrated.Registry.ApplyMapAssignments(legacyCluster.ClusterId,
+                new[] { originalMap }, assignment.BaseRevision);
+            migrated.RemoveMap(originalMap);
+            var retired = migrated.Registry.Snapshot();
+            Check(!retired.HostRegistry.Maps.Single().LocalConfigurationPresent &&
+                retired.HostRegistry.Maps.Single().MapId == originalMap &&
+                retired.ClusterRegistry.MapAssignments.Single().MapId == originalMap,
+                "removing a local map keeps its stable identity and cluster assignment as inactive metadata");
+            Check(File.ReadAllBytes(storeFixture).SequenceEqual(storeBytes) &&
+                storeHash == Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(storeFixture))),
+                "profile migration leaves historic Store-v1 bytes unchanged");
+        }
+
+        string profileRoot = Path.Combine(testRoot, "registry-topology");
+        Guid[] mapIds = new Guid[100];
+        string[] hostIds;
+        long revisionAfterAssignments;
+        {
+            await using var service = new ClusterService("registry-topology", profileRoot,
+                _ => new ProcessCheck(false, "Synthetic test only", null, true));
+            var localMaps = new[] {
+                new LocalMap { Id = Guid.Parse("00000000-0000-4000-8000-000000000201"), Name = "Island" },
+                new LocalMap { Id = Guid.Parse("00000000-0000-4000-8000-000000000202"), Name = "Astraeos" },
+                new LocalMap { Id = Guid.Parse("00000000-0000-4000-8000-000000000203"), Name = "Ragnarok" }
+            };
+            foreach (var map in localMaps) service.AddMap(map);
+            for (int i = 0; i < localMaps.Length; i++) mapIds[i] = localMaps[i].Id;
+
+            hostIds = new string[12];
+            hostIds[0] = service.Config.LocalHostId;
+            for (int i = 1; i < hostIds.Length; i++)
+            {
+                hostIds[i] = Guid.Parse("00000000-0000-4000-8000-" + (300 + i).ToString("D12")).ToString("N");
+                service.Registry.RegisterHost(hostIds[i], "Host " + i);
+            }
+            for (int i = localMaps.Length; i < mapIds.Length; i++)
+            {
+                mapIds[i] = Guid.Parse("00000000-0000-4000-8000-" + (1000 + i).ToString("D12"));
+                int hostIndex = 1 + (i - localMaps.Length) % (hostIds.Length - 1);
+                service.Registry.RegisterRemoteMap(hostIds[hostIndex], mapIds[i], "Map " + i);
+            }
+            var registered = service.Registry.Snapshot();
+            Check(registered.HostRegistry.Hosts.Count == 12 && registered.HostRegistry.Maps.Count == 100,
+                "registry supports twelve hosts and one hundred maps with uneven ownership");
+            Check(registered.HostRegistry.Hosts.Count(x => x.IsLocal) == 1 &&
+                registered.HostRegistry.Hosts.Where(x => !x.IsLocal).All(x => !x.IsPaired),
+                "registered remote identities remain explicitly unpaired");
+
+            string root = Path.Combine(profileRoot, "clusters");
+            Directory.CreateDirectory(root);
+            var a = service.Registry.CreateCluster("untamed-kingdom", "Untamed Kingdom",
+                Path.Combine(root, "uk-transfer"), Path.Combine(root, "uk-backups"));
+            var b = service.Registry.CreateCluster("test-cluster", "Test Cluster",
+                Path.Combine(root, "test-transfer"), Path.Combine(root, "test-backups"));
+            var c = service.Registry.CreateCluster("event-cluster", "Event Cluster",
+                Path.Combine(root, "event-transfer"), Path.Combine(root, "event-backups"));
+            Check(a.ClusterId == "untamed-kingdom" && b.ClusterId != c.ClusterId &&
+                service.Registry.Snapshot().ClusterRegistry.Clusters.Count == 3,
+                "multiple independent clusters persist on a single Manager host");
+            Check(!Directory.Exists(a.TransferDirectory) && !Directory.Exists(a.BackupDirectory),
+                "cluster registration records paths without creating or writing directories");
+
+            bool pathCollisionDenied = false;
+            try { service.Registry.CreateCluster("bad-transfer", "Bad", a.TransferDirectory); }
+            catch (InvalidOperationException) { pathCollisionDenied = true; }
+            Check(pathCollisionDenied, "different clusters cannot share a transfer directory");
+            bool crossRoleCollisionDenied = false;
+            try { service.Registry.CreateCluster("bad-cross-role", "Bad",
+                Path.Combine(root, "unused-transfer"), a.BackupDirectory); }
+            catch (InvalidOperationException) { crossRoleCollisionDenied = true; }
+            Check(crossRoleCollisionDenied,
+                "a cluster backup path cannot collide with another cluster directory");
+            bool invalidIdDenied = false;
+            try { service.Registry.CreateCluster("../bad", "Bad", Path.Combine(root, "bad")); }
+            catch (InvalidDataException) { invalidIdDenied = true; }
+            Check(invalidIdDenied, "cluster IDs reject path syntax");
+
+            DateTimeOffset originalCreatedUtc = b.CreatedUtc;
+            var updated = service.Registry.UpdateCluster(b.ClusterId, "Test Cluster Updated",
+                b.TransferDirectory, b.BackupDirectory);
+            Check(updated.Name == "Test Cluster Updated" && updated.CreatedUtc == originalCreatedUtc &&
+                updated.UpdatedUtc >= updated.CreatedUtc,
+                "cluster updates preserve stable IDs and creation time while recording changed settings");
+
+            var previewA = service.Registry.PreviewMapAssignments(a.ClusterId, mapIds.Take(26));
+            Check(previewA.IsValid && previewA.Additions.Count == 26,
+                "membership preview supports and summarizes twenty-six selected maps");
+            service.Registry.ApplyMapAssignments(a.ClusterId, mapIds.Take(26), previewA.BaseRevision);
+            var previewB = service.Registry.PreviewMapAssignments(b.ClusterId,
+                new[] { mapIds[0], mapIds[1], mapIds[26], mapIds[27] });
+            Check(previewB.IsValid && previewB.Moves.Count == 2 && previewB.Additions.Count == 2,
+                "preview distinguishes map moves from unassigned map additions");
+            service.Registry.ApplyMapAssignments(b.ClusterId,
+                new[] { mapIds[0], mapIds[1], mapIds[26], mapIds[27] }, previewB.BaseRevision);
+            var assigned = service.Registry.Snapshot().ClusterRegistry.MapAssignments;
+            Check(assigned.Count == 28 && assigned.Select(x => x.MapId).Distinct().Count() == assigned.Count &&
+                assigned.Count(x => x.ClusterId == a.ClusterId) == 24 &&
+                assigned.Count(x => x.ClusterId == b.ClusterId) == 4,
+                "a map has at most one cluster owner after approved reassignment");
+
+            var stale = service.Registry.PreviewMapAssignments(c.ClusterId, new[] { mapIds[5] });
+            string lateHost = Guid.Parse("00000000-0000-4000-8000-000000000399").ToString("N");
+            service.Registry.RegisterHost(lateHost, "Late Host");
+            bool staleDenied = false;
+            try { service.Registry.ApplyMapAssignments(c.ClusterId, new[] { mapIds[5] }, stale.BaseRevision); }
+            catch (InvalidOperationException) { staleDenied = true; }
+            Check(staleDenied, "membership confirmation is rejected after the registry revision changes");
+
+            Guid protectedMap = mapIds[50];
+            string protectedOwner = registered.HostRegistry.Maps.Single(x => x.MapId == protectedMap).HostId;
+            string otherHost = hostIds.First(x => !StringComparer.OrdinalIgnoreCase.Equals(x, protectedOwner));
+            bool ownershipDenied = false;
+            try { service.Registry.RegisterRemoteMap(otherHost, protectedMap, "Rebound Map"); }
+            catch (UnauthorizedAccessException) { ownershipDenied = true; }
+            Check(ownershipDenied && service.Registry.Snapshot().HostRegistry.Maps
+                .Single(x => x.MapId == protectedMap).HostId == protectedOwner,
+                "a registered map cannot be rebound to a different physical host");
+
+            using var bridge = new DesktopClusterRegistryBridge(service);
+            var bridgeSnapshot = await Call(bridge, "cluster.registry.snapshot");
+            Check(bridgeSnapshot.GetProperty("ok").GetBoolean() &&
+                bridgeSnapshot.GetProperty("data").GetProperty("hostRegistry").GetProperty("maps").GetArrayLength() == 100,
+                "React/WebView2 native route returns the current versioned registry snapshot");
+            var bridgePreview = await Call(bridge, "cluster.membership.preview", new {
+                clusterId = c.ClusterId, mapIds = new[] { mapIds[90].ToString("D") }
+            });
+            Check(bridgePreview.GetProperty("ok").GetBoolean() &&
+                bridgePreview.GetProperty("data").GetProperty("preview").GetProperty("isValid").GetBoolean(),
+                "native bridge returns a reviewable map membership preview");
+            string token = bridgePreview.GetProperty("data").GetProperty("token").GetString()!;
+            var missingConfirmation = await Call(bridge, "cluster.membership.apply", new { token, confirm = false });
+            Check(!missingConfirmation.GetProperty("ok").GetBoolean() &&
+                missingConfirmation.GetProperty("error").GetString() == "UM-REGISTRY-CONFIRMATION-REQUIRED",
+                "membership writes require an explicit renderer confirmation");
+            var applied = await Call(bridge, "cluster.membership.apply", new { token, confirm = true });
+            Check(applied.GetProperty("ok").GetBoolean() &&
+                applied.GetProperty("data").GetProperty("addedCount").GetInt32() == 1,
+                "approved native membership token applies exactly the previewed map set");
+            var replay = await Call(bridge, "cluster.membership.apply", new { token, confirm = true });
+            Check(!replay.GetProperty("ok").GetBoolean() &&
+                replay.GetProperty("error").GetString() == "UM-REGISTRY-PREVIEW-EXPIRED",
+                "a membership approval token cannot be replayed");
+            var deniedRemoteOperation = await Call(bridge, "cluster.remoteStart", new { mapId = mapIds[90] });
+            Check(!deniedRemoteOperation.GetProperty("ok").GetBoolean() &&
+                deniedRemoteOperation.GetProperty("error").GetString() == "UM-METHOD-DENIED",
+                "registry bridge exposes no remote server lifecycle route");
+            revisionAfterAssignments = service.Registry.Snapshot().Revision;
+        }
+
+        await using var restarted = new ClusterService("registry-topology", profileRoot,
+            _ => new ProcessCheck(false, "Synthetic test only", null, true));
+        var persisted = restarted.Registry.Snapshot();
+        Check(persisted.HostRegistry.Hosts.Count == 13 && persisted.HostRegistry.Maps.Count == 100 &&
+            persisted.ClusterRegistry.Clusters.Count == 3 && persisted.Revision == revisionAfterAssignments,
+            "host identities, uneven map catalog and clusters survive Manager restart");
+        Check(persisted.ClusterRegistry.MapAssignments.Count(x => x.MapId == mapIds[90]) == 1,
+            "approved map assignment survives Manager restart without duplicate ownership");
+    }
+
+    private static async Task<JsonElement> Call(DesktopClusterRegistryBridge bridge,
+        string method, object? args = null)
+    {
+        var request = new System.Collections.Generic.Dictionary<string, object?> {
+            ["id"] = Guid.NewGuid().ToString("D"), ["method"] = method
+        };
+        if (args != null)
+        {
+            var fields = JsonSerializer.SerializeToElement(args);
+            foreach (var field in fields.EnumerateObject()) request[field.Name] = field.Value.Clone();
+        }
+        using var response = JsonDocument.Parse(await bridge.HandleAsync(JsonSerializer.Serialize(request)));
+        return response.RootElement.Clone();
+    }
+}

@@ -84,6 +84,37 @@ export type RemoteHost = {
   maps: PublicMap[];
 };
 
+export type RegisteredHost = {
+  hostId:string;hostName:string;isLocal:boolean;isPaired:boolean;registeredUtc:string;
+};
+export type RegisteredMap = {
+  mapId:string;hostId:string;mapName:string;localConfigurationPresent:boolean;registeredUtc:string;
+};
+export type RegisteredCluster = {
+  clusterId:string;name:string;transferDirectory:string;backupDirectory:string;
+  createdUtc:string;updatedUtc:string;
+};
+export type ClusterMapAssignment = {mapId:string;clusterId:string};
+export type ClusterRegistrySnapshot = {
+  schemaVersion:number;revision:number;
+  hostRegistry:{schemaVersion:number;localHostId:string;hosts:RegisteredHost[];maps:RegisteredMap[]};
+  clusterRegistry:{schemaVersion:number;revision:number;clusters:RegisteredCluster[];mapAssignments:ClusterMapAssignment[]};
+};
+export type ClusterMembershipChange = {
+  mapId:string;mapName:string;hostId:string;hostName:string;
+  previousClusterId:string|null;targetClusterId:string|null;
+};
+export type ClusterMembershipPreview = {
+  baseRevision:number;clusterId:string;requestedMapIds:string[];
+  additions:ClusterMembershipChange[];removals:ClusterMembershipChange[];
+  moves:ClusterMembershipChange[];errors:string[];isValid:boolean;
+};
+export type ClusterMembershipPreviewResult = {token:string|null;preview:ClusterMembershipPreview};
+export type ClusterMembershipReceipt = {
+  clusterId:string;revision:number;addedCount:number;removedCount:number;
+  movedCount:number;appliedUtc:string;
+};
+
 export type DashboardSnapshot = {
   mode: "LIVE_READ_ONLY";
   observedUtc: string;
@@ -907,6 +938,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "backup.history" | "backup.preview" | "backup.create" |
   "backup.restorePreview" | "backup.restore" |
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
+  "cluster.registry.snapshot" | "cluster.host.register" | "cluster.map.register" |
+  "cluster.create" | "cluster.update" | "cluster.membership.preview" | "cluster.membership.apply" |
   "travel.capture" | "travel.compare" | "store.inspectCopy" | "store.inspectArchive" | "store.compareArchives";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   mapId?: string; term?: string; page?: number; credential?: string;
@@ -926,7 +959,9 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   point?:string; action?:string; message?:string; typedApproval?:string;
   rconPort?:number; password?:string; createIni?:boolean;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
-  sourceMap?: string;destinationMap?: string; profileId?: string };
+  sourceMap?: string;destinationMap?: string; profileId?: string;
+  hostId?:string;hostName?:string;mapIds?:string[];
+  clusterId?:string;transferDirectory?:string;backupDirectory?:string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
@@ -990,6 +1025,20 @@ function request<T>(method: WireRequest["method"], args: Partial<WireRequest> = 
 }
 
 export const managerBridge = {
+  clusterRegistrySnapshot: () =>
+    request<ClusterRegistrySnapshot>("cluster.registry.snapshot"),
+  clusterRegisterHost: (hostId:string,hostName:string) =>
+    request<RegisteredHost>("cluster.host.register",{hostId,hostName}),
+  clusterRegisterMap: (hostId:string,mapId:string,mapName:string) =>
+    request<RegisteredMap>("cluster.map.register",{hostId,mapId,mapName}),
+  clusterCreate: (clusterId:string,name:string,transferDirectory:string,backupDirectory:string) =>
+    request<RegisteredCluster>("cluster.create",{clusterId,name,transferDirectory,backupDirectory}),
+  clusterUpdate: (clusterId:string,name:string,transferDirectory:string,backupDirectory:string) =>
+    request<RegisteredCluster>("cluster.update",{clusterId,name,transferDirectory,backupDirectory}),
+  clusterMembershipPreview: (clusterId:string,mapIds:string[]) =>
+    request<ClusterMembershipPreviewResult>("cluster.membership.preview",{clusterId,mapIds}),
+  clusterMembershipApply: (token:string) =>
+    request<ClusterMembershipReceipt>("cluster.membership.apply",{token,confirm:true}),
   lanStatus: () => request<LanStatus>("lan.status"),
   lanPreview: (listenPort:number,peerAddress:string,peerPort:number,
     expectedPeerHostId:string,pairingKey:string) =>

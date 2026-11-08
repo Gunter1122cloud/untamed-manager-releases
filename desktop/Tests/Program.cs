@@ -25,6 +25,14 @@ static async Task<JsonElement> Call(Func<string,Task<string>> handler,string met
     using var document=JsonDocument.Parse(response);
     return document.RootElement.Clone();
 }
+static int FindFreeTestPort(bool udp,params int[] excluded)
+{
+    var network=System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties();
+    var active=udp?network.GetActiveUdpListeners():network.GetActiveTcpListeners();
+    var used=active.Select(endpoint=>endpoint.Port).ToHashSet();
+    return Enumerable.Range(40000,25000).First(port=>
+        !used.Contains(port)&&!excluded.Contains(port));
+}
 static void IsOk(JsonElement value,string context)=>
     Check(value.GetProperty("ok").GetBoolean(),context);
 static bool IsError(JsonElement value,string code)=>
@@ -44,6 +52,7 @@ var map=new LocalMap{
         "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
 };
 cluster.AddMap(map);
+await ClusterRegistryTests.Run(root);
 // A real SQLite .ark COPY fixture tests the actual metadata reader, not a
 // mocked parser. No server process, production Store writer, or network share.
 {
@@ -1192,6 +1201,8 @@ try
     // Verify that launch settings are a separate explicit stage after ASA
     // files exist. This never starts an ASA process or enables RCON.
     var valguero=cluster.Config.LocalMaps.Single(m=>m.Name=="Valguero");
+    int testGamePort=FindFreeTestPort(true);
+    int testQueryPort=FindFreeTestPort(true,testGamePort);
     using(var setup=new DesktopInitialMapSetupBridge(cluster))
     {
         var status=await Call(setup.HandleAsync,"servers.initialStatus",
@@ -1202,13 +1213,13 @@ try
             "new map is confirmed stopped and unconfigured");
 
         var bad=await Call(setup.HandleAsync,"servers.initialPreview",
-            new{mapId=valguero.Id,sessionName="UK Test",gamePort=7797,queryPort=7797});
+            new{mapId=valguero.Id,sessionName="UK Test",gamePort=testGamePort,queryPort=testGamePort});
         Check(!bad.GetProperty("ok").GetBoolean(),
             "initial setup rejects identical Game and Query UDP ports");
 
         var preview=await Call(setup.HandleAsync,"servers.initialPreview",
             new{mapId=valguero.Id,sessionName="Untamed Kingdom Test",
-                gamePort=7797,queryPort=27035});
+                gamePort=testGamePort,queryPort=testQueryPort});
         IsOk(preview,"official ASA level/session/ports preview is calculated");
         var token=preview.GetProperty("data").GetProperty("token").GetString()!;
         Check(string.IsNullOrEmpty(valguero.Arguments) &&
@@ -1223,7 +1234,7 @@ try
             new{token,confirm=true});
         IsOk(committed,"approved initial setup saves registered Manager launch profile");
         var configured=cluster.Config.LocalMaps.Single(m=>m.Id==valguero.Id);
-        Check(configured.GamePort==7797 && configured.QueryPort==27035 &&
+        Check(configured.GamePort==testGamePort && configured.QueryPort==testQueryPort &&
               configured.Arguments.StartsWith("Valguero_WP?listen",StringComparison.Ordinal) &&
               configured.Arguments.Contains("SessionName=") &&
               configured.RconPort==0 && string.IsNullOrEmpty(configured.RconPasswordProtected) &&
@@ -1245,6 +1256,8 @@ try
     // launch settings. No Store, running process or other INI may be modified.
     {
         var fresh=cluster.Config.LocalMaps.Single(m=>m.Name=="Valguero");
+        int testRconPort=FindFreeTestPort(false,testGamePort,testQueryPort);
+        int otherTestRconPort=FindFreeTestPort(false,testGamePort,testQueryPort,testRconPort);
         string iniPath=AsaInitialRconSettings.NewIniPath(fresh.InstallationPath);
         Check(!File.Exists(iniPath),"fresh RCON test starts with no ASA server config");
         using var rconSetup=new DesktopRconConfigurationBridge(cluster);
@@ -1266,12 +1279,12 @@ try
         Check(!protectedStatus.GetProperty("data").GetProperty("permitted").GetBoolean(),
             "RCON bootstrap is disabled when another map shares historical Store provenance");
         var protectedPreview=await Call(rconSetup.HandleAsync,"rcon.configPreview",
-            new{mapId=fresh.Id,rconPort=37555,password=secret,createIni=true});
+            new{mapId=fresh.Id,rconPort=testRconPort,password=secret,createIni=true});
         Check(IsError(protectedPreview,"UM-RCON-CONFIG-STOPPED-NONSTORE-ONLY"),
             "RCON bootstrap cannot bypass historical Store map on shared installation");
         cluster.RemoveMap(historicalSibling.Id);
         var preview=await Call(rconSetup.HandleAsync,"rcon.configPreview",
-            new{mapId=fresh.Id,rconPort=37555,password=secret,createIni=true});
+            new{mapId=fresh.Id,rconPort=testRconPort,password=secret,createIni=true});
         IsOk(preview,"new ASA RCON config is previewed, not applied");
         Check(!File.Exists(iniPath) && !preview.GetRawText().Contains(secret),
             "RCON preview leaves disk untouched and hides credential");
@@ -1284,7 +1297,7 @@ try
             new{token,confirm=true});
         IsOk(configured,"native RCON bootstrap creates ASA INI and stores DPAPI credential");
         Check(File.Exists(iniPath) && File.ReadAllText(iniPath).Contains("RCONEnabled=True") &&
-              cluster.Config.LocalMaps.Single(m=>m.Id==fresh.Id).RconPort==37555 &&
+              cluster.Config.LocalMaps.Single(m=>m.Id==fresh.Id).RconPort==testRconPort &&
               SecureStore.Unprotect(cluster.Config.LocalMaps.Single(m=>m.Id==fresh.Id)
                   .RconPasswordProtected)==secret,
             "RCON bootstrap persisted correct local ASA setting and encrypted Manager secret");
@@ -1293,11 +1306,11 @@ try
         Check(IsError(replay,"UM-RCON-CONFIG-TOKEN-EXPIRED"),
             "RCON bootstrap cannot be replayed");
         var second=await Call(rconSetup.HandleAsync,"rcon.configPreview",
-            new{mapId=fresh.Id,rconPort=37556,password=secret,createIni=true});
+            new{mapId=fresh.Id,rconPort=otherTestRconPort,password=secret,createIni=true});
         Check(IsError(second,"UM-RCON-CONFIG-STOPPED-NONSTORE-ONLY"),
             "configured RCON cannot be overwritten by bootstrap");
         var denied=await Call(rconSetup.HandleAsync,"rcon.configPreview",
-            new{mapId=Guid.NewGuid(),rconPort=37556,password=secret,createIni=true});
+            new{mapId=Guid.NewGuid(),rconPort=otherTestRconPort,password=secret,createIni=true});
         Check(IsError(denied,"UM-MAP-NOT-OWNED"),"foreign map cannot configure RCON");
         Check(!configured.GetRawText().Contains(secret),
             "RCON success response contains no plaintext credential");

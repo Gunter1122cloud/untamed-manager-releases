@@ -87,7 +87,7 @@ public sealed class ObsidianWindow : Form
 
     private readonly WebView2 _browser = new() { Dock = DockStyle.Fill };
     private readonly NotifyIcon _tray = new();
-    private readonly DesktopReadOnlyBridge _bridge = new();
+    private readonly DesktopReadOnlyBridge _bridge;
     private readonly DesktopCredentialBridge _credentials;
     private readonly DesktopModDraftBridge _modDrafts;
     private readonly DesktopModCopyBridge _modCopy;
@@ -100,6 +100,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopAsaApiCoreBridge _apiCore;
     private readonly DesktopIniBridge _iniEditor;
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
+    private readonly DesktopClusterRegistryBridge _clusterRegistry;
     private readonly DesktopCurseForgeDiscoveryBridge _modCatalog;
     private readonly DesktopSteamFreshInstallBridge _freshInstall;
     private readonly DesktopInitialMapSetupBridge _initialMapSetup;
@@ -129,11 +130,22 @@ public sealed class ObsidianWindow : Form
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
+    private readonly string? _smokeRoot;
     private bool _smokeCompleted;
 
-    public ObsidianWindow(bool smokeTest = false)
+    public ObsidianWindow(bool smokeTest = false,string? isolatedProfileRoot = null)
     {
         _smokeTest = smokeTest;
+        if(smokeTest)
+        {
+            _smokeRoot=string.IsNullOrWhiteSpace(isolatedProfileRoot)
+                ?Path.Combine(Path.GetTempPath(),"Untamed-Obsidian-Smoke-"+
+                    Guid.NewGuid().ToString("N"))
+                :Path.GetFullPath(isolatedProfileRoot);
+            Directory.CreateDirectory(_smokeRoot);
+            _bridge=new DesktopReadOnlyBridge(Path.Combine(_smokeRoot,"profile"));
+        }
+        else _bridge=new DesktopReadOnlyBridge();
         _credentials = new DesktopCredentialBridge(_bridge.LocalCluster);
         _updateInstall = new DesktopObsidianUpdateInstallBridge(_bridge.LocalCluster);
         _modDrafts = new DesktopModDraftBridge(_bridge.LocalCluster);
@@ -147,6 +159,7 @@ public sealed class ObsidianWindow : Form
         _apiCore = new DesktopAsaApiCoreBridge(_bridge.LocalCluster);
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
         _mapRegistry = new DesktopLocalMapRegistryBridge(_bridge.LocalCluster);
+        _clusterRegistry = new DesktopClusterRegistryBridge(_bridge.LocalCluster);
         _modCatalog = new DesktopCurseForgeDiscoveryBridge(_bridge.LocalCluster);
         _freshInstall = new DesktopSteamFreshInstallBridge(_bridge.LocalCluster);
         _initialMapSetup = new DesktopInitialMapSetupBridge(_bridge.LocalCluster);
@@ -244,6 +257,7 @@ public sealed class ObsidianWindow : Form
             _freshInstall.Dispose();
             _modCatalog.Dispose();
             _mapRegistry.Dispose();
+            _clusterRegistry.Dispose();
             _iniEditor.Dispose();
             _modDrafts.Dispose();
             _modCopy.Dispose();
@@ -277,9 +291,11 @@ public sealed class ObsidianWindow : Form
             if (!File.Exists(Path.Combine(assets, "index.html")))
                 throw new InvalidOperationException("Missing packaged React UI (ui/index.html). Run npm build first.");
 
-            string data = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "UntamedManager", "ObsidianWebView2");
+            string data = _smokeTest
+                ?Path.Combine(_smokeRoot!,"webview")
+                :Path.Combine(Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                    "UntamedManager","ObsidianWebView2");
             Directory.CreateDirectory(data);
             var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: data);
             await _browser.EnsureCoreWebView2Async(environment);
@@ -312,6 +328,17 @@ public sealed class ObsidianWindow : Form
                 string incoming;
                 try { incoming = e.WebMessageAsJson; }
                 catch (Exception) { return; }
+                if (_smokeTest)
+                {
+                    // Packaged UI smoke tests use a deterministic renderer
+                    // fixture. Do not let smoke mode inspect host resources,
+                    // profile files, LAN peers, ASA processes or any mutation
+                    // bridge, even if the page requests one.
+                    string smokeResponse = SyntheticSmokeBridgeResponse(incoming);
+                    if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
+                        _browser.CoreWebView2.PostWebMessageAsJson(smokeResponse);
+                    return;
+                }
                 try
                 {
                 string? methodName = null;
@@ -323,6 +350,7 @@ public sealed class ObsidianWindow : Form
                 bool offlineRestoreLabRoute = false;
                 bool iniRoute = false;
                 bool registryRoute = false;
+                bool clusterRegistryRoute = false;
                 bool discoveryRoute = false;
                 bool freshRoute = false;
                 bool initialRoute = false;
@@ -409,6 +437,10 @@ public sealed class ObsidianWindow : Form
                             "ini.save" or "ini.close";
                         registryRoute = name is "servers.inspectLocal" or
                             "servers.importLocal";
+                        clusterRegistryRoute = name is "cluster.registry.snapshot" or
+                            "cluster.host.register" or "cluster.map.register" or
+                            "cluster.create" or "cluster.update" or
+                            "cluster.membership.preview" or "cluster.membership.apply";
                         discoveryRoute = name is "curseforge.categories" or
                             "curseforge.featured" or "curseforge.browse" or
                             "curseforge.project" or "curseforge.files" or "curseforge.summary";
@@ -469,7 +501,8 @@ public sealed class ObsidianWindow : Form
                         : modCopyRoute ? await _modCopy.HandleAsync(incoming)
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
                             : iniRoute ? await _iniEditor.HandleAsync(incoming)
-                                : registryRoute ? await _mapRegistry.HandleAsync(incoming)
+                                : clusterRegistryRoute ? await _clusterRegistry.HandleAsync(incoming)
+                                    : registryRoute ? await _mapRegistry.HandleAsync(incoming)
                                     : discoveryRoute ? await _modCatalog.HandleAsync(incoming)
                                         : freshRoute ? await _freshInstall.HandleAsync(incoming)
                                             : initialRoute ? await _initialMapSetup.HandleAsync(incoming)
@@ -575,6 +608,72 @@ public sealed class ObsidianWindow : Form
         Environment.ExitCode = 1;
         _reallyExit = true;
         if (!IsDisposed) Close();
+    }
+
+    private static string SyntheticSmokeBridgeResponse(string raw)
+    {
+        try
+        {
+            using var request = JsonDocument.Parse(raw);
+            if (request.RootElement.ValueKind != JsonValueKind.Object ||
+                !request.RootElement.TryGetProperty("id", out var idField) ||
+                idField.ValueKind != JsonValueKind.String ||
+                !Guid.TryParse(idField.GetString(), out var parsedId) ||
+                parsedId == Guid.Empty ||
+                !request.RootElement.TryGetProperty("method", out var methodField) ||
+                methodField.ValueKind != JsonValueKind.String)
+                return NativeErrorResponse(raw);
+
+            string id = parsedId.ToString("D");
+            if (methodField.GetString() != "dashboard.snapshot")
+                return JsonSerializer.Serialize(new
+                {
+                    id,
+                    ok = false,
+                    error = "UM-SMOKE-ROUTE-DENIED"
+                });
+
+            return JsonSerializer.Serialize(new
+            {
+                id,
+                ok = true,
+                data = new
+                {
+                    mode = "LIVE_READ_ONLY",
+                    observedUtc = DateTimeOffset.UtcNow,
+                    local = new
+                    {
+                        hostName = "SYNTHETIC-SMOKE-HOST",
+                        hostId = "11111111-1111-4111-8111-111111111111",
+                        maps = new[]
+                        {
+                            new
+                            {
+                                id = "22222222-2222-4222-8222-222222222222",
+                                name = "Synthetic Test Map",
+                                running = false,
+                                status = "STOPPED",
+                                gamePort = 0,
+                                steamBuildId = (string?)null,
+                                steamUpdateState = "unknown",
+                                storeProtected = false,
+                                maintenance = false,
+                                rconConfigured = false
+                            }
+                        },
+                        cpuPercent = 0,
+                        memoryUsedKiB = 128,
+                        memoryTotalKiB = 1024
+                    },
+                    remote = (object?)null,
+                    peerMessage = "Szintetikus WebView2 smoke fixture; nincs natív művelet."
+                }
+            });
+        }
+        catch (JsonException)
+        {
+            return NativeErrorResponse(raw);
+        }
     }
 
     private static bool IsAppUrl(string? raw)
