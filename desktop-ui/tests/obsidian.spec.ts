@@ -182,7 +182,7 @@ test.beforeEach(async ({ page }) => {
     const opsJobId="00000000-0000-4000-8000-000000009988";
     let opsJobCreated=false;
     let opsJobEnabled=false;
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; frequency?:string;minuteOfDay?:number;daysMask?:number; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; frequency?:string;minuteOfDay?:number;daysMask?:number; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;maintenance?:boolean;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
       switch (m.method) {
         case "store.inspectArchive": return {
           batch:"b8d0c49f-cc87-42e0-b312-a0485c82f101",
@@ -670,6 +670,25 @@ test.beforeEach(async ({ page }) => {
             evidence:"VERIFIED_STEAM_FILES_REGISTERED_MANAGER_PROFILE_ONLY"};
         case "steam.freshCancel": return {cancelRequested:true};
         case "steam.freshDiscard": return {discarded:true};
+        case "maps.maintenanceStatus": {
+          const map=state.local.maps.find(x=>x.id===m.mapId);
+          if(!map)throw new Error("UM-MAP-NOT-OWNED");
+          return {mapId:map.id,mapName:map.name,maintenance:Boolean((map as any).maintenance),
+            permitted:!map.running&&!(map as any).storeProtected,
+            storeProtected:Boolean((map as any).storeProtected),requiresStopped:true,
+            serverProcessModified:false,evidence:"PERSISTED_LOCAL_MANAGER_MAINTENANCE_ONLY"};
+        }
+        case "maps.maintenanceSet": {
+          const map=state.local.maps.find(x=>x.id===m.mapId);
+          if(!m.confirm||typeof m.maintenance!=="boolean")
+            throw new Error("UM-MAP-MAINTENANCE-CONFIRM");
+          if(!map||map.running||(map as any).storeProtected)
+            throw new Error("UM-MAP-MAINTENANCE-STOPPED-NONSTORE-ONLY");
+          (map as any).maintenance=m.maintenance;
+          return {mapId:map.id,mapName:map.name,maintenance:m.maintenance,
+            permitted:true,storeProtected:false,requiresStopped:true,
+            serverProcessModified:false,evidence:"PERSISTED_LOCAL_MANAGER_MAINTENANCE_ONLY"};
+        }
         case "rcon.configStatus": {
           const map=state.local.maps.find(x=>x.id===m.mapId);
           if(nextRconStatusRefreshFails && (map as any)?.rconConfigured){
@@ -2045,6 +2064,26 @@ test("RCON settings use the selected local map port and never retain another map
   await page.getByRole("tab",{name:"RCON / Konzol"}).click();
   await expect(page.getByRole("spinbutton",{name:"RCON beállítás port"})).toHaveValue("37015");
   await expect(page.getByRole("textbox",{name:"RCON beállítás jelszó"})).toHaveValue("");
+});
+
+test("map detail maintenance setting persists with approval and blocks running maps",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Map karbantartási beállítása"});
+  await expect(panel.getByText("Kikapcsolva")).toBeVisible();
+  const enable=panel.getByRole("button",{name:"Karbantartási mód bekapcsolása"});
+  await expect(enable).toBeDisabled();
+  await panel.getByRole("checkbox",{name:/Jóváhagyom ennek az egy helyi mapnak/}).check();
+  await enable.click();
+  await expect(panel.getByText("Bekapcsolva",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  const reopened=page.getByRole("region",{name:"Map karbantartási beállítása"});
+  await expect(reopened.getByText("Bekapcsolva",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const running=page.getByRole("region",{name:"Map karbantartási beállítása"});
+  await expect(running.getByRole("button",{name:"Karbantartási mód bekapcsolása"})).toBeDisabled();
 });
 
 test("historical Store RCON attaches only existing INI with native approval and without any Store write",async({page})=>{
