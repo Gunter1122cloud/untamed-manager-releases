@@ -848,6 +848,13 @@ try
                 new{mapId=m1.Id,kind="SaveWorld",frequency="Interval",
                     intervalMinutes=15,minuteOfDay=180,daysMask=127,confirm=true});
             IsOk(created,"isolated native schedule persisted for one local map");
+            var overview=await Call(supervisor.HandleAsync,"schedule.nativeOverview");
+            IsOk(overview,"native Operations overview reads one durable local ASA schedule");
+            Check(overview.GetProperty("data").GetProperty("jobs").GetArrayLength()==1 &&
+                  !overview.GetProperty("data").GetProperty("remoteExecutionAllowed").GetBoolean() &&
+                  overview.GetProperty("data").GetProperty("jobs")[0]
+                    .GetProperty("mapId").GetGuid()==m1.Id,
+                "native schedule overview lists only the registered local map without peer control");
             var before=supervisor.Snapshot().Single();
             var due=before.NextDueUtc;
             await supervisor.TickOnceAsync(due.AddMinutes(1));

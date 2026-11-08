@@ -297,14 +297,29 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                !Guid.TryParse(requestId.GetString(),out var parsed)||
                parsed==Guid.Empty||
                !args.TryGetProperty("method",out var methodRaw)||
-               methodRaw.ValueKind!=JsonValueKind.String ||
-               !args.TryGetProperty("mapId",out var rawMap)||
+               methodRaw.ValueKind!=JsonValueKind.String)
+                return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-MESSAGE"));
+            id=parsed.ToString("D");
+            var method=methodRaw.GetString();
+            if(method=="schedule.nativeOverview")
+            {
+                // Single read of the persisted local journal, no remote map
+                // discovery or mutation; expired/unowned jobs are filtered.
+                var localMaps=cluster.Config.LocalMaps.ToArray();
+                var ownedIds=localMaps.Select(map=>map.Id).ToHashSet();
+                return Task.FromResult(Ok(id,new {
+                    hostName=cluster.Config.LocalHostName,runnerState=RuntimeState,
+                    jobs=Snapshot().Where(job=>ownedIds.Contains(job.MapId))
+                        .OrderBy(job=>job.NextDueUtc).Select(Data).ToArray(),
+                    remoteExecutionAllowed=false,
+                    evidence="NATIVE_LOCAL_SCHEDULE_SUMMARY_READ_ONLY"
+                }));
+            }
+            if(!args.TryGetProperty("mapId",out var rawMap)||
                rawMap.ValueKind!=JsonValueKind.String||
                !Guid.TryParse(rawMap.GetString(),out var mapId)||mapId==Guid.Empty)
                 return Task.FromResult(Fail(id,"UM-ASA-SCHEDULE-MESSAGE"));
-            id=parsed.ToString("D");
             Owned(mapId);
-            var method=methodRaw.GetString();
             if(method=="schedule.nativeStatus")
                 return Task.FromResult(Ok(id,new {
                     mapId,runnerState=RuntimeState,

@@ -47,6 +47,11 @@ export type NativeAsaExecutionEntry={
   scheduledUtc:string;claimedUtc:string;finishedUtc:string|null;
   status:string;evidence:string;
 };
+export type NativeAsaScheduleOverview={
+  hostName:string;runnerState:string;jobs:NativeAsaScheduleTask[];
+  remoteExecutionAllowed:false;
+  evidence:"NATIVE_LOCAL_SCHEDULE_SUMMARY_READ_ONLY";
+};
 export type NativeAsaScheduleStatus={
   mapId:string;runnerState:string;jobs:NativeAsaScheduleTask[];
   history:NativeAsaExecutionEntry[];
@@ -1008,6 +1013,7 @@ export type ConfiguredMods = {
 type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
+  "schedule.nativeOverview" |
   "maps.maintenanceStatus" | "maps.maintenanceSet" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
@@ -1254,6 +1260,8 @@ export const managerBridge = {
     request<MapMaintenanceStatus>("maps.maintenanceStatus",{mapId}),
   mapMaintenanceSet: (mapId:string,maintenance:boolean) =>
     request<MapMaintenanceStatus>("maps.maintenanceSet",{mapId,maintenance,confirm:true}),
+  nativeScheduleOverview: () =>
+    request<NativeAsaScheduleOverview>("schedule.nativeOverview"),
   nativeScheduleStatus: (mapId:string) =>
     request<NativeAsaScheduleStatus>("schedule.nativeStatus",{mapId}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,

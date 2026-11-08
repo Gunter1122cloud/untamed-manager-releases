@@ -420,7 +420,8 @@ public sealed class ObsidianWindow : Form
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
                             "operations.scheduleCreate" or "operations.scheduleDisable";
                         nativeScheduleRoute = name is "schedule.nativeStatus" or
-                            "schedule.nativeSet" or "schedule.nativeDisable";
+                            "schedule.nativeSet" or "schedule.nativeDisable" or
+                            "schedule.nativeOverview";
                         mapMaintenanceRoute = name is "maps.maintenanceStatus" or "maps.maintenanceSet";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or

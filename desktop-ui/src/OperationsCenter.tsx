@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useMemo,useState} from "react";
 import {Activity,AlertTriangle,CalendarClock,LockKeyhole,RefreshCw,Server,Shield,Terminal,WifiOff} from "lucide-react";
-import {managerBridge,type OperationsMap,type OperationsSnapshot,type ReadOnlyScheduleKind} from "./bridge";
+import {managerBridge,type OperationsMap,type OperationsSnapshot,
+  type NativeAsaScheduleOverview,type ReadOnlyScheduleKind} from "./bridge";
 import "./operations-fidelity.css";
 
 function elapsed(seconds:number|null){
@@ -45,6 +46,8 @@ function OperationCard({map,onOpen}:{map:OperationsMap;onOpen:(id:string)=>void}
 
 export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{onOpenMap:(id:string)=>void;selectedMapId?:string;showScheduler?:boolean}){
   const [snapshot,setSnapshot]=useState<OperationsSnapshot|null>(null);
+  const [nativeOverview,setNativeOverview]=useState<NativeAsaScheduleOverview|null>(null);
+  const [nativeUnreadable,setNativeUnreadable]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [filter,setFilter]=useState<"all"|"running"|"attention">("all");
@@ -58,14 +61,21 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
   const reload=useCallback(async()=>{
     setBusy(true);setError("");
     try{
-      const result=selectedMapId
-        ?await managerBridge.operationsMap(selectedMapId)
-        :await managerBridge.operationsSnapshot();
-      setSnapshot(result);
+      // Native schedules come from the existing Windows C# runner, not the
+      // separate read-only inspection timetable. One bulk RPC for N maps.
+      const [operations,native]=await Promise.allSettled([
+        selectedMapId?managerBridge.operationsMap(selectedMapId):
+          managerBridge.operationsSnapshot(),
+        selectedMapId?Promise.resolve(null):managerBridge.nativeScheduleOverview()
+      ]);
+      if(operations.status!=="fulfilled")throw new Error("UM-OPS-UNAVAILABLE");
+      setSnapshot(operations.value);
+      setNativeOverview(native.status==="fulfilled"?native.value:null);
+      setNativeUnreadable(!selectedMapId&&native.status!=="fulfilled");
     }catch(e){
       setError("A natív üzemeltetési állapot nem ellenőrizhető ("+
         (e instanceof Error?e.message:"UM-OPS-UNAVAILABLE")+").");
-      setSnapshot(null);
+      setSnapshot(null);setNativeOverview(null);
     }finally{setBusy(false);}
   },[selectedMapId]);
   useEffect(()=>{void reload();},[reload]);
@@ -110,7 +120,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
   return <section className="ops-center">
     {!selectedMapId&&<div className="page-intro">
       <span className="eyebrow">NATIVE / HELYI ÜZEMELTETÉS</span><h1>Üzemeltetés</h1>
-      <p>Valódi helyi PID, folyamatindítási idő, memória és mentett ütemezések. A távoli gépek itt nem vezérelhetők.</p>
+      <p>Valódi helyi PID, ASA memória és a maponkénti natív SaveWorld/Restart következő időpontjai. A távoli gépek itt nem vezérelhetők.</p>
     </div>}
     <div className="ops-toolbar">
       <div className="ops-observed"><Activity size={17}/>
@@ -127,13 +137,17 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
         Frissítés</button>
     </div>
     {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
+    {nativeUnreadable&&<div role="status" className="warning-inline">
+      <AlertTriangle size={16}/> A natív ASA ütemező összesítése nem olvasható. A folyamatállapot külön továbbra is ellenőrizhető.
+    </div>}
     {!snapshot&&!error&&<div role="status" className="empty">Helyi Windows-folyamatok ellenőrzése...</div>}
     {snapshot&&<>
       {!selectedMapId&&<div className="ops-summary">
         <div><Server size={20}/><strong>{snapshot.maps.length}</strong><span>Helyi map</span></div>
         <div><Activity size={20}/><strong>{snapshot.maps.filter(x=>x.running).length}</strong><span>Igazoltan fut</span></div>
         <div><Shield size={20}/><strong>{snapshot.maps.filter(x=>x.storeProtected).length}</strong><span>Store-v1 védett</span></div>
-        <div><CalendarClock size={20}/><strong>{snapshot.schedules.length}</strong><span>Mentett ütemezés</span></div>
+        <div><CalendarClock size={20}/><strong>{nativeOverview?
+          nativeOverview.jobs.filter(x=>x.enabled).length:"—"}</strong><span>Natív ASA feladat</span></div>
       </div>}
       {(!selectedMapId||!showScheduler)&&(visible.length===0?<div className="empty">A szűrőnek megfelelő helyi map nem található.</div>:
         selectedMapId?<div className="ops-grid">
@@ -141,10 +155,10 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
         </div>:<div className="ops-compact-scroll">
           <table className="ops-compact-table" aria-label="Helyi mapok összesített állapota">
             <thead><tr><th>Map</th><th>Állapot</th><th>PID</th><th>ASA RAM</th>
-              <th>Következő ellenőrzés</th><th>Részletek</th></tr></thead>
+              <th>Következő ASA-feladat</th><th>Részletek</th></tr></thead>
             <tbody>{visible.map(map=>{
-              const next=snapshot.schedules.filter(s=>s.mapId===map.mapId&&s.enabled&&s.nextUtc)
-                .sort((a,b)=>Date.parse(a.nextUtc!)-Date.parse(b.nextUtc!))[0];
+              const next=nativeOverview?.jobs.filter(s=>s.mapId===map.mapId&&s.enabled)
+                .sort((a,b)=>Date.parse(a.nextDueUtc)-Date.parse(b.nextDueUtc))[0];
               return <tr key={map.mapId}>
                 <td><strong>{map.mapName}</strong></td>
                 <td><span className={"ops-state "+(map.running?"running":map.confirmedStopped?"stopped":"unknown")}>
@@ -152,7 +166,9 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
                 <td>{map.pid??"Nem mérhető"}</td>
                 <td>{map.memoryVerified&&map.memoryMiB!==null?
                   map.memoryMiB.toLocaleString("hu-HU")+" MiB":"Nem mérhető"}</td>
-                <td>{next?localDate(next.nextUtc):"Nincs beállítva"}</td>
+                <td>{next?<><strong>{next.kind==="SaveWorld"?"SaveWorld":"Újraindítás"}</strong>
+                  <span> · {localDate(next.nextDueUtc)}</span></>:
+                  nativeOverview?"Nincs beállítva":"Nem ellenőrizhető"}</td>
                 <td><button type="button" className="secondary" onClick={()=>onOpenMap(map.mapId)}>
                   <Terminal size={15}/> Map megnyitása</button></td>
               </tr>;
