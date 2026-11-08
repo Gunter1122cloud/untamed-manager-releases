@@ -17,6 +17,23 @@ type Props={
   onInstall:(mapName?:string)=>void;
 };
 
+
+/** Native journal/process snapshot; not permission to mutate Store data. */
+function StoreProfileFlag({map}:{map:PublicMap}){
+  const state=map.storeLifecycleState;
+  const copy=state==="running"?"STORE-V1 · ASA FUT":
+    state==="preflightRequired"?"STORE-V1 · ELŐELLENŐRZÉS":
+    state==="needsConfiguration"?"STORE-V1 · KONFIGURÁLÁS":
+    state==="needsOperator"?"STORE-V1 · KÉZI ELLENŐRZÉS":
+    state==="maintenance"?"STORE-V1 · KARBANTARTÁS":
+    "STORE-V1 · ELLENŐRZÉS SZÜKSÉGES";
+  return <span className={"uk-flag "+(state==="running"?"rcon":
+      state==="needsOperator"?"locked":"maintenance")}
+    title="Natív, csak olvasható ASA- és műveleti naplóállapot. Indítás/mentés/leállítás előtt külön tulajdonosi előellenőrzés kell.">
+    {state==="running"?<ShieldCheck size={12}/>:<LockKeyhole size={12}/>} {copy}
+  </span>;
+}
+
 function StateLabel({running,needsSetup}:{running:boolean;needsSetup:boolean}){
   return <span className={"uk-gallery-state "+(running?"is-running":needsSetup?"is-setup":"is-stopped")}>
     <span aria-hidden="true"/>{running?"FUT":needsSetup?"BEÁLLÍTÁS":"LEÁLLÍTVA"}
@@ -35,8 +52,7 @@ function MapTile({entry,onSelect}:{entry:LocatedMap;onSelect:(id:string)=>void})
       <span className="uk-gallery-meta"><Server size={12}/>{host}</span>
       {local&&(map.storeProtected||map.maintenance||map.rconConfigured)&&
         <span className="uk-gallery-profile-flags">
-          {map.storeProtected&&<span className="uk-flag locked"><LockKeyhole size={12}/>
-            STORE-V1 ZÁROLT</span>}
+          {map.storeProtected&&<StoreProfileFlag map={map}/>}
           {map.maintenance&&<span className="uk-flag maintenance"><Wrench size={12}/>
             KARBANTARTÁS</span>}
           {map.rconConfigured&&<span className="uk-flag rcon" title="RCON-adatok konfigurálva, kapcsolat nem ellenőrzött">

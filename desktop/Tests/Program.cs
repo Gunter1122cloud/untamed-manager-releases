@@ -4991,6 +4991,36 @@ try
             "every native original Store RCON query preserves exact ASA INI file bytes");
     }
 
+    // The gallery consumes the native snapshot, never static Store flags:
+    // an uncertain journal takes precedence over a running process.
+    {
+        var storeStateFixture=new LocalMap{
+            HistoricalStoreProtected=true,RconPort=37015,
+            RconPasswordProtected="SYNTHETIC_PROTECTED_SECRET"
+        };
+        Check(DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                storeStateFixture,false,false,false)=="preflightRequired",
+            "stopped original Store requires actual native start preflight");
+        Check(DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                storeStateFixture,true,false,false)=="running",
+            "observed Store process reports running without claiming gameplay certification");
+        Check(DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                storeStateFixture,true,true,false)=="needsOperator"&&
+              DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                storeStateFixture,true,false,true)=="needsOperator",
+            "uncertain or unreadable journal overrides running Store process");
+        storeStateFixture.RconPasswordProtected="";
+        Check(DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                storeStateFixture,false,false,false)=="needsConfiguration",
+            "Store missing original RCON handoff cannot appear ready");
+        storeStateFixture.Maintenance=true;
+        Check(DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                storeStateFixture,false,false,false)=="maintenance"&&
+              DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                new LocalMap(),true,false,false)=="protected",
+            "maintenance and non-imported protected maps cannot appear operable");
+    }
+
     // REAL Store-v1 SaveWorld-only executes the same Core source/PID/RCON
     // ownership checks as graceful Stop, but never calls DoExit.
     // All RCON effects and process observations below are synthetic.
