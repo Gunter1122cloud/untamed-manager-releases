@@ -59,7 +59,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
     try{
       const result=await managerBridge.initialApply(preview.token);
       setPreview(null);setApproved(false);
-      setNotice(result.mapName+" indítási profilja mentve. A szerver még nem indult el; RCON és modok később állíthatók be.");
+      setNotice(result.mapName+" indítási profilja mentve. A szerver még nem indult el. Következő lépés: RCON előkészítés, majd az ASA Start előnézete.");
       await onConfigured();
       const next=await managerBridge.initialStatus(mapId);
       setStatus(next);
@@ -72,13 +72,19 @@ export function InitialMapSetup({mapId,onConfigured}: {
   };
 
   if(status && !status.initialSetupAvailable && status.gamePort>0)return null;
+  const blockerMessage=status?.blocker==="PROCESS_STOP_NOT_VERIFIED" ?
+    "A Windows nem igazolta, hogy a szerver leállt. Ellenőrizd a folyamatokat és a Manager naplóját; a védelmet nem kerüljük meg." :
+    status?.blocker==="PROCESS_RUNNING" ? "A Windows szerint a szerverfolyamat fut. Első konfiguráció nem engedélyezett." :
+    status?.blocker==="SERVER_EXECUTABLE_MISSING" ? "A regisztrált ASA executable hiányzik. Ellenőrizd a telepítési gyökeret." :
+    status?.blocker==="MAP_LEVEL_UNRECOGNIZED" ? "A map neve nem párosítható ismert ASA pályával." :
+    "A profil már konfigurált, vagy történeti Store-v1 védelem alatt áll.";
   return <section className="glass panel initial-map-setup">
     <div className="panel-head"><h2><Settings2 size={18}/> Első mapbeállítások</h2>
       <span className="mod-tag amber">Indítás előtt</span></div>
     <div className="panel-inner">
       <p className="muted small">Egy már regisztrált ASA-telepítéshez külön állítsd be a szerver nevét és a Game/Query UDP-portokat. A varázsló csak a Manager indítási profilját módosítja.</p>
       {status && !status.initialSetupAvailable && <div className="warning-inline">
-        <Shield size={17}/> A profil már konfigurált, a map fut, vagy az állapot nem igazoltan leállított. A beállítások módosítása itt nem engedélyezett.</div>}
+        <Shield size={17}/> {blockerMessage}</div>}
       <form className="initial-setup-form" onSubmit={e=>{void inspect(e);}}>
         <label><span>Szerver nyilvános neve</span>
           <input aria-label="ASA szerver neve" value={session} maxLength={75}
