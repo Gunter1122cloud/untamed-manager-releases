@@ -1307,6 +1307,23 @@ try
     // Verify that launch settings are a separate explicit stage after ASA
     // files exist. This never starts an ASA process or enables RCON.
     var valguero=cluster.Config.LocalMaps.Single(m=>m.Name=="Valguero");
+    // TEST-001/003: pristine SteamCMD installation has no Saved/INI yet.
+    // Read-only editor must distinguish the missing file tree from an invalid
+    // installation; neither query may create an INI or bypass stopped-state.
+    string pristineSaved=Path.Combine(valguero.InstallationPath,"ShooterGame","Saved");
+    Check(!Directory.Exists(pristineSaved),
+        "new registered synthetic ASA has no Saved directory before first run");
+    using(var firstIni=new DesktopIniBridge(cluster))
+    {
+        var noGame=await Call(firstIni.HandleAsync,"ini.open",
+            new{mapId=valguero.Id,file="Game.ini"});
+        var noGus=await Call(firstIni.HandleAsync,"ini.open",
+            new{mapId=valguero.Id,file="GameUserSettings.ini"});
+        Check(IsError(noGame,"UM-INI-CONFIG-DIRECTORY-MISSING") &&
+              IsError(noGus,"UM-INI-CONFIG-DIRECTORY-MISSING") &&
+              !Directory.Exists(pristineSaved),
+            "missing first-run INI folder is reported without filesystem writes");
+    }
     int testGamePort=FindFreeTestPort(true);
     int testQueryPort=FindFreeTestPort(true,testGamePort);
     using(var setup=new DesktopInitialMapSetupBridge(cluster))
@@ -1315,8 +1332,9 @@ try
             new{mapId=valguero.Id});
         IsOk(status,"freshly registered ASA map is eligible for initial setup");
         Check(status.GetProperty("data")
-            .GetProperty("initialSetupAvailable").GetBoolean(),
-            "new map is confirmed stopped and unconfigured");
+            .GetProperty("initialSetupAvailable").GetBoolean() &&
+              status.GetProperty("data").GetProperty("blocker").GetString()=="NONE",
+            "new map is confirmed stopped, unconfigured, and exposes no blocker");
 
         var bad=await Call(setup.HandleAsync,"servers.initialPreview",
             new{mapId=valguero.Id,sessionName="UK Test",gamePort=testGamePort,queryPort=testGamePort});
