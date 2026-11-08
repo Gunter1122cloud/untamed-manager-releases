@@ -28,6 +28,24 @@ export type LanSaved = {
   evidence:string;
 };
 
+export type NativeScheduleKind = "SaveWorld"|"Restart";
+export type NativeScheduleFrequency = "Interval"|"Daily";
+export type NativeAsaScheduleTask = {
+  mapId:string;kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
+  intervalMinutes:number;minuteOfDay:number;daysMask:number;
+  enabled:boolean;nextDueUtc:string;lastClaimedUtc:string|null;
+  lastStatus:string;lastEvidence:string;
+  evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY";
+};
+export type NativeAsaScheduleStatus={
+  mapId:string;runnerState:string;jobs:NativeAsaScheduleTask[];
+  restartConflicts:string[];protectedStore:boolean;
+  autoUpdateAvailable:false;remoteExecutionAllowed:false;
+};
+export type NativeAsaScheduleSaved={
+  job:NativeAsaScheduleTask;restartConflicts:string[];
+};
+
 export type OperationsMap = {
   mapId:string; mapName:string; running:boolean; confirmedStopped:boolean;
   status:string; pid:number|null; startedUtc:string|null; uptimeSeconds:number|null;
@@ -1218,6 +1236,18 @@ export const managerBridge = {
     request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
   pluginToggleApply: (token:string) =>
     request<PluginToggleReceipt>("plugins.toggleApply",{token,confirm:true}),
+  nativeScheduleStatus: (mapId:string) =>
+    request<NativeAsaScheduleStatus>("schedule.nativeStatus",{mapId}),
+  nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
+      frequency:NativeScheduleFrequency,intervalMinutes:number,
+      minuteOfDay:number,daysMask:number) =>
+    request<NativeAsaScheduleSaved>("schedule.nativeSet",{
+      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,confirm:true
+    }),
+  nativeScheduleDisable: (mapId:string,kind:NativeScheduleKind) =>
+    request<NativeAsaScheduleTask>("schedule.nativeDisable",{
+      mapId,kind,confirm:true
+    }),
   backupScheduleStatus: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleStatus",{mapId}),
   backupScheduleCreate: (mapId:string,intervalMinutes:number) =>
