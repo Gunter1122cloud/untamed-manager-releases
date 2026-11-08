@@ -739,6 +739,17 @@ export type HistoricalGracefulStopPreview = {
   forceKillAllowed:false;automaticRestart:false;originalStoreTouched:false;
   evidence:"ORIGINAL_STORE_V1_SAVEWORLD_DOEXIT_PREFLIGHT_ONLY";
 };
+export type HistoricalSaveWorldPreview = {
+  token:string;mapId:string;mapName:string;pid:number;rconPort:number;
+  originalTwoPeersVerified:true;usesSaveWorld:true;usesDoExit:false;
+  forceKillAllowed:false;automaticRestart:false;originalStoreTouched:false;
+  evidence:"ORIGINAL_STORE_V1_SAVEWORLD_ONLY_PREFLIGHT";
+};
+export type HistoricalSaveWorldQueued={
+  jobId:string;started:true;automaticRetry:false;
+  forceKill:false;storeTouched:false;
+  evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED";
+};
 export type HistoricalGracefulStopQueued = {
   jobId:string;started:true;automaticRetry:false;
   forceKill:false;storeTouched:false;
@@ -756,12 +767,13 @@ export type HistoricalGracefulStopRecovery = {
   evidence:"ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY";
 };
 export type HistoricalGracefulStopStatus = {
-  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;confirmedStopped:boolean;
   preExitSaveLogAndWorldObserved:boolean;
   finalDoExitSaveCertified:false;gameClientRejoinVerified:false;
   automaticRetry:false;forceKill:false;storeTouched:false;
-  evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_DOEXIT_STATE";
+  evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_DOEXIT_STATE"|
+    "ORIGINAL_STORE_V1_SAVEWORLD_ONLY_NO_DOEXIT_STATE";
 };
 export type HistoricalPairEvidence = {
   files:number; maps:number; peers:number;
@@ -1045,6 +1057,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    "historical.rconGameLog" | "historical.rconChatLog" |
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
    "historical.gracefulStopStatus" | "historical.gracefulStopRecovery" |
+   "historical.saveWorldPreview" | "historical.saveWorldApply" |
+   "historical.saveWorldStatus" |
    "historical.adminPreview" | "historical.adminSend" |
   "api.coreRelease" | "api.corePreview" | "api.coreApply" |
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
@@ -1409,6 +1423,14 @@ export const managerBridge = {
     }),
   historicalGracefulStopStatus: (jobId:string) =>
     request<HistoricalGracefulStopStatus>("historical.gracefulStopStatus",{jobId}),
+  historicalSaveWorldPreview: (mapId:string) =>
+    request<HistoricalSaveWorldPreview>("historical.saveWorldPreview",{mapId}),
+  historicalSaveWorldApply: (token:string,typedApproval:string) =>
+    request<HistoricalSaveWorldQueued>("historical.saveWorldApply",{
+      token,typedApproval,confirm:true
+    }),
+  historicalSaveWorldStatus: (jobId:string) =>
+    request<HistoricalGracefulStopStatus>("historical.saveWorldStatus",{jobId}),
   historicalRconLiveStatus: (mapId:string) =>
     request<HistoricalRconLiveStatus>("historical.rconLiveStatus",{mapId}),
   historicalRconPlayers: (mapId:string) =>

@@ -476,7 +476,8 @@ public sealed class ObsidianWindow : Form
                             "servers.initialPreview" or "servers.initialApply";
                         historicalStopRoute = name is "historical.gracefulStopPreview" or
                             "historical.gracefulStopApply" or "historical.gracefulStopStatus" or
-                            "historical.gracefulStopRecovery";
+                            "historical.gracefulStopRecovery" or "historical.saveWorldPreview" or
+                            "historical.saveWorldApply" or "historical.saveWorldStatus";
                         historicalAdminRconRoute = name is "historical.adminPreview" or
                             "historical.adminSend";
                         historicalReadOnlyRconRoute = name is "historical.rconLiveStatus" or

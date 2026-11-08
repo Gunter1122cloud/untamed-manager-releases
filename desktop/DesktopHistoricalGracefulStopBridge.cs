@@ -19,12 +19,13 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
 {
     private sealed record Approval(Guid Token,Guid MapId,int Pid,
         DateTimeOffset StartedUtc,string Profile,string SourceSha,
-        int RconPort,DateTimeOffset Created);
+        int RconPort,DateTimeOffset Created,string Kind);
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
         public Guid MapId;
-        public Job(Guid mapId){MapId=mapId;}
+        public string Kind;
+        public Job(Guid mapId,string kind){MapId=mapId;Kind=kind;}
         public string State="queued",Step="preflight";
         public bool ConfirmedStopped,PreExitSaveObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
@@ -32,6 +33,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     private readonly ClusterService cluster;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> preview;
     private readonly Func<Guid,int,DateTimeOffset,string,Action<string>,Task<AsaGracefulStopReceipt>> stop;
+    private readonly Func<Guid,int,DateTimeOffset,string,Action<string>,Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt>> saveOnly;
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly object sync=new();
     private Approval? pending;
@@ -44,12 +46,16 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     // Internal seams are restricted to isolated Windows-native tests.
     internal DesktopHistoricalGracefulStopBridge(ClusterService service,
         Func<Guid,LegacyStoreV1GracefulStop.Owned>? probe,
-        Func<Guid,int,DateTimeOffset,string,Action<string>,Task<AsaGracefulStopReceipt>>? executor)
+        Func<Guid,int,DateTimeOffset,string,Action<string>,Task<AsaGracefulStopReceipt>>? executor,
+        Func<Guid,int,DateTimeOffset,string,Action<string>,Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt>>? saver=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         preview=probe??(map=>LegacyStoreV1GracefulStop.Preview(cluster,map));
         stop=executor??((map,pid,started,source,stage)=>
             LegacyStoreV1GracefulStop.StopAsync(cluster,map,pid,started,
+                source,TimeSpan.FromMinutes(3),stage:stage));
+        saveOnly=saver??((map,pid,started,source,stage)=>
+            LegacyStoreV1GracefulStop.SaveWorldOnlyAsync(cluster,map,pid,started,
                 source,TimeSpan.FromMinutes(3),stage:stage));
     }
     private static bool GuidValue(JsonElement item,string name,out Guid id)
@@ -73,17 +79,30 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             }
         }
     }
+    private void UpdateSave(Job job,string state,string step,
+        LegacyStoreV1GracefulStop.SaveOnlyReceipt receipt)
+    {
+        lock(sync)
+        {
+            job.State=state;job.Step=step;job.ChangedUtc=DateTimeOffset.UtcNow;
+            job.PreExitSaveObserved=receipt.SaveCompleteObserved;
+            job.ConfirmedStopped=false;
+        }
+    }
+
     private object Snapshot(Job job)
     {
         lock(sync)return new{
-            jobId=job.Id,state=job.State,step=job.Step,
+            jobId=job.Id,kind=job.Kind,state=job.State,step=job.Step,
             changedUtc=job.ChangedUtc,
             confirmedStopped=job.ConfirmedStopped,
             preExitSaveLogAndWorldObserved=job.PreExitSaveObserved,
             finalDoExitSaveCertified=false,
             gameClientRejoinVerified=false,
             automaticRetry=false,forceKill=false,storeTouched=false,
-            evidence="ORIGINAL_STORE_V1_REAL_SAVEWORLD_DOEXIT_STATE"
+            evidence=job.Kind=="SaveWorldOnly"?
+                "ORIGINAL_STORE_V1_SAVEWORLD_ONLY_NO_DOEXIT_STATE":
+                "ORIGINAL_STORE_V1_REAL_SAVEWORLD_DOEXIT_STATE"
         };
     }
 
@@ -139,7 +158,10 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             if(method is not ("historical.gracefulStopPreview" or
                 "historical.gracefulStopApply" or
                 "historical.gracefulStopStatus" or
-                "historical.gracefulStopRecovery"))
+                "historical.gracefulStopRecovery" or
+                "historical.saveWorldPreview" or
+                "historical.saveWorldApply" or
+                "historical.saveWorldStatus"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
@@ -150,10 +172,11 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         return Fail(id,"UM-ORIGINAL-STOP-RECOVERY-MAP");
                     return Ok(id,Recover(recoveryMapId));
                 }
-                if(method=="historical.gracefulStopStatus")
+                if(method is "historical.gracefulStopStatus" or "historical.saveWorldStatus")
                 {
                     if(!GuidValue(request,"jobId",out var jobId)||
-                       currentJob==null||currentJob.Id!=jobId)
+                       currentJob==null||currentJob.Id!=jobId||
+                       (method=="historical.saveWorldStatus")!=(currentJob.Kind=="SaveWorldOnly"))
                         return Fail(id,"UM-ORIGINAL-STOP-JOB-NOT-FOUND");
                     return Ok(id,Snapshot(currentJob));
                 }
@@ -163,8 +186,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         if(currentJob.State is "queued" or "running")
                             return Fail(id,"UM-ORIGINAL-STOP-JOB-BUSY");
                 }
-                if(method=="historical.gracefulStopPreview")
+                if(method is "historical.gracefulStopPreview" or "historical.saveWorldPreview")
                 {
+                    bool saveWorldOnly=method=="historical.saveWorldPreview";
                     pending=null;
                     if(!GuidValue(request,"mapId",out var mapId))
                         return Fail(id,"UM-ORIGINAL-STOP-MAP");
@@ -188,25 +212,32 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                         return Fail(id,"UM-ORIGINAL-STOP-SOURCE-INVALID");
                     pending=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
                         owned.Process.StartedUtc,JsonSerializer.Serialize(original),
-                        owned.SourceSha,original.RconPort,DateTimeOffset.UtcNow);
+                        owned.SourceSha,original.RconPort,DateTimeOffset.UtcNow,
+                        saveWorldOnly?"SaveWorldOnly":"Stop");
                     return Ok(id,new{
                         token=pending.Token,mapId,mapName=original.Name,
                         pid=pending.Pid,rconPort=pending.RconPort,
                         originalTwoPeersVerified=true,usesSaveWorld=true,
-                        usesDoExit=true,forceKillAllowed=false,
+                        usesDoExit=!saveWorldOnly,forceKillAllowed=false,
                         automaticRestart=false,originalStoreTouched=false,
-                        evidence="ORIGINAL_STORE_V1_SAVEWORLD_DOEXIT_PREFLIGHT_ONLY"
+                        evidence=saveWorldOnly?
+                            "ORIGINAL_STORE_V1_SAVEWORLD_ONLY_PREFLIGHT":
+                            "ORIGINAL_STORE_V1_SAVEWORLD_DOEXIT_PREFLIGHT_ONLY"
                     });
                 }
                 if(!GuidValue(request,"token",out var token)||pending==null||
                    pending.Token!=token||
                    DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
                     return Fail(id,"UM-ORIGINAL-STOP-TOKEN-EXPIRED");
+                bool wantsSaveOnly=method=="historical.saveWorldApply";
+                if(wantsSaveOnly!=(pending.Kind=="SaveWorldOnly"))
+                    return Fail(id,"UM-ORIGINAL-STOP-OPERATION-MISMATCH");
                 if(!request.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True||
                    !request.TryGetProperty("typedApproval",out var text)||
                    text.ValueKind!=JsonValueKind.String||
-                   text.GetString()!="STORE-V1 SAVEWORLD DOEXIT")
+                   text.GetString()!=(wantsSaveOnly?
+                       "STORE-V1 SAVEWORLD":"STORE-V1 SAVEWORLD DOEXIT"))
                     return Fail(id,"UM-ORIGINAL-STOP-TYPED-CONFIRMATION");
                 Approval approved=pending;pending=null;
                 var map=Owned(approved.MapId);
@@ -220,28 +251,45 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                    rechecked.Process.StartedUtc!=approved.StartedUtc||
                    rechecked.SourceSha!=approved.SourceSha)
                     return Fail(id,"UM-ORIGINAL-STOP-ORIGINAL-SOURCE-CHANGED");
-                var job=new Job(map.Id);currentJob=job;
+                var job=new Job(map.Id,approved.Kind);currentJob=job;
                 _=Task.Run(async()=>{
-                    Update(job,"running","Eredeti SaveWorld → log+világfájl → DoExit");
+                    Update(job,"running",approved.Kind=="SaveWorldOnly"?
+                        "Eredeti Store-v1 SaveWorld és mentésigazolás":
+                        "Eredeti SaveWorld → log+világfájl → DoExit");
                     try
                     {
-                        var receipt=await stop(map.Id,approved.Pid,
-                            approved.StartedUtc,approved.SourceSha,
-                            stage=>Update(job,"running",stage));
-                        if(receipt.MapId!=map.Id||receipt.Pid!=approved.Pid||
-                           !receipt.ConfirmedStopped||!receipt.UsedDoExit)
-                            throw new InvalidDataException("UM-ORIGINAL-STOP-RECEIPT-MISMATCH");
-                        Update(job,"completed","A régi ASA-folyamat kilépett",receipt);
+                        if(approved.Kind=="SaveWorldOnly")
+                        {
+                            var receipt=await saveOnly(map.Id,approved.Pid,
+                                approved.StartedUtc,approved.SourceSha,
+                                stage=>Update(job,"running",stage));
+                            if(receipt.MapId!=map.Id||receipt.Pid!=approved.Pid||
+                               !receipt.SaveCompleteObserved||receipt.DoExitSent)
+                                throw new InvalidDataException("UM-ORIGINAL-SAVE-RECEIPT-MISMATCH");
+                            UpdateSave(job,"completed","Store-v1 SaveWorld igazolva; az ASA tovább fut",receipt);
+                        }
+                        else
+                        {
+                            var receipt=await stop(map.Id,approved.Pid,
+                                approved.StartedUtc,approved.SourceSha,
+                                stage=>Update(job,"running",stage));
+                            if(receipt.MapId!=map.Id||receipt.Pid!=approved.Pid||
+                               !receipt.ConfirmedStopped||!receipt.UsedDoExit)
+                                throw new InvalidDataException("UM-ORIGINAL-STOP-RECEIPT-MISMATCH");
+                            Update(job,"completed","A régi ASA-folyamat kilépett",receipt);
+                        }
                     }
                     catch(Exception)
                     {
-                        Update(job,"needsOperator","A SaveWorld/DoExit megszakadt; PID és napló kézi ellenőrzése szükséges");
+                        Update(job,"needsOperator","A Store-v1 RCON mentési művelet megszakadt; PID és napló kézi ellenőrzése szükséges");
                     }
                 });
                 return Ok(id,new{
                     jobId=job.Id,started=true,
                     automaticRetry=false,forceKill=false,storeTouched=false,
-                    evidence="ORIGINAL_STORE_V1_REAL_STOP_JOB_QUEUED"
+                    evidence=approved.Kind=="SaveWorldOnly"?
+                        "ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED":
+                        "ORIGINAL_STORE_V1_REAL_STOP_JOB_QUEUED"
                 });
             }
             finally{serial.Release();}
