@@ -5011,14 +5011,14 @@ try
         await using var saveCluster=new ClusterService("store-save-only-synthetic",
             Path.Combine(root,"store-save-only-profile"),
             _=>new ProcessCheck(false,"Synthetic process",null,true));
-        var map=new LocalMap{
+        var saveMap=new LocalMap{
             Id=Guid.NewGuid(),Name="The Center",HistoricalStoreProtected=true,
             HistoricalMapKey="TheCenter_WP",HistoricalArchiveSha256=new string('A',64),
             InstallationPath=saveRoot,ExecutablePath=exe,
             GamePort=7889,QueryPort=27189,RconPort=rconPort,
             RconPasswordProtected=SecureStore.Protect(password)
         };
-        saveCluster.AddMap(map);
+        saveCluster.AddMap(saveMap);
         var processStart=new DateTimeOffset(2026,11,7,11,0,0,TimeSpan.Zero);
         const string sourceSha="EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE";
         int saveDispatches=0,exitDispatches=0;
@@ -5058,7 +5058,7 @@ try
             Check(!unauthorized.GetProperty("ok").GetBoolean()&&saveDispatches==0,
                 "SaveWorld-only denies foreign maps before any RCON dispatch");
             var preview=await Call(bridge.HandleAsync,"historical.saveWorldPreview",
-                new{mapId=map.Id});
+                new{mapId=saveMap.Id});
             IsOk(preview,"original ACTIVE Store SaveWorld-only preflight");
             Check(!preview.GetProperty("data").GetProperty("usesDoExit").GetBoolean()&&
                 preview.GetProperty("data").GetProperty("usesSaveWorld").GetBoolean()&&
@@ -5101,7 +5101,7 @@ try
             // Failure after claim permanently requires operator review, not retry.
             shouldFail=true;
             var second=await Call(bridge.HandleAsync,"historical.saveWorldPreview",
-                new{mapId=map.Id});
+                new{mapId=saveMap.Id});
             IsOk(second,"new independently approved original Store SaveWorld preview");
             token=second.GetProperty("data").GetProperty("token").GetString()!;
             queued=await Call(bridge.HandleAsync,"historical.saveWorldApply",
@@ -5122,7 +5122,7 @@ try
                   saveDispatches==2&&exitDispatches==0,
                 "failed SaveWorld leaves persistent NeedsOperator and never dispatches DoExit");
             var blocked=await Call(bridge.HandleAsync,"historical.saveWorldPreview",
-                new{mapId=map.Id});
+                new{mapId=saveMap.Id});
             Check(!blocked.GetProperty("ok").GetBoolean()&&saveDispatches==2,
                 "unresolved original Store operation blocks another SaveWorld");
         }
@@ -5130,7 +5130,7 @@ try
             Probe,ForbiddenStop,Save))
         {
             var recovery=await Call(again.HandleAsync,
-                "historical.gracefulStopRecovery",new{mapId=map.Id});
+                "historical.gracefulStopRecovery",new{mapId=saveMap.Id});
             Check(recovery.GetProperty("data").GetProperty("requiresOperator").GetBoolean()&&
                   recovery.GetProperty("data").GetProperty("blocked").GetBoolean()&&
                   !recovery.GetProperty("data").GetProperty("inMemoryRunning").GetBoolean(),
