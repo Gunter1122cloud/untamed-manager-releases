@@ -73,8 +73,30 @@ public sealed class DesktopIniBridge : IDisposable
                     if(!check.ConfirmedStopped || check.Running || map.Maintenance)
                         return Fail(id,"UM-INI-STOP-REQUIRED");
 
-                    var path=Path.Combine(map.InstallationPath,"ShooterGame","Saved",
-                        "Config","WindowsServer",file);
+                    // A never-started SteamCMD installation legitimately has no Saved tree.
+                    // Classify absence before SafeConfigEditor path checks, without creating
+                    // anything or weakening its reparse/ETag/atomic-save protections.
+                    if(string.IsNullOrWhiteSpace(map.InstallationPath) ||
+                       !Path.IsPathFullyQualified(map.InstallationPath) ||
+                       map.InstallationPath.StartsWith(@"\\",StringComparison.Ordinal) ||
+                       !Directory.Exists(map.InstallationPath))
+                        return Fail(id,"UM-INI-INSTALLATION-MISSING");
+                    string expectedExe=Path.Combine(map.InstallationPath,"ShooterGame",
+                        "Binaries","Win64","ArkAscendedServer.exe");
+                    if(string.IsNullOrWhiteSpace(map.ExecutablePath) ||
+                       !Path.IsPathFullyQualified(map.ExecutablePath) ||
+                       !string.Equals(Path.GetFullPath(map.ExecutablePath),
+                           Path.GetFullPath(expectedExe),StringComparison.OrdinalIgnoreCase) ||
+                       !File.Exists(expectedExe))
+                        return Fail(id,"UM-INI-SERVER-EXE-MISSING");
+                    string directory=Path.Combine(map.InstallationPath,"ShooterGame",
+                        "Saved","Config","WindowsServer");
+                    if(!Directory.Exists(directory))
+                        return Fail(id,"UM-INI-CONFIG-DIRECTORY-MISSING");
+                    var path=Path.Combine(directory,file);
+                    if(!File.Exists(path))
+                        return Fail(id,file=="Game.ini"?
+                            "UM-INI-GAME-MISSING":"UM-INI-GUS-MISSING");
                     var snapshot=SafeConfigEditor.Read(path,map.InstallationPath,
                         ConfigKind.GameIni,check,map.Maintenance);
                     foreach(var existing in opened.Where(x=>x.Value.MapId==mapId)
@@ -146,6 +168,9 @@ public sealed class DesktopIniBridge : IDisposable
             finally {gate.Release();}
         }
         catch(FileNotFoundException){return Fail(id,"UM-INI-NOT-FOUND");}
+        catch(DirectoryNotFoundException){return Fail(id,"UM-INI-CONFIG-DIRECTORY-MISSING");}
+        catch(UnauthorizedAccessException){return Fail(id,"UM-INI-ACCESS-DENIED");}
+        catch(InvalidDataException){return Fail(id,"UM-INI-PATH-OR-CONTENT-UNSAFE");}
         catch(IOException){return Fail(id,"UM-INI-CONFLICT-OR-IO-ERROR");}
         catch(Exception)
         {
