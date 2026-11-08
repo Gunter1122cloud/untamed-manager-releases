@@ -1633,7 +1633,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     {section==="rcon" && (map.storeProtected
       ?<><HistoricalRconLivePanel mapId={mapId} running={map.running}/>
         <HistoricalAdminRconPanel mapId={mapId} running={map.running}/></>
-      :<RconReadOnlyPanel mapId={mapId} onConfigured={onConfigured} onOpenStart={()=>setSection("overview")}/>)}
+      :<RconReadOnlyPanel key={mapId} mapId={mapId} onConfigured={onConfigured} onOpenStart={()=>setSection("overview")}/>)}
   </div>;
 }
 
