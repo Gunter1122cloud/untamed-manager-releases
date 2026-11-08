@@ -1361,11 +1361,11 @@ test("read-only operations scheduler requires approval, shows durable receipt an
   await expect(page.getByText(/Mentve: a helyi, csak olvasó ellenőrzés/)).toBeVisible();
   await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
   await expect(page.getByText("read-only-complete")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Kikapcsolás"})).toBeDisabled();
+  await expect(page.locator(".ops-schedules").getByRole("button",{name:"Kikapcsolás"})).toBeDisabled();
   await page.getByRole("checkbox",{name:/Jóváhagyom a helyi, csak olvasó/}).check();
-  await page.getByRole("button",{name:"Kikapcsolás"}).click();
+  await page.locator(".ops-schedules").getByRole("button",{name:"Kikapcsolás"}).click();
   await expect(page.getByText("Az automatikus helyi ellenőrzés kikapcsolva.")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Kikapcsolás"})).toHaveCount(0);
+  await expect(page.locator(".ops-schedules").getByRole("button",{name:"Kikapcsolás"})).toHaveCount(0);
   await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
   await expect(page.locator(".ops-schedules")).not.toContainText("Szerver automatikus újraindítása");
 });
