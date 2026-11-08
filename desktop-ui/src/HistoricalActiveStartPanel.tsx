@@ -94,6 +94,12 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
               "helyi ASA API Loadert indítja; a gyermek ASA PID-et külön kell igazolni":
               "helyi ASA EXE-t indítja"}.
             Nem konvertál, nem hoz létre új sessiont vagy shared lockot.</p>
+          {preview.launchMode==="asaApiLoader"&&<p className="muted small">
+            Hivatalos API cache: {preview.apiCacheState}. A cache-kulcs és a
+            jelenlegi ASA EXE hashének egyezése még nem bizonyít API-modulbetöltést;
+            cache-hiánynál a hivatalos API saját cache-letöltése és
+            ellenőrzése szükséges.
+          </p>}
           <label htmlFor="historical-start-phrase">
             Biztonsági megerősítés: írd be pontosan: STORE-V1 ACTIVE START
           </label>
