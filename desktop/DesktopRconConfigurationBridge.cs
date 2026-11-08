@@ -148,7 +148,7 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                     if(!TryGuid(root,"mapId",out var mapId))return Error(id,"UM-RCON-MAP");
                     var map=Local(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    return Ok(id,new{mapId,mapName=map.Name,
+                    return Ok(id,new{mapId,mapName=map.Name,rconPort=map.RconPort,
                         configured=map.RconPort>0&&!string.IsNullOrWhiteSpace(map.RconPasswordProtected),
                         permitted=SafeMap(map)&&Stopped(map)&&
                             FreshAsaInstallationSafety.IsProvenFresh(cluster,map),
