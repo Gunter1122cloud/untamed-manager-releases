@@ -197,7 +197,9 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
            (frequency=="Interval"&&intervalMinutes is <15 or >10080))
             throw new InvalidDataException("UM-ASA-SCHEDULE-FIELDS");
         var map=Owned(mapId);
-        if(!safeMap(map))
+        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+           !safeMap(map))
             throw new UnauthorizedAccessException("UM-ASA-SCHEDULE-PREFLIGHT-DENIED");
         return Locked(()=>{
             var state=Read();
@@ -429,7 +431,9 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                         x.MapId==observed.MapId&&x.Kind==observed.Kind&&
                         x.Enabled&&x.Fingerprint==observed.Fingerprint&&
                         x.LastClaimedUtc==now&&x.LastStatus=="claimed-no-auto-retry"));
-                    if(stillApproved&&safeMap(map)&&Fingerprint(map)==observed.Fingerprint)
+                    if(stillApproved&&!KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)&&
+                       string.IsNullOrWhiteSpace(map.StoreTestRoot)&&
+                       safeMap(map)&&Fingerprint(map)==observed.Fingerprint)
                     {
                         evidence=await runner(map.Id,observed.Kind,token);
                         status="executed-no-fsync-or-client-certification";
