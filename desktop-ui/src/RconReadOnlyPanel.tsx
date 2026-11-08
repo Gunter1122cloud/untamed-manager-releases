@@ -61,11 +61,17 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
     try{
       await managerBridge.rconConfigApply(token);
       setConfigDone(true);
-      const [nextStatus,nextConfig]=await Promise.all([
-        managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
-      ]);
-      setStatus(nextStatus);setConfig(nextConfig);
-      if(onConfigured)await onConfigured();
+      // A committed native receipt cannot be revoked by a subsequent read.
+      // Do not invite repeated bootstrap writes when status refresh fails.
+      try {
+        const [nextStatus,nextConfig]=await Promise.all([
+          managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
+        ]);
+        setStatus(nextStatus);setConfig(nextConfig);
+        if(onConfigured)await onConfigured();
+      } catch {
+        setError("A natív RCON-konfiguráció mentve, de az állapotfrissítés nem sikerült. Ne ismételd meg az INI-előkészítést; frissítsd a Manager állapotát.");
+      }
     }catch{
       setError("A natív RCON-beállítás nem fejeződött be. A szerver nem indult el; ellenőrizd a helyi állapotot.");
     }finally{setBusy(false);}

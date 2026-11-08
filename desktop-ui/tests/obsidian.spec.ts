@@ -38,6 +38,12 @@ test.beforeEach(async ({ page }) => {
       };
     let freshId = "";
     let initialBlocked=false;
+    let nextRconStatusRefreshFails=false;
+    let rconApplyCalls=0;
+    (window as typeof window & {__UNTAMED_RCON_REFRESH_FAIL_ONCE__?:()=>void})
+      .__UNTAMED_RCON_REFRESH_FAIL_ONCE__=()=>{nextRconStatusRefreshFails=true;};
+    (window as typeof window & {__UNTAMED_RCON_APPLY_COUNT__?:()=>number})
+      .__UNTAMED_RCON_APPLY_COUNT__=()=>rconApplyCalls;
     (window as typeof window & {__UNTAMED_INITIAL_BLOCKED__?:(value:boolean)=>void})
       .__UNTAMED_INITIAL_BLOCKED__=(value:boolean)=>{initialBlocked=value;};
     let keySaved = false;
@@ -665,6 +671,10 @@ test.beforeEach(async ({ page }) => {
         case "steam.freshDiscard": return {discarded:true};
         case "rcon.configStatus": {
           const map=state.local.maps.find(x=>x.id===m.mapId);
+          if(nextRconStatusRefreshFails && (map as any)?.rconConfigured){
+            nextRconStatusRefreshFails=false;
+            throw new Error("SYNTHETIC-POSTCOMMIT-STATUS-UNAVAILABLE");
+          }
           return {mapId:m.mapId,mapName:map?.name||"Ismeretlen map",
             configured:Boolean((map as any)?.rconConfigured),
             permitted:Boolean(map)&&map.gamePort>0&&!map.running&&!(map as any).storeProtected&&!(map as any).rconConfigured,
@@ -679,6 +689,7 @@ test.beforeEach(async ({ page }) => {
         }
         case "rcon.configApply": {
           if(!m.confirm)throw new Error("UM-RCON-CONFIG-CONFIRMATION");
+          rconApplyCalls++;
           const map=state.local.maps.find(x=>x.name==="Genesis Part 1");
           if(map)(map as any).rconConfigured=true;
           return {mapId:map?.id||"",mapName:"Genesis Part 1",
@@ -2278,6 +2289,37 @@ test("first setup follows one RCON bootstrap route and returns to native Start w
   await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
   await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Első RCON beállítása"})).toHaveCount(0);
+});
+
+test("RCON native commit receipt survives a failed subsequent status refresh without reapplying INI",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await page.getByRole("button",{name:"Beállítások ellenőrzése"}).click();
+  await page.getByText(/Jóváhagyom a regisztrált helyi map Manager-profiljának mentését/).click();
+  await page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"}).click();
+  await page.getByRole("button",{name:"Első RCON beállítása"}).click();
+  await page.getByRole("textbox",{name:"RCON beállítás jelszó"}).fill("SyntheticSafePassword2026!");
+  await page.getByRole("button",{name:"Beállítás ellenőrzése"}).click();
+  await page.evaluate(()=>(window as typeof window&{
+    __UNTAMED_RCON_REFRESH_FAIL_ONCE__?:()=>void
+  }).__UNTAMED_RCON_REFRESH_FAIL_ONCE__?.());
+  await page.getByRole("button",{name:"Beállítás véglegesítése"}).click();
+  await expect(page.getByText(/natív RCON-konfiguráció mentve, de az állapotfrissítés nem sikerült/i)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Vissza az ASA Start előnézethez"})).toBeVisible();
+  await expect(page.getByText(/A natív RCON-beállítás nem fejeződött be/)).toHaveCount(0);
+  const applyCount=await page.evaluate(()=>(window as typeof window&{
+    __UNTAMED_RCON_APPLY_COUNT__?:()=>number
+  }).__UNTAMED_RCON_APPLY_COUNT__?.());
+  expect(applyCount).toBe(1);
+  await page.getByRole("button",{name:"Vissza az ASA Start előnézethez"}).click();
+  await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(0);
 });
 
 test("original local Store-v1 five-map source proof is explicit and never enables launch",async({page})=>{
