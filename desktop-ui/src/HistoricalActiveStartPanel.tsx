@@ -47,7 +47,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       setNotice(receipt.processRole==="loaderParent"?
         receipt.mapName+" · ASA API Loader szülőfolyamat PID: "+receipt.loaderPid+
         ". Az ASA gyermek PID, RCON és játékbeli készenlét még NEM igazolt.":
-        receipt.mapName+" · valódi Windows ASA PID: "+receipt.serverPid+
+        receipt.mapName+" · valódi Windows ASA PID: "+(receipt.serverPid??receipt.pid)+
         ". Az indítás megtörtént, a játékbeli csatlakozás és SaveComplete külön ellenőrzendő.");
       try{setState(await managerBridge.historicalActiveStartStatus(mapId));}
       catch{setState(null);}
