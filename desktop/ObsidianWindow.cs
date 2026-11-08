@@ -129,6 +129,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopWorldBackupBridge _worldBackup;
     private readonly DesktopScheduledStoppedBackupSupervisor _scheduledBackups;
     private readonly DesktopScheduledAsaOperationsSupervisor _nativeSchedules;
+    private readonly DesktopMapMaintenanceBridge _mapMaintenance;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -181,6 +182,7 @@ public sealed class ObsidianWindow : Form
         _freshRestart = new DesktopFreshAsaRestartBridge(_bridge.LocalCluster);
         _nativeSchedules = new DesktopScheduledAsaOperationsSupervisor(
             _bridge.LocalCluster,_rcon,_freshRestart);
+        _mapMaintenance = new DesktopMapMaintenanceBridge(_bridge.LocalCluster);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
         _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster,_readOnlySupervisor);
@@ -388,6 +390,7 @@ public sealed class ObsidianWindow : Form
                 bool lifecycleJournalRoute = false;
                 bool operationsRoute = false;
                 bool nativeScheduleRoute = false;
+                bool mapMaintenanceRoute = false;
                 bool lanRoute = false;
                 try
                 {
@@ -418,6 +421,7 @@ public sealed class ObsidianWindow : Form
                             "operations.scheduleCreate" or "operations.scheduleDisable";
                         nativeScheduleRoute = name is "schedule.nativeStatus" or
                             "schedule.nativeSet" or "schedule.nativeDisable";
+                        mapMaintenanceRoute = name is "maps.maintenanceStatus" or "maps.maintenanceSet";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
@@ -497,6 +501,7 @@ public sealed class ObsidianWindow : Form
                     string response = apiCoreRoute ? await _apiCore.HandleAsync(incoming)
                         : lanRoute ? await _lan.HandleAsync(incoming)
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)
+                        : mapMaintenanceRoute ? await _mapMaintenance.HandleAsync(incoming)
                         : operationsRoute ? await _operations.HandleAsync(incoming)
                         : freshRestartRoute ? await _freshRestart.HandleAsync(incoming)
                         : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
