@@ -84,10 +84,10 @@ export function PortableModProfilePanel({maps,sourceMapId,onApplied}:{
     <div className="premium-mod-copy-targets" role="group" aria-label="Modprofil célmapok">
       {eligible.length===0?<p className="muted small">Nincs helyben szerkeszthető map.</p>:
         eligible.map(map=><label key={map.id} className="plugin-row">
-          <input type="checkbox" checked={targets.includes(map.id)} disabled={working}
+          <input type="checkbox" checked={targets.includes(map.id)} disabled={working||(!targets.includes(map.id)&&targets.length>=25)}
             onChange={()=>{
               setTargets(old=>old.includes(map.id)?
-                old.filter(x=>x!==map.id):[...old,map.id]);invalidate();
+                old.filter(x=>x!==map.id):old.length>=25?old:[...old,map.id]);invalidate();
             }}/>
           <span><strong>{map.name}</strong><small>{map.running?
             "Futó map – csak a következő indítás modlistája változik":"Helyi célmap"}</small></span>
