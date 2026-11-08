@@ -129,13 +129,13 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
     {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
     {!snapshot&&!error&&<div role="status" className="empty">Helyi Windows-folyamatok ellenőrzése...</div>}
     {snapshot&&<>
-      <div className="ops-summary">
+      {!selectedMapId&&<div className="ops-summary">
         <div><Server size={20}/><strong>{snapshot.maps.length}</strong><span>Helyi map</span></div>
         <div><Activity size={20}/><strong>{snapshot.maps.filter(x=>x.running).length}</strong><span>Igazoltan fut</span></div>
         <div><Shield size={20}/><strong>{snapshot.maps.filter(x=>x.storeProtected).length}</strong><span>Store-v1 védett</span></div>
         <div><CalendarClock size={20}/><strong>{snapshot.schedules.length}</strong><span>Mentett ütemezés</span></div>
-      </div>
-      {visible.length===0?<div className="empty">A szűrőnek megfelelő helyi map nem található.</div>:
+      </div>}
+      {(!selectedMapId||!showScheduler)&&(visible.length===0?<div className="empty">A szűrőnek megfelelő helyi map nem található.</div>:
         selectedMapId?<div className="ops-grid">
           {visible.map(map=><OperationCard key={map.mapId} map={map} onOpen={onOpenMap}/>)}
         </div>:<div className="ops-compact-scroll">
@@ -158,7 +158,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
               </tr>;
             })}</tbody>
           </table>
-        </div>}
+        </div>)}
       {selectedMapId&&showScheduler&&<section className="premium-panel ops-schedules">
         <header className="premium-panel-heading"><h2><CalendarClock size={19}/> Meglévő ütemezések</h2>
           <span className="premium-small-muted">Core / Budapest időzóna</span></header>
