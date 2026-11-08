@@ -5188,6 +5188,190 @@ try
             "SaveWorld-only never edits original ASA INI or runs DoExit");
     }
 
+
+    // Original ACTIVE Store-v1 manual restart: the production bridge
+    // authorizes a durable one-shot Stop -> verified PID exit -> Start.
+    // All process identities and RCON effects are synthetic here.
+    {
+        string restartRoot=Path.Combine(root,"historical-original-restart-owned");
+        string binary=Path.Combine(restartRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(binary);
+        string exe=Path.Combine(binary,"ArkAscendedServer.exe");
+        File.WriteAllBytes(exe,new byte[]{77,90,3,3});
+        string cfg=Path.Combine(restartRoot,"ShooterGame","Saved","Config","WindowsServer");
+        Directory.CreateDirectory(cfg);
+        string ini=Path.Combine(cfg,"GameUserSettings.ini");
+        File.WriteAllText(ini,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
+            "RCONPort=37305\r\nServerAdminPassword=SyntheticRestartOnly\r\n");
+        byte[] beforeRestartIni=File.ReadAllBytes(ini);
+        await using var restartCluster=new ClusterService(
+            "store-restart-synthetic",
+            Path.Combine(root,"store-restart-profile"),
+            _=>new ProcessCheck(false,"Synthetic original process",null,true));
+        var restartMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Valguero",
+            HistoricalStoreProtected=true,HistoricalMapKey="Valguero_WP",
+            HistoricalArchiveSha256=new string('A',64),
+            InstallationPath=restartRoot,ExecutablePath=exe,
+            GamePort=7891,QueryPort=27191,RconPort=37305,
+            RconPasswordProtected=SecureStore.Protect("SyntheticRestartOnly")
+        };
+        restartCluster.AddMap(restartMap);
+        const string restartSource="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        int oldRestartPid=44311,saveExitCalls=0,newStarts=0;
+        bool failNextStart=false;
+        var oldStartTime=new DateTimeOffset(2026,11,8,11,0,0,TimeSpan.Zero);
+        var releaseOldExit=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        LegacyStoreV1GracefulStop.Owned RestartProbe(Guid mapId)=>
+            mapId==restartMap.Id?
+                new(restartMap,new ProcessIdentity{
+                    Pid=oldRestartPid,StartedUtc=oldStartTime,
+                    ExecutablePath=exe,Arguments="SYNTHETIC_ORIGINAL_ACTIVE"},
+                    restartSource):
+                throw new UnauthorizedAccessException("Foreign original Store map");
+        async Task<AsaGracefulStopReceipt> RestartStop(Guid mapId,int pid,
+            DateTimeOffset started,string source,Guid journalId,
+            Action<string> report)
+        {
+            saveExitCalls++;
+            var journal=new AsaManualRestartJournal(restartRoot).Observe();
+            Check(journal!=null&&journal.Phase==AsaRestartPhase.Stopping&&
+                  journal.Id==journalId&&journal.MapId==restartMap.Id&&
+                  pid==oldRestartPid&&started==oldStartTime&&
+                  source==restartSource,
+                "native Store Restart Stop receives exact durable writer/owner approval");
+            report("Synthetic SaveWorld -> DoExit -> old PID stopped");
+            await releaseOldExit.Task.WaitAsync(TimeSpan.FromSeconds(6));
+            return new AsaGracefulStopReceipt(mapId,pid,true,false,true,
+                DateTimeOffset.UtcNow,"SYNTHETIC_ORIGINAL_STOP")
+            {PreExitSaveLogAndWorldObserved=true};
+        }
+        ProcessIdentity RestartStart(Guid mapId,Guid journalId,
+            Action<string> report)
+        {
+            newStarts++;
+            var journal=new AsaManualRestartJournal(restartRoot).Observe();
+            Check(journal!=null&&journal.Id==journalId&&
+                  journal.Phase==AsaRestartPhase.Starting&&
+                  journal.MapId==mapId&&mapId==restartMap.Id,
+                "original Store Start requires the same journal in Starting phase");
+            if(failNextStart)
+                throw new IOException("Synthetic original restart spawn failure");
+            report("Synthetic new original ACTIVE process spawned");
+            var started=new ProcessIdentity{
+                Pid=oldRestartPid+1,StartedUtc=oldStartTime.AddSeconds(10),
+                ExecutablePath=exe,Arguments="SYNTHETIC_ORIGINAL_ACTIVE"
+            };
+            oldRestartPid=started.Pid;
+            oldStartTime=started.StartedUtc;
+            return started;
+        }
+        using(var restartBridge=new DesktopHistoricalRestartBridge(
+            restartCluster,RestartProbe,RestartStop,RestartStart))
+        {
+            var foreign=await Call(restartBridge.HandleAsync,
+                "historical.restartPreview",new{mapId=Guid.NewGuid()});
+            Check(!foreign.GetProperty("ok").GetBoolean()&&
+                  saveExitCalls==0&&newStarts==0,
+                "Store Restart never accepts foreign or remote map IDs");
+            var approved=await Call(restartBridge.HandleAsync,
+                "historical.restartPreview",new{mapId=restartMap.Id});
+            IsOk(approved,"original native Store Restart preflight");
+            var token=approved.GetProperty("data").GetProperty("token").GetString()!;
+            var wrong=await Call(restartBridge.HandleAsync,
+                "historical.restartApply",new{token,confirm=true,
+                    typedApproval="STORE-V1 SAVEWORLD DOEXIT"});
+            Check(!wrong.GetProperty("ok").GetBoolean()&&
+                  saveExitCalls==0&&newStarts==0,
+                "Store Restart requires exact typed Start approval before any mutation");
+            var queued=await Call(restartBridge.HandleAsync,
+                "historical.restartApply",new{token,confirm=true,
+                    typedApproval="STORE-V1 SAVEWORLD DOEXIT START"});
+            IsOk(queued,"native original Store Restart job queued");
+            string jobId=queued.GetProperty("data").GetProperty("jobId").GetString()!;
+            var replay=await Call(restartBridge.HandleAsync,
+                "historical.restartApply",new{token,confirm=true,
+                    typedApproval="STORE-V1 SAVEWORLD DOEXIT START"});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "original Store Restart token is consumed once, never replayed");
+            var inFlight=await Call(restartBridge.HandleAsync,
+                "historical.restartRecovery",new{mapId=restartMap.Id});
+            Check(inFlight.GetProperty("data").GetProperty("blocked").GetBoolean()&&
+                  inFlight.GetProperty("data").GetProperty("inMemoryRunning").GetBoolean()&&
+                  inFlight.GetProperty("data").GetProperty("jobId").GetString()==jobId&&
+                  newStarts==0,
+                "pending Stop phase blocks new Start while UI can reattach by jobId");
+            var duplicate=await Call(restartBridge.HandleAsync,
+                "historical.restartPreview",new{mapId=restartMap.Id});
+            Check(!duplicate.GetProperty("ok").GetBoolean(),
+                "second Store Restart denied while first one is running");
+            releaseOldExit.TrySetResult(true);
+            JsonElement status=default;
+            for(int k=0;k<100;k++)
+            {
+                status=await Call(restartBridge.HandleAsync,
+                    "historical.restartStatus",new{jobId});
+                if(status.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(30);
+            }
+            Check(status.GetProperty("data").GetProperty("state").GetString()=="completed"&&
+                  status.GetProperty("data").GetProperty("oldProcessStopped").GetBoolean()&&
+                  status.GetProperty("data").GetProperty("preExitSaveLogAndWorldObserved").GetBoolean()&&
+                  status.GetProperty("data").GetProperty("newPid").GetInt32()==44312&&
+                  !status.GetProperty("data").GetProperty("readyCertified").GetBoolean()&&
+                  saveExitCalls==1&&newStarts==1,
+                "original Store one-shot Restart completes after old PID and save proof");
+            var completed=new AsaManualRestartJournal(restartRoot).Observe();
+            Check(completed?.Phase==AsaRestartPhase.Completed&&
+                  completed.NewPid==44312,
+                "Store Restart closes durable journal only on verified new PID");
+            // A separately approved attempt may fail after the old ASA stopped;
+            // a crashed Manager must never launch another process automatically.
+            failNextStart=true;
+            approved=await Call(restartBridge.HandleAsync,
+                "historical.restartPreview",new{mapId=restartMap.Id});
+            IsOk(approved,"independent second synthetic original Restart preflight");
+            token=approved.GetProperty("data").GetProperty("token").GetString()!;
+            queued=await Call(restartBridge.HandleAsync,
+                "historical.restartApply",new{token,confirm=true,
+                    typedApproval="STORE-V1 SAVEWORLD DOEXIT START"});
+            IsOk(queued,"synthetic second restart queued");
+            jobId=queued.GetProperty("data").GetProperty("jobId").GetString()!;
+            for(int k=0;k<100;k++)
+            {
+                status=await Call(restartBridge.HandleAsync,
+                    "historical.restartStatus",new{jobId});
+                if(status.GetProperty("data").GetProperty("state").GetString()
+                    is "completed" or "needsOperator")break;
+                await Task.Delay(30);
+            }
+            Check(status.GetProperty("data").GetProperty("state").GetString()=="needsOperator"&&
+                  saveExitCalls==2&&newStarts==2&&
+                  new AsaManualRestartJournal(restartRoot).Observe()?.Phase==
+                    AsaRestartPhase.NeedsOperator,
+                "failed Store restart persists NeedsOperator and never fakes a new PID");
+        }
+        using(var reattached=new DesktopHistoricalRestartBridge(
+            restartCluster,RestartProbe,RestartStop,RestartStart))
+        {
+            var recovery=await Call(reattached.HandleAsync,
+                "historical.restartRecovery",new{mapId=restartMap.Id});
+            Check(recovery.GetProperty("data").GetProperty("blocked").GetBoolean()&&
+                  recovery.GetProperty("data").GetProperty("requiresOperator").GetBoolean()&&
+                  !recovery.GetProperty("data").GetProperty("inMemoryRunning").GetBoolean(),
+                "fresh Manager sees interrupted Store Restart, never auto-replays");
+            var denied=await Call(reattached.HandleAsync,
+                "historical.restartPreview",new{mapId=restartMap.Id});
+            Check(!denied.GetProperty("ok").GetBoolean()&&
+                  saveExitCalls==2&&newStarts==2,
+                "failed Store Restart blocks a third dispatch until manual recovery");
+        }
+        Check(File.ReadAllBytes(ini).SequenceEqual(beforeRestartIni),
+            "native Store Restart touches no original GameUserSettings INI bytes");
+    }
+
     // ORIGINAL ACTIVE Store-v1 graceful stop uses the real operation lease
     // and native two-stage approved queue, but synthetic process and RCON
     // callbacks only. Never start real ASA or touch a live Store directory.
