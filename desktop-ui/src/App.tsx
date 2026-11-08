@@ -930,8 +930,9 @@ function Mods({ snapshot, selected, setSelected, mapLocked=false }: {
     </div>
   </div>;
 }
-function PluginCenter({ snapshot, selected, setSelected }: {
-  snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void
+function PluginCenter({ snapshot, selected, setSelected, mapLocked=false }: {
+  snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void;
+  mapLocked?:boolean
 }) {
   const [info, setInfo] = useState<PluginInventory | null>(null);
   const [error, setError] = useState("");
@@ -989,12 +990,16 @@ function PluginCenter({ snapshot, selected, setSelected }: {
   return <div className="premium-plugin-page">
     <div className="page-intro"><span className="eyebrow">ASA API / LOCAL INSTALLATION</span><h1>Plugin Center</h1>
       <p>Helyi pluginleltár és ellenőrzött engedélyezés/tiltás. A módosítás csak leállított szervereken, előnézet és jóváhagyás után történik.</p></div>
-    <div className="premium-mod-map-picker"><Plug size={19}/><select aria-label="Pluginok mapja" value={selected}
-      disabled={working} onChange={e=>{
-        actionEpoch.current++;setPreview(null);setApproved(false);
-        setNotice("");setSelected(e.target.value);
-      }}>
-      {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+    <div className="premium-mod-map-picker"><Plug size={19}/>
+      {mapLocked
+        ?<strong aria-label="Pluginok forrásmapja">{snapshot.local.maps.find(m=>m.id===selected)?.name??"Nem található"}</strong>
+        :<select aria-label="Pluginok mapja" value={selected}
+          disabled={working} onChange={e=>{
+            actionEpoch.current++;setPreview(null);setApproved(false);
+            setNotice("");setSelected(e.target.value);
+          }}>
+          {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>}
     </div>
     <div className="premium-plugin-grid">
     <Panel className="premium-plugin-inventory" title={info ? `Helyi pluginok · ${info.mapName}` : "Pluginok"}>
@@ -1633,7 +1638,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       ?<div className="warning-inline" role="alert"><Shield size={17}/> Történeti Store-v1 map: automatikus vagy kézi SteamCMD-frissítést ezen az útvonalon nem engedélyezünk.</div>
       :<StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>)}
     {section==="mods" && <Mods key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>} 
-    {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
+    {section==="plugins" && <PluginCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="backups" && <BackupCenter mapId={mapId} snapshot={snapshot}/>}
     {section==="logs" && <LogsCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
