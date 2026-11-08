@@ -65,12 +65,19 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     string? level=null;
                     try { level=AsaSteamMapCatalog.LevelFor(map.Name); }
                     catch(InvalidDataException) { }
+                    bool executable=ServerExePresent(map);
+                    bool stopped=process.ConfirmedStopped && !process.Running;
+                    string blocker=!initial ? "PROFILE_ALREADY_CONFIGURED_OR_PROTECTED" :
+                        level==null ? "MAP_LEVEL_UNRECOGNIZED" :
+                        !executable ? "SERVER_EXECUTABLE_MISSING" :
+                        process.Running ? "PROCESS_RUNNING" :
+                        !stopped ? "PROCESS_STOP_NOT_VERIFIED" : "NONE";
                     return Success(id,new{
                         mapId=map.Id,mapName=map.Name,level,
-                        initialSetupAvailable=initial && level!=null &&
-                            process.ConfirmedStopped && !process.Running,
-                        confirmedStopped=process.ConfirmedStopped && !process.Running,
-                        hasServerExecutable=ServerExePresent(map),
+                        initialSetupAvailable=blocker=="NONE",
+                        blocker,processStatus=process.Status,
+                        confirmedStopped=stopped,
+                        hasServerExecutable=executable,
                         gamePort=map.GamePort,queryPort=map.QueryPort,
                         suggestion=new{game=suggested.Game,query=suggested.Query},
                         evidence="LOCAL_MANAGER_PROFILE_FIRST_SETUP_STATUS"
