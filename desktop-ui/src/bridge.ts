@@ -1123,7 +1123,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "travel.capture" | "travel.compare" | "store.inspectCopy" | "store.inspectArchive" | "store.compareArchives";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   peerAction?:"upsert"|"remove";
-  mapId?: string; term?: string; page?: number; credential?: string;
+  mapId?: string; useApi?:boolean; term?: string; page?: number; credential?: string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
   position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
   token?: string; file?: IniFile; content?: string;
