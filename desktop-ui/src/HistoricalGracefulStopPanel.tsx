@@ -30,8 +30,10 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     managerBridge.historicalGracefulStopRecovery(mapId).then(result=>{
       if(!active)return;
       setRecovery(result);setRecoveryChecked(true);
-      if(result.inMemoryRunning&&result.jobId)
-        setJobId(result.jobId); // resume polling after React view remount
+      if(result.inMemoryRunning&&result.jobId&&result.activeJobKind==="Stop")
+        setJobId(result.jobId); // only reattach to the original Stop job
+      else if(result.inMemoryRunning)
+        setError("Másik Store-v1 művelet fut. Nem indítunk új leállítást.");
       if(result.requiresOperator)
         setError("Korábban megszakadt művelet tartós naplója található. "+
           "Ne indíts új SaveWorld/DoExit vagy Start műveletet. "+
@@ -84,7 +86,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   },[jobId,onStopped]);
   const inspect=async()=>{
     if(busy||jobId||!running||!recoveryChecked||
-       !recovery||recovery.blocked)return;
+       !recovery||recovery.blocked||recovery.inMemoryRunning)return;
     setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
     try{setPreview(await managerBridge.historicalGracefulStopPreview(mapId));}
     catch{
@@ -122,7 +124,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
       <div className="settings-actions">
         <button className="secondary" type="button"
           disabled={busy||!running||!!preview||!!jobId||
-            !recoveryChecked||!recovery||recovery.blocked}
+            !recoveryChecked||!recovery||recovery.blocked||recovery.inMemoryRunning}
           onClick={()=>{void inspect();}}>
           <Shield size={16}/> Eredeti SaveWorld/DoExit előellenőrzése
         </button>

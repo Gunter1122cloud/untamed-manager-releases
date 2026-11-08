@@ -25,10 +25,14 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     managerBridge.historicalGracefulStopRecovery(mapId).then(result=>{
       if(!active)return;
       setRecovery(result);setChecked(true);
-      if(result.inMemoryRunning&&result.jobId){
-        // The generic lifecycle journal has no in-memory operation kind.
-        // Never assume a recovered job is a SaveWorld-only operation.
-        setError("Már folyamatban lehet Store-v1 művelet. Az Üzemeltetésben ellenőrizd a folyamatot.");
+      if(result.inMemoryRunning&&result.jobId&&
+         result.activeJobKind==="SaveWorldOnly"){
+        // Reattach to the SAME native SaveWorld job. Polling only: never
+        // send a second SaveWorld command or reconstruct an approval token.
+        setJobId(result.jobId);
+        setNotice("Meglévő Store-v1 SaveWorld megfigyeléséhez visszacsatlakozva; nincs új RCON-küldés.");
+      }else if(result.inMemoryRunning){
+        setError("Másik Store-v1 művelet fut. Mentést nem indítunk és nem küldünk újra.");
       }else if(result.blocked){
         setError("Befejezetlen Store-v1 műveleti napló: kézi ellenőrzésig nincs új SaveWorld.");
       }
