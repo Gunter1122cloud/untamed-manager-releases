@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { AlertTriangle, CheckCircle2, Shield, Server, Settings2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, Shield, Server, Settings2 } from "lucide-react";
 import {
   managerBridge, type InitialMapPreview, type InitialMapStatus
 } from "./bridge";
@@ -16,6 +16,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [checkingStatus,setCheckingStatus]=useState(false);
   useEffect(()=>{
     let active=true;
     setStatus(null);setPreview(null);setApproved(false);setError("");setNotice("");
@@ -30,6 +31,18 @@ export function InitialMapSetup({mapId,onConfigured}: {
     return ()=>{active=false;};
   },[mapId]);
 
+  const refreshStatus=async()=>{
+    if(busy||checkingStatus)return;
+    setCheckingStatus(true);setError("");
+    try{
+      const next=await managerBridge.initialStatus(mapId);
+      setStatus(next);
+      setPreview(null);setApproved(false);
+    }catch{
+      setStatus(null);
+      setError("Nem sikerült újból ellenőrizni a szerver folyamatállapotát; konfigurációt nem módosítottunk.");
+    }finally{setCheckingStatus(false);}
+  };
   const clear=()=>{setPreview(null);setApproved(false);setError("");setNotice("");};
   const inspect=async(e:FormEvent)=>{
     e.preventDefault();clear();
@@ -85,6 +98,12 @@ export function InitialMapSetup({mapId,onConfigured}: {
       <p className="muted small">Egy már regisztrált ASA-telepítéshez külön állítsd be a szerver nevét és a Game/Query UDP-portokat. A varázsló csak a Manager indítási profilját módosítja.</p>
       {status && !status.initialSetupAvailable && <div className="warning-inline">
         <Shield size={17}/> {blockerMessage}</div>}
+      <div className="draft-actions">
+        <button type="button" className="secondary" disabled={busy||checkingStatus}
+          onClick={()=>{void refreshStatus();}}><RefreshCw size={16}/>
+          {checkingStatus?"Újraellenőrzés...":"Első beállítások állapotának újraellenőrzése"}</button>
+        {status&&<span className="muted small">Natív állapot: {status.blocker==="NONE"?"Előkészíthető":status.blocker} · Igazolt leállítás: {status.confirmedStopped?"igen":"nem"}</span>}
+      </div>
       <form className="initial-setup-form" onSubmit={e=>{void inspect(e);}}>
         <label><span>Szerver nyilvános neve</span>
           <input aria-label="ASA szerver neve" value={session} maxLength={75}
