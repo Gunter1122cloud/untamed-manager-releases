@@ -1599,13 +1599,17 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       {map.storeProtected&&<HistoricalRconAttach mapId={mapId} onConfigured={onConfigured}/>}
       {map.storeProtected&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
       {map.storeProtected&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
-      {map.gamePort>0 && !map.storeProtected && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && !map.storeProtected && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} onOpenRcon={()=>setSection("rcon")} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && !map.storeProtected && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && !map.storeProtected && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
       }}/>}
+      {map.gamePort>0 && !map.storeProtected && !map.rconConfigured && <div className="warning-inline" role="status">
+        <Shield size={17}/> Az első ASA-indítás előtt készítsd elő a RCON-t a meglévő natív, egyszeri GameUserSettings.ini mechanizmussal.
+        <button type="button" className="secondary" onClick={()=>setSection("rcon")}>Első RCON beállítása</button>
+      </div>}
       {map.gamePort>0 && initialSetupSaved && <div role="status" className="success-inline">
         <CheckCircle2 size={17}/>{map.name} indítási profilja mentve. A szerver nem indult el; RCON és modok később konfigurálhatók.
       </div>}
@@ -1619,7 +1623,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     {section==="rcon" && (map.storeProtected
       ?<><HistoricalRconLivePanel mapId={mapId} running={map.running}/>
         <HistoricalAdminRconPanel mapId={mapId} running={map.running}/></>
-      :<RconReadOnlyPanel mapId={mapId}/>)}
+      :<RconReadOnlyPanel mapId={mapId} onConfigured={onConfigured} onOpenStart={()=>setSection("overview")}/>)}
   </div>;
 }
 

@@ -2,7 +2,7 @@ import {useCallback,useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,RefreshCw,Shield,Terminal,Users,Save} from "lucide-react";
 import {managerBridge,type RconStatus,type RconPlayers,type RconReadLog,type RconWorldSave,type RconSaveStatus,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
 
-export function RconReadOnlyPanel({mapId}:{mapId:string}){
+export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string;onConfigured?:()=>Promise<void>;onOpenStart?:()=>void}){
   const [status,setStatus]=useState<RconStatus|null>(null);
   const [result,setResult]=useState<RconPlayers|null>(null);
   const [readLog,setReadLog]=useState<RconReadLog|null>(null);
@@ -65,6 +65,7 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
         managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
       ]);
       setStatus(nextStatus);setConfig(nextConfig);
+      if(onConfigured)await onConfigured();
     }catch{
       setError("A natív RCON-beállítás nem fejeződött be. A szerver nem indult el; ellenőrizd a helyi állapotot.");
     }finally{setBusy(false);}
@@ -154,9 +155,12 @@ export function RconReadOnlyPanel({mapId}:{mapId:string}){
         <button className="primary" type="button" disabled={busy} onClick={()=>{void commitConfiguration();}}>Beállítás véglegesítése</button>
         <button className="secondary" type="button" disabled={busy} onClick={()=>setConfigPreview(null)}>Mégsem</button>
       </div>}
-      {configDone&&<div role="status" className="uk-rcon-admin-success">RCON-konfiguráció mentve. A következő szabályos ASA-indításkor használható.</div>}
       {!config?.permitted&&<p className="muted">A jelenlegi maphoz a konfigurálás nincs engedélyezve. A történeti Store-v1 mapok írásvédelme megmarad.</p>}
     </section>}
+    {configDone&&<div role="status" className="uk-rcon-admin-success">
+        RCON-konfiguráció mentve, a helyi Manager állapota frissült. A szerver még nem indult el.
+        {onOpenStart&&<button type="button" className="secondary" onClick={onOpenStart}>Vissza az ASA Start előnézethez</button>}
+      </div>}
     <div className="uk-rcon-grid">
       <section className="premium-panel uk-rcon-console">
         <header className="premium-panel-heading">
