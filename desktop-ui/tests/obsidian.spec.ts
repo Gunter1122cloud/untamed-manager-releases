@@ -749,6 +749,11 @@ test.beforeEach(async ({ page }) => {
         case "servers.importLocal":
           state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
           return {mapId:"00000000-0000-4000-8000-000000009998",mapName:"Genesis Part 1",exeRegistered:true,needsConfiguration:true,evidence:"MANAGER_PROFILE_ONLY_NO_ASA_CHANGE"};
+        case "schedule.nativeOverview":
+          return {hostName:state.local.hostName,runnerState:"fixture-no-asareal",
+            jobs:state.local.maps.flatMap(map=>nativeSchedules[map.id]??[]),
+            remoteExecutionAllowed:false,
+            evidence:"NATIVE_LOCAL_SCHEDULE_SUMMARY_READ_ONLY"};
         case "schedule.nativeStatus": {
           const map=state.local.maps.find(x=>x.id===m.mapId);
           if(!map)throw new Error("UM-ASA-SCHEDULE-NOT-LOCAL");
@@ -1421,6 +1426,12 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
   await expect(restart.getByText("Bekapcsolva")).toBeVisible();
   await expect(panel.getByText(/Automatikus SteamCMD-frissítés még nem engedélyezett/)).toBeVisible();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.getByLabel("Fő navigáció").getByRole("button",{name:"Üzemeltetés",exact:true}).click();
+  const row=page.locator(".ops-compact-table tbody tr").nth(1);
+  await expect(row).toContainText("Astraeos");
+  await expect(row).toContainText(/SaveWorld|Újraindítás/);
+  await expect(page.locator(".ops-summary")).toContainText("Natív ASA feladat");
 });
 
 test("N-host LAN pairing adds, lists and removes peers without exposing keys",async({page})=>{
