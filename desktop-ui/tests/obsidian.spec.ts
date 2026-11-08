@@ -677,7 +677,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("SYNTHETIC-POSTCOMMIT-STATUS-UNAVAILABLE");
           }
           return {mapId:m.mapId,mapName:map?.name||"Ismeretlen map",
-            rconPort:m.mapId===second?37085:37015,
+            rconPort:m.mapId===two?37085:37015,
             configured:Boolean((map as any)?.rconConfigured),
             permitted:Boolean(map)&&map.gamePort>0&&!map.running&&!(map as any).storeProtected&&!(map as any).rconConfigured,
             evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE"};
