@@ -240,7 +240,7 @@ public static class LegacyStoreV1ProcessObserver
            priorLoader.Pid<=0||
            priorChild.Arguments!="HISTORICAL_STORE_V1_API_CHILD_VERIFIED"||
            priorLoader.Arguments!="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"||
-           priorChild.Pid!=child.Pid||priorLoader.Pid!=child.ParentPid||
+           priorChild.Pid!=child.Pid||priorChild.Pid==priorLoader.Pid||
            priorChild.StartedUtc!=child.StartedUtc||
            priorLoader.StartedUtc>child.StartedUtc)return false;
         try
