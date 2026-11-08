@@ -73,9 +73,15 @@ export function InitialMapSetup({mapId,onConfigured}: {
       const result=await managerBridge.initialApply(preview.token);
       setPreview(null);setApproved(false);
       setNotice(result.mapName+" indítási profilja mentve. A szerver még nem indult el. Következő lépés: RCON előkészítés, majd az ASA Start előnézete.");
-      await onConfigured();
-      const next=await managerBridge.initialStatus(mapId);
-      setStatus(next);
+      // The native apply receipt is authoritative. A subsequent refresh
+      // failure must never be reported as a rejected configuration commit.
+      try {
+        await onConfigured();
+        const next=await managerBridge.initialStatus(mapId);
+        setStatus(next);
+      } catch {
+        setError("A map indítási profilja mentve, de az állapotfrissítés nem sikerült. Ne ismételd meg a mentést; ellenőrizd újra a map állapotát.");
+      }
     }catch(e){
       setPreview(null);setApproved(false);
       setError("Az első konfigurálás elutasítva ("+
