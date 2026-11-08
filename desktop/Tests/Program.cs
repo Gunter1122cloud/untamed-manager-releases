@@ -801,6 +801,101 @@ try
             "disabled recurring task never runs even after its prior due time");
     }
 
+    // Explicit new-ASA schedule engine uses durable local claim records and
+    // existing native bridges. Injected callbacks are isolated synthetic test
+    // runners only; no RCON, SteamCMD, port bind or production file is used.
+    {
+        string isolated=Path.Combine(root,"p0-native-schedule-tests");
+        Directory.CreateDirectory(isolated);
+        await using var scheduleCluster=new ClusterService("p0-schedules",isolated);
+        var m1=new LocalMap {
+            Id=Guid.NewGuid(),Name="Fixture Island",InstallationPath=Path.Combine(isolated,"island"),
+            ExecutablePath=Path.Combine(isolated,"island","ShooterGame","Binaries","Win64",
+                "ArkAscendedServer.exe"),Arguments="TheIsland_WP?SessionName=Fixture",
+            GamePort=47777,QueryPort=47778,RconPort=47779
+        };
+        var m2=new LocalMap {
+            Id=Guid.NewGuid(),Name="Fixture Center",InstallationPath=Path.Combine(isolated,"center"),
+            ExecutablePath=Path.Combine(isolated,"center","ShooterGame","Binaries","Win64",
+                "ArkAscendedServer.exe"),Arguments="TheCenter_WP?SessionName=Fixture",
+            GamePort=47877,QueryPort=47878,RconPort=47879
+        };
+        scheduleCluster.Config.LocalMaps.Add(m1);
+        scheduleCluster.Config.LocalMaps.Add(m2);
+        scheduleCluster.Save();
+        var rcon=new DesktopRconReadOnlyBridge(scheduleCluster);
+        using var restarter=new DesktopFreshAsaRestartBridge(scheduleCluster);
+        int sent=0,simultaneous=0,maxSimultaneous=0;
+        async Task<string> SyntheticRunner(Guid mapId,string kind,CancellationToken token)
+        {
+            Check(mapId==m1.Id||mapId==m2.Id,"only locally registered map IDs dispatch");
+            int active=Interlocked.Increment(ref simultaneous);
+            maxSimultaneous=Math.Max(maxSimultaneous,active);
+            await Task.Delay(5,token);
+            Interlocked.Decrement(ref simultaneous);
+            Interlocked.Increment(ref sent);
+            return "ISOLATED_FAKE_RUNNER_NO_ASA_OR_RCON";
+        }
+        using(var supervisor=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,SyntheticRunner,_=>true))
+        {
+            var denied=await Call(supervisor.HandleAsync,"schedule.nativeSet",
+                new{mapId=m1.Id,kind="SaveWorld",frequency="Interval",
+                    intervalMinutes=15,minuteOfDay=180,daysMask=127,confirm=false});
+            Check(IsError(denied,"UM-ASA-SCHEDULE-APPROVAL"),
+                "scheduled RCON cannot be configured without explicit native opt-in");
+            var created=await Call(supervisor.HandleAsync,"schedule.nativeSet",
+                new{mapId=m1.Id,kind="SaveWorld",frequency="Interval",
+                    intervalMinutes=15,minuteOfDay=180,daysMask=127,confirm=true});
+            IsOk(created,"isolated native schedule persisted for one local map");
+            var before=supervisor.Snapshot().Single();
+            var due=before.NextDueUtc;
+            await supervisor.TickOnceAsync(due.AddMinutes(1));
+            Check(sent==1&&supervisor.Snapshot().Single().LastStatus==
+                    "executed-no-fsync-or-client-certification",
+                "native scheduler durably claims and dispatches one approved SaveWorld slot");
+            await supervisor.TickOnceAsync(due.AddMinutes(1));
+            Check(sent==1,"claimed native SaveWorld slot is never replayed");
+            var restartedMap=await Call(supervisor.HandleAsync,"schedule.nativeStatus",
+                new{mapId=m1.Id});
+            IsOk(restartedMap,"native WebView bridge reads persisted local schedule");
+            var other=await Call(supervisor.HandleAsync,"schedule.nativeStatus",
+                new{mapId=m2.Id});
+            Check(other.GetProperty("data").GetProperty("jobs").GetArrayLength()==0,
+                "map-specific schedule UI never includes another local map");
+            var firstRestart=supervisor.Configure(m1.Id,"Restart","Daily",0,240,127);
+            supervisor.Configure(m2.Id,"Restart","Daily",0,240,127);
+            Check(supervisor.RestartConflicts(m1.Id).Contains(m2.Name),
+                "same-local-host matching restart clock warns without blocking save");
+            await supervisor.TickOnceAsync(firstRestart.NextDueUtc.AddMinutes(1));
+            Check(maxSimultaneous==1,
+                "due restarts on the same host are serialized, never concurrent");
+            var disabled=supervisor.Disable(m2.Id,"Restart");
+            Check(!disabled.Enabled,"operator can durably disable just one map restart");
+            var history=supervisor.Snapshot();
+            Check(history.Any(x=>x.MapId==m1.Id&&x.Kind=="Restart")&&
+                  history.Any(x=>x.MapId==m2.Id&&x.Kind=="Restart"&&!x.Enabled),
+                "native schedule journal retains both independent map identities");
+        }
+        using(var recovered=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,SyntheticRunner,_=>true))
+        {
+            Check(recovered.Snapshot().Length==3 && sent>=1,
+                "Manager relaunch reads durable native schedule journal without automatic replay");
+            var denyRemote=await Call(recovered.HandleAsync,"schedule.nativeSet",
+                new{mapId=Guid.NewGuid(),kind="Restart",frequency="Daily",
+                    intervalMinutes=0,minuteOfDay=240,daysMask=127,confirm=true});
+            Check(IsError(denyRemote,"UM-ASA-SCHEDULE-NATIVE-DENIED"),
+                "unowned remote map cannot receive local native schedule writes");
+            m1.HistoricalStoreProtected=true;
+            var protectedAttempt=await Call(recovered.HandleAsync,"schedule.nativeSet",
+                new{mapId=m1.Id,kind="Restart",frequency="Daily",
+                    intervalMinutes=0,minuteOfDay=240,daysMask=127,confirm=true});
+            Check(IsError(protectedAttempt,"UM-ASA-SCHEDULE-NATIVE-DENIED"),
+                "Store-v1 protection cannot be bypassed by an isolated runner hook");
+        }
+    }
+
     // Two hosts must each persist only their own LAN profile and DPAPI key.
     // No network listener or remote command runs during the isolated fixture.
     {
