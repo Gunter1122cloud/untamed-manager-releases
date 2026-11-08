@@ -155,12 +155,12 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
         <button className="primary" type="button" disabled={busy} onClick={()=>{void commitConfiguration();}}>Beállítás véglegesítése</button>
         <button className="secondary" type="button" disabled={busy} onClick={()=>setConfigPreview(null)}>Mégsem</button>
       </div>}
-      {configDone&&<div role="status" className="uk-rcon-admin-success">
+      {!config?.permitted&&<p className="muted">A jelenlegi maphoz a konfigurálás nincs engedélyezve. A történeti Store-v1 mapok írásvédelme megmarad.</p>}
+    </section>}
+    {configDone&&<div role="status" className="uk-rcon-admin-success">
         RCON-konfiguráció mentve, a helyi Manager állapota frissült. A szerver még nem indult el.
         {onOpenStart&&<button type="button" className="secondary" onClick={onOpenStart}>Vissza az ASA Start előnézethez</button>}
       </div>}
-      {!config?.permitted&&<p className="muted">A jelenlegi maphoz a konfigurálás nincs engedélyezve. A történeti Store-v1 mapok írásvédelme megmarad.</p>}
-    </section>}
     <div className="uk-rcon-grid">
       <section className="premium-panel uk-rcon-console">
         <header className="premium-panel-heading">
