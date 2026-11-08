@@ -90,6 +90,11 @@ test.beforeEach(async ({ page }) => {
     const originalStopToken="00000000-0000-4000-8000-000000001696";
     const originalStopJob="00000000-0000-4000-8000-000000001697";
     let originalStopQueued=false;
+    const originalSaveToken="00000000-0000-4000-8000-000000001692";
+    const originalSaveJob="00000000-0000-4000-8000-000000001693";
+    let originalSaveQueued=false;
+    let originalSavePending=false;
+    let originalSaveDispatches=0;
     const historicalAdminToken="00000000-0000-4000-8000-000000001695";
     let historicalAdminPending=false;
     let historicalAdminCommand="";
@@ -561,6 +566,42 @@ test.beforeEach(async ({ page }) => {
           sharedStoreMutated:false,lockCleared:false,
           evidence:"ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY"
         };
+        case "historical.saveWorldPreview": {
+          if(!historicalRconAttached||!historicalActiveStarted||
+             !originalRconSourceValid||!originalRconPortOwner||m.mapId!==two||
+             oldStopNeedsOperator||originalSavePending)
+            throw new Error("Original Store SaveWorld owner/session unavailable");
+          originalSavePending=true;
+          return {
+            token:originalSaveToken,mapId:two,mapName:"Astraeos",
+            pid:42101,rconPort:37145,originalTwoPeersVerified:true,
+            usesSaveWorld:true,usesDoExit:false,forceKillAllowed:false,
+            automaticRestart:false,originalStoreTouched:false,
+            evidence:"ORIGINAL_STORE_V1_SAVEWORLD_ONLY_PREFLIGHT"
+          };
+        }
+        case "historical.saveWorldApply": {
+          if(m.token!==originalSaveToken||m.confirm!==true||
+             m.typedApproval!=="STORE-V1 SAVEWORLD"||originalSaveQueued||
+             !originalSavePending||!historicalActiveStarted||oldStopNeedsOperator)
+            throw new Error("Original Store SaveWorld approval denied");
+          originalSavePending=false;
+          originalSaveQueued=true;originalSaveDispatches++;
+          return {jobId:originalSaveJob,started:true,
+            automaticRetry:false,forceKill:false,storeTouched:false,
+            evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED"};
+        }
+        case "historical.saveWorldStatus": {
+          if(!originalSaveQueued||m.jobId!==originalSaveJob)
+            throw new Error("Original Store SaveWorld job unknown");
+          return {jobId:originalSaveJob,kind:"SaveWorldOnly",state:"completed",
+            step:"Store-v1 SaveWorld igazolva; az ASA tovább fut",
+            changedUtc:"2026-11-08T18:35:00Z",
+            confirmedStopped:false,preExitSaveLogAndWorldObserved:true,
+            finalDoExitSaveCertified:false,gameClientRejoinVerified:false,
+            automaticRetry:false,forceKill:false,storeTouched:false,
+            evidence:"ORIGINAL_STORE_V1_SAVEWORLD_ONLY_NO_DOEXIT_STATE"};
+        }
         case "historical.gracefulStopPreview": {
           if(!historicalRconAttached||!historicalActiveStarted||
              !originalRconSourceValid||!originalRconPortOwner||m.mapId!==two||
@@ -2261,6 +2302,51 @@ test("original Store-v1 admin RCON requires exact one-time native approval and e
   await sendWipe.click();
   await expect(panel.getByText(/Egyszeri RCON-parancs elküldve: DestroyWildDinos/))
     .toBeVisible();
+});
+
+test("original Store-v1 SaveWorld-only runs the real native map action without stopping ASA",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel).toBeVisible();
+  const inspect=panel.getByRole("button",{name:"Mentés előellenőrzése"});
+  await expect(inspect).toBeEnabled();
+  await inspect.click();
+  const approve=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
+  await expect(approve).toContainText("PID 42101");
+  await expect(approve).toContainText("RCON 37145");
+  const save=approve.getByRole("button",{name:"SaveWorld végrehajtása"});
+  await expect(save).toBeDisabled();
+  await approve.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD DOEXIT");
+  await expect(save).toBeDisabled();
+  await approve.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(panel.getByText(/A szerver tovább fut; fsync és játékbeli karakterutazás/)).toBeVisible();
+  await expect(panel).toContainText("ASA tovább fut");
+  await expect(page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Astraeos",exact:true})).toBeVisible();
+  await expect(save).toHaveCount(0);
+});
+
+test("original Store-v1 SaveWorld-only refuses unresolved durable journal without RCON dispatch",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_STOP_CRASH_RECOVERY__?:()=>void
+  }).__UNTAMED_ORIGINAL_STOP_CRASH_RECOVERY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByText(/Befejezetlen Store-v1 műveleti napló/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
 });
 
 test("original Store-v1 real SaveWorld then DoExit requires exact typed approval, shows durable result and no Kill",async({page})=>{
