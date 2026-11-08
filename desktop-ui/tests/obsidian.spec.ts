@@ -2040,7 +2040,8 @@ test("RCON settings use the selected local map port and never retain another map
   await expect(page.getByRole("textbox",{name:"RCON beállítás jelszó"})).toBeEnabled();
   await page.getByRole("textbox",{name:"RCON beállítás jelszó"}).fill("Synthetic-Astraeos-Only-Password");
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
-  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await expect(page.getByRole("heading",{name:"The Island",exact:true})).toBeVisible();
   await page.getByRole("tab",{name:"RCON / Konzol"}).click();
   await expect(page.getByRole("spinbutton",{name:"RCON beállítás port"})).toHaveValue("37015");
   await expect(page.getByRole("textbox",{name:"RCON beállítás jelszó"})).toHaveValue("");
