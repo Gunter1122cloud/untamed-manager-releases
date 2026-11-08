@@ -87,12 +87,40 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     if(map==null||!map.HistoricalStoreProtected)
                         return Fail(id,"UM-STORE-ACTIVE-LOCAL-ONLY");
                     var observed=cluster.ObserveLocalProcessesReadOnly(map);
+                    bool configured=Imported(map);
+                    // A stopped Windows process is NOT sufficient to certify
+                    // original Kova session/writer/port/INI readiness. Reuse
+                    // the exact native preflight that an approved Start will
+                    // execute, but do not create approval tokens or launch.
+                    string readiness=observed.Running?"running":
+                        !observed.ConfirmedStopped?"unknown":
+                        !configured?"needsConfiguration":"blocked";
+                    if(readiness=="blocked")
+                    {
+                        try
+                        {
+                            var checkedPlan=await Task.Run(()=>prepare(map));
+                            if(checkedPlan!=null&&checkedPlan.Fingerprint.Length==64&&
+                               checkedPlan.GamePort==map.GamePort&&
+                               checkedPlan.QueryPort==map.QueryPort&&
+                               checkedPlan.RconPort==map.RconPort&&
+                               checkedPlan.Arguments.Length is >=16 and <=8192)
+                                readiness="ready";
+                        }
+                        catch(Exception)
+                        {
+                            // Never return original UNC paths, writer metadata,
+                            // local server names, or exception messages to UI.
+                            readiness="blocked";
+                        }
+                    }
                     return Ok(id,new{
                         mapId,mapName=map.Name,running=observed.Running,
                         confirmedStopped=observed.ConfirmedStopped,
                         pid=observed.Identity?.Pid,
                         rconConfigured=map.RconPort>0&&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
+                        readiness,preflightVerified=readiness=="ready",
                         originalStartAutomatic=false,
                         saveCompleteProven=false,gameplayTravelVerified=false,
                         evidence="HISTORICAL_ORIGINAL_PROCESS_READ_ONLY_STATUS"
