@@ -584,7 +584,8 @@ test.beforeEach(async ({ page }) => {
             oldStopNeedsOperator||originalStopQueued?"Launch":"None",
           updatedUtc:oldStopNeedsOperator||originalStopQueued
             ?"2026-11-07T18:35:00Z":null,
-          blocked:oldStopNeedsOperator||originalSaveReattached,
+          // A native task can be queued before its durable journal changes phase.
+          blocked:oldStopNeedsOperator,
           requiresOperator:oldStopNeedsOperator,
           inMemoryRunning:originalSaveReattached,
           jobId:originalSaveReattached?originalSaveJob:null,
