@@ -698,6 +698,7 @@ export type HistoricalActiveStartStatus = {
 export type HistoricalActiveStartPreview = {
   token:string;mapId:string;mapName:string;gamePort:number;
   queryPort:number;rconPort:number;launchMode:"asaApiLoader"|"directAsa";
+  apiCacheState:string;apiCacheRuntimeCertified:false;
   originalTwoPeersVerified:true;
   conversionAllowed:false;automaticRetryAllowed:false;
   serverStarted:false;readyCertified:false;gameplayTravelVerified:false;
