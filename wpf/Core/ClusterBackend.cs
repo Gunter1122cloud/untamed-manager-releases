@@ -1158,29 +1158,43 @@ public sealed partial class ClusterService : IAsyncDisposable
         var exact=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(map))
             ??throw new InvalidDataException("UM-STORE-NATIVE-CLONE");
         exact.Arguments=inspected.Arguments;
-        // Direct original ASA startup first; a loader is a different
-        // explicitly verified startup mode, never selected implicitly.
-        exact.StartWithAsaApi=false;
-        exact.ApiLoaderPath="";
-        exact.ApiLoaderArguments="";
+        // The original registered map contains NO persisted launch flags.
+        // The source-verified disposable clone alone receives Store arguments.
+        // An installed Loader is not opt-in: the map setting is authoritative.
+        exact.StartWithAsaApi=inspected.UseApi;
+        exact.ApiLoaderPath=inspected.UseApi?map.ApiLoaderPath:"";
+        exact.ApiLoaderArguments=inspected.UseApi?inspected.Arguments:"";
         lease.MarkMutationStarted(); // durable interruption marker BEFORE Process.Start
         var started=_inspector.Launch(exact);
+        string expectedExe=inspected.UseApi?map.ApiLoaderPath:map.ExecutablePath;
         if(started.Pid<=0||started.StartedUtc==default||
            !string.Equals(Path.GetFullPath(started.ExecutablePath),
-             Path.GetFullPath(map.ExecutablePath),StringComparison.OrdinalIgnoreCase)||
+             Path.GetFullPath(expectedExe),StringComparison.OrdinalIgnoreCase)||
            started.Arguments!=inspected.Arguments)
             throw new InvalidDataException("UM-STORE-NATIVE-SPAWN-IDENTITY-INVALID");
-        // Never persist the original shared UNC path and source switches.
-        // The read-only WMI observer will re-evaluate the true command line
-        // and exact PID/start-time after UI/Manager restart.
-        map.LastProcess=new ProcessIdentity{
+        // Process.Start proves ONLY the created parent. For Loader mode the
+        // ASA child PID and actual RCON readiness remain independently unknown.
+        // Never persist the source UNC path or private launch switches.
+        var redacted=new ProcessIdentity{
             Pid=started.Pid,StartedUtc=started.StartedUtc,
             ExecutablePath=started.ExecutablePath,
-            Arguments="HISTORICAL_STORE_V1_NATIVE_START"
+            Arguments=inspected.UseApi?
+                "HISTORICAL_STORE_V1_API_LOADER_START":
+                "HISTORICAL_STORE_V1_NATIVE_START"
         };
+        if(inspected.UseApi)
+        {
+            map.LastLoader=redacted;
+            map.LastProcess=null;
+        }
+        else
+        {
+            map.LastProcess=redacted;
+            map.LastLoader=null;
+        }
         Save();
         lease.Complete();
-        return map.LastProcess;
+        return redacted;
     }
 
     public ProcessIdentity LaunchLocal(Guid id)
