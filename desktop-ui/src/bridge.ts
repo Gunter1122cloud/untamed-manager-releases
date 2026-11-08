@@ -872,6 +872,40 @@ export type OfflineAsaArchiveStatus = {
   productionRestoreAllowed:false;sqlUsed:false;evidence:string;
 };
 
+export type MultiHostClusterBackupPreview = {
+  token:string;batchId:string;archiveName:string;
+  hosts:number;clusters:number;maps:number;components:number;bytes:number;
+  requiresExplicitApproval:true;offlineCopiesOnly:true;
+  liveConsistencyCertified:false;storeWriterCertified:false;
+  sqlUsed:false;rconUsed:false;serverProcessTouched:false;
+  productionRestoreAllowed:false;evidence:string;
+};
+export type MultiHostClusterBackupStarted = {
+  jobId:string;started:true;productionRestoreAllowed:false;
+  rconUsed:false;serverProcessTouched:false;evidence:string;
+};
+export type MultiHostClusterBackupStatus = {
+  jobId:string;kind:"backup"|"restore";
+  state:"queued"|"running"|"completed"|"needsOperator";
+  stage:string;artifactName:string;hosts:number;clusters:number;maps:number;
+  components:number;bytes:number;changedUtc:string;
+  productionRestoreAllowed:false;liveConsistencyCertified:false;
+  storeWriterCertified:false;sqlUsed:false;rconUsed:false;
+  serverProcessTouched:false;evidence:string;
+};
+export type MultiHostClusterRestorePreview = {
+  token:string;batchId:string;archiveName:string;
+  hosts:number;clusters:number;maps:number;components:number;
+  requiresExplicitApproval:true;restoreTarget:"NEW TEMP SANDBOX ONLY";
+  productionRestoreAllowed:false;liveConsistencyCertified:false;
+  storeWriterCertified:false;evidence:string;
+};
+export type MultiHostClusterRestoreStarted = {
+  jobId:string;started:true;target:"NEW TEMP SANDBOX ONLY";
+  productionRestoreAllowed:false;rconUsed:false;
+  serverProcessTouched:false;evidence:string;
+};
+
 export type PortableModProfileExport = {
   exported:true;mapId:string;profileName:string;enabled:number;passive:number;
   disabled:number;sha256:string;remoteWritesAllowed:false;storeTouched:false;
@@ -928,6 +962,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.copyPreview" | "mods.copyApply" |
   "mods.profileExport" | "mods.profileImportPreview" | "mods.profileImportApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
+  "cluster.multiHostBackupPreview" | "cluster.multiHostBackupApply" | "cluster.multiHostBackupStatus" |
+  "cluster.multiHostRestorePreview" | "cluster.multiHostRestoreApply" | "cluster.multiHostRestoreStatus" |
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
@@ -1202,6 +1238,18 @@ export const managerBridge = {
     request<OfflineAsaArchiveStarted>("cluster.offlineApply",{token,confirm:true}),
   offlineArchiveStatus: (jobId:string) =>
     request<OfflineAsaArchiveStatus>("cluster.offlineStatus",{jobId}),
+  multiHostBackupPreview: () =>
+    request<MultiHostClusterBackupPreview>("cluster.multiHostBackupPreview"),
+  multiHostBackupApply: (token:string) =>
+    request<MultiHostClusterBackupStarted>("cluster.multiHostBackupApply",{token,confirm:true}),
+  multiHostBackupStatus: (jobId:string) =>
+    request<MultiHostClusterBackupStatus>("cluster.multiHostBackupStatus",{jobId}),
+  multiHostRestorePreview: () =>
+    request<MultiHostClusterRestorePreview>("cluster.multiHostRestorePreview"),
+  multiHostRestoreApply: (token:string) =>
+    request<MultiHostClusterRestoreStarted>("cluster.multiHostRestoreApply",{token,confirm:true}),
+  multiHostRestoreStatus: (jobId:string) =>
+    request<MultiHostClusterBackupStatus>("cluster.multiHostRestoreStatus",{jobId}),
   pluginJsonOpen: (mapId:string,plugin:string) =>
     request<PluginJsonDocument>("plugins.jsonOpen",{mapId,plugin}),
   pluginJsonPreview: (token:string,content:string) =>

@@ -45,6 +45,7 @@ import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
 import { LanSettingsPanel } from "./LanSettingsPanel";
 import { ClusterRegistryPanel } from "./ClusterRegistryPanel";
+import { MultiHostBackupPanel } from "./MultiHostBackupPanel";
 
 type Page = "operations" | "dashboard" | "servers" | "mods" | "cluster" | "plugins" | "backups" | "steam" | "logs" | "settings" | "ini" | "updates" | "travel" | "map";
 const tabs: Array<{ page: Page; label: string; icon: typeof LayoutDashboard }> = [
@@ -1353,6 +1354,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
       </Panel>
     </div>
     <ClusterRegistryPanel protectedMapIds={protectedMapIds}/>
+    <MultiHostBackupPanel/>
   </>;
 }
 type MapSection = "overview" | "monitor" | "mods" | "plugins" | "ini" | "backups" | "logs" | "rcon";

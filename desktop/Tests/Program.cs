@@ -5068,6 +5068,7 @@ try
             "original ASA GameUserSettings.ini stays byte-identical after approved Store RCON admin tests");
     }
 
+    await MultiHostClusterBackupBridgeTests.Run(root);
     Console.WriteLine("PASS all native bridge checks (synthetic local fixtures, no ASA launch)");
 }
 finally

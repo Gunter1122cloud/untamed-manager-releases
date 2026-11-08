@@ -10,7 +10,8 @@ test.beforeEach(async({page})=>{
     type Cluster={clusterId:string;name:string;transferDirectory:string;backupDirectory:string;createdUtc:string;updatedUtc:string};
     type Assignment={mapId:string;clusterId:string};
     type Request={id:string;method:string;clusterId?:string;mapIds?:string[];token?:string;
-      name?:string;transferDirectory?:string;backupDirectory?:string};
+      name?:string;transferDirectory?:string;backupDirectory?:string;
+      confirm?:boolean;jobId?:string};
     type Listener=(event:{data:{id:string;ok:boolean;data?:unknown;error?:string}})=>void;
     const calls:string[]=[];
     const listeners:Listener[]=[];
@@ -41,6 +42,15 @@ test.beforeEach(async({page})=>{
     let revision=10;
     let pending:{token:string;clusterId:string;mapIds:string[];revision:number}|null=null;
     let nextToken=1;
+    let multiHostJob:"backup"|"restore"|null=null;
+    const multiHostStatus=(request:Request)=>({jobId:request.jobId??"synthetic-job",
+      kind:multiHostJob??"backup",state:"completed",stage:multiHostJob==="restore"?
+        "TEMP_SANDBOX_SHA256_VERIFIED":"ARCHIVE_SHA256_VERIFIED",
+      artifactName:multiHostJob==="restore"?"Untamed-MultiHost-Restore-synthetic":"Untamed-MultiHost-synthetic",
+      hosts:12,clusters:4,maps:100,components:813,bytes:65536,
+      changedUtc:now,productionRestoreAllowed:false,liveConsistencyCertified:false,
+      storeWriterCertified:false,sqlUsed:false,rconUsed:false,
+      serverProcessTouched:false,evidence:"SYNTHETIC_TEST_FIXTURE"});
     const snapshot=()=>({schemaVersion:1,revision,
       hostRegistry:{schemaVersion:1,localHostId:hosts[0].hostId,hosts,maps},
       clusterRegistry:{schemaVersion:1,revision,clusters,mapAssignments:assignments}});
@@ -118,6 +128,34 @@ test.beforeEach(async({page})=>{
           return {clusterId:reviewed.clusterId,revision,addedCount:adds,
             movedCount:moves,removedCount:removes,appliedUtc:now};
         }
+        case "cluster.multiHostBackupPreview":return {token:"synthetic-backup-token",
+          batchId:"synthetic-batch",archiveName:"Untamed-MultiHost-synthetic",
+          hosts:12,clusters:4,maps:100,components:813,bytes:65536,
+          requiresExplicitApproval:true,offlineCopiesOnly:true,
+          liveConsistencyCertified:false,storeWriterCertified:false,sqlUsed:false,
+          rconUsed:false,serverProcessTouched:false,productionRestoreAllowed:false,
+          evidence:"SYNTHETIC_TEST_FIXTURE"};
+        case "cluster.multiHostBackupApply":
+          if(request.token!=="synthetic-backup-token"||request.confirm!==true)
+            throw new Error("Backup confirmation required");
+          multiHostJob="backup";
+          return {jobId:"synthetic-backup-job",started:true,productionRestoreAllowed:false,
+            rconUsed:false,serverProcessTouched:false,evidence:"SYNTHETIC_TEST_FIXTURE"};
+        case "cluster.multiHostBackupStatus":return multiHostStatus(request);
+        case "cluster.multiHostRestorePreview":return {token:"synthetic-restore-token",
+          batchId:"synthetic-batch",archiveName:"Untamed-MultiHost-synthetic",
+          hosts:12,clusters:4,maps:100,components:813,requiresExplicitApproval:true,
+          restoreTarget:"NEW TEMP SANDBOX ONLY",productionRestoreAllowed:false,
+          liveConsistencyCertified:false,storeWriterCertified:false,
+          evidence:"SYNTHETIC_TEST_FIXTURE"};
+        case "cluster.multiHostRestoreApply":
+          if(request.token!=="synthetic-restore-token"||request.confirm!==true)
+            throw new Error("Restore confirmation required");
+          multiHostJob="restore";
+          return {jobId:"synthetic-restore-job",started:true,target:"NEW TEMP SANDBOX ONLY",
+            productionRestoreAllowed:false,rconUsed:false,serverProcessTouched:false,
+            evidence:"SYNTHETIC_TEST_FIXTURE"};
+        case "cluster.multiHostRestoreStatus":return multiHostStatus(request);
         default:throw new Error("Unexpected test RPC: "+request.method);
       }
     };
@@ -186,4 +224,37 @@ test("versioned Cluster UI creates a cluster and approves large multi-host map a
     .toBeLessThan(methods.indexOf("cluster.membership.apply"));
   expect(methods.some(method=>method.startsWith("rcon.")||
     /^(servers\.(freshStart|gracefulStop|restart))/.test(method))).toBe(false);
+});
+
+test("multi-host backup and restore UI requires confirmation and keeps restore sandbox-only",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.locator(".sidebar .nav-link").filter({hasText:"Cluster"}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("multi-host-backup-catalog.json");
+  await panel.getByRole("button",{name:"Offline mentés előnézete"}).click();
+  const backup=panel.getByRole("region",{name:"Multi-host mentés jóváhagyása"});
+  await expect(backup).toContainText("12 host · 100 map · 4 cluster");
+  await backup.getByRole("checkbox").check();
+  await backup.getByRole("button",{name:"Mentés létrehozása"}).click();
+  await expect(panel.locator(".uk-rcon-receipt")).toContainText("backup állapot: completed");
+  await panel.getByRole("button",{name:"Új művelet"}).click();
+
+  await panel.getByRole("button",{name:"Archívum ellenőrzése / TEMP restore"}).click();
+  const restore=panel.getByRole("region",{name:"TEMP restore jóváhagyása"});
+  await expect(restore).toContainText("Cél: új TEMP sandbox");
+  await restore.getByRole("checkbox").check();
+  await restore.getByRole("button",{name:"TEMP restore indítása"}).click();
+  await expect(panel.locator(".uk-rcon-receipt")).toContainText("restore állapot: completed");
+  await expect(panel).toContainText("Cél: Untamed-MultiHost-Restore-synthetic");
+  const methods=await page.evaluate(()=>(window as typeof window &
+    {__UNTAMED_CLUSTER_RPC__?:string[]}).__UNTAMED_CLUSTER_RPC__??[]);
+  expect(methods).toContain("cluster.multiHostBackupPreview");
+  expect(methods.indexOf("cluster.multiHostBackupPreview"))
+    .toBeLessThan(methods.indexOf("cluster.multiHostBackupApply"));
+  expect(methods).toContain("cluster.multiHostRestorePreview");
+  expect(methods.indexOf("cluster.multiHostRestorePreview"))
+    .toBeLessThan(methods.indexOf("cluster.multiHostRestoreApply"));
+  expect(methods.some(method=>method.startsWith("rcon.")||method.startsWith("servers."))).toBe(false);
 });
