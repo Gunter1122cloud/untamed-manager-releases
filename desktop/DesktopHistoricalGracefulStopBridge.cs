@@ -115,16 +115,22 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         // It is always READ ONLY here; no phase reset, retry, TTL unlock,
         // original Store/INI mutation or process launch is permitted.
         var journal=cluster.Operations.Observe(map.InstallationPath);
+        // The manual original Restart has a separate durable journal.
+        // It must also block SaveWorld and Stop UI during Stopping/Starting.
+        var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
+        bool restartPending=restart!=null&&restart.Phase!=AsaRestartPhase.Completed;
         Job? running;
         lock(sync)
             running=currentJob!=null&&currentJob.MapId==mapId&&
                 currentJob.State is "queued" or "running"?currentJob:null;
-        bool blocked=journal!=null&&journal.Phase is
+        bool operationBlocked=journal!=null&&journal.Phase is
             UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
             UntamedOperationPhase.NeedsOperator;
-        bool needsOperator=journal!=null&&(
+        bool blocked=operationBlocked||restartPending;
+        bool needsOperator=(journal!=null&&(
             journal.Phase==UntamedOperationPhase.NeedsOperator||
-            blocked&&running==null);
+            operationBlocked&&running==null))||
+            restart?.Phase==AsaRestartPhase.NeedsOperator;
         return new{
             mapId,operationId=journal?.Operation,
             phase=journal?.Phase.ToString()??"None",

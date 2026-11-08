@@ -119,10 +119,17 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
     // This never authorizes Start/Stop/SaveWorld: their exact original
     // ACTIVE/DONE, PID, source, RCON and journal preflights remain mandatory.
     internal static string ClassifyOriginalStoreLifecycle(LocalMap? map,
-        bool running,bool journalBlocked,bool journalUnreadable)
+        bool running,bool journalBlocked,bool journalUnreadable,
+        AsaRestartPhase? restartPhase=null)
     {
         if(map is not {HistoricalStoreProtected:true})return "protected";
-        if(journalUnreadable||journalBlocked)return "needsOperator";
+        if(journalUnreadable||restartPhase==AsaRestartPhase.NeedsOperator)
+            return "needsOperator";
+        // Pending restart journal is not automatic recovery and never Start
+        // authorization. The dedicated native panel provides its true status.
+        if(restartPhase is AsaRestartPhase.Stopping or AsaRestartPhase.Starting)
+            return "restartPending";
+        if(journalBlocked)return "needsOperator";
         if(map.Maintenance)return "maintenance";
         if(running)return "running";
         if(map.RconPort is <1024 or >65535||
@@ -139,7 +146,9 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
             var journal=_cluster.Operations.Observe(map.InstallationPath);
             bool blocked=journal?.Phase is UntamedOperationPhase.Prepared or
                 UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
-            return ClassifyOriginalStoreLifecycle(map,running,blocked,false);
+            var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
+            return ClassifyOriginalStoreLifecycle(map,running,blocked,false,
+                restart?.Phase);
         }
         catch
         {

@@ -105,7 +105,7 @@ export type PublicMap = {
   storeProtected?: boolean;  // only populated for locally owned maps
   /** Read-only native state, never Start/Stop or Store-session authorization. */
   storeLifecycleState?: "running"|"preflightRequired"|"needsConfiguration"|
-    "needsOperator"|"maintenance"|"protected";
+    "needsOperator"|"restartPending"|"maintenance"|"protected";
   maintenance?: boolean;     // local configuration, not runtime health
   rconConfigured?: boolean;  // credentials set, not connection verification
 };

@@ -5009,6 +5009,13 @@ try
               DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
                 storeStateFixture,true,false,true)=="needsOperator",
             "uncertain or unreadable journal overrides running Store process");
+        Check(DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                storeStateFixture,true,false,false,AsaRestartPhase.Starting)=="restartPending"&&
+              DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                storeStateFixture,true,false,false,AsaRestartPhase.Stopping)=="restartPending"&&
+              DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
+                storeStateFixture,true,false,false,AsaRestartPhase.NeedsOperator)=="needsOperator",
+            "Restart in Stopping/Starting shows a blocked native journal instead of operable Store");
         storeStateFixture.RconPasswordProtected="";
         Check(DesktopReadOnlyBridge.ClassifyOriginalStoreLifecycle(
                 storeStateFixture,false,false,false)=="needsConfiguration",

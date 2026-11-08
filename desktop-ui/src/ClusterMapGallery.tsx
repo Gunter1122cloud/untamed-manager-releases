@@ -25,6 +25,7 @@ function StoreProfileFlag({map}:{map:PublicMap}){
     state==="preflightRequired"?"STORE-V1 · ELŐELLENŐRZÉS":
     state==="needsConfiguration"?"STORE-V1 · KONFIGURÁLÁS":
     state==="needsOperator"?"STORE-V1 · KÉZI ELLENŐRZÉS":
+    state==="restartPending"?"STORE-V1 · RESTART NAPLÓ":
     state==="maintenance"?"STORE-V1 · KARBANTARTÁS":
     "STORE-V1 · ELLENŐRZÉS SZÜKSÉGES";
   return <span className={"uk-flag "+(state==="running"?"rcon":
