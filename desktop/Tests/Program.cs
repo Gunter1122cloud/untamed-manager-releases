@@ -4834,10 +4834,10 @@ try
                 sourceChild with {StartedUtc=childCreated.AddSeconds(1)},
                 exe,loaderPath,pinnedChild,pinnedLoader),
                 "reused ASA PID with different creation time cannot reattach to old Loader");
-            Check(!LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
+            Check(LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
                 sourceChild with {ParentPid=57102},
                 exe,loaderPath,pinnedChild,pinnedLoader),
-                "unknown Loader parent PID cannot be guessed from a surviving ASA child");
+                "previously verified exact PID/start pair survives Windows parent PID reuse");
             Check(!LegacyStoreV1ProcessObserver.PreviouslyVerifiedOriginalApiChild(
                 sourceChild,exe,loaderPath,pinnedChild,
                 new ProcessIdentity{Pid=pinnedLoader.Pid,StartedUtc=pinnedLoader.StartedUtc,
