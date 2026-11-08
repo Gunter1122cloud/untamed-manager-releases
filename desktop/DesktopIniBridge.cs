@@ -170,6 +170,7 @@ public sealed class DesktopIniBridge : IDisposable
         catch(DirectoryNotFoundException){return Fail(id,"UM-INI-CONFIG-DIRECTORY-MISSING");}
         catch(UnauthorizedAccessException){return Fail(id,"UM-INI-ACCESS-DENIED");}
         catch(InvalidDataException){return Fail(id,"UM-INI-PATH-OR-CONTENT-UNSAFE");}
+        catch(ConfigEtagConflictException){return Fail(id,"UM-INI-ETAG-MISMATCH");}
         catch(IOException){return Fail(id,"UM-INI-CONFLICT-OR-IO-ERROR");}
         catch(Exception)
         {
