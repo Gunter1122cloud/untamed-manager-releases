@@ -5059,10 +5059,10 @@ try
             version=1,executable_hash=hash,cache_directory=generation,
             last_modified="synthetic"
         }));
-        var candidate=AsaApiCacheProbe.Inspect(apiRoot,exe);
-        Check(candidate.State=="UM-API-CACHE-HASH-BOUND-CANDIDATE"&&
-              candidate.KeyMatchesExecutable&&candidate.CandidateFilesPresent&&
-              !candidate.RuntimeCertified,
+        var cacheCandidate=AsaApiCacheProbe.Inspect(apiRoot,exe);
+        Check(cacheCandidate.State=="UM-API-CACHE-HASH-BOUND-CANDIDATE"&&
+              cacheCandidate.KeyMatchesExecutable&&cacheCandidate.CandidateFilesPresent&&
+              !cacheCandidate.RuntimeCertified,
             "hash-bound API cache generation is observed but never certified runtime-loaded");
         File.AppendAllText(exe,"modified");
         Check(AsaApiCacheProbe.Inspect(apiRoot,exe).State==
