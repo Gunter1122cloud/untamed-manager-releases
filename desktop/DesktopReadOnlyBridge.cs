@@ -114,6 +114,41 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
         }
     }
 
+
+    // Read-only classification for the locally owned legacy Store map.
+    // This never authorizes Start/Stop/SaveWorld: their exact original
+    // ACTIVE/DONE, PID, source, RCON and journal preflights remain mandatory.
+    internal static string ClassifyOriginalStoreLifecycle(LocalMap? map,
+        bool running,bool journalBlocked,bool journalUnreadable)
+    {
+        if(map is not {HistoricalStoreProtected:true})return "protected";
+        if(journalUnreadable||journalBlocked)return "needsOperator";
+        if(map.Maintenance)return "maintenance";
+        if(running)return "running";
+        if(map.RconPort is <1024 or >65535||
+           string.IsNullOrWhiteSpace(map.RconPasswordProtected))
+            return "needsConfiguration";
+        return "preflightRequired";
+    }
+
+    private string ReadOriginalStoreLifecycle(LocalMap? map,bool running)
+    {
+        if(map==null)return "protected";
+        try
+        {
+            var journal=_cluster.Operations.Observe(map.InstallationPath);
+            bool blocked=journal?.Phase is UntamedOperationPhase.Prepared or
+                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
+            return ClassifyOriginalStoreLifecycle(map,running,blocked,false);
+        }
+        catch
+        {
+            // An unreadable durable operation journal must never display
+            // a green/operable state or silently suggest a new mutation.
+            return ClassifyOriginalStoreLifecycle(map,running,true,true);
+        }
+    }
+
     private async Task<object> GetDashboardAsync()
     {
         // Poll every explicitly configured, individually pinned LAN peer.
@@ -151,12 +186,15 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                         // to the WebView2 renderer.
                         var config = _cluster.Config.LocalMaps.FirstOrDefault(x =>
                             MatchesPublishedMapId(x.Id,m.Id));
+                        bool protectedStore = config != null &&
+                            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(config);
                         return new {
                             id = m.Id, name = m.Name, running = m.Running,
                             status = m.Status, gamePort = m.GamePort,
                             steamBuildId = m.SteamBuildId, steamUpdateState = m.SteamUpdateState,
-                            storeProtected = config != null &&
-                                KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(config),
+                            storeProtected = protectedStore,
+                            storeLifecycleState = protectedStore ?
+                                ReadOriginalStoreLifecycle(config,m.Running) : null,
                             maintenance = config?.Maintenance ?? false,
                             rconConfigured = config != null && config.RconPort > 0 &&
                                 !string.IsNullOrWhiteSpace(config.RconPasswordProtected)

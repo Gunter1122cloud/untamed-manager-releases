@@ -72,7 +72,8 @@ test.beforeEach(async ({ page }) => {
       };
     (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
       .__UNTAMED_PROTECT_TEST_MAP__=()=>{
-        Object.assign(state.local.maps[1],{storeProtected:true});
+        Object.assign(state.local.maps[1],{storeProtected:true,
+          storeLifecycleState:"preflightRequired"});
         localBackupMap=two;localBackupSaved=true;
       };
     let historicalRconAttached=false;
@@ -82,8 +83,13 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void})
       .__UNTAMED_ORIGINAL_RCON_TEST_READY__=()=>{
         Object.assign(state.local.maps[1],{storeProtected:true,rconConfigured:true,
-          running:true,status:"Fut"});
+          running:true,status:"Fut",storeLifecycleState:"running"});
         historicalRconAttached=true;historicalActiveStarted=true;
+      };
+    (window as typeof window & {__UNTAMED_STORE_OPERATOR_REVIEW__?:()=>void})
+      .__UNTAMED_STORE_OPERATOR_REVIEW__=()=>{
+        Object.assign(state.local.maps[1],{storeProtected:true,
+          storeLifecycleState:"needsOperator"});
       };
     let originalRconSourceValid=true;
     let originalRconPortOwner=true;
@@ -1792,6 +1798,28 @@ test("first-run premium gallery shows exactly ten discoverable maps with no inve
   await page.getByRole("button",{name:"Astraeos · új szerver telepítése"}).click();
   await expect(page.getByRole("heading",{name:"Új ASA map telepítése"})).toBeVisible();
   await page.screenshot({path:"test-results/uk-first-run-steamcmd-1366.png",fullPage:false});
+});
+
+test("native Store-v1 gallery uses process and durable journal state, never a permanent locked badge",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Kártyák"}).click();
+  const tile=page.getByRole("button",{name:/Astraeos szerver megnyitása/});
+  await expect(tile).toContainText("STORE-V1 · ELŐELLENŐRZÉS");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await expect(tile).toContainText("STORE-V1 · ASA FUT");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_OPERATOR_REVIEW__?:()=>void
+  }).__UNTAMED_STORE_OPERATOR_REVIEW__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await expect(tile).toContainText("STORE-V1 · KÉZI ELLENŐRZÉS");
+  await expect(tile).not.toContainText("STORE-V1 ZÁROLT");
 });
 
 test("gallery filters local/remote machines without exposing peer control actions",async({page})=>{
