@@ -24,7 +24,7 @@ A Codex által elkészített és egyenként ellenőrzött új kód a megfelelő 
 | [#51 Hitelesített többpeer-es LAN](https://github.com/Gunter1122cloud/untamed-manager-releases/issues/51) | [#55](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/55) | `2ea67f56` | [#1560 PASS](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42461556209) | [`a635990`](https://github.com/Gunter1122cloud/untamed-manager-releases/commit/a6359906b717995700313c6a4392bfd0c33ab3cd) |
 | [#52 N-host React UI](https://github.com/Gunter1122cloud/untamed-manager-releases/issues/52) | [#56](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/56) | `2c3e7526` | [#1561 PASS](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42462393991) | [`0210571`](https://github.com/Gunter1122cloud/untamed-manager-releases/commit/0210571954d9a36747741814803edfb7ef59625a) |
 
-**Aktuális integráció (2026-11-08, frissített lekérdezés): 57 PR, 47 merge-elt, 10 lezárt merge nélkül, 0 nyitott.** PR #54–57, #58 és #59 a `main` része. A #58 ellenőrzött `caf8c6a` headjét a sikeres [Windows CI #1565](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42479884435) után [`eb3f4f6`](https://github.com/Gunter1122cloud/untamed-manager-releases/commit/eb3f4f671bff8b1810c806d63fdaaa139ef2bae7) merge commit integrálta. A korábbi 46/48 PR-os számok időbélyegzett pillanatképek; nem aktuális globális összesítés. A nyolc korábban lezárt, nem külön merge-elt PR történetét nem szabad ismételten integrálni.
+**Aktuális integráció (2026-11-08, frissített lekérdezés): 59 PR, 49 merge-elt, 10 lezárt merge nélkül, 0 nyitott.** PR #54–57, #58 és #59 a `main` része. A #58 ellenőrzött `caf8c6a` headjét a sikeres [Windows CI #1565](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42479884435) után [`eb3f4f6`](https://github.com/Gunter1122cloud/untamed-manager-releases/commit/eb3f4f671bff8b1810c806d63fdaaa139ef2bae7) merge commit integrálta. A korábbi 46/48 PR-os számok időbélyegzett pillanatképek; nem aktuális globális összesítés. A nyolc korábban lezárt, nem külön merge-elt PR történetét nem szabad ismételten integrálni.
 
 ## 2026-11-08 #58 utóintegrációs bizonyíték és korlátok
 
@@ -77,6 +77,15 @@ A [#64](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/64) ere
 - `desktop-ui/src/InitialMapSetup.tsx` és `desktop-ui/src/RconReadOnlyPanel.tsx`: a sikeres natív profil/RCON beállítás mentése után jelentkező státuszlekérdezési hibát többé **nem** lehet sikertelen natív írásként kijelezni. Egyértelmű, nem ismétlő műveletet kérő figyelmeztetés jelenik meg; az egyszeri, jóváhagyott RCON bootstrap visszaigazolása megmarad.
 - `desktop-ui/tests/obsidian.spec.ts`: szintetikus Playwright fault injection a már sikeresen megtörtént RCON konfiguráció utáni státuszolvasási hibára. Pontosan **1** natív RCON apply és **0** ASA auto Start a tesztben.
 - A Core/Store-v1/INI-kódolás/BOM/ETag/atomikus fájlmentés és minden natív folyamat- és ownership-guard változatlan; valódi Windows-felhasználói The Island elfogadás **NINCS**.
+
+## 2026-11-08 – #69 első ASA EXE-azonosság a telepítési gyökérhez kötve (MAIN)
+
+[PR #69](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/69) **MERGED**, merge SHA `7c644513200b01d5793cad56384b35b5589e55a6`, pontos head `929efc32b90ffcd5af3747333e5b2ee8d0f2c5de`. [Windows PR CI #1595](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42495204564) **SUCCESS** (React/Playwright, natív bridge, Store/Core, WebView2, Setup). A merge utáni [main CI #1596](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42495749935) eredménye külön ellenőrzendő.
+
+- `desktop/DesktopInitialMapSetupBridge.cs`: a puszta `File.Exists(map.ExecutablePath)` helyett a már meglévő `AsaReadyProbe.IsRegisteredServerBinary(map)` követelmény érvényesül az elsőbeállítási státusznál és preview-nál, valamint közvetlenül a mentési jóváhagyáskor. Az idegen install EXE, UNC/link/junction és hiányzó helyi bináris elutasítva; nem állít be hamis stopped státuszt.
+- `desktop-ui/src/InitialMapSetup.tsx`: külön, érthető magyar hiba szól az érvénytelen regisztrált EXE/telepítési gyökér esetéről.
+- `desktop/Tests/Program.cs`: izolált rossz-gyökér regresszió valósan létező, de **másik** szintetikus executable-lel. Elutasított initial status és preview; az eredeti portok/argumentumok változatlanok.
+- A mentés, natív ASA Start, Store-v1, RCON és eredeti Kova adatok változatlanok; **valós The Island Windows-felhasználói újrateszt továbbra is szükséges**.
 
 ## Osztályozott forráskód – rendrakási ellenőrzés
 
