@@ -78,6 +78,7 @@ var map=new LocalMap{
 };
 cluster.AddMap(map);
 await ClusterRegistryTests.Run(root);
+await FreshStoreEnrollmentTests.Run(root);
 // A real SQLite .ark COPY fixture tests the actual metadata reader, not a
 // mocked parser. No server process, production Store writer, or network share.
 {
