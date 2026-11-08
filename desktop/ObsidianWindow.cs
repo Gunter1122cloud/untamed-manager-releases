@@ -436,6 +436,9 @@ public sealed class ObsidianWindow : Form
                         multiHostBackupRoute = name is "cluster.multiHostBackupPreview" or
                             "cluster.multiHostBackupApply" or "cluster.multiHostBackupStatus" or
                             "cluster.multiHostRestorePreview" or "cluster.multiHostRestoreApply" or
+                            "cluster.multiHostRestoreReplacePreview" or "cluster.multiHostRestoreReplaceApply" or
+                            "cluster.multiHostRestoreRecoveryList" or
+                            "cluster.multiHostRestoreRecoveryPreview" or "cluster.multiHostRestoreRecoveryApply" or
                             "cluster.multiHostRestoreStatus";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or

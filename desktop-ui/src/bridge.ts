@@ -887,7 +887,7 @@ export type MultiHostClusterBackupStarted = {
 export type MultiHostClusterBackupStatus = {
   jobId:string;kind:"backup"|"restore";
   state:"queued"|"running"|"completed"|"needsOperator";
-  stage:string;artifactName:string;hosts:number;clusters:number;maps:number;
+  stage:string;artifactName:string;rollbackArtifactName:string;hosts:number;clusters:number;maps:number;
   components:number;bytes:number;changedUtc:string;
   productionRestoreAllowed:false;liveConsistencyCertified:false;
   storeWriterCertified:false;sqlUsed:false;rconUsed:false;
@@ -896,14 +896,35 @@ export type MultiHostClusterBackupStatus = {
 export type MultiHostClusterRestorePreview = {
   token:string;batchId:string;archiveName:string;
   hosts:number;clusters:number;maps:number;components:number;
-  requiresExplicitApproval:true;restoreTarget:"NEW TEMP SANDBOX ONLY";
+  previousBatchId?:string|null;targetDirectoryName?:string|null;
+  requiresExplicitApproval:true;
+  restoreTarget:"NEW TEMP SANDBOX ONLY"|"EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK";
   productionRestoreAllowed:false;liveConsistencyCertified:false;
   storeWriterCertified:false;evidence:string;
 };
 export type MultiHostClusterRestoreStarted = {
-  jobId:string;started:true;target:"NEW TEMP SANDBOX ONLY";
+  jobId:string;started:true;
+  target:"NEW TEMP SANDBOX ONLY"|"EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK";
   productionRestoreAllowed:false;rconUsed:false;
   serverProcessTouched:false;evidence:string;
+};
+export type MultiHostRestoreRecoveryPreview = {
+  token:string|null;targetDirectoryName:string;transactionId:string|null;
+  phase:string;needsOperator:boolean;canRollback:boolean;
+  requiresExplicitApproval:boolean;quarantinedReplacementName:string|null;
+  protectiveCopyName:string|null;reason:string;productionRestoreAllowed:false;
+  rconUsed:false;serverProcessTouched:false;evidence:string;
+};
+export type MultiHostRestoreRecoveryCandidate = {
+  targetDirectoryName:string;transactionId:string|null;phase:string;
+  needsOperator:boolean;canRollback:boolean;reason:string;
+};
+export type MultiHostRestoreRecoveryListing = {
+  truncated:boolean;transactions:MultiHostRestoreRecoveryCandidate[];
+};
+export type MultiHostRestoreRecoveryStarted = {
+  jobId:string;started:true;target:"TEMP SANDBOX ROLLBACK ONLY";
+  productionRestoreAllowed:false;rconUsed:false;serverProcessTouched:false;evidence:string;
 };
 
 export type PortableModProfileExport = {
@@ -964,6 +985,9 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
   "cluster.multiHostBackupPreview" | "cluster.multiHostBackupApply" | "cluster.multiHostBackupStatus" |
   "cluster.multiHostRestorePreview" | "cluster.multiHostRestoreApply" | "cluster.multiHostRestoreStatus" |
+  "cluster.multiHostRestoreReplacePreview" | "cluster.multiHostRestoreReplaceApply" |
+  "cluster.multiHostRestoreRecoveryList" | "cluster.multiHostRestoreRecoveryPreview" |
+  "cluster.multiHostRestoreRecoveryApply" |
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
@@ -1003,7 +1027,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
-  confirm?: boolean; jobId?: string; watchId?: string; sessionName?: string;
+   confirm?: boolean; jobId?: string; watchId?: string; sessionName?: string;
+   targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind;intervalMinutes?:number;
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
@@ -1248,6 +1273,16 @@ export const managerBridge = {
     request<MultiHostClusterRestorePreview>("cluster.multiHostRestorePreview"),
   multiHostRestoreApply: (token:string) =>
     request<MultiHostClusterRestoreStarted>("cluster.multiHostRestoreApply",{token,confirm:true}),
+  multiHostRestoreReplacePreview: () =>
+    request<MultiHostClusterRestorePreview>("cluster.multiHostRestoreReplacePreview"),
+  multiHostRestoreReplaceApply: (token:string) =>
+    request<MultiHostClusterRestoreStarted>("cluster.multiHostRestoreReplaceApply",{token,confirm:true}),
+  multiHostRestoreRecoveryList: () =>
+    request<MultiHostRestoreRecoveryListing>("cluster.multiHostRestoreRecoveryList"),
+  multiHostRestoreRecoveryPreview: (targetDirectoryName:string) =>
+    request<MultiHostRestoreRecoveryPreview>("cluster.multiHostRestoreRecoveryPreview",{targetDirectoryName}),
+  multiHostRestoreRecoveryApply: (token:string) =>
+    request<MultiHostRestoreRecoveryStarted>("cluster.multiHostRestoreRecoveryApply",{token,confirm:true}),
   multiHostRestoreStatus: (jobId:string) =>
     request<MultiHostClusterBackupStatus>("cluster.multiHostRestoreStatus",{jobId}),
   pluginJsonOpen: (mapId:string,plugin:string) =>

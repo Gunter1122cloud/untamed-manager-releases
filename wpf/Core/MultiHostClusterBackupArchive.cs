@@ -92,6 +92,23 @@ public sealed record MultiHostBackupCatalogPreview(Guid BatchId, int Hosts,
     public bool ProductionRestoreCertified => false;
 }
 
+/// <summary>
+/// Version-1 archive/batch safety limits. These guard one untrusted archive
+/// and its metadata allocation; they do not cap HostRegistry, ClusterRegistry,
+/// LAN membership, or the Manager's product topology.
+/// </summary>
+public static class MultiHostBackupArchiveV1SafetyLimits
+{
+    public const int MaxHostsPerArchive = 256;
+    public const int MaxClustersPerArchive = 512;
+    public const int MaxMapsPerArchive = 4096;
+    public const int MaxComponentsPerArchive = 200_000;
+    public const int MaxManifestBytes = 64 * 1024 * 1024;
+    public const int MaxJournalBytes = 32 * 1024 * 1024;
+    public const long MaxComponentBytes = 2L * 1024 * 1024 * 1024 * 1024;
+    public const long MaxArchiveBytes = 16L * 1024 * 1024 * 1024 * 1024;
+}
+
 public sealed record MultiHostRestorePreview(bool PreflightPassed, string Reason,
     Guid BatchId, int Hosts, int Maps, int Clusters, int Components)
 {
@@ -120,15 +137,15 @@ public static class MultiHostClusterBackupArchive
     private const string ObjectsName = "objects";
     private const string JournalName = "copy-journal-v1.json";
     private const string Scope = "OFFLINE-COPY-ONLY; independent files, no live ASA or Store consistency proof";
-    private const int MaxHosts = 256;
-    private const int MaxClusters = 512;
-    private const int MaxMaps = 4096;
-    private const int MaxComponents = 200_000;
     private const int CheckpointInterval = 64;
-    private const int MaxManifestBytes = 64 * 1024 * 1024;
-    private const int MaxJournalBytes = 32 * 1024 * 1024;
-    private const long MaxComponentBytes = 2L * 1024 * 1024 * 1024 * 1024;
-    private const long MaxTotalBytes = 16L * 1024 * 1024 * 1024 * 1024;
+    private const int MaxHosts = MultiHostBackupArchiveV1SafetyLimits.MaxHostsPerArchive;
+    private const int MaxClusters = MultiHostBackupArchiveV1SafetyLimits.MaxClustersPerArchive;
+    private const int MaxMaps = MultiHostBackupArchiveV1SafetyLimits.MaxMapsPerArchive;
+    private const int MaxComponents = MultiHostBackupArchiveV1SafetyLimits.MaxComponentsPerArchive;
+    private const int MaxManifestBytes = MultiHostBackupArchiveV1SafetyLimits.MaxManifestBytes;
+    private const int MaxJournalBytes = MultiHostBackupArchiveV1SafetyLimits.MaxJournalBytes;
+    private const long MaxComponentBytes = MultiHostBackupArchiveV1SafetyLimits.MaxComponentBytes;
+    private const long MaxTotalBytes = MultiHostBackupArchiveV1SafetyLimits.MaxArchiveBytes;
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNameCaseInsensitive = false,

@@ -22,7 +22,7 @@ public static class MultiHostClusterBackupArchiveTests
     {
         try { work(); return false; }
         catch (Exception e) when (e is IOException or InvalidDataException or
-                                      UnauthorizedAccessException or ArgumentException)
+                                      UnauthorizedAccessException or ArgumentException or InvalidOperationException)
         { return true; }
     }
 
@@ -275,6 +275,95 @@ public static class MultiHostClusterBackupArchiveTests
             "verified restore atomically materializes only a new TEMP sandbox and preserves world bytes");
         Check(MultiHostClusterBackupArchive.Verify(oneArchive).BatchId == one.BatchId,
             "sandbox restore leaves its source archive unchanged");
+
+        string replacementArchive = Path.Combine(root, "one-host-replacement");
+        string syntheticWorldSource = SourceFor(oneHost, MultiHostBackupComponentKind.MapWorld,
+            oneHost.Maps[0].MapId);
+        byte[] originalSyntheticWorld = File.ReadAllBytes(syntheticWorldSource);
+        MultiHostBackupManifest replacementManifest;
+        try
+        {
+            File.WriteAllText(syntheticWorldSource, "replacement synthetic world bytes");
+            replacementManifest = MultiHostClusterBackupArchive.BuildOffline(Guid.NewGuid(),
+                oneHost.Hosts, oneHost.Clusters, oneHost.Maps, oneHost.Sources, replacementArchive);
+        }
+        finally { File.WriteAllBytes(syntheticWorldSource, originalSyntheticWorld); }
+
+        string transactionTarget = Path.Combine(Path.GetTempPath(),
+            "Untamed-MultiHost-Restore-" + Guid.NewGuid().ToString("N"));
+        var transactionPrior = MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(
+            oneArchive, transactionTarget);
+        Check(Refused(() => MultiHostSandboxRestoreTransaction.ReplaceVerifiedSandbox(
+                  oneArchive, transactionTarget, registry, true)) &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(transactionTarget).SourceBatchId == one.BatchId,
+            "replacement refuses an already materialized batch before creating a staging copy");
+        Check(Refused(() => MultiHostSandboxRestoreTransaction.ReplaceVerifiedSandbox(
+                  replacementArchive, transactionTarget, registry, false)) &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(transactionTarget).SourceBatchId == one.BatchId,
+            "sandbox replacement fails closed without explicit operator approval or touching the prior target");
+
+        var replacementReceipt = MultiHostSandboxRestoreTransaction.ReplaceVerifiedSandbox(
+            replacementArchive, transactionTarget, registry, true);
+        string replacementWorld = Path.Combine(transactionTarget, "data", "hosts",
+            oneHost.Maps[0].HostId, "maps", oneHost.Maps[0].MapId.ToString("N"), "Saved", "world.ark");
+        var committedStatus = MultiHostSandboxRestoreTransaction.InspectRecovery(transactionTarget);
+        Check(replacementReceipt.ExplicitOperatorApproval && !replacementReceipt.ProductionRestoreAllowed &&
+              !replacementReceipt.ProcessStateChecked && !replacementReceipt.StoreWriterOwnershipChecked &&
+              replacementReceipt.PreviousBatchId == one.BatchId &&
+              replacementReceipt.ReplacementBatchId == replacementManifest.BatchId &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(replacementReceipt.RetainedBackupDirectory)
+                  .SourceBatchId == one.BatchId &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(transactionTarget).SourceBatchId == replacementManifest.BatchId &&
+              File.ReadAllText(replacementWorld).Contains("replacement synthetic world") &&
+              committedStatus.Phase == "committed" && committedStatus.CanRollback,
+            "approved TEMP replacement stages and verifies new bytes while retaining a verified protective sandbox and durable commit record");
+
+        bool staleRollbackDenied = Refused(() => MultiHostSandboxRestoreTransaction.Rollback(
+            transactionTarget, Guid.NewGuid(), true));
+        Check(staleRollbackDenied &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(transactionTarget).SourceBatchId == replacementManifest.BatchId,
+            "replacement rollback rejects stale operator transaction identities");
+        var rolledBackStatus = MultiHostSandboxRestoreTransaction.Rollback(
+            transactionTarget, replacementReceipt.TransactionId, true);
+        Check(!rolledBackStatus.NeedsOperator && rolledBackStatus.Phase == "rolledBack" &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(transactionTarget).SourceBatchId == one.BatchId &&
+              File.ReadAllText(Path.Combine(transactionTarget, "data", "hosts", oneHost.Maps[0].HostId,
+                  "maps", oneHost.Maps[0].MapId.ToString("N"), "Saved", "world.ark"))
+                  .Contains("synthetic world"),
+            "explicit rollback restores the protective sandbox after a committed replacement without deleting the rejected clone");
+
+        string interruptedReplacementTarget = Path.Combine(Path.GetTempPath(),
+            "Untamed-MultiHost-Restore-" + Guid.NewGuid().ToString("N"));
+        MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(oneArchive, interruptedReplacementTarget);
+        bool replacementInterrupted = false;
+        try
+        {
+            MultiHostSandboxRestoreTransaction.ReplaceVerifiedSandbox(replacementArchive,
+                interruptedReplacementTarget, registry, true,
+                afterPhaseForTesting: phase =>
+                {
+                    if (phase == "previousMoved")
+                        throw new OperationCanceledException("Synthetic process interruption after durable backup rename");
+                });
+        }
+        catch (OperationCanceledException) { replacementInterrupted = true; }
+        var interruptedReplacement = MultiHostSandboxRestoreTransaction.InspectRecovery(
+            interruptedReplacementTarget);
+        Check(replacementInterrupted && interruptedReplacement.NeedsOperator &&
+              interruptedReplacement.CanRollback && interruptedReplacement.Phase == "previousMoved" &&
+              !Directory.Exists(interruptedReplacementTarget),
+            "simulated crash after the protective rename leaves a durable, verifiable transaction recovery point");
+        var recoveryCandidates = MultiHostSandboxRestoreTransaction.ListRecoveryCandidates();
+        Check(recoveryCandidates.Transactions.Any(candidate =>
+                  candidate.TargetDirectoryName == Path.GetFileName(interruptedReplacementTarget) &&
+                  candidate.Phase == "previousMoved" && candidate.CanRollback) &&
+              !Directory.Exists(interruptedReplacementTarget),
+            "bounded TEMP journal listing rediscovers an interrupted transaction even when its target directory is absent");
+        var crashRollback = MultiHostSandboxRestoreTransaction.Rollback(
+            interruptedReplacementTarget, interruptedReplacement.TransactionId!.Value, true);
+        Check(!crashRollback.NeedsOperator && crashRollback.Phase == "rolledBack" &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(interruptedReplacementTarget).SourceBatchId == one.BatchId,
+            "operator-approved restart recovery completes rollback after an interrupted sandbox replacement");
 
         string interruptedRestore = Path.Combine(Path.GetTempPath(),
             "Untamed-MultiHost-Restore-" + Guid.NewGuid().ToString("N"));

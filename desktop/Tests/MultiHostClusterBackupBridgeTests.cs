@@ -149,7 +149,7 @@ public static class MultiHostClusterBackupBridgeTests
         service.Registry.CreateCluster(clusterId, "Synthetic cluster", transferRoot, backupRoot);
         var membership = service.Registry.PreviewMapAssignments(clusterId, new[] { map.Id });
         service.Registry.ApplyMapAssignments(clusterId, new[] { map.Id }, membership.BaseRevision);
-        string catalogPath = Catalog(sourceRoot, service, out _);
+        string catalogPath = Catalog(sourceRoot, service, out var catalogModel);
         string protectedCatalogPath = Path.Combine(liveMapRoot, "multi-host-backup-catalog.json");
         File.Copy(catalogPath, protectedCatalogPath);
         var choices = new Queue<string?>();
@@ -203,6 +203,31 @@ public static class MultiHostClusterBackupBridgeTests
         Check(archive.Maps.Length == 1 && archive.Components.Length > 0,
             "native bridge publishes an archive verified by the shared Core reader");
 
+        string replacementSourceWorld = Path.Combine(sourceRoot, "maps", map.Id.ToString("N"),
+            "Saved", "world.ark");
+        byte[] originalWorld = File.ReadAllBytes(replacementSourceWorld);
+        byte[] originalCatalog = File.ReadAllBytes(catalogPath);
+        string replacementOutputRoot = Path.Combine(root, "replacement-archive-output");
+        Directory.CreateDirectory(replacementOutputRoot);
+        string replacementArchivePath = Path.Combine(replacementOutputRoot, "replacement-archive");
+        MultiHostBackupManifest replacementArchive;
+        try
+        {
+            File.WriteAllText(replacementSourceWorld, "synthetic replacement world bytes");
+            var replacementCatalog = catalogModel with { BatchId = Guid.NewGuid() };
+            File.WriteAllText(catalogPath, JsonSerializer.Serialize(replacementCatalog));
+            replacementArchive = MultiHostClusterBackupArchive.BuildFromCatalog(
+                catalogPath, replacementArchivePath);
+        }
+        finally
+        {
+            File.WriteAllBytes(replacementSourceWorld, originalWorld);
+            File.WriteAllBytes(catalogPath, originalCatalog);
+        }
+        Check(replacementArchive.BatchId != archive.BatchId &&
+              MultiHostClusterBackupArchive.Verify(replacementArchivePath).BatchId == replacementArchive.BatchId,
+            "native replacement uses a distinct, verified synthetic archive batch");
+
         choices.Enqueue(archivePath);
         var restorePreview = await Call(bridge, "cluster.multiHostRestorePreview");
         Check(restorePreview.GetProperty("ok").GetBoolean() &&
@@ -237,6 +262,86 @@ public static class MultiHostClusterBackupBridgeTests
               File.ReadAllText(liveMarker) == "synthetic test marker only",
             "sandbox restore verifies bytes while the original map path remains untouched");
         Directory.Delete(Path.Combine(Path.GetTempPath(), sandboxName), true);
+
+        string replacementTarget = Path.Combine(Path.GetTempPath(),
+            "Untamed-MultiHost-Restore-" + Guid.NewGuid().ToString("N"));
+        MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(archivePath, replacementTarget);
+        choices.Enqueue(replacementArchivePath);
+        choices.Enqueue(liveMapRoot);
+        var unsafeReplacement = await Call(bridge, "cluster.multiHostRestoreReplacePreview");
+        Check(!unsafeReplacement.GetProperty("ok").GetBoolean(),
+            "replacement preview refuses a registered server installation as its destination");
+
+        choices.Enqueue(replacementArchivePath);
+        choices.Enqueue(replacementTarget);
+        var replacementPreview = await Call(bridge, "cluster.multiHostRestoreReplacePreview");
+        Check(replacementPreview.GetProperty("ok").GetBoolean() &&
+              replacementPreview.GetProperty("data").GetProperty("restoreTarget").GetString() ==
+                "EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK" &&
+              replacementPreview.GetProperty("data").GetProperty("previousBatchId").GetString() ==
+                archive.BatchId.ToString(),
+            "native replacement preview binds the verified current sandbox and replacement batch");
+        string replacementToken = replacementPreview.GetProperty("data").GetProperty("token").GetString()!;
+        var replacementStart = await Call(bridge, "cluster.multiHostRestoreReplaceApply",
+            new { token = replacementToken, confirm = true });
+        Check(replacementStart.GetProperty("ok").GetBoolean() &&
+              replacementStart.GetProperty("data").GetProperty("target").GetString() ==
+                "EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK",
+            "native bridge starts only the explicitly approved, sandbox-scoped replacement transaction");
+        string replacementJob = replacementStart.GetProperty("data").GetProperty("jobId").GetString()!;
+        var replacementDone = await WaitFor(bridge, "cluster.multiHostRestoreStatus", replacementJob);
+        string rollbackName = replacementDone.GetProperty("data").GetProperty("rollbackArtifactName").GetString()!;
+        string rollbackPath = Path.Combine(Path.GetTempPath(), rollbackName);
+        Check(replacementDone.GetProperty("data").GetProperty("state").GetString() == "completed" &&
+              replacementDone.GetProperty("data").GetProperty("stage").GetString() ==
+                "TEMP_SANDBOX_REPLACED_ROLLBACK_RETAINED" &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(replacementTarget).SourceBatchId ==
+                replacementArchive.BatchId &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(rollbackPath).SourceBatchId ==
+                archive.BatchId && File.ReadAllText(liveMarker) == "synthetic test marker only",
+            "native replacement verifies the new target, retains the previous batch for rollback, and leaves the registered map unchanged");
+
+        var recoveryListing = await Call(bridge, "cluster.multiHostRestoreRecoveryList");
+        string recoveryTargetName = Path.GetFileName(replacementTarget);
+        Check(recoveryListing.GetProperty("ok").GetBoolean() &&
+              recoveryListing.GetProperty("data").GetProperty("transactions").EnumerateArray()
+                  .Any(candidate => candidate.GetProperty("targetDirectoryName").GetString() == recoveryTargetName),
+            "native recovery listing discovers the durable TEMP journal without opening a folder picker");
+        var invalidRecoveryTarget = await Call(bridge, "cluster.multiHostRestoreRecoveryPreview",
+            new { targetDirectoryName = liveMapRoot });
+        Check(Error(invalidRecoveryTarget, "UM-MULTIHOST-RESTORE-RECOVERY-CANDIDATE-INVALID"),
+            "native recovery preview rejects arbitrary or registered filesystem paths");
+        var recoveryPreview = await Call(bridge, "cluster.multiHostRestoreRecoveryPreview",
+            new { targetDirectoryName = recoveryTargetName });
+        Check(recoveryPreview.GetProperty("ok").GetBoolean() &&
+              recoveryPreview.GetProperty("data").GetProperty("phase").GetString() == "committed" &&
+              recoveryPreview.GetProperty("data").GetProperty("canRollback").GetBoolean() &&
+              recoveryPreview.GetProperty("data").GetProperty("protectiveCopyName").GetString() == rollbackName,
+            "native recovery preview reattaches to the durable journal and verified protective copy");
+        string recoveryToken = recoveryPreview.GetProperty("data").GetProperty("token").GetString()!;
+        var missingRecoveryApproval = await Call(bridge, "cluster.multiHostRestoreRecoveryApply",
+            new { token = recoveryToken });
+        Check(!missingRecoveryApproval.GetProperty("ok").GetBoolean(),
+            "native sandbox rollback requires a separate explicit operator confirmation");
+        var recoveryStart = await Call(bridge, "cluster.multiHostRestoreRecoveryApply",
+            new { token = recoveryToken, confirm = true });
+        Check(recoveryStart.GetProperty("ok").GetBoolean() &&
+              recoveryStart.GetProperty("data").GetProperty("target").GetString() ==
+                "TEMP SANDBOX ROLLBACK ONLY",
+            "native bridge starts only the selected TEMP transaction rollback after approval");
+        string recoveryJob = recoveryStart.GetProperty("data").GetProperty("jobId").GetString()!;
+        var recoveryDone = await WaitFor(bridge, "cluster.multiHostRestoreStatus", recoveryJob);
+        string quarantinedName = recoveryDone.GetProperty("data").GetProperty("rollbackArtifactName").GetString()!;
+        string quarantinedPath = Path.Combine(Path.GetTempPath(), quarantinedName);
+        Check(recoveryDone.GetProperty("data").GetProperty("state").GetString() == "completed" &&
+              recoveryDone.GetProperty("data").GetProperty("stage").GetString() == "TEMP_SANDBOX_ROLLED_BACK" &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(replacementTarget).SourceBatchId == archive.BatchId &&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(quarantinedPath).SourceBatchId == replacementArchive.BatchId &&
+              File.ReadAllText(liveMarker) == "synthetic test marker only",
+            "native rollback restores the protective batch and keeps the replaced clone in a verified TEMP quarantine");
+        Directory.Delete(replacementTarget, true);
+        Directory.Delete(quarantinedPath, true);
+        File.Delete(replacementTarget + ".replace-transaction-v1.json");
 
         string[] liveFiles = Directory.GetFiles(liveMapRoot, "*", SearchOption.AllDirectories);
         Check(liveFiles.Length == 1 && liveFiles[0] == liveMarker && File.ReadAllText(liveMarker) == "synthetic test marker only",

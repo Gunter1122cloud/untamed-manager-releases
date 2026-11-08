@@ -478,12 +478,15 @@ internal static class ClusterRegistrySchema
             local.IsPaired = false;
         }
 
+        var mapsById = new Dictionary<Guid, RegisteredMap>(maps.Count);
         foreach (var map in maps)
         {
             if (map == null) throw new InvalidDataException("Null map registry entry");
             if (map.MapId == Guid.Empty) throw new InvalidDataException("Empty map registry ID");
             map.HostId = NormalizeHostId(map.HostId);
             map.MapName = NormalizeText(map.MapName, 100, "Map name");
+            if (!mapsById.TryAdd(map.MapId, map))
+                throw new InvalidDataException("Duplicate map registry ID");
         }
         foreach (var existing in maps.Where(x => StringComparer.OrdinalIgnoreCase.Equals(x.HostId, localId)))
             existing.LocalConfigurationPresent = false;
@@ -492,15 +495,17 @@ internal static class ClusterRegistrySchema
             if (localMap == null || localMap.Id == Guid.Empty)
                 throw new InvalidDataException("Invalid local map identity");
             string mapName = LocalMapNameRules.Normalize(localMap.Name);
-            var existing = maps.SingleOrDefault(x => x.MapId == localMap.Id);
+            mapsById.TryGetValue(localMap.Id, out var existing);
             if (existing != null && !StringComparer.OrdinalIgnoreCase.Equals(existing.HostId, localId))
                 throw new InvalidDataException("Local map ID is owned by another host");
             if (existing == null)
             {
-                maps.Add(new RegisteredMap {
+                existing = new RegisteredMap {
                     MapId = localMap.Id, HostId = localId, MapName = mapName,
                     LocalConfigurationPresent = true
-                });
+                };
+                maps.Add(existing);
+                mapsById.Add(existing.MapId, existing);
             }
             else
             {
@@ -543,10 +548,10 @@ internal static class ClusterRegistrySchema
         if (localCount != 1 || !hostIds.Contains(localId))
             throw new InvalidDataException("Exactly one registered local host is required");
 
-        var mapIds = new HashSet<Guid>();
+        var mapsById = new Dictionary<Guid, RegisteredMap>(hostRegistry.Maps.Count);
         foreach (var map in hostRegistry.Maps)
         {
-            if (map.MapId == Guid.Empty || !mapIds.Add(map.MapId))
+            if (map.MapId == Guid.Empty || !mapsById.TryAdd(map.MapId, map))
                 throw new InvalidDataException("Empty or duplicate map ID");
             map.HostId = NormalizeHostId(map.HostId);
             if (!hostIds.Contains(map.HostId)) throw new InvalidDataException("Map owner is not registered");
@@ -557,8 +562,8 @@ internal static class ClusterRegistrySchema
         }
         foreach (var localMap in config.LocalMaps)
         {
-            if (!mapIds.Contains(localMap.Id)) throw new InvalidDataException("Local map is missing from HostRegistry");
-            var registered = hostRegistry.Maps.Single(x => x.MapId == localMap.Id);
+            if (!mapsById.TryGetValue(localMap.Id, out var registered))
+                throw new InvalidDataException("Local map is missing from HostRegistry");
             if (!StringComparer.OrdinalIgnoreCase.Equals(registered.HostId, localId) ||
                 !registered.LocalConfigurationPresent)
                 throw new InvalidDataException("Local map ownership mismatch");
@@ -585,7 +590,7 @@ internal static class ClusterRegistrySchema
         {
             string id = NormalizeClusterId(assignment.ClusterId);
             if (!clusterIds.Contains(id)) throw new InvalidDataException("Assignment cluster is not registered");
-            if (!mapIds.Contains(assignment.MapId)) throw new InvalidDataException("Assignment map is not registered");
+            if (!mapsById.ContainsKey(assignment.MapId)) throw new InvalidDataException("Assignment map is not registered");
             if (!assigned.Add(assignment.MapId)) throw new InvalidDataException("A map can belong to only one cluster");
             assignment.ClusterId = id;
         }

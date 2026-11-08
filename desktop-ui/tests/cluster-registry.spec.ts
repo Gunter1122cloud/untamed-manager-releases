@@ -43,10 +43,16 @@ test.beforeEach(async({page})=>{
     let pending:{token:string;clusterId:string;mapIds:string[];revision:number}|null=null;
     let nextToken=1;
     let multiHostJob:"backup"|"restore"|null=null;
+    let multiHostReplacement=false;
+    let multiHostRecovery=false;
     const multiHostStatus=(request:Request)=>({jobId:request.jobId??"synthetic-job",
       kind:multiHostJob??"backup",state:"completed",stage:multiHostJob==="restore"?
-        "TEMP_SANDBOX_SHA256_VERIFIED":"ARCHIVE_SHA256_VERIFIED",
+        (multiHostRecovery?"TEMP_SANDBOX_ROLLED_BACK":
+          multiHostReplacement?"TEMP_SANDBOX_REPLACED_ROLLBACK_RETAINED":"TEMP_SANDBOX_SHA256_VERIFIED"):
+        "ARCHIVE_SHA256_VERIFIED",
       artifactName:multiHostJob==="restore"?"Untamed-MultiHost-Restore-synthetic":"Untamed-MultiHost-synthetic",
+      rollbackArtifactName:multiHostRecovery?"Untamed-MultiHost-Restore-quarantined-synthetic":
+        multiHostReplacement?"Untamed-MultiHost-Restore-rollback-synthetic":"",
       hosts:12,clusters:4,maps:100,components:813,bytes:65536,
       changedUtc:now,productionRestoreAllowed:false,liveConsistencyCertified:false,
       storeWriterCertified:false,sqlUsed:false,rconUsed:false,
@@ -156,6 +162,42 @@ test.beforeEach(async({page})=>{
             productionRestoreAllowed:false,rconUsed:false,serverProcessTouched:false,
             evidence:"SYNTHETIC_TEST_FIXTURE"};
         case "cluster.multiHostRestoreStatus":return multiHostStatus(request);
+        case "cluster.multiHostRestoreReplacePreview":return {token:"synthetic-replace-token",
+          batchId:"synthetic-batch",archiveName:"Untamed-MultiHost-synthetic",
+          hosts:12,clusters:4,maps:100,components:813,requiresExplicitApproval:true,
+          previousBatchId:"synthetic-prior-batch",targetDirectoryName:"Untamed-MultiHost-Restore-existing",
+          restoreTarget:"EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK",
+          productionRestoreAllowed:false,liveConsistencyCertified:false,storeWriterCertified:false,
+          evidence:"SYNTHETIC_TEST_FIXTURE"};
+        case "cluster.multiHostRestoreReplaceApply":
+          if(request.token!=="synthetic-replace-token"||request.confirm!==true)
+            throw new Error("Sandbox replacement confirmation required");
+          multiHostJob="restore";multiHostReplacement=true;
+          return {jobId:"synthetic-replace-job",started:true,
+            target:"EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK",
+            productionRestoreAllowed:false,rconUsed:false,serverProcessTouched:false,
+            evidence:"SYNTHETIC_TEST_FIXTURE"};
+        case "cluster.multiHostRestoreRecoveryList":return {truncated:false,transactions:[{
+          targetDirectoryName:"Untamed-MultiHost-Restore-existing",transactionId:"synthetic-transaction",
+          phase:"previousMoved",needsOperator:true,canRollback:true,
+          reason:"Interrupted transaction artifacts are verified; explicit rollback is available"}]};
+        case "cluster.multiHostRestoreRecoveryPreview":
+          if(request.targetDirectoryName!=="Untamed-MultiHost-Restore-existing")
+            throw new Error("A listed TEMP recovery candidate is required");
+          return {token:"synthetic-recovery-token",
+          targetDirectoryName:"Untamed-MultiHost-Restore-existing",transactionId:"synthetic-transaction",
+          phase:"previousMoved",needsOperator:true,canRollback:true,requiresExplicitApproval:true,
+          quarantinedReplacementName:null,protectiveCopyName:"Untamed-MultiHost-Restore-previous",
+          reason:"Interrupted transaction artifacts are verified; explicit rollback is available",
+          productionRestoreAllowed:false,rconUsed:false,serverProcessTouched:false,
+          evidence:"SYNTHETIC_TEST_FIXTURE"};
+        case "cluster.multiHostRestoreRecoveryApply":
+          if(request.token!=="synthetic-recovery-token"||request.confirm!==true)
+            throw new Error("TEMP rollback confirmation required");
+          multiHostJob="restore";multiHostRecovery=true;multiHostReplacement=false;
+          return {jobId:"synthetic-recovery-job",started:true,target:"TEMP SANDBOX ROLLBACK ONLY",
+            productionRestoreAllowed:false,rconUsed:false,serverProcessTouched:false,
+            evidence:"SYNTHETIC_TEST_FIXTURE"};
         default:throw new Error("Unexpected test RPC: "+request.method);
       }
     };
@@ -248,6 +290,33 @@ test("multi-host backup and restore UI requires confirmation and keeps restore s
   await restore.getByRole("button",{name:"TEMP restore indítása"}).click();
   await expect(panel.locator(".uk-rcon-receipt")).toContainText("restore állapot: completed");
   await expect(panel).toContainText("Cél: Untamed-MultiHost-Restore-synthetic");
+  await panel.getByRole("button",{name:"Új művelet"}).click();
+  await panel.getByRole("button",{name:"TEMP sandbox cseréje / rollback előnézet"}).click();
+  const replacement=panel.getByRole("region",{name:"TEMP restore jóváhagyása"});
+  await expect(replacement).toContainText("Cél: Untamed-MultiHost-Restore-existing TEMP sandbox");
+  await expect(replacement).toContainText("Az előző ellenőrzött állapot rollback-másolata megmarad");
+  const replaceButton=replacement.getByRole("button",{name:"TEMP sandbox cseréje (rollback-másolat megtartásával)"});
+  await expect(replaceButton).toBeDisabled();
+  await replacement.getByRole("checkbox").check();
+  await expect(replaceButton).toBeEnabled();
+  await replaceButton.click();
+  await expect(panel.locator(".uk-rcon-receipt")).toContainText("TEMP_SANDBOX_REPLACED_ROLLBACK_RETAINED");
+  await expect(panel).toContainText("Rollback-másolat: Untamed-MultiHost-Restore-rollback-synthetic");
+  await panel.getByRole("button",{name:"Új művelet"}).click();
+  await panel.getByRole("button",{name:"TEMP restore tranzakciók keresése / rollback"}).click();
+  const recoveryList=panel.getByRole("region",{name:"TEMP restore tranzakciók"});
+  await recoveryList.getByLabel("Helyreállítandó TEMP tranzakció").selectOption("Untamed-MultiHost-Restore-existing");
+  await recoveryList.getByRole("button",{name:"Kiválasztott napló teljes ellenőrzése"}).click();
+  const recovery=panel.getByRole("region",{name:"TEMP restore recovery jóváhagyása"});
+  await expect(recovery).toContainText("previousMoved");
+  await expect(recovery).toContainText("Untamed-MultiHost-Restore-previous");
+  const rollbackButton=recovery.getByRole("button",{name:"TEMP sandbox rollback indítása"});
+  await expect(rollbackButton).toBeDisabled();
+  await recovery.getByRole("checkbox").check();
+  await expect(rollbackButton).toBeEnabled();
+  await rollbackButton.click();
+  await expect(panel.locator(".uk-rcon-receipt")).toContainText("TEMP_SANDBOX_ROLLED_BACK");
+  await expect(panel).toContainText("Rollback-másolat: Untamed-MultiHost-Restore-quarantined-synthetic");
   const methods=await page.evaluate(()=>(window as typeof window &
     {__UNTAMED_CLUSTER_RPC__?:string[]}).__UNTAMED_CLUSTER_RPC__??[]);
   expect(methods).toContain("cluster.multiHostBackupPreview");
@@ -256,5 +325,13 @@ test("multi-host backup and restore UI requires confirmation and keeps restore s
   expect(methods).toContain("cluster.multiHostRestorePreview");
   expect(methods.indexOf("cluster.multiHostRestorePreview"))
     .toBeLessThan(methods.indexOf("cluster.multiHostRestoreApply"));
+  expect(methods).toContain("cluster.multiHostRestoreReplacePreview");
+  expect(methods.indexOf("cluster.multiHostRestoreReplacePreview"))
+    .toBeLessThan(methods.indexOf("cluster.multiHostRestoreReplaceApply"));
+  expect(methods).toContain("cluster.multiHostRestoreRecoveryPreview");
+  expect(methods.indexOf("cluster.multiHostRestoreRecoveryList"))
+    .toBeLessThan(methods.indexOf("cluster.multiHostRestoreRecoveryPreview"));
+  expect(methods.indexOf("cluster.multiHostRestoreRecoveryPreview"))
+    .toBeLessThan(methods.indexOf("cluster.multiHostRestoreRecoveryApply"));
   expect(methods.some(method=>method.startsWith("rcon.")||method.startsWith("servers."))).toBe(false);
 });

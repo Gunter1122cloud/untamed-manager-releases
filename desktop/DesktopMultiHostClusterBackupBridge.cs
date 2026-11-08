@@ -21,7 +21,11 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
         string CatalogRoot, string Parent, Guid BatchId, long RegistryRevision,
         DateTimeOffset ExpiresUtc);
     private sealed record RestoreApproval(Guid Token, string Archive,
-        Guid BatchId, long RegistryRevision, DateTimeOffset ExpiresUtc);
+        Guid BatchId, long RegistryRevision, DateTimeOffset ExpiresUtc,
+        string? ExistingSandbox);
+    private sealed record RecoveryApproval(Guid Token, string ExistingSandbox,
+        Guid TransactionId, DateTimeOffset ExpiresUtc);
+    private const string RestoreSandboxPrefix = "Untamed-MultiHost-Restore-";
     private sealed class Job
     {
         public Guid Id = Guid.NewGuid();
@@ -29,6 +33,7 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
         public string State = "queued";
         public string Stage = "PREPARED";
         public string ArtifactName = "";
+        public string RollbackArtifactName = "";
         public int Hosts;
         public int Clusters;
         public int Maps;
@@ -43,6 +48,7 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
     private readonly object sync = new();
     private BackupApproval? backupApproval;
     private RestoreApproval? restoreApproval;
+    private RecoveryApproval? recoveryApproval;
     private Job? current;
     private CancellationTokenSource? currentCancellation;
     private bool disposed;
@@ -146,6 +152,7 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 state = job.State,
                 stage = job.Stage,
                 artifactName = job.ArtifactName,
+                rollbackArtifactName = job.RollbackArtifactName,
                 hosts = job.Hosts,
                 clusters = job.Clusters,
                 maps = job.Maps,
@@ -159,7 +166,7 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 rconUsed = false,
                 serverProcessTouched = false,
                 evidence = job.Kind == "restore"
-                    ? "ISOLATED_TEMP_RESTORE_SANDBOX_SHA256_VERIFIED"
+                    ? "ISOLATED_TEMP_RESTORE_TRANSACTION_SHA256_VERIFIED"
                     : "OFFLINE_MULTI_HOST_COPY_SHA256_VERIFIED"
             };
     }
@@ -206,7 +213,10 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
             string? method = methodRaw.GetString();
             if (method is not ("cluster.multiHostBackupPreview" or "cluster.multiHostBackupApply" or
                 "cluster.multiHostBackupStatus" or "cluster.multiHostRestorePreview" or
-                "cluster.multiHostRestoreApply" or "cluster.multiHostRestoreStatus"))
+                "cluster.multiHostRestoreApply" or "cluster.multiHostRestoreStatus" or
+                "cluster.multiHostRestoreReplacePreview" or "cluster.multiHostRestoreReplaceApply" or
+                "cluster.multiHostRestoreRecoveryList" or "cluster.multiHostRestoreRecoveryPreview" or
+                "cluster.multiHostRestoreRecoveryApply"))
                 return Fail(id, "UM-METHOD-DENIED");
 
             await gate.WaitAsync();
@@ -222,6 +232,9 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         return Fail(id, "UM-MULTIHOST-BACKUP-JOB-KIND");
                     return Ok(id, Snapshot(current));
                 }
+
+                if (method == "cluster.multiHostRestoreRecoveryList")
+                    return Ok(id, MultiHostSandboxRestoreTransaction.ListRecoveryCandidates());
 
                 if (method == "cluster.multiHostBackupPreview")
                 {
@@ -264,19 +277,32 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                     });
                 }
 
-                if (method == "cluster.multiHostRestorePreview")
+                if (method is "cluster.multiHostRestorePreview" or "cluster.multiHostRestoreReplacePreview")
                 {
                     restoreApproval = null;
                     string? archive = pickFolder("Válaszd ki az ellenőrzött multi-host offline archívumot (csak TEMP sandboxba állítható vissza)");
                     if (string.IsNullOrWhiteSpace(archive)) return Fail(id, "UM-MULTIHOST-RESTORE-CANCELLED");
+                    bool replaceSandbox = method == "cluster.multiHostRestoreReplacePreview";
+                    string? existingSandbox = null;
+                    if (replaceSandbox)
+                    {
+                        string? selected = pickFolder("Select the verified existing TEMP restore sandbox to replace");
+                        if (string.IsNullOrWhiteSpace(selected)) return Fail(id, "UM-MULTIHOST-RESTORE-CANCELLED");
+                        existingSandbox = LocalPath(selected);
+                    }
                     var registry = cluster.Registry.Snapshot();
-                    var manifest = MultiHostClusterBackupArchive.PreviewSandboxRestore(archive,
-                        OwnershipSnapshot(registry));
+                    var ownership = OwnershipSnapshot(registry);
+                    var manifest = replaceSandbox
+                        ? MultiHostSandboxRestoreTransaction.PreviewReplacement(archive, existingSandbox!, ownership)
+                        : MultiHostClusterBackupArchive.PreviewSandboxRestore(archive, ownership);
                     if (!manifest.PreflightPassed)
                         return Fail(id, "UM-MULTIHOST-RESTORE-OWNERSHIP-MISMATCH");
+                    Guid? previousBatchId = replaceSandbox
+                        ? MultiHostClusterBackupArchive.VerifyIsolatedSandbox(existingSandbox!).SourceBatchId
+                        : null;
                     var token = Guid.NewGuid();
                     restoreApproval = new(token, LocalPath(archive), manifest.BatchId,
-                        registry.Revision, DateTimeOffset.UtcNow.AddMinutes(5));
+                        registry.Revision, DateTimeOffset.UtcNow.AddMinutes(5), existingSandbox);
                     return Ok(id, new
                     {
                         token,
@@ -286,13 +312,59 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         clusters = manifest.Clusters,
                         maps = manifest.Maps,
                         components = manifest.Components,
-                        preflightScope = "CURRENT_REGISTRY_IDENTITY_AND_TEMP_SANDBOX_ONLY",
+                        previousBatchId,
+                        targetDirectoryName = existingSandbox == null ? null : Path.GetFileName(existingSandbox),
+                        preflightScope = replaceSandbox
+                            ? "CURRENT_REGISTRY_IDENTITY_AND_VERIFIED_TEMP_SANDBOX_REPLACEMENT_ONLY"
+                            : "CURRENT_REGISTRY_IDENTITY_AND_TEMP_SANDBOX_ONLY",
                         requiresExplicitApproval = true,
-                        restoreTarget = "NEW TEMP SANDBOX ONLY",
+                        restoreTarget = replaceSandbox
+                            ? "EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK"
+                            : "NEW TEMP SANDBOX ONLY",
                         productionRestoreAllowed = false,
                         liveConsistencyCertified = false,
                         storeWriterCertified = false,
                         evidence = "VERIFIED_ARCHIVE_PREVIEW_NO_LIVE_WRITES"
+                    });
+                }
+
+                if (method == "cluster.multiHostRestoreRecoveryPreview")
+                {
+                    recoveryApproval = null;
+                    if (!request.TryGetProperty("targetDirectoryName", out var targetNameField) ||
+                        targetNameField.ValueKind != JsonValueKind.String)
+                        return Fail(id, "UM-MULTIHOST-RESTORE-RECOVERY-CANDIDATE-REQUIRED");
+                    string targetName = targetNameField.GetString() ?? "";
+                    if (targetName.Length == 0 || !StringComparer.Ordinal.Equals(
+                            Path.GetFileName(targetName), targetName) ||
+                        !targetName.StartsWith(RestoreSandboxPrefix, StringComparison.Ordinal) ||
+                        !Guid.TryParseExact(targetName[RestoreSandboxPrefix.Length..], "N", out _))
+                        return Fail(id, "UM-MULTIHOST-RESTORE-RECOVERY-CANDIDATE-INVALID");
+                    string target = Path.Combine(Path.GetTempPath(), targetName);
+                    var status = MultiHostSandboxRestoreTransaction.InspectRecovery(target);
+                    Guid? token = null;
+                    if (status.CanRollback && status.TransactionId.HasValue)
+                    {
+                        token = Guid.NewGuid();
+                        recoveryApproval = new(token.Value, target, status.TransactionId.Value,
+                            DateTimeOffset.UtcNow.AddMinutes(5));
+                    }
+                    return Ok(id, new
+                    {
+                        token,
+                        targetDirectoryName = Path.GetFileName(target),
+                        transactionId = status.TransactionId,
+                        phase = status.Phase,
+                        needsOperator = status.NeedsOperator,
+                        canRollback = status.CanRollback,
+                        requiresExplicitApproval = status.CanRollback && token.HasValue,
+                        quarantinedReplacementName = status.QuarantinedReplacementName,
+                        protectiveCopyName = status.ProtectiveCopyName,
+                        reason = status.Reason,
+                        productionRestoreAllowed = false,
+                        rconUsed = false,
+                        serverProcessTouched = false,
+                        evidence = "VERIFIED_TEMP_TRANSACTION_JOURNAL_ONLY"
                     });
                 }
 
@@ -304,6 +376,8 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 }
 
                 bool backup = method == "cluster.multiHostBackupApply";
+                bool replaceSandboxApply = method == "cluster.multiHostRestoreReplaceApply";
+                bool recoveryApply = method == "cluster.multiHostRestoreRecoveryApply";
                 if (!request.TryGetProperty("token", out var tokenField) || tokenField.ValueKind != JsonValueKind.String ||
                     !Guid.TryParse(tokenField.GetString(), out var tokenValue) ||
                     !request.TryGetProperty("confirm", out var confirm) || confirm.ValueKind != JsonValueKind.True)
@@ -363,17 +437,71 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         productionRestoreAllowed = false, rconUsed = false,
                         serverProcessTouched = false, evidence = "OFFLINE_COPY_JOB_STARTED" });
                 }
+                else if (recoveryApply)
+                {
+                    var approval = recoveryApproval;
+                    recoveryApproval = null;
+                    if (approval == null || approval.Token != tokenValue ||
+                        approval.ExpiresUtc < DateTimeOffset.UtcNow)
+                        return Fail(id, "UM-MULTIHOST-RESTORE-RECOVERY-APPROVAL-EXPIRED");
+                    var status = MultiHostSandboxRestoreTransaction.InspectRecovery(approval.ExistingSandbox);
+                    if (!status.CanRollback || status.TransactionId != approval.TransactionId)
+                        return Fail(id, "UM-MULTIHOST-RESTORE-RECOVERY-STATE-CHANGED");
+                    var job = new Job { Kind = "restore", Hosts = 0, Clusters = 0, Maps = 0, Components = 0 };
+                    current = job;
+                    currentCancellation?.Dispose();
+                    currentCancellation = new CancellationTokenSource();
+                    var cancellation = currentCancellation.Token;
+                    _ = Task.Run(() =>
+                    {
+                        try
+                        {
+                            Set(job, "running", "VERIFY_AND_ROLL_BACK_TEMP_SANDBOX");
+                            cancellation.ThrowIfCancellationRequested();
+                            var recovered = MultiHostSandboxRestoreTransaction.Rollback(
+                                approval.ExistingSandbox, approval.TransactionId, true);
+                            var restored = MultiHostClusterBackupArchive.VerifyIsolatedSandbox(
+                                approval.ExistingSandbox);
+                            Set(job, "completed", "TEMP_SANDBOX_ROLLED_BACK",
+                                artifactName: Path.GetFileName(approval.ExistingSandbox) ?? "");
+                            lock (job)
+                            {
+                                job.RollbackArtifactName = recovered.QuarantinedReplacementName ?? "";
+                                job.Hosts = restored.Hosts.Length;
+                                job.Clusters = restored.Clusters.Length;
+                                job.Maps = restored.Maps.Length;
+                                job.Components = restored.Components.Length;
+                                job.ChangedUtc = DateTimeOffset.UtcNow;
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        { Set(job, "needsOperator", "ROLLBACK_CANCELLED_REQUIRES_JOURNAL_REVIEW"); }
+                        catch (Exception e) when (e is IOException or InvalidDataException or
+                            UnauthorizedAccessException or InvalidOperationException or
+                            ArgumentException or OverflowException or JsonException)
+                        { Set(job, "needsOperator", "ROLLBACK_FAILED_REQUIRES_JOURNAL_REVIEW"); }
+                    });
+                    return Ok(id, new { jobId = job.Id, started = true,
+                        target = "TEMP SANDBOX ROLLBACK ONLY", productionRestoreAllowed = false,
+                        rconUsed = false, serverProcessTouched = false,
+                        evidence = "OPERATOR_APPROVED_JOURNAL_ROLLBACK_STARTED" });
+                }
                 else
                 {
                     var approval = restoreApproval;
                     restoreApproval = null;
                     if (approval == null || approval.Token != tokenValue || approval.ExpiresUtc < DateTimeOffset.UtcNow)
                         return Fail(id, "UM-MULTIHOST-RESTORE-APPROVAL-EXPIRED");
+                    if (replaceSandboxApply != (approval.ExistingSandbox != null))
+                        return Fail(id, "UM-MULTIHOST-RESTORE-APPROVAL-SCOPE");
                     var registry = cluster.Registry.Snapshot();
                     if (registry.Revision != approval.RegistryRevision)
                         return Fail(id, "UM-MULTIHOST-RESTORE-REGISTRY-CHANGED");
-                    var manifest = MultiHostClusterBackupArchive.PreviewSandboxRestore(approval.Archive,
-                        OwnershipSnapshot(registry));
+                    var ownership = OwnershipSnapshot(registry);
+                    var manifest = replaceSandboxApply
+                        ? MultiHostSandboxRestoreTransaction.PreviewReplacement(
+                            approval.Archive, approval.ExistingSandbox!, ownership)
+                        : MultiHostClusterBackupArchive.PreviewSandboxRestore(approval.Archive, ownership);
                     if (!manifest.PreflightPassed)
                         return Fail(id, "UM-MULTIHOST-RESTORE-OWNERSHIP-MISMATCH");
                     if (manifest.BatchId != approval.BatchId)
@@ -389,20 +517,40 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                     {
                         try
                         {
-                            Set(job, "running", "VERIFYING_AND_MATERIALIZING_TEMP_SANDBOX");
-                            string sandbox = Path.Combine(Path.GetTempPath(),
-                                "Untamed-MultiHost-Restore-" + Guid.NewGuid().ToString("N"));
-                            var receipt = MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(
-                                approval.Archive, sandbox, cancellation);
-                            Set(job, "completed", "TEMP_SANDBOX_SHA256_VERIFIED", artifactName:
-                                Path.GetFileName(sandbox));
-                            lock (job)
+                            if (replaceSandboxApply)
                             {
-                                job.Hosts = receipt.Hosts.Length;
-                                job.Clusters = receipt.Clusters.Length;
-                                job.Maps = receipt.Maps.Length;
-                                job.Components = receipt.Components.Length;
-                                job.ChangedUtc = DateTimeOffset.UtcNow;
+                                Set(job, "running", "STAGE_VERIFY_AND_RETAIN_PROTECTIVE_TEMP_SANDBOX");
+                                var receipt = MultiHostSandboxRestoreTransaction.ReplaceVerifiedSandbox(
+                                    approval.Archive, approval.ExistingSandbox!, ownership, true, cancellation);
+                                Set(job, "completed", "TEMP_SANDBOX_REPLACED_ROLLBACK_RETAINED",
+                                    artifactName: Path.GetFileName(approval.ExistingSandbox) ?? "");
+                                lock (job)
+                                {
+                                    job.Hosts = manifest.Hosts;
+                                    job.Clusters = manifest.Clusters;
+                                    job.Maps = manifest.Maps;
+                                    job.Components = manifest.Components;
+                                    job.RollbackArtifactName = Path.GetFileName(receipt.RetainedBackupDirectory);
+                                    job.ChangedUtc = DateTimeOffset.UtcNow;
+                                }
+                            }
+                            else
+                            {
+                                Set(job, "running", "VERIFYING_AND_MATERIALIZING_TEMP_SANDBOX");
+                                string sandbox = Path.Combine(Path.GetTempPath(),
+                                    "Untamed-MultiHost-Restore-" + Guid.NewGuid().ToString("N"));
+                                var receipt = MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(
+                                    approval.Archive, sandbox, cancellation);
+                                Set(job, "completed", "TEMP_SANDBOX_SHA256_VERIFIED", artifactName:
+                                    Path.GetFileName(sandbox));
+                                lock (job)
+                                {
+                                    job.Hosts = receipt.Hosts.Length;
+                                    job.Clusters = receipt.Clusters.Length;
+                                    job.Maps = receipt.Maps.Length;
+                                    job.Components = receipt.Components.Length;
+                                    job.ChangedUtc = DateTimeOffset.UtcNow;
+                                }
                             }
                         }
                         catch (OperationCanceledException)
@@ -412,7 +560,9 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         { Set(job, "needsOperator", "RESTORE_SANDBOX_FAILED_REVIEW_STAGE"); }
                     });
                     return Ok(id, new { jobId = job.Id, started = true,
-                        target = "NEW TEMP SANDBOX ONLY", productionRestoreAllowed = false,
+                        target = replaceSandboxApply
+                            ? "EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK"
+                            : "NEW TEMP SANDBOX ONLY", productionRestoreAllowed = false,
                         rconUsed = false, serverProcessTouched = false,
                         evidence = "ISOLATED_RESTORE_JOB_STARTED" });
                 }
