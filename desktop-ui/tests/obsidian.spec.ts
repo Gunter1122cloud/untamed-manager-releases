@@ -2441,8 +2441,8 @@ test("SQL-free offline cluster archive requires four native folders and explicit
 test("HP/Ryzen portable mod profiles require native selection and per-host local approval",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
-  await page.getByRole("tab",{name:"Modprofilok HP / Ryzen"}).click();
-  const panel=page.getByRole("region",{name:"Kétgépes modprofil csere"});
+  await page.getByRole("tab",{name:"Modprofilok – N host"}).click();
+  const panel=page.getByRole("region",{name:"Többhostos modprofil átadás"});
   await expect(panel).toBeVisible();
   await panel.getByRole("button",{name:"Kijelölt map profiljának exportja"}).click();
   await expect(panel).toContainText("Astraeos-mods.json");
@@ -2687,4 +2687,24 @@ test("CurseForge cart survives searches and uses native draft preview before a s
   await expect(cart).toContainText("ASA letöltés és modbetöltés még nincs igazolva");
   await cart.getByRole("button",{name:"Átvitel más helyi mapokra"}).click();
   await expect(page.getByRole("tab",{name:"Másolás több mapra"})).toHaveAttribute("aria-selected","true");
+});
+
+test("N-host profile and local copy select-all are limited to local eligible maps",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("tab",{name:"Modprofilok – N host"}).click();
+  const profile=page.getByRole("region",{name:"Többhostos modprofil átadás"});
+  await profile.getByRole("button",{name:/Összes jogosult helyi map kijelölése/}).click();
+  await expect(profile.getByRole("group",{name:"Modprofil célmapok"}).getByRole("checkbox",{checked:true})).toHaveCount(2);
+  await expect(profile).toContainText("2 / 2 helyi map");
+  await profile.getByRole("button",{name:"Kijelölések törlése"}).click();
+  await expect(profile.getByRole("group",{name:"Modprofil célmapok"}).getByRole("checkbox",{checked:true})).toHaveCount(0);
+  await expect(profile).toContainText("Nincs távoli fájlírás vagy automatikus LAN-szinkron");
+  await page.getByRole("tab",{name:"Másolás több mapra"}).click();
+  const copy=page.getByRole("region",{name:"Modlista másolása több mapra"});
+  await copy.getByRole("button",{name:/Összes jogosult helyi célmap kijelölése/}).click();
+  await expect(copy.getByRole("group",{name:"Célmapok kiválasztása"}).getByRole("checkbox",{checked:true})).toHaveCount(1);
+  await expect(copy).toContainText("1 / 1 helyi célmap");
+  await copy.getByRole("button",{name:"Kijelölések törlése"}).click();
+  await expect(copy.getByRole("group",{name:"Célmapok kiválasztása"}).getByRole("checkbox",{checked:true})).toHaveCount(0);
 });

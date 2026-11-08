@@ -47,12 +47,13 @@ export function PortableModProfilePanel({maps,sourceMapId,onApplied}:{
     }catch{setError("A modprofil mentése nem igazolt. A mapkonfigurációk megváltozhattak; nyiss új előnézetet.");}
     finally{setWorking(false);}
   }
-  return <section className="premium-panel" aria-label="Kétgépes modprofil csere">
-    <div className="panel-head"><h3><FileUp size={18}/> Modprofil – HP ⇄ Ryzen</h3>
-      <span className="mod-tag amber">Külön jóváhagyás mindkét hoston</span></div>
+  return <section className="premium-panel" aria-label="Többhostos modprofil átadás">
+    <div className="panel-head"><h3><FileUp size={18}/> Modprofil – helyi és távoli hostok között</h3>
+      <span className="mod-tag amber">Minden célhost saját jóváhagyásával</span></div>
     <p className="muted small">Exportálj mod ID-kat és load ordert a saját helyi mapodból.
-      A JSON-fájlt kézzel átviheted a másik Managerhez. Ott a kiválasztott
-      helyi mapokra Merge vagy Replace előnézet készül – <strong>távoli írás nélkül</strong>.
+      Az exportált JSON-profilt másik Windows hostra is átviheted; ott kizárólag
+      a fogadó host saját Managere nyithatja meg, és készíthet Merge/Replace előnézetet
+      saját helyi mapjaira. <strong>Nincs távoli fájlírás vagy automatikus LAN-szinkron.</strong>
       Jelszó, Store-v1, SQL és pluginfájl nem kerül a profilba.</p>
     <div className="draft-actions">
       <button className="secondary" type="button" disabled={working||!canExport}
@@ -70,13 +71,23 @@ export function PortableModProfilePanel({maps,sourceMapId,onApplied}:{
         <option value="replace">Replace – teljes modlista csere</option>
       </select>
     </label>
+    <div className="draft-actions">
+      <button type="button" className="secondary" disabled={working||eligible.length===0}
+        onClick={()=>{setTargets(eligible.slice(0,25).map(map=>map.id));invalidate();}}>
+        {eligible.length>25?"Első 25 jogosult helyi map":"Összes jogosult helyi map"} kijelölése ({Math.min(eligible.length,25)})
+      </button>
+      <button type="button" className="quiet" disabled={working||targets.length===0}
+        onClick={()=>{setTargets([]);invalidate();}}>Kijelölések törlése</button>
+      <span className="muted small">{targets.length} / {eligible.length} helyi map</span>
+    </div>
+    {eligible.length>25&&<p className="warning-inline">A natív előnézet legfeljebb 25 célmapot fogad egyszerre. A többi helyi map külön, jóváhagyott kötegben állítható be; ez nem globális host/map korlát.</p>}
     <div className="premium-mod-copy-targets" role="group" aria-label="Modprofil célmapok">
       {eligible.length===0?<p className="muted small">Nincs helyben szerkeszthető map.</p>:
         eligible.map(map=><label key={map.id} className="plugin-row">
-          <input type="checkbox" checked={targets.includes(map.id)} disabled={working}
+          <input type="checkbox" checked={targets.includes(map.id)} disabled={working||(!targets.includes(map.id)&&targets.length>=25)}
             onChange={()=>{
               setTargets(old=>old.includes(map.id)?
-                old.filter(x=>x!==map.id):[...old,map.id]);invalidate();
+                old.filter(x=>x!==map.id):old.length>=25?old:[...old,map.id]);invalidate();
             }}/>
           <span><strong>{map.name}</strong><small>{map.running?
             "Futó map – csak a következő indítás modlistája változik":"Helyi célmap"}</small></span>

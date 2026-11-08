@@ -25,7 +25,7 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
   };
   const toggle=(id:string)=>{
     setTargets(previous=>previous.includes(id)?
-      previous.filter(x=>x!==id):[...previous,id]);invalidate();
+      previous.filter(x=>x!==id):previous.length>=25?previous:[...previous,id]);invalidate();
   };
   const prepare=async()=>{
     if(!sourceAllowed||targets.length===0||busy)return;
@@ -61,10 +61,20 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
         <option value="replace">Replace – cél modlistájának teljes cseréje</option>
       </select>
     </label>
+    <div className="draft-actions">
+      <button type="button" className="secondary" disabled={busy||!sourceAllowed||eligible.length===0}
+        onClick={()=>{setTargets(eligible.slice(0,25).map(m=>m.id));invalidate();}}>
+        {eligible.length>25?"Első 25 jogosult helyi célmap":"Összes jogosult helyi célmap"} kijelölése ({Math.min(eligible.length,25)})
+      </button>
+      <button type="button" className="quiet" disabled={busy||targets.length===0}
+        onClick={()=>{setTargets([]);invalidate();}}>Kijelölések törlése</button>
+      <span className="muted small">{targets.length} / {eligible.length} helyi célmap</span>
+    </div>
+    {eligible.length>25&&<p className="warning-inline">A natív előnézet legfeljebb 25 célmapot fogad egyszerre. A többi helyi map külön, jóváhagyott kötegben állítható be; ez nem globális host/map korlát.</p>}
     <div className="premium-mod-copy-targets" role="group" aria-label="Célmapok kiválasztása">
       {eligible.length===0?<p className="muted small">Nincs biztonságosan szerkeszthető további helyi map.</p>:
         eligible.map(map=><label key={map.id} className="plugin-row">
-          <input type="checkbox" checked={targets.includes(map.id)} disabled={busy}
+          <input type="checkbox" checked={targets.includes(map.id)} disabled={busy||(!targets.includes(map.id)&&targets.length>=25)}
             onChange={()=>toggle(map.id)}/>
           <span><strong>{map.name}</strong><small>{map.running?
             "Futó ASA – csak a következő indítási konfiguráció módosul":
