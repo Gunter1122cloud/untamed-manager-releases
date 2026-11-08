@@ -19,11 +19,15 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
 {
     private sealed record Pending(Guid Token,Guid MapId,string ProfileJson,
         string PlanFingerprint,int Game,int Query,int Rcon,bool UseApi,DateTimeOffset Created);
+    private sealed record ModePending(Guid Token,Guid MapId,string Profile,
+        bool UseApi,string LoaderPath,DateTimeOffset Created);
     private readonly ClusterService cluster;
     private readonly Func<LocalMap,LegacyStoreV1NativeStartPlan> prepare;
     private readonly Func<Guid,string,bool,ProcessIdentity> start;
+    private readonly Func<LocalMap,bool,bool> modePreflight;
     private readonly SemaphoreSlim serial=new(1,1);
     private Pending? pending;
+    private ModePending? pendingMode;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopHistoricalActiveStartBridge(ClusterService service):
@@ -33,12 +37,14 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
     // exposed to WebView, runtime plugins or the remote LAN status protocol.
     internal DesktopHistoricalActiveStartBridge(ClusterService service,
         Func<LocalMap,LegacyStoreV1NativeStartPlan>? preparation,
-        Func<Guid,string,bool,ProcessIdentity>? launcher)
+        Func<Guid,string,bool,ProcessIdentity>? launcher,
+        Func<LocalMap,bool,bool>? loaderModePreflight=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         prepare=preparation??(map=>LegacyStoreV1NativeStartPlanner.Prepare(cluster,map));
         start=launcher??((map,fingerprint,approved)=>
             cluster.LaunchOriginalActiveStoreAsa(map,fingerprint,approved));
+        modePreflight=loaderModePreflight??PhysicalModePreflight;
     }
 
     private static bool ReadId(JsonElement root,string key,out Guid id)
@@ -59,6 +65,32 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         string.IsNullOrWhiteSpace(map.ApiLoaderArguments)&&
         (!map.StartWithAsaApi||!string.IsNullOrWhiteSpace(map.ApiLoaderPath));
 
+    private bool PhysicalModePreflight(LocalMap map,bool useApi)
+    {
+        if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
+           !AsaRconConfigurationEvidence.Matches(map)||
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+            return false;
+        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+        var existing=cluster.Operations.Observe(map.InstallationPath);
+        if(existing?.Phase is UntamedOperationPhase.Prepared or
+            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+            return false;
+        // A settings change may be committed ONLY while the registered local
+        // process family is unequivocally stopped. No synthetic UI status.
+        var stopped=LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+            map,cluster.Config.LocalMaps);
+        if(!stopped.ConfirmedStopped||stopped.Running||
+           stopped.Identity!=null||stopped.LoaderIdentity!=null)
+            return false;
+        if(useApi)
+        {
+            var inspection=AsaApiInspector.Inspect(map.InstallationPath);
+            if(!inspection.Complete)return false;
+        }
+        return true;
+    }
+
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
@@ -75,11 +107,82 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
             id=requestId.ToString("D");
             string? method=route.GetString();
             if(method is not ("historical.activeStartStatus" or
-                "historical.activeStartPreview" or "historical.activeStartApply"))
+                "historical.activeStartPreview" or "historical.activeStartApply" or
+                "historical.loaderModePreview" or "historical.loaderModeApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
             {
+                if(method=="historical.loaderModePreview")
+                {
+                    pendingMode=null;pending=null;
+                    if(!ReadId(request,"mapId",out var mapId)||
+                       !request.TryGetProperty("useApi",out var setting)||
+                       setting.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                        return Fail(id,"UM-STORE-LOADER-MODE-SELECTION");
+                    bool useApi=setting.GetBoolean();
+                    var map=Owned(mapId);
+                    if(!Imported(map)||map!.StartWithAsaApi==useApi)
+                        return Fail(id,"UM-STORE-LOADER-MODE-UNCHANGED-OR-NOT-OWNED");
+                    string loader=Path.Combine(Path.GetDirectoryName(
+                        Path.GetFullPath(map.ExecutablePath))!,"AsaApiLoader.exe");
+                    if(map.ApiLoaderPath.Length>0&&
+                       !Path.GetFullPath(map.ApiLoaderPath).Equals(loader,
+                           StringComparison.OrdinalIgnoreCase))
+                        return Fail(id,"UM-STORE-LOADER-MODE-PATH-MISMATCH");
+                    if(!modePreflight(map,useApi))
+                        return Fail(id,"UM-STORE-LOADER-MODE-PROCESS-OR-API-UNVERIFIED");
+                    pendingMode=new ModePending(Guid.NewGuid(),map.Id,
+                        JsonSerializer.Serialize(map),useApi,loader,DateTimeOffset.UtcNow);
+                    return Ok(id,new{
+                        token=pendingMode.Token,mapId,mapName=map.Name,useApi,
+                        mode=useApi?"asaApiLoader":"directAsa",
+                        startsServer=false,changesStore=false,
+                        requiresStoppedProcess=true,
+                        evidence="LOCAL_HISTORICAL_API_LAUNCH_PREFERENCE_ONLY"
+                    });
+                }
+                if(method=="historical.loaderModeApply")
+                {
+                    if(!ReadId(request,"token",out var modeToken)||
+                       pendingMode==null||pendingMode.Token!=modeToken||
+                       DateTimeOffset.UtcNow-pendingMode.Created>TimeSpan.FromMinutes(3)||
+                       !request.TryGetProperty("confirm",out var modeConfirm)||
+                       modeConfirm.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-STORE-LOADER-MODE-APPROVAL");
+                    var requested=pendingMode;pendingMode=null;pending=null;
+                    var map=Owned(requested.MapId);
+                    if(!Imported(map)||map!.StartWithAsaApi==requested.UseApi||
+                       JsonSerializer.Serialize(map)!=requested.Profile)
+                        return Fail(id,"UM-STORE-LOADER-MODE-PROFILE-CHANGED");
+                    if(!modePreflight(map,requested.UseApi))
+                        return Fail(id,"UM-STORE-LOADER-MODE-STATE-CHANGED");
+                    using var operation=cluster.Operations.Acquire(
+                        map.InstallationPath,UntamedOperationKind.Configuration);
+                    if(JsonSerializer.Serialize(map)!=requested.Profile||
+                       !modePreflight(map,requested.UseApi))
+                        return Fail(id,"UM-STORE-LOADER-MODE-LEASE-CHANGED");
+                    bool before=map.StartWithAsaApi;
+                    string priorPath=map.ApiLoaderPath;
+                    operation.MarkMutationStarted();
+                    map.StartWithAsaApi=requested.UseApi;
+                    if(requested.UseApi)map.ApiLoaderPath=requested.LoaderPath;
+                    try{cluster.Save();}
+                    catch
+                    {
+                        map.StartWithAsaApi=before;
+                        map.ApiLoaderPath=priorPath;
+                        throw;
+                    }
+                    operation.Complete();
+                    return Ok(id,new{
+                        mapId=map.Id,mapName=map.Name,
+                        useApi=map.StartWithAsaApi,
+                        mode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
+                        serverStarted=false,originalStoreTouched=false,
+                        evidence="LOCAL_HISTORICAL_API_LAUNCH_PREFERENCE_SAVED"
+                    });
+                }
                 if(method=="historical.activeStartStatus")
                 {
                     if(!ReadId(request,"mapId",out var mapId))
