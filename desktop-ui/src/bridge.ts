@@ -28,6 +28,11 @@ export type LanSaved = {
   evidence:string;
 };
 
+export type MapMaintenanceStatus={
+  mapId:string;mapName:string;maintenance:boolean;permitted:boolean;
+  storeProtected:boolean;requiresStopped:true;serverProcessModified:false;
+  evidence:"PERSISTED_LOCAL_MANAGER_MAINTENANCE_ONLY";
+};
 export type NativeScheduleKind = "SaveWorld"|"Restart";
 export type NativeScheduleFrequency = "Interval"|"Daily";
 export type NativeAsaScheduleTask = {
@@ -1002,7 +1007,8 @@ export type ConfiguredMods = {
 
 type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" |
-  "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
+  "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
+  "maps.maintenanceStatus" | "maps.maintenanceSet" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
@@ -1053,7 +1059,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
-   confirm?: boolean; jobId?: string; watchId?: string; sessionName?: string;
+   confirm?: boolean; maintenance?:boolean; jobId?: string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
@@ -1244,6 +1250,10 @@ export const managerBridge = {
     request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
   pluginToggleApply: (token:string) =>
     request<PluginToggleReceipt>("plugins.toggleApply",{token,confirm:true}),
+  mapMaintenanceStatus: (mapId:string) =>
+    request<MapMaintenanceStatus>("maps.maintenanceStatus",{mapId}),
+  mapMaintenanceSet: (mapId:string,maintenance:boolean) =>
+    request<MapMaintenanceStatus>("maps.maintenanceSet",{mapId,maintenance,confirm:true}),
   nativeScheduleStatus: (mapId:string) =>
     request<NativeAsaScheduleStatus>("schedule.nativeStatus",{mapId}),
   nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
