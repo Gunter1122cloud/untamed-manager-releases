@@ -258,8 +258,12 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
     Directory.CreateDirectory(Path.GetDirectoryName(observedExe)!);
     File.WriteAllText(observedExe,"SYNTHETIC TEST ONLY NOT AN ASA EXECUTABLE");
     var physical=LegacyStoreV1ProcessObserver.Observe(historicCommandMap);
-    Check(!physical.Running&&!physical.ConfirmedStopped&&physical.Identity==null,
-        "absent/unverifiable original Store process cannot be certified stopped or owned");
+    var registeredPhysical=LegacyStoreV1ProcessObserver.Observe(
+        historicCommandMap,new[]{historicCommandMap});
+    Check(!physical.Running&&!physical.ConfirmedStopped&&physical.Identity==null &&
+          !registeredPhysical.Running&&!registeredPhysical.ConfirmedStopped&&
+          registeredPhysical.Identity==null,
+        "both standalone and registered original Store observers fail closed without process evidence");
     var markerRoot=Path.Combine(root,"synthetic-store-marker-evidence");
     Directory.CreateDirectory(markerRoot);
     Check(LegacyStoreV1SharedMarkerProbe.IsDefinitelyAbsent(markerRoot,"mutation.lock"),
@@ -4795,6 +4799,11 @@ try
         Check(!LegacyStoreV1ProcessObserver.ProvenDistinctOwnedMap(
             otherCommand,exe,storeMap,new[]{storeMap}),
             "unregistered same-EXE process always blocks original Store-v1 start");
+        Check(LegacyStoreV1ProcessObserver.DefinitelyDifferentMap(
+                otherCommand,exe,storeMap.HistoricalMapKey) &&
+              !LegacyStoreV1ProcessObserver.ProvenDistinctOwnedMap(
+                otherCommand,exe,storeMap,new[]{storeMap}),
+            "physical Store status must not use the weaker token-only peer heuristic");
         Check(!LegacyStoreV1ProcessObserver.ProvenDistinctOwnedMap(
             otherCommand+" -converttostore",exe,storeMap,
             new[]{storeMap,otherOriginalMap}),
