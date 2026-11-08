@@ -25,6 +25,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
 {
     private sealed class State
     {
+        public State() { }
         public List<ScheduledAsaOperation> Jobs {get;set;}=new();
     }
     private const int MaxJournalBytes=2_000_000;
