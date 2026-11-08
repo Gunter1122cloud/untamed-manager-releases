@@ -1875,7 +1875,7 @@ test("premium server browser opens local maps by keyboard and never issues remot
 test("Steam installation preflight and redacted log center are read-only and filterable", async ({page}) => {
   await page.setViewportSize({width:1366,height:768});
   await page.goto("/");
-  await page.getByRole("button", { name: "Új map" }).click();
+  await page.getByRole("button", { name: "Új map", exact:true }).click();
   await expect(page.getByRole("heading", {name:"Új ASA map telepítése"})).toBeVisible();
   await expect(page.getByText("Build: 123456")).toBeVisible();
   await expect(page.getByText("2797", {exact:true})).toHaveCount(0);
@@ -2281,7 +2281,7 @@ test("CurseForge official Galaxy browses categories, projects, versions, and pre
 test("SteamCMD new ASA: choose map and Windows folder, one click starts download and registers verified files",async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
-  await page.getByRole("button",{name:"Új map"}).click();
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
   await expect(page.getByText("Új ASA szerver · SteamCMD telepítés")).toBeVisible();
   await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("Valguero");
   await page.getByRole("button",{name:"Mappa kiválasztása"}).click();
@@ -2314,7 +2314,7 @@ test("Servers page offers immediate real ASA download separately from importing 
 
 test("SteamCMD simple path entry starts installation without advanced options or extra confirmation",async ({page})=>{
   await page.goto("/");
-  await page.getByRole("button",{name:"Új map"}).click();
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
   await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Servers\\TheIsland");
   await expect(page.getByRole("button",{name:"ASA letöltés indítása"})).toBeEnabled();
   await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
