@@ -1049,7 +1049,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
    confirm?: boolean; jobId?: string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
-  kind?:ReadOnlyScheduleKind;intervalMinutes?:number;
+  kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
+  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
