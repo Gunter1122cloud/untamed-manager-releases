@@ -115,6 +115,11 @@ jobs:
           if ((Get-Item desktop/publish/UntamedUpdater.exe).Length -lt 1000000) {
             throw "Updater is not a self-contained single-file executable"
           }
+      - name: Test versioned N-host offline backup and TEMP restore Core
+        shell: pwsh
+        run: |
+          dotnet run --project wpf/Testing/MultiHostBackup/MultiHostBackup.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "N-host offline archive Core regressions failed" }
       - name: Run real native C# bridge integration tests (isolated synthetic Windows files)
         shell: pwsh
         run: |
@@ -210,32 +215,14 @@ jobs:
       - name: Validate Obsidian Setup installs exact version marker on isolated CI machine
         shell: pwsh
         run: |
-          $target = Join-Path $env:RUNNER_TEMP "Obsidian-Test-Install-${{ github.run_number }}"
           $setup = (Resolve-Path desktop-artifacts/Untamed_Obsidian_Desktop_Preview_Setup.exe).Path
-          $proc = Start-Process -FilePath $setup -ArgumentList @(
-            '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',
-            "/DIR=$target",'/NOCLOSEAPPLICATIONS') -Wait -PassThru
-          if ($proc.ExitCode -ne 0) { throw "Obsidian installer failed: $($proc.ExitCode)" }
-
           [xml]$versionXml = Get-Content desktop/Version.props -Raw
           $version = [string]$versionXml.Project.PropertyGroup.ObsidianProductVersion
           $expected = "v$version-obsidian-preview.${{ github.run_number }}"
-          $marker = Join-Path $target 'installed-release.txt'
-          if (!(Test-Path $marker) -or (Get-Content $marker -Raw) -ne $expected) {
-            throw "Obsidian Setup lost exact GitHub version marker"
-          }
-          if (!(Test-Path (Join-Path $target 'UntamedDesktop.exe')) -or
-              !(Test-Path (Join-Path $target 'UntamedUpdater.exe')) -or
-              !(Test-Path (Join-Path $target 'ui/index.html'))) {
-            throw "Obsidian Setup missing executable, updater or offline React UI"
-          }
-          $smoke = Start-Process -FilePath (Join-Path $target 'UntamedDesktop.exe') -ArgumentList '--smoke-test' -PassThru
-          if (!$smoke.WaitForExit(90000)) {
-            try { $smoke.Kill() } catch {}
-            throw "Installed Obsidian WebView2 application did not complete smoke test"
-          }
-          if ($smoke.ExitCode -ne 0) { throw "Installed Obsidian WebView2 smoke failed: $($smoke.ExitCode)" }
-          Write-Output "PASS: Obsidian Setup installs exact version, updater and starts packaged WebView2 React UI"
+          ./desktop/Tests/ObsidianSetupPathE2E.ps1 `
+            -Setup $setup `
+            -IsolatedRoot $env:RUNNER_TEMP `
+            -ExpectedMarker $expected
       - name: Reject tampered or unpinned Obsidian Setup before updater mutation
         shell: pwsh
         run: |

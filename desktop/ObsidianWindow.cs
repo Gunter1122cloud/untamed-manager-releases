@@ -94,6 +94,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopModProfileBridge _modProfiles;
     private readonly DesktopOfflineAsaArchiveBridge _offlineClusterArchive;
     private readonly DesktopOfflineAsaRestoreBridge _offlineRestoreLab;
+    private readonly DesktopMultiHostClusterBackupBridge _multiHostBackup;
     private readonly DesktopPluginStateBridge _pluginState;
     private readonly DesktopPluginJsonBridge _pluginJson;
     private readonly DesktopPluginZipBridge _pluginZip;
@@ -153,6 +154,7 @@ public sealed class ObsidianWindow : Form
         _modProfiles = new DesktopModProfileBridge(_bridge.LocalCluster);
         _offlineClusterArchive = new DesktopOfflineAsaArchiveBridge();
         _offlineRestoreLab = new DesktopOfflineAsaRestoreBridge();
+        _multiHostBackup = new DesktopMultiHostClusterBackupBridge(_bridge.LocalCluster);
         _pluginState = new DesktopPluginStateBridge(_bridge.LocalCluster);
         _pluginJson = new DesktopPluginJsonBridge(_bridge.LocalCluster);
         _pluginZip = new DesktopPluginZipBridge(_bridge.LocalCluster);
@@ -264,6 +266,7 @@ public sealed class ObsidianWindow : Form
             _modProfiles.Dispose();
             _offlineClusterArchive.Dispose();
             _offlineRestoreLab.Dispose();
+            _multiHostBackup.Dispose();
             _pluginState.Dispose();
             _pluginJson.Dispose();
             _pluginZip.Dispose();
@@ -348,6 +351,7 @@ public sealed class ObsidianWindow : Form
                 bool modProfileRoute = false;
                 bool offlineClusterArchiveRoute = false;
                 bool offlineRestoreLabRoute = false;
+                bool multiHostBackupRoute = false;
                 bool iniRoute = false;
                 bool registryRoute = false;
                 bool clusterRegistryRoute = false;
@@ -429,6 +433,13 @@ public sealed class ObsidianWindow : Form
                             "cluster.offlineApply" or "cluster.offlineStatus";
                         offlineRestoreLabRoute = name is "cluster.restoreLabPreview" or
                             "cluster.restoreLabApply" or "cluster.restoreLabStatus";
+                        multiHostBackupRoute = name is "cluster.multiHostBackupPreview" or
+                            "cluster.multiHostBackupApply" or "cluster.multiHostBackupStatus" or
+                            "cluster.multiHostRestorePreview" or "cluster.multiHostRestoreApply" or
+                            "cluster.multiHostRestoreReplacePreview" or "cluster.multiHostRestoreReplaceApply" or
+                            "cluster.multiHostRestoreRecoveryList" or
+                            "cluster.multiHostRestoreRecoveryPreview" or "cluster.multiHostRestoreRecoveryApply" or
+                            "cluster.multiHostRestoreStatus";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
@@ -495,6 +506,7 @@ public sealed class ObsidianWindow : Form
                         : updateRoute ? await _updates.HandleAsync(incoming)
                         : credentialRoute ? await _credentials.HandleAsync(incoming)
                         : pluginStateRoute ? await _pluginState.HandleAsync(incoming)
+                        : multiHostBackupRoute ? await _multiHostBackup.HandleAsync(incoming)
                         : offlineRestoreLabRoute ? await _offlineRestoreLab.HandleAsync(incoming)
                         : offlineClusterArchiveRoute ? await _offlineClusterArchive.HandleAsync(incoming)
                         : modProfileRoute ? await _modProfiles.HandleAsync(incoming)

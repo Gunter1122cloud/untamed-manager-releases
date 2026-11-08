@@ -15,6 +15,81 @@ internal static class ClusterRegistryTests
         Console.WriteLine("PASS cluster registry: " + message);
     }
 
+    private static string SyntheticHostId(int index) =>
+        Guid.Parse($"00000000-0000-4000-8000-{index:D12}").ToString("N");
+
+    private static Guid SyntheticMapId(int index) =>
+        Guid.Parse($"00000000-0000-4000-9000-{index:D12}");
+
+    private static void ValidateLargeSyntheticTopology(string testRoot)
+    {
+        const int hostCount = 300;
+        const int clusterCount = 520;
+        const int mapCount = 4100;
+        string localHostId = SyntheticHostId(0);
+        string scaleRoot = Path.Combine(testRoot, "registry-scale-metadata");
+        var hostIds = Enumerable.Range(0, hostCount).Select(SyntheticHostId).ToArray();
+        var config = new ManagerConfig
+        {
+            LocalHostId = localHostId,
+            LocalHostName = "Synthetic scale host",
+            HostRegistry = new HostRegistry
+            {
+                SchemaVersion = 1,
+                LocalHostId = localHostId,
+                Hosts = hostIds.Select((id, i) => new RegisteredHost
+                {
+                    HostId = id,
+                    HostName = $"Synthetic host {i:D3}",
+                    IsLocal = i == 0,
+                    IsPaired = false
+                }).ToList(),
+                Maps = Enumerable.Range(0, mapCount).Select(i => new RegisteredMap
+                {
+                    MapId = SyntheticMapId(i),
+                    HostId = hostIds[i % hostCount],
+                    MapName = $"Synthetic map {i:D4}",
+                    LocalConfigurationPresent = false
+                }).ToList()
+            },
+            ClusterRegistry = new ClusterRegistry
+            {
+                SchemaVersion = 1,
+                Revision = 1,
+                Clusters = Enumerable.Range(0, clusterCount).Select(i => new RegisteredCluster
+                {
+                    ClusterId = $"scale-{i:D3}",
+                    Name = $"Synthetic cluster {i:D3}",
+                    TransferDirectory = Path.Combine(scaleRoot, $"cluster-{i:D3}", "transfer"),
+                    BackupDirectory = Path.Combine(scaleRoot, $"cluster-{i:D3}", "backup")
+                }).ToList(),
+                MapAssignments = Enumerable.Range(0, mapCount).Select(i => new ClusterMapAssignment
+                {
+                    MapId = SyntheticMapId(i),
+                    ClusterId = $"scale-{i % clusterCount:D3}"
+                }).ToList()
+            },
+            LocalMaps = new()
+        };
+
+        // This is object-only synthetic data. The directories are deliberately
+        // never created and no listener, port, process, ASA, or Store is used.
+        ClusterRegistrySchema.Validate(config);
+        Check(config.HostRegistry.Hosts.Count == hostCount &&
+            config.ClusterRegistry.Clusters.Count == clusterCount &&
+            config.HostRegistry.Maps.Count == mapCount &&
+            config.ClusterRegistry.MapAssignments.Count == mapCount,
+            "product registries accept 300 hosts, 520 clusters, and 4100 maps beyond all v1 archive batch limits");
+
+        var cloned = ClusterRegistrySchema.Clone(config);
+        ClusterRegistrySchema.Validate(cloned);
+        Check(cloned.HostRegistry.Hosts.Count == hostCount &&
+            cloned.ClusterRegistry.Clusters.Count == clusterCount &&
+            cloned.HostRegistry.Maps.Count == mapCount &&
+            cloned.ClusterRegistry.MapAssignments.Select(x => x.MapId).Distinct().Count() == mapCount,
+            "large N-host registry survives the same JSON clone path used by Manager snapshots");
+    }
+
     public static async Task Run(string testRoot)
     {
         string migrationRoot = Path.Combine(testRoot, "registry-migration");
@@ -203,6 +278,8 @@ internal static class ClusterRegistryTests
             "host identities, uneven map catalog and clusters survive Manager restart");
         Check(persisted.ClusterRegistry.MapAssignments.Count(x => x.MapId == mapIds[90]) == 1,
             "approved map assignment survives Manager restart without duplicate ownership");
+
+        ValidateLargeSyntheticTopology(testRoot);
     }
 
     private static async Task<JsonElement> Call(DesktopClusterRegistryBridge bridge,
