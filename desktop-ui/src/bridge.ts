@@ -687,6 +687,16 @@ export type HistoricalRconReceipt = {
   originalStoreTouched:false;iniModified:false;serverStarted:false;
   evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED";
 };
+export type HistoricalLoaderModePreview = {
+  token:string;mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";startsServer:false;
+  changesStore:false;requiresStoppedProcess:true;evidence:string;
+};
+export type HistoricalLoaderModeReceipt = {
+  mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";serverStarted:false;
+  originalStoreTouched:false;evidence:string;
+};
 export type HistoricalActiveStartStatus = {
   mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
   pid:number|null;serverPid:number|null;loaderPid:number|null;
@@ -1092,7 +1102,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
-   "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" |
+   "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
    "historical.rconLiveStatus" | "historical.rconPlayers" |
    "historical.rconGameLog" | "historical.rconChatLog" |
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
@@ -1491,6 +1501,10 @@ export const managerBridge = {
     request<HistoricalRconReadResponse>("historical.rconGameLog",{mapId}),
   historicalRconChatLog: (mapId:string) =>
     request<HistoricalRconReadResponse>("historical.rconChatLog",{mapId}),
+  historicalLoaderModePreview: (mapId:string,useApi:boolean) =>
+    request<HistoricalLoaderModePreview>("historical.loaderModePreview",{mapId,useApi}),
+  historicalLoaderModeApply: (token:string) =>
+    request<HistoricalLoaderModeReceipt>("historical.loaderModeApply",{token,confirm:true}),
   historicalActiveStartStatus: (mapId:string) =>
     request<HistoricalActiveStartStatus>("historical.activeStartStatus",{mapId}),
   historicalActiveStartPreview: (mapId:string) =>
