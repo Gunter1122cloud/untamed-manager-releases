@@ -86,7 +86,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
   },[jobId,onStopped]);
   const inspect=async()=>{
     if(busy||jobId||!running||!recoveryChecked||
-       !recovery||recovery.blocked)return;
+       !recovery||recovery.blocked||recovery.inMemoryRunning)return;
     setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
     try{setPreview(await managerBridge.historicalGracefulStopPreview(mapId));}
     catch{
@@ -124,7 +124,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
       <div className="settings-actions">
         <button className="secondary" type="button"
           disabled={busy||!running||!!preview||!!jobId||
-            !recoveryChecked||!recovery||recovery.blocked}
+            !recoveryChecked||!recovery||recovery.blocked||recovery.inMemoryRunning}
           onClick={()=>{void inspect();}}>
           <Shield size={16}/> Eredeti SaveWorld/DoExit előellenőrzése
         </button>
