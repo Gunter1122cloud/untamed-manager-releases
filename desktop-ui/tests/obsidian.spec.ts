@@ -2657,6 +2657,22 @@ test("Store-v1 original ASA launch text stays read-only and redacted",async ({pa
   await expect(report).toHaveCount(0);
 });
 
+test("map detail keeps Plugin Center and ASA API controls bound to its own local map",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByRole("heading",{name:"Plugin Center"})).toBeVisible();
+  await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("The Island");
+  await expect(page.getByRole("combobox",{name:"Pluginok mapja"})).toHaveCount(0);
+  await expect(page.getByRole("tablist",{name:"Map funkciói"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"The Island",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("Astraeos");
+  await expect(page.getByRole("combobox",{name:"Pluginok mapja"})).toHaveCount(0);
+});
+
 test("Plugin Center uses native stopped-map JSON editing with preview and protective save",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Pluginok",exact:true}).click();
