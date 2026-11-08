@@ -271,9 +271,17 @@ public static class LegacyStoreV1ProcessObserver
         }
     }
 
-    public static ProcessCheck Observe(LocalMap map)
+    public static ProcessCheck Observe(LocalMap map)=>
+        Observe(map,Array.Empty<LocalMap>());
+
+    // The dashboard may ignore a different running map ONLY when that
+    // process is proven to belong to another locally registered Store owner.
+    // The map-token-only heuristic is insufficient for a trust decision.
+    public static ProcessCheck Observe(LocalMap map,
+        IEnumerable<LocalMap> locallyRegisteredMaps)
     {
-        if(map==null||!map.HistoricalStoreProtected||map.Id==Guid.Empty)
+        if(map==null||!map.HistoricalStoreProtected||map.Id==Guid.Empty||
+           locallyRegisteredMaps==null)
             throw new UnauthorizedAccessException(
                 "Only imported historical Store-v1 maps may be observed");
         try
@@ -300,8 +308,8 @@ public static class LegacyStoreV1ProcessObserver
                     if(!Path.GetFullPath(path).Equals(exe,
                         StringComparison.OrdinalIgnoreCase))continue;
                     string command=Convert.ToString(entry["CommandLine"])??"";
-                    if(DefinitelyDifferentMap(command,exe,map.HistoricalMapKey))
-                        continue; // Another legitimate map in the same ASA install.
+                    if(ProvenDistinctOwnedMap(command,exe,map,locallyRegisteredMaps))
+                        continue; // Exact registered peer and source command proven.
                     if(!MatchesOriginalActiveCommand(command,exe,map))
                     {uncertain=true;continue;}
                     int id=Convert.ToInt32(entry["ProcessId"]);
