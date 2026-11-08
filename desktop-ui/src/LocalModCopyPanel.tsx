@@ -63,13 +63,14 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
     </label>
     <div className="draft-actions">
       <button type="button" className="secondary" disabled={busy||!sourceAllowed||eligible.length===0}
-        onClick={()=>{setTargets(eligible.map(m=>m.id));invalidate();}}>
-        Összes jogosult helyi célmap kijelölése ({eligible.length})
+        onClick={()=>{setTargets(eligible.slice(0,25).map(m=>m.id));invalidate();}}>
+        {eligible.length>25?"Első 25 jogosult helyi célmap":"Összes jogosult helyi célmap"} kijelölése ({Math.min(eligible.length,25)})
       </button>
       <button type="button" className="quiet" disabled={busy||targets.length===0}
         onClick={()=>{setTargets([]);invalidate();}}>Kijelölések törlése</button>
       <span className="muted small">{targets.length} / {eligible.length} helyi célmap</span>
     </div>
+    {eligible.length>25&&<p className="warning-inline">A natív előnézet legfeljebb 25 célmapot fogad egyszerre. A többi helyi map külön, jóváhagyott kötegben állítható be; ez nem globális host/map korlát.</p>}
     <div className="premium-mod-copy-targets" role="group" aria-label="Célmapok kiválasztása">
       {eligible.length===0?<p className="muted small">Nincs biztonságosan szerkeszthető további helyi map.</p>:
         eligible.map(map=><label key={map.id} className="plugin-row">
