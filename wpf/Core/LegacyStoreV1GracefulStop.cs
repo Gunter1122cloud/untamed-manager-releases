@@ -175,6 +175,90 @@ internal static class LegacyStoreV1GracefulStop
         };
     }
 
+    // Separate, real SaveWorld operation on an existing ACTIVE/DONE Store map.
+    // It uses the SAME owner/source/port guards and installation journal as
+    // StopAsync, but deliberately sends NO DoExit and never touches Store data.
+    internal sealed record SaveOnlyReceipt(Guid MapId,int Pid,
+        bool SaveCompleteObserved,DateTimeOffset ObservedUtc,string Evidence)
+    {
+        public bool DoExitSent=>false;
+        public bool FsyncCertified=>false;
+        public bool GameClientRejoinVerified=>false;
+    }
+
+    internal static async Task<SaveOnlyReceipt> SaveWorldOnlyAsync(
+        ClusterService cluster,Guid mapId,int approvedPid,
+        DateTimeOffset approvedStart,string approvedSource,
+        TimeSpan maximum,CancellationToken cancellationToken=default,
+        Func<LocalMap,ProcessCheck>? inspect=null,
+        Func<LocalMap,string>? source=null,
+        Func<int,int,bool>? portOwner=null,
+        Func<LocalMap,ProcessIdentity,Action,CancellationToken,Task<bool>>? execute=null,
+        Action<string>? stage=null)
+    {
+        if(mapId==Guid.Empty||approvedPid<=0||approvedStart==default||
+           string.IsNullOrWhiteSpace(approvedSource)||
+           maximum<=TimeSpan.Zero||maximum>TimeSpan.FromMinutes(3))
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-APPROVAL");
+        inspect??=LegacyStoreV1ProcessObserver.Observe;
+        source??=OriginalSource;
+        portOwner??=RconPortOwnership.IsOwnedListener;
+        using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(maximum);
+        var ct=deadline.Token;
+        var initial=Require(cluster,mapId,inspect,source,portOwner);
+        if(initial.Process.Pid!=approvedPid||
+           initial.Process.StartedUtc!=approvedStart||
+           !string.Equals(initial.SourceSha,approvedSource,StringComparison.Ordinal))
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-OWNER-CHANGED");
+        using var lease=cluster.Operations.Acquire(initial.Map.InstallationPath,
+            UntamedOperationKind.Backup);
+        var locked=Require(cluster,mapId,inspect,source,portOwner);
+        if(!ReferenceEquals(locked.Map,initial.Map)||
+           !Same(locked.Process,initial.Process)||
+           locked.SourceSha!=initial.SourceSha)
+            throw new InvalidOperationException("UM-ORIGINAL-SAVE-LEASE-OWNER-CHANGED");
+        void Verify()
+        {
+            ct.ThrowIfCancellationRequested();
+            var now=Require(cluster,mapId,inspect,source,portOwner);
+            if(!ReferenceEquals(now.Map,locked.Map)||
+               !Same(now.Process,locked.Process)||
+               now.SourceSha!=locked.SourceSha)
+                throw new InvalidOperationException("UM-ORIGINAL-SAVE-OWNER-CHANGED");
+        }
+        Verify();
+        // Witness must exist before ANY mutating RCON byte. A missing log or
+        // world witness does not strand the durable journal after no send.
+        var witness=execute==null?
+            AsaWorldSaveEvidence.Begin(locked.Map,locked.Process)
+                ??throw new InvalidOperationException("UM-ORIGINAL-SAVE-WITNESS-MISSING"):
+            null;
+        lease.MarkMutationStarted(); // Crash/uncertain dispatch => NeedsOperator
+        bool observed;
+        if(execute!=null)
+            observed=await execute(locked.Map,locked.Process,Verify,ct).WaitAsync(ct);
+        else
+        {
+            string password=SecureStore.Unprotect(locked.Map.RconPasswordProtected);
+            Verify();
+            stage?.Invoke("Store-v1 SaveWorld küldése az igazolt helyi ASA PID-nek");
+            await RconProtocol.DispatchOwnedSaveWorldAsync(locked.Map.RconPort,
+                password,Verify,ct);
+            var result=await AsaWorldSaveEvidence.WaitAsync(witness!,()=>{
+                try{Verify();return true;}catch{return false;}
+            },TimeSpan.FromSeconds(90),ct);
+            observed=result.CompletionObserved;
+        }
+        if(!observed)
+            throw new InvalidOperationException("UM-ORIGINAL-SAVE-COMPLETION-NOT-OBSERVED");
+        Verify();
+        stage?.Invoke("Új ASA SaveComplete log és stabil .ark ellenőrizve; a map tovább fut");
+        lease.Complete();
+        return new(mapId,approvedPid,true,DateTimeOffset.UtcNow,
+            "ORIGINAL_ACTIVE_STORE_SAVEWORLD_LOG_AND_STABLE_WORLD_NO_DOEXIT");
+    }
+
     internal static Owned Preview(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck>? inspect=null,
         Func<LocalMap,string>? source=null,
