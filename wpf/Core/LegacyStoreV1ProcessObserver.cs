@@ -354,6 +354,34 @@ public static class LegacyStoreV1ProcessObserver
                         ExecutablePath=direct.ExecutablePath,
                         Arguments="HISTORICAL_STORE_V1_READ_ONLY_OBSERVATION"});
             }
+            if(serverProcesses.Count==1&&loaderProcesses.Count==0)
+            {
+                var childOnly=serverProcesses[0];
+                // The Launcher may exit after spawning ASA. A standalone
+                // command-line match is NOT enough: require a PREVIOUSLY
+                // persisted and independently verified exact parent/child
+                // creation-time pair. Neither PID is inferred or guessed.
+                var pinnedChild=map.LastProcess;
+                var pinnedParent=map.LastLoader;
+                if(pinnedChild is {Pid:>0}&&pinnedParent is {Pid:>0}&&
+                   pinnedChild.Arguments=="HISTORICAL_STORE_V1_API_CHILD_VERIFIED"&&
+                   pinnedParent.Arguments=="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"&&
+                   childOnly.Pid==pinnedChild.Pid&&
+                   childOnly.StartedUtc==pinnedChild.StartedUtc&&
+                   childOnly.ParentPid==pinnedParent.Pid&&
+                   pinnedParent.StartedUtc<=childOnly.StartedUtc&&
+                   Path.GetFullPath(pinnedChild.ExecutablePath).Equals(exe,
+                       StringComparison.OrdinalIgnoreCase)&&
+                   Path.GetFullPath(pinnedParent.ExecutablePath).Equals(loader,
+                       StringComparison.OrdinalIgnoreCase))
+                    return new(true,
+                        "Fut · korábban igazolt API gyermekfolyamat; Loader már kilépett",
+                        new ProcessIdentity{
+                            Pid=childOnly.Pid,StartedUtc=childOnly.StartedUtc,
+                            ExecutablePath=exe,
+                            Arguments="HISTORICAL_STORE_V1_API_CHILD_VERIFIED"
+                        },false,pinnedParent);
+            }
             if(serverProcesses.Count!=1||loaderProcesses.Count!=1)
                 return new(false,
                     loaderProcesses.Count==1&&serverProcesses.Count==0?
