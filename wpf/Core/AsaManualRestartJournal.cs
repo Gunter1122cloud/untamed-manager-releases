@@ -137,8 +137,12 @@ public sealed class AsaManualRestartJournal
     public void DemandAuthorizedStop(Guid? restartId)
     {
         var current=Observe();
-        if(current==null||current.Phase==AsaRestartPhase.Completed)return;
-        if(restartId==null||current.Id!=restartId.Value||
+        // An explicit restart authorization is valid ONLY while its exact
+        // durable record is present in the expected in-progress phase.
+        // Missing/completed journal files cannot authorize a stale token.
+        if(restartId==null &&
+           (current==null||current.Phase==AsaRestartPhase.Completed))return;
+        if(restartId==null||current==null||current.Id!=restartId.Value||
            current.Phase!=AsaRestartPhase.Stopping)
             throw new InvalidOperationException(
                 "UM-ASA-RESTART-JOURNAL-STOP-UNAUTHORIZED");
@@ -147,8 +151,12 @@ public sealed class AsaManualRestartJournal
     public void DemandAuthorizedStart(Guid? restartId)
     {
         var current=Observe();
-        if(current==null||current.Phase==AsaRestartPhase.Completed)return;
-        if(restartId==null||current.Id!=restartId.Value||
+        // An explicit restart authorization is valid ONLY while its exact
+        // durable record is present in the expected in-progress phase.
+        // Missing/completed journal files cannot authorize a stale token.
+        if(restartId==null &&
+           (current==null||current.Phase==AsaRestartPhase.Completed))return;
+        if(restartId==null||current==null||current.Id!=restartId.Value||
            current.Phase!=AsaRestartPhase.Starting)
             throw new InvalidOperationException(
                 "UM-ASA-RESTART-JOURNAL-START-UNAUTHORIZED");
