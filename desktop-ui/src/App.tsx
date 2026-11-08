@@ -1091,7 +1091,7 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
         után; külön védőmentéssel és az eredeti világ megőrzésével történő
         visszaállítás. Az éles kétgépes Store-v1 konzisztencia ettől külön igazolandó.</p>
     </div>
-    <WorldBackupControls maps={snapshot.local.maps} selectedMap={mapId}/>
+    <WorldBackupControls key={mapId??"all-local-maps"} maps={snapshot.local.maps} selectedMap={mapId}/>
     <OfflineAsaArchivePanel/>
     <OfflineAsaRestorePanel/>
     <div className="premium-backup-metrics">
