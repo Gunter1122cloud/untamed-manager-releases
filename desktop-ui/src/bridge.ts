@@ -767,7 +767,8 @@ export type HistoricalStoreRegistration = {
 export type InitialMapStatus = {
   mapId:string; mapName:string; level:string | null;
   initialSetupAvailable:boolean; confirmedStopped:boolean;
-  hasServerExecutable:boolean; gamePort:number; queryPort:number;
+  blocker:"NONE"|"PROFILE_ALREADY_CONFIGURED_OR_PROTECTED"|"MAP_LEVEL_UNRECOGNIZED"|"SERVER_EXECUTABLE_MISSING"|"PROCESS_RUNNING"|"PROCESS_STOP_NOT_VERIFIED";
+  processStatus:string; hasServerExecutable:boolean; gamePort:number; queryPort:number;
   suggestion:{game:number;query:number};
   evidence:"LOCAL_MANAGER_PROFILE_FIRST_SETUP_STATUS";
 };
