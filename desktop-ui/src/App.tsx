@@ -1328,6 +1328,7 @@ function IniCenter({ snapshot, selected, setSelected }: {
         "UM-INI-GUS-MISSING":"A GameUserSettings.ini még nem létezik. Új, leállított mapnál az első RCON-előkészítő jóváhagyással hozhatja létre.",
         "UM-INI-ACCESS-DENIED":"A Windows megtagadta az INI olvasását. Ellenőrizd a jogosultságokat.",
         "UM-INI-PATH-OR-CONTENT-UNSAFE":"Az INI útvonala, linkje vagy tartalma nem felelt meg a biztonsági ellenőrzésnek.",
+        "UM-INI-ETAG-MISMATCH":"Az INI fájl az előnézet óta megváltozott. A frissebb fájlt nem írtuk felül. Nyisd meg újra, és ellenőrizd az eltéréseket.",
         "UM-INI-CONFLICT-OR-IO-ERROR":"Az INI fájl zárolt, megváltozott vagy nem olvasható biztonságosan.",
         "UM-HISTORICAL-STORE-LOCKED":"A történeti Store-v1 map konfigurációja védett."
       };
