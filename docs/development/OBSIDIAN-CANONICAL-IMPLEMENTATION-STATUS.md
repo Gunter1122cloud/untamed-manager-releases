@@ -30,9 +30,13 @@ A Codex által elkészített és egyenként ellenőrzött új kód a megfelelő 
 
 - [PR #58](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/58): a korábbi Draft állapotból Ready for Review lett, majd GitHub `merged=true`; merge SHA: `eb3f4f671bff8b1810c806d63fdaaa139ef2bae7`.
 - Pontosan 21 módosított fájl; az archive, sandbox restore és bridge UI forrása integrálódott. A `LegacyStoreV1*.cs` fájlok nem szerepeltek a #58 módosításai között.
-- [PR head Windows CI #1565](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42479884435): `success`, Windows preview, Core, natív bridge, Playwright, Setup és WebView2 ellenőrzések sikeresek. **A merge utáni `main` saját CI-eredményét külön kell ellenőrizni.**
+- [PR head Windows CI #1565](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42479884435): `success`, Windows preview, Core, natív bridge, Playwright, Setup és WebView2 ellenőrzések sikeresek. **A merge utáni `main` [Windows CI #1566](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42482209532) `SUCCESS` a pontos `eb3f4f6` merge SHA-n.**
 - A #58 **offline, előzetesen elkészített másolatokból** dolgozik, csak TEMP sandboxba állít vissza; a production restore és az élő Store-v1/karakterutazás NINCS kész.
 - Rendrakáskor a régi WPF GUI aktív kiadási útvonalait külön függőségvizsgálattal kell eltávolítani; a shared `wpf/Core/`, `wpf/Updater/`, Store-v1 és tesztek megőrzendők. A bizonyítatlanul halottnak gondolt kód NEM törölhető.
+
+## Retired source cleanup – elkülönített PR #59
+
+A [#59](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/59) külön ágon törli a `wpf/MainWindow.Sql.cs` elvetett WPF háromadatbázisos SQL GUI-t. A fájlt a `wpf/UntamedManager.csproj` már korábban kizárta a fordításból; a `desktop/UntamedDesktop.csproj` kizárólag a közös `wpf/Core/*.cs` részt használja. A törlés **még nem MAIN**, amíg #59 Windows CI és merge be nem fejeződik. A történeti SQL regressziós forrás, Store-v1 Core, updater és WPF referenciatesztek megmaradnak. Ez nem jelenti a teljes korábbi WPF GUI eltávolítását: annak a történeti tesztprojektekre és projekthivatkozásokra gyakorolt hatása további felülvizsgálatot igényel.
 
 ## Funkciómátrix – ne fejlesszük újra, ami már a kódban van
 
