@@ -50,7 +50,13 @@ A [#59](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/59) **M
 
 ## P0 további célzott javítás
 
-A [#64](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/64) eredeti P0 PR head CI #1581 **SUCCESS** volt, de a közben merge-elt #63 Playwright módosításaival ütközött; lezárva beolvasztás nélkül. Azonos megoldás és regresszió a friss `main`-re átültetve: [#65](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/65), saját CI #1583 ellenőrzés alatt. Nem módosítja a natív process-guardot, Store-v1-t, és nem állít éles ASA-elfogadást. A valós Windows/ASA The Island visszateszt ettől is külön szükséges.
+A [#64](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/64) eredeti P0 PR head CI #1581 **SUCCESS** volt, de a közben merge-elt #63 Playwright módosításaival ütközött; lezárva beolvasztás nélkül. Azonos megoldás és regresszió a friss `main`-re átültetve: [#65](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/65) **MERGED** (`4283c697d02b1332b488b8fbffbcc4e3e5459b6e`), [Windows PR CI #1583](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/42488848005) **SUCCESS** a `400cf22b1adb56fb165a3d9c01643fff68c81a59` headen. A merge utáni főági CI külön bizonyítandó. Nem módosítja a natív process-guardot, Store-v1-t, és nem állít éles ASA-elfogadást. A valós Windows/ASA The Island visszateszt ettől is külön szükséges.
+
+### #65 P0 képernyőjavítás implementációja
+
+- `desktop-ui/src/InitialMapSetup.tsx`: új natív `servers.initialStatus` ellenőrző gomb, blokkoló státusz és valós `confirmedStopped` kijelzése; nincs mesterséges állapotátírás.
+- `desktop-ui/tests/obsidian.spec.ts`: Playwright regresszió bizonytalan Windows-folyamat megfigyelése miatti letiltással és friss státuszra történő engedélyezéssel.
+- Nem változott a `DesktopInitialMapSetupBridge`, az ASA indítási védőellenőrzés, a Store-v1 vagy az RCON/INI adatútvonal. A felhasználói elsőindítás éles elfogadása továbbra is külön P0 követelmény.
 
 ## Osztályozott forráskód – rendrakási ellenőrzés
 
