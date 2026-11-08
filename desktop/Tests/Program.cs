@@ -854,15 +854,27 @@ try
             Check(sent==1&&supervisor.Snapshot().Single().LastStatus==
                     "executed-no-fsync-or-client-certification",
                 "native scheduler durably claims and dispatches one approved SaveWorld slot");
+            var savedHistory=supervisor.History(m1.Id);
+            Check(savedHistory.Length==1&&savedHistory[0].RunId!=Guid.Empty&&
+                  savedHistory[0].Kind=="SaveWorld"&&
+                  savedHistory[0].Status=="executed-no-fsync-or-client-certification"&&
+                  savedHistory[0].FinishedUtc.HasValue,
+                "native SaveWorld preserves a completed run in the durable execution history");
             await supervisor.TickOnceAsync(due.AddMinutes(1));
             Check(sent==1,"claimed native SaveWorld slot is never replayed");
+            Check(supervisor.History(m1.Id).Length==1,
+                "repeat tick cannot duplicate a claimed execution history entry");
             var restartedMap=await Call(supervisor.HandleAsync,"schedule.nativeStatus",
                 new{mapId=m1.Id});
             IsOk(restartedMap,"native WebView bridge reads persisted local schedule");
+            Check(restartedMap.GetProperty("data").GetProperty("history").GetArrayLength()==1,
+                "map-specific native RPC exposes the bounded durable execution log");
             var other=await Call(supervisor.HandleAsync,"schedule.nativeStatus",
                 new{mapId=m2.Id});
             Check(other.GetProperty("data").GetProperty("jobs").GetArrayLength()==0,
                 "map-specific schedule UI never includes another local map");
+            Check(other.GetProperty("data").GetProperty("history").GetArrayLength()==0,
+                "one map cannot read another map's native execution history");
             var firstRestart=supervisor.Configure(m1.Id,"Restart","Daily",0,240,127);
             supervisor.Configure(m2.Id,"Restart","Daily",0,240,127);
             Check(supervisor.RestartConflicts(m1.Id).Contains(m2.Name),
@@ -882,6 +894,9 @@ try
         {
             Check(recovered.Snapshot().Length==3 && sent>=1,
                 "Manager relaunch reads durable native schedule journal without automatic replay");
+            Check(recovered.History(m1.Id).Any(x=>x.RunId!=Guid.Empty&&
+                  x.Kind=="SaveWorld"&&x.FinishedUtc.HasValue),
+                "Manager relaunch preserves prior completed native execution evidence");
             int beforeMissed=sent;
             var upcoming=recovered.Snapshot().Where(x=>x.Enabled)
                 .Select(x=>x.NextDueUtc).Min();
@@ -889,6 +904,10 @@ try
             Check(sent==beforeMissed&&recovered.Snapshot().Any(x=>
                   x.LastStatus=="manager-start-skipped-no-replay"),
                 "Manager startup skips overdue native slots without late RCON or restart");
+            Check(recovered.History(m1.Id).Any(x=>
+                  x.Status=="manager-start-skipped-no-replay"&&
+                  x.FinishedUtc.HasValue),
+                "missed startup slots remain visibly audited without executing RCON");
             var denyRemote=await Call(recovered.HandleAsync,"schedule.nativeSet",
                 new{mapId=Guid.NewGuid(),kind="Restart",frequency="Daily",
                     intervalMinutes=0,minuteOfDay=240,daysMask=127,confirm=true});
