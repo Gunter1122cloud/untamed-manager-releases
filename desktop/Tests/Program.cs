@@ -5219,7 +5219,7 @@ try
         restartCluster.AddMap(restartMap);
         const string restartSource="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
         int oldRestartPid=44311,saveExitCalls=0,newStarts=0;
-        bool failNextStart=false;
+        bool failNextStart=false,oldRestartExited=false;
         var oldStartTime=new DateTimeOffset(2026,11,8,11,0,0,TimeSpan.Zero);
         var releaseOldExit=new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -5241,11 +5241,34 @@ try
                   pid==oldRestartPid&&started==oldStartTime&&
                   source==restartSource,
                 "native Store Restart Stop receives exact durable writer/owner approval");
-            report("Synthetic SaveWorld -> DoExit -> old PID stopped");
-            await releaseOldExit.Task.WaitAsync(TimeSpan.FromSeconds(6));
-            return new AsaGracefulStopReceipt(mapId,pid,true,false,true,
-                DateTimeOffset.UtcNow,"SYNTHETIC_ORIGINAL_STOP")
-            {PreExitSaveLogAndWorldObserved=true};
+            ProcessCheck Inspect(LocalMap selected)=>oldRestartExited?
+                new(false,"Synthetic original PID exited",null,true):
+                new(true,"Synthetic original ACTIVE owner",new ProcessIdentity{
+                    Pid=oldRestartPid,StartedUtc=oldStartTime,
+                    ExecutablePath=exe,Arguments="SYNTHETIC_ORIGINAL_ACTIVE"},false);
+            ProcessCheck Stopped(LocalMap selected)=>oldRestartExited?
+                new(false,"Synthetic original PID exited",null,true):
+                Inspect(selected);
+            string Source(LocalMap selected)=>restartSource;
+            bool Owner(int port,int ownerPid)=>port==37305&&ownerPid==oldRestartPid;
+            Task<AsaGracefulStopReceipt> StopCore(Guid approvedId)=>
+                LegacyStoreV1GracefulStop.StopAsync(restartCluster,mapId,
+                    pid,started,source,TimeSpan.FromSeconds(7),
+                    inspect:Inspect,stopped:Stopped,source:Source,portOwner:Owner,
+                    execute:async (selected,identity,verify,cancellation)=>{
+                        verify();
+                        report("Synthetic SaveWorld -> DoExit");
+                        await releaseOldExit.Task.WaitAsync(cancellation);
+                        verify();
+                        oldRestartExited=true;
+                        return true;
+                    },stage:report,approvedRestartId:approvedId);
+            bool unauthorizedRejected=false;
+            try{await StopCore(Guid.NewGuid());}
+            catch(InvalidOperationException){unauthorizedRejected=true;}
+            Check(unauthorizedRejected&&!oldRestartExited,
+                "real original Store Stop Core rejects wrong durable restart ID");
+            return await StopCore(journalId);
         }
         ProcessIdentity RestartStart(Guid mapId,Guid journalId,
             Action<string> report)
@@ -5265,6 +5288,7 @@ try
             };
             oldRestartPid=started.Pid;
             oldStartTime=started.StartedUtc;
+            oldRestartExited=false;
             return started;
         }
         using(var restartBridge=new DesktopHistoricalRestartBridge(
