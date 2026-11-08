@@ -1585,6 +1585,25 @@ test("Mentésközpont calls real native preview/create and displays verified cha
   await page.screenshot({path:"test-results/uk-real-world-backup-1600.png",fullPage:false});
 });
 
+test("backup approval and completed receipt never follow another selected map",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const picker=page.getByRole("combobox",{name:"Mentendő helyi map"});
+  await picker.selectOption(second);
+  await page.getByRole("button",{name:"Világmentés készítése"}).click();
+  await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toBeVisible();
+  await picker.selectOption(first);
+  await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Mentés indítása"})).toHaveCount(0);
+  await picker.selectOption(second);
+  await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Világmentés készítése"}).click();
+  await page.getByRole("button",{name:"Mentés indítása"}).click();
+  await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
+  await picker.selectOption(first);
+  await expect(page.locator(".uk-world-backup-success")).toHaveCount(0);
+});
+
 test("historical Store-v1 map allows backup inspection but disables unilateral world restore",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>{
