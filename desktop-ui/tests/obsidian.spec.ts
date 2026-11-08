@@ -2258,7 +2258,7 @@ test("first setup follows one RCON bootstrap route and returns to native Start w
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
   await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
-  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\\\ASA-LAB");
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
   await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
   await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
   await page.getByRole("row",{name:/Genesis Part 1/}).click();
