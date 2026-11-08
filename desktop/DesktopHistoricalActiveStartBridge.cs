@@ -18,7 +18,7 @@ namespace UntamedDesktop;
 public sealed class DesktopHistoricalActiveStartBridge : IDisposable
 {
     private sealed record Pending(Guid Token,Guid MapId,string ProfileJson,
-        string PlanFingerprint,int Game,int Query,int Rcon,DateTimeOffset Created);
+        string PlanFingerprint,int Game,int Query,int Rcon,bool UseApi,DateTimeOffset Created);
     private readonly ClusterService cluster;
     private readonly Func<LocalMap,LegacyStoreV1NativeStartPlan> prepare;
     private readonly Func<Guid,string,bool,ProcessIdentity> start;
@@ -56,7 +56,8 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         !string.IsNullOrWhiteSpace(map.RconPasswordProtected)&&
         string.IsNullOrWhiteSpace(map.StoreTestRoot)&&
         string.IsNullOrWhiteSpace(map.Arguments)&&
-        !map.StartWithAsaApi;
+        string.IsNullOrWhiteSpace(map.ApiLoaderArguments)&&
+        (!map.StartWithAsaApi||!string.IsNullOrWhiteSpace(map.ApiLoaderPath));
 
     public async Task<string> HandleAsync(string raw)
     {
@@ -91,6 +92,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         mapId,mapName=map.Name,running=observed.Running,
                         confirmedStopped=observed.ConfirmedStopped,
                         pid=observed.Identity?.Pid,
+                        serverPid=observed.Identity?.Pid,
+                        loaderPid=observed.LoaderIdentity?.Pid,
+                        requestedMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
                         rconConfigured=map.RconPort>0&&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
                         originalStartAutomatic=false,
@@ -107,17 +111,19 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     if(!Imported(map))return Fail(id,"UM-STORE-ACTIVE-RCON-REQUIRED");
                     var plan=await Task.Run(()=>prepare(map!));
                     if(plan==null||plan.Fingerprint.Length!=64||
+                       plan.UseApi!=map!.StartWithAsaApi||
                        plan.Arguments.Length is <16 or >8192)
                         return Fail(id,"UM-STORE-ACTIVE-PREFLIGHT-INCOMPLETE");
                     var permit=new Pending(Guid.NewGuid(),map!.Id,
                         JsonSerializer.Serialize(map),plan.Fingerprint,
                         plan.GamePort,plan.QueryPort,plan.RconPort,
-                        DateTimeOffset.UtcNow);
+                        plan.UseApi,DateTimeOffset.UtcNow);
                     pending=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId=map.Id,mapName=map.Name,
                         gamePort=permit.Game,queryPort=permit.Query,
-                        rconPort=permit.Rcon,originalTwoPeersVerified=true,
+                        rconPort=permit.Rcon,launchMode=permit.UseApi?"asaApiLoader":"directAsa",
+                        originalTwoPeersVerified=true,
                         conversionAllowed=false,automaticRetryAllowed=false,
                         serverStarted=false,readyCertified=false,
                         gameplayTravelVerified=false,
@@ -142,20 +148,29 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 var current=await Task.Run(()=>prepare(live!));
                 if(current.Fingerprint!=approved.PlanFingerprint||
                    current.GamePort!=approved.Game||current.QueryPort!=approved.Query||
-                   current.RconPort!=approved.Rcon)
+                   current.RconPort!=approved.Rcon||current.UseApi!=approved.UseApi)
                     return Fail(id,"UM-STORE-ACTIVE-ORIGINAL-SOURCE-CHANGED");
                 // Process.Start and journal persistence run on the native
                 // Windows worker. This is an actual ASA process start.
                 var identity=await Task.Run(()=>start(live!.Id,approved.PlanFingerprint,true));
-                if(identity.Pid<=0||identity.StartedUtc==default)
+                string expectedExe=approved.UseApi?live!.ApiLoaderPath:live!.ExecutablePath;
+                if(identity.Pid<=0||identity.StartedUtc==default||
+                   !string.Equals(Path.GetFullPath(identity.ExecutablePath),
+                       Path.GetFullPath(expectedExe),StringComparison.OrdinalIgnoreCase))
                     return Fail(id,"UM-STORE-ACTIVE-PROCESS-UNVERIFIED");
                 return Ok(id,new{
                     mapId=live!.Id,mapName=live.Name,
                     pid=identity.Pid,createdUtc=identity.StartedUtc,
+                    processRole=approved.UseApi?"loaderParent":"asaServer",
+                    launchMode=approved.UseApi?"asaApiLoader":"directAsa",
+                    loaderPid=approved.UseApi?(int?)identity.Pid:null,
+                    serverPid=approved.UseApi?(int?)null:identity.Pid,
                     startRequested=true,readyCertified=false,
                     originalStoreMetadataChanged=false,conversionPerformed=false,
                     gameClientRejoinVerified=false,automaticRetryAllowed=false,
-                    evidence="ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED"
+                    evidence=approved.UseApi?
+                        "ORIGINAL_STORE_V1_LOADER_PARENT_SPAWNED_CHILD_UNVERIFIED":
+                        "ORIGINAL_STORE_V1_REAL_LOCAL_ASA_START_PID_OBSERVED"
                 });
             }
             finally{serial.Release();}
