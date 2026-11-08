@@ -28,6 +28,24 @@ export type LanSaved = {
   evidence:string;
 };
 
+export type NativeScheduleKind = "SaveWorld"|"Restart";
+export type NativeScheduleFrequency = "Interval"|"Daily";
+export type NativeAsaScheduleTask = {
+  mapId:string;kind:NativeScheduleKind;frequency:NativeScheduleFrequency;
+  intervalMinutes:number;minuteOfDay:number;daysMask:number;
+  enabled:boolean;nextDueUtc:string;lastClaimedUtc:string|null;
+  lastStatus:string;lastEvidence:string;
+  evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY";
+};
+export type NativeAsaScheduleStatus={
+  mapId:string;runnerState:string;jobs:NativeAsaScheduleTask[];
+  restartConflicts:string[];protectedStore:boolean;
+  autoUpdateAvailable:false;remoteExecutionAllowed:false;
+};
+export type NativeAsaScheduleSaved={
+  job:NativeAsaScheduleTask;restartConflicts:string[];
+};
+
 export type OperationsMap = {
   mapId:string; mapName:string; running:boolean; confirmedStopped:boolean;
   status:string; pid:number|null; startedUtc:string|null; uptimeSeconds:number|null;
@@ -977,7 +995,8 @@ export type ConfiguredMods = {
 };
 
 type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "operations.snapshot" | "operations.map" |
-  "operations.scheduleCreate" | "operations.scheduleDisable" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
+  "operations.scheduleCreate" | "operations.scheduleDisable" |
+  "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
@@ -1030,7 +1049,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
    confirm?: boolean; jobId?: string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
-  kind?:ReadOnlyScheduleKind;intervalMinutes?:number;
+  kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
+  intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
   gamePort?: number; queryPort?: number; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
@@ -1218,6 +1238,18 @@ export const managerBridge = {
     request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
   pluginToggleApply: (token:string) =>
     request<PluginToggleReceipt>("plugins.toggleApply",{token,confirm:true}),
+  nativeScheduleStatus: (mapId:string) =>
+    request<NativeAsaScheduleStatus>("schedule.nativeStatus",{mapId}),
+  nativeScheduleSet: (mapId:string,kind:NativeScheduleKind,
+      frequency:NativeScheduleFrequency,intervalMinutes:number,
+      minuteOfDay:number,daysMask:number) =>
+    request<NativeAsaScheduleSaved>("schedule.nativeSet",{
+      mapId,kind,frequency,intervalMinutes,minuteOfDay,daysMask,confirm:true
+    }),
+  nativeScheduleDisable: (mapId:string,kind:NativeScheduleKind) =>
+    request<NativeAsaScheduleTask>("schedule.nativeDisable",{
+      mapId,kind,confirm:true
+    }),
   backupScheduleStatus: (mapId:string) =>
     request<ScheduledStoppedBackupState>("backup.scheduleStatus",{mapId}),
   backupScheduleCreate: (mapId:string,intervalMinutes:number) =>

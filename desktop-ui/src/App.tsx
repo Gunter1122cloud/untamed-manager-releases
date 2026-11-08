@@ -43,6 +43,7 @@ import { PluginJsonEditor } from "./PluginJsonEditor";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
+import { NativeMapScheduler } from "./NativeMapScheduler";
 import { LanSettingsPanel } from "./LanSettingsPanel";
 import { ClusterRegistryPanel } from "./ClusterRegistryPanel";
 import { MultiHostBackupPanel } from "./MultiHostBackupPanel";
@@ -1617,7 +1618,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       </div>}
     </>}
     {section==="monitor" && <OperationsCenter selectedMapId={mapId} onOpenMap={()=>setSection("overview")}/>}
-    {section==="scheduler" && <OperationsCenter selectedMapId={mapId} showScheduler onOpenMap={()=>setSection("overview")}/>}
+    {section==="scheduler" && <>
+      <NativeMapScheduler mapId={mapId}/>
+      <OperationsCenter selectedMapId={mapId} showScheduler onOpenMap={()=>setSection("overview")}/>
+    </>}
     {section==="mods" && <Mods snapshot={snapshot} selected={mapId} setSelected={setSelected}/>} 
     {section==="plugins" && <PluginCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}
     {section==="ini" && <IniCenter snapshot={snapshot} selected={mapId} setSelected={setSelected}/>}

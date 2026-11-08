@@ -178,10 +178,11 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
+    const nativeSchedules:Record<string,any[]>={};
     const opsJobId="00000000-0000-4000-8000-000000009988";
     let opsJobCreated=false;
     let opsJobEnabled=false;
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; frequency?:string;minuteOfDay?:number;daysMask?:number; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
       switch (m.method) {
         case "store.inspectArchive": return {
           batch:"b8d0c49f-cc87-42e0-b312-a0485c82f101",
@@ -728,6 +729,49 @@ test.beforeEach(async ({ page }) => {
         case "servers.importLocal":
           state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
           return {mapId:"00000000-0000-4000-8000-000000009998",mapName:"Genesis Part 1",exeRegistered:true,needsConfiguration:true,evidence:"MANAGER_PROFILE_ONLY_NO_ASA_CHANGE"};
+        case "schedule.nativeStatus": {
+          const map=state.local.maps.find(x=>x.id===m.mapId);
+          if(!map)throw new Error("UM-ASA-SCHEDULE-NOT-LOCAL");
+          const jobs=nativeSchedules[m.mapId??""]??[];
+          const reboot=jobs.find(x=>x.kind==="Restart"&&x.enabled);
+          const restartConflicts=!reboot?[]:state.local.maps
+            .filter(x=>x.id!==m.mapId)
+            .flatMap(x=>(nativeSchedules[x.id]??[])
+              .filter(j=>j.kind==="Restart"&&j.enabled&&
+                j.minuteOfDay===reboot.minuteOfDay&&Boolean(j.daysMask&reboot.daysMask))
+              .map(()=>x.name));
+          return {mapId:m.mapId,runnerState:"fixture-no-asareal",jobs,restartConflicts,
+            protectedStore:Boolean(map.storeProtected),autoUpdateAvailable:false,
+            remoteExecutionAllowed:false};
+        }
+        case "schedule.nativeSet": {
+          const map=state.local.maps.find(x=>x.id===m.mapId);
+          if(!map||map.storeProtected||!m.confirm||
+            !["SaveWorld","Restart"].includes(m.kind??"")||
+            !["Interval","Daily"].includes(m.frequency??"")||
+            (m.kind==="Restart"&&m.frequency!=="Daily")||
+            !Number.isInteger(m.minuteOfDay)||m.minuteOfDay!<0||m.minuteOfDay!>1439||
+            !Number.isInteger(m.daysMask)||m.daysMask!<1||m.daysMask!>127)
+            throw new Error("UM-ASA-SCHEDULE-NATIVE-DENIED");
+          const id=m.mapId??"";
+          const jobs=nativeSchedules[id]??[];
+          const next={mapId:id,kind:m.kind,frequency:m.frequency,
+            intervalMinutes:m.intervalMinutes??120,minuteOfDay:m.minuteOfDay,
+            daysMask:m.daysMask,enabled:true,nextDueUtc:"2026-11-09T03:00:00Z",
+            lastClaimedUtc:null,lastStatus:"scheduled",lastEvidence:"",
+            evidence:"DURABLE_NATIVE_LOCAL_SCHEDULE_NO_AUTO_REPLAY"};
+          nativeSchedules[id]=[...jobs.filter(x=>x.kind!==m.kind),next];
+          return {job:next,restartConflicts:[]};
+        }
+        case "schedule.nativeDisable": {
+          if(!m.confirm)throw new Error("UM-ASA-SCHEDULE-APPROVAL");
+          const jobs=nativeSchedules[m.mapId??""]??[];
+          const job=jobs.find(x=>x.kind===m.kind);
+          if(!job)throw new Error("UM-ASA-SCHEDULE-NOT-FOUND");
+          const disabled={...job,enabled:false,lastStatus:"disabled"};
+          nativeSchedules[m.mapId??""]=jobs.map(x=>x.kind===m.kind?disabled:x);
+          return disabled;
+        }
         case "operations.scheduleCreate": {
           if(!m.confirm || !state.local.maps.some(x=>x.id===m.mapId)||
              !["Observation","ModCheck","ApiCheck","SteamCheck"].includes(m.kind??"")||
@@ -1317,11 +1361,11 @@ test("read-only operations scheduler requires approval, shows durable receipt an
   await expect(page.getByText(/Mentve: a helyi, csak olvasó ellenőrzés/)).toBeVisible();
   await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
   await expect(page.getByText("read-only-complete")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Kikapcsolás"})).toBeDisabled();
+  await expect(page.locator(".ops-schedules").getByRole("button",{name:"Kikapcsolás"})).toBeDisabled();
   await page.getByRole("checkbox",{name:/Jóváhagyom a helyi, csak olvasó/}).check();
-  await page.getByRole("button",{name:"Kikapcsolás"}).click();
+  await page.locator(".ops-schedules").getByRole("button",{name:"Kikapcsolás"}).click();
   await expect(page.getByText("Az automatikus helyi ellenőrzés kikapcsolva.")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Kikapcsolás"})).toHaveCount(0);
+  await expect(page.locator(".ops-schedules").getByRole("button",{name:"Kikapcsolás"})).toHaveCount(0);
   await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(2);
   await expect(page.locator(".ops-schedules")).not.toContainText("Szerver automatikus újraindítása");
 });
@@ -1335,6 +1379,26 @@ test("map-only scheduling never exposes another local map's tasks",async({page})
   await expect(page.locator(".ops-schedule-table").first().locator("tbody tr")).toHaveCount(0);
   await expect(page.getByRole("combobox",{name:"Ütemezett ellenőrzés mapja"})).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Ellenőrzés bekapcsolása"})).toBeDisabled();
+});
+
+test("real native per-map SaveWorld and Restart schedule controls require opt-in",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Ütemező"}).click();
+  const panel=page.locator(".native-schedule-panel");
+  await expect(panel.getByText("Maponkénti szerverütemező")).toBeVisible();
+  const save=panel.getByRole("region",{name:"SaveWorld ütemezése"});
+  const restart=panel.getByRole("region",{name:"Újraindítás ütemezése"});
+  await expect(save.getByRole("button",{name:"Ütemezés mentése"})).toBeDisabled();
+  await save.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/}).check();
+  await save.getByRole("button",{name:"Ütemezés mentése"}).click();
+  await expect(save.getByText("Bekapcsolva")).toBeVisible();
+  await expect(restart.getByRole("button",{name:"Ütemezés mentése"})).toBeDisabled();
+  await restart.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/}).check();
+  await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
+  await expect(restart.getByText("Bekapcsolva")).toBeVisible();
+  await expect(panel.getByText(/Automatikus SteamCMD-frissítés még nem engedélyezett/)).toBeVisible();
 });
 
 test("N-host LAN pairing adds, lists and removes peers without exposing keys",async({page})=>{

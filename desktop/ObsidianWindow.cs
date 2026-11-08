@@ -128,6 +128,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopEmbeddedStoreBridge _embeddedStore;
     private readonly DesktopWorldBackupBridge _worldBackup;
     private readonly DesktopScheduledStoppedBackupSupervisor _scheduledBackups;
+    private readonly DesktopScheduledAsaOperationsSupervisor _nativeSchedules;
     private readonly SemaphoreSlim _bridgeGate = new(1, 1);
     private bool _reallyExit;
     private readonly bool _smokeTest;
@@ -178,6 +179,8 @@ public sealed class ObsidianWindow : Form
         _freshStart = new DesktopFreshAsaStartBridge(_bridge.LocalCluster);
         _freshStop = new DesktopFreshAsaStopBridge(_bridge.LocalCluster);
         _freshRestart = new DesktopFreshAsaRestartBridge(_bridge.LocalCluster);
+        _nativeSchedules = new DesktopScheduledAsaOperationsSupervisor(
+            _bridge.LocalCluster,_rcon,_freshRestart);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
         _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster,_readOnlySupervisor);
@@ -222,6 +225,7 @@ public sealed class ObsidianWindow : Form
                 // never starts/stops any ARK server or touches shared Store.
                 _readOnlySupervisor.Start();
                 _scheduledBackups.Start();
+                _nativeSchedules.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
                 catch (Exception) { /* UI remains usable; peer status stays unknown */ }
             }
@@ -240,6 +244,7 @@ public sealed class ObsidianWindow : Form
         {
             _readOnlySupervisor.Dispose();
             _scheduledBackups.Dispose();
+            _nativeSchedules.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
@@ -382,6 +387,7 @@ public sealed class ObsidianWindow : Form
                 bool freshRestartRoute = false;
                 bool lifecycleJournalRoute = false;
                 bool operationsRoute = false;
+                bool nativeScheduleRoute = false;
                 bool lanRoute = false;
                 try
                 {
@@ -410,6 +416,8 @@ public sealed class ObsidianWindow : Form
                         lifecycleJournalRoute = name is "servers.lifecycleJournal";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
                             "operations.scheduleCreate" or "operations.scheduleDisable";
+                        nativeScheduleRoute = name is "schedule.nativeStatus" or
+                            "schedule.nativeSet" or "schedule.nativeDisable";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
@@ -488,6 +496,7 @@ public sealed class ObsidianWindow : Form
                 {
                     string response = apiCoreRoute ? await _apiCore.HandleAsync(incoming)
                         : lanRoute ? await _lan.HandleAsync(incoming)
+                        : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)
                         : operationsRoute ? await _operations.HandleAsync(incoming)
                         : freshRestartRoute ? await _freshRestart.HandleAsync(incoming)
                         : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
