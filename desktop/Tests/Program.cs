@@ -1336,6 +1336,36 @@ try
               status.GetProperty("data").GetProperty("blocker").GetString()=="NONE",
             "new map is confirmed stopped, unconfigured, and exposes no blocker");
 
+        // A valid file at a DIFFERENT local installation is not the
+        // executable belonging to this registered ASA map.
+        string canonicalServer=valguero.ExecutablePath;
+        string unrelatedExe=Path.Combine(root,"unrelated-asa-binary",
+            "ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(unrelatedExe)!);
+        File.WriteAllText(unrelatedExe,"SYNTHETIC OTHER MAP EXE - NEVER EXECUTED");
+        try
+        {
+            valguero.ExecutablePath=unrelatedExe;
+            var wrongRootStatus=await Call(setup.HandleAsync,"servers.initialStatus",
+                new{mapId=valguero.Id});
+            IsOk(wrongRootStatus,"initial setup returns an explicit EXE identity blocker");
+            Check(!wrongRootStatus.GetProperty("data")
+                    .GetProperty("initialSetupAvailable").GetBoolean() &&
+                  wrongRootStatus.GetProperty("data")
+                    .GetProperty("blocker").GetString()=="SERVER_EXECUTABLE_MISSING",
+                "wrong-root existing ASA EXE does not qualify for first map setup");
+            var wrongRootPreview=await Call(setup.HandleAsync,"servers.initialPreview",
+                new{mapId=valguero.Id,sessionName="Wrong Root",
+                    gamePort=testGamePort,queryPort=testQueryPort});
+            Check(IsError(wrongRootPreview,"UM-INITIAL-EXECUTABLE-INVALID") &&
+                  valguero.GamePort==0 && valguero.Arguments=="",
+                "initial preview rejects an unrelated existing EXE without profile mutation");
+        }
+        finally
+        {
+            valguero.ExecutablePath=canonicalServer;
+        }
+
         var bad=await Call(setup.HandleAsync,"servers.initialPreview",
             new{mapId=valguero.Id,sessionName="UK Test",gamePort=testGamePort,queryPort=testGamePort});
         Check(!bad.GetProperty("ok").GetBoolean(),
