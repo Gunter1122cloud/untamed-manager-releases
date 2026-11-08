@@ -677,6 +677,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("SYNTHETIC-POSTCOMMIT-STATUS-UNAVAILABLE");
           }
           return {mapId:m.mapId,mapName:map?.name||"Ismeretlen map",
+            rconPort:m.mapId===second?37085:37015,
             configured:Boolean((map as any)?.rconConfigured),
             permitted:Boolean(map)&&map.gamePort>0&&!map.running&&!(map as any).storeProtected&&!(map as any).rconConfigured,
             evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE"};
@@ -2010,6 +2011,19 @@ test("local map card opens map-specific details, functional tabs, back navigatio
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await expect(page.getByRole("heading",{name:"Szerverek"})).toBeVisible();
   await page.screenshot({path:"test-results/map-detail-navigation-1600.png",fullPage:true});
+});
+
+test("RCON settings use the selected local map port and never retain another map password",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  await expect(page.getByRole("spinbutton",{name:"RCON beállítás port"})).toHaveValue("37015");
+  await page.getByRole("textbox",{name:"RCON beállítás jelszó"}).fill("Synthetic-Island-Only-Password");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  await expect(page.getByRole("spinbutton",{name:"RCON beállítás port"})).toHaveValue("37085");
+  await expect(page.getByRole("textbox",{name:"RCON beállítás jelszó"})).toHaveValue("");
 });
 
 test("historical Store RCON attaches only existing INI with native approval and without any Store write",async({page})=>{
