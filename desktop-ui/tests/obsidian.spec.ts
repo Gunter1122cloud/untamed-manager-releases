@@ -37,6 +37,9 @@ test.beforeEach(async ({ page }) => {
         state.peerMessage="Peer nincs beállítva";
       };
     let freshId = "";
+    let initialBlocked=false;
+    (window as typeof window & {__UNTAMED_INITIAL_BLOCKED__?:(value:boolean)=>void})
+      .__UNTAMED_INITIAL_BLOCKED__=(value:boolean)=>{initialBlocked=value;};
     let keySaved = false;
     let stagedId = "";
     let redoId = "";
@@ -664,7 +667,11 @@ test.beforeEach(async ({ page }) => {
           const map = state.local.maps.find(x=>x.id===m.mapId);
           if(!map)throw new Error("UM-MAP-NOT-OWNED");
           return {mapId:map.id,mapName:map.name,level:"Genesis_WP",
-            initialSetupAvailable:map.gamePort===0,confirmedStopped:!map.running,
+            initialSetupAvailable:map.gamePort===0&&!initialBlocked,
+            confirmedStopped:!map.running&&!initialBlocked,
+            blocker:initialBlocked?"PROCESS_STOP_NOT_VERIFIED":
+              map.gamePort>0?"PROFILE_ALREADY_CONFIGURED_OR_PROTECTED":"NONE",
+            processStatus:initialBlocked?"Synthetic uncertain WMI process observation":"Synthetic stopped",
             hasServerExecutable:true,gamePort:map.gamePort,queryPort:0,
             suggestion:{game:7797,query:27035},
             evidence:"LOCAL_MANAGER_PROFILE_FIRST_SETUP_STATUS"};
@@ -2687,6 +2694,28 @@ test("CurseForge cart survives searches and uses native draft preview before a s
   await expect(cart).toContainText("ASA letöltés és modbetöltés még nincs igazolva");
   await cart.getByRole("button",{name:"Átvitel más helyi mapokra"}).click();
   await expect(page.getByRole("tab",{name:"Másolás több mapra"})).toHaveAttribute("aria-selected","true");
+});
+
+test("first ASA setup can retry an uncertain native process state without skipping safety",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INITIAL_BLOCKED__?:(v:boolean)=>void
+  }).__UNTAMED_INITIAL_BLOCKED__?.(true));
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await expect(page.getByRole("button",{name:"Beállítások ellenőrzése"})).toBeDisabled();
+  await expect(page.getByText(/Igazolt leállítás: nem/)).toBeVisible();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INITIAL_BLOCKED__?:(v:boolean)=>void
+  }).__UNTAMED_INITIAL_BLOCKED__?.(false));
+  await page.getByRole("button",{name:"Első beállítások állapotának újraellenőrzése"}).click();
+  await expect(page.getByRole("button",{name:"Beállítások ellenőrzése"})).toBeEnabled();
+  await expect(page.getByText(/Igazolt leállítás: igen/)).toBeVisible();
 });
 
 test("N-host profile and local copy select-all are limited to local eligible maps",async({page})=>{
