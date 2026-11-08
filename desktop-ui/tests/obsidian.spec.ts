@@ -2044,6 +2044,28 @@ test("map-owned Mod Center retains its source map and uses existing native multi
   await expect(page.getByRole("region",{name:"Többmapos modmásolás előnézete"}).getByRole("button",{name:"Jóváhagyás és mentés"})).toBeDisabled();
 });
 
+test("map detail INI and Logs remain bound to their own map while global selectors remain available",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"INI",exact:true}).click();
+  await expect(page.getByLabel("INI forrásmapja")).toHaveText("The Island");
+  await expect(page.getByRole("combobox",{name:"INI mapja"})).toHaveCount(0);
+  await page.getByRole("tab",{name:"Naplók",exact:true}).click();
+  await expect(page.getByLabel("Napló forrásmapja")).toHaveText("The Island");
+  await expect(page.getByRole("combobox",{name:"Napló mapja"})).toHaveCount(0);
+  await expect(page.getByRole("heading",{name:"The Island",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"INI",exact:true}).click();
+  await expect(page.getByLabel("INI forrásmapja")).toHaveText("Astraeos");
+  await page.getByRole("tab",{name:"Naplók",exact:true}).click();
+  await expect(page.getByLabel("Napló forrásmapja")).toHaveText("Astraeos");
+  await page.getByLabel("Fő navigáció").getByRole("button",{name:"INI szerkesztő"}).click();
+  await expect(page.getByRole("combobox",{name:"INI mapja"})).toBeVisible();
+  await page.getByLabel("Fő navigáció").getByRole("button",{name:"Naplók"}).click();
+  await expect(page.getByRole("combobox",{name:"Napló mapja"})).toBeVisible();
+});
+
 test("local map card opens map-specific details, functional tabs, back navigation and blocks RCON", async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
