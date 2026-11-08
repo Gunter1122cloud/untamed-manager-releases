@@ -137,7 +137,12 @@ function HostCard({ host, local = false }: {
     <span className="host-count">{running}/{host.maps.length} fut</span>
   </div>;
 }
-function CurseForgeExplorer({ onPrepare }: { onPrepare?: (id: string) => void }) {
+type CatalogCartRow={id:string;name:string;mode:"active"|"passive"|"disabled"};
+function CurseForgeExplorer({onPrepare,mapId,mapName,onBatchSaved,onCopyToMaps}:{
+  onPrepare?:(id:string)=>void;
+  mapId?:string;mapName?:string;onBatchSaved?:(saved:ModDraftSave)=>void;
+  onCopyToMaps?:()=>void;
+}) {
   const [term, setTerm] = useState("");
   const [categoryId, setCategoryId] = useState(0);
   const [sort, setSort] = useState(3);
@@ -156,6 +161,81 @@ function CurseForgeExplorer({ onPrepare }: { onPrepare?: (id: string) => void })
   const [filesBusy, setFilesBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [detailNotice, setDetailNotice] = useState("");
+  const [cart,setCart]=useState<CatalogCartRow[]>([]);
+  const [batchPreview,setBatchPreview]=useState<ModDraftState|null>(null);
+  const [batchApproved,setBatchApproved]=useState(false);
+  const [batchBusy,setBatchBusy]=useState(false);
+  const [batchError,setBatchError]=useState("");
+  const [batchNotice,setBatchNotice]=useState("");
+  useEffect(()=>{
+    setCart([]);setBatchPreview(null);setBatchApproved(false);
+    setBatchError("");setBatchNotice("");
+  },[mapId]);
+  const addToCart=()=>{
+    const mod=details?.mod ?? selectedBasicForCart();
+    if(!mod || !/^\\d{5,12}$/.test(String(mod.id)) || batchPreview)return;
+    setCart(old=>old.some(x=>x.id===String(mod.id))?old:
+      [...old,{id:String(mod.id),name:mod.name,mode:"active"}]);
+    setBatchError("");setBatchNotice("");
+  };
+  function selectedBasicForCart(){
+    return result?.mods.find(m=>m.id===selected) ??
+      featured?.featured.find(m=>m.id===selected) ??
+      featured?.popular.find(m=>m.id===selected) ??
+      featured?.recentlyUpdated.find(m=>m.id===selected);
+  }
+  const changeCart=(id:string,update:(row:CatalogCartRow)=>CatalogCartRow)=>{
+    if(batchPreview)return;
+    setCart(old=>old.map(x=>x.id===id?update(x):x));
+  };
+  const moveCart=(index:number,delta:number)=>{
+    if(batchPreview)return;
+    setCart(old=>{
+      const destination=index+delta;
+      if(index<0||destination<0||destination>=old.length)return old;
+      const next=[...old];
+      [next[index],next[destination]]=[next[destination],next[index]];
+      return next;
+    });
+  };
+  const prepareCart=async()=>{
+    if(!mapId||!cart.length||batchBusy||batchPreview)return;
+    setBatchBusy(true);setBatchError("");setBatchNotice("");
+    let draftId="";
+    try{
+      let draft=await managerBridge.startModDraft(mapId);
+      draftId=draft.draftId;
+      for(const row of cart){
+        draft=await managerBridge.stageModDraft(draftId,row.id,row.mode);
+      }
+      setBatchPreview(draft);setBatchApproved(false);
+      if(!draft.dirty)setBatchNotice("Minden kijelölt mod már ebben az állapotban szerepel a map konfigurációjában.");
+    }catch{
+      if(draftId)try{await managerBridge.discardModDraft(draftId);}catch{/* In-memory draft expires; no write. */}
+      setBatchError("A többmodos előnézetet a natív Manager elutasította. Nem történt konfigurációmentés.");
+    }finally{setBatchBusy(false);}
+  };
+  const discardCartPreview=async()=>{
+    const draft=batchPreview;
+    if(!draft||batchBusy)return;
+    setBatchBusy(true);setBatchError("");
+    try{await managerBridge.discardModDraft(draft.draftId);}
+    catch{setBatchError("A piszkozat lejárt; a konfiguráció változatlan. Friss előnézet szükséges.");}
+    finally{setBatchPreview(null);setBatchApproved(false);setBatchBusy(false);}
+  };
+  const saveCart=async()=>{
+    if(!batchPreview?.dirty||!batchApproved||batchBusy)return;
+    setBatchBusy(true);setBatchError("");setBatchNotice("");
+    try{
+      const saved=await managerBridge.saveModDraft(batchPreview.draftId);
+      setBatchPreview(null);setBatchApproved(false);setCart([]);
+      setBatchNotice("A modlista mentve a helyi map indítási konfigurációjába. Az ASA letöltés és modbetöltés még nincs igazolva.");
+      onBatchSaved?.(saved);
+    }catch{
+      setBatchPreview(null);setBatchApproved(false);
+      setBatchError("A modlista nem menthető: változott a map állapota vagy a konfiguráció. Ellenőrizd a natív naplót; új előnézet kell.");
+    }finally{setBatchBusy(false);}
+  };
 
   useEffect(() => {
     let active = true;
@@ -333,7 +413,9 @@ function CurseForgeExplorer({ onPrepare }: { onPrepare?: (id: string) => void })
               onClick={() => { void loadMore(); }}>{filesBusy?"Betöltés...":"További fájlverziók"}</button>}
           </> : selectedBasic && <p className="muted">{selectedBasic.summary}</p>}
           <div className="cf-project-actions">
-            {onPrepare && <button className="primary" disabled={projectBusy} onClick={()=>onPrepare(String(selected))}>
+            {mapId && <button className="primary" disabled={projectBusy||batchBusy||Boolean(batchPreview)||selected===null||cart.some(x=>x.id===String(selected))}
+              onClick={addToCart}><Plus size={16}/> {cart.some(x=>x.id===String(selected))?"Már a kosárban":"Hozzáadás a modkosárhoz"}</button>}
+            {onPrepare && <button className="secondary" disabled={projectBusy} onClick={()=>onPrepare(String(selected))}>
               <Layers3 size={16}/> Projekt ID előkészítése a modpiszkozatban</button>}
           </div>
           <div className="warning-inline"><Shield size={17}/>
@@ -341,6 +423,53 @@ function CurseForgeExplorer({ onPrepare }: { onPrepare?: (id: string) => void })
         </>}
       </div>
     </div>
+    {mapId&&<section className="premium-panel" aria-label="CurseForge többmodos kosár"
+      style={{marginTop:16,padding:18}}>
+      <header className="premium-panel-heading"><h3><Layers3 size={18}/> {mapName||"Helyi map"} · modkosár ({cart.length})</h3></header>
+      <p className="muted small">A kijelölések megmaradnak keresés és lapozás közben. Előbb teljes natív piszkozat-előnézet, utána külön jóváhagyott mentés. Nincs automatikus modtelepítés.</p>
+      {cart.length===0&&<p className="muted">Jelölj ki modokat a CurseForge katalógusból.</p>}
+      {cart.map((item,i)=><div className="details-line" key={item.id}>
+        <span><b>{i+1}. {item.name}</b> <small>#{item.id}</small></span>
+        <label><span className="sr-only">{item.name} modállapot</span>
+          <select aria-label={item.id+" kosár célállapot"} value={item.mode} disabled={!!batchPreview||batchBusy}
+            onChange={e=>changeCart(item.id,x=>({...x,mode:e.target.value as CatalogCartRow["mode"]}))}>
+            <option value="active">Aktív</option><option value="passive">Passzív</option>
+            <option value="disabled">Letiltva</option>
+          </select>
+        </label>
+        <button type="button" className="quiet" disabled={!!batchPreview||batchBusy||i===0}
+          aria-label={item.id+" feljebb"} onClick={()=>moveCart(i,-1)}>↑</button>
+        <button type="button" className="quiet" disabled={!!batchPreview||batchBusy||i===cart.length-1}
+          aria-label={item.id+" lejjebb"} onClick={()=>moveCart(i,1)}>↓</button>
+        <button type="button" className="quiet" disabled={!!batchPreview||batchBusy}
+          aria-label={item.id+" eltávolítása a kosárból"}
+          onClick={()=>setCart(old=>old.filter(x=>x.id!==item.id))}>Eltávolítás</button>
+      </div>)}
+      {!batchPreview&&<button type="button" className="primary" disabled={!cart.length||batchBusy}
+        onClick={()=>{void prepareCart();}}>Teljes modlista ellenőrzése</button>}
+      {batchPreview&&<div role="region" aria-label="Többmodos natív előnézet">
+        <h3>Natív változás-előnézet ({batchPreview.differences.length})</h3>
+        {batchPreview.differences.length===0?<p>Nincs mentendő változás.</p>:
+          batchPreview.differences.map(x=><div className="details-line" key={x.modId}>
+            <span>{x.modId}</span>
+            <b>{x.beforeMode??"Nincs"} → {x.afterMode??"Törölve"} #{x.afterPosition??"—"}</b>
+          </div>)}
+        <label><input type="checkbox" checked={batchApproved} disabled={batchBusy||!batchPreview.dirty}
+          onChange={e=>setBatchApproved(e.target.checked)}/>
+          Jóváhagyom a kijelölt helyi map konfigurációjának egyszeri mentését.
+        </label>
+        <button type="button" className="primary" disabled={!batchApproved||batchBusy||!batchPreview.dirty}
+          onClick={()=>{void saveCart();}}>Modlista mentése</button>
+        <button type="button" className="secondary" disabled={batchBusy}
+          onClick={()=>{void discardCartPreview();}}>Előnézet elvetése</button>
+      </div>}
+      {batchNotice&&<div role="status" className="success-inline">
+        <CheckCircle2 size={16}/>{batchNotice}
+        {onCopyToMaps&&<button type="button" className="secondary" onClick={onCopyToMaps}>Átvitel más helyi mapokra</button>}
+      </div>}
+      {batchError&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{batchError}</div>}
+      <p className="muted small"><Shield size={14}/> Kijelölve ≠ konfigurálva ≠ ASA által letöltve/betöltve. Távoli mapot kizárólag a saját Managere írhat.</p>
+    </section>}
   </Panel>;
 }
 function Dashboard({ snapshot, onPage, onSelect, onInstall }: {
@@ -782,7 +911,16 @@ function Mods({ snapshot, selected, setSelected }: {
     <div id="curseforge-catalog" className={workspaceTab==="galaxy"?
       "premium-catalog-area premium-tab-surface":"premium-catalog-area premium-tab-surface is-hidden"}
       aria-hidden={workspaceTab!=="galaxy"}>
-      <CurseForgeExplorer onPrepare={id=>prepare(id,"active")}/>
+      <CurseForgeExplorer mapId={selected} mapName={currentName}
+        onPrepare={id=>prepare(id,"active")}
+        onCopyToMaps={()=>setWorkspaceTab("copy")}
+        onBatchSaved={saved=>{
+          setInventoryRevision(n=>n+1);
+          setDraftChanges(0);
+          setSavedNotice("A CurseForge-kosár modlistája mentve. Az ASA betöltés külön igazolandó.");
+          setInfo(current=>current?{...current,pending:saved.pending,
+            active:saved.active,passive:saved.passive,disabled:saved.disabled}:current);
+        }}/>
     </div>
   </div>;
 }
