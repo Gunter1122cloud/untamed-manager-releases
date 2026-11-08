@@ -4921,6 +4921,62 @@ try
                   historic.Config.LocalMaps.Single().LastProcess==null,
                 "synthetic Start never changes original launch profile or Store source files");
         }
+        // The API option must still use the exact original Store source
+        // argument grammar. Its Process.Start receipt is ONLY the Loader
+        // parent, never a fabricated ASA child PID or runtime-ready status.
+        storeMap.StartWithAsaApi=true;
+        storeMap.ApiLoaderPath=otherLoader;
+        int apiLaunches=0;
+        using(var loaderBridge=new DesktopHistoricalActiveStartBridge(historic,
+            preparation:original=>{
+                Check(original.StartWithAsaApi&&original.Arguments==""&&
+                      original.ApiLoaderArguments=="",
+                    "historical API opt-in never persists Store/UNC launch arguments");
+                return new LegacyStoreV1NativeStartPlan(
+                    "Ragnarok_WP?listen -Port=7787 -usestore -log",
+                    new string('D',64),7787,27017,37025,
+                    "SYNTHETIC_API_PARENT_ONLY",true);
+            },
+            launcher:(mapId,fingerprint,approved)=>{
+                apiLaunches++;
+                Check(mapId==storeMap.Id&&approved&&
+                      fingerprint==new string('D',64),
+                    "only the locally owned explicitly approved API map reaches its launcher");
+                return new ProcessIdentity{
+                    Pid=52703,StartedUtc=DateTimeOffset.UtcNow,
+                    ExecutablePath=otherLoader,
+                    Arguments="SYNTHETIC_LOADER_PARENT_ONLY"
+                };
+            }))
+        {
+            var apiPreview=await Call(loaderBridge.HandleAsync,
+                "historical.activeStartPreview",new{mapId=storeMap.Id});
+            IsOk(apiPreview,"original Store API Loader opt-in native preview");
+            Check(apiPreview.GetProperty("data").GetProperty("launchMode").GetString()
+                    =="asaApiLoader"&&apiLaunches==0,
+                "API Loader preview is explicit and does not start an ASA process");
+            string approval=apiPreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            var apiStarted=await Call(loaderBridge.HandleAsync,
+                "historical.activeStartApply",
+                new{token=approval,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
+            IsOk(apiStarted,"original Store API Loader executes only after native approval");
+            var apiReceipt=apiStarted.GetProperty("data");
+            Check(apiLaunches==1&&
+                  apiReceipt.GetProperty("processRole").GetString()=="loaderParent"&&
+                  apiReceipt.GetProperty("loaderPid").GetInt32()==52703&&
+                  apiReceipt.GetProperty("serverPid").ValueKind==JsonValueKind.Null&&
+                  !apiReceipt.GetProperty("readyCertified").GetBoolean()&&
+                  !apiReceipt.GetProperty("gameClientRejoinVerified").GetBoolean(),
+                "Loader parent PID is never mistaken for a running ASA child or readiness");
+            var duplicate=await Call(loaderBridge.HandleAsync,
+                "historical.activeStartApply",
+                new{token=approval,confirm=true,typedApproval="STORE-V1 ACTIVE START"});
+            Check(!duplicate.GetProperty("ok").GetBoolean()&&apiLaunches==1,
+                "API loader original Store spawn remains one-shot across a repeated request");
+        }
+        storeMap.StartWithAsaApi=false;
+        storeMap.ApiLoaderPath="";
     }
 
     // Actual original Store-v1 RCON channel is distinct from fresh ASA
