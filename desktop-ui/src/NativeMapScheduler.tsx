@@ -8,6 +8,17 @@ const days=[
   {name:"V",key:0},{name:"H",key:1},{name:"K",key:2},{name:"Sze",key:3},
   {name:"Cs",key:4},{name:"P",key:5},{name:"Szo",key:6}
 ];
+const displayEventStatus:Record<string,string>={
+  "executed-no-fsync-or-client-certification":"A natív művelet lefutott (játékbeli igazolás nélkül)",
+  "failed-needs-operator-no-retry":"Sikertelen – kézi ellenőrzés szükséges",
+  "interrupted-needs-operator":"Megszakadt – nincs automatikus újrapróbálás",
+  "config-or-store-blocked":"Konfiguráció vagy Store-védelem miatt kihagyva",
+  "claimed-no-auto-retry":"Végrehajtás lefoglalva – még nincs eredmény",
+  "missed-no-catchup":"Kimaradt időpont – nincs utólagos végrehajtás",
+  "manager-start-skipped-no-replay":"Manager újraindításakor kihagyva"
+};
+function eventStatus(raw:string){return displayEventStatus[raw]??raw;}
+
 function localDate(value:string|null|undefined){
   if(!value)return "Nem ellenőrizhető";
   const date=new Date(value);
@@ -153,6 +164,21 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
       <ScheduleEditor key={mapId+"-save"} mapId={mapId} kind="SaveWorld" status={status} onChanged={reload}/>
       <ScheduleEditor key={mapId+"-restart"} mapId={mapId} kind="Restart" status={status} onChanged={reload}/>
     </div>}
+    {status&&<section className="native-schedule-history" aria-label="Végrehajtási napló">
+      <details>
+        <summary>Végrehajtási napló ({status.history.length} bejegyzés)</summary>
+        <p className="muted small">A legutóbbi 100 maponkénti esemény. A natív napló a Manager újraindítása után is megmarad. A kimaradt feladatokat nem pótolja automatikusan.</p>
+        {status.history.length===0?<p className="muted">Még nincs végrehajtási esemény ezen a mapon.</p>:
+          <div className="native-schedule-history-list">
+            {status.history.map(entry=><article key={entry.runId} className="native-schedule-history-event">
+              <strong>{entry.kind==="SaveWorld"?"SaveWorld":"Újraindítás"} · {eventStatus(entry.status)}</strong>
+              <span>Tervezett: {localDate(entry.scheduledUtc)} · Észlelt: {localDate(entry.claimedUtc)}</span>
+              <span>Lezárva: {localDate(entry.finishedUtc)} · Azonosító: {entry.runId.slice(0,8)}</span>
+              {entry.evidence&&<small>Natív igazolás: {entry.evidence}</small>}
+            </article>)}
+          </div>}
+      </details>
+    </section>}
     {status&&<p className="native-schedule-foot">
       Ütemezőmotor: {status.runnerState}. Az újraindítás Windows PID-je igazolható,
       de az ASA játékbeli visszacsatlakozás és az operációs rendszer szintű fájlflush külön teszt.
