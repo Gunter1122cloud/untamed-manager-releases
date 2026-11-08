@@ -62,8 +62,10 @@ export function InitialMapSetup({mapId,onConfigured}: {
       setPreview(result);
     }catch(e){
       const code=e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED";
-      setError("A Manager nem fogadta el az indítási paramétereket ("+code+
-        "). Lehetséges helyi portütközés, futó map vagy módosult konfiguráció.");
+      setError(code==="UM-INITIAL-EXECUTABLE-INVALID"
+        ? "A regisztrált ASA EXE nem igazolható a map saját telepítési gyökerében. Az első konfiguráció nem lett mentve."
+        : "A Manager nem fogadta el az indítási paramétereket ("+code+
+          "). Lehetséges helyi portütközés, futó map vagy módosult konfiguráció.");
     }finally{setBusy(false);}
   };
   const apply=async()=>{
@@ -94,7 +96,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
   const blockerMessage=status?.blocker==="PROCESS_STOP_NOT_VERIFIED" ?
     "A Windows nem igazolta, hogy a szerver leállt. Ellenőrizd a folyamatokat és a Manager naplóját; a védelmet nem kerüljük meg." :
     status?.blocker==="PROCESS_RUNNING" ? "A Windows szerint a szerverfolyamat fut. Első konfiguráció nem engedélyezett." :
-    status?.blocker==="SERVER_EXECUTABLE_MISSING" ? "A regisztrált ASA executable hiányzik. Ellenőrizd a telepítési gyökeret." :
+    status?.blocker==="SERVER_EXECUTABLE_MISSING" ? "Az ASA EXE hiányzik, másik telepítéshez tartozik, vagy nem biztonságos helyi útvonalon van. Ellenőrizd a map regisztrált telepítési gyökerét." :
     status?.blocker==="MAP_LEVEL_UNRECOGNIZED" ? "A map neve nem párosítható ismert ASA pályával." :
     "A profil már konfigurált, vagy történeti Store-v1 védelem alatt áll.";
   return <section className="glass panel initial-map-setup">
