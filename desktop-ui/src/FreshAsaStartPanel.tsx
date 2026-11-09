@@ -53,8 +53,11 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
     try{
       const receipt=await managerBridge.freshAsaStartApply(token);
-      const summary=receipt.mapName+" · ASA indítás elindítva, PID: "+receipt.pid+
-        ". A folyamatindítás még nem bizonyítja a játék és az RCON készenlétét.";
+      const summary=receipt.processRole==="loaderParent"?
+        receipt.mapName+" · ASA API Loader szülőfolyamat indítva, PID: "+
+          receipt.loaderPid+". Az ASA gyermekfolyamat és RCON még nem igazolt.":
+        receipt.mapName+" · ASA szerverfolyamat indítva, PID: "+receipt.serverPid+
+          ". A folyamatindítás nem bizonyítja a játék és az RCON készenlétét.";
       recentStartReceipts.set(mapId,summary);
       setMessage(summary);
       try{await onStarted();}catch{/* Process receipt remains visible even if dashboard refresh fails. */}
@@ -73,7 +76,8 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     <p>Valódi Windows ASA-indítás a meglévő C# Managerből. Kizárólag az újonnan telepített, helyi, konfigurált szerverhez, külön megerősítéssel. A történeti Store-v1 mapok külön átvételi folyamatot igényelnek.</p>
     {observed&&<div role="status" className="details-line">
       <span>Windows folyamat</span>
-      <b>{observed.running?"Fut · PID "+(observed.pid??"?"):
+      <b>{observed.running?"ASA fut · PID "+(observed.serverPid??observed.pid??"?"):
+        observed.loaderPid?"Loader PID "+observed.loaderPid+" · ASA gyermek nem igazolt":
         observed.confirmedStopped?"Igazoltan leállítva":"Nem igazolt állapot"}</b>
     </div>}
     <button type="button" className="secondary" disabled={busy||journalBlocked||Boolean(observed?.running)}
@@ -95,6 +99,10 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
         <b>{preview.gamePort} / {preview.queryPort}</b></div>
       <div className="details-line"><span>RCON konfigurálva</span>
         <b>{preview.rconConfigured?"Igen":"Nem"}</b></div>
+      <div className="details-line"><span>Választott folyamat</span>
+        <b>{preview.launchMode==="asaApiLoader"?
+          "ASA API Loader szülőfolyamat – gyermek PID külön ellenőrzendő":
+          "Közvetlen ArkAscendedServer"}</b></div>
       <label className="historical-approval"><input type="checkbox"
         checked={approved} disabled={busy}
         onChange={e=>setApproved(e.target.checked)}/>
