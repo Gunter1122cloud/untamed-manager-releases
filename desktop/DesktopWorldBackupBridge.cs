@@ -187,8 +187,10 @@ public sealed class DesktopWorldBackupBridge
     // map transition rechecks the exact original four-file/launch identity.
     // If the Manager exits, already completed points remain in its existing
     // archive history; an interrupted batch is never called successful.
-    private void RunOriginalBatch(OriginalBatchJob job,OriginalBatchTicket ticket)
+    private void RunOriginalBatch(OriginalBatchJob job,OriginalBatchTicket ticket,
+        FileStream processLease)
     {
+        using var ownedLease=processLease;
         try
         {
             for(int index=0;index<ticket.MapIds.Length;index++)
@@ -314,6 +316,8 @@ public sealed class DesktopWorldBackupBridge
                        source.FourFilesSha256!=approved.FourSha||
                        source.LaunchProfileSha256!=approved.LaunchSha)
                         return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-REPAIR-SOURCE-CHANGED");
+                    using var lease=OriginalStoreFiveBatchJournal.AcquireBatchLease(
+                        cluster.Store.Root);
                     OriginalStoreFiveBatchJournal.QuarantineInvalid(
                         cluster.Store.Root,approved.JournalSha);
                     originalBatchJournalInvalid=false;
@@ -397,25 +401,35 @@ public sealed class DesktopWorldBackupBridge
                     // Return a real tracked job immediately: a multi-GB
                     // five-map copy must not monopolize the entire Manager
                     // WebView bridge for up to 60 minutes.
+                    // FileShare.None is an OS-wide exclusive lease. A second
+                    // Manager process cannot start an interleaving five-map
+                    // backup while another holds the same local profile.
+                    var lease=OriginalStoreFiveBatchJournal.AcquireBatchLease(
+                        cluster.Store.Root);
                     OriginalBatchJob job;
-                    lock(originalBatchSync)
+                    try
                     {
-                        if(originalBatchJournalInvalid)
-                            return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOURNAL-INVALID");
-                        if(originalBatchJob?.State is "queued" or "running")
-                            return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-BUSY");
-                        // Preserve a prior interrupted (or completed) journal
-                        // before the operator launches a separately approved
-                        // five-map batch. Existing Core packages remain intact.
-                        OriginalStoreFiveBatchJournal.ArchivePrevious(cluster.Store.Root);
-                        job=new OriginalBatchJob{
-                            FourFilesSha=approved.FourFilesSha,
-                            LaunchProfileSha=approved.LaunchProfileSha
-                        };
-                        PublishOriginalBatch(job); // durable QUEUED before worker
-                        originalBatchJob=job;
+                        lock(originalBatchSync)
+                        {
+                            if(originalBatchJournalInvalid)
+                                return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOURNAL-INVALID");
+                            if(originalBatchJob?.State is "queued" or "running")
+                                return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-BUSY");
+                            OriginalStoreFiveBatchJournal.ArchivePrevious(cluster.Store.Root);
+                            job=new OriginalBatchJob{
+                                FourFilesSha=approved.FourFilesSha,
+                                LaunchProfileSha=approved.LaunchProfileSha
+                            };
+                            PublishOriginalBatch(job); // durable QUEUED before worker
+                            originalBatchJob=job;
+                        }
+                        _=Task.Run(()=>RunOriginalBatch(job,approved,lease));
                     }
-                    _=Task.Run(()=>RunOriginalBatch(job,approved));
+                    catch
+                    {
+                        lease.Dispose();
+                        throw;
+                    }
                     return Ok(id,new{
                         jobId=job.Id,started=true,localMaps=5,
                         originalKovaFilesWritten=false,serverStarted=false,
