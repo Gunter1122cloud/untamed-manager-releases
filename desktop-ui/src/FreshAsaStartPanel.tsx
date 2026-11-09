@@ -56,7 +56,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       const summary=receipt.processRole==="loaderParent"?
         receipt.mapName+" · ASA API Loader szülőfolyamat indítva, PID: "+
           receipt.loaderPid+". Az ASA gyermekfolyamat és RCON még nem igazolt.":
-        receipt.mapName+" · ASA szerverfolyamat indítva, PID: "+receipt.serverPid+
+        receipt.mapName+" · ASA szerverfolyamat indítva, PID: "+(receipt.serverPid??receipt.pid)+
           ". A folyamatindítás nem bizonyítja a játék és az RCON készenlétét.";
       recentStartReceipts.set(mapId,summary);
       setMessage(summary);
