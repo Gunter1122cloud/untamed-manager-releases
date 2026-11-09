@@ -2800,7 +2800,10 @@ test("Store-v1 SaveWorld reattaches to exactly the original native job without r
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_RELEASE__?:()=>void;
   }).__UNTAMED_ORIGINAL_SAVE_RELEASE__?.());
-  await expect(save.getByText(/SaveWorld befejezés/)).toBeVisible();
+  await expect(save.getByText(/Helyi SaveComplete napló tartósan igazolt/)).toBeVisible();
+  await expect(save.getByTestId("store-durable-save-evidence"))
+    .toContainText("Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve");
+  await expect(save).toContainText("Production restore továbbra is tiltott.");
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
