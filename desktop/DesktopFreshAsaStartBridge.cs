@@ -22,6 +22,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         DateTimeOffset CreatedUtc);
     private readonly ClusterService cluster;
     private readonly Func<Guid,bool,ProcessIdentity> launch;
+    private readonly bool nativeLauncher;
+    private readonly CancellationTokenSource closing=new();
     private readonly SemaphoreSlim gate=new(1,1);
     private Approval? pending;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -30,6 +32,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         Func<Guid,bool,ProcessIdentity>? starter=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
+        nativeLauncher=starter==null;
         launch=starter??((mapId,approved)=>cluster.LaunchFreshAsa(mapId,approved));
     }
 
@@ -87,6 +90,48 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
             map.Maintenance,state.ConfirmedStopped,state.Running,
             verifiedFreshInstall:true,explicitOperatorApproval:true).Allowed &&
             state.Identity==null&&state.LoaderIdentity==null;
+    }
+
+    // Dashboard reads NEVER persist process identity. Only an explicitly
+    // approved native Start may initiate this bounded, non-mutating OS poll.
+    // Persist the pair once the exact Loader parent, ASA child and child's
+    // owned RCON listener are jointly observed. No second Start is attempted.
+    private void ObserveApprovedFreshStoreApiPair(Guid mapId,ProcessIdentity loader)
+    {
+        if(!nativeLauncher)return; // injected synthetic launchers never poll
+        _=Task.Run(async()=>{
+            try
+            {
+                var until=DateTimeOffset.UtcNow.AddMinutes(3);
+                while(!closing.IsCancellationRequested&&DateTimeOffset.UtcNow<until)
+                {
+                    var map=Owned(mapId);
+                    if(map==null||map.HistoricalStoreProtected||
+                       !map.StartWithAsaApi||
+                       !FreshStoreEnrollmentPolicy.IsEnrolled(map))
+                        return;
+                    FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+                    var observed=cluster.ObserveLocalProcessesReadOnly(map);
+                    if(observed.Running&&!observed.ConfirmedStopped&&
+                       observed.Identity is {Pid:>0} child&&
+                       observed.LoaderIdentity is {Pid:>0} parent&&
+                       parent.Pid==loader.Pid&&
+                       parent.StartedUtc==loader.StartedUtc&&
+                       !string.Equals(parent.ExecutablePath,child.ExecutablePath,
+                           StringComparison.OrdinalIgnoreCase)&&
+                       RconPortOwnership.IsOwnedListener(map.RconPort,child.Pid))
+                    {
+                        cluster.RecordObservedIdentity(mapId,observed);
+                        return;
+                    }
+                    await Task.Delay(850,closing.Token);
+                }
+            }
+            catch(Exception)
+            {
+                // No fabricated pair, no automatic restart or Store writes.
+            }
+        },closing.Token);
     }
 
     public async Task<string> HandleAsync(string raw)
@@ -218,6 +263,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                 var identity=launch(current.Id,true);
                 if(identity.Pid<=0 || identity.StartedUtc==default)
                     return Error(id,"UM-FRESH-START-UNVERIFIED-PROCESS");
+                if(permit.UseApi&&FreshStoreEnrollmentPolicy.IsEnrolled(current))
+                    ObserveApprovedFreshStoreApiPair(current.Id,identity);
                 return Ok(id,new{
                     mapId=current.Id,mapName=current.Name,pid=identity.Pid,
                     createdUtc=identity.StartedUtc,
@@ -243,5 +290,10 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         JsonSerializer.Serialize(new{id,ok=true,data},Json);
     private static string Error(string? id,string message)=>
         JsonSerializer.Serialize(new{id,ok=false,error=message},Json);
-    public void Dispose()=>gate.Dispose();
+    public void Dispose()
+    {
+        closing.Cancel();
+        closing.Dispose();
+        gate.Dispose();
+    }
 }
