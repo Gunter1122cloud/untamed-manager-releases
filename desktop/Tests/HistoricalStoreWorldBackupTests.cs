@@ -57,7 +57,7 @@ internal static class HistoricalStoreWorldBackupTests
         string oldLoose=Path.Combine(layout.WorldDirectory,
             "synthetic-old.arkprofile");
         File.WriteAllBytes(oldLoose,Array.Empty<byte>());
-        using var bridge=new DesktopWorldBackupBridge(cluster);
+        var bridge=new DesktopWorldBackupBridge(cluster);
         var refused=await Call(bridge,"backup.preview",new{mapId=map.Id});
         Check(!refused.GetProperty("ok").GetBoolean(),
             "uncertain original ASA process cannot authorize a Store map backup");
