@@ -77,7 +77,9 @@ public sealed class DesktopRconAdminBridge
         if(map.HistoricalStoreProtected||map.Maintenance)
             throw new InvalidOperationException("UM-RCON-MAP-PROTECTED");
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
-        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
+        if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
+            FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+        else if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
             throw new InvalidOperationException("UM-RCON-MAP-PROTECTED");
         if(map.RconHost!="127.0.0.1"||map.RconPort is <1 or >65535||
            string.IsNullOrWhiteSpace(map.RconPasswordProtected))
