@@ -57,7 +57,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
         receipt.mapName+" · ASA API Loader szülőfolyamat indítva, PID: "+
           receipt.loaderPid+". Az ASA gyermekfolyamat és RCON még nem igazolt.":
         receipt.mapName+" · ASA szerverfolyamat indítva, PID: "+(receipt.serverPid??receipt.pid)+
-          ". A folyamatindítás nem bizonyítja a játék és az RCON készenlétét.";
+          ". A folyamatindítás még nem bizonyítja a játék és az RCON készenlétét.";
       recentStartReceipts.set(mapId,summary);
       setMessage(summary);
       try{await onStarted();}catch{/* Process receipt remains visible even if dashboard refresh fails. */}
