@@ -33,6 +33,9 @@ public static class LegacyStoreV1LocalReader
         public string SessionTag {get;init;}="";
         public string SharedPathTag {get;init;}="";
         public string DeviceTag {get;init;}="";
+        // Complete four-file byte identity, including original map members,
+        // ordered selection and backup IDs; never expose the source bytes.
+        public string OriginalFourFilesTag {get;init;}="";
     }
     private static string Tag(string input)=>Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(input.Trim().ToLowerInvariant())));
@@ -117,7 +120,11 @@ public static class LegacyStoreV1LocalReader
         {
             SessionTag=Tag(session.ToString("D")),
             SharedPathTag=Tag(Text(cluster,"path").Replace('/','\\').TrimEnd('\\')),
-            DeviceTag=Tag(Text(device,"id"))
+            DeviceTag=Tag(Text(device,"id")),
+            OriginalFourFilesTag=Convert.ToHexString(SHA256.HashData(
+                Encoding.ASCII.GetBytes("STORE_V1_ORIGINAL_FOUR_FILES:"+
+                    string.Join(":",Names.Select(n=>Convert.ToHexString(
+                        SHA256.HashData(data[n])))))))
         };
     }
 
