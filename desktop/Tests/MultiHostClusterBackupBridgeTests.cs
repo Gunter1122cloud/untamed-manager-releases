@@ -416,11 +416,19 @@ public static class MultiHostClusterBackupBridgeTests
             "Untamed-MultiHost-Restore-" + Guid.NewGuid().ToString("N"));
         MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(archivePath,exclusiveTarget);
         bool concurrentWriterDenied=false,concurrentRollbackDenied=false;
-        bool inspectionBlocked=false;
+        bool previewJournalDenied=false,inspectionBlocked=false;
         var exclusiveReceipt=MultiHostSandboxRestoreTransaction.ReplaceVerifiedSandbox(
             replacementArchivePath,exclusiveTarget,ownership,true,
             afterPhaseForTesting:phase=>{
                 if(phase!="prepared")return;
+                try
+                {
+                    _=MultiHostSandboxRestoreTransaction.PreviewReplacement(
+                        replacementArchivePath,exclusiveTarget,ownership);
+                }
+                catch(IOException ex) when(ex.Message.Contains(
+                    "UM-TEMP-RESTORE-PENDING-JOURNAL",StringComparison.Ordinal))
+                { previewJournalDenied=true; }
                 try
                 {
                     _=MultiHostSandboxRestoreTransaction.ReplaceVerifiedSandbox(
@@ -440,12 +448,24 @@ public static class MultiHostClusterBackupBridgeTests
                 var busy=MultiHostSandboxRestoreTransaction.InspectRecovery(exclusiveTarget);
                 inspectionBlocked=busy.NeedsOperator&&!busy.CanRollback&&busy.Phase=="busy";
             });
-        Check(concurrentWriterDenied&&concurrentRollbackDenied&&inspectionBlocked&&
+        Check(previewJournalDenied&&concurrentWriterDenied&&
+              concurrentRollbackDenied&&inspectionBlocked&&
               MultiHostClusterBackupArchive.VerifyIsolatedSandbox(exclusiveTarget)
                   .SourceBatchId==replacementArchive.BatchId,
             "OS lease blocks concurrent TEMP replace/rollback and read-only recovery never offers an active transaction");
         Check(!File.Exists(exclusiveTarget+".replace-transaction-v1.json.lease"),
             "successful TEMP transaction automatically releases its OS deletion-on-close lease");
+        bool committedPreviewDenied=false;
+        try
+        {
+            _=MultiHostSandboxRestoreTransaction.PreviewReplacement(
+                replacementArchivePath,exclusiveTarget,ownership);
+        }
+        catch(IOException ex) when(ex.Message.Contains(
+            "UM-TEMP-RESTORE-PENDING-JOURNAL",StringComparison.Ordinal))
+        { committedPreviewDenied=true; }
+        Check(committedPreviewDenied,
+            "a second TEMP replacement cannot discard the durable committed rollback journal");
         var exclusiveRollback=MultiHostSandboxRestoreTransaction.Rollback(
             exclusiveTarget,exclusiveReceipt.TransactionId,true);
         Check(exclusiveRollback.Phase=="rolledBack"&&
