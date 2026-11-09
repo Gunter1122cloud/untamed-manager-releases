@@ -1,9 +1,14 @@
 import {useMemo,useState} from "react";
 import {AlertTriangle,CheckCircle2,ClipboardCopy,FileCheck2,
   FileWarning,HardDrive,LockKeyhole,RefreshCw,Server,ShieldCheck,Users} from "lucide-react";
-import {managerBridge,type EmbeddedStoreArchiveReport,type EmbeddedStoreCopyReport,type OfflineAsaArchiveDiff,type TravelCapture,type TravelComparison} from "./bridge";
+import {managerBridge,type EmbeddedStoreArchiveReport,type EmbeddedStoreCopyReport,type OfflineAsaArchiveDiff,type TravelCapture,type TravelComparison,type TravelRoundTripComparison} from "./bridge";
 
 type Slot="beforeA"|"beforeB"|"afterA"|"afterB";
+type ReturnSlot="returnA"|"returnB";
+const returnSlots:Array<{key:ReturnSlot;label:string;subtitle:string}>=[
+  {key:"returnA",label:"Visszaút után · UK-HOME-01",subtitle:"HP · B → A befejezése"},
+  {key:"returnB",label:"Visszaút után · UK-HOME-02",subtitle:"Ryzen · B → A befejezése"}
+];
 const slots:Array<{key:Slot;label:string;subtitle:string}>= [
   {key:"beforeA",label:"Előtte · UK-HOME-01",subtitle:"HP · indulás előtt"},
   {key:"beforeB",label:"Előtte · UK-HOME-02",subtitle:"Ryzen · indulás előtt"},
@@ -154,6 +159,10 @@ export function StoreTravelWorkbench(){
   const [target,setTarget]=useState("");
   const [profile,setProfile]=useState("");
   const [result,setResult]=useState<TravelComparison|null>(null);
+  const [returnEvidence,setReturnEvidence]=useState<Record<ReturnSlot,string>>({
+    returnA:"",returnB:""
+  });
+  const [roundTripResult,setRoundTripResult]=useState<TravelRoundTripComparison|null>(null);
   const [comparing,setComparing]=useState(false);
   const beforeA=useMemo(()=>parse(evidence.beforeA),[evidence.beforeA]);
   const beforeB=useMemo(()=>parse(evidence.beforeB),[evidence.beforeB]);
@@ -192,6 +201,23 @@ export function StoreTravelWorkbench(){
   const ready=slots.every(slot=>parse(evidence[slot.key])!==null)&&
     Boolean(source&&target&&source!==target&&
       (sourceEmbedded?profile==="embedded":profile));
+  const roundTripReady=ready&&returnSlots.every(
+    slot=>parse(returnEvidence[slot.key])!==null);
+  const compareRoundTrip=async()=>{
+    if(comparing||!roundTripReady)return;
+    setComparing(true);setRoundTripResult(null);setError("");
+    try{
+      setRoundTripResult(await managerBridge.travelCompareRoundTrip({
+        beforeA:evidence.beforeA,beforeB:evidence.beforeB,
+        middleA:evidence.afterA,middleB:evidence.afterB,
+        afterA:returnEvidence.returnA,afterB:returnEvidence.returnB,
+        sourceMap:source,destinationMap:target,
+        profileId:sourceEmbedded?"embedded":profile
+      }));
+    }catch{
+      setError("A hat pillanatkép időrendje, hostjai vagy SHA-256 leltára nem igazolható. Nincs éles művelet.");
+    }finally{setComparing(false);}
+  };
   return <div className="uk-travel-page">
     <header className="page-intro">
       <span className="eyebrow">UNTAMED KINGDOM / 5 + 5 MAP / STORE-V1</span>
@@ -277,7 +303,7 @@ export function StoreTravelWorkbench(){
                 aria-label={slot.label+" JSON"}
                 onChange={e=>{
                   setEvidence(prev=>({...prev,[slot.key]:e.target.value.slice(0,350000)}));
-                  setResult(null);
+                  setResult(null);setRoundTripResult(null);
                 }}
                 placeholder="Illeszd be a JSON-lenyomatot..."/>
               <span className={parse(evidence[slot.key])?"is-validated":""}>
@@ -326,6 +352,56 @@ export function StoreTravelWorkbench(){
               {result.findings.map((x,i)=><p key={i}>{x}</p>)}
             </div>
           </div>}
+          <section className="uk-travel-return-evidence"
+            aria-label="Hat pillanatképes oda-vissza utazás">
+            <h3>3. A → B → A visszaút ellenőrzése</h3>
+            <p className="muted small">A fenti „Utána” pillanatképek az első A → B
+              utazás utáni köztes állapotot jelölik. Illeszd be most a B → A
+              visszaút UTÁNI két új lenyomatot is. A hat lenyomatot a natív
+              ellenőrző időrend, map- és hostazonosság alapján vizsgálja.</p>
+            <div className="uk-travel-snapshot-grid">
+              {returnSlots.map(slot=><label key={slot.key}>
+                <strong>{slot.label}</strong><small>{slot.subtitle}</small>
+                <textarea rows={2} spellCheck={false}
+                  aria-label={slot.label+" JSON"}
+                  value={returnEvidence[slot.key]} onChange={e=>{
+                    setReturnEvidence(prev=>({...prev,[slot.key]:
+                      e.target.value.slice(0,350000)}));
+                    setRoundTripResult(null);
+                  }} placeholder="Visszaút utáni JSON-lenyomat..."/>
+                <span className={parse(returnEvidence[slot.key])?"is-validated":""}>
+                  {parse(returnEvidence[slot.key])?"5 map felismert":
+                    "Még nincs érvényes lenyomat"}
+                </span>
+              </label>)}
+            </div>
+            <button type="button" className="primary uk-travel-primary"
+              disabled={!roundTripReady||comparing}
+              onClick={()=>{void compareRoundTrip();}}>
+              <FileCheck2 size={17}/>
+              {comparing?"Oda-vissza ellenőrzés...":
+                "Hat mentéslenyomat (A → B → A) ellenőrzése"}
+            </button>
+            {roundTripResult&&<div role="status"
+              className={roundTripResult.passed?"uk-travel-pass":"uk-travel-warning"}>
+              {roundTripResult.passed?<CheckCircle2 size={19}/>:<AlertTriangle size={19}/>}
+              <div>
+                <b>{roundTripResult.storeModeDetected?
+                  "Store-v1 beágyazott karakterutazás NEM IGAZOLT.":
+                  roundTripResult.passed?
+                    "A külön karakterfájl A → B → A elhelyezkedése és eredeti SHA-256-a egyezik.":
+                    "Az oda-vissza fájlfolytonosság további ellenőrzést igényel."}</b>
+                <p>Odaút: {roundTripResult.outwardPlacementVerified?"fájlelrendezés egyezik":"nem igazolt"}
+                  · Visszaút: {roundTripResult.returnPlacementVerified?"fájlelrendezés egyezik":"nem igazolt"}
+                  · Eredeti profil SHA: {roundTripResult.exactOriginalProfileBytes?"egyezik":"nem igazolt"}.</p>
+                <p>Érintetlen mapok profil-/tribe-lenyomatai:
+                  {roundTripResult.unrelatedLooseFilesUnchanged?" változatlanok":" nem igazoltak"}.
+                  Ez nem bizonyítja az inventory, hotbar, implant, tribe-tulajdon,
+                  tribute vagy játékbeli belépés helyességét, és nem oldja fel
+                  a Store-writer vagy production restore védelmet.</p>
+              </div>
+            </div>}
+          </section>
         </div>
       </section>
     </div>
