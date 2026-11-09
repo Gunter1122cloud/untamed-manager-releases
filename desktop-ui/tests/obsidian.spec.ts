@@ -3271,7 +3271,8 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   await confirm.getByRole("checkbox").check();
   await confirm.getByRole("button",{name:"Eredeti map hozzáadása"}).click();
   await expect(section).toContainText("The Island felvéve az eredeti GUID-dal");
-  await expect(page.getByRole("row",{name:/The Island/})).toBeVisible();
+  await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"}))
+    .toHaveValue("");
 });
 
 test("Store-v1 historic import preserves map identity and never permits launch before real validation",async ({page})=>{
