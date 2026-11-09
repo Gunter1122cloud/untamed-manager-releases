@@ -18,6 +18,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
 {
     private sealed record Approval(Guid Token,Guid Map,string Root,string Executable,
         string Arguments,int Game,int Query,int Rcon,string Build,
+        bool UseApi,string LoaderPath,string LoaderArguments,
         DateTimeOffset CreatedUtc);
     private readonly ClusterService cluster;
     private readonly Func<Guid,bool,ProcessIdentity> launch;
@@ -161,6 +162,9 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                         running=observed.Running,
                         confirmedStopped=observed.ConfirmedStopped,
                         pid=observed.Identity?.Pid,
+                        serverPid=observed.Identity?.Pid,
+                        loaderPid=observed.LoaderIdentity?.Pid,
+                        requestedMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
                         readyCertified=false,
                         status=observed.Status,
                         evidence="LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS"
@@ -176,6 +180,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                     pending=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
                         map.ExecutablePath,map.Arguments,map.GamePort,map.QueryPort,
                         map.RconPort,AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath),
+                        map.StartWithAsaApi,map.ApiLoaderPath,map.ApiLoaderArguments,
                         DateTimeOffset.UtcNow);
                     return Ok(id,new {
                         token=pending.Token,mapId=map.Id,mapName=map.Name,
@@ -183,6 +188,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                         queryPort=map.QueryPort,rconConfigured=map.RconPort>0 &&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
                         confirmedStopped=true,serverStarted=false,
+                        launchMode=pending.UseApi?"asaApiLoader":"directAsa",
                         evidence="FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
                     });
                 }
@@ -204,6 +210,9 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                    current.Arguments!=permit.Arguments ||
                    current.GamePort!=permit.Game || current.QueryPort!=permit.Query ||
                    current.RconPort!=permit.Rcon ||
+                   current.StartWithAsaApi!=permit.UseApi ||
+                   current.ApiLoaderPath!=permit.LoaderPath ||
+                   current.ApiLoaderArguments!=permit.LoaderArguments ||
                    AsaSteamBuildCatalog.InstalledBuild(current.InstallationPath)!=permit.Build)
                     return Error(id,"UM-FRESH-START-CHANGED");
                 var identity=launch(current.Id,true);
@@ -213,6 +222,10 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                     mapId=current.Id,mapName=current.Name,pid=identity.Pid,
                     createdUtc=identity.StartedUtc,
                     startRequested=true,readyCertified=false,
+                    launchMode=permit.UseApi?"asaApiLoader":"directAsa",
+                    processRole=permit.UseApi?"loaderParent":"asaServer",
+                    loaderPid=permit.UseApi?(int?)identity.Pid:null,
+                    serverPid=permit.UseApi?(int?)null:identity.Pid,
                     requiresRconReadiness=true,storeTouched=false,
                     evidence="LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"
                 });
