@@ -444,7 +444,7 @@ public sealed class ObsidianWindow : Form
                             "backup.create" or "backup.restorePreview" or "backup.restore" or
                             "backup.scheduleStatus" or "backup.scheduleCreate" or
                             "backup.scheduleDisable" or "backup.originalBatchPreview" or
-                            "backup.originalBatchCreate";
+                            "backup.originalBatchCreate" or "backup.originalBatchStatus";
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";
