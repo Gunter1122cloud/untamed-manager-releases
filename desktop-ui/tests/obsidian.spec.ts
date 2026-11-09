@@ -156,6 +156,9 @@ test.beforeEach(async ({ page }) => {
     ];
     let freshStoreEnrolled=false;
     let freshStoreApprovalIssued=false;
+    let freshStoreLoaderEnabled=false;
+    let freshStoreLoaderApprovalIssued=false;
+    const freshStoreLoaderToken="00000000-0000-4000-8000-000000009911";
     const freshStoreToken="00000000-0000-4000-8000-000000009891";
     let clusterApproval="";
     let clusterPending:{clusterId:string;mapIds:string[];preview:any}|null=null;
@@ -1088,6 +1091,37 @@ test.beforeEach(async ({ page }) => {
             clusterId:"fixture-beta",conversionPerformed:false,serverStarted:false,
             originalStoreTouched:false,requiresManualStart:true,
             evidence:"NEW_EMPTY_STORE_ATOMIC_LOCAL_MANAGER_PROFILE_ONLY"};
+        }
+        case "freshStore.loaderModeStatus": {
+          if(m.mapId!==two||!freshStoreEnrolled)
+            throw new Error("UM-FRESH-STORE-API-NOT-ENROLLED");
+          return {mapId:two,mapName:"Astraeos",useApi:freshStoreLoaderEnabled,
+            mode:freshStoreLoaderEnabled?"asaApiLoader":"directAsa",
+            confirmedStopped:true,canChangeMode:true,
+            cacheState:freshStoreLoaderEnabled?"UM-API-CACHE-NO-LOCAL-KEY":"UM-API-CACHE-NOT-APPLICABLE",
+            cacheRuntimeCertified:false,serverStarted:false,originalStoreTouched:false,
+            evidence:"NEW_STORE_LOCAL_LAUNCH_MODE_READ_ONLY"};
+        }
+        case "freshStore.loaderModePreview": {
+          if(m.mapId!==two||!freshStoreEnrolled||m.useApi===freshStoreLoaderEnabled)
+            throw new Error("UM-FRESH-STORE-API-PROTECTED");
+          freshStoreLoaderApprovalIssued=true;
+          return {token:freshStoreLoaderToken,mapId:two,mapName:"Astraeos",
+            useApi:m.useApi,mode:m.useApi?"asaApiLoader":"directAsa",
+            cacheState:m.useApi?"UM-API-CACHE-NO-LOCAL-KEY":"UM-API-CACHE-NOT-APPLICABLE",
+            cacheRuntimeCertified:false,startsServer:false,changesStore:false,
+            requiresStoppedProcess:true,evidence:"NEW_STORE_LOCAL_API_MODE_PREVIEW_NO_WRITE"};
+        }
+        case "freshStore.loaderModeApply": {
+          if(!freshStoreLoaderApprovalIssued||m.token!==freshStoreLoaderToken||
+             m.confirm!==true||m.typedApproval!=="FRESH STORE API MODE")
+            throw new Error("UM-FRESH-STORE-API-APPROVAL");
+          freshStoreLoaderApprovalIssued=false;
+          freshStoreLoaderEnabled=!freshStoreLoaderEnabled;
+          return {mapId:two,mapName:"Astraeos",useApi:freshStoreLoaderEnabled,
+            mode:freshStoreLoaderEnabled?"asaApiLoader":"directAsa",
+            serverStarted:false,originalStoreTouched:false,requiresManualStart:true,
+            evidence:"NEW_STORE_LOCAL_API_MODE_CONFIG_ONLY"};
         }
         case "cluster.registry.snapshot": return clusterRegistrySnapshot();
         case "cluster.create": {
@@ -2421,6 +2455,29 @@ test("new empty Store-map uses existing cluster membership, one-shot approval an
   await expect(region).toContainText("Nem fut -converttostore");
   await expect(page.getByRole("button",{name:/ASA indítási mód választása/})).toHaveCount(0);
   await expect(page.getByRole("region",{name:"Új üres Store-map"})).toContainText("játékbeli utazás még nem igazolt");
+});
+
+test("new Store API Loader mode needs separate approval and permits direct opt-out without start",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const enrollment=page.getByRole("region",{name:"Új üres Store-map"});
+  await enrollment.getByRole("button",{name:"Üres Store-map előellenőrzése"}).click();
+  await enrollment.getByRole("checkbox",{name:/Jóváhagyom az üres map/}).check();
+  await enrollment.getByRole("button",{name:"Új Store-profil mentése"}).click();
+  await expect(enrollment).toContainText("Store-profil regisztrálva");
+  const mode=page.getByRole("region",{name:"Új Store-map ASA API indítási módja"});
+  await expect(mode).toBeVisible();
+  await expect(mode).toContainText("Közvetlen ArkAscendedServer");
+  await mode.getByRole("button",{name:"ASA API Loader választása"}).click();
+  await expect(mode.getByRole("region",{name:"Új Store-map ASA API módváltási előnézete"})).toContainText("Nem történik");
+  await mode.getByRole("button",{name:"Módváltás jóváhagyása"}).click();
+  await expect(mode).toContainText("ASA API Loader indítási mód mentve");
+  await expect(mode).toContainText("UM-API-CACHE-NO-LOCAL-KEY");
+  await mode.getByRole("button",{name:"Váltás közvetlen ASA indításra"}).click();
+  await mode.getByRole("button",{name:"Módváltás jóváhagyása"}).click();
+  await expect(mode).toContainText("Közvetlen ASA indítási mód mentve");
+  await expect(mode).toContainText("Közvetlen ArkAscendedServer");
+  await expect(page.getByRole("button",{name:/Eredeti Store-v1 API Loader indítása/})).toHaveCount(0);
 });
 
 test("original Store-v1 RCON console actually queries local player, game and chat logs and never exposes write commands",async({page})=>{
