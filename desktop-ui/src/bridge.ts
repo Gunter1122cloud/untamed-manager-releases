@@ -862,6 +862,15 @@ export type HistoricalSaveWorldQueued={
   forceKill:false;storeTouched:false;
   evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED";
 };
+export type HistoricalSaveEvidenceStatus={
+  mapId:string;phase:"none"|"prepared"|"completed"|"needsOperator";
+  operationId:string|null;pid:number|null;pidStartedUtc:string|null;
+  saveObservedUtc:string|null;localSaveCompleteObserved:boolean;
+  bothHostsSaveCompleteCertified:false;sharedStoreWriterCertified:false;
+  gameClientRejoinVerified:false;productionRestoreAllowed:false;
+  fsyncCertified:false;sourceStateCertifiedForCurrentWriter:false;
+  evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM";
+};
 export type HistoricalGracefulStopQueued = {
   jobId:string;started:true;automaticRetry:false;
   forceKill:false;storeTouched:false;
@@ -1171,7 +1180,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
    "historical.gracefulStopStatus" | "historical.gracefulStopRecovery" |
    "historical.saveWorldPreview" | "historical.saveWorldApply" |
-   "historical.saveWorldStatus" |
+   "historical.saveWorldStatus" | "historical.saveWorldEvidence" |
    "historical.restartPreview" | "historical.restartApply" |
    "historical.restartStatus" | "historical.restartRecovery" |
    "historical.adminPreview" | "historical.adminSend" |
@@ -1563,6 +1572,8 @@ export const managerBridge = {
     }),
   historicalSaveWorldStatus: (jobId:string) =>
     request<HistoricalGracefulStopStatus>("historical.saveWorldStatus",{jobId}),
+  historicalSaveWorldEvidence: (mapId:string) =>
+    request<HistoricalSaveEvidenceStatus>("historical.saveWorldEvidence",{mapId}),
   historicalRconLiveStatus: (mapId:string) =>
     request<HistoricalRconLiveStatus>("historical.rconLiveStatus",{mapId}),
   historicalRconPlayers: (mapId:string) =>
