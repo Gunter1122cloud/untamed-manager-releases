@@ -34,7 +34,8 @@ public static class FreshStoreEnrollmentPolicy
            !Path.IsPathFullyQualified(transfer)||
            transfer.StartsWith(@"\\?\",StringComparison.Ordinal)||
            transfer.StartsWith(@"\\.\",StringComparison.Ordinal)||
-           transfer.Any(c=>char.IsWhiteSpace(c)||c is '"' or '<' or '>' or
+           transfer.Any(c=>(char.IsWhiteSpace(c)&&c!=' ')||
+               char.IsControl(c)||c is '"' or '<' or '>' or
                '|' or '?' or '*' or '\0')||
            transfer.Split('\\','/').Any(x=>x is "." or ".."))
             Deny("UM-FRESH-STORE-TRANSFER-PATH-UNSAFE");
@@ -160,8 +161,12 @@ public static class FreshStoreEnrollmentPolicy
         }
         string baseArgs=ValidateBaseArguments(map,map.Arguments);
         string normalized=ClusterRegistrySchema.NormalizeClusterId(clusterId);
+        // The ASA command-line format supports quoted Windows paths.
+        // Ordinary spaces are allowed; quotes and control characters are
+        // refused above so the renderer cannot inject additional flags.
+        string argPath=transfer.Contains(' ')?"\""+transfer+"\"":transfer;
         string args=baseArgs+" -clusterid="+normalized+
-            " -ClusterDirOverride="+transfer+" -usestore";
+            " -ClusterDirOverride="+argPath+" -usestore";
         if(args.Length>8192)
             Deny("UM-FRESH-STORE-ARGUMENTS-TOO-LONG");
         var registry=cluster.Registry.Snapshot();
@@ -200,8 +205,9 @@ public static class FreshStoreEnrollmentPolicy
            !string.Equals(StorePathIdentity.LocalDirectoryFingerprint(transfer),
                map.FreshStoreTransferFileId,StringComparison.OrdinalIgnoreCase))
             Deny("UM-FRESH-STORE-TRANSFER-FILE-ID-CHANGED");
+        string argPath=transfer.Contains(' ')?"\""+transfer+"\"":transfer;
         string suffix=" -clusterid="+clusterId+
-            " -ClusterDirOverride="+transfer+" -usestore";
+            " -ClusterDirOverride="+argPath+" -usestore";
         string args=map.Arguments;
         if(!args.EndsWith(suffix,StringComparison.Ordinal)||
            args.Contains("converttostore",StringComparison.OrdinalIgnoreCase)||
