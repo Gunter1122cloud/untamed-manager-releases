@@ -15,15 +15,32 @@ const phrase:Record<Action,string>={start:"STORE-V1 ACTIVE START",restart:"STORE
 export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   journalBlocked,onRefresh,onConfigure}:{
   mapId:string;mapName:string;running:boolean;historical:boolean;
-  journalBlocked:boolean;onRefresh:()=>Promise<void>;onConfigure:()=>void;
+  journalBlocked?:boolean;onRefresh:()=>Promise<void>;onConfigure:()=>void;
 }){
   const [pending,setPending]=useState<Approval|null>(null);
   const [checked,setChecked]=useState(false);
   const [typed,setTyped]=useState("");
   const [busy,setBusy]=useState(false);
+  const [ownJournalBlocked,setOwnJournalBlocked]=useState(true);
   const [job,setJob]=useState<RunningJob|null>(null);
   const [message,setMessage]=useState("");
   const [error,setError]=useState("");
+  useEffect(()=>{
+    if(journalBlocked!==undefined)return;
+    let active=true;
+    setOwnJournalBlocked(true);
+    const check=async()=>{
+      try{
+        const lifecycle=await managerBridge.asaLifecycleJournal(mapId);
+        const restart=historical?null:await managerBridge.freshAsaRestartCurrent(mapId);
+        if(active)setOwnJournalBlocked(Boolean(lifecycle.needsOperatorReview||
+          restart?.needsOperatorReview));
+      }catch{if(active)setOwnJournalBlocked(true);}
+    };
+    void check();
+    return ()=>{active=false;};
+  },[mapId,historical,journalBlocked]);
+  const blocked=journalBlocked??ownJournalBlocked;
   useEffect(()=>{
     setPending(null);setChecked(false);setTyped("");setError("");setMessage("");
     setJob(null);
@@ -61,7 +78,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   },[job,historical,onRefresh]);
 
   const preview=async(action:Action)=>{
-    if(busy||job||journalBlocked)return;
+    if(busy||job||blocked)return;
     setBusy(true);setPending(null);setError("");setMessage("");
     setChecked(false);setTyped("");
     try{
@@ -121,7 +138,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         ". Nincs automatikus ismétlés; ellenőrizd a natív naplót.");
     }finally{setBusy(false);}
   };
-  const unavailable=busy||Boolean(job)||journalBlocked;
+  const unavailable=busy||Boolean(job)||blocked;
   return <section className="uk-lifecycle-command" aria-label="Helyi map életciklus vezérlése">
     <div className="uk-lifecycle-row" role="group" aria-label={mapName+" alapvezérlők"}>
       {(["start","restart","stop","kill"] as Action[]).map(action=>{
@@ -131,7 +148,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
           className={"uk-lifecycle-btn uk-lifecycle-"+action}
           disabled={unavailable||impossible} onClick={()=>{void preview(action);}}
           title={action==="kill"&&historical?"Eredeti Store-v1 mapokon tiltott: használj SaveWorld/DoExit-et":
-            journalBlocked?"Műveleti napló felülvizsgálata szükséges":
+            blocked?"Műveleti napló felülvizsgálata szükséges":
             impossible?"A jelenlegi folyamatállapotban nem engedélyezett":copy[action]+" natív előellenőrzés"}>
           {action==="start"?<Play size={15}/>:action==="restart"?<RotateCcw size={15}/>:
             action==="stop"?<Octagon size={15}/>:<Skull size={15}/>}
@@ -139,7 +156,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         </button>;
       })}
     </div>
-    {journalBlocked&&<p role="alert" className="warning-inline"><Shield size={15}/>
+    {blocked&&<p role="alert" className="warning-inline"><Shield size={15}/>
       A műveleti napló nincs igazolva vagy kézi ellenőrzést igényel. Nem indul új ASA-művelet.</p>}
     {pending&&<div role="region" className="uk-lifecycle-approval"
       aria-label={copy[pending.action]+" jóváhagyása"}>
