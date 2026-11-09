@@ -167,8 +167,10 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     // download. Core enforces the same reserve again under
                     // its exclusive installation lock.
                     try {
-                        if(availableFreeBytes(installRoot) < 35L*1024*1024*1024)
-                            return Error(id,"UM-FRESH-LOW-DISK-SPACE");
+                        long free=availableFreeBytes(installRoot);
+                        if(free < 35L*1024*1024*1024)
+                            return Error(id,"UM-FRESH-LOW-DISK-SPACE|availableGiB="+
+                                (free/1073741824L)+"|requiredGiB=35");
                     }
                     catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
                         ArgumentException or NotSupportedException)
@@ -177,12 +179,15 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     }
                     if(!Path.GetFileName(steamExe).Equals("steamcmd.exe",StringComparison.OrdinalIgnoreCase))
                         return Error(id,"UM-FRESH-INVALID-STEAMCMD");
-                    if(Overlap(installRoot,Path.GetDirectoryName(steamExe)!))
-                        return Error(id,"UM-FRESH-ROOT-OVERLAP");
-                    if(cluster.Config.LocalMaps.Any(m=>
+                    string steamFolder=Path.GetDirectoryName(steamExe)!;
+                    if(Overlap(installRoot,steamFolder))
+                        return Error(id,"UM-FRESH-ROOT-OVERLAP|map=SteamCMD|path="+steamFolder);
+                    var collision=cluster.Config.LocalMaps.FirstOrDefault(m=>
                         !string.IsNullOrWhiteSpace(m.InstallationPath) &&
-                        Overlap(installRoot,Canonical(m.InstallationPath))))
-                        return Error(id,"UM-FRESH-ROOT-OVERLAP");
+                        Overlap(installRoot,Canonical(m.InstallationPath)));
+                    if(collision!=null)
+                        return Error(id,"UM-FRESH-ROOT-OVERLAP|map="+collision.Name+
+                            "|path="+Canonical(collision.InstallationPath));
                     if(cluster.Config.LocalMaps.Any(m=>m.Name.Equals(mapName,
                         StringComparison.OrdinalIgnoreCase)))
                         return Error(id,"UM-FRESH-DUPLICATE-MAP");
