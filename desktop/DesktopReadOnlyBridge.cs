@@ -197,13 +197,14 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                             MatchesPublishedMapId(x.Id,m.Id));
                         bool protectedStore = config != null &&
                             KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(config);
+                        bool historicalStore = config?.HistoricalStoreProtected==true;
                         return new {
                             id = m.Id, name = m.Name, running = m.Running,
                             status = m.Status, gamePort = m.GamePort,
                             steamBuildId = m.SteamBuildId, steamUpdateState = m.SteamUpdateState,
                             storeProtected = protectedStore,
                             freshStoreEnrolled = config != null && FreshStoreEnrollmentPolicy.IsEnrolled(config),
-                            storeLifecycleState = protectedStore ?
+                            storeLifecycleState = historicalStore ?
                                 ReadOriginalStoreLifecycle(config,m.Running) : null,
                             maintenance = config?.Maintenance ?? false,
                             rconConfigured = config != null && config.RconPort > 0 &&
