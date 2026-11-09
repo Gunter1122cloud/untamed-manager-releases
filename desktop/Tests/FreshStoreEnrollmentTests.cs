@@ -73,7 +73,8 @@ internal static class FreshStoreEnrollmentTests
                 ExecutablePath=Path.Combine(binary,"ArkAscendedServer.exe"),
                 GamePort=7851,QueryPort=27551,RconPort=37551,
                 Arguments=AsaSteamMapCatalog.LaunchArguments(
-                    "The Island","Synthetic Store Map",7851,27551),
+                    "The Island","Synthetic Store Map",7851,27551)+
+                    " -mods=100123,100124 -passivemods=100124",
                 AutoStart=false
             };
             const string syntheticAdminPassword="SyntheticOnlyAdmin2026!";
@@ -108,6 +109,9 @@ internal static class FreshStoreEnrollmentTests
             Check(plan.Arguments.Contains(" -usestore",StringComparison.Ordinal)&&
                   plan.Arguments.CountAt("-usestore")==1&&
                   !plan.Arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase)&&
+                  plan.Arguments.Contains(
+                      "-mods=100123,100124 -passivemods=100124 -clusterid=new-local-cluster",
+                      StringComparison.Ordinal)&&
                   plan.Arguments.Contains("-clusterid=new-local-cluster")&&
                   plan.Arguments.Contains("-ClusterDirOverride=\""+transfer+"\"",
                       StringComparison.Ordinal)&&
