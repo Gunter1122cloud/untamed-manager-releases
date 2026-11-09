@@ -401,6 +401,66 @@ public static class MultiHostClusterBackupBridgeTests
         Directory.Delete(quarantinedPath, true);
         File.Delete(replacementTarget + ".replace-transaction-v1.json");
 
+        // Two independent Manager processes must not both publish into the
+        // same TEMP sandbox. The OS handle lease is exercised *inside* an
+        // active replacement stage: a pending journal check alone is not proof.
+        var ownership = new MultiHostBackupOwnershipSnapshot(
+            catalogModel.Hosts[0].HostId,
+            catalogModel.Hosts.Select(h =>
+                new MultiHostBackupHostOwnership(h.HostId,h.Name,true,false)).ToArray(),
+            catalogModel.Clusters.Select(c =>
+                new MultiHostBackupClusterOwnership(c.ClusterId,c.Name)).ToArray(),
+            catalogModel.Maps.Select(m =>
+                new MultiHostBackupMapOwnership(m.MapId,m.HostId,m.Name,m.ClusterId)).ToArray());
+        string exclusiveTarget = Path.Combine(Path.GetTempPath(),
+            "Untamed-MultiHost-Restore-" + Guid.NewGuid().ToString("N"));
+        MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(archivePath,exclusiveTarget);
+        bool concurrentWriterDenied=false,concurrentRollbackDenied=false;
+        bool inspectionBlocked=false;
+        var exclusiveReceipt=MultiHostSandboxRestoreTransaction.ReplaceVerifiedSandbox(
+            replacementArchivePath,exclusiveTarget,ownership,true,
+            afterPhaseForTesting:phase=>{
+                if(phase!="prepared")return;
+                try
+                {
+                    _=MultiHostSandboxRestoreTransaction.ReplaceVerifiedSandbox(
+                        replacementArchivePath,exclusiveTarget,ownership,true);
+                }
+                catch(IOException ex) when(ex.Message.Contains(
+                    "UM-TEMP-RESTORE-LEASE-BUSY",StringComparison.Ordinal))
+                { concurrentWriterDenied=true; }
+                try
+                {
+                    _=MultiHostSandboxRestoreTransaction.Rollback(
+                        exclusiveTarget,Guid.NewGuid(),true);
+                }
+                catch(IOException ex) when(ex.Message.Contains(
+                    "UM-TEMP-RESTORE-LEASE-BUSY",StringComparison.Ordinal))
+                { concurrentRollbackDenied=true; }
+                var busy=MultiHostSandboxRestoreTransaction.InspectRecovery(exclusiveTarget);
+                inspectionBlocked=busy.NeedsOperator&&!busy.CanRollback&&busy.Phase=="busy";
+            });
+        Check(concurrentWriterDenied&&concurrentRollbackDenied&&inspectionBlocked&&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(exclusiveTarget)
+                  .SourceBatchId==replacementArchive.BatchId,
+            "OS lease blocks concurrent TEMP replace/rollback and read-only recovery never offers an active transaction");
+        Check(!File.Exists(exclusiveTarget+".replace-transaction-v1.json.lease"),
+            "successful TEMP transaction automatically releases its OS deletion-on-close lease");
+        var exclusiveRollback=MultiHostSandboxRestoreTransaction.Rollback(
+            exclusiveTarget,exclusiveReceipt.TransactionId,true);
+        Check(exclusiveRollback.Phase=="rolledBack"&&
+              MultiHostClusterBackupArchive.VerifyIsolatedSandbox(exclusiveTarget)
+                  .SourceBatchId==archive.BatchId&&
+              !File.Exists(exclusiveTarget+".replace-transaction-v1.json.lease"),
+            "the committed TEMP transaction can be explicitly rolled back after the exclusive lease is released");
+        if(exclusiveRollback.QuarantinedReplacementName is string quarantined)
+        {
+            string quarantinedRoot=Path.Combine(Path.GetTempPath(),quarantined);
+            if(Directory.Exists(quarantinedRoot))Directory.Delete(quarantinedRoot,true);
+        }
+        Directory.Delete(exclusiveTarget,true);
+        File.Delete(exclusiveTarget+".replace-transaction-v1.json");
+
         string[] liveFiles = Directory.GetFiles(liveMapRoot, "*", SearchOption.AllDirectories);
         Check(liveFiles.Length == 1 && liveFiles[0] == liveMarker && File.ReadAllText(liveMarker) == "synthetic test marker only",
             "restore and backup never create files under the registered server installation");
