@@ -32,8 +32,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         int GamePort,int QueryPort,string[] Enabled,string[] Passive,
         DateTimeOffset ExpiresUtc);
     private sealed record OriginalPrepared(Guid Token,string FourFilesHash,
-        Guid MapId,string MapKey,string LocalName,string Root,string ServerExe,
-        int GamePort,int QueryPort,DateTimeOffset ExpiresUtc);
+        string LaunchProfileHash,Guid MapId,string MapKey,string LocalName,
+        string Root,string ServerExe,int GamePort,int QueryPort,
+        string[] Enabled,string[] Passive,DateTimeOffset ExpiresUtc);
     private readonly Dictionary<Guid,OriginalPrepared> pendingOriginal=new();
 
     public DesktopHistoricalStoreImportBridge(ClusterService service,
@@ -86,6 +87,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             mapId=m.MapId,mapKey=m.MapKey,name=MapName(m.MapKey),
                             folderName=Path.GetFileName(
                                 Path.TrimEndingDirectorySeparator(m.OriginalInstallationRoot)),
+                            gamePort=m.GamePort,queryPort=m.QueryPort,
+                            enabledMods=m.EnabledMods.Length,
+                            passiveMods=m.PassiveMods.Length,
                             registered=cluster.Config.LocalMaps.Any(x=>x.Id==m.MapId)
                         }).ToArray(),
                         evidence="ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY"
@@ -101,6 +105,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
                     var selected=source.Maps.SingleOrDefault(x=>x.MapId==originalMapId);
                     if(selected==null)return Fail(id,"UM-STORE-DIRECT-ORIGINAL-MAP-UNKNOWN");
+                    if(originalGamePort!=selected.GamePort||
+                       originalQueryPort!=selected.QueryPort)
+                        return Fail(id,"UM-STORE-DIRECT-SOURCE-PORT-MISMATCH");
                     string root=DesktopLocalMapRegistryBridge.ValidateFixedLocalRoot(
                         selected.OriginalInstallationRoot);
                     var installation=LocalAsaInstallLocator.Probe(root);
@@ -117,13 +124,17 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     if(pendingOriginal.Count>=8)pendingOriginal.Clear();
                     var approval=Guid.NewGuid();
                     pendingOriginal[approval]=new(approval,source.FourFilesSha256,
-                        selected.MapId,selected.MapKey,name,root,
+                        source.LaunchProfileSha256,selected.MapId,selected.MapKey,name,root,
                         installation.ServerExecutable,originalGamePort,
-                        originalQueryPort,DateTimeOffset.UtcNow.AddMinutes(7));
+                        originalQueryPort,selected.EnabledMods,selected.PassiveMods,
+                        DateTimeOffset.UtcNow.AddMinutes(7));
                     return Ok(id,new{
                         token=approval,mapId=selected.MapId,mapName=name,
                         folderName=Path.GetFileName(root),
                         gamePort=originalGamePort,queryPort=originalQueryPort,
+                        originalEnabledMods=selected.EnabledMods.Length,
+                        originalPassiveMods=selected.PassiveMods.Length,
+                        originalLaunchProfileVerified=true,
                         originalIdsPreserved=true,originalFilesWritten=false,
                         serverStarted=false,requiresOriginalRconAttach=true,
                         evidence="ORIGINAL_KOVA_DIRECT_IMPORT_PREVIEW"
@@ -141,7 +152,12 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
                     var selected=source.Maps.SingleOrDefault(x=>x.MapId==staged.MapId);
                     if(selected==null||source.FourFilesSha256!=staged.FourFilesHash||
-                       selected.MapKey!=staged.MapKey)
+                       source.LaunchProfileSha256!=staged.LaunchProfileHash||
+                       selected.MapKey!=staged.MapKey||
+                       selected.GamePort!=staged.GamePort||
+                       selected.QueryPort!=staged.QueryPort||
+                       !selected.EnabledMods.SequenceEqual(staged.Enabled,StringComparer.Ordinal)||
+                       !selected.PassiveMods.SequenceEqual(staged.Passive,StringComparer.Ordinal))
                         return Fail(id,"UM-STORE-DIRECT-ORIGINAL-SOURCE-CHANGED");
                     string root=DesktopLocalMapRegistryBridge.ValidateFixedLocalRoot(
                         selected.OriginalInstallationRoot);
@@ -167,8 +183,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         Arguments="",HistoricalStoreProtected=true,
                         HistoricalArchiveSha256=staged.FourFilesHash,
                         HistoricalMapKey=staged.MapKey,
-                        HistoricalEnabledMods=new List<string>(),
-                        HistoricalPassiveMods=new List<string>(),
+                        HistoricalEnabledMods=staged.Enabled.ToList(),
+                        HistoricalPassiveMods=staged.Passive.ToList(),
                         StartWithAsaApi=false,AutoStart=false,MonitorRcon=false,
                         RconPort=0,ApiLoaderArguments=""
                     });
@@ -177,7 +193,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         registered=true,originalIdsPreserved=true,
                         originalFilesWritten=false,serverStarted=false,
                         requiresOriginalRconAttach=true,
-                        requiresExactModOrderVerification=true,
+                        originalLaunchProfileVerified=true,
+                        requiresExactModOrderVerification=false,
                         evidence="ORIGINAL_KOVA_DIRECT_LOCAL_MAP_REGISTERED"
                     });
                 }
