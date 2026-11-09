@@ -299,8 +299,8 @@ public sealed class DesktopWorldBackupBridge
                     if(repairApproval==null||
                        !root.TryGetProperty("token",out var repairToken)||
                        repairToken.ValueKind!=JsonValueKind.String||
-                       !Guid.TryParse(repairToken.GetString(),out var token)||
-                       token!=repairApproval.Token||
+                       !Guid.TryParse(repairToken.GetString(),out var repairPermit)||
+                       repairPermit!=repairApproval.Token||
                        !root.TryGetProperty("confirm",out var consent)||
                        consent.ValueKind!=JsonValueKind.True||
                        !root.TryGetProperty("typedApproval",out var words)||
