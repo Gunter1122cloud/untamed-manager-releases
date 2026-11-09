@@ -536,6 +536,10 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
 
                 if(hostStageApply)
                 {
+                    if(!request.TryGetProperty("typedApproval",out var typed)||
+                       typed.ValueKind!=JsonValueKind.String||
+                       typed.GetString()!="HOST RESTORE TEST")
+                        return Fail(id,"UM-HOSTRESTORE-TYPED-APPROVAL-REQUIRED");
                     var approval=hostStageApproval;
                     hostStageApproval=null;
                     if(approval==null||approval.Token!=tokenValue||
