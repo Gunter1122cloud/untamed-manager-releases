@@ -395,6 +395,18 @@ export type FreshAsaReadiness = {
   description:string;storeTouched:false;
   evidence:"READ_ONLY_LOCAL_ASA_PROCESS_AND_RCON_READINESS";
 };
+export type OwnedAsaKillPreview = {
+  token:string;mapId:string;mapName:string;pid:number;
+  saveWorldPerformed:false;processOnly:true;serverDataLossPossible:true;
+  originalStoreTouched:false;remoteHostTouched:false;requiresTypedApproval:true;
+  evidence:"EXACT_LOCAL_ASA_PID_OS_IDENTITY_RCON_KILL_PREFLIGHT";
+};
+export type OwnedAsaKillReceipt = {
+  mapId:string;pid:number;confirmedStopped:true;
+  saveWorldPerformed:false;serverDataLossPossible:true;serverRestarted:false;
+  originalStoreTouched:false;remoteHostTouched:false;
+  evidence:"EXPLICIT_LOCAL_NONSTORE_OS_KILL_WITH_CONFIRMED_EXIT";
+};
 export type FreshAsaStopPreview = {
   token:string;mapId:string;mapName:string;pid:number;
   usesSaveWorld:true;usesDoExit:true;killPermitted:false;
@@ -1297,7 +1309,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
+  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -1466,6 +1478,12 @@ export const managerBridge = {
   updateStatus: () => request<UpdateStatus>("updates.status"),
   asaLifecycleJournal: (mapId:string) =>
     request<AsaLifecycleJournal>("servers.lifecycleJournal",{mapId}),
+  ownedAsaKillPreview: (mapId:string) =>
+    request<OwnedAsaKillPreview>("servers.ownedKillPreview",{mapId}),
+  ownedAsaKillApply: (token:string,typedApproval:string) =>
+    request<OwnedAsaKillReceipt>("servers.ownedKillApply",{
+      token,typedApproval,confirm:true
+    }),
   freshAsaStopPreview: (mapId:string) =>
     request<FreshAsaStopPreview>("servers.gracefulStopPreview",{mapId}),
   freshAsaStopApply: (token:string) =>
