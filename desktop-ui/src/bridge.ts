@@ -579,6 +579,17 @@ export type OriginalFiveMapBackupStatus={
   serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
   evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM";
 };
+export type OriginalFiveMapJournalRepairPreview={
+  token:string;localMaps:5;confirmedStopped:true;originalSourcePinned:true;
+  requiresTypedApproval:true;repairScope:"MANAGER_LOCAL_BATCH_JOURNAL_QUARANTINE_ONLY";
+  originalKovaFilesWritten:false;serverStarted:false;
+};
+export type OriginalFiveMapJournalRepairReceipt={
+  reviewed:true;quarantined:true;originalKovaFilesWritten:false;
+  serverStarted:false;oldBackupPackagesPreserved:true;
+  nextBackupRequiresNewApproval:true;
+  evidence:"MANAGER_LOCAL_CORRUPT_BATCH_JOURNAL_OPERATOR_QUARANTINE";
+};
 export type OriginalFiveMapBackupReceipt={
   localMaps:5;
   points:{mapId:string;mapName:string;point:string;files:number;bytes:number}[];
