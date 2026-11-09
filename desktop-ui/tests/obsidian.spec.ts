@@ -116,6 +116,12 @@ test.beforeEach(async ({ page }) => {
     let originalSaveDispatches=0;
     let originalSaveReattached=false;
     let originalSaveHold=false;
+    let originalSaveEvidenceTampered=false;
+    (window as typeof window & {
+      __UNTAMED_SAVE_EVIDENCE_TAMPER__?:()=>void;
+    }).__UNTAMED_SAVE_EVIDENCE_TAMPER__=()=>{
+      originalSaveEvidenceTampered=true;
+    };
     (window as typeof window & {
       __UNTAMED_ORIGINAL_SAVE_REATTACH__?:()=>void;
       __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
@@ -740,6 +746,23 @@ test.beforeEach(async ({ page }) => {
           return {jobId:originalSaveJob,started:true,
             automaticRetry:false,forceKill:false,storeTouched:false,
             evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED"};
+        }
+        case "historical.saveWorldEvidence": {
+          if(m.mapId!==two||originalSaveEvidenceTampered)
+            throw new Error("UM-ORIGINAL-SAVE-JOURNAL-TAMPERED");
+          const complete=originalSaveQueued&&!(originalSaveReattached&&originalSaveHold);
+          return {
+            mapId:two,phase:originalSaveQueued?(complete?"completed":"prepared"):"none",
+            operationId:originalSaveQueued?originalSaveJob:null,
+            pid:originalSaveQueued?42101:null,
+            pidStartedUtc:originalSaveQueued?"2026-11-08T18:00:00Z":null,
+            saveObservedUtc:complete?"2026-11-08T18:35:00Z":null,
+            localSaveCompleteObserved:complete,
+            bothHostsSaveCompleteCertified:false,sharedStoreWriterCertified:false,
+            gameClientRejoinVerified:false,productionRestoreAllowed:false,
+            fsyncCertified:false,sourceStateCertifiedForCurrentWriter:false,
+            evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
+          };
         }
         case "historical.saveWorldStatus": {
           if(!originalSaveQueued||m.jobId!==originalSaveJob)
@@ -2712,6 +2735,45 @@ test("original Store-v1 SaveWorld-only runs the real native map action without s
   await expect(page.getByRole("region",{name:"Eredeti Store-v1 SaveWorld és DoExit"})).toBeVisible();
   await expect(page.getByRole("heading",{name:"Astraeos",exact:true})).toBeVisible();
   await expect(save).toHaveCount(0);
+});
+
+test("Store SaveComplete UI distinguishes durable local log evidence from live cross-host writer certification",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  const evidence=panel.getByTestId("store-durable-save-evidence");
+  await expect(evidence).toContainText("Nincs igazolt helyi SaveComplete napló");
+  await expect(evidence).toContainText("Production restore továbbra is tiltott");
+  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  const approval=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
+  await approval.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
+  await approval.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await expect(evidence).toContainText("Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve");
+  await expect(panel).toContainText("Helyi SaveComplete napló tartósan igazolt");
+  await expect(evidence).not.toContainText("Két gép SaveComplete igazolva");
+  await expect(evidence).toContainText("nem igazolja a jelenlegi Store-írójogot");
+});
+
+test("corrupt native SaveComplete receipt fails closed without a SaveWorld button",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_SAVE_EVIDENCE_TAMPER__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_EVIDENCE_TAMPER__?:()=>void
+  }).__UNTAMED_SAVE_EVIDENCE_TAMPER__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Tartós napló nem ellenőrizhető");
+  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
+  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
 });
 
 test("Store-v1 SaveWorld reattaches to exactly the original native job without redispatch after React remount",async({page})=>{
