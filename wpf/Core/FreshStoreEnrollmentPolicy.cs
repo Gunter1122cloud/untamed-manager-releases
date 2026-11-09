@@ -119,6 +119,14 @@ public static class FreshStoreEnrollmentPolicy
            !FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
            KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             Deny("UM-FRESH-STORE-NEW-STEAM-INSTALL-REQUIRED");
+        // The existing one-time local RCON setup must be completed BEFORE
+        // enrollment. After enrollment, the fresh-only INI bootstrap route
+        // deliberately refuses Store profiles. This prevents an irreversible
+        // profile which can never be started or stopped safely.
+        if(map.RconPort is <1024 or >65535 ||
+           string.IsNullOrWhiteSpace(map.RconPasswordProtected)||
+           !AsaRconConfigurationEvidence.Matches(map))
+            Deny("UM-FRESH-STORE-RCON-SETUP-REQUIRED-BEFORE-ENROLLMENT");
         string build=AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)
             ??throw new InvalidDataException("UM-FRESH-STORE-STEAM-BUILD-MISSING");
         if(build.Length==0)Deny("UM-FRESH-STORE-STEAM-BUILD-MISSING");
