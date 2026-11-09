@@ -1139,6 +1139,22 @@ export type OfflineAsaArchiveStatus = {
   productionRestoreAllowed:false;sqlUsed:false;evidence:string;
 };
 
+export type MultiHostCatalogPreview = {
+  token:string;hosts:number;clusters:number;maps:number;
+  components:number;bytes:number;copiedTransferIncluded:boolean;
+  copiedProfilesIncluded:boolean;copiedTribesIncluded:boolean;
+  requiresExplicitApproval:true;offlineCopiesOnly:true;
+  liveConsistencyCertified:false;storeWriterCertified:false;
+  productionRestoreAllowed:false;originalStoreTouched:false;
+  evidence:"CURRENT_NHOST_REGISTRY_AND_COMPLETE_OFFLINE_SOURCE_INVENTORY";
+};
+export type MultiHostCatalogCreated = {
+  created:true;batchId:string;hosts:number;clusters:number;maps:number;
+  components:number;bytes:number;catalogName:string;
+  offlineCopiesOnly:true;originalStoreTouched:false;
+  productionRestoreAllowed:false;
+  evidence:"EXISTING_MULTIHOST_ARCHIVE_V1_VALIDATED_CATALOG_CREATED";
+};
 export type MultiHostClusterBackupPreview = {
   token:string;batchId:string;archiveName:string;
   hosts:number;clusters:number;maps:number;components:number;bytes:number;
@@ -1253,6 +1269,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.copyPreview" | "mods.copyApply" |
   "mods.profileExport" | "mods.profileImportPreview" | "mods.profileImportApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
+  "cluster.multiHostCatalogPreview" | "cluster.multiHostCatalogApply" |
   "cluster.multiHostBackupPreview" | "cluster.multiHostBackupApply" | "cluster.multiHostBackupStatus" |
   "cluster.multiHostRestorePreview" | "cluster.multiHostRestoreApply" | "cluster.multiHostRestoreStatus" |
   "cluster.multiHostRestoreReplacePreview" | "cluster.multiHostRestoreReplaceApply" |
@@ -1584,6 +1601,10 @@ export const managerBridge = {
     request<OfflineAsaArchiveStarted>("cluster.offlineApply",{token,confirm:true}),
   offlineArchiveStatus: (jobId:string) =>
     request<OfflineAsaArchiveStatus>("cluster.offlineStatus",{jobId}),
+  multiHostCatalogPreview: () =>
+    request<MultiHostCatalogPreview>("cluster.multiHostCatalogPreview"),
+  multiHostCatalogApply: (token:string) =>
+    request<MultiHostCatalogCreated>("cluster.multiHostCatalogApply",{token,confirm:true}),
   multiHostBackupPreview: () =>
     request<MultiHostClusterBackupPreview>("cluster.multiHostBackupPreview"),
   multiHostBackupApply: (token:string) =>
