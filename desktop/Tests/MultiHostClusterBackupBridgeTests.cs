@@ -487,6 +487,52 @@ public static class MultiHostClusterBackupBridgeTests
         await MultiHostTempProcessLeaseTests.Run(root, archivePath,
             replacementArchivePath, ownership);
 
+        // A previously copied offline file changing while the rest of the
+        // N-host batch is assembled must fail closed without ever publishing
+        // an archive. Even same-length replacements must be detectable via
+        // the original source's observed write epoch.
+        string offlineWorld = Path.Combine(sourceRoot, "maps", map.Id.ToString("N"),
+            "Saved", "world.ark");
+        byte[] protectedWorldBytes = File.ReadAllBytes(offlineWorld);
+        DateTime protectedWorldWrite = File.GetLastWriteTimeUtc(offlineWorld);
+        string movingSourceBatch = Path.Combine(outputRoot, "unpublished-source-change");
+        bool epochRejected = false;
+        try
+        {
+            try
+            {
+                _ = MultiHostClusterBackupArchive.BuildFromCatalog(
+                    catalogPath, movingSourceBatch,
+                    afterCopiedForTesting: componentIndex =>
+                    {
+                        if (componentIndex != catalogModel.Items.Length - 1) return;
+                        // The world was already SHA-256 copied at this point.
+                        // Change one original source even though every other
+                        // copy and journal checkpoint has completed.
+                        File.WriteAllBytes(offlineWorld,
+                            protectedWorldBytes.Concat(new byte[] { 0x41 }).ToArray());
+                        File.SetLastWriteTimeUtc(offlineWorld,
+                            protectedWorldWrite.AddMinutes(1));
+                    });
+            }
+            catch (IOException ex) when (ex.Message.Contains(
+                "UM-MULTIHOST-OFFLINE-SOURCE-EPOCH-CHANGED", StringComparison.Ordinal))
+            { epochRejected = true; }
+            Check(epochRejected && !Directory.Exists(movingSourceBatch) &&
+                  Directory.Exists(movingSourceBatch + ".incomplete") &&
+                  MultiHostClusterBackupArchive.InspectInterrupted(movingSourceBatch).NeedsOperator,
+                "changed offline world bytes after copy fail closed; N-host batch remains quarantined and cannot be published");
+        }
+        finally
+        {
+            File.WriteAllBytes(offlineWorld, protectedWorldBytes);
+            File.SetLastWriteTimeUtc(offlineWorld, protectedWorldWrite);
+            if (Directory.Exists(movingSourceBatch + ".incomplete"))
+                Directory.Delete(movingSourceBatch + ".incomplete", true);
+        }
+        Check(File.ReadAllBytes(offlineWorld).SequenceEqual(protectedWorldBytes),
+            "offline mutation fixture restores the original source and never modifies the registered live map");
+
         string[] liveFiles = Directory.GetFiles(liveMapRoot, "*", SearchOption.AllDirectories);
         Check(liveFiles.Length == 1 && liveFiles[0] == liveMarker && File.ReadAllText(liveMarker) == "synthetic test marker only",
             "restore and backup never create files under the registered server installation");
