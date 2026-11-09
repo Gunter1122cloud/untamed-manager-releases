@@ -84,7 +84,13 @@ public sealed class DesktopRconReadOnlyBridge
                 // changed historical command line may invalidate the owned
                 // PID check, but it must never hide the stronger Store write
                 // prohibition or permit a retry through another endpoint.
-                if(method=="rcon.saveWorld" &&
+                bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
+                if(newStore)
+                {
+                    try{FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);}
+                    catch(Exception){return Deny(id,"UM-FRESH-STORE-CLUSTER-STATE-CHANGED");}
+                }
+                if(method=="rcon.saveWorld" && !newStore &&
                    KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
                     return Deny(id,"UM-HISTORICAL-STORE-LOCKED");
                 bool configured=map.RconPort is >=1 and <=65535 &&
