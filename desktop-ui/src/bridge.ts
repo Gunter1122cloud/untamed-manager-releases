@@ -922,12 +922,15 @@ export type HistoricalPairEvidence = {
 export type OriginalKovaLocalMapList = {
   sourceVerified:true;originalFourFilesUnchanged:true;
   maps:Array<{mapId:string;mapKey:string;name:string;
-    folderName:string;registered:boolean}>;
+    folderName:string;gamePort:number;queryPort:number;
+    enabledMods:number;passiveMods:number;registered:boolean}>;
   evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY";
 };
 export type OriginalKovaImportPreview = {
   token:string;mapId:string;mapName:string;folderName:string;
-  gamePort:number;queryPort:number;originalIdsPreserved:true;
+  gamePort:number;queryPort:number;
+  originalEnabledMods:number;originalPassiveMods:number;
+  originalLaunchProfileVerified:true;originalIdsPreserved:true;
   originalFilesWritten:false;serverStarted:false;
   requiresOriginalRconAttach:true;
   evidence:"ORIGINAL_KOVA_DIRECT_IMPORT_PREVIEW";
@@ -935,7 +938,8 @@ export type OriginalKovaImportPreview = {
 export type OriginalKovaImportReceipt = {
   mapId:string;mapName:string;registered:true;originalIdsPreserved:true;
   originalFilesWritten:false;serverStarted:false;
-  requiresOriginalRconAttach:true;requiresExactModOrderVerification:true;
+  requiresOriginalRconAttach:true;originalLaunchProfileVerified:true;
+  requiresExactModOrderVerification:false;
   evidence:"ORIGINAL_KOVA_DIRECT_LOCAL_MAP_REGISTERED";
 };
 
