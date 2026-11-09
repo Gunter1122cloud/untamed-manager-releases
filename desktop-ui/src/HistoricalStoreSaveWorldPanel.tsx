@@ -1,13 +1,17 @@
 import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Save,Shield} from "lucide-react";
 import {managerBridge,type HistoricalSaveWorldPreview,
-  type HistoricalGracefulStopRecovery,type HistoricalGracefulStopStatus} from "./bridge";
+  type HistoricalGracefulStopRecovery,type HistoricalGracefulStopStatus,
+  type HistoricalSaveEvidenceStatus} from "./bridge";
 
 /** Real, explicitly approved original ACTIVE/DONE SaveWorld. Never DoExit. */
 export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   mapId:string;running:boolean;onSaved:()=>Promise<void>
 }){
   const [recovery,setRecovery]=useState<HistoricalGracefulStopRecovery|null>(null);
+  const [durableSave,setDurableSave]=useState<HistoricalSaveEvidenceStatus|null>(null);
+  const [durableChecked,setDurableChecked]=useState(false);
+  const [durableUnknown,setDurableUnknown]=useState(false);
   const [checked,setChecked]=useState(false);
   const [preview,setPreview]=useState<HistoricalSaveWorldPreview|null>(null);
   const [phrase,setPhrase]=useState("");
@@ -22,6 +26,12 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     finished.current=false;
     setChecked(false);setRecovery(null);setPreview(null);setPhrase("");
     setJobId("");setJob(null);setNotice("");setError("");
+    setDurableSave(null);setDurableUnknown(false);setDurableChecked(false);
+    managerBridge.historicalSaveWorldEvidence(mapId).then(result=>{
+      if(active){setDurableSave(result);setDurableChecked(true);}
+    }).catch(()=>{
+      if(active){setDurableUnknown(true);setDurableChecked(true);}
+    });
     managerBridge.historicalGracefulStopRecovery(mapId).then(result=>{
       if(!active)return;
       setRecovery(result);setChecked(true);
@@ -54,11 +64,21 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
         setJob(result);
         if(result.state==="completed"&&!finished.current){
           finished.current=true;
-          setNotice("SaveWorld befejezés: új ASA naplójelzés és stabil .ark megfigyelve. "+
-            "A szerver tovább fut; fsync és játékbeli karakterutazás külön igazolandó.");
-          try{setRecovery(await managerBridge.historicalGracefulStopRecovery(mapId));}
-          catch{/* Do not claim the journal is clean if this read fails. */}
-          await onSaved();
+          try{
+            setRecovery(await managerBridge.historicalGracefulStopRecovery(mapId));
+            const receipt=await managerBridge.historicalSaveWorldEvidence(mapId);
+            setDurableSave(receipt);
+            if(receipt.phase!=="completed"||!receipt.localSaveCompleteObserved||
+               receipt.productionRestoreAllowed||receipt.bothHostsSaveCompleteCertified)
+              throw new Error("SaveComplete receipt is missing or over-certified");
+            setNotice("Helyi SaveComplete napló tartósan igazolt: új ASA naplójelzés és stabil .ark. "+
+              "A szerver tovább fut; fsync és játékbeli karakterutazás külön igazolandó.");
+            await onSaved();
+          }catch{
+            setDurableUnknown(true);
+            setError("A művelet után a tartós helyi SaveComplete bizonyíték nem igazolható. "+
+              "Ne ismételd meg a SaveWorld parancsot; kézi ellenőrzés szükséges.");
+          }
         }else if(result.state==="needsOperator"&&!finished.current){
           finished.current=true;
           setError("A SaveWorld státusza bizonytalan. Az eredeti PID és napló kézi ellenőrzése "+
@@ -72,7 +92,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     return ()=>{active=false;window.clearInterval(handle);};
   },[jobId,mapId,onSaved]);
   const inspect=async()=>{
-    if(busy||!checked||!recovery||recovery.blocked||!running||jobId)return;
+    if(busy||!checked||!durableChecked||durableUnknown||
+       durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"||
+       !recovery||recovery.blocked||!running||jobId)return;
     setBusy(true);setPreview(null);setPhrase("");setError("");setNotice("");
     try{setPreview(await managerBridge.historicalSaveWorldPreview(mapId));}
     catch{setError("A Store ACTIVE/DONE session, helyi PID, RCON-port vagy forrásadat nem "+
@@ -104,7 +126,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
         parancsot. A log és világfájl ellenőrzése után sincs DoExit, konverzió vagy
         karakter-, tribe- és tribute-fájlmódosítás a Managerből.</p>
       <button type="button" className="secondary" disabled={busy||!running||
-          !checked||!recovery||recovery.blocked||!!preview||!!jobId||!!error}
+          !checked||!durableChecked||durableUnknown||
+          durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"||
+          !recovery||recovery.blocked||!!preview||!!jobId||!!error}
         onClick={()=>{void inspect();}}><Shield size={16}/> Mentés előellenőrzése</button>
       {preview&&<div className="warning-inline" role="region"
           aria-label="Store-v1 SaveWorld jóváhagyása">
@@ -122,6 +146,19 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
           </div>
         </div>
       </div>}
+      <div className="muted small" role="status" data-testid="store-durable-save-evidence">
+        <strong>Helyi SaveComplete mentési bizonyíték: </strong>
+        {!durableChecked?"Tartós napló ellenőrzése folyamatban":
+          durableUnknown?"Tartós napló nem ellenőrizhető – további mentés igazolása tilos":
+          durableSave?.phase==="completed"&&durableSave.localSaveCompleteObserved?
+            "Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve":
+          durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"?
+            "Függőben / bizonytalan – kézi ellenőrzést igényel":
+            "Nincs igazolt helyi SaveComplete napló"}
+        <p>A helyi mentésnapló nem igazolja a jelenlegi Store-írójogot,
+          a második gazdagép SaveComplete állapotát, az fsync-et vagy a teljes
+          cluster visszaállíthatóságát. Production restore továbbra is tiltott.</p>
+      </div>
       {job&&<div className="details-line" role="status">
         <span><RefreshCw size={15}/> {job.state==="running"?"Mentés folyamatban":job.state}</span>
         <strong>{job.step}</strong>
