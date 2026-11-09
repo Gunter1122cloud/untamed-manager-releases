@@ -311,6 +311,18 @@ test.beforeEach(async ({ page }) => {
           productionUnlockAllowed:false,
           evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"
         };
+        case "travel.compareRoundTrip": return {
+          passed:false,maps:10,hosts:2,
+          outwardPlacementVerified:typeof m.middleA==="string"&&
+            typeof m.middleB==="string"&&m.sourceMap!==m.destinationMap,
+          returnPlacementVerified:typeof m.afterA==="string"&&typeof m.afterB==="string",
+          uniqueAtAllStages:true,exactOriginalProfileBytes:false,
+          unrelatedLooseFilesUnchanged:true,storeModeDetected:false,
+          embeddedSurvivorVerified:false,gameClientRejoinVerified:false,
+          liveStoreWriterCertified:false,asaSaveCompleteCertified:false,
+          productionUnlockAllowed:false,
+          evidence:"SIX_QUIESCENT_TWO_HOST_LOOSE_FILE_BYTE_PARITY_ONLY"
+        };
         case "rcon.status": return {
           mapId:m.mapId,mapName:"The Island",configured:rconAllowed,
           processVerified:true,permitted:rconAllowed,maintenance:false,
@@ -1812,6 +1824,62 @@ test("Cluster page owns character travel evidence without unlocking Store",async
   await expect(page.getByRole("textbox",{name:"Helyi mentéslenyomat JSON"})).not.toBeEmpty();
   await expect(page.getByText(/nem oldja fel a védett mapok indítási zárolását/)).toBeVisible();
   await page.screenshot({path:"test-results/untamed-store-travel-workbench-1600.png",fullPage:false});
+});
+
+test("Store A-B-A six snapshots require both return hosts and never unlock production",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Hat pillanatképes oda-vissza utazás"});
+  const action=panel.getByRole("button",{name:"Hat mentéslenyomat (A → B → A) ellenőrzése"});
+  await expect(action).toBeDisabled();
+  const survivor="a".repeat(64);
+  const mkMap=(name:string,mapId:string,withProfile:boolean)=>({
+    name,mapId,storeMode:false,confirmedStopped:true,worldPresent:false,
+    worldBytes:0,saveDirectoryFound:true,ambiguousLayout:false,
+    unstable:false,zeroByteDetected:false,
+    files:withProfile?[{id:survivor,kind:"profile",bytes:1444,sha256:"b".repeat(64)}]:[]
+  });
+  const sourceId="00000000-0000-4000-8000-000000002001";
+  const targetId="00000000-0000-4000-8000-000000002006";
+  const namesA=["The Island","Astraeos","Valguero","Extinction","Genesis1"];
+  const namesB=["Ragnarok","The Center","Aberration","Scorched","Lost Colony"];
+  const snapshot=(host:"A"|"B",stage:number)=>{
+    const names=host==="A"?namesA:namesB;
+    const maps=names.map((name,i)=>{
+      const mapId="00000000-0000-4000-8000-"+
+        String(2001+i+(host==="B"?5:0)).padStart(12,"0");
+      return mkMap(name,mapId,i===0&&
+        (host==="A"?stage!==1:stage===1));
+    });
+    return JSON.stringify({schema:2,hostId:host==="A"?
+      "00000000-0000-4000-8000-000000008881":
+      "00000000-0000-4000-8000-000000008882",
+      utc:new Date(Date.UTC(2026,10,9,10,stage,host==="A"?0:1)).toISOString(),
+      nonce:"00000000000040008000"+String(stage*2+(host==="B"?2:1)).padStart(12,"0"),
+      maps});
+  };
+  const fill=async(name:string,value:string)=>{
+    await page.getByRole("textbox",{name}).fill(value);
+  };
+  await fill("Előtte · UK-HOME-01 JSON",snapshot("A",0));
+  await fill("Előtte · UK-HOME-02 JSON",snapshot("B",0));
+  await fill("Utána · UK-HOME-01 JSON",snapshot("A",1));
+  await fill("Utána · UK-HOME-02 JSON",snapshot("B",1));
+  await page.getByRole("combobox",{name:"Induló map"}).selectOption(sourceId);
+  await page.getByRole("combobox",{name:"Célmap"}).selectOption(targetId);
+  await page.getByRole("combobox",{name:"Vizsgált karakterfájl"}).selectOption(survivor);
+  await expect(action).toBeDisabled();
+  await fill("Visszaút után · UK-HOME-01 JSON",snapshot("A",2));
+  await expect(action).toBeDisabled();
+  await fill("Visszaút után · UK-HOME-02 JSON",snapshot("B",2));
+  await expect(action).toBeEnabled();
+  await action.click();
+  await expect(panel).toContainText("Odaút: fájlelrendezés egyezik");
+  await expect(panel).toContainText("Visszaút: fájlelrendezés egyezik");
+  await expect(panel).toContainText("Eredeti profil SHA: nem igazolt");
+  await expect(panel).toContainText("nem oldja fel");
+  await expect(panel).not.toContainText("Éles restore engedélyezve");
 });
 
 test("Mentésközpont calls real native preview/create and displays verified characters",async({page})=>{

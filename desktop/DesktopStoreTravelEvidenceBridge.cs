@@ -155,6 +155,8 @@ public sealed class DesktopStoreTravelEvidenceBridge
                string.IsNullOrWhiteSpace(m.Name)||m.Files==null||
                m.Files.Length>1500||m.WorldBytes<0||
                (m.StoreMode&&m.WorldPresent!=(m.WorldBytes>0))||
+               m.Files.Where(p=>p!=null).GroupBy(p=>p.Kind+"|"+p.Id,
+                   StringComparer.Ordinal).Any(g=>g.Count()>1)||
                m.Files.Any(p=>p is null||p.Bytes<0||
                    p.Kind is not ("profile" or "tribe")||
                    p.Id is null||p.Sha256 is null||
@@ -231,12 +233,119 @@ public sealed class DesktopStoreTravelEvidenceBridge
                 "FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"
         };
     }
+    // Three consecutive, independently captured snapshots of EACH host:
+    // before A→B, after A→B, and after B→A. This augments the existing
+    // four-snapshot comparison; it never reads or modifies live Store files.
+    // It establishes STRICT synthetic loose-file placement/byte parity only.
+    private static object CompareRoundTrip(string beforeA,string beforeB,
+        string middleA,string middleB,string afterA,string afterB,
+        string sourceMap,string destinationMap,string profileId)
+    {
+        var snapshots=new[]{
+            Read(beforeA),Read(beforeB),Read(middleA),Read(middleB),
+            Read(afterA),Read(afterB)
+        };
+        var initialA=snapshots[0]; var initialB=snapshots[1];
+        var middleHp=snapshots[2]; var middleRyzen=snapshots[3];
+        var finalA=snapshots[4]; var finalB=snapshots[5];
+        if(initialA.HostId==initialB.HostId||
+           initialA.HostId!=middleHp.HostId||initialA.HostId!=finalA.HostId||
+           initialB.HostId!=middleRyzen.HostId||initialB.HostId!=finalB.HostId||
+           !(initialA.Utc<middleHp.Utc&&middleHp.Utc<finalA.Utc)||
+           !(initialB.Utc<middleRyzen.Utc&&middleRyzen.Utc<finalB.Utc)||
+           snapshots.Select(x=>x.Nonce).Distinct(StringComparer.Ordinal).Count()!=6)
+            throw new InvalidDataException("UM-TRAVEL-ROUNDTRIP-REPLAY-OR-HOST-MISMATCH");
+
+        static string[] MapIdentity(Capture snap)=>snap.Maps
+            .Select(m=>m.MapId.ToString("D")+"|"+m.Name)
+            .OrderBy(x=>x,StringComparer.Ordinal).ToArray();
+        if(!MapIdentity(initialA).SequenceEqual(MapIdentity(middleHp))||
+           !MapIdentity(initialA).SequenceEqual(MapIdentity(finalA))||
+           !MapIdentity(initialB).SequenceEqual(MapIdentity(middleRyzen))||
+           !MapIdentity(initialB).SequenceEqual(MapIdentity(finalB)))
+            throw new InvalidDataException("UM-TRAVEL-ROUNDTRIP-TOPOLOGY-CHANGED");
+        if(!Guid.TryParse(sourceMap,out var from)||from==Guid.Empty||
+           !Guid.TryParse(destinationMap,out var to)||to==Guid.Empty||from==to)
+            throw new InvalidDataException("UM-TRAVEL-ROUNDTRIP-MAPS");
+        bool sourceOnA=initialA.Maps.Any(m=>m.MapId==from);
+        bool sourceOnB=initialB.Maps.Any(m=>m.MapId==from);
+        bool targetOnA=initialA.Maps.Any(m=>m.MapId==to);
+        bool targetOnB=initialB.Maps.Any(m=>m.MapId==to);
+        if(!((sourceOnA&&targetOnB)||(sourceOnB&&targetOnA))||
+           initialA.Maps.Concat(initialB.Maps).Select(m=>m.MapId).Distinct().Count()!=10)
+            throw new InvalidDataException("UM-TRAVEL-ROUNDTRIP-DISTINCT-HOSTS-REQUIRED");
+
+        var legOut=JsonSerializer.SerializeToElement(Compare(beforeA,beforeB,
+            middleA,middleB,sourceMap,destinationMap,profileId),Json);
+        var legBack=JsonSerializer.SerializeToElement(Compare(middleA,middleB,
+            afterA,afterB,destinationMap,sourceMap,profileId),Json);
+        bool outward=legOut.GetProperty("passed").GetBoolean();
+        bool returned=legBack.GetProperty("passed").GetBoolean();
+        bool store=legOut.GetProperty("storeModeDetected").GetBoolean()||
+            legBack.GetProperty("storeModeDetected").GetBoolean();
+        bool healthy=outward&&returned&&!store;
+
+        static Proof[] Tracked(Capture hp,Capture ryzen,Guid map,string id)=>
+            hp.Maps.Concat(ryzen.Maps).Where(m=>m.MapId==map)
+                .SelectMany(m=>m.Files.Where(f=>f.Kind=="profile"&&f.Id==id))
+                .ToArray();
+        var original=Tracked(initialA,initialB,from,profileId);
+        var intermediate=Tracked(middleHp,middleRyzen,to,profileId);
+        var final=Tracked(finalA,finalB,from,profileId);
+        static int TotalCopies(Capture hp,Capture ryzen,string id)=>
+            hp.Maps.Concat(ryzen.Maps).Sum(m=>m.Files.Count(
+                f=>f.Kind=="profile"&&f.Id==id));
+        bool uniqueAtAllStages=!store&&original.Length==1&&
+            intermediate.Length==1&&final.Length==1&&
+            TotalCopies(initialA,initialB,profileId)==1&&
+            TotalCopies(middleHp,middleRyzen,profileId)==1&&
+            TotalCopies(finalA,finalB,profileId)==1&&
+            original[0].Bytes>0&&intermediate[0].Bytes>0&&final[0].Bytes>0;
+        bool exactOriginalProfileBytes=uniqueAtAllStages&&
+            original[0].Bytes==final[0].Bytes&&
+            string.Equals(original[0].Sha256,final[0].Sha256,StringComparison.Ordinal);
+        // Every UNINVOLVED map's loose character/tribe snapshot must retain
+        // identical file identities, lengths, and SHA-256 across both legs.
+        // Do not claim that this proves the traveller's inventory/implant.
+        static string[] StableFiles(MapProof map)=>map.Files.Select(f=>
+            f.Kind+"|"+f.Id+"|"+f.Bytes+"|"+f.Sha256)
+            .OrderBy(x=>x,StringComparer.Ordinal).ToArray();
+        var beforeMaps=initialA.Maps.Concat(initialB.Maps).ToDictionary(m=>m.MapId);
+        var middleMaps=middleHp.Maps.Concat(middleRyzen.Maps).ToDictionary(m=>m.MapId);
+        var afterMaps=finalA.Maps.Concat(finalB.Maps).ToDictionary(m=>m.MapId);
+        bool unrelatedStable=!store&&beforeMaps.Keys.Where(id=>id!=from&&id!=to)
+            .All(id=>StableFiles(beforeMaps[id]).SequenceEqual(StableFiles(middleMaps[id]))&&
+                StableFiles(beforeMaps[id]).SequenceEqual(StableFiles(afterMaps[id])));
+        bool strictByteStable=healthy&&uniqueAtAllStages&&
+            exactOriginalProfileBytes&&unrelatedStable;
+        return new{
+            passed=strictByteStable,
+            outwardPlacementVerified=outward,
+            returnPlacementVerified=returned,
+            uniqueAtAllStages,
+            exactOriginalProfileBytes,
+            unrelatedLooseFilesUnchanged=unrelatedStable,
+            storeModeDetected=store,
+            hosts=2,maps=10,
+            // A loose-file roundtrip is NOT an ASA embedded-survivor, writer,
+            // tribe semantics, hotbar, implant, tribute or gameplay certificate.
+            embeddedSurvivorVerified=false,
+            gameClientRejoinVerified=false,
+            liveStoreWriterCertified=false,
+            asaSaveCompleteCertified=false,
+            productionUnlockAllowed=false,
+            evidence=store?
+                "STORE_V1_SIX_SNAPSHOTS_EMBEDDED_SURVIVOR_NOT_VERIFIED":
+                "SIX_QUIESCENT_TWO_HOST_LOOSE_FILE_BYTE_PARITY_ONLY"
+        };
+    }
+
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
         try
         {
-            if(raw.Length is <2 or >4*Limit+8192)
+            if(raw.Length is <2 or >6*Limit+8192)
                 return Error(null,"UM-TRAVEL-INVALID-MESSAGE");
             using var doc=JsonDocument.Parse(raw);
             var data=doc.RootElement;
@@ -247,7 +356,7 @@ public sealed class DesktopStoreTravelEvidenceBridge
                 return Error(null,"UM-TRAVEL-INVALID-MESSAGE");
             id=req.ToString("D");
             string? method=m.GetString();
-            if(method is not ("travel.capture" or "travel.compare"))
+            if(method is not ("travel.capture" or "travel.compare" or "travel.compareRoundTrip"))
                 return Error(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
@@ -284,6 +393,11 @@ public sealed class DesktopStoreTravelEvidenceBridge
                         throw new InvalidDataException("UM-TRAVEL-MISSING-EVIDENCE");
                     return value.GetString()??"";
                 }
+                if(method=="travel.compareRoundTrip")
+                    return Ok(id,CompareRoundTrip(Required("beforeA"),Required("beforeB"),
+                        Required("middleA"),Required("middleB"),Required("afterA"),
+                        Required("afterB"),Required("sourceMap"),Required("destinationMap"),
+                        Required("profileId")));
                 return Ok(id,Compare(Required("beforeA"),Required("beforeB"),
                     Required("afterA"),Required("afterB"),Required("sourceMap"),
                     Required("destinationMap"),Required("profileId")));
