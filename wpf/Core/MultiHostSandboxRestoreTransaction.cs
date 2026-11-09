@@ -95,6 +95,28 @@ public static class MultiHostSandboxRestoreTransaction
 
     private static string JournalPath(string target) => FixedLocal(target + JournalSuffix);
     private static string JournalNextPath(string target) => FixedLocal(JournalPath(target) + ".next");
+    private static string MutationLeasePath(string target) => FixedLocal(JournalPath(target) + ".lease");
+
+    // Windows closes an abandoned file handle on process exit. DeleteOnClose
+    // also removes this adjacent lock file: no permanent stale ownership or
+    // manual lock-file deletion after a crash. A distinct Manager process
+    // cannot enter the same TEMP replacement/rollback transaction concurrently.
+    // This lease NEVER grants live ASA/Store access or ownership of a Kova lock.
+    private static FileStream AcquireMutationLease(string target)
+    {
+        string path = MutationLeasePath(target);
+        if (Directory.Exists(path))
+            throw new IOException("UM-TEMP-RESTORE-LEASE-BUSY");
+        try
+        {
+            return new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite,
+                FileShare.None, 4096, FileOptions.DeleteOnClose);
+        }
+        catch (IOException ex)
+        {
+            throw new IOException("UM-TEMP-RESTORE-LEASE-BUSY", ex);
+        }
+    }
 
     private static string Sha256(string text) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
@@ -236,6 +258,7 @@ public static class MultiHostSandboxRestoreTransaction
         cancellationToken.ThrowIfCancellationRequested();
 
         string target = TargetPath(destination);
+        using var mutationLease = AcquireMutationLease(target);
         string archive = FixedLocal(archiveDirectory);
         if (!Directory.Exists(target) || File.Exists(target))
             throw new IOException("Only a verified existing TEMP sandbox can be replaced");
@@ -360,6 +383,10 @@ public static class MultiHostSandboxRestoreTransaction
     public static MultiHostSandboxReplacementRecoveryStatus InspectRecovery(string destination)
     {
         string target = TargetPath(destination);
+        if (File.Exists(MutationLeasePath(target)) ||
+            Directory.Exists(MutationLeasePath(target)))
+            return new(true, false, null, "busy",
+                "Another process is changing this TEMP sandbox; recovery is blocked until it exits");
         string journalPath = JournalPath(target);
         string journalNext = JournalNextPath(target);
         if (!File.Exists(journalPath) && !File.Exists(journalNext) &&
@@ -427,6 +454,13 @@ public static class MultiHostSandboxRestoreTransaction
             try
             {
                 string target = TargetPath(Path.Combine(temp, targetName));
+                if (File.Exists(MutationLeasePath(target)) ||
+                    Directory.Exists(MutationLeasePath(target)))
+                {
+                    candidates.Add(new(targetName, null, "busy", true, false,
+                        "Another process owns this TEMP sandbox transaction; rollback cannot start"));
+                    continue;
+                }
                 var journal = ReadJournal(target);
                 bool canRollback = journal.Phase is "prepared" or "previousMoved" or
                     "replacementPublished" or "committed";
@@ -455,11 +489,14 @@ public static class MultiHostSandboxRestoreTransaction
         if (!explicitOperatorApproval)
             throw new UnauthorizedAccessException("Explicit rollback approval is required");
         string target = TargetPath(destination);
-        var journal = ReadJournal(target);
-        if (transactionId == Guid.Empty || journal.TransactionId != transactionId ||
-            journal.Phase is "rolledBack")
-            throw new InvalidOperationException("Restore transaction is stale or already rolled back");
-        RollbackCore(target, journal);
+        using (var mutationLease = AcquireMutationLease(target))
+        {
+            var journal = ReadJournal(target);
+            if (transactionId == Guid.Empty || journal.TransactionId != transactionId ||
+                journal.Phase is "rolledBack")
+                throw new InvalidOperationException("Restore transaction is stale or already rolled back");
+            RollbackCore(target, journal);
+        }
         return InspectRecovery(target);
     }
 }
