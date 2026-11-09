@@ -434,6 +434,32 @@ export type FreshAsaStartStatus = {
   readyCertified:false;status:string;
   evidence:"LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS";
 };
+export type LiveSteamPreview={
+  token:string;mapId:string;mapName:string;pid:number;installedBuild:string;
+  stages:string[];requiresExplicitApproval:true;automaticRetry:false;
+  storeSupported:false;remoteUpdates:false;sourceVerified:true;
+  productionReadyNow:false;
+  evidence:"LOCAL_RUNNING_FRESH_ASA_NATIVE_SEQUENCE_PREFLIGHT";
+};
+export type LiveSteamStarted={
+  jobId:string;started:true;automaticRetry:false;localOnly:true;
+  originalStoreTouched:false;
+  evidence:"EXISTING_NATIVE_STOP_STEAM_START_WORKFLOW_QUEUED";
+};
+export type LiveSteamCurrent={
+  exists:boolean;state:string;stage:string;mapId?:string;jobId?:string;
+};
+export type LiveSteamStatus={
+  jobId:string;mapId:string;
+  state:"queued"|"running"|"completed"|"needsOperator";
+  stage:string;changedUtc:string;
+  stopVerified:boolean;steamUpdateVerified:boolean;
+  startRequested:boolean;productionReady:boolean;
+  originalStoreTouched:false;remoteHostTouched:false;
+  gameClientTravelVerified:false;liveStoreWriterCertified:false;
+  automaticRetry:false;
+  evidence:"GUARDED_EXISTING_LOCAL_STOP_UPDATE_START_BRIDGES";
+};
 export type StoppedSteamPreview = {
   token:string;mapId:string;mapName:string;maps:string[];
   installedBuild:string;reserveBytes:number;availableBytes:number;
@@ -1298,6 +1324,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
   "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" |
+  "steam.liveCurrent" | "steam.livePreview" | "steam.liveApply" | "steam.liveStatus" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -1488,6 +1515,13 @@ export const managerBridge = {
     request<FreshAsaStartReceipt>("servers.freshStartApply",{token,confirm:true}),
   freshAsaStartStatus: (mapId:string) =>
     request<FreshAsaStartStatus>("servers.freshStartStatus",{mapId}),
+  steamLiveCurrent: () => request<LiveSteamCurrent>("steam.liveCurrent"),
+  steamLivePreview: (mapId:string) =>
+    request<LiveSteamPreview>("steam.livePreview",{mapId}),
+  steamLiveApply: (token:string) =>
+    request<LiveSteamStarted>("steam.liveApply",{token,confirm:true}),
+  steamLiveStatus: (jobId:string) =>
+    request<LiveSteamStatus>("steam.liveStatus",{jobId}),
   steamStoppedCurrent: () =>
     request<DurableSteamQueue>("steam.stoppedCurrent"),
   steamStoppedPreview: (mapId:string) =>
