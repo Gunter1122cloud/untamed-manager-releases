@@ -136,7 +136,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             running=process.Running,
                             pid=process.Identity?.Pid,
                             loaderPid=process.LoaderIdentity?.Pid,
-                            reason=process.Reason};
+                            reason=process.Status};
                     }).ToArray();
                     var overlaps=cluster.Config.LocalMaps.Where(m=>
                         !string.IsNullOrWhiteSpace(m.InstallationPath)&&
