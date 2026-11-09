@@ -62,8 +62,13 @@ internal static class FreshStoreEnrollmentTests
                     "The Island","Synthetic Store Map",7851,27551),
                 AutoStart=false
             };
+            const string syntheticAdminPassword="SyntheticOnlyAdmin2026!";
+            AsaInitialRconSettings.CreateForNewServer(
+                installation,37551,syntheticAdminPassword);
+            map.RconPasswordProtected=SecureStore.Protect(syntheticAdminPassword);
             manager.AddMap(map);
             Check(AsaReadyProbe.IsRegisteredServerBinary(map)&&
+                  AsaRconConfigurationEvidence.Matches(map)&&
                   AsaSteamBuildCatalog.InstalledBuild(installation)=="980812",
                 "isolated SteamCMD fixture has a registered ASA EXE and exact build manifest");
             Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,map,"new-local-cluster"),
