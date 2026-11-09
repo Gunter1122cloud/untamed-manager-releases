@@ -113,12 +113,64 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 return Fail(null,"UM-STEAM-MESSAGE");
             id=requestId.ToString("D");
             string? method=field.GetString();
-            if(method is not ("steam.stoppedPreview" or
+            if(method is not ("steam.stoppedDiagnostics" or "steam.stoppedPreview" or
                 "steam.stoppedApply" or "steam.stoppedStatus" or "steam.stoppedCurrent"))
                 return Fail(id,"UM-METHOD-DENIED");
             await mutex.WaitAsync();
             try
             {
+                if(method=="steam.stoppedDiagnostics")
+                {
+                    if(!GuidField(data,"mapId",out var diagnosedId))
+                        return Fail(id,"UM-STEAM-MAP");
+                    var owned=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==diagnosedId);
+                    if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    string root=Path.GetFullPath(owned.InstallationPath);
+                    var related=cluster.Config.LocalMaps.Where(m=>
+                        !string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                        string.Equals(Path.GetFullPath(m.InstallationPath),root,
+                            StringComparison.OrdinalIgnoreCase)).ToArray();
+                    var processes=related.Select(m=>{
+                        var process=cluster.Check(m);
+                        return new{mapName=m.Name,confirmedStopped=process.ConfirmedStopped,
+                            running=process.Running,
+                            pid=process.Identity?.Pid,
+                            loaderPid=process.LoaderIdentity?.Pid,
+                            reason=process.Status};
+                    }).ToArray();
+                    var overlaps=cluster.Config.LocalMaps.Where(m=>
+                        !string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                        !string.Equals(Path.GetFullPath(m.InstallationPath),root,
+                            StringComparison.OrdinalIgnoreCase)&&
+                        (Path.GetFullPath(m.InstallationPath).StartsWith(
+                            root.TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,
+                            StringComparison.OrdinalIgnoreCase)||
+                         root.StartsWith(Path.GetFullPath(m.InstallationPath).TrimEnd(
+                            Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,
+                            StringComparison.OrdinalIgnoreCase)))
+                        .Select(m=>new{mapName=m.Name,installRoot=m.InstallationPath}).ToArray();
+                    string steamExe=cluster.Config.SteamCmdExecutable;
+                    bool steamFound=!string.IsNullOrWhiteSpace(steamExe)&&
+                        File.Exists(steamExe);
+                    long free=new DriveInfo(Path.GetPathRoot(root)!).AvailableFreeSpace;
+                    bool stopped=processes.All(p=>p.confirmedStopped&&!p.running&&
+                        p.pid==null&&p.loaderPid==null);
+                    bool journalBlocked=HasBlockedJournal();
+                    bool historical=related.Any(m=>m.HistoricalStoreProtected||
+                        m.Maintenance);
+                    return Ok(id,new{
+                        mapId=owned.Id,mapName=owned.Name,installRoot=root,
+                        processes,overlaps,
+                        steamCmdFound=steamFound,steamCmdConfigured=
+                            !string.IsNullOrWhiteSpace(steamExe),
+                        availableBytes=free,requiredBytes=Reserve,
+                        journalBlocked,historicalBlocked=historical,
+                        canPreview=stopped&&!historical&&!journalBlocked&&
+                            steamFound&&free>=Reserve&&overlaps.Length==0,
+                        noProcessAutoStop=true,remoteWrites=false,
+                        evidence="REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"
+                    });
+                }
                 if(method=="steam.stoppedCurrent")
                 {
                     // Recovery is observational. Only the Core journal can

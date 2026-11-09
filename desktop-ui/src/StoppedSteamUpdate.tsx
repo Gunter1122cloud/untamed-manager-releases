@@ -1,10 +1,11 @@
 import {useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-react";
-import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue} from "./bridge";
+import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue,type StoppedSteamDiagnostics} from "./bridge";
 
 export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapId?:string}) {
   const [selected,setSelected]=useState("");
   const [preview,setPreview]=useState<StoppedSteamPreview|null>(null);
+  const [diagnostics,setDiagnostics]=useState<StoppedSteamDiagnostics|null>(null);
   const [job,setJob]=useState<StoppedSteamStatus|null>(null);
   const [jobId,setJobId]=useState<string|null>(null);
   const [journal,setJournal]=useState<DurableSteamQueue|null>(null);
@@ -17,7 +18,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     ?(maps.some(m=>m.id===fixedMapId)?fixedMapId:"")
     :(maps.some(m=>m.id===selected)?selected:(maps[0]?.id??""));
 
-  useEffect(()=>{setPreview(null);setApproved(false);},[mapId]);
+  useEffect(()=>{setPreview(null);setDiagnostics(null);setApproved(false);},[mapId]);
   useEffect(()=>{
     let active=true;
     managerBridge.steamStoppedCurrent()
@@ -52,8 +53,18 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
   const check=async()=>{
     if(!mapId||busy||jobId||journal?.needsOperatorReview)return;
     setBusy(true);setPreview(null);setApproved(false);setError("");
-    try{setPreview(await managerBridge.steamStoppedPreview(mapId));}
-    catch{setError("Az előellenőrzés sikertelen: minden érintett helyi mapnak igazoltan leállítva kell lennie, és elegendő szabad tárhely szükséges.");}
+    try{
+      const report=await managerBridge.steamStoppedDiagnostics(mapId);
+      setDiagnostics(report);
+      if(!report.canPreview){
+        setError("A frissítési előfeltételek nem teljesülnek. Az alábbi diagnosztika "+
+          "pontosan jelzi a blokkoló mapot, SteamCMD-t, tárhelyet vagy naplót.");
+        return;
+      }
+      setPreview(await managerBridge.steamStoppedPreview(mapId));
+    }catch(e){setError("Az előellenőrzés nem sikerült ("+
+      (e instanceof Error?e.message:"nem olvasható")+
+      "). A natív SteamCMD/ASA napló további ellenőrzése szükséges.");}
     finally{setBusy(false);}
   };
   const update=async()=>{
@@ -96,6 +107,25 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         {journal.total!==undefined&&" · "+(journal.nextIndex??0)+"/"+journal.total}
         {journal.needsOperatorReview&&" · korábban félbeszakadt művelet: kézi ellenőrzés szükséges, az automatikus újrakezdés tiltva"}
       </span>
+    </div>}
+    {diagnostics&&<div role="region" aria-label="SteamCMD natív előfeltétel diagnosztika"
+      className="historical-preview">
+      <b>{diagnostics.mapName} · {diagnostics.canPreview?"Előellenőrzés engedélyezhető":"Blokkolt frissítés"}</b>
+      <p>Telepítés: {diagnostics.installRoot}</p>
+      <p>Szabad tárhely: {Math.floor(diagnostics.availableBytes/1073741824)} GiB;
+        szükséges tartalék: {Math.ceil(diagnostics.requiredBytes/1073741824)} GiB.</p>
+      <p>SteamCMD: {diagnostics.steamCmdFound?"Telepítve":"Hiányzik vagy az elérési út érvénytelen"}.
+        Napló: {diagnostics.journalBlocked?"kézi ellenőrzés szükséges":"nem blokkol"}.
+        Store-v1/karbantartás: {diagnostics.historicalBlocked?"védett":"nem blokkol"}.</p>
+      {diagnostics.processes.map(p=><p key={p.mapName}>
+        {p.mapName}: {p.confirmedStopped&&!p.running?"Leállítás igazolva":"NEM igazoltan leállítva"}
+        {p.pid!=null?" · ASA PID "+p.pid:""}
+        {p.loaderPid!=null?" · Loader PID "+p.loaderPid:""}
+        {" · "+p.reason}
+      </p>)}
+      {diagnostics.overlaps.map(p=><p key={p.mapName} role="alert">
+        Ütköző map: {p.mapName} · {p.installRoot}
+      </p>)}
     </div>}
     {preview&&<div className="uk-rcon-admin-review" role="region" aria-label="SteamCMD frissítés jóváhagyása">
       <b>{preview.mapName} – jelenlegi build: {preview.installedBuild}</b>

@@ -122,6 +122,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopStoppedSteamUpdateBridge _steamUpdate;
     private readonly DesktopFreshAsaStartBridge _freshStart;
     private readonly DesktopFreshAsaStopBridge _freshStop;
+    private readonly DesktopOwnedAsaKillBridge _ownedKill;
     private readonly DesktopFreshAsaRestartBridge _freshRestart;
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopOperationsCenterBridge _operations;
@@ -185,6 +186,7 @@ public sealed class ObsidianWindow : Form
         _steamUpdate = new DesktopStoppedSteamUpdateBridge(_bridge.LocalCluster);
         _freshStart = new DesktopFreshAsaStartBridge(_bridge.LocalCluster);
         _freshStop = new DesktopFreshAsaStopBridge(_bridge.LocalCluster);
+        _ownedKill = new DesktopOwnedAsaKillBridge(_bridge.LocalCluster);
         _freshRestart = new DesktopFreshAsaRestartBridge(_bridge.LocalCluster);
         _nativeSchedules = new DesktopScheduledAsaOperationsSupervisor(
             _bridge.LocalCluster,_rcon,_freshRestart);
@@ -398,6 +400,7 @@ public sealed class ObsidianWindow : Form
                 bool stoppedSteamRoute = false;
                 bool freshStartRoute = false;
                 bool freshStopRoute = false;
+                bool ownedKillRoute = false;
                 bool freshRestartRoute = false;
                 bool lifecycleJournalRoute = false;
                 bool operationsRoute = false;
@@ -426,6 +429,7 @@ public sealed class ObsidianWindow : Form
                         freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or
                             "servers.freshStartStatus" or "servers.freshReadiness";
                         freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or "servers.gracefulStopStatus";
+                        ownedKillRoute = name is "servers.ownedKillPreview" or "servers.ownedKillApply";
                         freshRestartRoute = name is "servers.restartPreview" or "servers.restartApply" or
                             "servers.restartStatus" or "servers.restartCurrent";
                         lifecycleJournalRoute = name is "servers.lifecycleJournal";
@@ -436,7 +440,7 @@ public sealed class ObsidianWindow : Form
                             "schedule.nativeOverview";
                         mapMaintenanceRoute = name is "maps.maintenanceStatus" or "maps.maintenanceSet";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply" or "lan.physicalStoreProbe" or "lan.historicalSaveProbe";
-                        stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
+                        stoppedSteamRoute = name is "steam.stoppedDiagnostics" or "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare" or "travel.compareRoundTrip";
                         embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
@@ -538,6 +542,7 @@ public sealed class ObsidianWindow : Form
                         : operationsRoute ? await _operations.HandleAsync(incoming)
                         : freshRestartRoute ? await _freshRestart.HandleAsync(incoming)
                         : lifecycleJournalRoute ? await _lifecycleJournal.HandleAsync(incoming)
+                        : ownedKillRoute ? await _ownedKill.HandleAsync(incoming)
                         : freshStopRoute ? await _freshStop.HandleAsync(incoming)
                         : freshStartRoute ? await _freshStart.HandleAsync(incoming)
                         : pluginJsonRoute ? await _pluginJson.HandleAsync(incoming)

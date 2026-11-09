@@ -9,7 +9,7 @@ using System.Threading;
 
 namespace UntamedManager.Core;
 
-public enum UntamedOperationKind { Launch, Configuration, PluginChange, Backup, Restore, Update }
+public enum UntamedOperationKind { Launch, Configuration, PluginChange, Backup, Restore, Update, EmergencyKill }
 public enum UntamedOperationPhase { Prepared, Mutating, Completed, CancelledBeforeMutation, NeedsOperator, OperatorReviewed }
 public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Operation,
     UntamedOperationKind Kind,UntamedOperationPhase Phase,DateTimeOffset UpdatedUtc);
