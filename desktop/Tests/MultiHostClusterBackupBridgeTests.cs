@@ -185,6 +185,70 @@ public static class MultiHostClusterBackupBridgeTests
         var choices = new Queue<string?>();
         using var bridge = new DesktopMultiHostClusterBackupBridge(service, _ => choices.Dequeue());
 
+        // Real interrupted v1 engine: a failure after object 2 leaves the
+        // journal and partial objects, not a fabricated fixture. The operator
+        // selects the exact .incomplete directory and the original source.
+        string recoveryRoot=Path.Combine(root,"separate-recovery-output");
+        Directory.CreateDirectory(recoveryRoot);
+        string recoveryTarget=Path.Combine(recoveryRoot,
+            "Untamed-MultiHost-20261109-190000-"+catalogModel.BatchId.ToString("N"));
+        bool interrupted=false;
+        try
+        {
+            MultiHostClusterBackupArchive.BuildFromCatalog(catalogPath,recoveryTarget,
+                afterCopiedForTesting:i=>{
+                    if(i==1)throw new IOException("Synthetic power loss after two objects");
+                });
+        }
+        catch(IOException){interrupted=true;}
+        string stage=recoveryTarget+".incomplete";
+        var checkpoint=MultiHostClusterBackupArchive.InspectInterrupted(recoveryTarget);
+        Check(interrupted&&Directory.Exists(stage)&&checkpoint.NeedsOperator&&
+              checkpoint.BatchId==catalogModel.BatchId,
+            "real v1 archive interruption retains a verifiable incomplete journal");
+        using(var first=MultiHostOfflineArchiveRecovery.AcquireLease(recoveryTarget))
+        {
+            bool collision=false;
+            try
+            {
+                using var second=MultiHostOfflineArchiveRecovery.AcquireLease(recoveryTarget);
+            }
+            catch(IOException){collision=true;}
+            Check(collision,"second Manager OS process cannot acquire the same archive transaction");
+        }
+        choices.Enqueue(stage);
+        choices.Enqueue(sourceRoot);
+        var recoveryPreview=await Call(bridge,"cluster.multiHostBackupRecoveryPreview");
+        Check(recoveryPreview.GetProperty("ok").GetBoolean()&&
+              recoveryPreview.GetProperty("data").GetProperty("needsOperator").GetBoolean()&&
+              recoveryPreview.GetProperty("data").GetProperty("previousStageWillBeRetained").GetBoolean(),
+            "native recovery preflight binds real interrupted journal, original catalog and registry");
+        string recoverToken=recoveryPreview.GetProperty("data").GetProperty("token").GetString()!;
+        var deniedRecovery=await Call(bridge,"cluster.multiHostBackupRecoveryApply",
+            new{token=recoverToken,confirm=false});
+        Check(!deniedRecovery.GetProperty("ok").GetBoolean()&&Directory.Exists(stage),
+            "interrupted stage is never moved without explicit operator consent");
+        var recoveredJob=await Call(bridge,"cluster.multiHostBackupRecoveryApply",
+            new{token=recoverToken,confirm=true});
+        Check(recoveredJob.GetProperty("ok").GetBoolean(),
+            "approved recovery creates a real native archive rebuild job");
+        string recoveryJobId=recoveredJob.GetProperty("data").GetProperty("jobId").GetString()!;
+        var settled=await WaitFor(bridge,"cluster.multiHostBackupStatus",recoveryJobId);
+        string retainedName=settled.GetProperty("data").GetProperty("rollbackArtifactName").GetString()!;
+        Check(settled.GetProperty("data").GetProperty("state").GetString()=="completed"&&
+              retainedName.StartsWith("Untamed-MultiHost-")&&
+              Directory.Exists(Path.Combine(recoveryRoot,retainedName))&&
+              !Directory.Exists(stage)&&Directory.Exists(recoveryTarget),
+            "recovery retains complete prior .incomplete bytes and publishes a fresh verified archive");
+        var fromRecovery=MultiHostClusterBackupArchive.Verify(recoveryTarget);
+        Check(fromRecovery.BatchId==catalogModel.BatchId&&
+              File.ReadAllText(liveMarker)=="synthetic test marker only",
+            "recovered archive is verified by existing v1 engine and live map marker is untouched");
+        var replayRecovery=await Call(bridge,"cluster.multiHostBackupRecoveryApply",
+            new{token=recoverToken,confirm=true});
+        Check(!replayRecovery.GetProperty("ok").GetBoolean(),
+            "one-time recovery approval cannot replay a verified archive rebuild");
+
         choices.Enqueue(liveMapRoot);
         var protectedSource = await Call(bridge, "cluster.multiHostBackupPreview");
         Check(Error(protectedSource, "UM-MULTIHOST-BACKUP-SAFETY-CHECK-FAILED"),
