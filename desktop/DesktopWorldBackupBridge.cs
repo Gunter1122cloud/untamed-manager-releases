@@ -97,10 +97,10 @@ public sealed class DesktopWorldBackupBridge
                     Path.GetFullPath(original.OriginalInstallationRoot),
                     StringComparison.OrdinalIgnoreCase)||
                map.GamePort!=original.GamePort||map.QueryPort!=original.QueryPort||
-               !map.HistoricalEnabledMods.SequenceEqual(original.EnabledMods,
-                    StringComparer.Ordinal)||
-               !map.HistoricalPassiveMods.SequenceEqual(original.PassiveMods,
-                    StringComparer.Ordinal))
+               map.HistoricalEnabledMods?.SequenceEqual(original.EnabledMods,
+                    StringComparer.Ordinal)!=true||
+               map.HistoricalPassiveMods?.SequenceEqual(original.PassiveMods,
+                    StringComparer.Ordinal)!=true)
                 throw new InvalidDataException("UM-BACKUP-ORIGINAL-SOURCE-OR-PORTS-CHANGED");
             if(!roots.Add(Path.GetFullPath(map.InstallationPath)))
                 throw new InvalidDataException("UM-BACKUP-ORIGINAL-DUPLICATE-ROOT");
@@ -188,7 +188,7 @@ public sealed class DesktopWorldBackupBridge
                     var created=await Task.Run(()=>
                     {
                         var points=new List<(Guid MapId,string Name,
-                            KovaCompatibleWorldBackup.Point Point)>();
+                            KovaCompatibleWorldBackup.Receipt Point)>();
                         foreach(var map in maps)
                         {
                             Stopped(map);
