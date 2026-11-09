@@ -2418,7 +2418,7 @@ test("new empty Store-map uses existing cluster membership, one-shot approval an
   await region.getByRole("checkbox",{name:/Jóváhagyom az üres map/}).check();
   await region.getByRole("button",{name:"Új Store-profil mentése"}).click();
   await expect(region).toContainText("Store-profil regisztrálva: fixture-beta");
-  await expect(region).not.toContainText("converttostore");
+  await expect(region).toContainText("Nem fut -converttostore");
   await expect(page.getByRole("button",{name:/ASA indítási mód választása/})).toHaveCount(0);
   await expect(page.getByRole("region",{name:"Új üres Store-map"})).toContainText("játékbeli utazás még nem igazolt");
 });
