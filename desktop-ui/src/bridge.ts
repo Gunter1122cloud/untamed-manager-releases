@@ -1055,15 +1055,15 @@ export type HistoricalStoreRegistration = {
 
 export type InitialMapStatus = {
   mapId:string; mapName:string; level:string | null;
-  initialSetupAvailable:boolean; confirmedStopped:boolean;
-  blocker:"NONE"|"PROFILE_ALREADY_CONFIGURED_OR_PROTECTED"|"MAP_LEVEL_UNRECOGNIZED"|"SERVER_EXECUTABLE_MISSING"|"PROCESS_RUNNING"|"PROCESS_STOP_NOT_VERIFIED";
+  initialSetupAvailable:boolean; confirmedStopped:boolean; requiresCustomLevel:boolean;
+  blocker:"NONE"|"PROFILE_ALREADY_CONFIGURED_OR_PROTECTED"|"SERVER_EXECUTABLE_MISSING"|"PROCESS_RUNNING"|"PROCESS_STOP_NOT_VERIFIED";
   processStatus:string; hasServerExecutable:boolean; gamePort:number; queryPort:number;
   suggestion:{game:number;query:number};
   evidence:"LOCAL_MANAGER_PROFILE_FIRST_SETUP_STATUS";
 };
 export type InitialMapPreview = {
   token:string; mapId:string; mapName:string; sessionName:string;
-  mapLevel:string; gamePort:number; queryPort:number;
+  mapLevel:string; gamePort:number; queryPort:number; requiresCustomLevel:boolean;
   rconEnabled:false; serverStartRequested:false; configuredArgumentsLength:number;
   evidence:"INITIAL_MAP_PROFILE_PREVIEW_NO_WRITES";
 };
@@ -1745,8 +1745,9 @@ export const managerBridge = {
   freshRegister: (jobId:string) => request<FreshInstallReceipt>("steam.freshRegister", {jobId, confirm:true}),
   initialStatus: (mapId:string) =>
     request<InitialMapStatus>("servers.initialStatus", {mapId}),
-  initialPreview: (mapId:string, sessionName:string, gamePort:number, queryPort:number) =>
-    request<InitialMapPreview>("servers.initialPreview", {mapId, sessionName, gamePort, queryPort}),
+  initialPreview: (mapId:string, sessionName:string, gamePort:number, queryPort:number,
+      customLevel:string="") =>
+    request<InitialMapPreview>("servers.initialPreview", {mapId, sessionName, gamePort, queryPort, customLevel}),
   initialApply: (token:string) =>
     request<InitialMapReceipt>("servers.initialApply", {token, confirm:true}),
   historicalLaunchEvidence: (archive:string,mapId:string,command:string) =>
