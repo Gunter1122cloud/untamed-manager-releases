@@ -15,7 +15,8 @@ namespace UntamedDesktop;
 internal static class FreshStoreApiPairObserver
 {
     internal static bool MatchesVerifiedPair(ProcessCheck observed,
-        ProcessIdentity launchedLoader,int rconPort,Func<int,int,bool> ownsRcon)
+        ProcessIdentity launchedLoader,string expectedAsaExecutable,
+        string expectedAsaArguments,int rconPort,Func<int,int,bool> ownsRcon)
     {
         if(observed==null||launchedLoader==null||
            !observed.Running||observed.ConfirmedStopped||
@@ -29,6 +30,10 @@ internal static class FreshStoreApiPairObserver
            !string.Equals(parent.ExecutablePath,launchedLoader.ExecutablePath,
                StringComparison.OrdinalIgnoreCase)||
            parent.Arguments!=launchedLoader.Arguments||
+           string.IsNullOrWhiteSpace(expectedAsaExecutable)||
+           !string.Equals(child.ExecutablePath,expectedAsaExecutable,
+               StringComparison.OrdinalIgnoreCase)||
+           child.Arguments!=expectedAsaArguments||
            string.Equals(parent.ExecutablePath,child.ExecutablePath,
                StringComparison.OrdinalIgnoreCase))
             return false;
@@ -54,7 +59,8 @@ internal static class FreshStoreApiPairObserver
                         return;
                     FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
                     var observed=cluster.ObserveLocalProcessesReadOnly(map);
-                    if(MatchesVerifiedPair(observed,launchedLoader,map.RconPort,
+                    if(MatchesVerifiedPair(observed,launchedLoader,
+                        map.ExecutablePath,map.Arguments,map.RconPort,
                         RconPortOwnership.IsOwnedListener))
                     {
                         // RecordObservedIdentity obtains the SAME installation
