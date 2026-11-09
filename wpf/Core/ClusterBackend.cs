@@ -37,6 +37,7 @@ public sealed class LocalMap
     // path are pinned to the existing versioned ClusterRegistry.
     public string FreshStoreClusterId { get; set; } = "";
     public string FreshStoreTransferDirectory { get; set; } = "";
+    public string FreshStoreTransferFileId { get; set; } = "";
     // Existing Kova Store-v1 copies are imported as quarantined metadata,
     // not as an executable or writable character profile.
     public bool HistoricalStoreProtected { get; set; } = false;
