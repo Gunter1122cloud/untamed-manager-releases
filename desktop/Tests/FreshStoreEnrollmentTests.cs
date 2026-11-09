@@ -323,6 +323,43 @@ internal static class FreshStoreEnrollmentTests
                     "servers.freshStartApply",new{token=approvedToken,confirm=true});
                 Check(!replay.GetProperty("ok").GetBoolean()&&syntheticStartCalls==1,
                     "new Store Start approval token is strictly one shot");
+
+                // A map-local API preference change between Start preview
+                // and Apply MUST invalidate the earlier approved mode.
+                var stale=await CallStart(startBridge,
+                    "servers.freshStartPreview",new{mapId});
+                Check(stale.GetProperty("ok").GetBoolean(),
+                    "fresh Store can prepare another synthetic start after token completion");
+                string staleToken=stale.GetProperty("data").GetProperty("token").GetString()!;
+                using(var modeChange=new DesktopFreshStoreLoaderModeBridge(manager))
+                {
+                    var activate=await CallMode(modeChange,
+                        "freshStore.loaderModePreview",new{mapId,useApi=true});
+                    Check(activate.GetProperty("ok").GetBoolean(),
+                        "stopped Store can approve Loader mode while prior Start preview is pending");
+                    var modeReceipt=await CallMode(modeChange,
+                        "freshStore.loaderModeApply",
+                        new{token=activate.GetProperty("data").GetProperty("token").GetString(),
+                            confirm=true,typedApproval="FRESH STORE API MODE"});
+                    Check(modeReceipt.GetProperty("ok").GetBoolean(),
+                        "Loader preference is saved without executing the stale Start token");
+                }
+                var rejected=await CallStart(startBridge,
+                    "servers.freshStartApply",new{token=staleToken,confirm=true});
+                Check(!rejected.GetProperty("ok").GetBoolean()&&syntheticStartCalls==1,
+                    "changing API Loader mode invalidates an old Start approval, with no launch");
+                using(var restoreMode=new DesktopFreshStoreLoaderModeBridge(manager))
+                {
+                    var direct=await CallMode(restoreMode,
+                        "freshStore.loaderModePreview",new{mapId,useApi=false});
+                    var receipt=await CallMode(restoreMode,
+                        "freshStore.loaderModeApply",
+                        new{token=direct.GetProperty("data").GetProperty("token").GetString(),
+                            confirm=true,typedApproval="FRESH STORE API MODE"});
+                    Check(receipt.GetProperty("ok").GetBoolean(),
+                        "after denied stale Start, local Store mode can safely return to direct ASA");
+                }
+                enrolled=manager.Config.LocalMaps.Single(m=>m.Id==mapId);
             }
             Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,enrolled,"new-local-cluster"),
                 "enrolled Store cannot be enrolled or converted again");
