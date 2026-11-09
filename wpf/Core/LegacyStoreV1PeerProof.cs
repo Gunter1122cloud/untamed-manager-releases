@@ -20,6 +20,7 @@ public sealed record LegacyStoreV1PeerProof(
     // directory on that host. No raw UNC names or Store IDs leave the host.
     public string PhysicalDirectoryTag {get;init;}="";
     public DateTimeOffset? PhysicalObservedUtc {get;init;}
+    public string OriginalFourFilesTag {get;init;}="";
 
     public static LegacyStoreV1PeerProof Unavailable {get;}=new(
         false,false,0,"","","",false,false,"STORE_V1_ORIGINAL_LOCAL_PROFILE_ABSENT");
@@ -36,7 +37,10 @@ public sealed record LegacyStoreV1PeerProof(
             return new(true,report.LocalSnapshotReady,
                 report.Maps.Count(m=>m.Active&&m.SessionMatches&&m.RootMatches&&m.Selected),
                 report.SessionTag,report.SharedPathTag,report.DeviceTag,
-                false,false,"ORIGINAL_FOUR_LOCAL_STORE_FILES_HASHED_READ_ONLY");
+                false,false,"ORIGINAL_FOUR_LOCAL_STORE_FILES_HASHED_READ_ONLY")
+            {
+                OriginalFourFilesTag=report.OriginalFourFilesTag
+            };
         }
         catch(Exception)
         {
@@ -90,6 +94,7 @@ public static class LegacyStoreV1PairComparison
             proof?.PhysicalObservedUtc is DateTimeOffset utc &&
             utc>=now.AddMinutes(-5)&&utc<=now.AddMinutes(1)&&
             Hash(proof.PhysicalDirectoryTag)&&
+            Hash(proof.OriginalFourFilesTag)&&
             !proof.PhysicalDirectoryTag.All(x=>x=='0');
         bool bothPhysical=valid&&session&&distinct&&five&&
             FreshPhysical(local)&&FreshPhysical(remote);
