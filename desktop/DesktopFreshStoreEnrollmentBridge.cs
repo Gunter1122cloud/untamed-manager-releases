@@ -135,6 +135,7 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
                 copy.Arguments=locked.Arguments;
                 copy.FreshStoreClusterId=locked.ClusterId;
                 copy.FreshStoreTransferDirectory=locked.TransferDirectory;
+                copy.FreshStoreTransferFileId=locked.TransferFileId;
                 copy.AutoStart=false;
                 // No conversion, shared directory write, RCON or ASA launch.
                 lease.MarkMutationStarted();
