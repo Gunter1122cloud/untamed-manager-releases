@@ -435,7 +435,7 @@ public sealed class ObsidianWindow : Form
                             "schedule.nativeSet" or "schedule.nativeDisable" or
                             "schedule.nativeOverview";
                         mapMaintenanceRoute = name is "maps.maintenanceStatus" or "maps.maintenanceSet";
-                        lanRoute = name is "lan.status" or "lan.preview" or "lan.apply";
+                        lanRoute = name is "lan.status" or "lan.preview" or "lan.apply" or "lan.physicalStoreProbe";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare" or "travel.compareRoundTrip";
