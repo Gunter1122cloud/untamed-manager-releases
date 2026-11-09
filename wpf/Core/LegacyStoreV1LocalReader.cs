@@ -63,8 +63,10 @@ public static class LegacyStoreV1LocalReader
            Text(cluster,"mode")!="shared"||
            !Text(cluster,"path").StartsWith(@"\\",StringComparison.Ordinal)||
            !Schema(store)||!Schema(device)||!Schema(locked)||
-           !Guid.TryParse(Text(device,"id"),out _)||
-           !Guid.TryParse(Text(locked,"session"),out var session))
+           !Guid.TryParse(Text(device,"id"),out var deviceId)||
+           deviceId==Guid.Empty||
+           !Guid.TryParse(Text(locked,"session"),out var session)||
+           session==Guid.Empty)
             throw new InvalidDataException("UM-LOCAL-STORE-IDENTITY");
         var members=Required(cluster,"members");
         var records=Required(store,"maps");
@@ -86,7 +88,8 @@ public static class LegacyStoreV1LocalReader
         foreach(var member in memberArray)
         {
             string id=Text(member,"id"),name=Text(member,"map"),install=Text(member,"root");
-            if(!Guid.TryParseExact(id,"D",out _)||!ids.Add(id)||
+            if(!Guid.TryParseExact(id,"D",out var memberId)||
+               memberId==Guid.Empty||!ids.Add(id)||
                !SafeMap(name)||!mapNames.Add(name)||
                string.IsNullOrWhiteSpace(install)||
                !records.TryGetProperty(id,out var record))
@@ -97,7 +100,8 @@ public static class LegacyStoreV1LocalReader
             bool sameRoot=string.Equals(Text(record,"root"),install,
                 StringComparison.OrdinalIgnoreCase)&&Text(record,"map")==name;
             bool marked=selection.Contains(id,StringComparer.OrdinalIgnoreCase);
-            bool backup=Guid.TryParse(Text(record,"backupId"),out _);
+            bool backup=Guid.TryParse(Text(record,"backupId"),out var backupId)&&
+                backupId!=Guid.Empty;
             evidence.Add(new(name,active,sameSession,sameRoot,marked,backup));
         }
         if(!ids.SetEquals(selection))
