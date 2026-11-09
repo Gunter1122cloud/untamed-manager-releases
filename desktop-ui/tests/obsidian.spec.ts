@@ -846,6 +846,25 @@ test.beforeEach(async ({ page }) => {
             folderName:"OriginalIsland",gamePort:7777,queryPort:27015,
             enabledMods:22,passiveMods:3,registered:false}]
         };
+        case "historical.originalBatchPreview": return {
+          token:"00000000-0000-4000-8000-000000009003",
+          localMaps:1,mapNames:["The Island"],
+          sourceIdentityPreserved:true,originalFilesWritten:false,
+          processTouched:false,requiresExplicitApproval:true,
+          evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_PREVIEW"
+        };
+        case "historical.originalBatchRegister":
+          state.local.maps.push({
+            id:"00000000-0000-4000-8000-000000009001",
+            name:"The Island",running:false,status:"Védett Store-v1",
+            gamePort:7777,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"
+          });
+          return {
+            importedMaps:1,mapIds:["00000000-0000-4000-8000-000000009001"],
+            sourceIdentityPreserved:true,originalFilesWritten:false,
+            serverStarted:false,requiresOriginalRconAttach:true,
+            evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED"
+          };
         case "historical.originalPreview": return {
           token:"00000000-0000-4000-8000-000000009002",
           mapId:m.mapId,mapName:"The Island",folderName:"OriginalIsland",
@@ -3273,6 +3292,26 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   await expect(section).toContainText("The Island felvéve az eredeti GUID-dal");
   await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"}))
     .toHaveValue("");
+});
+
+test("original Kova batch import requires one consent and registers all missing local maps atomically",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const section=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await section.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  await section.getByRole("button",{
+    name:"Összes hiányzó helyi map átvétele egy lépésben"
+  }).click();
+  const approval=section.getByRole("region",{
+    name:"Összes eredeti Kova-map importálásának jóváhagyása"
+  });
+  await expect(approval).toContainText("The Island");
+  await expect(approval.getByRole("button",{name:"1 map hozzáadása"})).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"1 map hozzáadása"}).click();
+  await expect(section).toContainText("1 eredeti map atomikusan felvéve");
+  await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"})).toHaveValue("");
 });
 
 test("Store-v1 historic import preserves map identity and never permits launch before real validation",async ({page})=>{

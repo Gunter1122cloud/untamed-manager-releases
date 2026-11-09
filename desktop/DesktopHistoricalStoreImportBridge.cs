@@ -36,6 +36,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         string Root,string ServerExe,int GamePort,int QueryPort,
         string[] Enabled,string[] Passive,DateTimeOffset ExpiresUtc);
     private readonly Dictionary<Guid,OriginalPrepared> pendingOriginal=new();
+    private sealed record OriginalBatchPrepared(Guid Token,string FourFilesHash,
+        string LaunchProfileHash,Guid[] MapIds,DateTimeOffset ExpiresUtc);
+    private OriginalBatchPrepared? pendingOriginalBatch;
 
     public DesktopHistoricalStoreImportBridge(ClusterService service,
         Func<LocalMap,ProcessCheck>? processInspector=null,
@@ -67,7 +70,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.register" or "historical.pairedEvidence" or
                 "historical.launchEvidence" or "historical.liveGuard" or
                 "historical.originalList" or "historical.originalPreview" or
-                "historical.originalRegister"))
+                "historical.originalRegister" or "historical.originalBatchPreview" or
+                "historical.originalBatchRegister"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
@@ -76,6 +80,123 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     .Select(x=>x.Key).ToArray())pending.Remove(expired);
                 foreach(var expired in pendingOriginal.Where(x=>x.Value.ExpiresUtc<DateTimeOffset.UtcNow)
                     .Select(x=>x.Key).ToArray())pendingOriginal.Remove(expired);
+                if(pendingOriginalBatch?.ExpiresUtc<DateTimeOffset.UtcNow)
+                    pendingOriginalBatch=null;
+
+                if(method=="historical.originalBatchPreview")
+                {
+                    // Preflight EVERY not-yet-registered original batchMap before
+                    // offering ONE consent token. No source or ASA mutation.
+                    var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+                    var remaining=source.Maps.Where(m=>!cluster.Config.LocalMaps
+                        .Any(x=>x.Id==m.MapId)).ToArray();
+                    if(remaining.Length==0)
+                        return Fail(id,"UM-STORE-BATCH-ALREADY-REGISTERED");
+                    string[] roots=remaining.Select(m=>
+                        DesktopLocalMapRegistryBridge.ValidateFixedLocalRoot(
+                            m.OriginalInstallationRoot)).ToArray();
+                    for(int i=0;i<remaining.Length;i++)
+                    {
+                        var batchMap=remaining[i];
+                        var root=roots[i];
+                        if(roots.Where((_,j)=>j!=i).Any(other=>
+                            root.Equals(other,StringComparison.OrdinalIgnoreCase)||
+                            root.StartsWith(other+Path.DirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase)||
+                            other.StartsWith(root+Path.DirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase)))
+                            return Fail(id,"UM-STORE-BATCH-OVERLAPPING-ROOTS");
+                        var name=MapName(batchMap.MapKey);
+                        CheckDuplicate(batchMap.MapId,name,root);
+                        var installation=LocalAsaInstallLocator.Probe(root);
+                        if(!installation.HasServerExecutable||
+                           string.IsNullOrWhiteSpace(installation.ServerExecutable))
+                            return Fail(id,"UM-STORE-BATCH-ASA-EXE-MISSING");
+                        var state=ObservedOriginal(batchMap.MapId,batchMap.MapKey,root,
+                            installation.ServerExecutable);
+                        if(state.Running||!state.ConfirmedStopped||
+                           state.Identity!=null||state.LoaderIdentity!=null)
+                            return Fail(id,"UM-STORE-BATCH-STOP-REQUIRED");
+                    }
+                    var token=Guid.NewGuid();
+                    pendingOriginalBatch=new(token,source.FourFilesSha256,
+                        source.LaunchProfileSha256,remaining.Select(m=>m.MapId).ToArray(),
+                        DateTimeOffset.UtcNow.AddMinutes(7));
+                    return Ok(id,new{
+                        token,localMaps=remaining.Length,
+                        mapNames=remaining.Select(m=>MapName(m.MapKey)).ToArray(),
+                        sourceIdentityPreserved=true,originalFilesWritten=false,
+                        processTouched=false,requiresExplicitApproval=true,
+                        evidence="ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_PREVIEW"
+                    });
+                }
+                if(method=="historical.originalBatchRegister")
+                {
+                    if(!GuidField(data,"token",out var token)||
+                       !BoolField(data,"confirm",out var approved)||!approved||
+                       pendingOriginalBatch==null||
+                       pendingOriginalBatch.Token!=token)
+                        return Fail(id,"UM-STORE-BATCH-APPROVAL-REQUIRED");
+                    var batchStage=pendingOriginalBatch;
+                    pendingOriginalBatch=null; // one-time token, even on error
+                    if(batchStage.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-STORE-BATCH-APPROVAL-EXPIRED");
+                    var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+                    if(source.FourFilesSha256!=batchStage.FourFilesHash||
+                       source.LaunchProfileSha256!=batchStage.LaunchProfileHash)
+                        return Fail(id,"UM-STORE-BATCH-SOURCE-CHANGED");
+                    var selected=source.Maps.Where(m=>batchStage.MapIds.Contains(m.MapId))
+                        .ToArray();
+                    if(selected.Length!=batchStage.MapIds.Length||
+                       !selected.Select(m=>m.MapId).SequenceEqual(batchStage.MapIds))
+                        return Fail(id,"UM-STORE-BATCH-SELECTION-CHANGED");
+                    var additions=new List<LocalMap>();
+                    var roots=new List<string>();
+                    foreach(var batchMap in selected)
+                    {
+                        string root=DesktopLocalMapRegistryBridge.ValidateFixedLocalRoot(
+                            batchMap.OriginalInstallationRoot);
+                        if(roots.Any(other=>root.Equals(other,
+                                StringComparison.OrdinalIgnoreCase)||
+                            root.StartsWith(other+Path.DirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase)||
+                            other.StartsWith(root+Path.DirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase)))
+                            return Fail(id,"UM-STORE-BATCH-OVERLAPPING-ROOTS");
+                        roots.Add(root);
+                        string name=MapName(batchMap.MapKey);
+                        CheckDuplicate(batchMap.MapId,name,root);
+                        var installation=LocalAsaInstallLocator.Probe(root);
+                        if(!installation.HasServerExecutable||
+                           string.IsNullOrWhiteSpace(installation.ServerExecutable))
+                            return Fail(id,"UM-STORE-BATCH-ASA-EXE-MISSING");
+                        var state=ObservedOriginal(batchMap.MapId,batchMap.MapKey,root,
+                            installation.ServerExecutable);
+                        if(state.Running||!state.ConfirmedStopped||
+                           state.Identity!=null||state.LoaderIdentity!=null)
+                            return Fail(id,"UM-STORE-BATCH-STOP-REQUIRED");
+                        additions.Add(new LocalMap{
+                            Id=batchMap.MapId,Name=name,InstallationPath=root,
+                            ExecutablePath=installation.ServerExecutable,
+                            GamePort=batchMap.GamePort,QueryPort=batchMap.QueryPort,Arguments="",
+                            HistoricalStoreProtected=true,
+                            HistoricalArchiveSha256=source.FourFilesSha256,
+                            HistoricalMapKey=batchMap.MapKey,
+                            HistoricalEnabledMods=batchMap.EnabledMods.ToList(),
+                            HistoricalPassiveMods=batchMap.PassiveMods.ToList(),
+                            StartWithAsaApi=false,AutoStart=false,MonitorRcon=false,
+                            RconPort=0,ApiLoaderArguments=""
+                        });
+                    }
+                    cluster.AddMapsAtomically(additions);
+                    return Ok(id,new{
+                        importedMaps=additions.Count,
+                        mapIds=additions.Select(m=>m.Id).ToArray(),
+                        sourceIdentityPreserved=true,originalFilesWritten=false,
+                        serverStarted=false,requiresOriginalRconAttach=true,
+                        evidence="ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED"
+                    });
+                }
 
                 if(method=="historical.originalList")
                 {

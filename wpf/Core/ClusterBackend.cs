@@ -1000,6 +1000,37 @@ public sealed partial class ClusterService : IAsyncDisposable
         private int disposed;
         public void Dispose(){if(Interlocked.Exchange(ref disposed,1)==0)_loopbackLanTestScope.Value=prior;}
     }
+    /// <summary>
+    /// Register an operator-approved set of EXISTING local maps in a single
+    /// ConfigStore CAS. A partial five-map Kova import must never be persisted.
+    /// No game files, processes, transfer/session metadata or original Kova
+    /// sources are touched here.
+    /// </summary>
+    public void AddMapsAtomically(IReadOnlyCollection<LocalMap> requested)
+    {
+        if(requested==null||requested.Count==0)
+            throw new InvalidDataException("UM-STORE-BATCH-EMPTY");
+        var incoming=requested.ToArray();
+        if(incoming.Any(m=>m==null||m.Id==Guid.Empty))
+            throw new InvalidDataException("UM-STORE-BATCH-INVALID-MAP");
+        foreach(var map in incoming)
+            map.Name=LocalMapNameRules.Normalize(map.Name);
+        if(incoming.Select(m=>m.Id).Distinct().Count()!=incoming.Length ||
+           incoming.Select(m=>m.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=incoming.Length ||
+           incoming.Any(map=>Config.LocalMaps.Any(other=>other.Id==map.Id||
+               other.Name.Equals(map.Name,StringComparison.OrdinalIgnoreCase))))
+            throw new InvalidOperationException("UM-STORE-BATCH-DUPLICATE-MAP");
+        Config.LocalMaps.AddRange(incoming);
+        try { Save(); }
+        catch
+        {
+            // Save() is an atomic ConfigStore operation; restore the in-memory
+            // registry as well so subsequent UI reads cannot see an orphan.
+            foreach(var map in incoming)Config.LocalMaps.Remove(map);
+            throw;
+        }
+    }
+
     public void AddMap(LocalMap map)
     {
         // Names are user-supplied; the installed game's current map list is not a cap.

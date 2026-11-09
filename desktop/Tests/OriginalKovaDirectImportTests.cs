@@ -210,5 +210,51 @@ internal static class OriginalKovaDirectImportTests
               Convert.ToHexString(SHA256.HashData(
                   File.ReadAllBytes(launchProfilePath)))==launchHash,
             "original four Store metadata and launch order remain byte-identical after imports");
+
+        // A second empty Manager profile imports all five original maps in ONE
+        // ConfigStore write, without ever calling original Kova/ASA mutation.
+        string batchManager=Path.Combine(baseRoot,"atomic-batch-manager");
+        await using var batchCluster=new ClusterService(
+            "direct-kova-batch-test",batchManager,
+            _=>new ProcessCheck(false,"isolated synthetic stopped",null,true));
+        bool uncertainFifth=true;
+        using var batchBridge=new DesktopHistoricalStoreImportBridge(
+            batchCluster,map=>map.HistoricalMapKey==mapKeys[4]&&uncertainFifth
+                ?new ProcessCheck(false,"synthetic uncertain",null,false)
+                :new ProcessCheck(false,"isolated synthetic stopped",null,true),local);
+        var deniedBatch=await Call(batchBridge,"historical.originalBatchPreview");
+        Check(!deniedBatch.GetProperty("ok").GetBoolean()&&
+              batchCluster.Config.LocalMaps.Count==0,
+            "one unknown original process denies all-map import before ANY registration");
+        uncertainFifth=false;
+        var preparedBatch=await Call(batchBridge,"historical.originalBatchPreview");
+        Check(preparedBatch.GetProperty("ok").GetBoolean()&&
+              preparedBatch.GetProperty("data").GetProperty("localMaps").GetInt32()==5,
+            "all five original map identities and stopped processes pass one batch preview");
+        string batchToken=preparedBatch.GetProperty("data").GetProperty("token").GetString()!;
+        var noConsent=await Call(batchBridge,"historical.originalBatchRegister",
+            new{token=batchToken,confirm=false});
+        Check(!noConsent.GetProperty("ok").GetBoolean()&&
+              batchCluster.Config.LocalMaps.Count==0,
+            "atomic import requires one explicit operator confirmation");
+        var batchResult=await Call(batchBridge,"historical.originalBatchRegister",
+            new{token=batchToken,confirm=true});
+        Check(batchResult.GetProperty("ok").GetBoolean()&&
+              batchResult.GetProperty("data").GetProperty("importedMaps").GetInt32()==5&&
+              batchCluster.Config.LocalMaps.Count==5&&
+              batchCluster.Config.LocalMaps.Select(m=>m.Id.ToString("D")).SequenceEqual(ids),
+            "one approved native batch registers five original GUIDs atomically");
+        Check(batchCluster.Config.LocalMaps.All(m=>m.HistoricalStoreProtected&&
+              !m.AutoStart&&m.RconPort==0),
+            "all batch-imported maps remain operator-controlled without auto-start");
+        var afterBatch=await Call(batchBridge,"historical.originalBatchPreview");
+        Check(!afterBatch.GetProperty("ok").GetBoolean(),
+            "repeating an already imported five-map batch does not duplicate entries");
+        Check(names.Select(n=>Convert.ToHexString(SHA256.HashData(
+                File.ReadAllBytes(Path.Combine(local,n)))))
+                .SequenceEqual(hashes)&&
+              Convert.ToHexString(SHA256.HashData(
+                  File.ReadAllBytes(launchProfilePath)))==launchHash,
+            "atomic five-map batch leaves every synthetic original metadata byte unchanged");
     }
 }
