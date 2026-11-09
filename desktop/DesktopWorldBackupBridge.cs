@@ -45,6 +45,9 @@ public sealed class DesktopWorldBackupBridge
     private readonly object originalBatchSync=new();
     private OriginalBatchJob? originalBatchJob;
     private bool originalBatchJournalInvalid;
+    private sealed record RepairApproval(Guid Token,string FourSha,string LaunchSha,
+        string JournalSha,DateTimeOffset ExpiresUtc);
+    private RepairApproval? repairApproval;
     private readonly Func<LegacyStoreV1OriginalLocalSelection> originalSelection;
 
     private void PublishOriginalBatch(OriginalBatchJob job)
@@ -264,11 +267,65 @@ public sealed class DesktopWorldBackupBridge
                 "backup.scheduleStatus" or "backup.scheduleCreate" or
                 "backup.scheduleDisable" or
                 "backup.originalBatchPreview" or "backup.originalBatchCreate" or
-                "backup.originalBatchStatus"))
+                "backup.originalBatchStatus" or
+                "backup.originalBatchJournalRepairPreview" or
+                "backup.originalBatchJournalRepairApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
             {
+                if(method=="backup.originalBatchJournalRepairPreview")
+                {
+                    repairApproval=null;
+                    if(!originalBatchJournalInvalid)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOURNAL-VALID");
+                    var (source,maps)=RequireOriginalStoppedFive();
+                    string digest=OriginalStoreFiveBatchJournal.RawDigest(cluster.Store.Root);
+                    repairApproval=new RepairApproval(Guid.NewGuid(),
+                        source.FourFilesSha256,source.LaunchProfileSha256,digest,
+                        DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new{
+                        token=repairApproval.Token,localMaps=maps.Length,
+                        confirmedStopped=true,originalSourcePinned=true,
+                        requiresTypedApproval=true,
+                        repairScope="MANAGER_LOCAL_BATCH_JOURNAL_QUARANTINE_ONLY",
+                        originalKovaFilesWritten=false,serverStarted=false
+                    });
+                }
+                if(method=="backup.originalBatchJournalRepairApply")
+                {
+                    if(repairApproval==null||
+                       !root.TryGetProperty("token",out var repairToken)||
+                       repairToken.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(repairToken.GetString(),out var token)||
+                       token!=repairApproval.Token||
+                       !root.TryGetProperty("confirm",out var consent)||
+                       consent.ValueKind!=JsonValueKind.True||
+                       !root.TryGetProperty("typedApproval",out var words)||
+                       words.ValueKind!=JsonValueKind.String||
+                       words.GetString()!="REVIEW FIVE BACKUPS")
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-REPAIR-APPROVAL");
+                    var approved=repairApproval;repairApproval=null;
+                    if(!originalBatchJournalInvalid||
+                       DateTimeOffset.UtcNow>approved.ExpiresUtc)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-REPAIR-EXPIRED");
+                    var (source,maps)=RequireOriginalStoppedFive();
+                    if(maps.Length!=5||
+                       source.FourFilesSha256!=approved.FourSha||
+                       source.LaunchProfileSha256!=approved.LaunchSha)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-REPAIR-SOURCE-CHANGED");
+                    OriginalStoreFiveBatchJournal.QuarantineInvalid(
+                        cluster.Store.Root,approved.JournalSha);
+                    originalBatchJournalInvalid=false;
+                    originalBatchJob=null;
+                    return Ok(id,new{
+                        reviewed=true,quarantined=true,
+                        originalKovaFilesWritten=false,serverStarted=false,
+                        oldBackupPackagesPreserved=true,
+                        nextBackupRequiresNewApproval=true,
+                        evidence="MANAGER_LOCAL_CORRUPT_BATCH_JOURNAL_OPERATOR_QUARANTINE"
+                    });
+                }
                 if(method=="backup.originalBatchStatus")
                 {
                     lock(originalBatchSync)
