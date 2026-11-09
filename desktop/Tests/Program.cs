@@ -1443,7 +1443,10 @@ try
             var lowDisk=await Call(lowDiskBridge.HandleAsync,"steam.freshPreflight",
                 new{mapName="Valguero",installRoot=freshRoot,
                     steamExe,allowSteamCmdDownload=false});
-            Check(IsError(lowDisk,"UM-FRESH-LOW-DISK-SPACE") &&
+            Check(!lowDisk.GetProperty("ok").GetBoolean() &&
+                   lowDisk.GetProperty("error").GetString()?.
+                     StartsWith("UM-FRESH-LOW-DISK-SPACE|availableGiB=34|requiredGiB=35",
+                         StringComparison.Ordinal)==true &&
                   fakeRuns==0 && !Directory.Exists(freshRoot),
                 "insufficient free disk blocks ASA download before side effects");
         }
