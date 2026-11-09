@@ -137,6 +137,7 @@ public static class FreshStoreEnrollmentPolicy
             Deny("UM-FRESH-STORE-ASA-NOT-PROVEN-STOPPED");
         var registered=ExistingCluster(cluster,map,clusterId);
         string transfer=SafeTransfer(registered.TransferDirectory);
+        string transferId=StorePathIdentity.LocalDirectoryFingerprint(transfer);
         var root=Path.GetFullPath(map.InstallationPath);
         if(cluster.Config.LocalMaps.Any(x=>x.Id!=map.Id&&
            !string.IsNullOrWhiteSpace(x.InstallationPath)&&
@@ -165,11 +166,13 @@ public static class FreshStoreEnrollmentPolicy
             Deny("UM-FRESH-STORE-ARGUMENTS-TOO-LONG");
         var registry=cluster.Registry.Snapshot();
         string material=JsonSerializer.Serialize(map)+"\n"+registry.Revision+
-            "\n"+normalized+"\n"+transfer+"\n"+args+"\n"+build;
+            "\n"+normalized+"\n"+transfer+"\n"+transferId+
+            "\n"+args+"\n"+build;
         string fingerprint=Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(material)));
         return new(map.Id,normalized,transfer,args,build,
-            registry.Revision,fingerprint,"NEW_EMPTY_STORE_V1_METADATA_ONLY");
+            registry.Revision,transferId,fingerprint,
+            "NEW_EMPTY_STORE_V1_METADATA_ONLY");
     }
 
     /// <summary>
@@ -193,6 +196,10 @@ public static class FreshStoreEnrollmentPolicy
         if(!string.Equals(transfer,map.FreshStoreTransferDirectory,
             StringComparison.OrdinalIgnoreCase))
             Deny("UM-FRESH-STORE-TRANSFER-REGISTRY-CHANGED");
+        if(map.FreshStoreTransferFileId.Length!=64||
+           !string.Equals(StorePathIdentity.LocalDirectoryFingerprint(transfer),
+               map.FreshStoreTransferFileId,StringComparison.OrdinalIgnoreCase))
+            Deny("UM-FRESH-STORE-TRANSFER-FILE-ID-CHANGED");
         string suffix=" -clusterid="+clusterId+
             " -ClusterDirOverride="+transfer+" -usestore";
         string args=map.Arguments;
