@@ -1066,7 +1066,7 @@ test.beforeEach(async ({ page }) => {
         case "steam.freshCurrent": return {current:null};
         case "steam.freshBrowse": return {selected:true,installRoot:"D:\\ASA-NEW"};
         case "steam.freshPreflight":
-          if(m.installRoot==="D:\\ASA-Servers")
+          if(String(m.installRoot).includes("ASA-Servers"))
             throw new Error("UM-FRESH-ROOT-OVERLAP|map=The Island|path=D:\\ASA-Servers\\TheIsland");
           return {
           token:"00000000-0000-4000-8000-000000008888",
@@ -2923,7 +2923,10 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
 
 test("new empty Store-map uses existing cluster membership, one-shot approval and distinct non-Kova UI",async({page})=>{
   await page.goto("/");
-  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local")
+    .filter({hasText:"Astraeos"}).click();
   const region=page.getByRole("region",{name:"Új üres Store-map"});
   await expect(region).toBeVisible();
   await expect(region.getByRole("combobox",{name:"Új Store-map cluster"})).toHaveValue("fixture-beta");
@@ -3402,9 +3405,9 @@ test("SteamCMD install shows exact overlapping map and offers existing ASA impor
   await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
   await expect(page.getByRole("alert").filter({hasText:"Ütköző összetevő: The Island"}))
     .toBeVisible();
-  await expect(page.getByText(/D:\\\\ASA-Servers/).first()).toBeVisible();
+  await expect(page.getByRole("alert").filter({hasText:"Foglalt könyvtár:"})).toContainText("ASA-Servers");
   await page.getByRole("button",{name:"Már telepített ASA-könyvtár importálása"}).click();
-  await expect(page.getByRole("heading",{name:/Meglévő.*ASA|ASA.*import/i})).toBeVisible();
+  await expect(page.getByText(/Meglévő ASA/).first()).toBeVisible();
 });
 test("stopped SteamCMD update displays exact local process and reserve evidence",async({page})=>{
   await page.goto("/");
