@@ -232,6 +232,27 @@ internal static class OriginalStoreFiveMapBackupTests
               corruptStatus.GetProperty("data").GetProperty("state").GetString()=="needsOperator"&&
               !corruptPreview.GetProperty("ok").GetBoolean(),
             "corrupt persisted journal denies new backup without deleting earlier verified packages");
+        var repair=await Call(tampered,"backup.originalBatchJournalRepairPreview");
+        Check(repair.GetProperty("ok").GetBoolean()&&
+              repair.GetProperty("data").GetProperty("confirmedStopped").GetBoolean(),
+            "repair preview validates all five original stopped maps before any local journal write");
+        string repairToken=repair.GetProperty("data").GetProperty("token").GetString()!;
+        var refused=await Call(tampered,"backup.originalBatchJournalRepairApply",
+            new{token=repairToken,typedApproval="WRONG PHRASE",confirm=true});
+        Check(!refused.GetProperty("ok").GetBoolean(),
+            "corrupt journal quarantine refuses an incorrect operator confirmation");
+        var corrected=await Call(tampered,"backup.originalBatchJournalRepairApply",
+            new{token=repairToken,typedApproval="REVIEW FIVE BACKUPS",confirm=true});
+        Check(corrected.GetProperty("ok").GetBoolean()&&
+              corrected.GetProperty("data").GetProperty("oldBackupPackagesPreserved").GetBoolean(),
+            "approved repair only quarantines Manager-local corrupt orchestration journal");
+        Check(!File.Exists(journalFile)&&
+              Directory.GetFiles(Path.Combine(cluster.Store.Root,
+                "backup-batch-journals","history"),"quarantine-*.json").Length==1,
+            "repair physically retains the former corrupt journal in isolated history");
+        var freshAfterRepair=await Call(tampered,"backup.originalBatchPreview");
+        Check(freshAfterRepair.GetProperty("ok").GetBoolean(),
+            "successful explicit quarantine permits a fresh five-map preview");
         Check(maps.All(map=>File.ReadAllBytes(
             AsaSaveLayoutResolver.Resolve(map).WorldFile).SequenceEqual(originalWorlds[map.Id])),
             "journal corruption and operator review never mutate ASA worlds");
