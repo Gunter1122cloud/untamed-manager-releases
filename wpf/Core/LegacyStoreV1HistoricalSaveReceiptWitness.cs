@@ -56,6 +56,7 @@ public static class LegacyStoreV1HistoricalSaveReceiptProbe
         if(now==default)
             throw new InvalidDataException("UM-STORE-SAVE-PAIR-INVALID-TIME");
         int recent=0;
+        string? commonOriginalSourceSha=null;
         using var digest=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach(var map in maps)
         {
@@ -75,6 +76,16 @@ public static class LegacyStoreV1HistoricalSaveReceiptProbe
                receipt.SharedStoreWriterCertified || receipt.BothHostsSaveCompleteCertified)
                 throw new InvalidDataException(
                     "UM-STORE-SAVE-PAIR-RECEIPT-MAP-OR-AUTHORITY");
+            // Five independently completed local observations must all have
+            // been approved against the SAME original Store session/lock
+            // fingerprint. Mixed source epochs cannot form even a historical
+            // five-map set, regardless of timestamp or map ownership.
+            if(commonOriginalSourceSha!=null &&
+               !string.Equals(commonOriginalSourceSha,
+                   receipt.OriginalSourceSha256,StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    "UM-STORE-SAVE-PAIR-MIXED-ORIGINAL-SOURCE-EPOCHS");
+            commonOriginalSourceSha=receipt.OriginalSourceSha256;
             recent++;
             byte[] bytes=Encoding.UTF8.GetBytes(
                 map.Id.ToString("N")+":"+receipt.OperationId.ToString("N")+":"+
