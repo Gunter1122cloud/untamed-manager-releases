@@ -78,15 +78,24 @@ public static class MultiHostHostRestoreStaging
     {
         if(ownership==null||ownership.Hosts==null||
            ownership.Maps==null||ownership.Clusters==null||
-           !manifest.Hosts.Select(h=>h.HostId).ToHashSet(StringComparer.OrdinalIgnoreCase)
-               .SetEquals(ownership.Hosts.Select(h=>h.HostId))||
-           !manifest.Clusters.Select(c=>c.ClusterId).ToHashSet(StringComparer.OrdinalIgnoreCase)
-               .SetEquals(ownership.Clusters.Select(c=>c.ClusterId))||
-           !manifest.Maps.Select(m=>$"{m.MapId:N}|{m.HostId}|{m.ClusterId}")
-               .ToHashSet(StringComparer.OrdinalIgnoreCase)
-               .SetEquals(ownership.Maps.Select(m=>
-                   $"{m.MapId:N}|{m.HostId}|{m.ClusterId}")))
+           !manifest.Hosts.All(h=>ownership.Hosts.Any(owner=>
+               owner.HostId.Equals(h.HostId,StringComparison.OrdinalIgnoreCase)&&
+               (owner.IsLocal||owner.IsPaired)))||
+           !manifest.Clusters.All(c=>ownership.Clusters.Any(owner=>
+               owner.ClusterId.Equals(c.ClusterId,StringComparison.OrdinalIgnoreCase)))||
+           !manifest.Maps.All(map=>ownership.Maps.Any(owner=>
+               owner.MapId==map.MapId&&
+               owner.HostId.Equals(map.HostId,StringComparison.OrdinalIgnoreCase)&&
+               owner.ClusterId!=null&&
+               owner.ClusterId.Equals(map.ClusterId,StringComparison.OrdinalIgnoreCase))))
             throw new InvalidDataException("UM-HOSTRESTORE-OWNERSHIP-CHANGED");
+        // The existing archive may represent only one of many registered
+        // clusters; unrelated hosts/maps must not be required to participate.
+        // However every included owner remains pinned to CURRENT registry.
+        if(manifest.Hosts.Select(x=>x.HostId)
+             .Distinct(StringComparer.OrdinalIgnoreCase).Count()!=manifest.Hosts.Length||
+           manifest.Maps.Select(x=>x.MapId).Distinct().Count()!=manifest.Maps.Length)
+            throw new InvalidDataException("UM-HOSTRESTORE-DUPLICATE-ARCHIVE-OWNER");
         var requested=ownership.Hosts.SingleOrDefault(h=>
             string.Equals(h.HostId,hostId,StringComparison.OrdinalIgnoreCase));
         if(requested==null||!(requested.IsLocal||requested.IsPaired))
