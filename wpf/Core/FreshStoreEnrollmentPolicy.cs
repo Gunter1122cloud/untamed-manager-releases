@@ -64,11 +64,31 @@ public static class FreshStoreEnrollmentPolicy
         var session=Regex.Match(arguments,
             "\\?SessionName=\"(?<name>[^\"\\r\\n]{1,75})\"",
             RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100));
-        if(!session.Success||
-           !arguments.Equals(AsaSteamMapCatalog.LaunchArguments(map.Name,
-                session.Groups["name"].Value,map.GamePort,map.QueryPort),
-                StringComparison.Ordinal))
+        if(!session.Success)
             Deny("UM-FRESH-STORE-NATIVE-SETUP-REQUIRED");
+        string baseline=AsaSteamMapCatalog.LaunchArguments(map.Name,
+            session.Groups["name"].Value,map.GamePort,map.QueryPort);
+        if(!arguments.StartsWith(baseline,StringComparison.Ordinal))
+            Deny("UM-FRESH-STORE-NATIVE-SETUP-REQUIRED");
+        string suffix=arguments[baseline.Length..];
+        if(suffix.Length>0)
+        {
+            // Keep only the two existing ModStateController-owned switches.
+            // Never forward arbitrary renderer-supplied process flags or an
+            // unrecognized option by treating it as a valid mod extension.
+            var tokens=Regex.Matches(suffix,
+                @"\G -(?<kind>mods|passivemods)=(?<ids>[0-9]{5,12}(?:,[0-9]{5,12}){0,499})",
+                RegexOptions.CultureInvariant|RegexOptions.IgnoreCase,
+                TimeSpan.FromMilliseconds(100));
+            if(tokens.Count is <1 or >2||
+               tokens.Cast<Match>().Sum(x=>x.Length)!=suffix.Length||
+               tokens.Cast<Match>().Select(x=>x.Groups["kind"].Value)
+                   .Distinct(StringComparer.OrdinalIgnoreCase).Count()!=tokens.Count)
+                Deny("UM-FRESH-STORE-UNVERIFIED-LAUNCH-EXTENSION");
+            // Existing native Mod Center owns the ordering and passive subset.
+            // Reuse its strict ID/duplicate/disabled validation verbatim.
+            _=ModStateController.Read(map);
+        }
         return arguments;
     }
 
