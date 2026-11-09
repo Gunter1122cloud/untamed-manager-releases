@@ -12,6 +12,8 @@ if (args.Length > 0 && args[0] == LegacyStoreSaveEvidenceProcessTests.ChildSwitc
     Environment.Exit(LegacyStoreSaveEvidenceProcessTests.RunChild(args));
 if (args.Length > 0 && args[0] == MultiHostTempProcessLeaseTests.ChildSwitch)
     Environment.Exit(MultiHostTempProcessLeaseTests.RunChild(args));
+if (args.Length > 0 && args[0] == MultiHostArchiveProcessLeaseTests.ChildSwitch)
+    Environment.Exit(MultiHostArchiveProcessLeaseTests.RunChild(args));
 
 static void Check(bool value, string reason)
 {
@@ -91,6 +93,7 @@ await LegacyStoreSaveEvidenceTests.Run(root);
 await HistoricalStoreWorldBackupTests.Run(root);
 await OriginalStoreFiveMapBackupTests.Run(root);
 MultiHostOfflineCatalogAssemblerTests.Run(root);
+await MultiHostArchiveProcessLeaseTests.Run(root);
 await LegacyStoreSaveReviewBridgeTests.Run(root);
 await LegacyStoreSaveEvidenceProcessTests.Run(root);
 await LegacyStoreSaveReceiptPairTests.Run(root);
