@@ -13,7 +13,9 @@ const mapNames = [
  * job. No permission gate is removed; Core still checks root, Store,
  * journals and disk, then uses official Valve SteamCMD.
  */
-export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island"}:{onRegistered:()=>Promise<void>;initialMapName?:string}) {
+export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",onImport}:{
+  onRegistered:()=>Promise<void>;initialMapName?:string;onImport?:()=>void
+}) {
   const [mapName,setMapName]=useState(initialMapName);
   const [installRoot,setInstallRoot]=useState("");
   const [steamExe,setSteamExe]=useState("");
@@ -124,7 +126,17 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island"}:{
         "UM-FRESH-INVALID-PATH":"A célmappa útvonala hibás. Ellenőrizd, hogy létező helyi meghajtóra mutat-e."
       };
       const matched=Object.keys(messages).find(k=>code.includes(k));
-      setError(matched?messages[matched]:"A telepítés nem indult el. Natív hiba: "+code);
+      const fields=Object.fromEntries(code.split("|").slice(1).map(part=>{
+        const at=part.indexOf("=");return at<0?[part,""]:[part.slice(0,at),part.slice(at+1)];
+      }));
+      const collision=matched==="UM-FRESH-ROOT-OVERLAP"?
+        " Ütköző összetevő: "+(fields.map??"ismeretlen")+
+        ". Foglalt könyvtár: "+(fields.path??"nincs adat")+
+        ". Új telepítéshez válassz ezen kívül külön üres mappát.":"";
+      const space=matched==="UM-FRESH-LOW-DISK-SPACE"?
+        " Elérhető: "+(fields.availableGiB??"?")+" GiB; szükséges: "+
+        (fields.requiredGiB??"35")+" GiB.":"";
+      setError((matched?messages[matched]:"A telepítés nem indult el. Natív hiba: "+code)+collision+space);
     }finally{setBusy(false);}
   };
 
@@ -203,6 +215,10 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island"}:{
         <button type="submit" className="primary" disabled={running||busy}>
           <HardDrive size={17}/>{busy?"Előkészítés...":running?"Letöltés folyamatban":"ASA letöltés indítása"}
         </button>
+        {onImport&&<button type="button" className="secondary"
+          disabled={busy||running} onClick={onImport}>
+          Már telepített ASA-könyvtár importálása
+        </button>}
         <p className="muted tiny">A „Letöltés indítása” gomb jóváhagyja az új mappába történő valódi lemezírást.
           A beépített ellenőrzés megállítja a telepítést ütköző, nem üres vagy Store-v1-védett hely esetén.</p>
       </form>
