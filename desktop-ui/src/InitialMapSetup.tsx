@@ -128,7 +128,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
             onChange={e=>{setCustomLevel(e.target.value);clear();}}
             placeholder="Példa: EgyediMap_WP"
             autoComplete="off" spellCheck={false}
-            disabled={busy||!status.initialSetupAvailable} required/>
+            disabled={busy||!status?.initialSetupAvailable} required/>
         </label>}
         <label><span>Szerver nyilvános neve</span>
           <input aria-label="ASA szerver neve" value={session} maxLength={75}
@@ -147,7 +147,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
         </label>
         <button className="secondary" type="submit"
           disabled={busy||!status?.initialSetupAvailable ||
-            Boolean(status.requiresCustomLevel&&!/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(customLevel.trim()))}>
+            Boolean(status?.requiresCustomLevel&&!/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(customLevel.trim()))}>
           <Server size={16}/> Beállítások ellenőrzése
         </button>
       </form>
