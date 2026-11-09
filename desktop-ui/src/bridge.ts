@@ -872,13 +872,27 @@ export type HistoricalSaveWorldQueued={
   evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_ONLY_JOB_QUEUED";
 };
 export type HistoricalSaveEvidenceStatus={
-  mapId:string;phase:"none"|"prepared"|"completed"|"needsOperator";
+  mapId:string;phase:"none"|"prepared"|"completed"|"needsOperator"|"reviewed";
   operationId:string|null;pid:number|null;pidStartedUtc:string|null;
   saveObservedUtc:string|null;localSaveCompleteObserved:boolean;
   bothHostsSaveCompleteCertified:false;sharedStoreWriterCertified:false;
   gameClientRejoinVerified:false;productionRestoreAllowed:false;
   fsyncCertified:false;sourceStateCertifiedForCurrentWriter:false;
   evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM";
+};
+export type HistoricalSaveReviewPreview={
+  token:string;mapId:string;phase:"prepared"|"needsOperator"|"reviewed";
+  operationId:string;coordinatorPhase:string;
+  originalSourceRevalidated:true;confirmedStopped:true;
+  preservesOriginalReceipt:true;originalStoreFilesWritten:false;
+  automaticRetry:false;requiresTypedApproval:true;
+  evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE";
+};
+export type HistoricalSaveReviewReceipt={
+  mapId:string;phase:"reviewed";reviewed:true;oldReceiptArchived:true;
+  originalStoreFilesWritten:false;autoRetry:false;serverStarted:false;
+  nextOperationRequiresNewApproval:true;
+  evidence:"OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION";
 };
 export type HistoricalGracefulStopQueued = {
   jobId:string;started:true;automaticRetry:false;
@@ -888,7 +902,7 @@ export type HistoricalGracefulStopQueued = {
 export type HistoricalGracefulStopRecovery = {
   mapId:string;operationId:string|null;
   phase:"None"|"Prepared"|"Mutating"|"Completed"|
-    "CancelledBeforeMutation"|"NeedsOperator";
+    "CancelledBeforeMutation"|"NeedsOperator"|"OperatorReviewed";
   operationKind:string;updatedUtc:string|null;
   blocked:boolean;requiresOperator:boolean;
   inMemoryRunning:boolean;jobId:string|null;
@@ -1228,6 +1242,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    "historical.gracefulStopStatus" | "historical.gracefulStopRecovery" |
    "historical.saveWorldPreview" | "historical.saveWorldApply" |
    "historical.saveWorldStatus" | "historical.saveWorldEvidence" |
+   "historical.saveWorldReviewPreview" | "historical.saveWorldReviewApply" |
    "historical.restartPreview" | "historical.restartApply" |
    "historical.restartStatus" | "historical.restartRecovery" |
    "historical.adminPreview" | "historical.adminSend" |
@@ -1623,6 +1638,12 @@ export const managerBridge = {
     request<HistoricalGracefulStopStatus>("historical.saveWorldStatus",{jobId}),
   historicalSaveWorldEvidence: (mapId:string) =>
     request<HistoricalSaveEvidenceStatus>("historical.saveWorldEvidence",{mapId}),
+  historicalSaveWorldReviewPreview: (mapId:string) =>
+    request<HistoricalSaveReviewPreview>("historical.saveWorldReviewPreview",{mapId}),
+  historicalSaveWorldReviewApply: (token:string,confirmation:string) =>
+    request<HistoricalSaveReviewReceipt>("historical.saveWorldReviewApply",{
+      token,confirmation,confirm:true
+    }),
   historicalRconLiveStatus: (mapId:string) =>
     request<HistoricalRconLiveStatus>("historical.rconLiveStatus",{mapId}),
   historicalRconPlayers: (mapId:string) =>
