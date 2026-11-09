@@ -31,6 +31,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         Guid MapId,string MapKey,string LocalName,string Root,string ServerExe,
         int GamePort,int QueryPort,string[] Enabled,string[] Passive,
         DateTimeOffset ExpiresUtc);
+    private sealed record OriginalPrepared(Guid Token,string FourFilesHash,
+        Guid MapId,string MapKey,string LocalName,string Root,string ServerExe,
+        int GamePort,int QueryPort,DateTimeOffset ExpiresUtc);
+    private readonly Dictionary<Guid,OriginalPrepared> pendingOriginal=new();
 
     public DesktopHistoricalStoreImportBridge(ClusterService service,
         Func<LocalMap,ProcessCheck>? processInspector=null,
@@ -60,13 +64,123 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             string? method=methodProp.GetString();
             if(method is not ("historical.localStatus" or "historical.localParity" or "historical.list" or "historical.preview" or
                 "historical.register" or "historical.pairedEvidence" or
-                "historical.launchEvidence" or "historical.liveGuard"))
+                "historical.launchEvidence" or "historical.liveGuard" or
+                "historical.originalList" or "historical.originalPreview" or
+                "historical.originalRegister"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
             {
                 foreach(var expired in pending.Where(x=>x.Value.ExpiresUtc<DateTimeOffset.UtcNow)
                     .Select(x=>x.Key).ToArray())pending.Remove(expired);
+                foreach(var expired in pendingOriginal.Where(x=>x.Value.ExpiresUtc<DateTimeOffset.UtcNow)
+                    .Select(x=>x.Key).ToArray())pendingOriginal.Remove(expired);
+
+                if(method=="historical.originalList")
+                {
+                    var local=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+                    return Ok(id,new{
+                        sourceVerified=true,
+                        originalFourFilesUnchanged=true,
+                        maps=local.Maps.Select(m=>new{
+                            mapId=m.MapId,mapKey=m.MapKey,name=MapName(m.MapKey),
+                            folderName=Path.GetFileName(
+                                Path.TrimEndingDirectorySeparator(m.OriginalInstallationRoot)),
+                            registered=cluster.Config.LocalMaps.Any(x=>x.Id==m.MapId)
+                        }).ToArray(),
+                        evidence="ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY"
+                    });
+                }
+                if(method=="historical.originalPreview")
+                {
+                    if(!GuidField(data,"mapId",out var originalMapId)||
+                       !PortField(data,"gamePort",out var originalGamePort)||
+                       !PortField(data,"queryPort",out var originalQueryPort)||
+                       originalGamePort==originalQueryPort)
+                        return Fail(id,"UM-STORE-DIRECT-PORTS-INVALID");
+                    var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+                    var selected=source.Maps.SingleOrDefault(x=>x.MapId==originalMapId);
+                    if(selected==null)return Fail(id,"UM-STORE-DIRECT-ORIGINAL-MAP-UNKNOWN");
+                    string root=DesktopLocalMapRegistryBridge.ValidateFixedLocalRoot(
+                        selected.OriginalInstallationRoot);
+                    var installation=LocalAsaInstallLocator.Probe(root);
+                    if(!installation.HasServerExecutable||
+                       string.IsNullOrWhiteSpace(installation.ServerExecutable))
+                        return Fail(id,"UM-ASA-EXE-MISSING");
+                    string name=MapName(selected.MapKey);
+                    CheckDuplicate(selected.MapId,name,root);
+                    var observed=ObservedOriginal(selected.MapId,selected.MapKey,root,
+                        installation.ServerExecutable);
+                    if(observed.Running||!observed.ConfirmedStopped||
+                       observed.Identity!=null||observed.LoaderIdentity!=null)
+                        return Fail(id,"UM-HISTORICAL-STOP-REQUIRED");
+                    if(pendingOriginal.Count>=8)pendingOriginal.Clear();
+                    var approval=Guid.NewGuid();
+                    pendingOriginal[approval]=new(approval,source.FourFilesSha256,
+                        selected.MapId,selected.MapKey,name,root,
+                        installation.ServerExecutable,originalGamePort,
+                        originalQueryPort,DateTimeOffset.UtcNow.AddMinutes(7));
+                    return Ok(id,new{
+                        token=approval,mapId=selected.MapId,mapName=name,
+                        folderName=Path.GetFileName(root),
+                        gamePort=originalGamePort,queryPort=originalQueryPort,
+                        originalIdsPreserved=true,originalFilesWritten=false,
+                        serverStarted=false,requiresOriginalRconAttach=true,
+                        evidence="ORIGINAL_KOVA_DIRECT_IMPORT_PREVIEW"
+                    });
+                }
+                if(method=="historical.originalRegister")
+                {
+                    if(!GuidField(data,"token",out var approval)||
+                       !BoolField(data,"confirm",out var accept)||!accept||
+                       !pendingOriginal.TryGetValue(approval,out var staged))
+                        return Fail(id,"UM-STORE-DIRECT-EXPLICIT-APPROVAL-REQUIRED");
+                    pendingOriginal.Remove(approval);
+                    if(staged.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-STORE-DIRECT-PREVIEW-EXPIRED");
+                    var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+                    var selected=source.Maps.SingleOrDefault(x=>x.MapId==staged.MapId);
+                    if(selected==null||source.FourFilesSha256!=staged.FourFilesHash||
+                       selected.MapKey!=staged.MapKey)
+                        return Fail(id,"UM-STORE-DIRECT-ORIGINAL-SOURCE-CHANGED");
+                    string root=DesktopLocalMapRegistryBridge.ValidateFixedLocalRoot(
+                        selected.OriginalInstallationRoot);
+                    if(!root.Equals(staged.Root,StringComparison.OrdinalIgnoreCase))
+                        return Fail(id,"UM-STORE-DIRECT-ORIGINAL-ROOT-CHANGED");
+                    var installation=LocalAsaInstallLocator.Probe(root);
+                    if(!installation.HasServerExecutable||
+                       !string.Equals(installation.ServerExecutable,staged.ServerExe,
+                           StringComparison.OrdinalIgnoreCase))
+                        return Fail(id,"UM-STORE-DIRECT-INSTALL-CHANGED");
+                    CheckDuplicate(staged.MapId,staged.LocalName,root);
+                    var state=ObservedOriginal(staged.MapId,staged.MapKey,root,
+                        staged.ServerExe);
+                    if(state.Running||!state.ConfirmedStopped||
+                       state.Identity!=null||state.LoaderIdentity!=null)
+                        return Fail(id,"UM-HISTORICAL-STOP-REQUIRED");
+                    // Register ONLY in Obsidian's own ConfigStore. No original
+                    // Kova file, shared session, world or transfer byte changes.
+                    cluster.AddMap(new LocalMap{
+                        Id=staged.MapId,Name=staged.LocalName,
+                        InstallationPath=root,ExecutablePath=staged.ServerExe,
+                        GamePort=staged.GamePort,QueryPort=staged.QueryPort,
+                        Arguments="",HistoricalStoreProtected=true,
+                        HistoricalArchiveSha256=staged.FourFilesHash,
+                        HistoricalMapKey=staged.MapKey,
+                        HistoricalEnabledMods=new List<string>(),
+                        HistoricalPassiveMods=new List<string>(),
+                        StartWithAsaApi=false,AutoStart=false,MonitorRcon=false,
+                        RconPort=0,ApiLoaderArguments=""
+                    });
+                    return Ok(id,new{
+                        mapId=staged.MapId,mapName=staged.LocalName,
+                        registered=true,originalIdsPreserved=true,
+                        originalFilesWritten=false,serverStarted=false,
+                        requiresOriginalRconAttach=true,
+                        requiresExactModOrderVerification=true,
+                        evidence="ORIGINAL_KOVA_DIRECT_LOCAL_MAP_REGISTERED"
+                    });
+                }
 
                 if(method=="historical.localParity")
                 {
@@ -377,6 +491,17 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         _=>LocalMapNameRules.Normalize(key)
     };
 
+    private ProcessCheck ObservedOriginal(Guid mapId,string mapKey,
+        string root,string executable)
+    {
+        var map=new LocalMap{Id=mapId,Name=MapName(mapKey),
+            HistoricalStoreProtected=true,HistoricalMapKey=mapKey,
+            InstallationPath=root,ExecutablePath=executable,Arguments=""};
+        string loader=Path.Combine(root,"ShooterGame","Binaries","Win64","AsaApiLoader.exe");
+        if(File.Exists(loader))map.ApiLoaderPath=loader;
+        return inspect(map);
+    }
+
     private ProcessCheck Observed(HistoricalLaunchProfile selected,string root,string exe)
     {
         var map=new LocalMap{Id=selected.Id,Name=selected.MapId,
@@ -452,6 +577,14 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             }).ToArray();
         return (root,Parse("mods"),Parse("passiveMods"));
     }
+    private static bool PortField(JsonElement obj,string key,out int value)
+    {
+        value=0;
+        return obj.TryGetProperty(key,out var item)&&
+            item.ValueKind==JsonValueKind.Number &&
+            item.TryGetInt32(out value) && value is >=1024 and <=65535;
+    }
+
     private static bool GuidField(JsonElement obj,string key,out Guid value)
     {
         value=Guid.Empty;
