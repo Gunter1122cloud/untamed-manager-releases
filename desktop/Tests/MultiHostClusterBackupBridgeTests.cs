@@ -481,6 +481,12 @@ public static class MultiHostClusterBackupBridgeTests
         Directory.Delete(exclusiveTarget,true);
         File.Delete(exclusiveTarget+".replace-transaction-v1.json");
 
+        // Different actual Windows processes (not callbacks/threads) compete
+        // on the SAME TEMP target. Kill the holder at previousMoved, verify the
+        // OS releases its lock and the old batch can be restored via journal.
+        await MultiHostTempProcessLeaseTests.Run(root, archivePath,
+            replacementArchivePath, ownership);
+
         string[] liveFiles = Directory.GetFiles(liveMapRoot, "*", SearchOption.AllDirectories);
         Check(liveFiles.Length == 1 && liveFiles[0] == liveMarker && File.ReadAllText(liveMarker) == "synthetic test marker only",
             "restore and backup never create files under the registered server installation");
