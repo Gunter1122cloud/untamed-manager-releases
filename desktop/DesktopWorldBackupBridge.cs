@@ -31,7 +31,13 @@ public sealed class DesktopWorldBackupBridge
         DesktopScheduledStoppedBackupSupervisor? scheduledBackups=null)
     {
         this.cluster=cluster??throw new ArgumentNullException(nameof(cluster));
-        inspect=processInspector??(map=>new WindowsProcessInspector().InspectFamily(map));
+        // Historical Store-v1 imports deliberately retain empty Arguments.
+        // The generic fresh-map family inspector can misidentify an old Kova
+        // process as stopped. Use the dedicated original ASA/Loader observer
+        // for every manual backup preflight and immediately before copy.
+        inspect=processInspector??(map=>map.HistoricalStoreProtected?
+            cluster.ObserveLocalProcessesReadOnly(map):
+            new WindowsProcessInspector().InspectFamily(map));
         scheduled=scheduledBackups;
     }
     private LocalMap Owned(Guid mapId)
