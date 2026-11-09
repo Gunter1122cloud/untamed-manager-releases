@@ -148,7 +148,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   };
   const originalLocalFive=maps.filter(m=>m.storeProtected);
   const reviewOriginalFive=async()=>{
-    if(originalFiveBusy||busy||originalLocalFive.length!==5)return;
+    if(originalFiveBusy||busy||originalLocalFive.length<5)return;
     setOriginalFiveBusy(true);setOriginalFivePreview(null);
     setOriginalFiveReceipt(null);setOriginalFiveConsent(false);
     setOriginalFiveError("");
@@ -209,7 +209,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <button className="primary" type="button" disabled={!chosen||busy||current?.running||history?.recoveryRequired}
           onClick={()=>{void preview();}}><Save size={15}/> Világmentés készítése</button>
       </div>
-      {originalLocalFive.length===5&&<section className="uk-world-backup-confirm"
+      {originalLocalFive.length>=5&&<section className="uk-world-backup-confirm"
         aria-label="Eredeti Store-v1 ötmapos helyi mentés">
         <div>
           <b>Az öt eredeti helyi Store-v1 map mentése együtt</b>
@@ -218,7 +218,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             szervert, nem küld RCON-t, és nem módosít Kova-sessiont, lockot
             vagy a közös transferkönyvtárat. A másik gépen külön futtasd.</p>
           {!originalFivePreview&&<button type="button" className="secondary"
-            disabled={originalFiveBusy||busy||originalLocalFive.some(m=>m.running)}
+            disabled={originalFiveBusy||busy}
             onClick={()=>{void reviewOriginalFive();}}>
             <ShieldCheck size={15}/>
             {originalFiveBusy?"Eredeti mentés ellenőrzése vagy készítése…":
