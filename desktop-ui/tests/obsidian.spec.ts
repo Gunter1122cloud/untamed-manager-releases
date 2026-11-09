@@ -1877,8 +1877,13 @@ test.beforeEach(async ({ page }) => {
             try {
               const data = answers(msg);
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:true,data} }));
-            } catch {
-              handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error:"UM-METHOD-DENIED"} }));
+            } catch(e) {
+              // Preserve the concrete synthetic installer error code, just as
+              // the native C# reply does; other mocked denials remain generic.
+              const error=e instanceof Error&&
+                e.message.startsWith("UM-FRESH-ROOT-OVERLAP|")
+                ?e.message:"UM-METHOD-DENIED";
+              handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
             }
           });
         }
