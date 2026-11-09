@@ -150,15 +150,29 @@ internal static class MultiHostOfflineCatalogAssemblerTests
             // BOTH offline inspection bundles; it is NOT a new Store writer.
             string[] stageRoots={Path.Combine(sandbox,"host-restore-stage-hp"),
                 Path.Combine(sandbox,"host-restore-stage-ryzen")};
+            // Unrelated extra hosts/maps/clusters are allowed in the CURRENT
+            // unlimited Registry. The archive remains a complete 2-host
+            // subset of that registry and every included ID must still match.
+            var expanded=new MultiHostBackupOwnershipSnapshot(ownership.LocalHostId,
+                ownership.Hosts.Concat(new[]{
+                    new MultiHostBackupHostOwnership("unrelated-third-host",
+                        "Independent Third Host",false,true)}).ToArray(),
+                ownership.Clusters.Concat(new[]{
+                    new MultiHostBackupClusterOwnership("unrelated-cluster",
+                        "Another legitimate cluster")}).ToArray(),
+                ownership.Maps.Concat(new[]{
+                    new MultiHostBackupMapOwnership(Guid.NewGuid(),
+                        "unrelated-third-host","Another ASA map","unrelated-cluster")
+                }).ToArray());
             for(int side=0;side<2;side++)
             {
                 Directory.CreateDirectory(stageRoots[side]);
                 var plan=MultiHostHostRestoreStaging.Inspect(destination,hosts[side],
-                    stageRoots[side],ownership);
+                    stageRoots[side],expanded);
                 Check(plan.Maps==5&&plan.Clusters==1&&plan.Components>20&&
                       plan.IdentitySha256.Length==64,
                     "full host Restore preflight binds exact 5-map owner and shared Store/transfer copy");
-                var receipt=MultiHostHostRestoreStaging.Stage(plan,ownership);
+                var receipt=MultiHostHostRestoreStaging.Stage(plan,expanded);
                 string hostStage=Path.Combine(stageRoots[side],plan.StageDirectoryName);
                 var validated=MultiHostHostRestoreStaging.Verify(hostStage);
                 Check(receipt.BatchId==catalog.BatchId&&
@@ -172,7 +186,7 @@ internal static class MultiHostOfflineCatalogAssemblerTests
                     "host-specific bundle includes original shared tribute transfer bytes");
                 bool refusedOverwrite=false;
                 try{MultiHostHostRestoreStaging.Inspect(destination,hosts[side],
-                    stageRoots[side],ownership);}
+                    stageRoots[side],expanded);}
                 catch(IOException){refusedOverwrite=true;}
                 Check(refusedOverwrite,"existing host stage cannot be overwritten or silently reimported");
                 var stagedMap=mapRecords.First(m=>m.HostId==hosts[side]);
