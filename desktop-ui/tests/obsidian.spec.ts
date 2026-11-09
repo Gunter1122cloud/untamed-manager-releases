@@ -3600,6 +3600,7 @@ test("original five-map Kova backup requires one confirmed user action and uses 
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FIVE_BACKUP_FIXTURE__?:()=>void;
   }).__UNTAMED_FIVE_BACKUP_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Mentések",exact:true}).click();
   const section=page.getByRole("region",{name:"Eredeti Store-v1 ötmapos helyi mentés"});
   await expect(section).toContainText("Mind az 5 eredeti helyi map");
