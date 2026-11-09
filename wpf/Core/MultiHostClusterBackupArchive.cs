@@ -352,6 +352,13 @@ public static class MultiHostClusterBackupArchive
 
     private static bool HashValid(string? value) => value is { Length: 64 } && value.All(Uri.IsHexDigit);
 
+    // A zero-byte arkprofile may be an original ASA/Store-v1 placeholder.
+    // Preserve it byte-for-byte in an OFFLINE archive, without declaring the
+    // player recovered. An empty world, tribe, transfer or configuration is
+    // still an invalid source component and can never authorize a restore.
+    private static bool PermitsEmpty(MultiHostBackupComponentKind kind) =>
+        kind == MultiHostBackupComponentKind.MapProfile;
+
     private static bool IsMapKind(MultiHostBackupComponentKind kind) => kind is
         MultiHostBackupComponentKind.MapWorld or MultiHostBackupComponentKind.MapProfile or
         MultiHostBackupComponentKind.MapTribe or MultiHostBackupComponentKind.MapSavedFile or
@@ -419,7 +426,8 @@ public static class MultiHostClusterBackupArchive
         foreach (var component in components)
         {
             if (component == null || component.ObjectIndex < 0 || component.ObjectIndex >= components.Count ||
-                !Enum.IsDefined(component.Kind) || component.Length <= 0 ||
+                !Enum.IsDefined(component.Kind) || component.Length < 0 ||
+                (component.Length == 0 && !PermitsEmpty(component.Kind)) ||
                 component.Length > MaxComponentBytes || !HashValid(component.Sha256))
                 throw new InvalidDataException("Missing, empty or unverified component");
             string host = SafeId(component.HostId, "Component host ID");
@@ -551,14 +559,16 @@ public static class MultiHostClusterBackupArchive
     }
 
     private static (long Length, string Sha256) CopyAndHash(string source,
-        string destination, CancellationToken cancellationToken)
+        string destination, MultiHostBackupComponentKind kind,
+        CancellationToken cancellationToken)
     {
         if ((File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0)
             throw new InvalidDataException("Linked source file rejected");
         using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
             1024 * 1024, FileOptions.SequentialScan);
         long sourceLength = input.Length;
-        if (sourceLength <= 0 || sourceLength > MaxComponentBytes)
+        if ((sourceLength == 0 && !PermitsEmpty(kind)) ||
+            sourceLength < 0 || sourceLength > MaxComponentBytes)
             throw new InvalidDataException("Empty or oversized source component rejected");
         using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write,
             FileShare.None, 1024 * 1024, FileOptions.SequentialScan);
@@ -802,7 +812,8 @@ public static class MultiHostClusterBackupArchive
                 source.StartsWith(stage + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Missing or overlapping source file");
             var info = new FileInfo(source);
-            if (info.Length <= 0 || info.Length > MaxComponentBytes)
+            if ((info.Length == 0 && !PermitsEmpty(normalized[i].Kind)) ||
+                info.Length < 0 || info.Length > MaxComponentBytes)
                 throw new InvalidDataException("Empty or oversized source component rejected");
         }
 
@@ -820,7 +831,7 @@ public static class MultiHostClusterBackupArchive
             cancellationToken.ThrowIfCancellationRequested();
             var row = normalized[i];
             string objectPath = Path.Combine(objects, i.ToString("D6") + ".bin");
-            var (length, sha) = CopyAndHash(row.SourceFile, objectPath, cancellationToken);
+            var (length, sha) = CopyAndHash(row.SourceFile, objectPath, row.Kind, cancellationToken);
             total = checked(total + length);
             if (total > MaxTotalBytes) throw new InvalidDataException("Archive exceeds total size limit");
             components.Add(new(i, row.HostId, row.MapId, row.ClusterId,
@@ -872,7 +883,7 @@ public static class MultiHostClusterBackupArchive
                 string path = Path.Combine(stage, ObjectsName, i.ToString("D6") + ".bin");
                 if (!File.Exists(path) ||
                     (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0 ||
-                    new FileInfo(path).Length <= 0)
+                    new FileInfo(path).Length > MaxComponentBytes)
                     throw new InvalidDataException("Checkpoint hash differs from copied file");
                 progress = AdvanceProgressDigest(progress, HashFile(path));
             }
