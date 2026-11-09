@@ -31,7 +31,12 @@ internal static class MultiHostArchiveProcessLeaseTests
                 Console.WriteLine("UNEXPECTED_LEASE_ACQUIRED");
                 return 61;
             }
-            File.WriteAllText(arguments[3],"LEASE_HELD");
+            // Publish the readiness marker only AFTER closing the writer's
+            // Windows handle. File.Exists alone may otherwise race with a
+            // still-open File.WriteAllText and throw on the reading process.
+            string prepared=arguments[3]+".pending";
+            File.WriteAllText(prepared,"LEASE_HELD");
+            File.Move(prepared,arguments[3]);
             for(int i=0;i<1800;i++)
             {
                 if(File.Exists(arguments[3]+".release"))return 0;
