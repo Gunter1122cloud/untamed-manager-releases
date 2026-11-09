@@ -63,8 +63,10 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
     private ProcessIdentity Eligible(LocalMap map)
     {
-        if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map) ||
-           map.Maintenance || !AsaReadyProbe.IsRegisteredServerBinary(map) ||
+        bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
+        if(newStore)FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+        else FreshAsaInstallationSafety.Demand(cluster,map);
+        if(map.Maintenance || !AsaReadyProbe.IsRegisteredServerBinary(map) ||
            map.RconHost!="127.0.0.1" || map.RconPort is <1024 or >65535 ||
            string.IsNullOrWhiteSpace(map.RconPasswordProtected) ||
            !AsaRconConfigurationEvidence.Matches(map) ||
