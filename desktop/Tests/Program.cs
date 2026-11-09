@@ -94,6 +94,7 @@ await HistoricalStoreWorldBackupTests.Run(root);
 await OriginalStoreFiveMapBackupTests.Run(root);
 MultiHostOfflineCatalogAssemblerTests.Run(root);
 await MultiHostArchiveProcessLeaseTests.Run(root);
+await LiveSteamMaintenanceBridgeTests.Run(root);
 await LegacyStoreSaveReviewBridgeTests.Run(root);
 await LegacyStoreSaveEvidenceProcessTests.Run(root);
 await LegacyStoreSaveReceiptPairTests.Run(root);
