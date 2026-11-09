@@ -126,8 +126,14 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         bool operationBlocked=journal!=null&&journal.Phase is
             UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
             UntamedOperationPhase.NeedsOperator;
-        bool blocked=operationBlocked||restartPending;
-        bool needsOperator=(journal!=null&&(
+        var saveEvidence=LegacyStoreV1SaveEvidenceJournal.Inspect(
+            cluster.Store.Root,mapId);
+        // Never accept a successful *previous* operation journal as a
+        // substitute for the pending SaveComplete receipt. This is a
+        // second, Manager-local crash-recovery signal, not Kova ownership.
+        bool pendingSaveEvidence=saveEvidence?.Phase is "prepared" or "needsOperator";
+        bool blocked=operationBlocked||restartPending||pendingSaveEvidence;
+        bool needsOperator=pendingSaveEvidence||(journal!=null&&(
             journal.Phase==UntamedOperationPhase.NeedsOperator||
             operationBlocked&&running==null))||
             restart?.Phase==AsaRestartPhase.NeedsOperator;
@@ -142,6 +148,11 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             // Distinguish the live task kind without exposing Store secrets.
             // Durable journal state alone cannot safely infer a resumed RCON action.
             activeJobKind=running?.Kind,
+            saveEvidencePhase=saveEvidence?.Phase??"none",
+            localSaveCompleteObserved=saveEvidence?.LocalSaveCompleteObserved==true,
+            bothHostsSaveCompleteCertified=false,
+            storeWriterCertified=false,
+            productionRestoreAllowed=false,
             automaticRecovery=false,automaticRetry=false,
             sharedStoreMutated=false,lockCleared=false,
             evidence="ORIGINAL_STORE_V1_DURABLE_LOCAL_OPERATION_RECOVERY_READ_ONLY"
@@ -222,6 +233,15 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                 }
                 if(method is "historical.gracefulStopPreview" or "historical.saveWorldPreview")
                 {
+                    // A half-written or unfinished local receipt must block
+                    // all subsequent mutating Store operations. Inspect() 
+                    // itself fails closed on tamper or interrupted .next.
+                    var saved=LegacyStoreV1SaveEvidenceJournal.Inspect(
+                        cluster.Store.Root,
+                        GuidValue(request,"mapId",out var checkedMapId)?
+                            checkedMapId:Guid.Empty);
+                    if(saved?.Phase is "prepared" or "needsOperator")
+                        return Fail(id,"UM-ORIGINAL-SAVE-EVIDENCE-NEEDS-REVIEW");
                     bool saveWorldOnly=method=="historical.saveWorldPreview";
                     pending=null;
                     if(!GuidValue(request,"mapId",out var mapId))
