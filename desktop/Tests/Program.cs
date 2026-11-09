@@ -8,6 +8,8 @@ using UntamedManager.Core;
 
 // Real independent Windows child-process fixture. This short-circuits all
 // ordinary native test setup; it never opens an ASA installation or Kova data.
+if (args.Length > 0 && args[0] == LegacyStoreSaveEvidenceProcessTests.ChildSwitch)
+    Environment.Exit(LegacyStoreSaveEvidenceProcessTests.RunChild(args));
 if (args.Length > 0 && args[0] == MultiHostTempProcessLeaseTests.ChildSwitch)
     Environment.Exit(MultiHostTempProcessLeaseTests.RunChild(args));
 
@@ -85,6 +87,7 @@ cluster.AddMap(map);
 await ClusterRegistryTests.Run(root);
 await LegacyStorePhysicalTransferTests.Run(root);
 await LegacyStoreSaveEvidenceTests.Run(root);
+await LegacyStoreSaveEvidenceProcessTests.Run(root);
 await FreshStoreEnrollmentTests.Run(root);
 // A real SQLite .ark COPY fixture tests the actual metadata reader, not a
 // mocked parser. No server process, production Store writer, or network share.

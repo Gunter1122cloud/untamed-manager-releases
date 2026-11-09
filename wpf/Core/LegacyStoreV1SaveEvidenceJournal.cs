@@ -34,6 +34,50 @@ public static class LegacyStoreV1SaveEvidenceJournal
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private sealed record Sealed(string Digest,LegacyStoreV1SaveEvidence Evidence);
 
+    // A local operation journal must have exactly one writer across all
+    // Manager PROCESSES (not merely the WebView bridge's in-process semaphore).
+    // This is not an ownership/lease claim on the ORIGINAL Kova Store share.
+    private sealed class JournalWriteLease : IDisposable
+    {
+        private readonly System.Threading.Mutex gate;
+        public JournalWriteLease(System.Threading.Mutex mutex) => gate=mutex;
+        public void Dispose()
+        {
+            try { gate.ReleaseMutex(); }
+            finally { gate.Dispose(); }
+        }
+    }
+
+    private static JournalWriteLease AcquireWriteLease(string file)
+    {
+        // Full canonical journal pathname scopes the lock to one local
+        // Manager profile + one map, including across Windows sessions.
+        string key=Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(System.IO.Path.GetFullPath(file).ToUpperInvariant())));
+        var gate=new System.Threading.Mutex(false,
+            @"Global\Obsidian-StoreV1-SaveEvidence-"+key);
+        try
+        {
+            try
+            {
+                if(!gate.WaitOne(0))
+                    throw new IOException("UM-ORIGINAL-SAVE-JOURNAL-WRITER-BUSY");
+            }
+            catch(System.Threading.AbandonedMutexException)
+            {
+                // Windows released a crashed process's OS mutex. The durable
+                // prepared/.next journal is still authoritative, never
+                // silently recovered or removed.
+            }
+            return new JournalWriteLease(gate);
+        }
+        catch
+        {
+            gate.Dispose();
+            throw;
+        }
+    }
+
     private static bool Hash(string? value)=>value is {Length:64} &&
         value.All(Uri.IsHexDigit);
 
@@ -123,6 +167,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
            startedUtc==default||!Hash(originalSourceSha256))
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-APPROVAL");
         string file=PathFor(managerProfileRoot,mapId);
+        using var writer=AcquireWriteLease(file);
         var prior=Load(file);
         if(prior!=null&&prior.Phase!="completed")
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
@@ -152,6 +197,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         bool doExitSent)
     {
         string file=PathFor(managerProfileRoot,mapId);
+        using var writer=AcquireWriteLease(file);
         var current=RequireAttempt(file,operationId,mapId,pid,startedUtc,originalSha);
         if(!saveCompleteObserved||doExitSent||observedUtc<current.BeganUtc||
            observedUtc>DateTimeOffset.UtcNow.AddMinutes(1))
@@ -165,6 +211,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         Guid mapId,int pid,DateTimeOffset startedUtc,string originalSha)
     {
         string file=PathFor(managerProfileRoot,mapId);
+        using var writer=AcquireWriteLease(file);
         var current=RequireAttempt(file,operationId,mapId,pid,startedUtc,originalSha);
         Publish(file,current with{Phase="needsOperator"});
     }
