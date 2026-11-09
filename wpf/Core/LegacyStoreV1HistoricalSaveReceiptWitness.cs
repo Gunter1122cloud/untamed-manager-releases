@@ -68,8 +68,8 @@ public static class LegacyStoreV1HistoricalSaveReceiptProbe
             // accepted five-map receipt set. It never becomes a Store lease.
             if(receipt?.Phase!="completed" ||
                !receipt.LocalSaveCompleteObserved ||
-               receipt.SaveObservedUtc is not DateTimeOffset when ||
-               when < now.AddMinutes(-10) || when > now.AddMinutes(1))
+               receipt.SaveObservedUtc is not DateTimeOffset savedAt ||
+               savedAt < now.AddMinutes(-10) || savedAt > now.AddMinutes(1))
                 continue;
             if(receipt.MapId!=map.Id || receipt.ProductionRestoreAllowed ||
                receipt.SharedStoreWriterCertified || receipt.BothHostsSaveCompleteCertified)
@@ -79,7 +79,7 @@ public static class LegacyStoreV1HistoricalSaveReceiptProbe
             byte[] bytes=Encoding.UTF8.GetBytes(
                 map.Id.ToString("N")+":"+receipt.OperationId.ToString("N")+":"+
                 receipt.OriginalSourceSha256+":"+
-                when.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
+                savedAt.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
             digest.AppendData(BitConverter.GetBytes(bytes.Length));
             digest.AppendData(bytes);
         }
