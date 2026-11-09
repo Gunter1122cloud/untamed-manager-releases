@@ -105,6 +105,23 @@ internal static class FreshStoreEnrollmentTests
             manager.ReplaceMap(missingRcon,map);
             Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,map,"KovaCluster"),
                 "new Store map cannot enroll directly into protected historical KovaCluster");
+            var unknownFlag=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(map))!;
+            unknownFlag.Arguments+=" -UnreviewedCommand=1";
+            manager.ReplaceMap(map,unknownFlag);
+            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,unknownFlag,
+                    "new-local-cluster"),
+                "unreviewed launch flags cannot enter a source-derived Store Start profile");
+            manager.ReplaceMap(unknownFlag,map);
+            var incorrectPassive=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(map))!;
+            incorrectPassive.Arguments=incorrectPassive.Arguments.Replace(
+                "-passivemods=100124","-passivemods=100999",StringComparison.Ordinal);
+            manager.ReplaceMap(map,incorrectPassive);
+            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,incorrectPassive,
+                    "new-local-cluster"),
+                "passive mod not present in enabled order cannot enter Store profile");
+            manager.ReplaceMap(incorrectPassive,map);
             var plan=FreshStoreEnrollmentPolicy.Prepare(manager,map,"new-local-cluster");
             Check(plan.Arguments.Contains(" -usestore",StringComparison.Ordinal)&&
                   plan.Arguments.CountAt("-usestore")==1&&
