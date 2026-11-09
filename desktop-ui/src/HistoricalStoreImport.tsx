@@ -105,7 +105,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       const result=await managerBridge.historicalOriginalList();
       if(epoch!==directEpoch.current)return;
       setDirectList(result);
-      setDirectMapId(result.maps.find(m=>!m.registered)?.mapId??"");
+      const first=result.maps.find(m=>!m.registered);
+      setDirectMapId(first?.mapId??"");
+      setDirectGamePort(first?String(first.gamePort):"");
+      setDirectQueryPort(first?String(first.queryPort):"");
     }catch(e){
       if(epoch===directEpoch.current)setDirectError(
         "Az eredeti Kova helyi ACTIVE/DONE profil nem ellenőrizhető ("+
@@ -142,9 +145,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     try{
       const result=await managerBridge.historicalOriginalRegister(token);
       if(epoch!==directEpoch.current)return;
-      setDirectNotice(result.mapName+" felvéve az eredeti GUID-dal. "+
-        "Csatlakoztasd a meglévő RCON-t, ellenőrizd a modok pontos sorrendjét, "+
-        "majd használd a map saját előellenőrzött Start/Stop/SaveWorld vezérlőit.");
+      setDirectNotice(result.mapName+" felvéve az eredeti GUID-dal, Game/Query portokkal "+
+        "és mod-sorrenddel. Csatlakoztasd a meglévő RCON-t, majd használd a map "+
+        "saját előellenőrzött Start/Stop/SaveWorld vezérlőit.");
       setDirectList(prev=>prev?{...prev,maps:prev.maps.map(m=>
         m.mapId===result.mapId?{...m,registered:true}:m)}:prev);
       setDirectMapId("");
@@ -226,7 +229,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         <p className="muted small">
           Az eredeti Windows-fiók Kova Store-v1 profiljából felismeri az öt helyi mapot,
           a mapazonosítókat és a telepítési mappákat. Nem kell hozzá ZIP vagy kézi mappaútvonal.
-          Az eredeti Game/Query portokat add meg a korábbi indítási beállításokból.
+          Az eredeti launch-profiles-v1.json fájlból veszi át a Game/Query portokat,
+          az aktív és passzív modok pontos sorrendjét. Ha ez a fájl hiányzik,
+          a korábbi Manager ZIP alapú importálása használható.
           A map legyen leállítva; az import csak az Obsidian saját regiszterét módosítja.
         </p>
         <button type="button" className="secondary"
@@ -240,11 +245,14 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <select aria-label="Közvetlen Kova-map" value={directMapId}
               disabled={directBusy||registering}
               onChange={e=>{directEpoch.current++;setDirectMapId(e.target.value);
+                const selected=directList.maps.find(m=>m.mapId===e.target.value);
+                setDirectGamePort(selected?String(selected.gamePort):"");
+                setDirectQueryPort(selected?String(selected.queryPort):"");
                 setDirectPreview(null);setDirectApproved(false);}}>
               <option value="">Válassz még nem regisztrált mapot</option>
               {directList.maps.map(m=><option key={m.mapId} value={m.mapId}
                 disabled={m.registered}>
-                {m.name} · {m.folderName}{m.registered?" · már felvéve":""}
+                {m.name} · {m.folderName} · {m.enabledMods} mod{m.registered?" · már felvéve":""}
               </option>)}
             </select>
           </label>
@@ -277,7 +285,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <span>ASA mappa</span><strong>{directPreview.folderName}</strong>
             <span>Game / Query UDP</span>
             <strong>{directPreview.gamePort} / {directPreview.queryPort}</strong>
-            <span>RCON és modlista</span><strong>Import után ellenőrizendő</strong>
+            <span>Eredeti aktív / passzív mod</span>
+            <strong>{directPreview.originalEnabledMods} / {directPreview.originalPassiveMods} · sorrend megőrizve</strong>
+            <span>RCON</span><strong>Import után csatlakoztatandó</strong>
             <span>Kova világ-, session- és transferadatok</span><strong>Változatlanok</strong>
           </div>
           <label className="historical-approval">
