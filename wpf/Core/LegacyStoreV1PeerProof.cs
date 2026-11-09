@@ -96,7 +96,10 @@ public static class LegacyStoreV1PairComparison
             Hash(proof.PhysicalDirectoryTag)&&
             Hash(proof.OriginalFourFilesTag)&&
             !proof.PhysicalDirectoryTag.All(x=>x=='0');
-        bool bothPhysical=valid&&session&&distinct&&five&&
+        // A matching Windows file ID alone is NOT sufficient: the original
+        // shared Store protocol also pins one identical UNC spelling on both
+        // peers. Alternate shares/aliases cannot override a path mismatch.
+        bool bothPhysical=valid&&session&&shared&&distinct&&five&&
             FreshPhysical(local)&&FreshPhysical(remote);
         bool samePhysical=bothPhysical&&string.Equals(
             local!.PhysicalDirectoryTag,remote!.PhysicalDirectoryTag,
