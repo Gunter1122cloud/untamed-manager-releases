@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using UntamedDesktop;
@@ -70,7 +71,7 @@ internal static class OwnedAsaKillBridgeTests
             new{token,typedApproval="KILL LOCAL ASA",confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean()&&kills==1,
             "approved Kill token cannot be replayed");
-        map.HistoricalStoreProtected=true;
+        cluster.Config.LocalMaps.Single(m=>m.Id==map.Id).HistoricalStoreProtected=true;
         var protectedMap=await Call(bridge,"servers.ownedKillPreview",
             new{mapId=map.Id});
         Check(!protectedMap.GetProperty("ok").GetBoolean()&&kills==1,
