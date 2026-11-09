@@ -68,7 +68,8 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
         <CheckCircle2 size={16}/> Store-profil regisztrálva: {status.clusterId}.
         A tényleges játékbeli utazás még nem igazolt.</div>:<>
         <p className="muted small">Csak soha nem indított, mentés nélküli SteamCMD-maphoz.
-          A Cluster fülön előbb rendeld hozzá egy létrehozott clusterhez.
+          A Store-regisztráció ELŐTT készítsd el a helyi RCON/INI-beállítást a
+          RCON fülön, majd a Cluster fülön rendeld hozzá egy létrehozott clusterhez.
           A KovaCluster és az igazolatlan többgépes megosztás továbbra is védett.</p>
         <label><span>Jóváhagyott helyi cluster</span>
           <select aria-label="Új Store-map cluster" value={selected}
