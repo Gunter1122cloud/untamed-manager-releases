@@ -3,6 +3,7 @@ import {Activity,AlertTriangle,CalendarClock,LockKeyhole,RefreshCw,Server,Shield
 import {managerBridge,type OperationsMap,type OperationsSnapshot,
   type NativeAsaScheduleOverview,type ReadOnlyScheduleKind} from "./bridge";
 import "./operations-fidelity.css";
+import {LocalMapLifecycleBar} from "./LocalMapLifecycleBar";
 
 function elapsed(seconds:number|null){
   if(seconds===null || seconds<0)return "Nem ellenőrizhető";
@@ -15,7 +16,9 @@ function localDate(iso:string|null){
   const d=new Date(iso);
   return Number.isNaN(d.getTime())?"Nem ellenőrizhető":d.toLocaleString("hu-HU");
 }
-function OperationCard({map,onOpen}:{map:OperationsMap;onOpen:(id:string)=>void}){
+function OperationCard({map,onOpen,onRefresh}:{
+  map:OperationsMap;onOpen:(id:string)=>void;onRefresh:()=>Promise<void>
+}){
   return <article className="ops-map">
     <div className="ops-map-top">
       <div><strong>{map.mapName}</strong><span>{map.status||"Ismeretlen folyamatállapot"}</span></div>
@@ -35,6 +38,9 @@ function OperationCard({map,onOpen}:{map:OperationsMap;onOpen:(id:string)=>void}
       {map.storeProtected&&<span><LockKeyhole size={13}/> Store-v1 védelem</span>}
       {map.maintenance&&<span><Shield size={13}/> Karbantartási mód</span>}
     </div>}
+    <LocalMapLifecycleBar mapId={map.mapId} mapName={map.mapName}
+      running={map.running} historical={map.storeProtected}
+      onRefresh={onRefresh} onConfigure={()=>onOpen(map.mapId)}/>
     <div className="ops-card-foot">
       <span><Shield size={14}/> Csak helyi ellenőrzés</span>
       <button type="button" className="secondary" onClick={()=>onOpen(map.mapId)}>
@@ -151,7 +157,8 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
       </div>}
       {(!selectedMapId||!showScheduler)&&(visible.length===0?<div className="empty">A szűrőnek megfelelő helyi map nem található.</div>:
         selectedMapId?<div className="ops-grid">
-          {visible.map(map=><OperationCard key={map.mapId} map={map} onOpen={onOpenMap}/>)}
+          {visible.map(map=><OperationCard key={map.mapId} map={map}
+              onOpen={onOpenMap} onRefresh={reload}/>)}
         </div>:<div className="ops-compact-scroll">
           <table className="ops-compact-table" aria-label="Helyi mapok összesített állapota">
             <thead><tr><th>Map</th><th>Állapot</th><th>PID</th><th>ASA RAM</th>
