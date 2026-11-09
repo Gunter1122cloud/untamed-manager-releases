@@ -565,6 +565,20 @@ export type OriginalFiveMapBackupPreview={
   serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
   evidence:"EXISTING_SHA256_WORLD_ENGINE_ORIGINAL_FIVE_MAP_PREFLIGHT";
 };
+export type OriginalFiveMapBackupStarted={
+  jobId:string;started:true;localMaps:5;
+  originalKovaFilesWritten:false;serverStarted:false;
+  sharedTransferIncluded:false;otherHostIncluded:false;
+  evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_JOB_QUEUED";
+};
+export type OriginalFiveMapBackupStatus={
+  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  step:string;changedUtc:string;localMaps:5;completedMaps:number;
+  points:{mapId:string;mapName:string;point:string;files:number;bytes:number}[];
+  totalBytes:number;allFiveVerified:boolean;originalKovaFilesWritten:false;
+  serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
+  evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM";
+};
 export type OriginalFiveMapBackupReceipt={
   localMaps:5;
   points:{mapId:string;mapName:string;point:string;files:number;bytes:number}[];
@@ -1264,7 +1278,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
-  "backup.originalBatchPreview" | "backup.originalBatchCreate" |
+  "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" |
   "backup.restorePreview" | "backup.restore" |
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
   "cluster.registry.snapshot" | "cluster.host.register" | "cluster.map.register" |
@@ -1514,9 +1528,11 @@ export const managerBridge = {
   backupOriginalFivePreview: () =>
     request<OriginalFiveMapBackupPreview>("backup.originalBatchPreview"),
   backupOriginalFiveCreate: (token:string) =>
-    request<OriginalFiveMapBackupReceipt>("backup.originalBatchCreate",{
+    request<OriginalFiveMapBackupStarted>("backup.originalBatchCreate",{
       token,confirm:true
     }),
+  backupOriginalFiveStatus: (jobId?:string) =>
+    request<OriginalFiveMapBackupStatus>("backup.originalBatchStatus",jobId?{jobId}:{}),
   backupRestorePreview: (mapId:string,point:string) =>
     request<WorldBackupPreview>("backup.restorePreview",{mapId,point}),
   backupRestore: (token:string,mapName:string) =>
