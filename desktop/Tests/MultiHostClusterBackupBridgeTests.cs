@@ -218,12 +218,12 @@ public static class MultiHostClusterBackupBridgeTests
         }
         choices.Enqueue(stage);
         choices.Enqueue(sourceRoot);
-        var recoveryPreview=await Call(bridge,"cluster.multiHostBackupRecoveryPreview");
-        Check(recoveryPreview.GetProperty("ok").GetBoolean()&&
-              recoveryPreview.GetProperty("data").GetProperty("needsOperator").GetBoolean()&&
-              recoveryPreview.GetProperty("data").GetProperty("previousStageWillBeRetained").GetBoolean(),
+        var archiveRecoveryPreview=await Call(bridge,"cluster.multiHostBackupRecoveryPreview");
+        Check(archiveRecoveryPreview.GetProperty("ok").GetBoolean()&&
+              archiveRecoveryPreview.GetProperty("data").GetProperty("needsOperator").GetBoolean()&&
+              archiveRecoveryPreview.GetProperty("data").GetProperty("previousStageWillBeRetained").GetBoolean(),
             "native recovery preflight binds real interrupted journal, original catalog and registry");
-        string recoverToken=recoveryPreview.GetProperty("data").GetProperty("token").GetString()!;
+        string recoverToken=archiveRecoveryPreview.GetProperty("data").GetProperty("token").GetString()!;
         var deniedRecovery=await Call(bridge,"cluster.multiHostBackupRecoveryApply",
             new{token=recoverToken,confirm=false});
         Check(!deniedRecovery.GetProperty("ok").GetBoolean()&&Directory.Exists(stage),
