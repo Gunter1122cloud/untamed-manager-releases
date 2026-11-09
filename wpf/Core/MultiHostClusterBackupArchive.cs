@@ -233,7 +233,7 @@ public static class MultiHostClusterBackupArchive
         return $"{scope}|{hostId.ToUpperInvariant()}|{SafeRelative(relativePath).ToUpperInvariant()}";
     }
 
-    private static string RestoreRelative(MultiHostBackupComponent component)
+    internal static string RestoreRelative(MultiHostBackupComponent component)
     {
         string relative = SafeRelative(component.RelativePath).Replace('/', Path.DirectorySeparatorChar);
         string host = SafeId(component.HostId, "Component host ID");
