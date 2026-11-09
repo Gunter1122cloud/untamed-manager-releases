@@ -3496,6 +3496,24 @@ try
               !alteredReturn.GetProperty("data").GetProperty("passed").GetBoolean()&&
               !alteredReturn.GetProperty("data").GetProperty("exactOriginalProfileBytes").GetBoolean(),
             "changed return-profile SHA is disclosed rather than certified as exact character-byte preservation");
+        // Unrelated map's tribe/profile proof must not silently change.
+        var tamperedOtherMap=System.Text.Json.Nodes.JsonNode.Parse(roundtripRequest.afterA)!.AsObject();
+        tamperedOtherMap["maps"]!.AsArray()
+            .First(m=>m!["name"]!.GetValue<string>()=="Valguero")!["files"]!
+            .AsArray().Add(new System.Text.Json.Nodes.JsonObject{
+                ["kind"]="tribe",["id"]=new string('c',64),
+                ["sha256"]=new string('d',64),["bytes"]=123
+            });
+        var unrelatedChanged=await Call(travelA.HandleAsync,"travel.compareRoundTrip",new{
+            roundtripRequest.beforeA,roundtripRequest.beforeB,
+            roundtripRequest.middleA,roundtripRequest.middleB,
+            afterA=tamperedOtherMap.ToJsonString(),roundtripRequest.afterB,
+            request.sourceMap,request.destinationMap,request.profileId
+        });
+        Check(unrelatedChanged.GetProperty("ok").GetBoolean()&&
+              !unrelatedChanged.GetProperty("data").GetProperty("passed").GetBoolean()&&
+              !unrelatedChanged.GetProperty("data").GetProperty("unrelatedLooseFilesUnchanged").GetBoolean(),
+            "unrelated-map profile/tribe metadata modification blocks strict A-B-A parity");
         File.WriteAllBytes(sourceFile,survivor);
         File.Move(sourceFile,destinationFile);
         File.WriteAllBytes(Path.Combine(targetSave,"zero.arkprofile"),Array.Empty<byte>());
