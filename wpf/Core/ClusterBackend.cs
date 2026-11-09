@@ -690,6 +690,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             observed.SessionTag!=source.SessionTag||
             observed.SharedPathTag!=source.SharedPathTag||
             observed.DeviceTag!=source.DeviceTag||
+            observed.OriginalFourFilesTag!=source.OriginalFourFilesTag||
             observed.ObservedUtc<DateTimeOffset.UtcNow.AddMinutes(-5)||
             observed.ObservedUtc>DateTimeOffset.UtcNow.AddMinutes(1))
             throw new InvalidDataException("UM-STORE-PHYSICAL-SOURCE-PROOF-INVALID");
@@ -709,6 +710,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             if(proof!=null&&proof.SessionTag==source.SessionTag&&
                proof.SharedPathTag==source.SharedPathTag&&
                proof.DeviceTag==source.DeviceTag&&
+               proof.OriginalFourFilesTag==source.OriginalFourFilesTag&&
                proof.ObservedUtc>=DateTimeOffset.UtcNow.AddMinutes(-5)&&
                proof.ObservedUtc<=DateTimeOffset.UtcNow.AddMinutes(1))
                 return source with{
