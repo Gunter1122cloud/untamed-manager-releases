@@ -152,10 +152,10 @@ public sealed class DesktopWorldBackupBridge
                     foreach(var map in maps)
                         worldBytes=checked(worldBytes+
                             new FileInfo(AsaSaveLayoutResolver.Resolve(map).WorldFile).Length);
-                    var ticket=new OriginalBatchTicket(Guid.NewGuid(),
+                    var originalBatchTicket=new OriginalBatchTicket(Guid.NewGuid(),
                         original.FourFilesSha256,original.LaunchProfileSha256,
                         maps.Select(x=>x.Id).ToArray(),DateTimeOffset.UtcNow.AddMinutes(5));
-                    originalBatchPending=ticket;
+                    originalBatchPending=originalBatchTicket;
                     return Ok(id,new{
                         token=ticket.Token,localMaps=5,worldBytes,
                         mapNames=maps.Select(x=>x.Name).ToArray(),
@@ -188,10 +188,10 @@ public sealed class DesktopWorldBackupBridge
                     // success from a detached job or mock receipt. Completed
                     // individual map packages remain durable if a later map
                     // fails, and no shared transfer/session bytes are touched.
-                    var created=await Task.Run(()=>
+                    var createdFive=await Task.Run(()=>
                     {
                         var points=new List<(Guid MapId,string Name,
-                            KovaCompatibleWorldBackup.Receipt Point)>();
+                            KovaCompatibleWorldBackup.Point Point)>();
                         foreach(var map in maps)
                         {
                             Stopped(map);
@@ -207,13 +207,13 @@ public sealed class DesktopWorldBackupBridge
                        !afterMaps.Select(m=>m.Id).SequenceEqual(approved.MapIds))
                         throw new IOException("UM-BACKUP-ORIGINAL-FIVE-SOURCE-CHANGED-AFTER-COPY");
                     return Ok(id,new{
-                        localMaps=created.Count,
-                        points=created.Select(x=>new{
+                        localMaps=createdFive.Count,
+                        points=createdFive.Select(x=>new{
                             mapId=x.MapId,mapName=x.Name,point=x.Point.Id,
                             files=x.Point.Files,bytes=x.Point.Bytes
                         }).ToArray(),
-                        totalBytes=created.Sum(x=>x.Point.Bytes),
-                        allFiveVerified=created.Count==5,
+                        totalBytes=createdFive.Sum(x=>x.Point.Bytes),
+                        allFiveVerified=createdFive.Count==5,
                         originalKovaFilesWritten=false,serverStarted=false,
                         sharedTransferIncluded=false,otherHostIncluded=false,
                         evidence="FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM"
