@@ -73,6 +73,8 @@ public sealed class DesktopLanSettingsBridge
                 copiedMetadataPairMatches=pair.CopiedMetadataPairMatches,
                 bothPhysicalWitnessesFresh=pair.BothPhysicalWitnessesFresh,
                 samePhysicalTransferDirectory=pair.SamePhysicalTransferDirectory,
+                bothHistoricalLocalSaveWitnessesFresh=pair.BothHistoricalLocalSaveWitnessesFresh,
+                bothHaveFiveRecentHistoricalLocalSaveReceipts=pair.BothHaveFiveRecentHistoricalLocalSaveReceipts,
                 liveWriterCertified=false,characterTravelVerified=false,statusCode=pair.StatusCode
             },
             hostName=cluster.Config.LocalHostName,localHostId=cluster.Config.LocalHostId,
@@ -107,11 +109,28 @@ public sealed class DesktopLanSettingsBridge
             id=requestId.ToString("D");
             var method=methodValue.GetString();
             if(method is not("lan.status" or "lan.preview" or "lan.apply" or
-                "lan.physicalStoreProbe"))return Fail(id,"UM-METHOD-DENIED");
+                "lan.physicalStoreProbe" or "lan.historicalSaveProbe"))
+                return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
             {
                 if(method=="lan.status")return Ok(id,Status());
+                if(method=="lan.historicalSaveProbe")
+                {
+                    var witness=cluster.InspectLocalHistoricalSaveReceiptWitness();
+                    return Ok(id,new{
+                        localHistoricalReceiptsReadOnly=true,
+                        observedUtc=witness.ObservedUtc,
+                        recentCompletedMapReceipts=witness.RecentCompletedMapReceipts,
+                        allFiveRecentLocalReceipts=witness.AllFiveRecentLocalReceipts,
+                        crossHostSaveCompleteCertified=false,
+                        sharedStoreWriterCertified=false,
+                        productionRestoreAllowed=false,
+                        originalStoreFilesWritten=false,
+                        rconUsed=false,
+                        evidence="ON_DEMAND_MANAGER_LOCAL_HISTORICAL_RECEIPTS_NO_WRITER_QUORUM"
+                    });
+                }
                 if(method=="lan.physicalStoreProbe")
                 {
                     var witness=cluster.InspectLocalPhysicalTransferWitness();
