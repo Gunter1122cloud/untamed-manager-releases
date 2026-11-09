@@ -117,6 +117,14 @@ test.beforeEach(async ({ page }) => {
     let originalSaveReattached=false;
     let originalSaveHold=false;
     let originalSaveEvidenceTampered=false;
+    let originalSaveRecoveryFixture=false;
+    let originalSaveReviewed=false;
+    (window as typeof window & {__UNTAMED_SAVE_REVIEW_FIXTURE__?:()=>void})
+      .__UNTAMED_SAVE_REVIEW_FIXTURE__=()=>{
+        originalSaveRecoveryFixture=true;
+        Object.assign(state.local.maps[1],{storeProtected:true,
+          running:false,status:"Leállítva",storeLifecycleState:"needsOperator"});
+      };
     (window as typeof window & {
       __UNTAMED_SAVE_EVIDENCE_TAMPER__?:()=>void;
     }).__UNTAMED_SAVE_EVIDENCE_TAMPER__=()=>{
@@ -236,7 +244,7 @@ test.beforeEach(async ({ page }) => {
     const opsJobId="00000000-0000-4000-8000-000000009988";
     let opsJobCreated=false;
     let opsJobEnabled=false;
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; frequency?:string;minuteOfDay?:number;daysMask?:number; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;maintenance?:boolean;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; frequency?:string;minuteOfDay?:number;daysMask?:number; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; confirmation?:string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;maintenance?:boolean;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
       switch (m.method) {
         case "store.inspectArchive": return {
           batch:"b8d0c49f-cc87-42e0-b312-a0485c82f101",
@@ -705,7 +713,9 @@ test.beforeEach(async ({ page }) => {
         case "historical.gracefulStopRecovery": return {
           mapId:two,
           operationId:oldStopNeedsOperator?originalStopJob:null,
-          phase:oldStopNeedsOperator?"NeedsOperator":
+          phase:originalSaveRecoveryFixture?
+            (originalSaveReviewed?"OperatorReviewed":"NeedsOperator"):
+            oldStopNeedsOperator?"NeedsOperator":
             originalSaveReattached?"Mutating":
             originalStopQueued?"Completed":"None",
           operationKind:originalSaveReattached?"Backup":
@@ -713,8 +723,10 @@ test.beforeEach(async ({ page }) => {
           updatedUtc:oldStopNeedsOperator||originalStopQueued
             ?"2026-11-07T18:35:00Z":null,
           // A native task can be queued before its durable journal changes phase.
-          blocked:oldStopNeedsOperator,
-          requiresOperator:oldStopNeedsOperator,
+          blocked:oldStopNeedsOperator||
+            (originalSaveRecoveryFixture&&!originalSaveReviewed),
+          requiresOperator:oldStopNeedsOperator||
+            (originalSaveRecoveryFixture&&!originalSaveReviewed),
           inMemoryRunning:originalSaveReattached,
           jobId:originalSaveReattached?originalSaveJob:null,
           activeJobKind:originalSaveReattached?"SaveWorldOnly":null,
@@ -752,8 +764,11 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-ORIGINAL-SAVE-JOURNAL-TAMPERED");
           const complete=originalSaveQueued&&!(originalSaveReattached&&originalSaveHold);
           return {
-            mapId:two,phase:originalSaveQueued?(complete?"completed":"prepared"):"none",
-            operationId:originalSaveQueued?originalSaveJob:null,
+            mapId:two,phase:originalSaveRecoveryFixture?
+              (originalSaveReviewed?"reviewed":"needsOperator"):
+              originalSaveQueued?(complete?"completed":"prepared"):"none",
+            operationId:originalSaveRecoveryFixture?originalSaveJob:
+              originalSaveQueued?originalSaveJob:null,
             pid:originalSaveQueued?42101:null,
             pidStartedUtc:originalSaveQueued?"2026-11-08T18:00:00Z":null,
             saveObservedUtc:complete?"2026-11-08T18:35:00Z":null,
@@ -763,6 +778,29 @@ test.beforeEach(async ({ page }) => {
             fsyncCertified:false,sourceStateCertifiedForCurrentWriter:false,
             evidence:"MANAGER_LOCAL_DURABLE_SAVE_LOG_WITNESS_NO_SHARED_STORE_QUORUM"
           };
+        }
+        case "historical.saveWorldReviewPreview": {
+          if(!originalSaveRecoveryFixture||originalSaveReviewed||m.mapId!==two)
+            throw new Error("Store Save review source not verified");
+          return {token:"00000000-0000-4000-8000-000000001694",
+            mapId:two,phase:"needsOperator",operationId:originalSaveJob,
+            coordinatorPhase:"NeedsOperator",originalSourceRevalidated:true,
+            confirmedStopped:true,preservesOriginalReceipt:true,
+            originalStoreFilesWritten:false,automaticRetry:false,
+            requiresTypedApproval:true,
+            evidence:"OPERATOR_REVIEW_STABLE_STOPPED_ORIGINAL_STORE_SAVE"};
+        }
+        case "historical.saveWorldReviewApply": {
+          if(!originalSaveRecoveryFixture||originalSaveReviewed||
+             m.token!=="00000000-0000-4000-8000-000000001694"||
+             !m.confirm||m.confirmation!=="REVIEW STORE SAVE")
+            throw new Error("Store Save review approval required");
+          originalSaveReviewed=true;
+          return {mapId:two,phase:"reviewed",reviewed:true,
+            oldReceiptArchived:true,originalStoreFilesWritten:false,
+            autoRetry:false,serverStarted:false,
+            nextOperationRequiresNewApproval:true,
+            evidence:"OPERATOR_REVIEW_DURABLE_LOCAL_JOURNALS_NO_STORE_MUTATION"};
         }
         case "historical.saveWorldStatus": {
           if(!originalSaveQueued||m.jobId!==originalSaveJob)
@@ -2880,6 +2918,31 @@ test("Store-v1 SaveWorld reattaches to exactly the original native job without r
   expect(await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number;
   }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
+});
+
+test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped without auto resending RCON",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_REVIEW_FIXTURE__?:()=>void;
+  }).__UNTAMED_SAVE_REVIEW_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Függőben / bizonytalan");
+  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
+  await panel.getByRole("button",{name:"Korábbi SaveWorld operátori ellenőrzése"}).click();
+  const review=panel.getByRole("region",{name:"Korábbi Store-v1 mentés felülvizsgálata"});
+  const accept=review.getByRole("button",{name:"Korábbi mentési napló felülvizsgálatának jóváhagyása"});
+  await expect(accept).toBeDisabled();
+  await review.getByLabel("Store-v1 mentés felülvizsgálati megerősítése")
+    .fill("REVIEW STORE SAVE");
+  await expect(accept).toBeEnabled();
+  await accept.click();
+  await expect(panel).toContainText("a műveleti napló operátori ellenőrzéssel feloldva");
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Operátori felülvizsgálat megtörtént");
+  await expect(panel.getByRole("button",{name:"SaveWorld végrehajtása"})).toHaveCount(0);
 });
 
 test("original Store-v1 SaveWorld-only refuses unresolved durable journal without RCON dispatch",async({page})=>{

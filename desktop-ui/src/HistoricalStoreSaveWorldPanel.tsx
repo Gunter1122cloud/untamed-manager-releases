@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,RefreshCw,Save,Shield} from "lucide-react";
 import {managerBridge,type HistoricalSaveWorldPreview,
   type HistoricalGracefulStopRecovery,type HistoricalGracefulStopStatus,
-  type HistoricalSaveEvidenceStatus} from "./bridge";
+  type HistoricalSaveEvidenceStatus,type HistoricalSaveReviewPreview} from "./bridge";
 
 /** Real, explicitly approved original ACTIVE/DONE SaveWorld. Never DoExit. */
 export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
@@ -15,6 +15,8 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
   const [checked,setChecked]=useState(false);
   const [preview,setPreview]=useState<HistoricalSaveWorldPreview|null>(null);
   const [phrase,setPhrase]=useState("");
+  const [reviewPreview,setReviewPreview]=useState<HistoricalSaveReviewPreview|null>(null);
+  const [reviewPhrase,setReviewPhrase]=useState("");
   const [busy,setBusy]=useState(false);
   const [jobId,setJobId]=useState("");
   const [job,setJob]=useState<HistoricalGracefulStopStatus|null>(null);
@@ -25,6 +27,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
     let active=true;
     finished.current=false;
     setChecked(false);setRecovery(null);setPreview(null);setPhrase("");
+    setReviewPreview(null);setReviewPhrase("");
     setJobId("");setJob(null);setNotice("");setError("");
     setDurableSave(null);setDurableUnknown(false);setDurableChecked(false);
     managerBridge.historicalSaveWorldEvidence(mapId).then(result=>{
@@ -114,6 +117,41 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       "a PID, a napló és a tartós műveleti állapot ellenőrzése nélkül.");}
     finally{setBusy(false);}
   };
+  const reviewPreviousSave=async()=>{
+    if(busy||running||!durableChecked||durableUnknown||
+       !durableSave||!["prepared","needsOperator","reviewed"].includes(
+         durableSave.phase))return;
+    setBusy(true);setReviewPreview(null);setReviewPhrase("");
+    setError("");setNotice("");
+    try{setReviewPreview(await managerBridge.historicalSaveWorldReviewPreview(mapId));}
+    catch{setError("A korábbi SaveWorld nem feloldható: az ASA leállítása, "+
+      "eredeti Store-session/forrás és tartós napló újraellenőrzése szükséges.");}
+    finally{setBusy(false);}
+  };
+  const approveReview=async()=>{
+    if(busy||!reviewPreview||reviewPhrase!=="REVIEW STORE SAVE")return;
+    const token=reviewPreview.token;
+    setBusy(true);setReviewPreview(null);setReviewPhrase("");
+    setError("");setNotice("");
+    try{
+      const result=await managerBridge.historicalSaveWorldReviewApply(
+        token,"REVIEW STORE SAVE");
+      if(result.phase!=="reviewed"||!result.oldReceiptArchived||
+         result.originalStoreFilesWritten||!result.nextOperationRequiresNewApproval)
+        throw new Error("Native review receipt invalid");
+      const [newEvidence,newRecovery]=await Promise.all([
+        managerBridge.historicalSaveWorldEvidence(mapId),
+        managerBridge.historicalGracefulStopRecovery(mapId)
+      ]);
+      setDurableSave(newEvidence);setRecovery(newRecovery);
+      if(newRecovery.blocked)throw new Error("Other map operation still pending");
+      setNotice("A korábbi bizonytalan helyi SaveWorld tartósan archiválva, "+
+        "a műveleti napló operátori ellenőrzéssel feloldva. "+
+        "A következő SaveWorld új, külön jóváhagyást igényel.");
+    }catch{setError("A Store-v1 mentési naplók nem oldhatók fel biztonságosan. "+
+      "Új SaveWorld nem indítható, amíg az állapot nem tisztázott.");}
+    finally{setBusy(false);}
+  };
   return <section className="glass panel historical-store-saveonly"
       aria-label="Store-v1 SaveWorld leállítás nélkül">
     <div className="panel-head">
@@ -154,11 +192,49 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
             "Korábbi helyi ASA naplójelzés + stabil világfájl rögzítve":
           durableSave?.phase==="prepared"||durableSave?.phase==="needsOperator"?
             "Függőben / bizonytalan – kézi ellenőrzést igényel":
+          durableSave?.phase==="reviewed"?
+            "Operátori felülvizsgálat megtörtént; az előző napló archiválva":
             "Nincs igazolt helyi SaveComplete napló"}
         <p>A helyi mentésnapló nem igazolja a jelenlegi Store-írójogot,
           a második gazdagép SaveComplete állapotát, az fsync-et vagy a teljes
           cluster visszaállíthatóságát. Production restore továbbra is tiltott.</p>
       </div>
+      {!running&&durableChecked&&!durableUnknown&&durableSave&&
+        ["prepared","needsOperator","reviewed"].includes(durableSave.phase)&&
+        <div className="historical-preview" role="region"
+          aria-label="Korábbi Store-v1 mentés felülvizsgálata">
+          <h3>Megszakadt mentés operátori felülvizsgálata</h3>
+          <p className="muted small">Csak igazoltan leállított ASA és változatlan
+            eredeti Store-session esetén engedélyezett. A régi helyi
+            napló másolata megmarad. Nincs automatikus SaveWorld, Start,
+            Store-lock törlés vagy eredeti fájlmódosítás.</p>
+          {!reviewPreview&&<button className="secondary" type="button"
+            disabled={busy} onClick={()=>{void reviewPreviousSave();}}>
+            <Shield size={16}/> Korábbi SaveWorld operátori ellenőrzése
+          </button>}
+          {reviewPreview&&<div className="warning-inline">
+            <Shield size={16}/>
+            <div><strong>Az eredeti map leállított állapota és forrása igazolt</strong>
+              <p>Korábbi állapot: {reviewPreview.phase}.
+                A napló archiválását és a következő külön jóváhagyásos
+                mentés lehetőségét hagyod jóvá.</p>
+              <label>Írd be pontosan: REVIEW STORE SAVE
+                <input aria-label="Store-v1 mentés felülvizsgálati megerősítése"
+                  value={reviewPhrase} spellCheck={false} autoComplete="off"
+                  onChange={e=>setReviewPhrase(e.target.value)} maxLength={30}/>
+              </label>
+              <div className="settings-actions">
+                <button className="primary" type="button"
+                  disabled={busy||reviewPhrase!=="REVIEW STORE SAVE"}
+                  onClick={()=>{void approveReview();}}>
+                  Korábbi mentési napló felülvizsgálatának jóváhagyása
+                </button>
+                <button className="secondary" type="button" disabled={busy}
+                  onClick={()=>{setReviewPreview(null);setReviewPhrase("");}}>Mégsem</button>
+              </div>
+            </div>
+          </div>}
+        </div>}
       {job&&<div className="details-line" role="status">
         <span><RefreshCw size={15}/> {job.state==="running"?"Mentés folyamatban":job.state}</span>
         <strong>{job.step}</strong>

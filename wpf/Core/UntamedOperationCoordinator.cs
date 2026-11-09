@@ -10,7 +10,7 @@ using System.Threading;
 namespace UntamedManager.Core;
 
 public enum UntamedOperationKind { Launch, Configuration, PluginChange, Backup, Restore, Update }
-public enum UntamedOperationPhase { Prepared, Mutating, Completed, CancelledBeforeMutation, NeedsOperator }
+public enum UntamedOperationPhase { Prepared, Mutating, Completed, CancelledBeforeMutation, NeedsOperator, OperatorReviewed }
 public sealed record UntamedOperationRecord(int Schema,string Resource,Guid Operation,
     UntamedOperationKind Kind,UntamedOperationPhase Phase,DateTimeOffset UpdatedUtc);
 
@@ -89,7 +89,7 @@ public sealed class UntamedOperationCoordinator
             Directory.CreateDirectory(LocalPath(stateRoot));
             string journal=Path.Combine(stateRoot,key+".json");
             var old=Read(journal,key);
-            if(old!=null&&old.Phase is not (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation))
+            if(old!=null&&old.Phase is not (UntamedOperationPhase.Completed or UntamedOperationPhase.CancelledBeforeMutation or UntamedOperationPhase.OperatorReviewed))
                 throw new IOException("UNTAMED_OPERATION_NEEDS_OPERATOR");
             var record=new UntamedOperationRecord(1,key,Guid.NewGuid(),kind,
                 UntamedOperationPhase.Prepared,DateTimeOffset.UtcNow);
@@ -106,6 +106,71 @@ public sealed class UntamedOperationCoordinator
         string key=ResourceKey(installation);
         return Read(Path.Combine(stateRoot,key+".json"),key);
     }
+    /// <summary>
+    /// Explicit local recovery of one interrupted Backup/SaveWorld operation.
+    /// The caller supplies fresh original Store-source and stopped-process
+    /// verification plus the Manager-local SaveComplete review. This method
+    /// serializes BOTH journal reviews against normal mutation with the exact
+    /// same machine-wide installation semaphore as Acquire().
+    ///
+    /// No timeout can free an unknown mutation: only a deliberate operator
+    /// approval with pinned original operation ID can write OperatorReviewed.
+    /// The old operation journal is preserved byte-for-byte in a durable
+    /// per-operation audit file. No Store lock, session or ASA file is changed.
+    /// </summary>
+    internal void ReviewStoppedBackup(string installation,Guid? expectedOperation,
+        Func<bool> verifyOriginalAndStopped,Action reviewLocalReceipt)
+    {
+        ArgumentNullException.ThrowIfNull(verifyOriginalAndStopped);
+        ArgumentNullException.ThrowIfNull(reviewLocalReceipt);
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))
+            throw new IOException("UNTAMED_OPERATION_REVIEW_BUSY");
+        try
+        {
+            Directory.CreateDirectory(LocalPath(stateRoot));
+            string journal=Path.Combine(stateRoot,key+".json");
+            var old=Read(journal,key);
+            if(old?.Operation!=expectedOperation)
+                throw new InvalidOperationException("UNTAMED_OPERATION_REVIEW_ID_CHANGED");
+            if(old!=null&&old.Phase is
+                (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
+                 UntamedOperationPhase.NeedsOperator)&&
+               old.Kind!=UntamedOperationKind.Backup)
+                throw new UnauthorizedAccessException("UNTAMED_OPERATION_REVIEW_NOT_BACKUP");
+            if(!verifyOriginalAndStopped())
+                throw new UnauthorizedAccessException("UNTAMED_OPERATION_REVIEW_SOURCE_OR_STOP_UNVERIFIED");
+            reviewLocalReceipt();
+            if(old!=null&&old.Phase is
+                (UntamedOperationPhase.Prepared or UntamedOperationPhase.Mutating or
+                 UntamedOperationPhase.NeedsOperator))
+            {
+                string audit=Path.Combine(stateRoot,key+"-"+old.Operation.ToString("N")+
+                    ".operator-reviewed.json");
+                byte[] bytes=File.ReadAllBytes(journal);
+                if(File.Exists(audit))
+                {
+                    if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                       !CryptographicOperations.FixedTimeEquals(
+                           SHA256.HashData(File.ReadAllBytes(audit)),SHA256.HashData(bytes)))
+                        throw new InvalidDataException("UNTAMED_OPERATION_REVIEW_AUDIT_MISMATCH");
+                }
+                else
+                {
+                    using var stream=new FileStream(audit,FileMode.CreateNew,
+                        FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+                    stream.Write(bytes);
+                    stream.Flush(flushToDisk:true);
+                }
+                Write(journal,old with{
+                    Phase=UntamedOperationPhase.OperatorReviewed,
+                    UpdatedUtc=DateTimeOffset.UtcNow});
+            }
+        }
+        finally{semaphore.Release();}
+    }
+
     public Batch AcquireMany(IEnumerable<string> installations,UntamedOperationKind kind)
     {
         var leases=new List<Lease>();
