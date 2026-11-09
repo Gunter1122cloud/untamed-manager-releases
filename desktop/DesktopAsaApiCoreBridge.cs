@@ -42,9 +42,18 @@ public sealed class DesktopAsaApiCoreBridge : IDisposable
     private LocalMap? Local(Guid id)=>cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id);
     private bool Eligible(LocalMap map)
     {
-        if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
-           !AsaReadyProbe.IsRegisteredServerBinary(map)||
-           map.Maintenance||UntamedWorldBackup.HasLiveOrHistoricalStore(map))
+        if(map.Maintenance||map.HistoricalStoreProtected||
+           !AsaReadyProbe.IsRegisteredServerBinary(map))
+            return false;
+        if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
+        {
+            try { FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map); }
+            catch(Exception ex) when(ex is InvalidDataException or
+                InvalidOperationException or IOException or UnauthorizedAccessException)
+            { return false; }
+        }
+        else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
+                UntamedWorldBackup.HasLiveOrHistoricalStore(map))
             return false;
         if(new AsaManualRestartJournal(map.InstallationPath).Observe() is
             { Phase: not AsaRestartPhase.Completed })return false;
