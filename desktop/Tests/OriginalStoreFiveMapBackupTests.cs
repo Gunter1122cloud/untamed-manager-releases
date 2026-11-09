@@ -127,12 +127,33 @@ internal static class OriginalStoreFiveMapBackupTests
             "operator can request a fresh five-map approval after source correction");
         string approved=approvedPreview.GetProperty("data")
             .GetProperty("token").GetString()!;
-        var completed=await Call(bridge,"backup.originalBatchCreate",
+        var queued=await Call(bridge,"backup.originalBatchCreate",
             new{token=approved,confirm=true});
+        Check(queued.GetProperty("ok").GetBoolean()&&
+              queued.GetProperty("data").GetProperty("started").GetBoolean()&&
+              queued.GetProperty("data").GetProperty("jobId").GetString()!=null,
+            "one consent queues a real, immediately observable five-map Core job");
+        string jobId=queued.GetProperty("data").GetProperty("jobId").GetString()!;
+        JsonElement completed=default;
+        for(int i=0;i<200;i++)
+        {
+            completed=await Call(bridge,"backup.originalBatchStatus",new{jobId});
+            Check(completed.GetProperty("ok").GetBoolean(),
+                "operator can retrieve an exact in-process backup job ID");
+            string state=completed.GetProperty("data").GetProperty("state").GetString()!;
+            if(state is "completed" or "needsOperator")break;
+            await Task.Delay(25);
+        }
         Check(completed.GetProperty("ok").GetBoolean()&&
+              completed.GetProperty("data").GetProperty("state").GetString()=="completed"&&
               completed.GetProperty("data").GetProperty("allFiveVerified").GetBoolean()&&
+              completed.GetProperty("data").GetProperty("completedMaps").GetInt32()==5&&
               completed.GetProperty("data").GetProperty("points").GetArrayLength()==5,
-            "one consent produces five actual verified Core world backup packages");
+            "all five verified Core packages appear only after actual job completion");
+        var wrongJob=await Call(bridge,"backup.originalBatchStatus",
+            new{jobId=Guid.NewGuid()});
+        Check(!wrongJob.GetProperty("ok").GetBoolean(),
+            "one job ID cannot read the progress of another operation");
         foreach(var map in maps)
         {
             var layout=AsaSaveLayoutResolver.Resolve(map);
