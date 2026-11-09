@@ -85,13 +85,30 @@ internal static class OriginalKovaDirectImportTests
         };
         for(int i=0;i<names.Length;i++)
             File.WriteAllText(Path.Combine(local,names[i]),source[i]);
+        string launchProfilePath=Path.Combine(local,"launch-profiles-v1.json");
+        var launchRows=ids.Select((id,i)=>new{
+            id,root=members[i].root,
+            launch=new{
+                map=mapKeys[i],gamePort=7777+i*10,queryPort=27015+i*10,
+                mods=new[]{"123456789","987654321"},
+                passiveMods=new[]{"123456789"}
+            }
+        }).ToArray();
+        string launchBytes=JsonSerializer.Serialize(new{version=1,rows=launchRows});
+        File.WriteAllText(launchProfilePath,launchBytes);
+        string launchHash=Convert.ToHexString(SHA256.HashData(
+            File.ReadAllBytes(launchProfilePath)));
         string[] hashes=names.Select(n=>Convert.ToHexString(SHA256.HashData(
             File.ReadAllBytes(Path.Combine(local,n))))).ToArray();
         var discovered=LegacyStoreV1OriginalImport.Inspect(local);
         Check(discovered.Maps.Length==5&&
               discovered.Maps.Select(x=>x.MapId.ToString("D")).SequenceEqual(ids)&&
               discovered.Maps.Select(x=>x.OriginalInstallationRoot)
-                .SequenceEqual(members.Select(x=>x.root)),
+                .SequenceEqual(members.Select(x=>x.root))&&
+              discovered.Maps.All(x=>x.EnabledMods.SequenceEqual(
+                  new[]{"123456789","987654321"})&&
+                  x.PassiveMods.SequenceEqual(new[]{"123456789"}))&&
+              discovered.LaunchProfileSha256==launchHash,
             "five original GUIDs, map keys and installation paths remain byte-bound");
 
         await using var cluster=new ClusterService(
@@ -129,6 +146,9 @@ internal static class OriginalKovaDirectImportTests
               imported.InstallationPath==members[0].root&&
               imported.GamePort==7777&&imported.QueryPort==27015&&
               imported.Arguments==""&&imported.RconPort==0&&
+              imported.HistoricalEnabledMods.SequenceEqual(
+                  new[]{"123456789","987654321"})&&
+              imported.HistoricalPassiveMods.SequenceEqual(new[]{"123456789"})&&
               !imported.AutoStart,
             "registered map keeps original identity and requires separate native Start/RCON");
 
@@ -150,6 +170,23 @@ internal static class OriginalKovaDirectImportTests
             "changed original lock source rejects registration after preview");
         File.WriteAllText(Path.Combine(local,names[3]),source[3]);
 
+        var launchPreview=await Call(bridge,"historical.originalPreview",
+            new{mapId=ids[1],gamePort=7787,queryPort=27025});
+        Check(launchPreview.GetProperty("ok").GetBoolean(),
+            "launch profile and original metadata both verified at preview");
+        string changedLaunch=launchBytes.Replace("987654321","555555555",
+            StringComparison.Ordinal);
+        File.WriteAllText(launchProfilePath,changedLaunch);
+        var deniedLaunch=await Call(bridge,"historical.originalRegister",
+            new{
+                token=launchPreview.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true
+            });
+        Check(!deniedLaunch.GetProperty("ok").GetBoolean()&&
+              cluster.Config.LocalMaps.Count==1,
+            "changed original mod load-order bytes after preview deny registration");
+        File.WriteAllText(launchProfilePath,launchBytes);
+
         for(int i=1;i<5;i++)
         {
             var staged=await Call(bridge,"historical.originalPreview",
@@ -169,7 +206,9 @@ internal static class OriginalKovaDirectImportTests
             "five original local Store map registrations are available in real Manager registry");
         Check(names.Select(n=>Convert.ToHexString(SHA256.HashData(
                 File.ReadAllBytes(Path.Combine(local,n)))))
-                .SequenceEqual(hashes),
-            "all four original Kova-shaped local files are unchanged after all imports");
+                .SequenceEqual(hashes)&&
+              Convert.ToHexString(SHA256.HashData(
+                  File.ReadAllBytes(launchProfilePath)))==launchHash,
+            "original four Store metadata and launch order remain byte-identical after imports");
     }
 }
