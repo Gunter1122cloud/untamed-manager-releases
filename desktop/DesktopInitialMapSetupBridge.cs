@@ -21,7 +21,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
     private readonly Dictionary<Guid,Prepared> pending = new();
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record Prepared(Guid Token,Guid MapId,string Session,int Game,int Query,
-        string BaselineArguments,int BaselineGame,int BaselineQuery,
+        string BaselineMapName,string Level,string BaselineArguments,int BaselineGame,int BaselineQuery,
         string BaselineExe,DateTimeOffset CreatedUtc);
 
     public DesktopInitialMapSetupBridge(ClusterService service) =>
@@ -68,12 +68,12 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     bool executable=ServerExePresent(map);
                     bool stopped=process.ConfirmedStopped && !process.Running;
                     string blocker=!initial ? "PROFILE_ALREADY_CONFIGURED_OR_PROTECTED" :
-                        level==null ? "MAP_LEVEL_UNRECOGNIZED" :
                         !executable ? "SERVER_EXECUTABLE_MISSING" :
                         process.Running ? "PROCESS_RUNNING" :
                         !stopped ? "PROCESS_STOP_NOT_VERIFIED" : "NONE";
                     return Success(id,new{
                         mapId=map.Id,mapName=map.Name,level,
+                        requiresCustomLevel=level==null,
                         initialSetupAvailable=blocker=="NONE",
                         blocker,processStatus=process.Status,
                         confirmedStopped=stopped,
@@ -100,17 +100,39 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     var observed=cluster.Check(map);
                     if(!observed.ConfirmedStopped || observed.Running || map.Maintenance)
                         return Fail(id,"UM-INITIAL-STOP-REQUIRED");
-                    string launch=AsaSteamMapCatalog.LaunchArguments(map.Name,session,game,query);
+                    // Official maps cannot be overridden. An unknown,
+                    // manually imported map requires a single explicit safe
+                    // Unreal level token, never a raw command-line string.
+                    string level;
+                    bool official=true;
+                    try { level=AsaSteamMapCatalog.LevelFor(map.Name); }
+                    catch(InvalidDataException) { official=false;level=""; }
+                    if(official)
+                    {
+                        if(args.TryGetProperty("customLevel",out var supplied) &&
+                           (supplied.ValueKind!=JsonValueKind.String ||
+                            !string.IsNullOrWhiteSpace(supplied.GetString())))
+                            return Fail(id,"UM-INITIAL-OFFICIAL-LEVEL-OVERRIDE-DENIED");
+                    }
+                    else
+                    {
+                        if(!TextField(args,"customLevel",80,out var suppliedLevel))
+                            return Fail(id,"UM-INITIAL-CUSTOM-LEVEL-REQUIRED");
+                        try{level=AsaSteamMapCatalog.ValidateCustomLevel(suppliedLevel);}
+                        catch(InvalidDataException)
+                        {return Fail(id,"UM-INITIAL-CUSTOM-LEVEL-INVALID");}
+                    }
+                    string launch=AsaSteamMapCatalog.LaunchArgumentsForLevel(level,session,game,query);
                     LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
                         Id=map.Id,Name=map.Name,GamePort=game,QueryPort=query
                     },cluster.Config.LocalMaps);
                     if(pending.Count>=6)pending.Clear();
                     var token=Guid.NewGuid();
-                    pending[token]=new(token,map.Id,session,game,query,map.Arguments,
-                        map.GamePort,map.QueryPort,map.ExecutablePath,DateTimeOffset.UtcNow);
+                    pending[token]=new(token,map.Id,session,game,query,map.Name,level,
+                        map.Arguments,map.GamePort,map.QueryPort,map.ExecutablePath,DateTimeOffset.UtcNow);
                     return Success(id,new{
                         token,mapId=map.Id,mapName=map.Name,sessionName=session,
-                        mapLevel=AsaSteamMapCatalog.LevelFor(map.Name),
+                        mapLevel=level,requiresCustomLevel=!official,
                         gamePort=game,queryPort=query,
                         rconEnabled=false,serverStartRequested=false,
                         // Avoid sending arbitrary launch arguments into the UI.
@@ -130,6 +152,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                 var owned=Owned(saved.MapId);
                 if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
                 if(!Initial(owned) || !ServerExePresent(owned) ||
+                   !string.Equals(owned.Name,saved.BaselineMapName,StringComparison.Ordinal) ||
                    owned.Arguments!=saved.BaselineArguments ||
                    owned.GamePort!=saved.BaselineGame ||
                    owned.QueryPort!=saved.BaselineQuery ||
@@ -146,8 +169,8 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     ?? throw new InvalidDataException("Could not prepare local map profile");
                 copy.GamePort=saved.Game;
                 copy.QueryPort=saved.Query;
-                copy.Arguments=AsaSteamMapCatalog.LaunchArguments(
-                    owned.Name,saved.Session,saved.Game,saved.Query);
+                copy.Arguments=AsaSteamMapCatalog.LaunchArgumentsForLevel(
+                    saved.Level,saved.Session,saved.Game,saved.Query);
                 // No RCON admin password means RCON remains disabled.
                 copy.RconPort=0;
                 copy.AutoStart=false;
@@ -171,7 +194,11 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
     private LocalMap? Owned(Guid id)=>
         cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id);
     private static bool Initial(LocalMap map)=>
-        !map.HistoricalStoreProtected && map.Arguments.Length==0 && map.GamePort==0 && map.QueryPort==0 &&
+        !map.HistoricalStoreProtected &&
+        string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256) &&
+        string.IsNullOrWhiteSpace(map.StoreTestRoot) &&
+        string.IsNullOrWhiteSpace(map.FreshStoreClusterId) &&
+        map.Arguments.Length==0 && map.GamePort==0 && map.QueryPort==0 &&
         map.RconPort==0 && !map.AutoStart && !map.Maintenance;
     // The binary must belong to the registered local ASA installation.
     // File.Exists alone could accept an unrelated map's EXE and configure
