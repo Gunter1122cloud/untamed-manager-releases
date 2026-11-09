@@ -122,7 +122,7 @@ internal static class FreshStoreEnrollmentTests
                   enrolled.HistoricalArchiveSha256==""&&
                   enrolled.HistoricalMapKey==""&&
                   !enrolled.AutoStart&&
-                  KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(enrolled),
+                  UntamedWorldBackup.HasLiveOrHistoricalStore(enrolled),
                 "new Store is durable and distinct from Kova archive, conversion and autostart");
             Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,enrolled,"new-local-cluster"),
                 "enrolled Store cannot be enrolled or converted again");
