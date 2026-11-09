@@ -22,6 +22,14 @@ public sealed record LegacyStoreV1PeerProof(
     public DateTimeOffset? PhysicalObservedUtc {get;init;}
     public string OriginalFourFilesTag {get;init;}="";
 
+    // Only explicitly requested historical, MANAGER-LOCAL SaveComplete
+    // receipts. This is neither live ASA quiescence nor Store writer proof.
+    public string LocalSaveReceiptOriginalFourTag {get;init;}="";
+    public string LocalSaveReceiptSessionTag {get;init;}="";
+    public DateTimeOffset? LocalSaveReceiptObservedUtc {get;init;}
+    public int RecentLocalSaveReceipts {get;init;}
+    public bool AllFiveRecentLocalSaveReceipts {get;init;}
+
     public static LegacyStoreV1PeerProof Unavailable {get;}=new(
         false,false,0,"","","",false,false,"STORE_V1_ORIGINAL_LOCAL_PROFILE_ABSENT");
     public static LegacyStoreV1PeerProof Invalid {get;}=new(
@@ -62,6 +70,8 @@ public sealed record LegacyStoreV1PairObservation(
 {
     public bool BothPhysicalWitnessesFresh {get;init;}
     public bool SamePhysicalTransferDirectory {get;init;}
+    public bool BothHistoricalLocalSaveWitnessesFresh {get;init;}
+    public bool BothHaveFiveRecentHistoricalLocalSaveReceipts {get;init;}
 }
 
 /// <summary>
@@ -104,6 +114,21 @@ public static class LegacyStoreV1PairComparison
         bool samePhysical=bothPhysical&&string.Equals(
             local!.PhysicalDirectoryTag,remote!.PhysicalDirectoryTag,
             StringComparison.Ordinal);
+        // Recent local SaveComplete receipts are historical observations.
+        // Cross-host comparison is permitted only with an independently
+        // verified, fresh same-directory physical witness on BOTH peers.
+        // Even then, this never asserts Store writer quiescence.
+        bool FreshLocalSave(LegacyStoreV1PeerProof? proof)=>
+            proof?.LocalSaveReceiptObservedUtc is DateTimeOffset at &&
+            at>=now.AddMinutes(-5)&&at<=now.AddMinutes(1)&&
+            proof.AllFiveRecentLocalSaveReceipts&&
+            proof.RecentLocalSaveReceipts==5&&
+            Hash(proof.LocalSaveReceiptOriginalFourTag)&&
+            string.Equals(proof.LocalSaveReceiptOriginalFourTag,
+                proof.OriginalFourFilesTag,StringComparison.Ordinal)&&
+            string.Equals(proof.LocalSaveReceiptSessionTag,
+                proof.SessionTag,StringComparison.Ordinal);
+        bool bothSaveFresh=samePhysical&&FreshLocalSave(local)&&FreshLocalSave(remote);
         string code=!remoteFresh?"STORE_PEER_NOT_FRESH":
             !present?"STORE_LOCAL_OR_REMOTE_PROFILE_MISSING":
             !valid?"STORE_PEER_METADATA_INVALID":
@@ -116,7 +141,9 @@ public static class LegacyStoreV1PairComparison
             false,false,code)
         {
             BothPhysicalWitnessesFresh=bothPhysical,
-            SamePhysicalTransferDirectory=samePhysical
+            SamePhysicalTransferDirectory=samePhysical,
+            BothHistoricalLocalSaveWitnessesFresh=bothSaveFresh,
+            BothHaveFiveRecentHistoricalLocalSaveReceipts=bothSaveFresh
         };
     }
 }

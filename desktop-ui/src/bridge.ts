@@ -5,6 +5,8 @@ export type LanStatus = {
     sameSharedSession:boolean;sameSharedPath:boolean;distinctDeviceIds:boolean;
     bothHaveFiveActiveMaps:boolean;copiedMetadataPairMatches:boolean;
     bothPhysicalWitnessesFresh:boolean;samePhysicalTransferDirectory:boolean;
+    bothHistoricalLocalSaveWitnessesFresh:boolean;
+    bothHaveFiveRecentHistoricalLocalSaveReceipts:boolean;
     liveWriterCertified:false;characterTravelVerified:false;statusCode:string;
   };
   hostName:string; localHostId:string; expectedPeerHostId:string;
@@ -27,6 +29,13 @@ export type LanSaved = {
   saved:true;action:"upsert"|"remove";listenPort:number;hostId:string;peerCount:number;
   requiresManagerRestart:true;secretReturned:false;remoteWritesAllowed:false;
   evidence:string;
+};
+export type LanHistoricalSaveProbe = {
+  localHistoricalReceiptsReadOnly:true;observedUtc:string;
+  recentCompletedMapReceipts:number;allFiveRecentLocalReceipts:boolean;
+  crossHostSaveCompleteCertified:false;sharedStoreWriterCertified:false;
+  productionRestoreAllowed:false;originalStoreFilesWritten:false;rconUsed:false;
+  evidence:"ON_DEMAND_MANAGER_LOCAL_HISTORICAL_RECEIPTS_NO_WRITER_QUORUM";
 };
 export type LanPhysicalStoreProbe = {
   localPhysicalDirectoryIdVerified:true;localHostId:string;observedUtc:string;
@@ -1144,7 +1153,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "operations.snapshot" | "operations.map" |
+type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "lan.historicalSaveProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeOverview" |
@@ -1303,6 +1312,8 @@ export const managerBridge = {
   lanApply: (token:string) => request<LanSaved>("lan.apply",{token,confirm:true}),
   lanPhysicalStoreProbe: () =>
     request<LanPhysicalStoreProbe>("lan.physicalStoreProbe"),
+  lanHistoricalSaveProbe: () =>
+    request<LanHistoricalSaveProbe>("lan.historicalSaveProbe"),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
   operationsMap: (mapId:string) => request<OperationsSnapshot>("operations.map",{mapId}),
   operationsScheduleCreate: (mapId:string,kind:ReadOnlyScheduleKind,intervalMinutes:number) =>

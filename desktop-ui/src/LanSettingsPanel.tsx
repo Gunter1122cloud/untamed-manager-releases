@@ -100,6 +100,25 @@ export function LanSettingsPanel(){
         (e instanceof Error?e.message:"UM-STORE-PHYSICAL-UNC-UNAVAILABLE")+").");
     }finally{setWorking(false);}
   };
+  const probeHistoricalSaves=async()=>{
+    if(working)return;
+    setWorking(true);setError("");setNotice("");
+    try{
+      const proof=await managerBridge.lanHistoricalSaveProbe();
+      if(!proof.localHistoricalReceiptsReadOnly||
+         proof.crossHostSaveCompleteCertified||proof.sharedStoreWriterCertified||
+         proof.productionRestoreAllowed||proof.rconUsed||proof.originalStoreFilesWritten)
+        throw new Error("UM-STORE-SAVE-PAIR-UNSAFE-WITNESS");
+      setNotice("Helyi történeti SaveComplete naplók: "+
+        proof.recentCompletedMapReceipts+"/5 friss, tartósan ellenőrzött bejegyzés. "+
+        "A másik gépen külön indítsd el. Ez nem bizonyít jelenlegi Store-írójogot vagy éles restore-készséget.");
+      await reload();
+    }catch(e){
+      setError("A helyi Store-v1 SaveComplete naplók nem ellenőrizhetők. "+
+        "Függő, sérült vagy eltérő mapforrás esetén a tanúsítás tiltott ("+
+        (e instanceof Error?e.message:"UM-STORE-SAVE-PAIR-UNAVAILABLE")+").");
+    }finally{setWorking(false);}
+  };
   const peerList=status?.peers??[];
 
   return <section className="glass panel lan-pairing-panel">
@@ -139,6 +158,10 @@ export function LanSettingsPanel(){
               "Igazolt, friss kétoldali fájlazonosítóval":
               status.originalStorePair.bothPhysicalWitnessesFresh?
                 "Különböző fizikai könyvtár – blokkolva":"Kétoldali ellenőrzés szükséges"}</b></div>
+          <div><span>Mindkét gépen öt friss, történeti helyi SaveComplete napló</span>
+            <b>{status.originalStorePair.bothHaveFiveRecentHistoricalLocalSaveReceipts?
+              "Mindkét oldali korábbi naplóbizonylat egyező előfeltételekkel" :
+              "Nincs kétoldali friss történeti bizonyíték – tiltva"}</b></div>
           <div><span>Külön gazdagépazonosítók</span><b>{status.originalStorePair.distinctDeviceIds?"Igazolt":"Nem igazolt"}</b></div>
           <div><span>Öt aktív Store-map gazdagépenként</span><b>{status.originalStorePair.bothHaveFiveActiveMaps?"Igazolt":"Nem igazolt"}</b></div>
         </div>
@@ -147,6 +170,10 @@ export function LanSettingsPanel(){
             onClick={()=>{void probeOriginalPhysical();}}>
             <Shield size={16}/> Helyi Store transferkönyvtár fizikai ellenőrzése
           </button>
+          <button type="button" className="secondary" disabled={working}
+            onClick={()=>{void probeHistoricalSaves();}}>
+            <Shield size={16}/> Helyi 5-map SaveComplete-naplók ellenőrzése
+          </button>
         </div>
         <p className="muted small">Az UNC név egyezése nem bizonyít azonos fizikai könyvtárat.
           A gomb az eredeti négy Kova metaadatfájlt változtatás nélkül olvassa,
@@ -154,7 +181,9 @@ export function LanSettingsPanel(){
           Mindkét gépen külön kell elindítani. A rövid életű lenyomat csak
           a hitelesített LAN státuszban utazik; írás, új session, locktörlés,
           SaveWorld vagy éles restore nincs. Ez továbbra sem Store-írójog- vagy
-          játékbeli karaktermegőrzési tanúsítvány.</p>
+          játékbeli karaktermegőrzési tanúsítvány.
+          Az ötmapos SaveComplete-ellenőrzés kizárólag a Manager saját naplóit olvassa;
+          a valódi kétgépes Store-writer quiescence és közös védőmentés még nincs igazolva.</p>
       </section>}
       <form className="lan-settings-form" onSubmit={e=>{void preflight(e);}}>
         <label>Művelet
