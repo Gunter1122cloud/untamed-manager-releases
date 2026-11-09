@@ -84,6 +84,7 @@ var map=new LocalMap{
 cluster.AddMap(map);
 await ClusterRegistryTests.Run(root);
 await LegacyStorePhysicalTransferTests.Run(root);
+await LegacyStoreSaveEvidenceTests.Run(root);
 await FreshStoreEnrollmentTests.Run(root);
 // A real SQLite .ark COPY fixture tests the actual metadata reader, not a
 // mocked parser. No server process, production Store writer, or network share.
@@ -5469,6 +5470,20 @@ try
                   !status.GetProperty("data").GetProperty("confirmedStopped").GetBoolean()&&
                   saveDispatches==1&&exitDispatches==0,
                 "Store SaveWorld executes exactly once without DoExit or process shutdown");
+            var receiptView=await Call(bridge.HandleAsync,
+                "historical.saveWorldEvidence",new{mapId=saveMap.Id});
+            IsOk(receiptView,"native SaveComplete receipt read through real WinForms bridge");
+            var receiptData=receiptView.GetProperty("data");
+            Check(receiptData.GetProperty("phase").GetString()=="completed"&&
+                  receiptData.GetProperty("localSaveCompleteObserved").GetBoolean()&&
+                  !receiptData.GetProperty("bothHostsSaveCompleteCertified").GetBoolean()&&
+                  !receiptData.GetProperty("sharedStoreWriterCertified").GetBoolean()&&
+                  !receiptData.GetProperty("productionRestoreAllowed").GetBoolean()&&
+                  receiptData.GetProperty("pid").GetInt32()==expectedPid,
+                "WinForms SaveComplete status is durable and explicitly LOCAL ONLY");
+            Check(LegacyStoreV1SaveEvidenceJournal.Inspect(
+                    saveCluster.Store.Root,saveMap.Id)?.Phase=="completed",
+                "native SaveWorld success is recorded in independent Manager-local SHA-256 journal");
             Check(saveCluster.Operations.Observe(saveRoot)?.Phase==
                     UntamedOperationPhase.Completed,
                 "successfully observed original Store SaveWorld closes its durable journal");
@@ -5495,6 +5510,17 @@ try
                     UntamedOperationPhase.NeedsOperator&&
                   saveDispatches==2&&exitDispatches==0,
                 "failed SaveWorld leaves persistent NeedsOperator and never dispatches DoExit");
+            var interruptedSave=await Call(bridge.HandleAsync,
+                "historical.saveWorldEvidence",new{mapId=saveMap.Id});
+            Check(interruptedSave.GetProperty("ok").GetBoolean()&&
+                  interruptedSave.GetProperty("data").GetProperty("phase").GetString()=="needsOperator"&&
+                  !interruptedSave.GetProperty("data").GetProperty("localSaveCompleteObserved").GetBoolean(),
+                "failed operation never inherits previously completed SaveComplete claim");
+            var recoverySave=await Call(bridge.HandleAsync,
+                "historical.gracefulStopRecovery",new{mapId=saveMap.Id});
+            Check(recoverySave.GetProperty("data").GetProperty("blocked").GetBoolean()&&
+                  recoverySave.GetProperty("data").GetProperty("requiresOperator").GetBoolean(),
+                "after interrupted SaveWorld, native recovery blocks future mutating Store operations");
             var blocked=await Call(bridge.HandleAsync,"historical.saveWorldPreview",
                 new{mapId=saveMap.Id});
             Check(!blocked.GetProperty("ok").GetBoolean()&&saveDispatches==2,
@@ -5511,6 +5537,12 @@ try
                   recovery.GetProperty("data").GetProperty("activeJobKind").ValueKind==
                     JsonValueKind.Null,
                 "fresh Manager observes prior Store SaveWorld interruption without auto-replay");
+            var persisted=await Call(again.HandleAsync,
+                "historical.saveWorldEvidence",new{mapId=saveMap.Id});
+            Check(persisted.GetProperty("ok").GetBoolean()&&
+                  persisted.GetProperty("data").GetProperty("phase").GetString()=="needsOperator"&&
+                  !persisted.GetProperty("data").GetProperty("productionRestoreAllowed").GetBoolean(),
+                "a fresh native bridge independently recovers the uncertain SHA-256 SaveComplete receipt");
         }
         Check(File.ReadAllBytes(ini).SequenceEqual(beforeIni)&&exitDispatches==0,
             "SaveWorld-only never edits original ASA INI or runs DoExit");
