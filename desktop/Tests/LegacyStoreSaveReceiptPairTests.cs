@@ -177,6 +177,18 @@ internal static class LegacyStoreSaveReceiptPairTests
                 "old local receipt witness cannot survive changed original four-file identity");
         }
 
+        var foreignSource=Sha("a-different-original-Store-v1-session-and-lock");
+        var changedOperation=Guid.NewGuid();
+        var changedStart=DateTimeOffset.UtcNow.AddMinutes(-2);
+        LegacyStoreV1SaveEvidenceJournal.Begin(
+            root,changedOperation,maps[0].Id,41004,changedStart,foreignSource);
+        LegacyStoreV1SaveEvidenceJournal.Complete(
+            root,changedOperation,maps[0].Id,41004,changedStart,foreignSource,
+            DateTimeOffset.UtcNow,true,false);
+        Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
+            root,hostId,source,maps)),
+            "five receipts from mixed original Store session/lock source epochs never combine into a valid set");
+
         string file=Path.Combine(root,"historical-save-evidence-v1",
             maps[0].Id.ToString("N")+".json");
         byte[] originalBytes=File.ReadAllBytes(file);
