@@ -203,6 +203,64 @@ public static class MultiHostClusterBackupBridgeTests
         Check(archive.Maps.Length == 1 && archive.Components.Length > 0,
             "native bridge publishes an archive verified by the shared Core reader");
 
+        // Preserve an existing 0 KB character profile EXACTLY in a separate
+        // offline N-host archive. This is not proof that the character is
+        // healthy, and the restored copy must remain inside a TEMP sandbox.
+        string zeroProfile = Path.Combine(sourceRoot, "maps", map.Id.ToString("N"),
+            "Saved", "player.arkprofile");
+        string zeroWorld = Path.Combine(sourceRoot, "maps", map.Id.ToString("N"),
+            "Saved", "world.ark");
+        byte[] originalProfileBytes = File.ReadAllBytes(zeroProfile);
+        byte[] originalWorldBytes = File.ReadAllBytes(zeroWorld);
+        byte[] originalCatalogBytes = File.ReadAllBytes(catalogPath);
+        string zeroArchivePath = Path.Combine(outputRoot, "zero-profile-preserved");
+        string zeroSandbox = Path.Combine(Path.GetTempPath(),
+            "Untamed-MultiHost-Restore-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            File.WriteAllBytes(zeroProfile, Array.Empty<byte>());
+            File.WriteAllText(catalogPath, JsonSerializer.Serialize(
+                catalogModel with { BatchId = Guid.NewGuid() }));
+            var zeroPreview = MultiHostClusterBackupArchive.InspectCatalog(catalogPath);
+            Check(zeroPreview.Components == archive.Components.Length,
+                "zero-byte profile is included in the offline source catalog without deletion");
+            var preserved = MultiHostClusterBackupArchive.BuildFromCatalog(
+                catalogPath, zeroArchivePath);
+            var profileComponent = MultiHostClusterBackupArchive.Verify(zeroArchivePath)
+                .Components.Single(x => x.Kind == MultiHostBackupComponentKind.MapProfile);
+            Check(profileComponent.Length == 0 &&
+                  profileComponent.Sha256 ==
+                    "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855" &&
+                  !preserved.IsProductionRestoreCertified,
+                "zero-byte arkprofile is SHA-256 verified without claiming valid character recovery");
+            MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(zeroArchivePath, zeroSandbox);
+            string zeroRestored = Path.Combine(zeroSandbox, "data", "hosts",
+                catalogModel.Hosts[0].HostId, "maps", map.Id.ToString("N"),
+                "Saved", "player.arkprofile");
+            Check(File.Exists(zeroRestored) && new FileInfo(zeroRestored).Length == 0 &&
+                  MultiHostClusterBackupArchive.VerifyIsolatedSandbox(zeroSandbox)
+                      .SourceBatchId == preserved.BatchId &&
+                  new FileInfo(zeroProfile).Length == 0,
+                "TEMP-only restore retains the exact 0 KB profile without touching its offline source");
+            File.WriteAllBytes(zeroWorld, Array.Empty<byte>());
+            bool emptyWorldRejected = false;
+            try
+            {
+                _ = MultiHostClusterBackupArchive.BuildFromCatalog(catalogPath,
+                    Path.Combine(outputRoot, "invalid-empty-world"));
+            }
+            catch (InvalidDataException) { emptyWorldRejected = true; }
+            Check(emptyWorldRejected && new FileInfo(zeroProfile).Length == 0,
+                "empty world hard-fails archive publication while zero-byte profile remains preserved");
+        }
+        finally
+        {
+            File.WriteAllBytes(zeroProfile, originalProfileBytes);
+            File.WriteAllBytes(zeroWorld, originalWorldBytes);
+            File.WriteAllBytes(catalogPath, originalCatalogBytes);
+            if (Directory.Exists(zeroSandbox)) Directory.Delete(zeroSandbox, true);
+        }
+
         string replacementSourceWorld = Path.Combine(sourceRoot, "maps", map.Id.ToString("N"),
             "Saved", "world.ark");
         byte[] originalWorld = File.ReadAllBytes(replacementSourceWorld);
