@@ -843,12 +843,15 @@ test.beforeEach(async ({ page }) => {
           evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
           maps:[{mapId:"00000000-0000-4000-8000-000000009001",
             mapKey:"TheIsland_WP",name:"The Island",
-            folderName:"OriginalIsland",registered:false}]
+            folderName:"OriginalIsland",gamePort:7777,queryPort:27015,
+            enabledMods:22,passiveMods:3,registered:false}]
         };
         case "historical.originalPreview": return {
           token:"00000000-0000-4000-8000-000000009002",
           mapId:m.mapId,mapName:"The Island",folderName:"OriginalIsland",
           gamePort:m.gamePort,queryPort:m.queryPort,
+          originalEnabledMods:22,originalPassiveMods:3,
+          originalLaunchProfileVerified:true,
           originalIdsPreserved:true,originalFilesWritten:false,
           serverStarted:false,requiresOriginalRconAttach:true,
           evidence:"ORIGINAL_KOVA_DIRECT_IMPORT_PREVIEW"
@@ -861,7 +864,8 @@ test.beforeEach(async ({ page }) => {
           return {mapId:"00000000-0000-4000-8000-000000009001",
             mapName:"The Island",registered:true,originalIdsPreserved:true,
             originalFilesWritten:false,serverStarted:false,
-            requiresOriginalRconAttach:true,requiresExactModOrderVerification:true,
+            requiresOriginalRconAttach:true,originalLaunchProfileVerified:true,
+            requiresExactModOrderVerification:false,
             evidence:"ORIGINAL_KOVA_DIRECT_LOCAL_MAP_REGISTERED"};
         case "historical.list": return {
           sourceVerified:true,completeLaunchArguments:false,liveStoreVerified:false,
@@ -3246,7 +3250,10 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"})).toBeVisible();
   await section.getByRole("combobox",{name:"Közvetlen Kova-map"})
     .selectOption("00000000-0000-4000-8000-000000009001");
-  await section.getByRole("spinbutton",{name:"Közvetlen Game port"}).fill("7777");
+  await expect(section.getByRole("spinbutton",{name:"Közvetlen Game port"}))
+    .toHaveValue("7777");
+  await expect(section.getByRole("spinbutton",{name:"Közvetlen Query port"}))
+    .toHaveValue("27015");
   await section.getByRole("spinbutton",{name:"Közvetlen Query port"}).fill("7777");
   await section.getByRole("button",{
     name:"Eredeti map regisztrációjának előellenőrzése"
@@ -3258,6 +3265,7 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   }).click();
   const confirm=section.getByRole("region",{name:"Közvetlen Kova-import jóváhagyása"});
   await expect(confirm).toContainText("Megmarad");
+  await expect(confirm).toContainText("sorrend megőrizve");
   await expect(confirm).toContainText("Változatlanok");
   await expect(confirm.getByRole("button",{name:"Eredeti map hozzáadása"})).toBeDisabled();
   await confirm.getByRole("checkbox").check();
