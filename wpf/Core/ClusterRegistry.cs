@@ -343,7 +343,13 @@ public sealed class ClusterRegistryService
         });
     }
 
-    private static ClusterMembershipPreview CreatePreview(ClusterRegistrySnapshot snapshot,
+    // The generic registry is metadata-only. It must not reassign historic
+    // Store-v1 members or admit new maps into the original Kova cluster.
+    // That requires the separate source-pinned Store migration/peer approval.
+    private static bool OriginalKovaCluster(string? id) =>
+        string.Equals(id, "kovacluster", StringComparison.OrdinalIgnoreCase);
+
+    private ClusterMembershipPreview CreatePreview(ClusterRegistrySnapshot snapshot,
         string clusterId, Guid[] requestedMapIds)
     {
         string id;
@@ -373,6 +379,10 @@ public sealed class ClusterRegistryService
         var hosts = snapshot.HostRegistry.Hosts.ToDictionary(x => x.HostId,
             StringComparer.OrdinalIgnoreCase);
         var maps = snapshot.HostRegistry.Maps.ToDictionary(x => x.MapId);
+        var protectedLocal = owner.Config.LocalMaps.Where(map =>
+            map.HistoricalStoreProtected ||
+            !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256))
+            .Select(map => map.Id).ToHashSet();
         foreach (Guid mapId in requested.Distinct())
         {
             if (mapId == Guid.Empty || !maps.TryGetValue(mapId, out var map))
@@ -388,6 +398,12 @@ public sealed class ClusterRegistryService
             }
             var owner = snapshot.ClusterRegistry.MapAssignments.SingleOrDefault(x => x.MapId == mapId);
             if (owner != null && StringComparer.OrdinalIgnoreCase.Equals(owner.ClusterId, id)) continue;
+            if (protectedLocal.Contains(mapId) || OriginalKovaCluster(owner?.ClusterId) ||
+                OriginalKovaCluster(id))
+            {
+                preview.Errors.Add("UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE");
+                continue;
+            }
             hosts.TryGetValue(map.HostId, out var host);
             var change = new ClusterMembershipChange {
                 MapId = mapId, MapName = map.MapName, HostId = map.HostId,
@@ -401,6 +417,12 @@ public sealed class ClusterRegistryService
         foreach (var assignment in snapshot.ClusterRegistry.MapAssignments.Where(x =>
             StringComparer.OrdinalIgnoreCase.Equals(x.ClusterId, id) && !requested.Contains(x.MapId)))
         {
+            if (protectedLocal.Contains(assignment.MapId) ||
+                OriginalKovaCluster(assignment.ClusterId))
+            {
+                preview.Errors.Add("UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE");
+                continue;
+            }
             maps.TryGetValue(assignment.MapId, out var map);
             string hostId = map?.HostId ?? "";
             hosts.TryGetValue(hostId, out var host);
