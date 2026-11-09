@@ -37,13 +37,56 @@ public sealed class DesktopWorldBackupBridge
     {
         public Guid Id=Guid.NewGuid();
         public string State="queued",Step="queued";
+        public string FourFilesSha="",LaunchProfileSha="";
         public readonly List<OriginalBatchPoint> Points=new();
         public long TotalBytes;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly object originalBatchSync=new();
     private OriginalBatchJob? originalBatchJob;
+    private bool originalBatchJournalInvalid;
     private readonly Func<LegacyStoreV1OriginalLocalSelection> originalSelection;
+
+    private void PublishOriginalBatch(OriginalBatchJob job)
+    {
+        OriginalStoreFiveBatchJournal.Publish(cluster.Store.Root,new(
+            job.Id,job.State,job.Step,job.ChangedUtc,
+            job.FourFilesSha,job.LaunchProfileSha,
+            job.Points.Select(p=>new OriginalStoreFiveBatchJournal.Point(
+                p.MapId,p.MapName,p.Point,p.Files,p.Bytes)).ToArray(),
+            job.TotalBytes));
+    }
+    private void LoadOriginalBatch()
+    {
+        try
+        {
+            var snapshot=OriginalStoreFiveBatchJournal.Read(cluster.Store.Root);
+            if(snapshot==null)return;
+            var restored=new OriginalBatchJob{
+                Id=snapshot.JobId,
+                State=snapshot.State is "queued" or "running"?
+                    "needsOperator":snapshot.State,
+                Step=snapshot.State is "queued" or "running"?
+                    "manager-restart-review-required":snapshot.Step,
+                ChangedUtc=snapshot.ChangedUtc,
+                FourFilesSha=snapshot.FourFilesSha,
+                LaunchProfileSha=snapshot.LaunchProfileSha,
+                TotalBytes=snapshot.TotalBytes
+            };
+            restored.Points.AddRange(snapshot.Points.Select(p=>
+                new OriginalBatchPoint(p.MapId,p.MapName,p.PointId,p.Files,p.Bytes)));
+            originalBatchJob=restored;
+        }
+        catch(Exception e) when(e is IOException or UnauthorizedAccessException or
+            JsonException or InvalidDataException or ArgumentException)
+        {
+            // Invalid journal must never be silently discarded and replaced.
+            originalBatchJournalInvalid=true;
+            originalBatchJob=new OriginalBatchJob{
+                State="needsOperator",Step="journal-integrity-repair-required"
+            };
+        }
+    }
 
     public DesktopWorldBackupBridge(ClusterService cluster,
         Func<LocalMap,ProcessCheck>? processInspector=null,
@@ -63,6 +106,9 @@ public sealed class DesktopWorldBackupBridge
             LegacyStoreV1OriginalImport.Inspect(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "Kova")));
+        // Read only Manager-owned orchestration metadata; never original Kova
+        // world, shared session, lock or transfer files at bridge creation.
+        LoadOriginalBatch();
     }
     private LocalMap Owned(Guid mapId)
     {
@@ -155,6 +201,7 @@ public sealed class DesktopWorldBackupBridge
                     job.State="running";
                     job.Step="map-"+(index+1);
                     job.ChangedUtc=DateTimeOffset.UtcNow;
+                    PublishOriginalBatch(job);
                 }
                 Stopped(map);
                 var point=KovaCompatibleWorldBackup.Create(map,cluster.Store.Root,
@@ -165,6 +212,7 @@ public sealed class DesktopWorldBackupBridge
                         point.Files,point.Bytes));
                     job.TotalBytes=checked(job.TotalBytes+point.Bytes);
                     job.ChangedUtc=DateTimeOffset.UtcNow;
+                    PublishOriginalBatch(job);
                 }
             }
             var (afterSource,afterMaps)=RequireOriginalStoppedFive();
@@ -177,6 +225,7 @@ public sealed class DesktopWorldBackupBridge
                 job.State="completed";
                 job.Step="verified";
                 job.ChangedUtc=DateTimeOffset.UtcNow;
+                PublishOriginalBatch(job);
             }
         }
         catch(Exception)
@@ -188,6 +237,8 @@ public sealed class DesktopWorldBackupBridge
                 job.State="needsOperator";
                 job.Step="review-completed-per-map-points";
                 job.ChangedUtc=DateTimeOffset.UtcNow;
+                try{PublishOriginalBatch(job);}
+                catch(Exception){/* Retain previous durable interrupted phase. */}
             }
         }
     }
@@ -243,6 +294,8 @@ public sealed class DesktopWorldBackupBridge
                 }
                 if(method=="backup.originalBatchPreview")
                 {
+                    if(originalBatchJournalInvalid)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOURNAL-INVALID");
                     originalBatchPending=null;
                     lock(originalBatchSync)
                         if(originalBatchJob?.State is "queued" or "running")
@@ -290,9 +343,19 @@ public sealed class DesktopWorldBackupBridge
                     OriginalBatchJob job;
                     lock(originalBatchSync)
                     {
+                        if(originalBatchJournalInvalid)
+                            return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOURNAL-INVALID");
                         if(originalBatchJob?.State is "queued" or "running")
                             return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-BUSY");
-                        job=new OriginalBatchJob();
+                        // Preserve a prior interrupted (or completed) journal
+                        // before the operator launches a separately approved
+                        // five-map batch. Existing Core packages remain intact.
+                        OriginalStoreFiveBatchJournal.ArchivePrevious(cluster.Store.Root);
+                        job=new OriginalBatchJob{
+                            FourFilesSha=approved.FourFilesSha,
+                            LaunchProfileSha=approved.LaunchProfileSha
+                        };
+                        PublishOriginalBatch(job); // durable QUEUED before worker
                         originalBatchJob=job;
                     }
                     _=Task.Run(()=>RunOriginalBatch(job,approved));
