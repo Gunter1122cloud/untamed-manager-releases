@@ -85,7 +85,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
 
                 if(method=="historical.originalBatchPreview")
                 {
-                    // Preflight EVERY not-yet-registered original map before
+                    // Preflight EVERY not-yet-registered original batchMap before
                     // offering ONE consent token. No source or ASA mutation.
                     var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
                     var remaining=source.Maps.Where(m=>!cluster.Config.LocalMaps
@@ -97,7 +97,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             m.OriginalInstallationRoot)).ToArray();
                     for(int i=0;i<remaining.Length;i++)
                     {
-                        var map=remaining[i];
+                        var batchMap=remaining[i];
                         var root=roots[i];
                         if(roots.Where((_,j)=>j!=i).Any(other=>
                             root.Equals(other,StringComparison.OrdinalIgnoreCase)||
@@ -106,13 +106,13 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             other.StartsWith(root+Path.DirectorySeparatorChar,
                                 StringComparison.OrdinalIgnoreCase)))
                             return Fail(id,"UM-STORE-BATCH-OVERLAPPING-ROOTS");
-                        var name=MapName(map.MapKey);
-                        CheckDuplicate(map.MapId,name,root);
+                        var name=MapName(batchMap.MapKey);
+                        CheckDuplicate(batchMap.MapId,name,root);
                         var installation=LocalAsaInstallLocator.Probe(root);
                         if(!installation.HasServerExecutable||
                            string.IsNullOrWhiteSpace(installation.ServerExecutable))
                             return Fail(id,"UM-STORE-BATCH-ASA-EXE-MISSING");
-                        var state=ObservedOriginal(map.MapId,map.MapKey,root,
+                        var state=ObservedOriginal(batchMap.MapId,batchMap.MapKey,root,
                             installation.ServerExecutable);
                         if(state.Running||!state.ConfirmedStopped||
                            state.Identity!=null||state.LoaderIdentity!=null)
@@ -137,25 +137,25 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                        pendingOriginalBatch==null||
                        pendingOriginalBatch.Token!=token)
                         return Fail(id,"UM-STORE-BATCH-APPROVAL-REQUIRED");
-                    var staged=pendingOriginalBatch;
+                    var batchStage=pendingOriginalBatch;
                     pendingOriginalBatch=null; // one-time token, even on error
-                    if(staged.ExpiresUtc<DateTimeOffset.UtcNow)
+                    if(batchStage.ExpiresUtc<DateTimeOffset.UtcNow)
                         return Fail(id,"UM-STORE-BATCH-APPROVAL-EXPIRED");
                     var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
-                    if(source.FourFilesSha256!=staged.FourFilesHash||
-                       source.LaunchProfileSha256!=staged.LaunchProfileHash)
+                    if(source.FourFilesSha256!=batchStage.FourFilesHash||
+                       source.LaunchProfileSha256!=batchStage.LaunchProfileHash)
                         return Fail(id,"UM-STORE-BATCH-SOURCE-CHANGED");
-                    var selected=source.Maps.Where(m=>staged.MapIds.Contains(m.MapId))
+                    var selected=source.Maps.Where(m=>batchStage.MapIds.Contains(m.MapId))
                         .ToArray();
-                    if(selected.Length!=staged.MapIds.Length||
-                       !selected.Select(m=>m.MapId).SequenceEqual(staged.MapIds))
+                    if(selected.Length!=batchStage.MapIds.Length||
+                       !selected.Select(m=>m.MapId).SequenceEqual(batchStage.MapIds))
                         return Fail(id,"UM-STORE-BATCH-SELECTION-CHANGED");
                     var additions=new List<LocalMap>();
                     var roots=new List<string>();
-                    foreach(var map in selected)
+                    foreach(var batchMap in selected)
                     {
                         string root=DesktopLocalMapRegistryBridge.ValidateFixedLocalRoot(
-                            map.OriginalInstallationRoot);
+                            batchMap.OriginalInstallationRoot);
                         if(roots.Any(other=>root.Equals(other,
                                 StringComparison.OrdinalIgnoreCase)||
                             root.StartsWith(other+Path.DirectorySeparatorChar,
@@ -164,26 +164,26 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                                 StringComparison.OrdinalIgnoreCase)))
                             return Fail(id,"UM-STORE-BATCH-OVERLAPPING-ROOTS");
                         roots.Add(root);
-                        string name=MapName(map.MapKey);
-                        CheckDuplicate(map.MapId,name,root);
+                        string name=MapName(batchMap.MapKey);
+                        CheckDuplicate(batchMap.MapId,name,root);
                         var installation=LocalAsaInstallLocator.Probe(root);
                         if(!installation.HasServerExecutable||
                            string.IsNullOrWhiteSpace(installation.ServerExecutable))
                             return Fail(id,"UM-STORE-BATCH-ASA-EXE-MISSING");
-                        var state=ObservedOriginal(map.MapId,map.MapKey,root,
+                        var state=ObservedOriginal(batchMap.MapId,batchMap.MapKey,root,
                             installation.ServerExecutable);
                         if(state.Running||!state.ConfirmedStopped||
                            state.Identity!=null||state.LoaderIdentity!=null)
                             return Fail(id,"UM-STORE-BATCH-STOP-REQUIRED");
                         additions.Add(new LocalMap{
-                            Id=map.MapId,Name=name,InstallationPath=root,
+                            Id=batchMap.MapId,Name=name,InstallationPath=root,
                             ExecutablePath=installation.ServerExecutable,
-                            GamePort=map.GamePort,QueryPort=map.QueryPort,Arguments="",
+                            GamePort=batchMap.GamePort,QueryPort=batchMap.QueryPort,Arguments="",
                             HistoricalStoreProtected=true,
                             HistoricalArchiveSha256=source.FourFilesSha256,
-                            HistoricalMapKey=map.MapKey,
-                            HistoricalEnabledMods=map.EnabledMods.ToList(),
-                            HistoricalPassiveMods=map.PassiveMods.ToList(),
+                            HistoricalMapKey=batchMap.MapKey,
+                            HistoricalEnabledMods=batchMap.EnabledMods.ToList(),
+                            HistoricalPassiveMods=batchMap.PassiveMods.ToList(),
                             StartWithAsaApi=false,AutoStart=false,MonitorRcon=false,
                             RconPort=0,ApiLoaderArguments=""
                         });
