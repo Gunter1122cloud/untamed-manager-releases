@@ -787,15 +787,43 @@ public static class MultiHostClusterBackupArchive
             throw new InvalidDataException("Duplicate source path or component identity");
         string sourceRoot = ValidateSourceSets(normalized);
 
-        var preflightComponents = normalized.Select((x, index) =>
+        // Freeze the observable identity/metadata of EVERY offline source
+        // before the first byte is copied. Individual FileShare.Read handles
+        // prevent most concurrent writers only while each file is open; a
+        // different file could otherwise change between copy operations.
+        // This guards the existing offline batch, NOT live cross-host
+        // SaveComplete, writer ownership, or atomic multi-machine snapshots.
+        var sourceEpochs = normalized.Select(x =>
         {
-            if (!File.Exists(x.SourceFile) || (File.GetAttributes(x.SourceFile) & FileAttributes.ReparsePoint) != 0)
+            if (!File.Exists(x.SourceFile) ||
+                (File.GetAttributes(x.SourceFile) & FileAttributes.ReparsePoint) != 0)
                 throw new InvalidDataException("Missing or linked source file");
-            long length = new FileInfo(x.SourceFile).Length;
-            return new MultiHostBackupComponent(index, x.HostId, x.MapId, x.ClusterId,
-                x.Kind, x.RelativePath, length, new string('0', 64));
+            var info = new FileInfo(x.SourceFile);
+            return (info.Length, info.CreationTimeUtc, info.LastWriteTimeUtc);
         }).ToArray();
+        var preflightComponents = normalized.Select((x, index) =>
+            new MultiHostBackupComponent(index, x.HostId, x.MapId, x.ClusterId,
+                x.Kind, x.RelativePath, sourceEpochs[index].Length, new string('0', 64))
+        ).ToArray();
         ValidateInventory(batchId, hosts, clusters, maps, preflightComponents);
+
+        void DemandStableOfflineSourceEpochs()
+        {
+            for (int i = 0; i < normalized.Length; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string source = normalized[i].SourceFile;
+                if (!File.Exists(source) ||
+                    (File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("UM-MULTIHOST-OFFLINE-SOURCE-EPOCH-CHANGED");
+                var info = new FileInfo(source);
+                var epoch = sourceEpochs[i];
+                if (info.Length != epoch.Length ||
+                    info.CreationTimeUtc != epoch.CreationTimeUtc ||
+                    info.LastWriteTimeUtc != epoch.LastWriteTimeUtc)
+                    throw new IOException("UM-MULTIHOST-OFFLINE-SOURCE-EPOCH-CHANGED");
+            }
+        }
 
         string target = FixedLocal(destination);
         if (Within(sourceRoot, target) || Within(target, sourceRoot))
@@ -844,6 +872,7 @@ public static class MultiHostClusterBackupArchive
         }
 
         ValidateSourceSets(normalized);
+        DemandStableOfflineSourceEpochs();
         ValidateInventory(batchId, hosts, clusters, maps, components);
         File.Delete(Path.Combine(stage, JournalName));
         var manifest = new MultiHostBackupManifest(CurrentSchemaVersion, batchId,
@@ -856,6 +885,7 @@ public static class MultiHostClusterBackupArchive
         WriteDurable(Path.Combine(stage, ManifestHashName), HashFile(manifestPath));
         WriteDurable(Path.Combine(stage, CompleteName), batchId.ToString("N"));
         Verify(stage);
+        DemandStableOfflineSourceEpochs();
         Directory.Move(stage, target);
         return Verify(target);
     }
