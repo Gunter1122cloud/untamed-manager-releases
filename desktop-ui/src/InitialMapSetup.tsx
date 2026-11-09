@@ -9,6 +9,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
 }) {
   const [status,setStatus]=useState<InitialMapStatus | null>(null);
   const [session,setSession]=useState("Untamed Kingdom");
+  const [customLevel,setCustomLevel]=useState("");
   const [game,setGame]=useState("");
   const [query,setQuery]=useState("");
   const [preview,setPreview]=useState<InitialMapPreview | null>(null);
@@ -20,6 +21,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
   useEffect(()=>{
     let active=true;
     setStatus(null);setPreview(null);setApproved(false);setError("");setNotice("");
+    setCustomLevel("");
     managerBridge.initialStatus(mapId).then(value=>{
       if(!active)return;
       setStatus(value);
@@ -56,9 +58,14 @@ export function InitialMapSetup({mapId,onConfigured}: {
       setError("A szerver neve 1–75 karakter lehet.");
       return;
     }
+    if(status?.requiresCustomLevel && !/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(customLevel.trim())){
+      setError("Adj meg egy érvényes Unreal ASA pályaszintet: 1–80 karakter, angol betűvel kezdve, csak betű, szám és aláhúzás.");
+      return;
+    }
     setBusy(true);
     try{
-      const result=await managerBridge.initialPreview(mapId,session.trim(),g,q);
+      const result=await managerBridge.initialPreview(
+        mapId,session.trim(),g,q,status?.requiresCustomLevel?customLevel.trim():"");
       setPreview(result);
     }catch(e){
       const code=e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED";
@@ -97,7 +104,6 @@ export function InitialMapSetup({mapId,onConfigured}: {
     "A Windows nem igazolta, hogy a szerver leállt. Ellenőrizd a folyamatokat és a Manager naplóját; a védelmet nem kerüljük meg." :
     status?.blocker==="PROCESS_RUNNING" ? "A Windows szerint a szerverfolyamat fut. Első konfiguráció nem engedélyezett." :
     status?.blocker==="SERVER_EXECUTABLE_MISSING" ? "Az ASA EXE hiányzik, másik telepítéshez tartozik, vagy nem biztonságos helyi útvonalon van. Ellenőrizd a map regisztrált telepítési gyökerét." :
-    status?.blocker==="MAP_LEVEL_UNRECOGNIZED" ? "A map neve nem párosítható ismert ASA pályával." :
     "A profil már konfigurált, vagy történeti Store-v1 védelem alatt áll.";
   return <section className="glass panel initial-map-setup">
     <div className="panel-head"><h2><Settings2 size={18}/> Első mapbeállítások</h2>
@@ -106,6 +112,10 @@ export function InitialMapSetup({mapId,onConfigured}: {
       <p className="muted small">Egy már regisztrált ASA-telepítéshez külön állítsd be a szerver nevét és a Game/Query UDP-portokat. A varázsló csak a Manager indítási profilját módosítja.</p>
       {status && !status.initialSetupAvailable && <div className="warning-inline">
         <Shield size={17}/> {blockerMessage}</div>}
+      {status?.initialSetupAvailable && status.requiresCustomLevel && <div className="warning-inline">
+        <Shield size={17}/> Egyedi/modolt ASA-map: az első indításhoz a mod készítője
+        által megadott pontos Unreal pályaszintet kell beírni. Ez önmagában nem telepít
+        vagy ellenőriz CurseForge modot, nem engedélyez Store-v1 transfert és nem indít szervert.</div>}
       <div className="draft-actions">
         <button type="button" className="secondary" disabled={busy||checkingStatus}
           onClick={()=>{void refreshStatus();}}><RefreshCw size={16}/>
@@ -113,6 +123,13 @@ export function InitialMapSetup({mapId,onConfigured}: {
         {status&&<span className="muted small">Natív állapot: {status.blocker==="NONE"?"Előkészíthető":status.blocker} · Igazolt leállítás: {status.confirmedStopped?"igen":"nem"}</span>}
       </div>
       <form className="initial-setup-form" onSubmit={e=>{void inspect(e);}}>
+        {status?.requiresCustomLevel && <label><span>Egyedi ASA pályaszint (Unreal level)</span>
+          <input aria-label="Egyedi ASA pályaszint" value={customLevel} maxLength={80}
+            onChange={e=>{setCustomLevel(e.target.value);clear();}}
+            placeholder="Példa: EgyediMap_WP"
+            autoComplete="off" spellCheck={false}
+            disabled={busy||!status.initialSetupAvailable} required/>
+        </label>}
         <label><span>Szerver nyilvános neve</span>
           <input aria-label="ASA szerver neve" value={session} maxLength={75}
             onChange={e=>{setSession(e.target.value);clear();}}
@@ -129,7 +146,8 @@ export function InitialMapSetup({mapId,onConfigured}: {
             disabled={busy||!status?.initialSetupAvailable} required/>
         </label>
         <button className="secondary" type="submit"
-          disabled={busy||!status?.initialSetupAvailable}>
+          disabled={busy||!status?.initialSetupAvailable ||
+            Boolean(status.requiresCustomLevel&&!/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(customLevel.trim()))}>
           <Server size={16}/> Beállítások ellenőrzése
         </button>
       </form>
