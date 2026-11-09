@@ -352,12 +352,19 @@ public static class MultiHostClusterBackupArchive
 
     private static bool HashValid(string? value) => value is { Length: 64 } && value.All(Uri.IsHexDigit);
 
-    // A zero-byte arkprofile may be an original ASA/Store-v1 placeholder.
-    // Preserve it byte-for-byte in an OFFLINE archive, without declaring the
-    // player recovered. An empty world, tribe, transfer or configuration is
-    // still an invalid source component and can never authorize a restore.
-    private static bool PermitsEmpty(MultiHostBackupComponentKind kind) =>
-        kind == MultiHostBackupComponentKind.MapProfile;
+    // An empty map profile or extensionless Store transfer placeholder may be
+    // original data. Preserve only these scoped entries byte-for-byte, never
+    // infer a recovered player or a safe live cutover from their presence.
+    // Empty worlds, tribes, INI, Store writer/session, transfer manifests and
+    // typed transfer payloads (.arkproftemp/.arktributetribe/.bin etc.) fail closed.
+    // The canonical inventory and SHA-256 verification still apply to every file.
+    private static bool PermitsEmpty(MultiHostBackupComponentKind kind, string relativePath)
+    {
+        if (kind == MultiHostBackupComponentKind.MapProfile) return true;
+        if (kind != MultiHostBackupComponentKind.ClusterTransferFile) return false;
+        string name = Path.GetFileName(relativePath.Replace('\\', '/'));
+        return name.Length > 0 && name[0] != '.' && !name.Contains('.');
+    }
 
     private static bool IsMapKind(MultiHostBackupComponentKind kind) => kind is
         MultiHostBackupComponentKind.MapWorld or MultiHostBackupComponentKind.MapProfile or
@@ -427,7 +434,7 @@ public static class MultiHostClusterBackupArchive
         {
             if (component == null || component.ObjectIndex < 0 || component.ObjectIndex >= components.Count ||
                 !Enum.IsDefined(component.Kind) || component.Length < 0 ||
-                (component.Length == 0 && !PermitsEmpty(component.Kind)) ||
+                (component.Length == 0 && !PermitsEmpty(component.Kind, component.RelativePath)) ||
                 component.Length > MaxComponentBytes || !HashValid(component.Sha256))
                 throw new InvalidDataException("Missing, empty or unverified component");
             string host = SafeId(component.HostId, "Component host ID");
@@ -595,7 +602,7 @@ public static class MultiHostClusterBackupArchive
     }
 
     private static (long Length, string Sha256) CopyAndHash(string source,
-        string destination, MultiHostBackupComponentKind kind,
+        string destination, MultiHostBackupComponentKind kind, string relativePath,
         CancellationToken cancellationToken)
     {
         if ((File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0)
@@ -603,7 +610,7 @@ public static class MultiHostClusterBackupArchive
         using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
             1024 * 1024, FileOptions.SequentialScan);
         long sourceLength = input.Length;
-        if ((sourceLength == 0 && !PermitsEmpty(kind)) ||
+        if ((sourceLength == 0 && !PermitsEmpty(kind, relativePath)) ||
             sourceLength < 0 || sourceLength > MaxComponentBytes)
             throw new InvalidDataException("Empty or oversized source component rejected");
         using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write,
@@ -876,7 +883,7 @@ public static class MultiHostClusterBackupArchive
                 source.StartsWith(stage + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Missing or overlapping source file");
             var info = new FileInfo(source);
-            if ((info.Length == 0 && !PermitsEmpty(normalized[i].Kind)) ||
+            if ((info.Length == 0 && !PermitsEmpty(normalized[i].Kind, normalized[i].RelativePath)) ||
                 info.Length < 0 || info.Length > MaxComponentBytes)
                 throw new InvalidDataException("Empty or oversized source component rejected");
         }
@@ -895,7 +902,7 @@ public static class MultiHostClusterBackupArchive
             cancellationToken.ThrowIfCancellationRequested();
             var row = normalized[i];
             string objectPath = Path.Combine(objects, i.ToString("D6") + ".bin");
-            var (length, sha) = CopyAndHash(row.SourceFile, objectPath, row.Kind, cancellationToken);
+            var (length, sha) = CopyAndHash(row.SourceFile, objectPath, row.Kind, row.RelativePath, cancellationToken);
             total = checked(total + length);
             if (total > MaxTotalBytes) throw new InvalidDataException("Archive exceeds total size limit");
             components.Add(new(i, row.HostId, row.MapId, row.ClusterId,

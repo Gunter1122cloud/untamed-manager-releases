@@ -101,6 +101,19 @@ internal static class MultiHostOfflineCatalogAssemblerTests
             "tribute bytes original");
         Write(source,"clusters/"+cluster+"/Transfer/"+hosts[0]+"/dinos.bin",
             "tamed dino transfer bytes original");
+        // Synthetic equivalent of the inspected Kova transfer inventory:
+        // 50 payload entries, including nine extensionless 0-byte placeholders.
+        // Special dot-prefixed Store files are separate, NONEMPTY payloads.
+        for(int i=0;i<9;i++)
+            Write(source,"clusters/"+cluster+"/Transfer/"+hosts[0]+
+                "/placeholder-"+i.ToString("D2"),Array.Empty<byte>());
+        foreach(string special in new[]{".arkproftemp",".arktributetribe",
+                     ".formertribeownerlog"})
+            Write(source,"clusters/"+cluster+"/Transfer/"+hosts[0]+"/"+special,
+                "original nonempty synthetic Store special file: "+special);
+        for(int i=0;i<32;i++)
+            Write(source,"clusters/"+cluster+"/Transfer/"+hosts[0]+
+                "/extra-transfer-"+i.ToString("D2")+".bin","synthetic transfer "+i);
         var ownership=new MultiHostBackupOwnershipSnapshot(hosts[0],
             hostRecords,clusterRecords,mapRecords.ToArray());
         var draft=MultiHostOfflineCatalogAssembler.Inspect(source,ownership);
@@ -110,8 +123,11 @@ internal static class MultiHostOfflineCatalogAssemblerTests
         Check(draft.Catalog.Items.Count(x=>x.Kind==
               MultiHostBackupComponentKind.ClusterTransferManifest)==1&&
               draft.Catalog.Items.Count(x=>x.Kind==
-              MultiHostBackupComponentKind.ClusterTransferFile)>=6,
-            "a single transfer manifest and character/inventory/tribute/dino payloads are retained");
+              MultiHostBackupComponentKind.ClusterTransferFile)==50&&
+              draft.Catalog.Items.Count(x=>x.Kind==
+              MultiHostBackupComponentKind.ClusterTransferFile&&
+              x.RelativePath.StartsWith("placeholder-",StringComparison.Ordinal))==9,
+            "50 transfer entries include nine extensionless placeholders and one nonempty snapshot manifest");
 
         string transfer=Path.Combine(source,"clusters",cluster,"Transfer",hosts[0],"tribute.bin");
         File.AppendAllText(transfer,"tamper");
@@ -132,9 +148,14 @@ internal static class MultiHostOfflineCatalogAssemblerTests
             "generated catalog is accepted unchanged by existing archive engine and ownership guard");
         var verified=MultiHostClusterBackupArchive.BuildFromCatalog(
             catalogPath,archive,ownership);
+        string emptySha256=Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(Array.Empty<byte>()));
         Check(verified.Hosts.Length==2&&verified.Maps.Length==10&&
-              verified.Components.Any(x=>x.Kind==MultiHostBackupComponentKind.ClusterTransferFile),
-            "existing SHA-256 archive engine builds complete two-host Store/transfer batch");
+              verified.Components.Count(x=>x.Kind==
+                MultiHostBackupComponentKind.ClusterTransferFile&&
+                x.Length==0&&x.Sha256.Equals(emptySha256,
+                    StringComparison.OrdinalIgnoreCase))==9,
+            "original archive writer hashes exactly nine legitimate empty transfer placeholders");
         string destination=Path.Combine(Path.GetTempPath(),
             "Untamed-MultiHost-Restore-"+Guid.NewGuid().ToString("N"));
         try
@@ -144,6 +165,13 @@ internal static class MultiHostOfflineCatalogAssemblerTests
             Check(sandboxReport.SourceBatchId==verified.BatchId&&
                   sandboxReport.Maps.Length==10&&!sandboxReport.ProductionRestoreAllowed,
                 "ten-map restore is byte-verified and scoped to an isolated TEMP sandbox");
+            for(int i=0;i<9;i++)
+            {
+                string empty=Path.Combine(destination,"data","clusters",cluster,
+                    "TransferFiles",hosts[0],"placeholder-"+i.ToString("D2"));
+                Check(File.Exists(empty)&&new FileInfo(empty).Length==0,
+                    "TEMP restore retains verified empty transfer placeholder "+i);
+            }
             // Restore staging for each REAL host identity from the same
             // verified existing TEMP restore: no alternate archive format.
             // The common cluster transfer tree is included byte-for-byte in
@@ -177,8 +205,11 @@ internal static class MultiHostOfflineCatalogAssemblerTests
                 var validated=MultiHostHostRestoreStaging.Verify(hostStage);
                 Check(receipt.BatchId==catalog.BatchId&&
                       validated.Components.Length==plan.Components&&
-                      !validated.ProductionRestoreAllowed,
-                    "per-host complete staging verifies all SHA-256 payloads without live cutover");
+                      !validated.ProductionRestoreAllowed&&
+                      validated.Components.Count(x=>x.Kind==
+                          MultiHostBackupComponentKind.ClusterTransferFile&&
+                          x.Length==0)==9,
+                    "each host stage includes all nine SHA-256 verified zero-byte cluster transfer entries");
                 string transferStage=Path.Combine(hostStage,"data","clusters",cluster,
                     "TransferFiles",hosts[0],"tribute.bin");
                 Check(File.ReadAllBytes(transferStage).SequenceEqual(
@@ -293,6 +324,46 @@ internal static class MultiHostOfflineCatalogAssemblerTests
         {
             if(Directory.Exists(recoveryTemp))Directory.Delete(recoveryTemp,true);
         }
+
+        // Negative zero-length cases: a real payload with an extension,
+        // important Store metadata, world, tribe or INI cannot be silently
+        // reclassified as a valid empty transfer placeholder.
+        string[] requiredPayloads={
+            "clusters/"+cluster+"/Transfer/"+hosts[0]+"/tribute.bin",
+            "clusters/"+cluster+"/Transfer/"+hosts[0]+"/snapshot.json",
+            "clusters/"+cluster+"/Transfer/"+hosts[0]+"/.arkproftemp",
+            "clusters/"+cluster+"/Transfer/"+hosts[0]+"/.arktributetribe",
+            "clusters/"+cluster+"/Transfer/"+hosts[0]+"/.formertribeownerlog",
+            "maps/"+mapRecords[0].MapId.ToString("N")+"/Saved/world.ark",
+            "maps/"+mapRecords[0].MapId.ToString("N")+"/Saved/tribe-0.arktribe",
+            "maps/"+mapRecords[0].MapId.ToString("N")+"/WindowsServer/GameUserSettings.ini"
+        };
+        foreach(string relative in requiredPayloads)
+        {
+            string full=Path.Combine(source,relative.Replace('/',
+                Path.DirectorySeparatorChar));
+            byte[] original=File.ReadAllBytes(full);
+            bool zeroRejected=false;
+            try
+            {
+                File.WriteAllBytes(full,Array.Empty<byte>());
+                MultiHostClusterBackupArchive.InspectCatalog(catalogPath,ownership);
+            }
+            catch(InvalidDataException){zeroRejected=true;}
+            finally{File.WriteAllBytes(full,original);}
+            Check(zeroRejected,
+                "zero-byte world/tribe/INI/typed transfer or Store manifest must fail: "+relative);
+        }
+        string missingPlaceholder=Path.Combine(source,"clusters",cluster,
+            "Transfer",hosts[0],"placeholder-00");
+        string movedPlaceholder=missingPlaceholder+".moved";
+        bool missingRejected=false;
+        File.Move(missingPlaceholder,movedPlaceholder);
+        try{MultiHostClusterBackupArchive.InspectCatalog(catalogPath,ownership);}
+        catch(InvalidDataException){missingRejected=true;}
+        finally{File.Move(movedPlaceholder,missingPlaceholder);}
+        Check(missingRejected,
+            "missing or renamed original zero-byte transfer entry fails inventory validation");
 
         // Once catalog exists, never overwrite or transparently re-import a
         // possibly stale copied source. Rebuilding needs a separate folder.
