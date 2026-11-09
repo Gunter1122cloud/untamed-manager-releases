@@ -113,6 +113,8 @@ public sealed class DesktopOwnedAsaKillBridge
                         return Fail(id,"UM-KILL-MAP-INVALID");
                     var owned=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
                     if(owned==null)return Fail(id,"UM-KILL-MAP-NOT-LOCAL");
+                    if(owned.HistoricalStoreProtected||!string.IsNullOrWhiteSpace(owned.StoreTestRoot))
+                        return Fail(id,"UM-KILL-HISTORICAL-STORE-PROTECTED");
                     // No operation journal may have an unresolved mutation.
                     var existing=cluster.Operations.Observe(owned.InstallationPath);
                     if(existing?.Phase is UntamedOperationPhase.Prepared or
@@ -142,7 +144,9 @@ public sealed class DesktopOwnedAsaKillBridge
                 if(pinned.ExpiresUtc<DateTimeOffset.UtcNow)
                     return Fail(id,"UM-KILL-APPROVAL-EXPIRED");
                 var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==pinned.MapId);
-                if(map==null||map.InstallationPath!=pinned.InstallRoot||
+                if(map==null||map.HistoricalStoreProtected||
+                   !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+                   map.InstallationPath!=pinned.InstallRoot||
                    map.RconPort!=pinned.RconPort)
                     return Fail(id,"UM-KILL-MAP-CHANGED");
                 using var lease=cluster.Operations.Acquire(map.InstallationPath,
