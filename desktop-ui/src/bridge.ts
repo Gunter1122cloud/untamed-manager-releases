@@ -1289,7 +1289,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
-  "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" |
+  "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" | "backup.originalBatchJournalRepairPreview" | "backup.originalBatchJournalRepairApply" |
   "backup.restorePreview" | "backup.restore" |
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
   "cluster.registry.snapshot" | "cluster.host.register" | "cluster.map.register" |
@@ -1544,6 +1544,12 @@ export const managerBridge = {
     }),
   backupOriginalFiveStatus: (jobId?:string) =>
     request<OriginalFiveMapBackupStatus>("backup.originalBatchStatus",jobId?{jobId}:{}),
+  backupOriginalFiveJournalRepairPreview: () =>
+    request<OriginalFiveMapJournalRepairPreview>("backup.originalBatchJournalRepairPreview"),
+  backupOriginalFiveJournalRepairApply: (token:string,typedApproval:string) =>
+    request<OriginalFiveMapJournalRepairReceipt>("backup.originalBatchJournalRepairApply",{
+      token,typedApproval,confirm:true
+    }),
   backupRestorePreview: (mapId:string,point:string) =>
     request<WorldBackupPreview>("backup.restorePreview",{mapId,point}),
   backupRestore: (token:string,mapName:string) =>
