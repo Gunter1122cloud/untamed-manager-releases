@@ -465,10 +465,22 @@ test.beforeEach(async ({ page }) => {
           if(!m.confirm||m.token!=="00000000-0000-4000-8000-00000000b051")
             throw new Error("UM-BACKUP-ORIGINAL-FIVE-APPROVAL-REQUIRED");
           originalFiveBackupCopies++;
-          return {localMaps:5,points:state.local.maps.slice(0,5).map((map:any)=>
-            ({mapId:map.id,mapName:map.name,
-              point:"00000000-0000-4000-8000-00000000b052",
-              files:4,bytes:4096})),
+          return {jobId:"00000000-0000-4000-8000-00000000b053",
+            started:true,localMaps:5,
+            originalKovaFilesWritten:false,serverStarted:false,
+            sharedTransferIncluded:false,otherHostIncluded:false,
+            evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_JOB_QUEUED"
+          };
+        case "backup.originalBatchStatus":
+          if(!originalFiveBackupCopies)
+            throw new Error("UM-BACKUP-ORIGINAL-FIVE-NO-JOB");
+          return {jobId:"00000000-0000-4000-8000-00000000b053",
+            state:"completed",step:"verified",
+            changedUtc:"2026-11-09T17:00:00Z",localMaps:5,completedMaps:5,
+            points:state.local.maps.slice(0,5).map((map:any)=>
+              ({mapId:map.id,mapName:map.name,
+                point:"00000000-0000-4000-8000-00000000b052",
+                files:4,bytes:4096})),
             totalBytes:20480,allFiveVerified:true,
             originalKovaFilesWritten:false,serverStarted:false,
             sharedTransferIncluded:false,otherHostIncluded:false,
