@@ -5,7 +5,8 @@ import {managerBridge,type PublicMap,type WorldBackupCreated,
   type WorldBackupHistory,type WorldBackupPoint,type WorldBackupPreview,
   type ScheduledStoppedBackupState,
   type WorldBackupRestored,type OriginalFiveMapBackupPreview,
-  type OriginalFiveMapBackupReceipt,type OriginalFiveMapBackupStatus} from "./bridge";
+  type OriginalFiveMapBackupReceipt,type OriginalFiveMapBackupStatus,
+  type OriginalFiveMapJournalRepairPreview} from "./bridge";
 
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
   const [chosen,setChosen]=useState(selectedMap??maps[0]?.id??"");
@@ -26,6 +27,9 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const [originalFiveReceipt,setOriginalFiveReceipt]=useState<OriginalFiveMapBackupReceipt|null>(null);
   const [originalFiveJob,setOriginalFiveJob]=useState<OriginalFiveMapBackupStatus|null>(null);
   const lastFiveCompleted=useRef("");
+  const [repairPreview,setRepairPreview]=useState<OriginalFiveMapJournalRepairPreview|null>(null);
+  const [repairPhrase,setRepairPhrase]=useState("");
+  const [repairBusy,setRepairBusy]=useState(false);
   const [originalFiveBusy,setOriginalFiveBusy]=useState(false);
   const [originalFiveError,setOriginalFiveError]=useState("");
   const selectedRef=useRef(chosen);
@@ -172,6 +176,36 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const originalLocalFive=maps.filter(m=>m.storeProtected);
   const originalFiveRunning=originalFiveJob?.state==="queued"||
     originalFiveJob?.state==="running";
+  const repairJournalPreview=async()=>{
+    if(repairBusy||originalFiveRunning)return;
+    setRepairBusy(true);setOriginalFiveError("");setRepairPreview(null);
+    try{
+      setRepairPreview(await managerBridge.backupOriginalFiveJournalRepairPreview());
+      setRepairPhrase("");
+    }catch{
+      setOriginalFiveError("A napló felülvizsgálata nem indítható. "+
+        "Az eredeti öt mapnak igazoltan leállítva kell lennie és a Kova-forrásnak "+
+        "változatlannak. A korábbi mentéseket nem töröljük.");
+    }finally{setRepairBusy(false);}
+  };
+  const repairJournalApply=async()=>{
+    if(!repairPreview||repairPhrase!=="REVIEW FIVE BACKUPS"||repairBusy)return;
+    const token=repairPreview.token;
+    setRepairPreview(null);setRepairBusy(true);setOriginalFiveError("");
+    try{
+      const receipt=await managerBridge.backupOriginalFiveJournalRepairApply(
+        token,repairPhrase);
+      if(!receipt.reviewed||!receipt.quarantined||
+         !receipt.oldBackupPackagesPreserved)
+        throw new Error("Naplókarantén nincs igazolva");
+      setOriginalFiveJob(null);setOriginalFiveReceipt(null);
+      setRepairPhrase("");
+      await reload();
+    }catch{
+      setOriginalFiveError("A sérült helyi Manager-napló elkülönítése nem sikerült. "+
+        "A mentések és az eredeti Store-adatok megmaradtak.");
+    }finally{setRepairBusy(false);}
+  };
   const reviewOriginalFive=async()=>{
     if(originalFiveBusy||originalFiveRunning||busy||originalLocalFive.length<5)return;
     setOriginalFiveBusy(true);setOriginalFivePreview(null);
@@ -290,6 +324,33 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
                 <p role="alert">A már sikeres mapmentések megmaradtak a helyi előzményekben.
                   A Kova Store/session/transfer fájlok változatlanok.
                   Ellenőrizd a mapok leállított állapotát és a mentési előzményeket.</p>}
+              {originalFiveJob.step==="journal-integrity-repair-required"&&
+                <button type="button" className="secondary" disabled={repairBusy}
+                  onClick={()=>{void repairJournalPreview();}}>
+                  Sérült helyi Manager-napló elkülönítésének előnézete
+                </button>}
+            </div>}
+          {repairPreview&&<div role="region"
+            aria-label="Sérült mentési napló jóváhagyása"
+            className="uk-world-backup-confirm">
+              <p><b>Csak a Manager saját sérült műveleti naplójának
+                elkülönítése.</b> Az eredeti ASA/Kova világ, karakter, session,
+                lock és transfer változatlan marad. Eltérő korábbi mentési
+                pontok nem kerülnek törlésre.</p>
+              <label>Jóváhagyás szövege: REVIEW FIVE BACKUPS
+                <input aria-label="Napló helyreállítási jóváhagyás"
+                  value={repairPhrase} onChange={e=>setRepairPhrase(e.target.value)}
+                  disabled={repairBusy}/>
+              </label>
+              <div className="settings-actions">
+                <button type="button" className="primary"
+                  disabled={repairBusy||repairPhrase!=="REVIEW FIVE BACKUPS"}
+                  onClick={()=>{void repairJournalApply();}}>
+                  Sérült napló elkülönítése
+                </button>
+                <button type="button" className="secondary" disabled={repairBusy}
+                  onClick={()=>{setRepairPreview(null);setRepairPhrase("");}}>Mégsem</button>
+              </div>
             </div>}
           {originalFiveReceipt&&<div role="status">
             <b>Mind az öt eredeti helyi map ellenőrzött mentése elkészült.</b>

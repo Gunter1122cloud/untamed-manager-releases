@@ -2,9 +2,13 @@ import {useEffect,useState} from "react";
 import {AlertTriangle,Archive,CheckCircle2,FolderOpen,HardDriveDownload,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type MultiHostClusterBackupPreview,
   type MultiHostClusterRestorePreview,type MultiHostClusterBackupStatus,
-  type MultiHostRestoreRecoveryListing,type MultiHostRestoreRecoveryPreview} from "./bridge";
+  type MultiHostRestoreRecoveryListing,type MultiHostRestoreRecoveryPreview,
+  type MultiHostCatalogPreview,type MultiHostCatalogCreated} from "./bridge";
 
 export function MultiHostBackupPanel(){
+  const [catalogPreview,setCatalogPreview]=useState<MultiHostCatalogPreview|null>(null);
+  const [catalogReceipt,setCatalogReceipt]=useState<MultiHostCatalogCreated|null>(null);
+  const [catalogApproved,setCatalogApproved]=useState(false);
   const [backupPreview,setBackupPreview]=useState<MultiHostClusterBackupPreview|null>(null);
   const [restorePreview,setRestorePreview]=useState<MultiHostClusterRestorePreview|null>(null);
   const [recoveryListing,setRecoveryListing]=useState<MultiHostRestoreRecoveryListing|null>(null);
@@ -30,6 +34,30 @@ export function MultiHostBackupPanel(){
     return ()=>window.clearInterval(timer);
   },[jobId,jobKind,status?.state]);
 
+  async function previewCatalog(){
+    if(busy||jobId&&status?.state!=="completed"&&status?.state!=="needsOperator")return;
+    setBusy(true);setError("");setNotice("");setCatalogApproved(false);
+    setCatalogPreview(null);setCatalogReceipt(null);
+    try{setCatalogPreview(await managerBridge.multiHostCatalogPreview());}
+    catch{setError("A kiválasztott OFFLINE másolat hiányos, vagy nem egyezik a jelenlegi host-, map- és clusterregiszterrel. Közös transfer/Store fájlokat csak leállított mapokról, előzetesen elkészített másolatból lehet felvenni.");}
+    finally{setBusy(false);}
+  }
+  async function applyCatalog(){
+    if(busy||!catalogPreview||!catalogApproved)return;
+    setBusy(true);setError("");setNotice("");
+    const token=catalogPreview.token;
+    setCatalogPreview(null);setCatalogApproved(false);
+    try{
+      const saved=await managerBridge.multiHostCatalogApply(token);
+      if(!saved.created||saved.originalStoreTouched||!saved.offlineCopiesOnly)
+        throw new Error("Nem érkezett hiteles natív katalógus-visszaigazolás");
+      setCatalogReceipt(saved);
+      setNotice("A teljes offline host/map/Store/transfer katalógus elkészült. Most készíthetsz belőle SHA-256 archívumot a Mentés előnézete gombbal.");
+    }catch(e){
+      setError("Nem sikerült az offline adatmásolatok ellenőrzött katalógusba szervezése: "+
+        (e instanceof Error?e.message:"eredeti adatok változatlanok"));
+    }finally{setBusy(false);}
+  }
   async function previewBackup(){
     if(busy||jobId&&status?.state!=="completed"&&status?.state!=="needsOperator")return;
     setBusy(true);setError("");setNotice("");setApproved(false);
@@ -119,6 +147,8 @@ export function MultiHostBackupPanel(){
     </div>
     <div className="draft-actions">
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
+        onClick={()=>{void previewCatalog();}}><FolderOpen size={16}/> Teljes offline Store/transfer katalógus összeállítása</button>
+      <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void previewBackup();}}><FolderOpen size={16}/> Offline mentés előnézete</button>
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void previewRestore();}}><HardDriveDownload size={16}/> Archívum ellenőrzése / TEMP restore</button>
@@ -127,6 +157,34 @@ export function MultiHostBackupPanel(){
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void listRestoreRecovery();}}>TEMP restore tranzakciók keresése / rollback</button>
     </div>
+    {catalogPreview&&<div className="historical-preview" role="region" aria-label="Teljes offline Store/transfer katalógus jóváhagyása">
+      <h4>Teljes másolat leltára · {catalogPreview.hosts} host, {catalogPreview.clusters} cluster</h4>
+      <p>{catalogPreview.maps} map · {catalogPreview.components} fájl · {MiB(catalogPreview.bytes)}</p>
+      <p>Transfer fájlok: <b>{catalogPreview.copiedTransferIncluded?"vannak":"nincsenek"}</b>.
+        Karakterprofilok: {catalogPreview.copiedProfilesIncluded?"vannak":"nincsenek"}.
+        Tribe fájlok: {catalogPreview.copiedTribesIncluded?"vannak":"nincsenek"}.</p>
+      <p className="muted small">Az összes fájl megmarad, beleértve a teljes transfer-könyvtárba
+        másolt inventory-, tribute- és dinoadatokat. Ez kizárólag egy
+        fizikailag elkülönített, leállított szerverekről korábban készített másolat.
+        Nem tanúsít élő Store-writer leállást vagy valódi játékbeli karakterutazást.</p>
+      <label><input type="checkbox" checked={catalogApproved}
+        disabled={busy} onChange={e=>setCatalogApproved(e.target.checked)}/>
+        Jóváhagyom a jelenlegi regiszterhez kötött, egyszer létrehozott
+        teljes offline katalógus elkészítését az eredeti adatok módosítása nélkül.</label>
+      <div className="draft-actions">
+        <button type="button" className="primary" disabled={busy||!catalogApproved}
+          onClick={()=>{void applyCatalog();}}>Ellenőrzött katalógus létrehozása</button>
+        <button type="button" className="secondary" disabled={busy}
+          onClick={()=>{setCatalogPreview(null);setCatalogApproved(false);}}>Mégsem</button>
+      </div>
+    </div>}
+    {catalogReceipt&&<div role="status" className="historical-preview">
+      <b>Teljes offline katalógus elkészült.</b>
+      <p>{catalogReceipt.hosts} host · {catalogReceipt.maps} map ·
+        {" "}{catalogReceipt.components} fájl, Store/transfer komponensekkel.</p>
+      <p>Most készítsd el a verziózott SHA-256 archívumot.
+        Az éles visszaállítást ez még nem engedélyezi.</p>
+    </div>}
     {backupPreview&&<div className="historical-preview" role="region" aria-label="Multi-host mentés jóváhagyása">
       <h4>Mentési előnézet · {backupPreview.batchId.slice(0,8)}…</h4>
       <p>{backupPreview.hosts} host · {backupPreview.maps} map · {backupPreview.clusters} cluster ·

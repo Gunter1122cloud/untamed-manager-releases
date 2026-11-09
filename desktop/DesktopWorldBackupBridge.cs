@@ -37,13 +37,59 @@ public sealed class DesktopWorldBackupBridge
     {
         public Guid Id=Guid.NewGuid();
         public string State="queued",Step="queued";
+        public string FourFilesSha="",LaunchProfileSha="";
         public readonly List<OriginalBatchPoint> Points=new();
         public long TotalBytes;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly object originalBatchSync=new();
     private OriginalBatchJob? originalBatchJob;
+    private bool originalBatchJournalInvalid;
+    private sealed record RepairApproval(Guid Token,string FourSha,string LaunchSha,
+        string JournalSha,DateTimeOffset ExpiresUtc);
+    private RepairApproval? repairApproval;
     private readonly Func<LegacyStoreV1OriginalLocalSelection> originalSelection;
+
+    private void PublishOriginalBatch(OriginalBatchJob job)
+    {
+        OriginalStoreFiveBatchJournal.Publish(cluster.Store.Root,new(
+            job.Id,job.State,job.Step,job.ChangedUtc,
+            job.FourFilesSha,job.LaunchProfileSha,
+            job.Points.Select(p=>new OriginalStoreFiveBatchJournal.Point(
+                p.MapId,p.MapName,p.Point,p.Files,p.Bytes)).ToArray(),
+            job.TotalBytes));
+    }
+    private void LoadOriginalBatch()
+    {
+        try
+        {
+            var snapshot=OriginalStoreFiveBatchJournal.Read(cluster.Store.Root);
+            if(snapshot==null)return;
+            var restored=new OriginalBatchJob{
+                Id=snapshot.JobId,
+                State=snapshot.State is "queued" or "running"?
+                    "needsOperator":snapshot.State,
+                Step=snapshot.State is "queued" or "running"?
+                    "manager-restart-review-required":snapshot.Step,
+                ChangedUtc=snapshot.ChangedUtc,
+                FourFilesSha=snapshot.FourFilesSha,
+                LaunchProfileSha=snapshot.LaunchProfileSha,
+                TotalBytes=snapshot.TotalBytes
+            };
+            restored.Points.AddRange(snapshot.Points.Select(p=>
+                new OriginalBatchPoint(p.MapId,p.MapName,p.PointId,p.Files,p.Bytes)));
+            originalBatchJob=restored;
+        }
+        catch(Exception e) when(e is IOException or UnauthorizedAccessException or
+            JsonException or InvalidDataException or ArgumentException)
+        {
+            // Invalid journal must never be silently discarded and replaced.
+            originalBatchJournalInvalid=true;
+            originalBatchJob=new OriginalBatchJob{
+                State="needsOperator",Step="journal-integrity-repair-required"
+            };
+        }
+    }
 
     public DesktopWorldBackupBridge(ClusterService cluster,
         Func<LocalMap,ProcessCheck>? processInspector=null,
@@ -63,6 +109,9 @@ public sealed class DesktopWorldBackupBridge
             LegacyStoreV1OriginalImport.Inspect(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "Kova")));
+        // Read only Manager-owned orchestration metadata; never original Kova
+        // world, shared session, lock or transfer files at bridge creation.
+        LoadOriginalBatch();
     }
     private LocalMap Owned(Guid mapId)
     {
@@ -138,8 +187,10 @@ public sealed class DesktopWorldBackupBridge
     // map transition rechecks the exact original four-file/launch identity.
     // If the Manager exits, already completed points remain in its existing
     // archive history; an interrupted batch is never called successful.
-    private void RunOriginalBatch(OriginalBatchJob job,OriginalBatchTicket ticket)
+    private void RunOriginalBatch(OriginalBatchJob job,OriginalBatchTicket ticket,
+        FileStream processLease)
     {
+        using var ownedLease=processLease;
         try
         {
             for(int index=0;index<ticket.MapIds.Length;index++)
@@ -155,6 +206,7 @@ public sealed class DesktopWorldBackupBridge
                     job.State="running";
                     job.Step="map-"+(index+1);
                     job.ChangedUtc=DateTimeOffset.UtcNow;
+                    PublishOriginalBatch(job);
                 }
                 Stopped(map);
                 var point=KovaCompatibleWorldBackup.Create(map,cluster.Store.Root,
@@ -165,6 +217,7 @@ public sealed class DesktopWorldBackupBridge
                         point.Files,point.Bytes));
                     job.TotalBytes=checked(job.TotalBytes+point.Bytes);
                     job.ChangedUtc=DateTimeOffset.UtcNow;
+                    PublishOriginalBatch(job);
                 }
             }
             var (afterSource,afterMaps)=RequireOriginalStoppedFive();
@@ -177,6 +230,7 @@ public sealed class DesktopWorldBackupBridge
                 job.State="completed";
                 job.Step="verified";
                 job.ChangedUtc=DateTimeOffset.UtcNow;
+                PublishOriginalBatch(job);
             }
         }
         catch(Exception)
@@ -188,6 +242,8 @@ public sealed class DesktopWorldBackupBridge
                 job.State="needsOperator";
                 job.Step="review-completed-per-map-points";
                 job.ChangedUtc=DateTimeOffset.UtcNow;
+                try{PublishOriginalBatch(job);}
+                catch(Exception){/* Retain previous durable interrupted phase. */}
             }
         }
     }
@@ -213,11 +269,67 @@ public sealed class DesktopWorldBackupBridge
                 "backup.scheduleStatus" or "backup.scheduleCreate" or
                 "backup.scheduleDisable" or
                 "backup.originalBatchPreview" or "backup.originalBatchCreate" or
-                "backup.originalBatchStatus"))
+                "backup.originalBatchStatus" or
+                "backup.originalBatchJournalRepairPreview" or
+                "backup.originalBatchJournalRepairApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
             {
+                if(method=="backup.originalBatchJournalRepairPreview")
+                {
+                    repairApproval=null;
+                    if(!originalBatchJournalInvalid)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOURNAL-VALID");
+                    var (source,maps)=RequireOriginalStoppedFive();
+                    string digest=OriginalStoreFiveBatchJournal.RawDigest(cluster.Store.Root);
+                    repairApproval=new RepairApproval(Guid.NewGuid(),
+                        source.FourFilesSha256,source.LaunchProfileSha256,digest,
+                        DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new{
+                        token=repairApproval.Token,localMaps=maps.Length,
+                        confirmedStopped=true,originalSourcePinned=true,
+                        requiresTypedApproval=true,
+                        repairScope="MANAGER_LOCAL_BATCH_JOURNAL_QUARANTINE_ONLY",
+                        originalKovaFilesWritten=false,serverStarted=false
+                    });
+                }
+                if(method=="backup.originalBatchJournalRepairApply")
+                {
+                    if(repairApproval==null||
+                       !root.TryGetProperty("token",out var repairToken)||
+                       repairToken.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(repairToken.GetString(),out var repairPermit)||
+                       repairPermit!=repairApproval.Token||
+                       !root.TryGetProperty("confirm",out var consent)||
+                       consent.ValueKind!=JsonValueKind.True||
+                       !root.TryGetProperty("typedApproval",out var words)||
+                       words.ValueKind!=JsonValueKind.String||
+                       words.GetString()!="REVIEW FIVE BACKUPS")
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-REPAIR-APPROVAL");
+                    var approved=repairApproval;repairApproval=null;
+                    if(!originalBatchJournalInvalid||
+                       DateTimeOffset.UtcNow>approved.ExpiresUtc)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-REPAIR-EXPIRED");
+                    var (source,maps)=RequireOriginalStoppedFive();
+                    if(maps.Length!=5||
+                       source.FourFilesSha256!=approved.FourSha||
+                       source.LaunchProfileSha256!=approved.LaunchSha)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-REPAIR-SOURCE-CHANGED");
+                    using var lease=OriginalStoreFiveBatchJournal.AcquireBatchLease(
+                        cluster.Store.Root);
+                    OriginalStoreFiveBatchJournal.QuarantineInvalid(
+                        cluster.Store.Root,approved.JournalSha);
+                    originalBatchJournalInvalid=false;
+                    originalBatchJob=null;
+                    return Ok(id,new{
+                        reviewed=true,quarantined=true,
+                        originalKovaFilesWritten=false,serverStarted=false,
+                        oldBackupPackagesPreserved=true,
+                        nextBackupRequiresNewApproval=true,
+                        evidence="MANAGER_LOCAL_CORRUPT_BATCH_JOURNAL_OPERATOR_QUARANTINE"
+                    });
+                }
                 if(method=="backup.originalBatchStatus")
                 {
                     lock(originalBatchSync)
@@ -243,6 +355,8 @@ public sealed class DesktopWorldBackupBridge
                 }
                 if(method=="backup.originalBatchPreview")
                 {
+                    if(originalBatchJournalInvalid)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOURNAL-INVALID");
                     originalBatchPending=null;
                     lock(originalBatchSync)
                         if(originalBatchJob?.State is "queued" or "running")
@@ -287,15 +401,36 @@ public sealed class DesktopWorldBackupBridge
                     // Return a real tracked job immediately: a multi-GB
                     // five-map copy must not monopolize the entire Manager
                     // WebView bridge for up to 60 minutes.
+                    // FileShare.None is an OS-wide exclusive lease. A second
+                    // Manager process cannot start an interleaving five-map
+                    // backup while another holds the same local profile.
+                    var lease=OriginalStoreFiveBatchJournal.AcquireBatchLease(
+                        cluster.Store.Root);
                     OriginalBatchJob job;
-                    lock(originalBatchSync)
+                    bool leaseTransferred=false;
+                    try
                     {
-                        if(originalBatchJob?.State is "queued" or "running")
-                            return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-BUSY");
-                        job=new OriginalBatchJob();
-                        originalBatchJob=job;
+                        lock(originalBatchSync)
+                        {
+                            if(originalBatchJournalInvalid)
+                                return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOURNAL-INVALID");
+                            if(originalBatchJob?.State is "queued" or "running")
+                                return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-BUSY");
+                            OriginalStoreFiveBatchJournal.ArchivePrevious(cluster.Store.Root);
+                            job=new OriginalBatchJob{
+                                FourFilesSha=approved.FourFilesSha,
+                                LaunchProfileSha=approved.LaunchProfileSha
+                            };
+                            PublishOriginalBatch(job); // durable QUEUED before worker
+                            originalBatchJob=job;
+                        }
+                        _=Task.Run(()=>RunOriginalBatch(job,approved,lease));
+                        leaseTransferred=true;
                     }
-                    _=Task.Run(()=>RunOriginalBatch(job,approved));
+                    finally
+                    {
+                        if(!leaseTransferred)lease.Dispose();
+                    }
                     return Ok(id,new{
                         jobId=job.Id,started=true,localMaps=5,
                         originalKovaFilesWritten=false,serverStarted=false,

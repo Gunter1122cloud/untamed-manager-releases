@@ -150,6 +150,36 @@ public static class MultiHostClusterBackupBridgeTests
         var membership = service.Registry.PreviewMapAssignments(clusterId, new[] { map.Id });
         service.Registry.ApplyMapAssignments(clusterId, new[] { map.Id }, membership.BaseRevision);
         string catalogPath = Catalog(sourceRoot, service, out var catalogModel);
+        File.Delete(catalogPath);
+        var catalogChoices=new Queue<string?>();
+        using(var catalogBridge=new DesktopMultiHostClusterBackupBridge(service,
+            _=>catalogChoices.Dequeue()))
+        {
+            catalogChoices.Enqueue(sourceRoot);
+            var catalogPreview=await Call(catalogBridge,"cluster.multiHostCatalogPreview");
+            Check(catalogPreview.GetProperty("ok").GetBoolean()&&
+                  catalogPreview.GetProperty("data").GetProperty("maps").GetInt32()==1&&
+                  catalogPreview.GetProperty("data").GetProperty("copiedTransferIncluded").GetBoolean(),
+                "native offline root picker detects all map, Store and transfer copy payloads");
+            string permission=catalogPreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            var noConsent=await Call(catalogBridge,"cluster.multiHostCatalogApply",
+                new{token=permission,confirm=false});
+            Check(!noConsent.GetProperty("ok").GetBoolean()&&!File.Exists(catalogPath),
+                "native offline catalog creation requires explicit operator consent");
+            var created=await Call(catalogBridge,"cluster.multiHostCatalogApply",
+                new{token=permission,confirm=true});
+            Check(created.GetProperty("ok").GetBoolean()&&
+                  created.GetProperty("data").GetProperty("created").GetBoolean()&&
+                  File.Exists(catalogPath),
+                "native operator approval writes one real complete v1 archive catalog");
+            catalogModel=JsonSerializer.Deserialize<MultiHostBackupCatalog>(
+                File.ReadAllText(catalogPath))!;
+            var replay=await Call(catalogBridge,"cluster.multiHostCatalogApply",
+                new{token=permission,confirm=true});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "one-use catalog approval cannot be replayed to mutate another archive");
+        }
         string protectedCatalogPath = Path.Combine(liveMapRoot, "multi-host-backup-catalog.json");
         File.Copy(catalogPath, protectedCatalogPath);
         var choices = new Queue<string?>();

@@ -444,7 +444,9 @@ public sealed class ObsidianWindow : Form
                             "backup.create" or "backup.restorePreview" or "backup.restore" or
                             "backup.scheduleStatus" or "backup.scheduleCreate" or
                             "backup.scheduleDisable" or "backup.originalBatchPreview" or
-                            "backup.originalBatchCreate" or "backup.originalBatchStatus";
+                            "backup.originalBatchCreate" or "backup.originalBatchStatus" or
+                            "backup.originalBatchJournalRepairPreview" or
+                            "backup.originalBatchJournalRepairApply";
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";
@@ -459,7 +461,9 @@ public sealed class ObsidianWindow : Form
                             "cluster.offlineApply" or "cluster.offlineStatus";
                         offlineRestoreLabRoute = name is "cluster.restoreLabPreview" or
                             "cluster.restoreLabApply" or "cluster.restoreLabStatus";
-                        multiHostBackupRoute = name is "cluster.multiHostBackupPreview" or
+                        multiHostBackupRoute = name is "cluster.multiHostCatalogPreview" or
+                            "cluster.multiHostCatalogApply" or
+                            "cluster.multiHostBackupPreview" or
                             "cluster.multiHostBackupApply" or "cluster.multiHostBackupStatus" or
                             "cluster.multiHostRestorePreview" or "cluster.multiHostRestoreApply" or
                             "cluster.multiHostRestoreReplacePreview" or "cluster.multiHostRestoreReplaceApply" or

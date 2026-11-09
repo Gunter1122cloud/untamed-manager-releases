@@ -579,6 +579,17 @@ export type OriginalFiveMapBackupStatus={
   serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
   evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM";
 };
+export type OriginalFiveMapJournalRepairPreview={
+  token:string;localMaps:5;confirmedStopped:true;originalSourcePinned:true;
+  requiresTypedApproval:true;repairScope:"MANAGER_LOCAL_BATCH_JOURNAL_QUARANTINE_ONLY";
+  originalKovaFilesWritten:false;serverStarted:false;
+};
+export type OriginalFiveMapJournalRepairReceipt={
+  reviewed:true;quarantined:true;originalKovaFilesWritten:false;
+  serverStarted:false;oldBackupPackagesPreserved:true;
+  nextBackupRequiresNewApproval:true;
+  evidence:"MANAGER_LOCAL_CORRUPT_BATCH_JOURNAL_OPERATOR_QUARANTINE";
+};
 export type OriginalFiveMapBackupReceipt={
   localMaps:5;
   points:{mapId:string;mapName:string;point:string;files:number;bytes:number}[];
@@ -1128,6 +1139,22 @@ export type OfflineAsaArchiveStatus = {
   productionRestoreAllowed:false;sqlUsed:false;evidence:string;
 };
 
+export type MultiHostCatalogPreview = {
+  token:string;hosts:number;clusters:number;maps:number;
+  components:number;bytes:number;copiedTransferIncluded:boolean;
+  copiedProfilesIncluded:boolean;copiedTribesIncluded:boolean;
+  requiresExplicitApproval:true;offlineCopiesOnly:true;
+  liveConsistencyCertified:false;storeWriterCertified:false;
+  productionRestoreAllowed:false;originalStoreTouched:false;
+  evidence:"CURRENT_NHOST_REGISTRY_AND_COMPLETE_OFFLINE_SOURCE_INVENTORY";
+};
+export type MultiHostCatalogCreated = {
+  created:true;batchId:string;hosts:number;clusters:number;maps:number;
+  components:number;bytes:number;catalogName:string;
+  offlineCopiesOnly:true;originalStoreTouched:false;
+  productionRestoreAllowed:false;
+  evidence:"EXISTING_MULTIHOST_ARCHIVE_V1_VALIDATED_CATALOG_CREATED";
+};
 export type MultiHostClusterBackupPreview = {
   token:string;batchId:string;archiveName:string;
   hosts:number;clusters:number;maps:number;components:number;bytes:number;
@@ -1242,6 +1269,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.copyPreview" | "mods.copyApply" |
   "mods.profileExport" | "mods.profileImportPreview" | "mods.profileImportApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
+  "cluster.multiHostCatalogPreview" | "cluster.multiHostCatalogApply" |
   "cluster.multiHostBackupPreview" | "cluster.multiHostBackupApply" | "cluster.multiHostBackupStatus" |
   "cluster.multiHostRestorePreview" | "cluster.multiHostRestoreApply" | "cluster.multiHostRestoreStatus" |
   "cluster.multiHostRestoreReplacePreview" | "cluster.multiHostRestoreReplaceApply" |
@@ -1278,7 +1306,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
-  "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" |
+  "backup.originalBatchPreview" | "backup.originalBatchCreate" | "backup.originalBatchStatus" | "backup.originalBatchJournalRepairPreview" | "backup.originalBatchJournalRepairApply" |
   "backup.restorePreview" | "backup.restore" |
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
   "cluster.registry.snapshot" | "cluster.host.register" | "cluster.map.register" |
@@ -1533,6 +1561,12 @@ export const managerBridge = {
     }),
   backupOriginalFiveStatus: (jobId?:string) =>
     request<OriginalFiveMapBackupStatus>("backup.originalBatchStatus",jobId?{jobId}:{}),
+  backupOriginalFiveJournalRepairPreview: () =>
+    request<OriginalFiveMapJournalRepairPreview>("backup.originalBatchJournalRepairPreview"),
+  backupOriginalFiveJournalRepairApply: (token:string,typedApproval:string) =>
+    request<OriginalFiveMapJournalRepairReceipt>("backup.originalBatchJournalRepairApply",{
+      token,typedApproval,confirm:true
+    }),
   backupRestorePreview: (mapId:string,point:string) =>
     request<WorldBackupPreview>("backup.restorePreview",{mapId,point}),
   backupRestore: (token:string,mapName:string) =>
@@ -1567,6 +1601,10 @@ export const managerBridge = {
     request<OfflineAsaArchiveStarted>("cluster.offlineApply",{token,confirm:true}),
   offlineArchiveStatus: (jobId:string) =>
     request<OfflineAsaArchiveStatus>("cluster.offlineStatus",{jobId}),
+  multiHostCatalogPreview: () =>
+    request<MultiHostCatalogPreview>("cluster.multiHostCatalogPreview"),
+  multiHostCatalogApply: (token:string) =>
+    request<MultiHostCatalogCreated>("cluster.multiHostCatalogApply",{token,confirm:true}),
   multiHostBackupPreview: () =>
     request<MultiHostClusterBackupPreview>("cluster.multiHostBackupPreview"),
   multiHostBackupApply: (token:string) =>

@@ -17,6 +17,9 @@ namespace UntamedDesktop;
 /// </summary>
 public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
 {
+    private sealed record CatalogApproval(Guid Token,string Root,
+        string Fingerprint,long RegistryRevision,DateTimeOffset ExpiresUtc);
+    private CatalogApproval? catalogApproval;
     private sealed record BackupApproval(Guid Token, string CatalogFile,
         string CatalogRoot, string Parent, Guid BatchId, long RegistryRevision,
         DateTimeOffset ExpiresUtc);
@@ -211,7 +214,8 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 return Fail(null, "UM-MULTIHOST-BACKUP-REQUEST");
             id = parsedId.ToString("D");
             string? method = methodRaw.GetString();
-            if (method is not ("cluster.multiHostBackupPreview" or "cluster.multiHostBackupApply" or
+            if (method is not ("cluster.multiHostCatalogPreview" or "cluster.multiHostCatalogApply" or
+                "cluster.multiHostBackupPreview" or "cluster.multiHostBackupApply" or
                 "cluster.multiHostBackupStatus" or "cluster.multiHostRestorePreview" or
                 "cluster.multiHostRestoreApply" or "cluster.multiHostRestoreStatus" or
                 "cluster.multiHostRestoreReplacePreview" or "cluster.multiHostRestoreReplaceApply" or
@@ -222,6 +226,70 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
             await gate.WaitAsync();
             try
             {
+                if (method == "cluster.multiHostCatalogPreview")
+                {
+                    catalogApproval=null;
+                    string? path=pickFolder("Válaszd ki a már leállított szerverekről ELKÜLÖNÍTETTEN kimásolt host/map/cluster/transfer mappákat");
+                    if(string.IsNullOrWhiteSpace(path))
+                        return Fail(id,"UM-MULTIHOST-AUTOCATALOG-CANCELLED");
+                    string full=LocalPath(path);
+                    var registry=cluster.Registry.Snapshot();
+                    var inspected=MultiHostOfflineCatalogAssembler.Inspect(
+                        full,OwnershipSnapshot(registry),ProtectedRoots(cluster));
+                    catalogApproval=new CatalogApproval(Guid.NewGuid(),full,
+                        inspected.Fingerprint,registry.Revision,DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new{
+                        token=catalogApproval.Token,
+                        hosts=inspected.Catalog.Hosts.Length,
+                        clusters=inspected.Catalog.Clusters.Length,
+                        maps=inspected.Catalog.Maps.Length,
+                        components=inspected.FileCount,bytes=inspected.Bytes,
+                        copiedTransferIncluded=inspected.Catalog.Items.Any(x=>
+                            x.Kind==MultiHostBackupComponentKind.ClusterTransferFile),
+                        copiedProfilesIncluded=inspected.Catalog.Items.Any(x=>
+                            x.Kind==MultiHostBackupComponentKind.MapProfile),
+                        copiedTribesIncluded=inspected.Catalog.Items.Any(x=>
+                            x.Kind==MultiHostBackupComponentKind.MapTribe),
+                        requiresExplicitApproval=true,offlineCopiesOnly=true,
+                        liveConsistencyCertified=false,storeWriterCertified=false,
+                        productionRestoreAllowed=false,originalStoreTouched=false,
+                        evidence="CURRENT_NHOST_REGISTRY_AND_COMPLETE_OFFLINE_SOURCE_INVENTORY"
+                    });
+                }
+                if (method == "cluster.multiHostCatalogApply")
+                {
+                    if(catalogApproval==null||
+                       !request.TryGetProperty("token",out var ticket)||
+                       ticket.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(ticket.GetString(),out var provided)||
+                       catalogApproval.Token!=provided||
+                       !request.TryGetProperty("confirm",out var consent)||
+                       consent.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-MULTIHOST-AUTOCATALOG-APPROVAL");
+                    var approved=catalogApproval;
+                    catalogApproval=null;
+                    if(approved.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-MULTIHOST-AUTOCATALOG-EXPIRED");
+                    var registry=cluster.Registry.Snapshot();
+                    if(registry.Revision!=approved.RegistryRevision)
+                        return Fail(id,"UM-MULTIHOST-AUTOCATALOG-REGISTRY-CHANGED");
+                    string[] forbidden=ProtectedRoots(cluster);
+                    var catalog=MultiHostOfflineCatalogAssembler.Publish(
+                        approved.Root,OwnershipSnapshot(registry),
+                        approved.Fingerprint,forbidden);
+                    var preview=Inspect(Path.Combine(approved.Root,CatalogFileName),registry);
+                    if(preview.BatchId!=catalog.BatchId||
+                       preview.Components!=catalog.Items.Length)
+                        throw new IOException("UM-MULTIHOST-AUTOCATALOG-FINAL-CHECK");
+                    return Ok(id,new{
+                        created=true,batchId=catalog.BatchId,hosts=preview.Hosts,
+                        clusters=preview.Clusters,maps=preview.Maps,
+                        components=preview.Components,bytes=preview.Bytes,
+                        catalogName=CatalogFileName,offlineCopiesOnly=true,
+                        originalStoreTouched=false,productionRestoreAllowed=false,
+                        evidence="EXISTING_MULTIHOST_ARCHIVE_V1_VALIDATED_CATALOG_CREATED"
+                    });
+                }
                 if (method is "cluster.multiHostBackupStatus" or "cluster.multiHostRestoreStatus")
                 {
                     if (!request.TryGetProperty("jobId", out var jobRaw) || jobRaw.ValueKind != JsonValueKind.String ||
