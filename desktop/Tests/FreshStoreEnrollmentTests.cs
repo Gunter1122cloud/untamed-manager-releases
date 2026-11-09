@@ -27,6 +27,20 @@ internal static class FreshStoreEnrollmentTests
             await bridge.HandleAsync(JsonSerializer.Serialize(request)));
         return response.RootElement.Clone();
     }
+    private static async Task<JsonElement> CallStart(DesktopFreshAsaStartBridge bridge,
+        string method,object? parameters=null)
+    {
+        var request=new System.Collections.Generic.Dictionary<string,object?>{
+            ["id"]=Guid.NewGuid().ToString("D"),["method"]=method
+        };
+        if(parameters!=null)
+            foreach(var entry in JsonSerializer.SerializeToElement(parameters).EnumerateObject())
+                request[entry.Name]=entry.Value.Clone();
+        using var response=JsonDocument.Parse(
+            await bridge.HandleAsync(JsonSerializer.Serialize(request)));
+        return response.RootElement.Clone();
+    }
+
     private static void Reject(Action operation,string reason)
     {
         bool denied=false;
@@ -129,6 +143,49 @@ internal static class FreshStoreEnrollmentTests
                   !enrolled.AutoStart&&
                   UntamedWorldBackup.HasLiveOrHistoricalStore(enrolled),
                 "new Store is durable and distinct from Kova archive, conversion and autostart");
+            Check(manager.Check(enrolled).ConfirmedStopped&&
+                  !manager.Check(enrolled).Running,
+                "new Store map uses local native process observation, not historical Kova guard");
+            // Start preview/approval is exercised with a synthetic launcher.
+            // No ASA process is spawned, and the result deliberately does
+            // not certify RCON readiness, characters, or cross-host travel.
+            int syntheticStartCalls=0;
+            using(var startBridge=new DesktopFreshAsaStartBridge(manager,
+                (id,approved)=>{
+                    syntheticStartCalls++;
+                    Check(id==mapId&&approved,
+                        "new Store Start routes to exactly the selected local map");
+                    return new ProcessIdentity{
+                        Pid=65217,StartedUtc=DateTimeOffset.UtcNow,
+                        ExecutablePath=enrolled.ExecutablePath,
+                        Arguments=enrolled.Arguments
+                    };
+                }))
+            {
+                var pre=await CallStart(startBridge,
+                    "servers.freshStartPreview",new{mapId});
+                Check(pre.GetProperty("ok").GetBoolean()&&
+                      !pre.GetProperty("data").GetProperty("serverStarted").GetBoolean()&&
+                      syntheticStartCalls==0,
+                    "new Store Start preview is guarded and has no process side effect");
+                string approvedToken=pre.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                var refused=await CallStart(startBridge,
+                    "servers.freshStartApply",new{token=approvedToken,confirm=false});
+                Check(!refused.GetProperty("ok").GetBoolean()&&syntheticStartCalls==0,
+                    "unapproved new Store Start dispatches no command");
+                var accepted=await CallStart(startBridge,
+                    "servers.freshStartApply",new{token=approvedToken,confirm=true});
+                Check(accepted.GetProperty("ok").GetBoolean()&&
+                      accepted.GetProperty("data").GetProperty("pid").GetInt32()==65217&&
+                      !accepted.GetProperty("data").GetProperty("readyCertified").GetBoolean()&&
+                      syntheticStartCalls==1,
+                    "new Store Start can reach approved native lifecycle without claiming ASA readiness");
+                var replay=await CallStart(startBridge,
+                    "servers.freshStartApply",new{token=approvedToken,confirm=true});
+                Check(!replay.GetProperty("ok").GetBoolean()&&syntheticStartCalls==1,
+                    "new Store Start approval token is strictly one shot");
+            }
             Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,enrolled,"new-local-cluster"),
                 "enrolled Store cannot be enrolled or converted again");
             var profileChange=JsonSerializer.Deserialize<LocalMap>(
