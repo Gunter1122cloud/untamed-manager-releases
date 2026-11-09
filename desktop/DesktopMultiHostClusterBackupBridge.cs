@@ -17,6 +17,9 @@ namespace UntamedDesktop;
 /// </summary>
 public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
 {
+    private sealed record HostStageApproval(Guid Token,MultiHostHostRestoreStaging.Plan Plan,
+        long Revision,DateTimeOffset ExpiresUtc);
+    private HostStageApproval? hostStageApproval;
     private sealed record CatalogApproval(Guid Token,string Root,
         string Fingerprint,long RegistryRevision,DateTimeOffset ExpiresUtc);
     private CatalogApproval? catalogApproval;
@@ -174,6 +177,8 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 serverProcessTouched = false,
                 evidence = job.Kind == "restore"
                     ? "ISOLATED_TEMP_RESTORE_TRANSACTION_SHA256_VERIFIED"
+                    : job.Kind == "hoststage"
+                    ? "LOCAL_HOST_FULL_MAP_STORE_TRANSFER_STAGE_SHA256_VERIFIED_NO_LIVE_CUTOVER"
                     : "OFFLINE_MULTI_HOST_COPY_SHA256_VERIFIED"
             };
     }
@@ -218,7 +223,9 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 return Fail(null, "UM-MULTIHOST-BACKUP-REQUEST");
             id = parsedId.ToString("D");
             string? method = methodRaw.GetString();
-            if (method is not ("cluster.multiHostBackupRecoveryPreview" or
+            if (method is not ("cluster.multiHostHostStagePreview" or
+                "cluster.multiHostHostStageApply" or "cluster.multiHostHostStageStatus" or
+                "cluster.multiHostBackupRecoveryPreview" or
                 "cluster.multiHostBackupRecoveryApply" or
                 "cluster.multiHostCatalogPreview" or "cluster.multiHostCatalogApply" or
                 "cluster.multiHostBackupPreview" or "cluster.multiHostBackupApply" or
@@ -232,6 +239,41 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
             await gate.WaitAsync();
             try
             {
+                if (method == "cluster.multiHostHostStagePreview")
+                {
+                    hostStageApproval=null;
+                    if(current!=null)
+                    {
+                        lock(current)
+                            if(current.State is "queued" or "running")
+                                return Fail(id,"UM-HOSTRESTORE-JOB-BUSY");
+                    }
+                    string? sandbox=pickFolder("Válaszd ki a KORÁBBAN ellenőrzötten elkészült TEMP többgépes restore sandboxot");
+                    if(string.IsNullOrWhiteSpace(sandbox))
+                        return Fail(id,"UM-HOSTRESTORE-CANCELLED");
+                    string? parent=pickFolder("Válassz külön, ÜRES cél szülőmappát a HELYI host offline restore állományához – ne éles ASA/Kova telepítést");
+                    if(string.IsNullOrWhiteSpace(parent))
+                        return Fail(id,"UM-HOSTRESTORE-CANCELLED");
+                    var registry=cluster.Registry.Snapshot();
+                    var ownership=OwnershipSnapshot(registry);
+                    var plan=MultiHostHostRestoreStaging.Inspect(
+                        LocalPath(sandbox),ownership.LocalHostId,
+                        LocalPath(parent),ownership,ProtectedRoots(cluster));
+                    hostStageApproval=new HostStageApproval(Guid.NewGuid(),plan,
+                        registry.Revision,DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new{
+                        token=hostStageApproval.Token,
+                        hostId=plan.HostId,batchId=plan.BatchId,
+                        maps=plan.Maps,clusters=plan.Clusters,
+                        components=plan.Components,bytes=plan.Bytes,
+                        stageDirectoryName=plan.StageDirectoryName,
+                        requiresExplicitApproval=true,sourceSandboxVerified=true,
+                        allSharedClusterFilesIncluded=true,
+                        originalStoreTouched=false,productionRestoreAllowed=false,
+                        remoteHostWritten=false,liveCutoverCertified=false,
+                        evidence="EXACT_LOCAL_HOST_AND_SHARED_CLUSTER_SANDBOX_SHA256_PREFLIGHT"
+                    });
+                }
                 if (method == "cluster.multiHostBackupRecoveryPreview")
                 {
                     archiveRecoveryApproval=null;
@@ -323,13 +365,19 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         evidence="EXISTING_MULTIHOST_ARCHIVE_V1_VALIDATED_CATALOG_CREATED"
                     });
                 }
-                if (method is "cluster.multiHostBackupStatus" or "cluster.multiHostRestoreStatus")
+                if (method is "cluster.multiHostBackupStatus" or
+                    "cluster.multiHostRestoreStatus" or "cluster.multiHostHostStageStatus")
                 {
                     if (!request.TryGetProperty("jobId", out var jobRaw) || jobRaw.ValueKind != JsonValueKind.String ||
                         !Guid.TryParse(jobRaw.GetString(), out var jobId) || current == null || current.Id != jobId)
                         return Fail(id, "UM-MULTIHOST-BACKUP-JOB-NOT-FOUND");
-                    bool expectsRestore = method == "cluster.multiHostRestoreStatus";
-                    if (expectsRestore != (current.Kind == "restore"))
+                    bool allowedJob=(method=="cluster.multiHostRestoreStatus"&&
+                            current.Kind=="restore")||
+                        (method=="cluster.multiHostHostStageStatus"&&
+                            current.Kind=="hoststage")||
+                        (method=="cluster.multiHostBackupStatus"&&
+                            current.Kind=="backup");
+                    if(!allowedJob)
                         return Fail(id, "UM-MULTIHOST-BACKUP-JOB-KIND");
                     return Ok(id, Snapshot(current));
                 }
@@ -476,6 +524,7 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                             return Fail(id, "UM-MULTIHOST-BACKUP-BUSY");
                 }
 
+                bool hostStageApply=method=="cluster.multiHostHostStageApply";
                 bool backup = method == "cluster.multiHostBackupApply";
                 bool archiveRecoveryApply=method=="cluster.multiHostBackupRecoveryApply";
                 bool replaceSandboxApply = method == "cluster.multiHostRestoreReplaceApply";
@@ -484,6 +533,73 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                     !Guid.TryParse(tokenField.GetString(), out var tokenValue) ||
                     !request.TryGetProperty("confirm", out var confirm) || confirm.ValueKind != JsonValueKind.True)
                     return Fail(id, "UM-MULTIHOST-BACKUP-APPROVAL-REQUIRED");
+
+                if(hostStageApply)
+                {
+                    var approval=hostStageApproval;
+                    hostStageApproval=null;
+                    if(approval==null||approval.Token!=tokenValue||
+                       approval.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-HOSTRESTORE-APPROVAL-EXPIRED");
+                    var registry=cluster.Registry.Snapshot();
+                    if(registry.Revision!=approval.Revision)
+                        return Fail(id,"UM-HOSTRESTORE-REGISTRY-CHANGED");
+                    var owner=OwnershipSnapshot(registry);
+                    if(owner.LocalHostId!=approval.Plan.HostId)
+                        return Fail(id,"UM-HOSTRESTORE-HOST-IDENTITY-CHANGED");
+                    string[] blocked=ProtectedRoots(cluster);
+                    var now=MultiHostHostRestoreStaging.Inspect(
+                        approval.Plan.SourceSandbox,owner.LocalHostId,
+                        approval.Plan.Parent,owner,blocked);
+                    if(now!=approval.Plan)
+                        return Fail(id,"UM-HOSTRESTORE-SOURCE-CHANGED");
+                    string target=Path.Combine(now.Parent,now.StageDirectoryName);
+                    var lease=MultiHostOfflineArchiveRecovery.AcquireLease(target);
+                    var task=new Job{Kind="hoststage",Hosts=1,Maps=now.Maps,
+                        Clusters=now.Clusters,Components=now.Components,
+                        Bytes=now.Bytes};
+                    try
+                    {
+                        current=task;
+                        currentCancellation?.Dispose();
+                        currentCancellation=new CancellationTokenSource();
+                        var cancel=currentCancellation.Token;
+                        _=Task.Run(()=>
+                        {
+                            using(lease)
+                            {
+                                try
+                                {
+                                    Set(task,"running","COPYING_LOCAL_HOST_AND_SHARED_CLUSTER",null);
+                                    var result=MultiHostHostRestoreStaging.Stage(
+                                        now,owner,blocked,cancel);
+                                    if(result.BatchId!=now.BatchId||
+                                       result.ProductionRestoreAllowed||
+                                       result.Components.Length!=now.Components)
+                                        throw new InvalidDataException("UM-HOSTRESTORE-FINAL-RECEIPT");
+                                    Set(task,"completed","LOCAL_HOST_STAGE_SHA256_VERIFIED",
+                                        null,now.StageDirectoryName);
+                                }
+                                catch(Exception)
+                                {
+                                    Set(task,"needsOperator",
+                                        "HOST_STAGE_INCOMPLETE_OPERATOR_REVIEW_REQUIRED");
+                                }
+                            }
+                        });
+                        return Ok(id,new{
+                            jobId=task.Id,started=true,hostId=now.HostId,
+                            originalStoreTouched=false,remoteHostWritten=false,
+                            productionRestoreAllowed=false,
+                            evidence="APPROVED_LOCAL_HOST_OFFLINE_RESTORE_STAGE_STARTED"
+                        });
+                    }
+                    catch
+                    {
+                        lease.Dispose();
+                        throw;
+                    }
+                }
 
                 if(archiveRecoveryApply)
                 {
