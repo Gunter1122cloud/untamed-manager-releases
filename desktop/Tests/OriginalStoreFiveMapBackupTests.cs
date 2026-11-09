@@ -118,7 +118,7 @@ internal static class OriginalStoreFiveMapBackupTests
         var changed=await Call(bridge,"backup.originalBatchCreate",
             new{token,confirm=true});
         Check(!changed.GetProperty("ok").GetBoolean()&&
-              maps.All(map=>KovaCompatibleWorldBackup.List(
+              maps.All(map=>UntamedWorldBackup.List(
                   map,cluster.Store.Root).Length==0),
             "source fingerprint change rejects without creating any backup point");
         currentSource=new(sourceSha,launchSha,mapRows.ToArray());
@@ -141,10 +141,10 @@ internal static class OriginalStoreFiveMapBackupTests
                   new FileInfo(Path.Combine(layout.WorldDirectory,
                     "legacy-player-"+maps.IndexOf(map)+".arkprofile")).Length==0,
                 "all original world/profile bytes remain untouched by batch");
-            Check(KovaCompatibleWorldBackup.List(map,cluster.Store.Root).Length==1,
+            Check(UntamedWorldBackup.List(map,cluster.Store.Root).Length==1,
                 "five-map backup uses existing per-map archive history");
         }
-        Check(KovaCompatibleWorldBackup.List(independent,cluster.Store.Root).Length==0,
+        Check(UntamedWorldBackup.List(independent,cluster.Store.Root).Length==0,
             "sixth unrelated historical map remains untouched by original five-map batch");
         var replay=await Call(bridge,"backup.originalBatchCreate",
             new{token=approved,confirm=true});
