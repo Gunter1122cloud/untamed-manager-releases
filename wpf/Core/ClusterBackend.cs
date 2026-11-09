@@ -598,6 +598,9 @@ public sealed partial class ClusterService : IAsyncDisposable
     private readonly Func<LocalMap, ProcessCheck> _inspect;
     private readonly bool _customInspector;
     private readonly Func<LegacyStoreV1PeerProof?> _legacyStoreProof;
+    private readonly Func<string,LegacyStoreV1PhysicalTransferWitness> _physicalStoreProbe;
+    private readonly object _physicalWitnessGate=new();
+    private LegacyStoreV1PhysicalTransferWitness? _physicalWitness;
     // Dashboard/LAN telemetry is NOT a lifecycle safety decision.
     // Short caching avoids scanning every Windows process ten times on
     // every polling tick across two managers. Start/Stop/Restore always
@@ -628,13 +631,24 @@ public sealed partial class ClusterService : IAsyncDisposable
     }
     public ClusterService(string profile = "default",string? rootOverride=null,
         Func<LocalMap, ProcessCheck>? inspect = null,
-        Func<LegacyStoreV1PeerProof?>? legacyStoreProof=null)
+        Func<LegacyStoreV1PeerProof?>? legacyStoreProof=null,
+        Func<string,LegacyStoreV1PhysicalTransferWitness>? physicalStoreProbe=null)
     {
         Store=new ConfigStore(profile,rootOverride);
         Operations=new UntamedOperationCoordinator();
         _legacyStoreProof=legacyStoreProof??(rootOverride==null
             ?()=>LegacyStoreV1PeerProof.FromCurrentUserLegacyProfile()
             :()=>null);
+        // No implicit SMB probing in dashboard telemetry, background status,
+        // synthetic profiles or Manager startup. A user must explicitly
+        // request one read-only physical UNC witness per host. Test profiles
+        // cannot accidentally probe the real current-user Kova directory.
+        _physicalStoreProbe=physicalStoreProbe??(rootOverride==null
+            ?hostId=>LegacyStoreV1PhysicalTransferEvidence.Capture(
+                Path.Combine(Environment.GetFolderPath(
+                    Environment.SpecialFolder.ApplicationData),"Kova"),hostId)
+            :_=>throw new UnauthorizedAccessException(
+                "UM-STORE-PHYSICAL-SYNTHETIC-PROFILE-NOT-PROBED"));
         Config=Store.EnsureInitialized();
         if(Config.LanPeers==null)Config.LanPeers=new List<LanPeerConfig>();
         if(Config.LanPeers.Count==0 && Guid.TryParse(Config.ExpectedPeerHostId,out var legacyPeerId) &&
@@ -660,7 +674,52 @@ public sealed partial class ClusterService : IAsyncDisposable
         _customInspector=inspect!=null;
         _inspect=inspect ?? _inspector.Inspect;
     }
-    public LegacyStoreV1PeerProof? ReadLegacyStoreV1PeerProof()=>_legacyStoreProof();
+    public LegacyStoreV1PhysicalTransferWitness InspectLocalPhysicalTransferWitness()
+    {
+        // Must be triggered by the local operator. Never changes the
+        // original two-peer ACTIVE/DONE session or original shared lock.
+        var observed=_physicalStoreProbe(Config.LocalHostId);
+        var source=_legacyStoreProof();
+        bool sha(string? value)=>value is { Length:64 }&&value.All(Uri.IsHexDigit);
+        if (source?.LocalMetadataValid!=true||!source.SourcePresent||
+            !Guid.TryParse(observed.HostId,out var proofHost)||
+            !Guid.TryParse(Config.LocalHostId,out var configuredHost)||
+            proofHost!=configuredHost||!observed.OriginalMetadataUnchanged||
+            observed.ProductionRestoreAllowed||observed.LiveStoreWriterCertified||
+            !sha(observed.PhysicalDirectoryTag)||
+            observed.SessionTag!=source.SessionTag||
+            observed.SharedPathTag!=source.SharedPathTag||
+            observed.DeviceTag!=source.DeviceTag||
+            observed.OriginalFourFilesTag!=source.OriginalFourFilesTag||
+            observed.ObservedUtc<DateTimeOffset.UtcNow.AddMinutes(-5)||
+            observed.ObservedUtc>DateTimeOffset.UtcNow.AddMinutes(1))
+            throw new InvalidDataException("UM-STORE-PHYSICAL-SOURCE-PROOF-INVALID");
+        lock(_physicalWitnessGate)_physicalWitness=observed;
+        lock(_telemetryGate)_telemetryCache=null;
+        return observed;
+    }
+
+    public LegacyStoreV1PeerProof? ReadLegacyStoreV1PeerProof()
+    {
+        var source=_legacyStoreProof();
+        if(source?.SourcePresent!=true||source.LocalMetadataValid!=true)
+            return source;
+        lock(_physicalWitnessGate)
+        {
+            var proof=_physicalWitness;
+            if(proof!=null&&proof.SessionTag==source.SessionTag&&
+               proof.SharedPathTag==source.SharedPathTag&&
+               proof.DeviceTag==source.DeviceTag&&
+               proof.OriginalFourFilesTag==source.OriginalFourFilesTag&&
+               proof.ObservedUtc>=DateTimeOffset.UtcNow.AddMinutes(-5)&&
+               proof.ObservedUtc<=DateTimeOffset.UtcNow.AddMinutes(1))
+                return source with{
+                    PhysicalDirectoryTag=proof.PhysicalDirectoryTag,
+                    PhysicalObservedUtc=proof.ObservedUtc
+                };
+        }
+        return source;
+    }
     private static LanPeerObservation CopyObservation(LanPeerObservation value)=>new(){
         HostId=value.HostId,HostName=value.HostName,Address=value.Address,Port=value.Port,
         IsFresh=value.IsFresh,LastSuccessUtc=value.LastSuccessUtc,StateCode=value.StateCode,
@@ -1329,7 +1388,7 @@ public sealed partial class ClusterService : IAsyncDisposable
     private HostStatus BuildLocalStatus()
     {
         return new HostStatus{
-            OriginalStoreV1=_legacyStoreProof(),
+            OriginalStoreV1=ReadLegacyStoreV1PeerProof(),
             HostId=Config.LocalHostId,HostName=Config.LocalHostName,ObservedUtc=DateTimeOffset.UtcNow,
             Maps=Config.LocalMaps.Select(map=>{
                 // Historical Store-v1 start remains HARD-LOCKED by Check().

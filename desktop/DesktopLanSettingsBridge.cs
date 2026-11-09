@@ -71,6 +71,8 @@ public sealed class DesktopLanSettingsBridge
                 sameSharedSession=pair.SameSharedSession,sameSharedPath=pair.SameSharedPath,
                 distinctDeviceIds=pair.DistinctDeviceIds,bothHaveFiveActiveMaps=pair.BothHaveFiveActiveMaps,
                 copiedMetadataPairMatches=pair.CopiedMetadataPairMatches,
+                bothPhysicalWitnessesFresh=pair.BothPhysicalWitnessesFresh,
+                samePhysicalTransferDirectory=pair.SamePhysicalTransferDirectory,
                 liveWriterCertified=false,characterTravelVerified=false,statusCode=pair.StatusCode
             },
             hostName=cluster.Config.LocalHostName,localHostId=cluster.Config.LocalHostId,
@@ -104,11 +106,28 @@ public sealed class DesktopLanSettingsBridge
                 return Fail(null,"UM-LAN-INVALID-REQUEST");
             id=requestId.ToString("D");
             var method=methodValue.GetString();
-            if(method is not("lan.status" or "lan.preview" or "lan.apply"))return Fail(id,"UM-METHOD-DENIED");
+            if(method is not("lan.status" or "lan.preview" or "lan.apply" or
+                "lan.physicalStoreProbe"))return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
             {
                 if(method=="lan.status")return Ok(id,Status());
+                if(method=="lan.physicalStoreProbe")
+                {
+                    var witness=cluster.InspectLocalPhysicalTransferWitness();
+                    return Ok(id,new{
+                        localPhysicalDirectoryIdVerified=true,
+                        localHostId=witness.HostId,
+                        observedUtc=witness.ObservedUtc,
+                        originalMetadataUnchanged=witness.OriginalMetadataUnchanged,
+                        // The fingerprint travels in the encrypted LAN status,
+                        // never raw original UNC names or Kova session IDs.
+                        rawUncPathReturned=false,originalStoreFilesWritten=false,
+                        liveStoreWriterCertified=false,
+                        productionRestoreAllowed=false,
+                        evidence="EXPLICIT_READ_ONLY_WINDOWS_UNC_FILE_ID_LOCAL_ONLY"
+                    });
+                }
                 if(method=="lan.preview")return Preview(id,data);
                 return Apply(id,data);
             }

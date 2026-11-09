@@ -15,6 +15,13 @@ public sealed record LegacyStoreV1PeerProof(
     string SessionTag,string SharedPathTag,string DeviceTag,
     bool LiveWriterCertified,bool CharacterTravelVerified,string Evidence)
 {
+    // Ephemeral, explicit read-only Windows file-ID witness. Never present
+    // in a status packet unless the operator specifically probes the UNC
+    // directory on that host. No raw UNC names or Store IDs leave the host.
+    public string PhysicalDirectoryTag {get;init;}="";
+    public DateTimeOffset? PhysicalObservedUtc {get;init;}
+    public string OriginalFourFilesTag {get;init;}="";
+
     public static LegacyStoreV1PeerProof Unavailable {get;}=new(
         false,false,0,"","","",false,false,"STORE_V1_ORIGINAL_LOCAL_PROFILE_ABSENT");
     public static LegacyStoreV1PeerProof Invalid {get;}=new(
@@ -30,7 +37,10 @@ public sealed record LegacyStoreV1PeerProof(
             return new(true,report.LocalSnapshotReady,
                 report.Maps.Count(m=>m.Active&&m.SessionMatches&&m.RootMatches&&m.Selected),
                 report.SessionTag,report.SharedPathTag,report.DeviceTag,
-                false,false,"ORIGINAL_FOUR_LOCAL_STORE_FILES_HASHED_READ_ONLY");
+                false,false,"ORIGINAL_FOUR_LOCAL_STORE_FILES_HASHED_READ_ONLY")
+            {
+                OriginalFourFilesTag=report.OriginalFourFilesTag
+            };
         }
         catch(Exception)
         {
@@ -48,7 +58,11 @@ public sealed record LegacyStoreV1PairObservation(
     bool BothOriginalProfilesPresent,bool SameSharedSession,bool SameSharedPath,
     bool DistinctDeviceIds,bool BothHaveFiveActiveMaps,
     bool CopiedMetadataPairMatches,bool LiveWriterCertified,
-    bool CharacterTravelVerified,string StatusCode);
+    bool CharacterTravelVerified,string StatusCode)
+{
+    public bool BothPhysicalWitnessesFresh {get;init;}
+    public bool SamePhysicalTransferDirectory {get;init;}
+}
 
 /// <summary>
 /// Historical source parity only. LAN status does not prove an exclusive
@@ -75,6 +89,18 @@ public static class LegacyStoreV1PairComparison
             StringComparison.Ordinal);
         bool five=valid&&local!.ActiveMapCount==5&&remote!.ActiveMapCount==5;
         bool matching=present&&valid&&session&&shared&&distinct&&five;
+        DateTimeOffset now=DateTimeOffset.UtcNow;
+        bool FreshPhysical(LegacyStoreV1PeerProof? proof)=>
+            proof?.PhysicalObservedUtc is DateTimeOffset utc &&
+            utc>=now.AddMinutes(-5)&&utc<=now.AddMinutes(1)&&
+            Hash(proof.PhysicalDirectoryTag)&&
+            Hash(proof.OriginalFourFilesTag)&&
+            !proof.PhysicalDirectoryTag.All(x=>x=='0');
+        bool bothPhysical=valid&&session&&distinct&&five&&
+            FreshPhysical(local)&&FreshPhysical(remote);
+        bool samePhysical=bothPhysical&&string.Equals(
+            local!.PhysicalDirectoryTag,remote!.PhysicalDirectoryTag,
+            StringComparison.Ordinal);
         string code=!remoteFresh?"STORE_PEER_NOT_FRESH":
             !present?"STORE_LOCAL_OR_REMOTE_PROFILE_MISSING":
             !valid?"STORE_PEER_METADATA_INVALID":
@@ -84,6 +110,10 @@ public static class LegacyStoreV1PairComparison
             !five?"STORE_PEER_LOCAL_MAP_COUNT_INVALID":
             "HISTORICAL_TWO_HOST_METADATA_MATCH_ONLY";
         return new(present,session,shared,distinct,five,matching,
-            false,false,code);
+            false,false,code)
+        {
+            BothPhysicalWitnessesFresh=bothPhysical,
+            SamePhysicalTransferDirectory=samePhysical
+        };
     }
 }

@@ -141,6 +141,7 @@ test.beforeEach(async ({ page }) => {
       oldStopNeedsOperator=true;
     };
     let lanListen=0;
+    let localPhysicalProbeRequested=false;
     const lanPeers:{hostId:string;hostName:string;address:string;port:number;keyConfigured:boolean}[]=[];
     let lanApproval="";
     let lanPending:{action:"upsert"|"remove";listenPort:number;hostId:string;hostName:string;address:string;port:number}|null=null;
@@ -1050,6 +1051,7 @@ test.beforeEach(async ({ page }) => {
             bothOriginalProfilesPresent:false,
             sameSharedSession:false,sameSharedPath:false,distinctDeviceIds:false,
             bothHaveFiveActiveMaps:false,copiedMetadataPairMatches:false,
+            bothPhysicalWitnessesFresh:false,samePhysicalTransferDirectory:false,
             liveWriterCertified:false,characterTravelVerified:false,
             statusCode:"STORE_PEER_NOT_FRESH"
           },
@@ -1063,6 +1065,15 @@ test.beforeEach(async ({ page }) => {
           secretReturned:false,peerWritesAllowed:false,
           evidence:"DPAPI_LOCAL_LAN_SETTINGS_READ_ONLY"
         };
+        case "lan.physicalStoreProbe":
+          localPhysicalProbeRequested=true;
+          return {localPhysicalDirectoryIdVerified:true,
+            localHostId:"00000000-0000-4000-8000-000000000001",
+            observedUtc:"2026-11-09T10:00:00Z",
+            originalMetadataUnchanged:true,rawUncPathReturned:false,
+            originalStoreFilesWritten:false,
+            liveStoreWriterCertified:false,productionRestoreAllowed:false,
+            evidence:"EXPLICIT_READ_ONLY_WINDOWS_UNC_FILE_ID_LOCAL_ONLY"};
         case "lan.preview":
           if(m.peerAction==="remove"){
             if(!lanPeers.some(x=>x.hostId.toLowerCase()===m.hostId?.toLowerCase()))
@@ -1688,6 +1699,21 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await expect(row).toContainText("Astraeos");
   await expect(row).toContainText(/SaveWorld|Újraindítás/);
   await expect(page.locator(".ops-summary")).toContainText("Natív ASA feladat");
+});
+
+test("original Store physical UNC probe is explicit and never grants transfer or restore rights",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:/Be.*ll/}).click();
+  const proof=page.getByTestId("lan-store-proof");
+  await expect(proof).toContainText("Kétoldali ellenőrzés szükséges");
+  await proof.getByRole("button",{
+    name:"Helyi Store transferkönyvtár fizikai ellenőrzése"
+  }).click();
+  await expect(page.locator(".lan-pairing-panel")).toContainText(
+    "Helyi fizikai UNC fájlazonosság ellenőrizve");
+  await expect(proof).toContainText("Kétoldali ellenőrzés szükséges");
+  await expect(proof).toContainText("Ez továbbra sem Store-írójog");
+  await expect(proof).not.toContainText("Éles restore engedélyezve");
 });
 
 test("N-host LAN pairing adds, lists and removes peers without exposing keys",async({page})=>{
