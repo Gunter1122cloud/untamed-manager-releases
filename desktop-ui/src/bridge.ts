@@ -1273,7 +1273,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
   assetName?:string;transactionId?:string;
-  point?:string; action?:string; message?:string; typedApproval?:string;
+  point?:string; action?:string; message?:string; typedApproval?:string; confirmation?:string;
   rconPort?:number; password?:string; createIni?:boolean;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
   sourceMap?: string;destinationMap?: string; profileId?: string;
