@@ -601,6 +601,8 @@ public sealed partial class ClusterService : IAsyncDisposable
     private readonly Func<string,LegacyStoreV1PhysicalTransferWitness> _physicalStoreProbe;
     private readonly object _physicalWitnessGate=new();
     private LegacyStoreV1PhysicalTransferWitness? _physicalWitness;
+    private readonly object _historicalSaveWitnessGate=new();
+    private LegacyStoreV1HistoricalSaveReceiptWitness? _historicalSaveWitness;
     // Dashboard/LAN telemetry is NOT a lifecycle safety decision.
     // Short caching avoids scanning every Windows process ten times on
     // every polling tick across two managers. Start/Stop/Restore always
@@ -699,11 +701,33 @@ public sealed partial class ClusterService : IAsyncDisposable
         return observed;
     }
 
+    public LegacyStoreV1HistoricalSaveReceiptWitness InspectLocalHistoricalSaveReceiptWitness()
+    {
+        // Explicit local operator action. Read ONLY Manager-owned receipt
+        // journals; compare against the existing original Store local source
+        // identity before/after, without mutating Kova or accessing SMB.
+        var before=_legacyStoreProof();
+        var witness=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
+            Store.Root,Config.LocalHostId,before,Config.LocalMaps);
+        var after=_legacyStoreProof();
+        if(after?.LocalMetadataValid!=true||before==null||
+           after.SessionTag!=before.SessionTag||
+           after.SharedPathTag!=before.SharedPathTag||
+           after.DeviceTag!=before.DeviceTag||
+           after.OriginalFourFilesTag!=before.OriginalFourFilesTag)
+            throw new InvalidDataException(
+                "UM-STORE-SAVE-PAIR-ORIGINAL-CHANGED-DURING-PROBE");
+        lock(_historicalSaveWitnessGate)_historicalSaveWitness=witness;
+        lock(_telemetryGate)_telemetryCache=null;
+        return witness;
+    }
+
     public LegacyStoreV1PeerProof? ReadLegacyStoreV1PeerProof()
     {
         var source=_legacyStoreProof();
         if(source?.SourcePresent!=true||source.LocalMetadataValid!=true)
             return source;
+        var result=source;
         lock(_physicalWitnessGate)
         {
             var proof=_physicalWitness;
@@ -713,12 +737,30 @@ public sealed partial class ClusterService : IAsyncDisposable
                proof.OriginalFourFilesTag==source.OriginalFourFilesTag&&
                proof.ObservedUtc>=DateTimeOffset.UtcNow.AddMinutes(-5)&&
                proof.ObservedUtc<=DateTimeOffset.UtcNow.AddMinutes(1))
-                return source with{
+                result=result with{
                     PhysicalDirectoryTag=proof.PhysicalDirectoryTag,
                     PhysicalObservedUtc=proof.ObservedUtc
                 };
         }
-        return source;
+        lock(_historicalSaveWitnessGate)
+        {
+            var witnessed=_historicalSaveWitness;
+            if(witnessed!=null&&witnessed.SessionTag==source.SessionTag&&
+               witnessed.OriginalFourFilesTag==source.OriginalFourFilesTag&&
+               witnessed.ObservedUtc>=DateTimeOffset.UtcNow.AddMinutes(-5)&&
+               witnessed.ObservedUtc<=DateTimeOffset.UtcNow.AddMinutes(1)&&
+               !witnessed.SharedWriterCertified&&
+               !witnessed.BothHostsSaveCompleteCertified&&
+               !witnessed.ProductionRestoreAllowed)
+                result=result with{
+                    LocalSaveReceiptOriginalFourTag=witnessed.OriginalFourFilesTag,
+                    LocalSaveReceiptSessionTag=witnessed.SessionTag,
+                    LocalSaveReceiptObservedUtc=witnessed.ObservedUtc,
+                    RecentLocalSaveReceipts=witnessed.RecentCompletedMapReceipts,
+                    AllFiveRecentLocalSaveReceipts=witnessed.AllFiveRecentLocalReceipts
+                };
+        }
+        return result;
     }
     private static LanPeerObservation CopyObservation(LanPeerObservation value)=>new(){
         HostId=value.HostId,HostName=value.HostName,Address=value.Address,Port=value.Port,
