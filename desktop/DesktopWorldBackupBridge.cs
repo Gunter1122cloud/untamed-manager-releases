@@ -407,6 +407,7 @@ public sealed class DesktopWorldBackupBridge
                     var lease=OriginalStoreFiveBatchJournal.AcquireBatchLease(
                         cluster.Store.Root);
                     OriginalBatchJob job;
+                    bool leaseTransferred=false;
                     try
                     {
                         lock(originalBatchSync)
@@ -424,11 +425,11 @@ public sealed class DesktopWorldBackupBridge
                             originalBatchJob=job;
                         }
                         _=Task.Run(()=>RunOriginalBatch(job,approved,lease));
+                        leaseTransferred=true;
                     }
-                    catch
+                    finally
                     {
-                        lease.Dispose();
-                        throw;
+                        if(!leaseTransferred)lease.Dispose();
                     }
                     return Ok(id,new{
                         jobId=job.Id,started=true,localMaps=5,
