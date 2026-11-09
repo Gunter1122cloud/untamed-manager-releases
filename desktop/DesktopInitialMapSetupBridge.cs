@@ -116,9 +116,11 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     }
                     else
                     {
-                        if(!TextField(args,"customLevel",80,out var suppliedLevel))
+                        if(!args.TryGetProperty("customLevel",out var custom) ||
+                           custom.ValueKind!=JsonValueKind.String ||
+                           string.IsNullOrWhiteSpace(custom.GetString()))
                             return Fail(id,"UM-INITIAL-CUSTOM-LEVEL-REQUIRED");
-                        try{level=AsaSteamMapCatalog.ValidateCustomLevel(suppliedLevel);}
+                        try{level=AsaSteamMapCatalog.ValidateCustomLevel(custom.GetString()!);}
                         catch(InvalidDataException)
                         {return Fail(id,"UM-INITIAL-CUSTOM-LEVEL-INVALID");}
                     }
