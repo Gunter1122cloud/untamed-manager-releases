@@ -221,7 +221,8 @@ public static class FreshStoreEnrollmentPolicy
         if(!string.Equals(transfer,map.FreshStoreTransferDirectory,
             StringComparison.OrdinalIgnoreCase))
             Deny("UM-FRESH-STORE-TRANSFER-REGISTRY-CHANGED");
-        if(map.FreshStoreTransferFileId.Length!=64||
+        if(string.IsNullOrWhiteSpace(map.FreshStoreTransferFileId)||
+           map.FreshStoreTransferFileId.Length!=64||
            !string.Equals(StorePathIdentity.LocalDirectoryFingerprint(transfer),
                map.FreshStoreTransferFileId,StringComparison.OrdinalIgnoreCase))
             Deny("UM-FRESH-STORE-TRANSFER-FILE-ID-CHANGED");
