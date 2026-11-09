@@ -909,6 +909,20 @@ public static class MultiHostClusterBackupArchive
 
         ValidateSourceSets(normalized);
         DemandStableOfflineSourceEpochs();
+        // Keep the durable .incomplete checkpoint UNTIL parity is proved.
+        // If an offline exporter changed bytes while spoofing metadata, the
+        // operator can still inspect the last verified checkpoint; never
+        // leave an unjournaled half-finalized archive.
+        for (int i = 0; i < normalized.Length; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string actualSha256 = HashSourceForPublication(normalized[i].SourceFile,
+                components[i].Length, cancellationToken);
+            if (!actualSha256.Equals(components[i].Sha256,
+                StringComparison.OrdinalIgnoreCase))
+                throw new IOException("UM-MULTIHOST-OFFLINE-SOURCE-SHA256-CHANGED");
+        }
+        DemandStableOfflineSourceEpochs();
         ValidateInventory(batchId, hosts, clusters, maps, components);
         File.Delete(Path.Combine(stage, JournalName));
         var manifest = new MultiHostBackupManifest(CurrentSchemaVersion, batchId,
@@ -922,15 +936,6 @@ public static class MultiHostClusterBackupArchive
         WriteDurable(Path.Combine(stage, CompleteName), batchId.ToString("N"));
         Verify(stage);
         DemandStableOfflineSourceEpochs();
-        for (int i = 0; i < normalized.Length; i++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            string actualSha256 = HashSourceForPublication(normalized[i].SourceFile,
-                components[i].Length, cancellationToken);
-            if (!actualSha256.Equals(components[i].Sha256,
-                StringComparison.OrdinalIgnoreCase))
-                throw new IOException("UM-MULTIHOST-OFFLINE-SOURCE-SHA256-CHANGED");
-        }
         DemandStableOfflineSourceEpochs();
         Directory.Move(stage, target);
         return Verify(target);
