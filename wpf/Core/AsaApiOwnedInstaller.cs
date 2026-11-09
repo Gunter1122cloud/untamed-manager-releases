@@ -52,15 +52,27 @@ public static class AsaApiOwnedInstaller
             throw new InvalidDataException("UM-API-CORE-LINKED-FILE");
         return full;
     }
+    // An enrolled Store map requires stronger ownership and transfer proof
+    // than a fresh non-Store install. The original Kova profiles remain denied.
+    private static void DemandSafeOwnedMap(ClusterService cluster,LocalMap map)
+    {
+        if(map.Maintenance||map.HistoricalStoreProtected)
+            throw new InvalidOperationException("UM-API-CORE-PROTECTED-MAP");
+        if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
+            FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+        else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
+                UntamedWorldBackup.HasLiveOrHistoricalStore(map))
+            throw new InvalidOperationException("UM-API-CORE-UNVERIFIED-LOCAL-MAP");
+    }
+
     private static (LocalMap Map,string Root,string Binary) Preflight(ClusterService cluster,Guid mapId)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId&&m.Id!=Guid.Empty)
             ??throw new UnauthorizedAccessException("UM-API-CORE-LOCAL-OWNER");
-        if(map.Maintenance||!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
-           !AsaReadyProbe.IsRegisteredServerBinary(map)||
-           UntamedWorldBackup.HasLiveOrHistoricalStore(map))
-            throw new InvalidOperationException("UM-API-CORE-FRESH-NONSTORE-REQUIRED");
+        DemandSafeOwnedMap(cluster,map);
+        if(!AsaReadyProbe.IsRegisteredServerBinary(map))
+            throw new InvalidOperationException("UM-API-CORE-LOCAL-ASA-EXE-REQUIRED");
         string root=Safe(map.InstallationPath);
         var journal=new AsaManualRestartJournal(root);
         journal.DemandNoPending();
@@ -73,10 +85,7 @@ public static class AsaApiOwnedInstaller
         if(owned.Length==0)throw new InvalidOperationException("UM-API-CORE-NO-OWNER");
         foreach(var participant in owned)
         {
-            if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,participant)||
-               participant.Maintenance ||
-               UntamedWorldBackup.HasLiveOrHistoricalStore(participant))
-                throw new InvalidOperationException("UM-API-CORE-STORE-OR-MAINTENANCE");
+            DemandSafeOwnedMap(cluster,participant);
             var process=cluster.ObserveLocalProcessesReadOnly(participant);
             if(process.Running||!process.ConfirmedStopped||
                process.Identity!=null||process.LoaderIdentity!=null)
