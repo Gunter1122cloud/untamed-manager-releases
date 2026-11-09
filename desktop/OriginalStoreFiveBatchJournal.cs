@@ -64,6 +64,29 @@ internal static class OriginalStoreFiveBatchJournal
            (snapshot.State=="completed"&&snapshot.Points.Length!=5))
             throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-INVALID");
     }
+    // A held OS file handle is an owner-specific cross-process lease.
+    // It is NOT a Kova Store writer lock. Windows releases it after an
+    // unexpected Manager termination without deleting any journal bytes.
+    internal static FileStream AcquireBatchLease(string managerProfile)
+    {
+        string folder=Folder(managerProfile);
+        Directory.CreateDirectory(folder);
+        if((File.GetAttributes(folder)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-LINKED-FOLDER");
+        string file=Path.Combine(folder,"original-store-five-batch.lease");
+        if(File.Exists(file)&&
+           (File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-LINKED-LEASE");
+        try
+        {
+            return new FileStream(file,FileMode.OpenOrCreate,FileAccess.ReadWrite,
+                FileShare.None,4096,FileOptions.WriteThrough);
+        }
+        catch(IOException)
+        {
+            throw new IOException("UM-ORIGINAL-BATCH-JOB-LEASE-BUSY");
+        }
+    }
     internal static Snapshot? Read(string managerProfile)
     {
         string folder=Folder(managerProfile);
