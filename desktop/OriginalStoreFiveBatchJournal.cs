@@ -122,6 +122,40 @@ internal static class OriginalStoreFiveBatchJournal
             if(File.Exists(staged))File.Delete(staged);
         }
     }
+    // Repair is an explicit, short-lived operator action. It only quarantines
+    // corrupted MANAGER-local orchestration bytes, never a Kova or ASA file.
+    internal static string RawDigest(string managerProfile)
+    {
+        string file=Path.Combine(Folder(managerProfile),Name);
+        if(!File.Exists(file)||
+           (File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0||
+           new FileInfo(file).Length is <1 or >Limit)
+            throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-UNSAFE");
+        return Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file)));
+    }
+    internal static void QuarantineInvalid(string managerProfile,string digest)
+    {
+        string folder=Folder(managerProfile),source=Path.Combine(folder,Name);
+        if(!string.Equals(RawDigest(managerProfile),digest,StringComparison.Ordinal))
+            throw new IOException("UM-ORIGINAL-BATCH-JOURNAL-CHANGED");
+        // A valid journal is not eligible for the corruption repair route.
+        try
+        {
+            Read(managerProfile);
+            throw new InvalidOperationException("UM-ORIGINAL-BATCH-JOURNAL-NOT-CORRUPT");
+        }
+        catch(InvalidDataException) { /* Expected invalid integrity payload. */ }
+        catch(JsonException) { /* Expected invalid JSON payload. */ }
+        string history=Path.Combine(folder,"history");
+        Directory.CreateDirectory(history);
+        if((File.GetAttributes(history)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-LINKED-HISTORY");
+        string target=Path.Combine(history,"quarantine-"+digest+".json");
+        if(File.Exists(target))throw new IOException("UM-ORIGINAL-BATCH-JOURNAL-ALREADY-QUARANTINED");
+        if(!string.Equals(RawDigest(managerProfile),digest,StringComparison.Ordinal))
+            throw new IOException("UM-ORIGINAL-BATCH-JOURNAL-CHANGED");
+        File.Move(source,target);
+    }
     internal static void ArchivePrevious(string managerProfile)
     {
         string folder=Folder(managerProfile);
