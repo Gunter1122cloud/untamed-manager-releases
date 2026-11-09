@@ -222,6 +222,12 @@ public static class MultiHostSandboxRestoreTransaction
         string destination, MultiHostBackupOwnershipSnapshot registry)
     {
         string target = TargetPath(destination);
+        // A completed/partially committed journal may still hold the only
+        // verified rollback copy. Never issue a second replacement preview
+        // until the first transaction has had explicit operator review.
+        if (File.Exists(JournalPath(target)) || File.Exists(JournalNextPath(target)) ||
+            Directory.Exists(JournalPath(target)) || Directory.Exists(JournalNextPath(target)))
+            throw new IOException("UM-TEMP-RESTORE-PENDING-JOURNAL");
         string archive = FixedLocal(archiveDirectory);
         var preview = MultiHostClusterBackupArchive.PreviewSandboxRestore(archive, registry);
         if (!preview.PreflightPassed) return preview;
