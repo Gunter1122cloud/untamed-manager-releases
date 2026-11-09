@@ -102,7 +102,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         if(value.SchemaVersion!=Schema||value.OperationId==Guid.Empty||
            value.MapId==Guid.Empty||value.Pid<=0||value.PidStartedUtc==default||
            value.BeganUtc==default||!Hash(value.OriginalSourceSha256)||
-           value.Phase is not ("prepared" or "completed" or "needsOperator")||
+           value.Phase is not ("prepared" or "completed" or "needsOperator" or "reviewed")||
            (value.Phase=="completed"&&
              (!value.SaveObservedUtc.HasValue||
               value.SaveObservedUtc.Value<value.BeganUtc))||
@@ -169,7 +169,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         string file=PathFor(managerProfileRoot,mapId);
         using var writer=AcquireWriteLease(file);
         var prior=Load(file);
-        if(prior!=null&&prior.Phase!="completed")
+        if(prior!=null&&prior.Phase is not ("completed" or "reviewed"))
             throw new InvalidOperationException("UM-ORIGINAL-SAVE-JOURNAL-NEEDS-REVIEW");
         var evidence=new LegacyStoreV1SaveEvidence(Schema,operationId,mapId,pid,
             startedUtc,originalSourceSha256,"prepared",DateTimeOffset.UtcNow,null);
@@ -205,6 +205,69 @@ public static class LegacyStoreV1SaveEvidenceJournal
         var next=current with{Phase="completed",SaveObservedUtc=observedUtc};
         Publish(file,next);
         return next;
+    }
+
+    /// <summary>
+    /// Explicitly reviews a crashed/uncertain LOCAL SaveWorld receipt. The
+    /// original pending evidence is durably archived, never deleted, before
+    /// publishing a distinct 'reviewed' phase. The native host must supply a
+    /// callback that freshly proves stopped ASA and unchanged original Store
+    /// source while this map's cross-process receipt mutex is owned.
+    /// No original Kova metadata, transfer files or shared locks are changed.
+    /// </summary>
+    internal static LegacyStoreV1SaveEvidence ReviewUncertain(
+        string managerProfileRoot,Guid mapId,Guid expectedOperationId,
+        string expectedOriginalSourceSha,Func<bool> verifyStoppedSource)
+    {
+        ArgumentNullException.ThrowIfNull(verifyStoppedSource);
+        if(mapId==Guid.Empty||expectedOperationId==Guid.Empty||
+           !Hash(expectedOriginalSourceSha))
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-REVIEW-IDENTITY");
+        string file=PathFor(managerProfileRoot,mapId);
+        using var lease=AcquireWriteLease(file);
+        var current=Load(file)??throw new InvalidDataException(
+            "UM-ORIGINAL-SAVE-REVIEW-MISSING");
+        if(current.MapId!=mapId||current.OperationId!=expectedOperationId||
+           !string.Equals(current.OriginalSourceSha256,expectedOriginalSourceSha,
+               StringComparison.Ordinal))
+            throw new InvalidOperationException("UM-ORIGINAL-SAVE-REVIEW-SOURCE-CHANGED");
+        if(current.Phase=="reviewed")return current; // idempotent after interrupted multi-journal review
+        if(current.Phase is not ("prepared" or "needsOperator"))
+            throw new InvalidOperationException("UM-ORIGINAL-SAVE-REVIEW-NOT-UNCERTAIN");
+        if(!verifyStoppedSource())
+            throw new UnauthorizedAccessException("UM-ORIGINAL-SAVE-REVIEW-STOP-OR-SOURCE-UNVERIFIED");
+
+        // Archive the signed, original sealed envelope byte-for-byte before
+        // the reviewed replacement. A retry accepts only the exact same
+        // archive bytes, never overwrites a different prior review.
+        string archiveFolder=Path.Combine(Path.GetDirectoryName(file)!,"reviewed");
+        if(Directory.Exists(archiveFolder)&&
+           (File.GetAttributes(archiveFolder)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-REVIEW-LINKED");
+        Directory.CreateDirectory(archiveFolder);
+        if((File.GetAttributes(archiveFolder)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-ORIGINAL-SAVE-REVIEW-LINKED");
+        string archived=Path.Combine(archiveFolder,
+            mapId.ToString("N")+"-"+expectedOperationId.ToString("N")+".json");
+        byte[] original=File.ReadAllBytes(file);
+        if(File.Exists(archived))
+        {
+            if((File.GetAttributes(archived)&FileAttributes.ReparsePoint)!=0||
+               !CryptographicOperations.FixedTimeEquals(
+                   SHA256.HashData(File.ReadAllBytes(archived)),
+                   SHA256.HashData(original)))
+                throw new InvalidDataException("UM-ORIGINAL-SAVE-REVIEW-ARCHIVE-MISMATCH");
+        }
+        else
+        {
+            using var stream=new FileStream(archived,FileMode.CreateNew,
+                FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+            stream.Write(original);
+            stream.Flush(flushToDisk:true);
+        }
+        var reviewed=current with{Phase="reviewed"};
+        Publish(file,reviewed);
+        return reviewed;
     }
 
     public static void MarkUncertain(string managerProfileRoot,Guid operationId,
