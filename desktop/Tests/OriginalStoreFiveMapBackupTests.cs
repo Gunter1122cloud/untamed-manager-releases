@@ -171,5 +171,69 @@ internal static class OriginalStoreFiveMapBackupTests
             new{token=approved,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
             "one-time batch approval cannot be replayed to trigger a second backup");
+
+        // All receipts remain visible after a fresh native Manager bridge
+        // instance loads the Manager-owned SHA-256 journal.
+        var restarted=new DesktopWorldBackupBridge(cluster,
+            originalSelectionProvider:()=>currentSource);
+        var restored=await Call(restarted,"backup.originalBatchStatus",new{jobId});
+        Check(restored.GetProperty("ok").GetBoolean()&&
+              restored.GetProperty("data").GetProperty("state").GetString()=="completed"&&
+              restored.GetProperty("data").GetProperty("completedMaps").GetInt32()==5,
+            "completed five-map journal survives Manager bridge restart");
+
+        // A lost Manager process after all per-map copies but BEFORE a final
+        // durable completion receipt cannot be called a successful batch.
+        var persisted=OriginalStoreFiveBatchJournal.Read(cluster.Store.Root)!;
+        OriginalStoreFiveBatchJournal.Publish(cluster.Store.Root,
+            persisted with{State="running",Step="final-validation-pending"});
+        var interrupted=new DesktopWorldBackupBridge(cluster,
+            originalSelectionProvider:()=>currentSource);
+        var uncertain=await Call(interrupted,"backup.originalBatchStatus");
+        Check(uncertain.GetProperty("ok").GetBoolean()&&
+              uncertain.GetProperty("data").GetProperty("state").GetString()=="needsOperator"&&
+              !uncertain.GetProperty("data").GetProperty("allFiveVerified").GetBoolean()&&
+              uncertain.GetProperty("data").GetProperty("completedMaps").GetInt32()==5,
+            "interrupted Manager restart retains five actual points but never invents final completion");
+        // A fresh operator preview may be requested after all five worlds are
+        // confirmed stopped and exact original source remains byte-identical.
+        var again=await Call(interrupted,"backup.originalBatchPreview");
+        Check(again.GetProperty("ok").GetBoolean(),
+            "operator may preview a fresh attempt following interrupted job");
+        string newToken=again.GetProperty("data").GetProperty("token").GetString()!;
+        var next=await Call(interrupted,"backup.originalBatchCreate",
+            new{token=newToken,confirm=true});
+        Check(next.GetProperty("ok").GetBoolean(),
+            "explicit approval archives the interrupted journal before a fresh batch");
+        string nextId=next.GetProperty("data").GetProperty("jobId").GetString()!;
+        for(int i=0;i<200;i++)
+        {
+            var poll=await Call(interrupted,"backup.originalBatchStatus",new{jobId=nextId});
+            string state=poll.GetProperty("data").GetProperty("state").GetString()!;
+            if(state=="completed")break;
+            if(state=="needsOperator")throw new InvalidOperationException(
+                "Restarted synthetic five-map backup became uncertain");
+            await Task.Delay(25);
+        }
+        Check(File.Exists(Path.Combine(cluster.Store.Root,
+                "backup-batch-journals","history",jobId.Replace("-","")+".json")),
+            "previous interrupted journal is retained after a new approved job");
+
+        // Tampering with Manager-local journal must fail closed without
+        // affecting ANY real Core backup or original world/profile data.
+        string journalFile=Path.Combine(cluster.Store.Root,
+            "backup-batch-journals","original-store-five-backup-v1.json");
+        File.AppendAllText(journalFile,"CORRUPTED");
+        var tampered=new DesktopWorldBackupBridge(cluster,
+            originalSelectionProvider:()=>currentSource);
+        var corruptStatus=await Call(tampered,"backup.originalBatchStatus");
+        var corruptPreview=await Call(tampered,"backup.originalBatchPreview");
+        Check(corruptStatus.GetProperty("ok").GetBoolean()&&
+              corruptStatus.GetProperty("data").GetProperty("state").GetString()=="needsOperator"&&
+              !corruptPreview.GetProperty("ok").GetBoolean(),
+            "corrupt persisted journal denies new backup without deleting earlier verified packages");
+        Check(maps.All(map=>File.ReadAllBytes(
+            AsaSaveLayoutResolver.Resolve(map).WorldFile).SequenceEqual(originalWorlds[map.Id])),
+            "journal corruption and operator review never mutate ASA worlds");
     }
 }
