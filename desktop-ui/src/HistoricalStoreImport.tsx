@@ -1,9 +1,20 @@
 import { useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
-import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard } from "./bridge";
+import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
+  type OriginalKovaLocalMapList, type OriginalKovaImportPreview } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
+  const [directList,setDirectList]=useState<OriginalKovaLocalMapList|null>(null);
+  const [directMapId,setDirectMapId]=useState("");
+  const [directGamePort,setDirectGamePort]=useState("");
+  const [directQueryPort,setDirectQueryPort]=useState("");
+  const [directPreview,setDirectPreview]=useState<OriginalKovaImportPreview|null>(null);
+  const [directApproved,setDirectApproved]=useState(false);
+  const [directBusy,setDirectBusy]=useState(false);
+  const [directError,setDirectError]=useState("");
+  const [directNotice,setDirectNotice]=useState("");
+  const directEpoch=useRef(0);
   const [known,setKnown]=useState<HistoricalStoreList | null>(null);
   const [mapId,setMapId]=useState("");
   const [root,setRoot]=useState("");
@@ -76,13 +87,74 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       const receipt=await managerBridge.historicalRegister(preview.token);
       if(epoch!==importEpoch.current)return;
       setPreview(null);setApproved(false);
-      setNotice(receipt.mapName+" felvéve az eredeti mapazonosítóval. A Store-v1 zárolt: a szerver nem indulhat, amíg a teljes régi indítási profil és a két host állapota nincs igazolva.");
+      setNotice(receipt.mapName+" felvéve az eredeti mapazonosítóval. A map saját vezérlőiben RCON-átvétel és natív Start-előellenőrzés után indítható.");
       try { await onImported(); }
       catch { setError("A zárolt regisztráció megtörtént, de a szerverlista frissítése sikertelen. A nézet újranyitásával ellenőrizhető."); }
     }catch(e){
       if(epoch!==importEpoch.current)return;
       setError("A Store-v1 regisztráció meghiúsult ("+(e instanceof Error?e.message:"UM-HISTORICAL-VERIFICATION-FAILED")+"). Az eredeti világ- és karakterfájlokhoz nem nyúltunk.");
     }finally{setRegistering(false);if(epoch===importEpoch.current)setBusy(false);}
+  };
+
+  const loadOriginalMaps=async()=>{
+    if(directBusy||registering)return;
+    const epoch=++directEpoch.current;
+    setDirectBusy(true);setDirectError("");setDirectNotice("");
+    setDirectList(null);setDirectPreview(null);setDirectApproved(false);
+    try{
+      const result=await managerBridge.historicalOriginalList();
+      if(epoch!==directEpoch.current)return;
+      setDirectList(result);
+      setDirectMapId(result.maps.find(m=>!m.registered)?.mapId??"");
+    }catch(e){
+      if(epoch===directEpoch.current)setDirectError(
+        "Az eredeti Kova helyi ACTIVE/DONE profil nem ellenőrizhető ("+
+        (e instanceof Error?e.message:"hibás vagy hiányzó helyi Store-metaadat")+").");
+    }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
+  };
+  const previewOriginalMap=async(e:FormEvent)=>{
+    e.preventDefault();
+    const game=Number(directGamePort),query=Number(directQueryPort);
+    if(directBusy||registering||!directMapId||
+       !Number.isInteger(game)||game<1024||game>65535||
+       !Number.isInteger(query)||query<1024||query>65535||game===query){
+      setDirectError("Adj meg két különböző, eredeti UDP Game/Query portot (1024–65535).");
+      return;
+    }
+    const epoch=++directEpoch.current;
+    setDirectBusy(true);setDirectError("");setDirectNotice("");
+    setDirectPreview(null);setDirectApproved(false);
+    try{
+      const result=await managerBridge.historicalOriginalPreview(directMapId,game,query);
+      if(epoch===directEpoch.current)setDirectPreview(result);
+    }catch(e){
+      if(epoch===directEpoch.current)setDirectError(
+        "Az eredeti map, ASA EXE, telepítési mappa vagy a leállított folyamat nem igazolható ("+
+        (e instanceof Error?e.message:"natív előellenőrzés")+").");
+    }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
+  };
+  const importOriginalMap=async()=>{
+    if(directBusy||registering||!directApproved||!directPreview)return;
+    const epoch=++directEpoch.current;
+    const token=directPreview.token;
+    setDirectBusy(true);setDirectError("");setDirectNotice("");
+    setDirectPreview(null);setDirectApproved(false);
+    try{
+      const result=await managerBridge.historicalOriginalRegister(token);
+      if(epoch!==directEpoch.current)return;
+      setDirectNotice(result.mapName+" felvéve az eredeti GUID-dal. "+
+        "Csatlakoztasd a meglévő RCON-t, ellenőrizd a modok pontos sorrendjét, "+
+        "majd használd a map saját előellenőrzött Start/Stop/SaveWorld vezérlőit.");
+      setDirectList(prev=>prev?{...prev,maps:prev.maps.map(m=>
+        m.mapId===result.mapId?{...m,registered:true}:m)}:prev);
+      setDirectMapId("");
+      try{await onImported();}
+      catch{setDirectError("A map regisztrálva van, de a szerverlista frissítése sikertelen.");}
+    }catch(e){
+      if(epoch===directEpoch.current)setDirectError(
+        "A közvetlen Kova-import nem fejeződött be ("+
+        (e instanceof Error?e.message:"natív ellenőrzés")+"). Az eredeti Kova fájlok változatlanok.");
+    }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
 
   const checkLaunch=async(e:FormEvent)=>{
@@ -139,15 +211,92 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   return <section className="glass panel historical-import">
     <div className="panel-head">
       <h2><Archive size={19}/> Untamed Store-v1 · meglévő map átvétele</h2>
-      <span className="mod-tag amber"><LockKeyhole size={13}/> Indítás zárolva</span>
+      <span className="mod-tag amber"><LockKeyhole size={13}/> Eredeti Store-adatok megőrzése</span>
     </div>
     <div className="panel-inner">
       <p className="muted small">
-        A már működő Store-v1 rendszert nem konvertáljuk újra. A korábbi Manager hitelesített ZIP-másolatából
-        ellenőrizzük az eredeti mapazonosítót, mapgyökeret, portokat és a modlistát.
-        A ZIP nem tartalmaz teljes indítási parancssort: emiatt a regisztrált map
-        <strong> védett és nem indítható</strong> a további kétgépes ellenőrzésig.
+        A már működő Store-v1 rendszert nem konvertáljuk újra.
+        Közvetlenül felismerheted a régi Kova-profil mapjait, vagy használhatod a korábbi
+        Manager hitelesített ZIP-másolatát a portok és modlista ellenőrzésével.
+        A regisztráció nem indít szervert; a map saját Start, Stop és mentés funkciói
+        külön előellenőrzés és jóváhagyás után használhatók.
       </p>
+      <section className="historical-peer-check" aria-label="Közvetlen Kova Store-v1 mapimport">
+        <h3>Közvetlen átvétel a korábbi Kova-profilból</h3>
+        <p className="muted small">
+          Az eredeti Windows-fiók Kova Store-v1 profiljából felismeri az öt helyi mapot,
+          a mapazonosítókat és a telepítési mappákat. Nem kell hozzá ZIP vagy kézi mappaútvonal.
+          Az eredeti Game/Query portokat add meg a korábbi indítási beállításokból.
+          A map legyen leállítva; az import csak az Obsidian saját regiszterét módosítja.
+        </p>
+        <button type="button" className="secondary"
+          disabled={directBusy||registering} onClick={()=>{void loadOriginalMaps();}}>
+          <Archive size={16}/>{directBusy?"Eredeti mapok ellenőrzése...":
+            "Öt eredeti Kova-map felismerése"}
+        </button>
+        {directList&&<form className="historical-import-form"
+          onSubmit={e=>{void previewOriginalMap(e);}}>
+          <label>Átveendő helyi map
+            <select aria-label="Közvetlen Kova-map" value={directMapId}
+              disabled={directBusy||registering}
+              onChange={e=>{directEpoch.current++;setDirectMapId(e.target.value);
+                setDirectPreview(null);setDirectApproved(false);}}>
+              <option value="">Válassz még nem regisztrált mapot</option>
+              {directList.maps.map(m=><option key={m.mapId} value={m.mapId}
+                disabled={m.registered}>
+                {m.name} · {m.folderName}{m.registered?" · már felvéve":""}
+              </option>)}
+            </select>
+          </label>
+          <label>Eredeti Game UDP port
+            <input aria-label="Közvetlen Game port" type="number" min={1024}
+              max={65535} placeholder="Korábbi Game port"
+              disabled={directBusy||registering} value={directGamePort}
+              onChange={e=>{setDirectGamePort(e.target.value);
+                setDirectPreview(null);setDirectApproved(false);}} required/>
+          </label>
+          <label>Eredeti Query UDP port
+            <input aria-label="Közvetlen Query port" type="number" min={1024}
+              max={65535} placeholder="Korábbi Query port"
+              disabled={directBusy||registering} value={directQueryPort}
+              onChange={e=>{setDirectQueryPort(e.target.value);
+                setDirectPreview(null);setDirectApproved(false);}} required/>
+          </label>
+          <button className="secondary" type="submit"
+            disabled={!directMapId||directBusy||registering}>
+            <Shield size={16}/> Eredeti map regisztrációjának előellenőrzése
+          </button>
+        </form>}
+        {directPreview&&<div className="historical-preview" role="region"
+          aria-label="Közvetlen Kova-import jóváhagyása">
+          <div className="historical-preview-heading">
+            <CheckCircle2 size={18}/><strong>{directPreview.mapName}</strong>
+          </div>
+          <div className="historical-proof-grid">
+            <span>Eredeti map GUID</span><strong>Megmarad</strong>
+            <span>ASA mappa</span><strong>{directPreview.folderName}</strong>
+            <span>Game / Query UDP</span>
+            <strong>{directPreview.gamePort} / {directPreview.queryPort}</strong>
+            <span>RCON és modlista</span><strong>Import után ellenőrizendő</strong>
+            <span>Kova világ-, session- és transferadatok</span><strong>Változatlanok</strong>
+          </div>
+          <label className="historical-approval">
+            <input type="checkbox" checked={directApproved}
+              onChange={e=>setDirectApproved(e.target.checked)}/>
+            Jóváhagyom az eredeti GUID megőrzésével történő helyi Manager-regisztrációt.
+            Az eredeti Store-fájlokhoz és a szerverfolyamathoz nem nyúlhat.
+          </label>
+          <button type="button" className="primary"
+            disabled={!directApproved||directBusy||registering}
+            onClick={()=>{void importOriginalMap();}}>
+            <Archive size={16}/> Eredeti map hozzáadása
+          </button>
+        </div>}
+        {directError&&<div role="alert" className="error-inline">
+          <AlertTriangle size={16}/>{directError}</div>}
+        {directNotice&&<div role="status" className="success-inline">
+          <CheckCircle2 size={16}/>{directNotice}</div>}
+      </section>
       <section className="historical-peer-check" aria-label="Korábbi helyi Store-v1 állapot">
         <h3>Eredeti helyi Store-v1 állapot · közvetlen, csak olvasási ellenőrzés</h3>
         <p className="muted small">A jelenlegi Windows-fiók korábbi kezelőjének négy helyi Store-metaadatfájlját ellenőrzi. Nem olvas SMB-megosztást, nem futtat ASA-parancsot és nem módosít mentéseket.</p>
@@ -247,7 +396,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <span>Telepítési mappa</span><strong>{preview.folderName}</strong>
           <span>Teljes launch argumentumok</span><strong>Nem igazolt</strong>
           <span>Kétgépes élő Store-írójog</span><strong>Nem igazolt</strong>
-          <span>Szerver indítása</span><strong>TILTOTT</strong>
+          <span>Szerver indítása</span><strong>Külön ellenőrzés és jóváhagyás</strong>
         </div>
         <label className="historical-approval">
           <input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/>
@@ -255,7 +404,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           Az eredeti Store- és ASA-állományok nem változhatnak.
         </label>
         <button className="primary" disabled={busy||registering||!approved}
-          onClick={()=>{void register();}}><LockKeyhole size={16}/> Zárolt Store-v1 map regisztrálása</button>
+          onClick={()=>{void register();}}><LockKeyhole size={16}/> Védett Store-v1 map regisztrálása</button>
       </div>}
       {known && <section className="historical-peer-check" aria-label="Eredeti indítási sor ellenőrzése">
         <h3>Eredeti ASA indítási sor · csak olvasási összevetés</h3>
