@@ -594,7 +594,7 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
         </button>
       </div>
     </div>
-    {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap}/>}
+    {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap} onImport={()=>setImportMode("existing")}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
     {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}
     {serverView==="gallery"?<Panel title="Mapkártyák · helyi kezelés / távoli megfigyelés">
