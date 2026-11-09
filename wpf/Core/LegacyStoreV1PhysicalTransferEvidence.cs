@@ -17,7 +17,8 @@ namespace UntamedManager.Core;
 public sealed record LegacyStoreV1PhysicalTransferWitness(
     string HostId, string SessionTag, string SharedPathTag, string DeviceTag,
     string PhysicalDirectoryTag, DateTimeOffset ObservedUtc,
-    bool OriginalMetadataUnchanged, bool ProductionRestoreAllowed,
+    string OriginalFourFilesTag, bool OriginalMetadataUnchanged,
+    bool ProductionRestoreAllowed,
     bool LiveStoreWriterCertified);
 
 public static class LegacyStoreV1PhysicalTransferEvidence
@@ -55,7 +56,8 @@ public static class LegacyStoreV1PhysicalTransferEvidence
         var reportBefore = LegacyStoreV1LocalReader.Inspect(local);
         if (!reportBefore.LocalSnapshotReady || reportBefore.Maps.Length != 5 ||
             !Sha256(reportBefore.SharedPathTag) ||
-            !Sha256(reportBefore.SessionTag) || !Sha256(reportBefore.DeviceTag))
+            !Sha256(reportBefore.SessionTag) || !Sha256(reportBefore.DeviceTag) ||
+            !Sha256(reportBefore.OriginalFourFilesTag))
             throw new InvalidDataException("UM-STORE-PHYSICAL-ORIGINAL-NOT-VERIFIED");
 
         // Hold four ORIGINAL metadata files open with FileShare.Read while the
@@ -84,7 +86,8 @@ public static class LegacyStoreV1PhysicalTransferEvidence
         if (!reportAfter.LocalSnapshotReady ||
             reportAfter.SessionTag != reportBefore.SessionTag ||
             reportAfter.DeviceTag != reportBefore.DeviceTag ||
-            reportAfter.SharedPathTag != reportBefore.SharedPathTag)
+            reportAfter.SharedPathTag != reportBefore.SharedPathTag ||
+            reportAfter.OriginalFourFilesTag != reportBefore.OriginalFourFilesTag)
             throw new IOException("UM-STORE-PHYSICAL-ORIGINAL-CHANGED");
 
         // Check all four original files, not only their session/path/device
@@ -99,6 +102,7 @@ public static class LegacyStoreV1PhysicalTransferEvidence
         }
         return new(parsedHost.ToString("N"), reportAfter.SessionTag,
             reportAfter.SharedPathTag, reportAfter.DeviceTag, directoryTag,
-            DateTimeOffset.UtcNow, true, false, false);
+            DateTimeOffset.UtcNow, reportAfter.OriginalFourFilesTag,
+            true, false, false);
     }
 }
