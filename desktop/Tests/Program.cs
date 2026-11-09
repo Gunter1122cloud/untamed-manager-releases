@@ -6,6 +6,11 @@ using System.Text.Json;
 using UntamedDesktop;
 using UntamedManager.Core;
 
+// Real independent Windows child-process fixture. This short-circuits all
+// ordinary native test setup; it never opens an ASA installation or Kova data.
+if (args.Length > 0 && args[0] == MultiHostTempProcessLeaseTests.ChildSwitch)
+    Environment.Exit(MultiHostTempProcessLeaseTests.RunChild(args));
+
 static void Check(bool value, string reason)
 {
     if (!value) throw new InvalidOperationException("NATIVE BRIDGE TEST FAILED: " + reason);
