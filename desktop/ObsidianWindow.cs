@@ -120,6 +120,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopRconAdminBridge _rconAdmin;
     private readonly DesktopRconConfigurationBridge _rconConfig;
     private readonly DesktopStoppedSteamUpdateBridge _steamUpdate;
+    private readonly DesktopLiveSteamMaintenanceBridge _liveSteam;
     private readonly DesktopFreshAsaStartBridge _freshStart;
     private readonly DesktopFreshAsaStopBridge _freshStop;
     private readonly DesktopFreshAsaRestartBridge _freshRestart;
@@ -185,6 +186,8 @@ public sealed class ObsidianWindow : Form
         _steamUpdate = new DesktopStoppedSteamUpdateBridge(_bridge.LocalCluster);
         _freshStart = new DesktopFreshAsaStartBridge(_bridge.LocalCluster);
         _freshStop = new DesktopFreshAsaStopBridge(_bridge.LocalCluster);
+        _liveSteam = new DesktopLiveSteamMaintenanceBridge(
+            _bridge.LocalCluster,_freshStop,_steamUpdate,_freshStart);
         _freshRestart = new DesktopFreshAsaRestartBridge(_bridge.LocalCluster);
         _nativeSchedules = new DesktopScheduledAsaOperationsSupervisor(
             _bridge.LocalCluster,_rcon,_freshRestart);
@@ -265,6 +268,7 @@ public sealed class ObsidianWindow : Form
             _historicalRestart.Dispose();
             _embeddedStore.Dispose();
             _rconConfig.Dispose();
+            _liveSteam.Dispose();
             _steamUpdate.Dispose();
             _freshStart.Dispose();
             _freshStop.Dispose();
@@ -396,6 +400,7 @@ public sealed class ObsidianWindow : Form
                 bool embeddedStoreRoute = false;
                 bool worldBackupRoute = false;
                 bool stoppedSteamRoute = false;
+                bool liveSteamRoute = false;
                 bool freshStartRoute = false;
                 bool freshStopRoute = false;
                 bool freshRestartRoute = false;
@@ -436,6 +441,9 @@ public sealed class ObsidianWindow : Form
                             "schedule.nativeOverview";
                         mapMaintenanceRoute = name is "maps.maintenanceStatus" or "maps.maintenanceSet";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply" or "lan.physicalStoreProbe" or "lan.historicalSaveProbe";
+                        liveSteamRoute = name is "steam.liveCurrent" or
+                            "steam.livePreview" or "steam.liveApply" or
+                            "steam.liveStatus";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare" or "travel.compareRoundTrip";
@@ -542,6 +550,7 @@ public sealed class ObsidianWindow : Form
                         : freshStartRoute ? await _freshStart.HandleAsync(incoming)
                         : pluginJsonRoute ? await _pluginJson.HandleAsync(incoming)
                         : pluginZipRoute ? await _pluginZip.HandleAsync(incoming)
+                        : liveSteamRoute ? await _liveSteam.HandleAsync(incoming)
                         : stoppedSteamRoute ? await _steamUpdate.HandleAsync(incoming)
                         : rconConfigRoute ? await _rconConfig.HandleAsync(incoming)
                         : rconAdminRoute ? await _rconAdmin.HandleAsync(incoming)
