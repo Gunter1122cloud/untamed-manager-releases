@@ -79,6 +79,61 @@ internal static class LegacyStorePhysicalTransferTests
               report.Maps.All(m=>m.Active&&m.Selected&&m.SessionMatches),
             "synthetic original Kova four-file source validates without accessing a real profile");
 
+        // A parseable all-zero GUID is NOT an original identity. Before this
+        // regression, zero device/session/map/backup IDs could still produce a
+        // ready five-map source and misleading two-host metadata evidence.
+        string zeroId=Guid.Empty.ToString("D");
+        void RejectModifiedOriginal(string[] changed,string reason)
+        {
+            try
+            {
+                for(int i=0;i<files.Length;i++)
+                    File.WriteAllText(files[i],changed[i]);
+                bool ready=false;
+                try{ready=LegacyStoreV1LocalReader.Inspect(original).LocalSnapshotReady;}
+                catch(InvalidDataException){/* rejected as invalid source */}
+                Check(!ready,reason);
+            }
+            finally
+            {
+                for(int i=0;i<files.Length;i++)
+                    File.WriteAllText(files[i],originalJson[i]);
+            }
+        }
+
+        var badDevice=originalJson.ToArray();
+        badDevice[2]=badDevice[2].Replace(device,zeroId,StringComparison.Ordinal);
+        RejectModifiedOriginal(badDevice,
+            "all-zero original device ID cannot pass the read-only Store source gate");
+
+        var badSession=originalJson.Select(text=>
+            text.Replace(session,zeroId,StringComparison.Ordinal)).ToArray();
+        RejectModifiedOriginal(badSession,
+            "consistent but all-zero original session ID cannot certify both peers");
+
+        var badMap=originalJson.Select(text=>
+            text.Replace(ids[0],zeroId,StringComparison.Ordinal)).ToArray();
+        using(var changedCluster=JsonDocument.Parse(badMap[0]))
+        {
+            string changedHash=StoreV1Fingerprint.Compute(changedCluster.RootElement);
+            badMap[3]=badMap[3].Replace(configHash,changedHash,StringComparison.Ordinal);
+        }
+        RejectModifiedOriginal(badMap,
+            "self-consistent original five-map source containing an all-zero member ID is rejected");
+
+        using(var storeDoc=JsonDocument.Parse(originalJson[1]))
+        {
+            string backup=storeDoc.RootElement.GetProperty("maps")
+                .GetProperty(ids[0]).GetProperty("backupId").GetString()!;
+            var badBackup=originalJson.ToArray();
+            badBackup[1]=badBackup[1].Replace(backup,zeroId,StringComparison.Ordinal);
+            RejectModifiedOriginal(badBackup,
+                "all-zero original backup ID cannot be reported as a ready source");
+        }
+        Check(files.Select(f=>Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(f))))
+                .SequenceEqual(beforeHashes),
+            "negative identity fixtures restore the four original synthetic files byte-for-byte");
+
         // REAL GetFileInformationByHandleEx file-ID probe on isolated fixed
         // local test folders, injected only as UNC mapping in native tests.
         string physicalTag=StorePathIdentity.LocalDirectoryFingerprint(physical);
