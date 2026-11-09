@@ -4,7 +4,8 @@ import {Archive,AlertTriangle,CheckCircle2,HardDrive,
 import {managerBridge,type PublicMap,type WorldBackupCreated,
   type WorldBackupHistory,type WorldBackupPoint,type WorldBackupPreview,
   type ScheduledStoppedBackupState,
-  type WorldBackupRestored} from "./bridge";
+  type WorldBackupRestored,type OriginalFiveMapBackupPreview,
+  type OriginalFiveMapBackupReceipt} from "./bridge";
 
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
   const [chosen,setChosen]=useState(selectedMap??maps[0]?.id??"");
@@ -20,6 +21,11 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const [scheduleBusy,setScheduleBusy]=useState(false);
   const [scheduleNotice,setScheduleNotice]=useState("");
   const [error,setError]=useState("");
+  const [originalFivePreview,setOriginalFivePreview]=useState<OriginalFiveMapBackupPreview|null>(null);
+  const [originalFiveConsent,setOriginalFiveConsent]=useState(false);
+  const [originalFiveReceipt,setOriginalFiveReceipt]=useState<OriginalFiveMapBackupReceipt|null>(null);
+  const [originalFiveBusy,setOriginalFiveBusy]=useState(false);
+  const [originalFiveError,setOriginalFiveError]=useState("");
   const selectedRef=useRef(chosen);
   // A stale response may finish after the operator chooses another map.
   // It must never display the previous map's backup/restore approval.
@@ -140,6 +146,48 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         setError("A világ visszaállítása elakadt. Ellenőrizd a Manager eseménynaplóját és a megőrzött védőmentést; ne indítsd el automatikusan a mapot.");
     }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
+  const originalLocalFive=maps.filter(m=>m.storeProtected);
+  const reviewOriginalFive=async()=>{
+    if(originalFiveBusy||busy||originalLocalFive.length<5)return;
+    setOriginalFiveBusy(true);setOriginalFivePreview(null);
+    setOriginalFiveReceipt(null);setOriginalFiveConsent(false);
+    setOriginalFiveError("");
+    try{
+      const candidate=await managerBridge.backupOriginalFivePreview();
+      if(candidate.localMaps!==5||!candidate.originalSourcePinned||
+         !candidate.allMapsConfirmedStopped||candidate.originalKovaFilesWritten||
+         candidate.serverStarted||candidate.sharedTransferIncluded||
+         candidate.otherHostIncluded)
+        throw new Error("Eredeti helyi Store-forrás nem érvényes");
+      setOriginalFivePreview(candidate);
+    }catch(e){
+      setOriginalFiveError("Az eredeti ötmapos mentés nem készíthető elő. "+
+        "Mind az öt importált mapnak igazoltan leállítva kell lennie, "+
+        "változatlan Kova metaadatokkal és érvényes világfájlokkal. "+
+        (e instanceof Error?e.message:""));
+    }finally{setOriginalFiveBusy(false);}
+  };
+  const createOriginalFive=async()=>{
+    if(originalFiveBusy||!originalFivePreview||!originalFiveConsent)return;
+    const token=originalFivePreview.token;
+    setOriginalFiveBusy(true);setOriginalFivePreview(null);
+    setOriginalFiveConsent(false);setOriginalFiveError("");
+    try{
+      const result=await managerBridge.backupOriginalFiveCreate(token);
+      if(result.localMaps!==5||!result.allFiveVerified||
+         result.points.length!==5||result.originalKovaFilesWritten||
+         result.serverStarted||result.otherHostIncluded||
+         result.sharedTransferIncluded)
+        throw new Error("Nem teljes az ötmapos SHA-256 tanúsítvány");
+      setOriginalFiveReceipt(result);
+      await reload();
+    }catch(e){
+      setOriginalFiveError("Nem igazolható mind az öt helyi mentési pont. "+
+        "Ellenőrizd az egyes mapok mentési előzményeit. "+
+        "Korábbi, már ellenőrzött mentéseket nem töröltünk. "+
+        (e instanceof Error?e.message:""));
+    }finally{setOriginalFiveBusy(false);}
+  };
   return <section className="uk-world-backup premium-panel">
     <header className="premium-panel-heading">
       <h2><ShieldCheck size={19}/> Valódi világmentés és védett visszaállítás</h2>
@@ -161,6 +209,56 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <button className="primary" type="button" disabled={!chosen||busy||current?.running||history?.recoveryRequired}
           onClick={()=>{void preview();}}><Save size={15}/> Világmentés készítése</button>
       </div>
+      {originalLocalFive.length>=5&&<section className="uk-world-backup-confirm"
+        aria-label="Eredeti Store-v1 ötmapos helyi mentés">
+        <div>
+          <b>Az öt eredeti helyi Store-v1 map mentése együtt</b>
+          <p>A már működő, SHA-256 ellenőrzött mapmentési motor mind az öt
+            eredeti helyi mapról mentést készít. Nem indít vagy állít le
+            szervert, nem küld RCON-t, és nem módosít Kova-sessiont, lockot
+            vagy a közös transferkönyvtárat. A másik gépen külön futtasd.</p>
+          {!originalFivePreview&&<button type="button" className="secondary"
+            disabled={originalFiveBusy||busy}
+            onClick={()=>{void reviewOriginalFive();}}>
+            <ShieldCheck size={15}/>
+            {originalFiveBusy?"Eredeti mentés ellenőrzése vagy készítése…":
+              "Mind az 5 eredeti helyi map mentésének ellenőrzése"}
+          </button>}
+          {originalFivePreview&&<div role="region"
+            aria-label="Eredeti Store-v1 ötmapos mentés jóváhagyása">
+            <p><b>Mind az öt map leállított és a forrásváltozat ellenőrzött.</b></p>
+            <p>{originalFivePreview.mapNames.join(", ")}</p>
+            <p className="muted small">A világfájlok összes mérete legalább
+              {" "}{(originalFivePreview.worldBytes/1024/1024/1024).toFixed(2)} GiB.
+              A teljes mentés tartalmazhat további profil- és törzsfájlokat.</p>
+            <label><input type="checkbox" checked={originalFiveConsent}
+              disabled={originalFiveBusy}
+              onChange={e=>setOriginalFiveConsent(e.target.checked)}/>
+              Jóváhagyom az öt eredeti helyi map SHA-256-os mentését. Ez nem
+              a teljes kétgépes transfer-pillanatkép.</label>
+            <div className="settings-actions">
+              <button className="primary" type="button"
+                disabled={originalFiveBusy||!originalFiveConsent}
+                onClick={()=>{void createOriginalFive();}}>
+                <Save size={15}/> Öt map mentésének indítása
+              </button>
+              <button className="secondary" type="button"
+                disabled={originalFiveBusy}
+                onClick={()=>{setOriginalFivePreview(null);setOriginalFiveConsent(false);}}>
+                Mégsem
+              </button>
+            </div>
+          </div>}
+          {originalFiveReceipt&&<div role="status">
+            <b>Mind az öt eredeti helyi map ellenőrzött mentése elkészült.</b>
+            <p>{originalFiveReceipt.points.map(p=>p.mapName).join(", ")}</p>
+            <small>{(originalFiveReceipt.totalBytes/1024/1024/1024).toFixed(2)}
+              {" "}GiB SHA-256-tal ellenőrzött fájl. A közös transfer és
+              a másik Manager mentése még külön szükséges.</small>
+          </div>}
+          {originalFiveError&&<p role="alert">{originalFiveError}</p>}
+        </div>
+      </section>}
       <section className="uk-world-backup-confirm" aria-label="Ütemezett világmentés">
         <div>
           <b>Automatikus mentés – csak leállított helyi mapról</b>

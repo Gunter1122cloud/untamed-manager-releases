@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -25,10 +26,15 @@ public sealed class DesktopWorldBackupBridge
     private sealed record Ticket(Guid Token,Guid MapId,string Point,string Root,
         string Arguments,DateTimeOffset Until,bool Restore);
     private Ticket? pending;
+    private sealed record OriginalBatchTicket(Guid Token,string FourFilesSha,
+        string LaunchProfileSha,Guid[] MapIds,DateTimeOffset ExpiresUtc);
+    private OriginalBatchTicket? originalBatchPending;
+    private readonly Func<LegacyStoreV1OriginalLocalSelection> originalSelection;
 
     public DesktopWorldBackupBridge(ClusterService cluster,
         Func<LocalMap,ProcessCheck>? processInspector=null,
-        DesktopScheduledStoppedBackupSupervisor? scheduledBackups=null)
+        DesktopScheduledStoppedBackupSupervisor? scheduledBackups=null,
+        Func<LegacyStoreV1OriginalLocalSelection>? originalSelectionProvider=null)
     {
         this.cluster=cluster??throw new ArgumentNullException(nameof(cluster));
         // Historical Store-v1 imports deliberately retain empty Arguments.
@@ -39,6 +45,10 @@ public sealed class DesktopWorldBackupBridge
             cluster.ObserveLocalProcessesReadOnly(map):
             new WindowsProcessInspector().InspectFamily(map));
         scheduled=scheduledBackups;
+        originalSelection=originalSelectionProvider??(()=>
+            LegacyStoreV1OriginalImport.Inspect(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Kova")));
     }
     private LocalMap Owned(Guid mapId)
     {
@@ -55,6 +65,60 @@ public sealed class DesktopWorldBackupBridge
     }
     private void UniqueWorldDirectory(LocalMap map)=>
         AsaSaveLayoutResolver.DemandUniqueOwner(map,cluster.Config.LocalMaps);
+    // EXACT historical 5-map Kova ownership is a special legacy source.
+    // The overall Manager still supports N hosts and arbitrary map counts.
+    // This only aggregates existing per-map SHA-256 backup operations and
+    // never touches the shared Kova Store-v1 writer or creates another engine.
+    private (LegacyStoreV1OriginalLocalSelection Source,LocalMap[] Maps)
+        RequireOriginalStoppedFive()
+    {
+        var source=originalSelection();
+        if(source?.Maps==null||source.Maps.Length!=5||
+           source.FourFilesSha256.Length!=64||
+           source.LaunchProfileSha256.Length!=64||
+           source.Maps.Select(x=>x.MapId).Distinct().Count()!=5)
+            throw new InvalidDataException("UM-BACKUP-ORIGINAL-FIVE-SOURCE-MISSING");
+        // A historical Kova import is a five-map selection, NOT a five-map
+        // capacity limit for the Manager. Additional independent Store maps
+        // must not hide or prevent backups of these five original GUIDs.
+        var historical=source.Maps.Select(sourceMap=>
+            cluster.Config.LocalMaps.SingleOrDefault(m=>
+                m.HistoricalStoreProtected&&m.Id==sourceMap.MapId)
+            ??throw new InvalidDataException(
+                "UM-BACKUP-ORIGINAL-FIVE-IMPORTED-REQUIRED")).ToArray();
+        var maps=new List<LocalMap>(5);
+        var roots=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach(var original in source.Maps)
+        {
+            LocalMap map=historical.SingleOrDefault(m=>m.Id==original.MapId)
+                ??throw new InvalidDataException("UM-BACKUP-ORIGINAL-MAP-NOT-IMPORTED");
+            if(!string.Equals(map.HistoricalMapKey,original.MapKey,
+                    StringComparison.Ordinal)||
+               !string.Equals(map.HistoricalArchiveSha256,source.FourFilesSha256,
+                    StringComparison.Ordinal)||
+               !string.Equals(Path.GetFullPath(map.InstallationPath),
+                    Path.GetFullPath(original.OriginalInstallationRoot),
+                    StringComparison.OrdinalIgnoreCase)||
+               map.GamePort!=original.GamePort||map.QueryPort!=original.QueryPort||
+               map.HistoricalEnabledMods?.SequenceEqual(original.EnabledMods,
+                    StringComparer.Ordinal)!=true||
+               map.HistoricalPassiveMods?.SequenceEqual(original.PassiveMods,
+                    StringComparer.Ordinal)!=true)
+                throw new InvalidDataException("UM-BACKUP-ORIGINAL-SOURCE-OR-PORTS-CHANGED");
+            if(!roots.Add(Path.GetFullPath(map.InstallationPath)))
+                throw new InvalidDataException("UM-BACKUP-ORIGINAL-DUPLICATE-ROOT");
+            UniqueWorldDirectory(map);
+            Stopped(map);
+            if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+                throw new InvalidOperationException("UM-BACKUP-ORIGINAL-RESTORE-RECOVERY");
+            string world=AsaSaveLayoutResolver.Resolve(map).WorldFile;
+            if(!File.Exists(world)||new FileInfo(world).Length==0)
+                throw new InvalidDataException("UM-BACKUP-ORIGINAL-WORLD-MISSING");
+            maps.Add(map);
+        }
+        return (source,maps.ToArray());
+    }
+
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
@@ -74,11 +138,87 @@ public sealed class DesktopWorldBackupBridge
             if(method is not ("backup.history" or "backup.preview" or
                 "backup.create" or "backup.restorePreview" or "backup.restore" or
                 "backup.scheduleStatus" or "backup.scheduleCreate" or
-                "backup.scheduleDisable"))
+                "backup.scheduleDisable" or
+                "backup.originalBatchPreview" or "backup.originalBatchCreate"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
             {
+                if(method=="backup.originalBatchPreview")
+                {
+                    originalBatchPending=null;
+                    var (original,maps)=RequireOriginalStoppedFive();
+                    long worldBytes=0;
+                    foreach(var map in maps)
+                        worldBytes=checked(worldBytes+
+                            new FileInfo(AsaSaveLayoutResolver.Resolve(map).WorldFile).Length);
+                    var originalBatchTicket=new OriginalBatchTicket(Guid.NewGuid(),
+                        original.FourFilesSha256,original.LaunchProfileSha256,
+                        maps.Select(x=>x.Id).ToArray(),DateTimeOffset.UtcNow.AddMinutes(5));
+                    originalBatchPending=originalBatchTicket;
+                    return Ok(id,new{
+                        token=originalBatchTicket.Token,localMaps=5,worldBytes,
+                        mapNames=maps.Select(x=>x.Name).ToArray(),
+                        originalSourcePinned=true,allMapsConfirmedStopped=true,
+                        requiresOperatorConfirmation=true,
+                        originalKovaFilesWritten=false,serverStarted=false,
+                        sharedTransferIncluded=false,otherHostIncluded=false,
+                        evidence="EXISTING_SHA256_WORLD_ENGINE_ORIGINAL_FIVE_MAP_PREFLIGHT"
+                    });
+                }
+                if(method=="backup.originalBatchCreate")
+                {
+                    if(!root.TryGetProperty("token",out var originalToken)||
+                       originalToken.ValueKind!=JsonValueKind.String||
+                       !Guid.TryParse(originalToken.GetString(),out var suppliedToken)||
+                       !root.TryGetProperty("confirm",out var batchConsent)||
+                       batchConsent.ValueKind!=JsonValueKind.True||
+                       originalBatchPending?.Token!=suppliedToken)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-APPROVAL-REQUIRED");
+                    var approved=originalBatchPending!;
+                    originalBatchPending=null; // consume on every attempt
+                    if(approved.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-APPROVAL-EXPIRED");
+                    var (currentOriginal,maps)=RequireOriginalStoppedFive();
+                    if(approved.FourFilesSha!=currentOriginal.FourFilesSha256||
+                       approved.LaunchProfileSha!=currentOriginal.LaunchProfileSha256||
+                       !approved.MapIds.SequenceEqual(maps.Select(m=>m.Id)))
+                        return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-SOURCE-CHANGED");
+                    // Keep running actual existing Core.Create; never invent
+                    // success from a detached job or mock receipt. Completed
+                    // individual map packages remain durable if a later map
+                    // fails, and no shared transfer/session bytes are touched.
+                    var createdFive=await Task.Run(()=>
+                    {
+                        var points=new List<(Guid MapId,string Name,
+                            KovaCompatibleWorldBackup.Point Point)>();
+                        foreach(var map in maps)
+                        {
+                            Stopped(map);
+                            var point=KovaCompatibleWorldBackup.Create(
+                                map,cluster.Store.Root,()=>inspect(map));
+                            points.Add((map.Id,map.Name,point));
+                        }
+                        return points;
+                    });
+                    var (afterSource,afterMaps)=RequireOriginalStoppedFive();
+                    if(afterSource.FourFilesSha256!=approved.FourFilesSha||
+                       afterSource.LaunchProfileSha256!=approved.LaunchProfileSha||
+                       !afterMaps.Select(m=>m.Id).SequenceEqual(approved.MapIds))
+                        throw new IOException("UM-BACKUP-ORIGINAL-FIVE-SOURCE-CHANGED-AFTER-COPY");
+                    return Ok(id,new{
+                        localMaps=createdFive.Count,
+                        points=createdFive.Select(x=>new{
+                            mapId=x.MapId,mapName=x.Name,point=x.Point.Id,
+                            files=x.Point.Files,bytes=x.Point.Bytes
+                        }).ToArray(),
+                        totalBytes=createdFive.Sum(x=>x.Point.Bytes),
+                        allFiveVerified=createdFive.Count==5,
+                        originalKovaFilesWritten=false,serverStarted=false,
+                        sharedTransferIncluded=false,otherHostIncluded=false,
+                        evidence="FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM"
+                    });
+                }
                 if(method is "backup.scheduleStatus" or "backup.scheduleCreate" or
                     "backup.scheduleDisable")
                 {
