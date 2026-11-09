@@ -20,6 +20,7 @@ public static class FreshStoreEnrollmentPolicy
 {
     public sealed record Plan(Guid MapId,string ClusterId,string TransferDirectory,
         string Arguments,string InstalledBuild,long RegistryRevision,
+        string TransferFileId,
         string Fingerprint,string Evidence);
 
     public static bool IsEnrolled(LocalMap map)=>
