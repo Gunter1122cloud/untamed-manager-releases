@@ -48,21 +48,29 @@ internal static class OriginalStoreFiveBatchJournal
     {
         if(snapshot==null||snapshot.JobId==Guid.Empty||
            snapshot.State is not ("queued" or "running" or "completed" or "needsOperator")||
-           snapshot.Step.Length is <1 or >120||
-           snapshot.FourFilesSha.Length!=64||
-           snapshot.LaunchProfileSha.Length!=64||
+           snapshot.Step is null||snapshot.Step.Length is <1 or >120||
+           snapshot.FourFilesSha is null||snapshot.FourFilesSha.Length!=64||
+           snapshot.LaunchProfileSha is null||snapshot.LaunchProfileSha.Length!=64||
            !snapshot.FourFilesSha.All(Uri.IsHexDigit)||
            !snapshot.LaunchProfileSha.All(Uri.IsHexDigit)||
            snapshot.Points==null||snapshot.Points.Length>5||
            snapshot.TotalBytes<0||
-           snapshot.Points.Sum(p=>p.Bytes)!=snapshot.TotalBytes||
-           snapshot.Points.Any(p=>p.MapId==Guid.Empty||
-               p.MapName.Length is <1 or >160||
+           snapshot.Points.Any(p=>p==null||p.MapId==Guid.Empty||
+               p.MapName is null||p.MapName.Length is <1 or >160||
                !Guid.TryParse(p.PointId,out var parsed)||parsed==Guid.Empty||
                p.Files<=0||p.Bytes<0)||
            snapshot.Points.Select(p=>p.MapId).Distinct().Count()!=snapshot.Points.Length||
            (snapshot.State=="completed"&&snapshot.Points.Length!=5))
             throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-INVALID");
+        try
+        {
+            if(snapshot.Points.Sum(p=>p.Bytes)!=snapshot.TotalBytes)
+                throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-TOTAL-MISMATCH");
+        }
+        catch(OverflowException)
+        {
+            throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-TOTAL-OVERFLOW");
+        }
     }
     // A held OS file handle is an owner-specific cross-process lease.
     // It is NOT a Kova Store writer lock. Windows releases it after an
@@ -101,7 +109,7 @@ internal static class OriginalStoreFiveBatchJournal
         Envelope envelope=doc.RootElement.Deserialize<Envelope>(Json)??
             throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-INVALID");
         if(envelope.Schema!=1||envelope.Snapshot==null||
-           envelope.Sha256?.Length!=64)
+           envelope.Sha256?.Length!=64||!envelope.Sha256.All(Uri.IsHexDigit))
             throw new InvalidDataException("UM-ORIGINAL-BATCH-JOURNAL-INVALID");
         Validate(envelope.Snapshot);
         if(!CryptographicOperations.FixedTimeEquals(
