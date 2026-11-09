@@ -176,6 +176,71 @@ internal static class MultiHostOfflineCatalogAssemblerTests
         {
             if(Directory.Exists(destination))Directory.Delete(destination,true);
         }
+        // Exercise the same real v1 engine interrupted during a full TWO
+        // host, ten-map archive. Recovery retains every previous partial byte
+        // and uses the ORIGINAL archive writer to rebuild from offline copies.
+        string recoveryRoot=Path.Combine(sandbox,"ten-map-recovery-tests");
+        Directory.CreateDirectory(recoveryRoot);
+        string recoveryTarget=Path.Combine(recoveryRoot,
+            "Untamed-MultiHost-20261109-200000-"+catalog.BatchId.ToString("N"));
+        bool failedMidCopy=false;
+        try
+        {
+            MultiHostClusterBackupArchive.BuildFromCatalog(catalogPath,
+                recoveryTarget,ownership,afterCopiedForTesting:index=>{
+                    if(index==3)throw new IOException("Synthetic Manager crash");
+                });
+        }
+        catch(IOException){failedMidCopy=true;}
+        Check(failedMidCopy&&Directory.Exists(recoveryTarget+".incomplete"),
+            "real ten-map two-host archive failure retains an incomplete checkpoint");
+        var review=MultiHostOfflineArchiveRecovery.Inspect(
+            recoveryTarget+".incomplete",catalogPath,ownership);
+        Check(review.BatchId==catalog.BatchId&&review.Components==catalog.Items.Length,
+            "recovery checkpoint and complete original catalog carry exactly matching batch identity");
+        byte[] catalogueBefore=File.ReadAllBytes(catalogPath);
+        File.AppendAllText(catalogPath," ");
+        bool changedCatalogueDenied=false;
+        try{MultiHostOfflineArchiveRecovery.RetainInterrupted(review,ownership);}
+        catch(IOException){changedCatalogueDenied=true;}
+        Check(changedCatalogueDenied&&Directory.Exists(review.Stage),
+            "catalog altered after recovery preview rejects without moving the old archive stage");
+        File.WriteAllBytes(catalogPath,catalogueBefore);
+        using(var lease=MultiHostOfflineArchiveRecovery.AcquireLease(review.Target))
+        {
+            bool doubleWriterDenied=false;
+            try
+            {
+                using var other=MultiHostOfflineArchiveRecovery.AcquireLease(review.Target);
+            }
+            catch(IOException){doubleWriterDenied=true;}
+            Check(doubleWriterDenied,
+                "two archive/recovery Manager processes cannot share the same output owner");
+            string retained=MultiHostOfflineArchiveRecovery.RetainInterrupted(review,ownership);
+            Check(Directory.Exists(Path.Combine(recoveryRoot,retained))&&
+                  !Directory.Exists(review.Stage),
+                "all interrupted two-host Store/transfer copies are retained, not deleted");
+            var finished=MultiHostClusterBackupArchive.BuildFromCatalog(
+                catalogPath,recoveryTarget,ownership);
+            Check(finished.BatchId==catalog.BatchId&&
+                  finished.Hosts.Length==2&&finished.Maps.Length==10,
+                "normal v1 writer rebuilds complete ten-map two-host archive after explicit recovery");
+        }
+        string recoveryTemp=Path.Combine(Path.GetTempPath(),
+            "Untamed-MultiHost-Restore-"+Guid.NewGuid().ToString("N"));
+        try
+        {
+            MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(recoveryTarget,recoveryTemp);
+            string restoredTribute=Path.Combine(recoveryTemp,"data","clusters",
+                cluster,"TransferFiles",hosts[0],"tribute.bin");
+            Check(File.ReadAllBytes(restoredTribute).SequenceEqual(File.ReadAllBytes(transfer)),
+                "recovered shared tribute payload restores exactly in TEMP, no original data touched");
+        }
+        finally
+        {
+            if(Directory.Exists(recoveryTemp))Directory.Delete(recoveryTemp,true);
+        }
+
         // Once catalog exists, never overwrite or transparently re-import a
         // possibly stale copied source. Rebuilding needs a separate folder.
         bool denied=false;
