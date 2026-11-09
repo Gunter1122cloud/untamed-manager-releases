@@ -41,6 +41,31 @@ internal static class FreshStoreEnrollmentTests
         return response.RootElement.Clone();
     }
 
+
+    private static async Task<JsonElement> CallMode(DesktopFreshStoreLoaderModeBridge bridge,
+        string method,object? parameters=null)
+    {
+        var request=new System.Collections.Generic.Dictionary<string,object?>{
+            ["id"]=Guid.NewGuid().ToString("D"),["method"]=method
+        };
+        if(parameters!=null)
+            foreach(var entry in JsonSerializer.SerializeToElement(parameters).EnumerateObject())
+                request[entry.Name]=entry.Value.Clone();
+        using var response=JsonDocument.Parse(
+            await bridge.HandleAsync(JsonSerializer.Serialize(request)));
+        return response.RootElement.Clone();
+    }
+    // Synthetic PE64 HEADER ONLY, never a runnable executable.
+    private static void WriteSyntheticPe64(string path)
+    {
+        byte[] data=new byte[512];
+        data[0]=0x4d;data[1]=0x5a;data[0x3c]=0x80;
+        data[0x80]=0x50;data[0x81]=0x45;
+        data[0x84]=0x64;data[0x85]=0x86;
+        data[0x98]=0x0b;data[0x99]=0x02;
+        File.WriteAllBytes(path,data);
+    }
+
     private static void Reject(Action operation,string reason)
     {
         bool denied=false;
@@ -180,6 +205,73 @@ internal static class FreshStoreEnrollmentTests
                 "new Store enrollment durably pins the actual Windows transfer directory file ID");
             Check(AsaApiOwnedInstaller.ListCompletedRollbacks(manager,mapId).Count==0,
                 "enrolled local Store permits stopped-only API Core inspection without any transaction or world mutation");
+
+            // Loader selection for a newly enrolled (NOT historical Kova) Store
+            // profile uses only synthetic PE headers and no real ASA process.
+            using(var modeBridge=new DesktopFreshStoreLoaderModeBridge(manager))
+            {
+                var initial=await CallMode(modeBridge,"freshStore.loaderModeStatus",
+                    new{mapId});
+                Check(initial.GetProperty("ok").GetBoolean()&&
+                      initial.GetProperty("data").GetProperty("canChangeMode").GetBoolean()&&
+                      !initial.GetProperty("data").GetProperty("useApi").GetBoolean(),
+                    "new enrolled Store defaults to direct ASA launch with verified stopped profile");
+
+                var missingApi=await CallMode(modeBridge,"freshStore.loaderModePreview",
+                    new{mapId,useApi=true});
+                Check(!missingApi.GetProperty("ok").GetBoolean(),
+                    "new Store refuses Loader mode without locally verified official API Core files");
+
+                string api=Path.Combine(binary,"ArkApi");
+                Directory.CreateDirectory(Path.Combine(api,"Plugins"));
+                WriteSyntheticPe64(Path.Combine(binary,"AsaApiLoader.exe"));
+                WriteSyntheticPe64(Path.Combine(api,"AsaApi.dll"));
+                File.WriteAllText(Path.Combine(binary,"config.json"),"{}");
+                string transferIdentity=enrolled.FreshStoreTransferFileId;
+                var choose=await CallMode(modeBridge,"freshStore.loaderModePreview",
+                    new{mapId,useApi=true});
+                Check(choose.GetProperty("ok").GetBoolean()&&
+                      !choose.GetProperty("data").GetProperty("startsServer").GetBoolean()&&
+                      !choose.GetProperty("data").GetProperty("cacheRuntimeCertified").GetBoolean()&&
+                      !choose.GetRawText().Contains(transfer,StringComparison.OrdinalIgnoreCase),
+                    "Loader selection previews exact local files without spawn or cache runtime claims");
+                string modeToken=choose.GetProperty("data").GetProperty("token").GetString()!;
+                var wrong=await CallMode(modeBridge,"freshStore.loaderModeApply",
+                    new{token=modeToken,confirm=true,typedApproval="NO"});
+                Check(!wrong.GetProperty("ok").GetBoolean(),
+                    "wrong Loader approval changes no Store profile");
+                var selected=await CallMode(modeBridge,"freshStore.loaderModeApply",
+                    new{token=modeToken,confirm=true,typedApproval="FRESH STORE API MODE"});
+                Check(selected.GetProperty("ok").GetBoolean()&&
+                      !selected.GetProperty("data").GetProperty("serverStarted").GetBoolean(),
+                    "explicit one-shot Loader approval changes only local Manager launch preference");
+                var repeated=await CallMode(modeBridge,"freshStore.loaderModeApply",
+                    new{token=modeToken,confirm=true,typedApproval="FRESH STORE API MODE"});
+                Check(!repeated.GetProperty("ok").GetBoolean(),
+                    "Loader mode approval token cannot be replayed");
+                var loaderProfile=manager.Config.LocalMaps.Single(m=>m.Id==mapId);
+                Check(loaderProfile.StartWithAsaApi&&
+                      loaderProfile.ApiLoaderArguments==loaderProfile.Arguments&&
+                      loaderProfile.Arguments.EndsWith(" -usestore",StringComparison.Ordinal)&&
+                      loaderProfile.FreshStoreTransferFileId==transferIdentity,
+                    "new Store uses exact original -usestore args in API Loader without altering transfer identity");
+                FreshStoreEnrollmentPolicy.DemandEnrolled(manager,loaderProfile);
+
+                var returnDirect=await CallMode(modeBridge,"freshStore.loaderModePreview",
+                    new{mapId,useApi=false});
+                Check(returnDirect.GetProperty("ok").GetBoolean(),
+                    "verified stopped Store may explicitly return to direct ASA launch");
+                var returned=await CallMode(modeBridge,"freshStore.loaderModeApply",
+                    new{token=returnDirect.GetProperty("data").GetProperty("token").GetString(),
+                        confirm=true,typedApproval="FRESH STORE API MODE"});
+                Check(returned.GetProperty("ok").GetBoolean(),
+                    "switching back to direct launch never spawns ASA or converts Store");
+                enrolled=manager.Config.LocalMaps.Single(m=>m.Id==mapId);
+                Check(!enrolled.StartWithAsaApi&&
+                      enrolled.ApiLoaderArguments==enrolled.Arguments&&
+                      enrolled.FreshStoreTransferFileId==transferIdentity,
+                    "direct launch retains Loader discovery identity to block orphan child bypass");
+            }
             var aliasSwap=JsonSerializer.Deserialize<LocalMap>(
                 JsonSerializer.Serialize(enrolled))!;
             aliasSwap.FreshStoreTransferFileId=new string('F',64);
