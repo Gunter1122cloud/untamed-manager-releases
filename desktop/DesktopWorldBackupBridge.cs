@@ -157,7 +157,7 @@ public sealed class DesktopWorldBackupBridge
                         maps.Select(x=>x.Id).ToArray(),DateTimeOffset.UtcNow.AddMinutes(5));
                     originalBatchPending=originalBatchTicket;
                     return Ok(id,new{
-                        token=ticket.Token,localMaps=5,worldBytes,
+                        token=originalBatchTicket.Token,localMaps=5,worldBytes,
                         mapNames=maps.Select(x=>x.Name).ToArray(),
                         originalSourcePinned=true,allMapsConfirmedStopped=true,
                         requiresOperatorConfirmation=true,
