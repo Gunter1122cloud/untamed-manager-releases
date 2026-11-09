@@ -311,6 +311,34 @@ test.beforeEach(async ({ page }) => {
           productionUnlockAllowed:false,
           evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"
         };
+        case "cluster.multiHostRestoreReplacePreview": return {
+          token:"00000000-0000-4000-8000-000000009601",
+          batchId:"00000000-0000-4000-8000-000000009602",
+          archiveName:"synthetic-archive",
+          hosts:2,clusters:1,maps:10,components:78,
+          previousBatchId:"00000000-0000-4000-8000-000000009603",
+          targetDirectoryName:"Untamed-MultiHost-Restore-fixture",
+          requiresExplicitApproval:true,
+          restoreTarget:"EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK",
+          productionRestoreAllowed:false,liveConsistencyCertified:false,
+          storeWriterCertified:false,evidence:"SYNTHETIC_TEMP_SANDBOX_ONLY"
+        };
+        case "cluster.multiHostRestoreReplaceApply": return {
+          jobId:"00000000-0000-4000-8000-000000009604",started:true,
+          target:"EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK",
+          productionRestoreAllowed:false,rconUsed:false,serverProcessTouched:false,
+          evidence:"SYNTHETIC_TEMP_LEASE_CONTENTION"
+        };
+        case "cluster.multiHostRestoreStatus": return {
+          jobId:m.jobId,kind:"restore",state:"needsOperator",
+          stage:"TEMP_SANDBOX_CONCURRENT_MANAGER_NO_WRITES",
+          artifactName:"",rollbackArtifactName:"",
+          hosts:2,clusters:1,maps:10,components:78,bytes:0,
+          changedUtc:"2026-11-09T10:00:00Z",
+          productionRestoreAllowed:false,liveConsistencyCertified:false,
+          storeWriterCertified:false,sqlUsed:false,rconUsed:false,
+          serverProcessTouched:false,evidence:"OS_HANDLE_LEASE_COLLISION_NO_WRITE"
+        };
         case "travel.compareRoundTrip": return {
           passed:false,maps:10,hosts:2,
           outwardPlacementVerified:typeof m.middleA==="string"&&
@@ -1880,6 +1908,27 @@ test("Store A-B-A six snapshots require both return hosts and never unlock produ
   await expect(panel).toContainText("Eredeti profil SHA: nem igazolt");
   await expect(panel).toContainText("nem oldja fel");
   await expect(panel).not.toContainText("Éles restore engedélyezve");
+});
+
+test("N-host TEMP restore displays a competing Manager lease denial without false partial writes",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await expect(panel).toBeVisible();
+  await panel.getByRole("button",{name:"TEMP sandbox cseréje / rollback előnézet"}).click();
+  const approval=panel.getByRole("region",{name:"TEMP restore jóváhagyása"});
+  await expect(approval).toContainText("rollback-másolata megmarad");
+  await approval.getByRole("checkbox",{
+    name:/Jóváhagyom ennek az ellenőrzött TEMP sandboxnak a cseréjét/
+  }).check();
+  await approval.getByRole("button",{name:"TEMP sandbox cseréje (rollback-másolat megtartásával)"}).click();
+  await expect(panel).toContainText("TEMP restore állapot: needsOperator");
+  await expect(panel).toContainText("TEMP_SANDBOX_CONCURRENT_MANAGER_NO_WRITES");
+  await expect(panel).toContainText("Másik Manager-folyamat már birtokolja");
+  await expect(panel).toContainText("Az ütköző művelet nem írt fájlt");
+  await expect(panel).not.toContainText("A részleges archívum vagy TEMP stage");
+  await expect(panel).toContainText("Az élő SaveComplete, Store-zár");
 });
 
 test("Mentésközpont calls real native preview/create and displays verified characters",async({page})=>{

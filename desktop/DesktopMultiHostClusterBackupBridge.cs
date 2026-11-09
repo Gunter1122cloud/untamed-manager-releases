@@ -555,6 +555,14 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         }
                         catch (OperationCanceledException)
                         { Set(job, "needsOperator", "CANCELLED_TEMP_STAGE_REQUIRES_REVIEW"); }
+                        catch (IOException ex) when (ex.Message.Contains(
+                            "UM-TEMP-RESTORE-LEASE-BUSY", StringComparison.Ordinal))
+                        {
+                            // A competing Manager's native lease is acquired
+                            // BEFORE this operation can touch any TEMP artifact.
+                            // Do not mislabel it as a failed partial restore.
+                            Set(job, "needsOperator", "TEMP_SANDBOX_CONCURRENT_MANAGER_NO_WRITES");
+                        }
                         catch (Exception e) when (e is IOException or InvalidDataException or
                             UnauthorizedAccessException or ArgumentException or OverflowException or JsonException)
                         { Set(job, "needsOperator", "RESTORE_SANDBOX_FAILED_REVIEW_STAGE"); }

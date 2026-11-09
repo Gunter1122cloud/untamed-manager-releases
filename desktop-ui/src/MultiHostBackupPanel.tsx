@@ -208,8 +208,16 @@ export function MultiHostBackupPanel(){
         {status.hosts} host, {status.maps} map, {status.clusters} cluster, {status.components} fájl SHA-256 ellenőrizve.
         {status.artifactName?` Cél: ${status.artifactName}.`:""}</p>}
       {status?.state==="completed"&&status.rollbackArtifactName&&<p>Rollback-másolat: {status.rollbackArtifactName}</p>}
-      {status?.state==="needsOperator"&&<p><AlertTriangle size={16}/>
-        A művelet nem fejeződött be ellenőrzötten. A részleges archívum vagy TEMP stage kézi felülvizsgálatot igényel; nincs automatikus újrapróbálás.</p>}
+      {status?.state==="needsOperator"&&
+        status.stage==="TEMP_SANDBOX_CONCURRENT_MANAGER_NO_WRITES"&&
+        <p><AlertTriangle size={16}/>
+          Másik Manager-folyamat már birtokolja ezt a TEMP restore-tranzakciót.
+          Az ütköző művelet nem írt fájlt és nem indított rollbacket.
+          Ellenőrizd a másik folyamat állapotát; automatikus újrapróbálás nincs.</p>}
+      {status?.state==="needsOperator"&&
+        status.stage!=="TEMP_SANDBOX_CONCURRENT_MANAGER_NO_WRITES"&&
+        <p><AlertTriangle size={16}/>
+          A művelet nem fejeződött be ellenőrzötten. A részleges archívum vagy TEMP stage kézi felülvizsgálatot igényel; nincs automatikus újrapróbálás.</p>}
       {!finished&&<button className="secondary" type="button" disabled={busy}
         onClick={()=>{const read=jobKind==="restore"?managerBridge.multiHostRestoreStatus(jobId):managerBridge.multiHostBackupStatus(jobId);
           void read.then(setStatus).catch(()=>setError("A státusz nem elérhető."));}}>
