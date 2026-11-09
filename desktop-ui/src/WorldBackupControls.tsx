@@ -5,7 +5,7 @@ import {managerBridge,type PublicMap,type WorldBackupCreated,
   type WorldBackupHistory,type WorldBackupPoint,type WorldBackupPreview,
   type ScheduledStoppedBackupState,
   type WorldBackupRestored,type OriginalFiveMapBackupPreview,
-  type OriginalFiveMapBackupReceipt} from "./bridge";
+  type OriginalFiveMapBackupReceipt,type OriginalFiveMapBackupStatus} from "./bridge";
 
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
   const [chosen,setChosen]=useState(selectedMap??maps[0]?.id??"");
@@ -24,6 +24,8 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   const [originalFivePreview,setOriginalFivePreview]=useState<OriginalFiveMapBackupPreview|null>(null);
   const [originalFiveConsent,setOriginalFiveConsent]=useState(false);
   const [originalFiveReceipt,setOriginalFiveReceipt]=useState<OriginalFiveMapBackupReceipt|null>(null);
+  const [originalFiveJob,setOriginalFiveJob]=useState<OriginalFiveMapBackupStatus|null>(null);
+  const lastFiveCompleted=useRef("");
   const [originalFiveBusy,setOriginalFiveBusy]=useState(false);
   const [originalFiveError,setOriginalFiveError]=useState("");
   const selectedRef=useRef(chosen);
@@ -86,6 +88,27 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     finally{if(selectedRef.current===requestedMap)setBusy(false);}
   },[chosen]);
   useEffect(()=>{void reload();},[reload]);
+  // The native copy runs independently of WebView RPCs. Reattach to the
+  // current in-process job after navigating away and report real Core points.
+  useEffect(()=>{
+    let mounted=true;
+    const poll=()=>{
+      void managerBridge.backupOriginalFiveStatus().then(status=>{
+        if(!mounted)return;
+        setOriginalFiveJob(status);
+        if(status.state==="completed"&&status.localMaps===5&&
+           status.allFiveVerified&&status.completedMaps===5&&
+           status.points.length===5&&lastFiveCompleted.current!==status.jobId){
+          lastFiveCompleted.current=status.jobId;
+          setOriginalFiveReceipt({...status,allFiveVerified:true});
+          void reload();
+        }
+      }).catch(()=>{/* No original backup job exists on this Manager yet. */});
+    };
+    poll();
+    const timer=window.setInterval(poll,2500);
+    return ()=>{mounted=false;window.clearInterval(timer);};
+  },[reload]);
   const preview=async()=>{
     if(!chosen||busy||current?.running||history?.recoveryRequired)return;
     const requestedMap=chosen;
@@ -147,8 +170,10 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const originalLocalFive=maps.filter(m=>m.storeProtected);
+  const originalFiveRunning=originalFiveJob?.state==="queued"||
+    originalFiveJob?.state==="running";
   const reviewOriginalFive=async()=>{
-    if(originalFiveBusy||busy||originalLocalFive.length<5)return;
+    if(originalFiveBusy||originalFiveRunning||busy||originalLocalFive.length<5)return;
     setOriginalFiveBusy(true);setOriginalFivePreview(null);
     setOriginalFiveReceipt(null);setOriginalFiveConsent(false);
     setOriginalFiveError("");
@@ -168,19 +193,22 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     }finally{setOriginalFiveBusy(false);}
   };
   const createOriginalFive=async()=>{
-    if(originalFiveBusy||!originalFivePreview||!originalFiveConsent)return;
+    if(originalFiveBusy||originalFiveRunning||!originalFivePreview||!originalFiveConsent)return;
     const token=originalFivePreview.token;
     setOriginalFiveBusy(true);setOriginalFivePreview(null);
     setOriginalFiveConsent(false);setOriginalFiveError("");
     try{
-      const result=await managerBridge.backupOriginalFiveCreate(token);
-      if(result.localMaps!==5||!result.allFiveVerified||
-         result.points.length!==5||result.originalKovaFilesWritten||
-         result.serverStarted||result.otherHostIncluded||
-         result.sharedTransferIncluded)
-        throw new Error("Nem teljes az ötmapos SHA-256 tanúsítvány");
-      setOriginalFiveReceipt(result);
-      await reload();
+      const started=await managerBridge.backupOriginalFiveCreate(token);
+      if(!started.started||started.localMaps!==5||
+         started.originalKovaFilesWritten||started.serverStarted||
+         started.sharedTransferIncluded||started.otherHostIncluded)
+        throw new Error("A natív ötmapos mentési feladatot nem sikerült elindítani");
+      const status=await managerBridge.backupOriginalFiveStatus(started.jobId);
+      if(status.jobId!==started.jobId)
+        throw new Error("A mentés műveletazonosítója nem egyezik");
+      setOriginalFiveJob(status);
+      // A queued response is not success: only the five independently
+      // SHA-verified Core packages may produce a completed receipt.
     }catch(e){
       setOriginalFiveError("Nem igazolható mind az öt helyi mentési pont. "+
         "Ellenőrizd az egyes mapok mentési előzményeit. "+
@@ -218,7 +246,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             szervert, nem küld RCON-t, és nem módosít Kova-sessiont, lockot
             vagy a közös transferkönyvtárat. A másik gépen külön futtasd.</p>
           {!originalFivePreview&&<button type="button" className="secondary"
-            disabled={originalFiveBusy||busy}
+            disabled={originalFiveBusy||originalFiveRunning||busy}
             onClick={()=>{void reviewOriginalFive();}}>
             <ShieldCheck size={15}/>
             {originalFiveBusy?"Eredeti mentés ellenőrzése vagy készítése…":
@@ -238,7 +266,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
               a teljes kétgépes transfer-pillanatkép.</label>
             <div className="settings-actions">
               <button className="primary" type="button"
-                disabled={originalFiveBusy||!originalFiveConsent}
+                disabled={originalFiveBusy||originalFiveRunning||!originalFiveConsent}
                 onClick={()=>{void createOriginalFive();}}>
                 <Save size={15}/> Öt map mentésének indítása
               </button>
@@ -249,6 +277,20 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
               </button>
             </div>
           </div>}
+          {originalFiveJob&&originalFiveJob.state!=="completed"&&
+            <div role="status" aria-label="Eredeti ötmapos mentés állapota">
+              <b>{originalFiveJob.state==="needsOperator"
+                ?"Az ötmapos mentés megszakadt – ellenőrzés szükséges."
+                :"Az ötmapos mentés folyamatban van."}</b>
+              <p>{originalFiveJob.completedMaps}/5 ellenőrzött világmentés ·
+                {" "}{originalFiveJob.step}</p>
+              {originalFiveJob.points.length>0&&
+                <p>{originalFiveJob.points.map(p=>p.mapName).join(", ")}</p>}
+              {originalFiveJob.state==="needsOperator"&&
+                <p role="alert">A már sikeres mapmentések megmaradtak a helyi előzményekben.
+                  A Kova Store/session/transfer fájlok változatlanok.
+                  Ellenőrizd a mapok leállított állapotát és a mentési előzményeket.</p>}
+            </div>}
           {originalFiveReceipt&&<div role="status">
             <b>Mind az öt eredeti helyi map ellenőrzött mentése elkészült.</b>
             <p>{originalFiveReceipt.points.map(p=>p.mapName).join(", ")}</p>
