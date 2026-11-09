@@ -19,7 +19,7 @@ public static class MultiHostOfflineCatalogAssembler
     public const string CatalogName = "multi-host-backup-catalog.json";
     public sealed record Preview(MultiHostBackupCatalog Catalog,string Fingerprint,
         int FileCount,long Bytes);
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions Json = new();
 
     private static string CanonicalRoot(string root)
     {
