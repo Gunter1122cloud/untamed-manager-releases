@@ -1380,7 +1380,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
-  gamePort?: number; queryPort?: number; archive?: string; command?: string;
+  gamePort?: number; queryPort?: number; customLevel?: string; archive?: string; command?: string;
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
   assetName?:string;transactionId?:string;
