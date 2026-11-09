@@ -3,12 +3,15 @@ import {AlertTriangle,Archive,CheckCircle2,FolderOpen,HardDriveDownload,RefreshC
 import {managerBridge,type MultiHostClusterBackupPreview,
   type MultiHostClusterRestorePreview,type MultiHostClusterBackupStatus,
   type MultiHostRestoreRecoveryListing,type MultiHostRestoreRecoveryPreview,
-  type MultiHostCatalogPreview,type MultiHostCatalogCreated} from "./bridge";
+  type MultiHostCatalogPreview,type MultiHostCatalogCreated,
+  type MultiHostBackupRecoveryPreview} from "./bridge";
 
 export function MultiHostBackupPanel(){
   const [catalogPreview,setCatalogPreview]=useState<MultiHostCatalogPreview|null>(null);
   const [catalogReceipt,setCatalogReceipt]=useState<MultiHostCatalogCreated|null>(null);
   const [catalogApproved,setCatalogApproved]=useState(false);
+  const [backupRecoveryPreview,setBackupRecoveryPreview]=useState<MultiHostBackupRecoveryPreview|null>(null);
+  const [backupRecoveryApproved,setBackupRecoveryApproved]=useState(false);
   const [backupPreview,setBackupPreview]=useState<MultiHostClusterBackupPreview|null>(null);
   const [restorePreview,setRestorePreview]=useState<MultiHostClusterRestorePreview|null>(null);
   const [recoveryListing,setRecoveryListing]=useState<MultiHostRestoreRecoveryListing|null>(null);
@@ -56,6 +59,35 @@ export function MultiHostBackupPanel(){
     }catch(e){
       setError("Nem sikerült az offline adatmásolatok ellenőrzött katalógusba szervezése: "+
         (e instanceof Error?e.message:"eredeti adatok változatlanok"));
+    }finally{setBusy(false);}
+  }
+  async function previewInterruptedBackup(){
+    if(busy||jobId&&status?.state!=="completed"&&status?.state!=="needsOperator")return;
+    setBusy(true);setError("");setNotice("");setBackupRecoveryApproved(false);
+    setBackupRecoveryPreview(null);
+    try{setBackupRecoveryPreview(await managerBridge.multiHostBackupRecoveryPreview());}
+    catch{
+      setError("A félbeszakadt archívum vagy az eredeti offline katalógus nem egyezik, "+
+        "a másolt fájlok megváltoztak, vagy az ellenőrzött SHA-256 napló nem áll rendelkezésre. "+
+        "A korábbi részleges fájlok érintetlenek.");
+    }finally{setBusy(false);}
+  }
+  async function applyInterruptedBackupRecovery(){
+    if(busy||!backupRecoveryPreview||!backupRecoveryApproved)return;
+    const token=backupRecoveryPreview.token;
+    setBusy(true);setError("");setNotice("");
+    setBackupRecoveryPreview(null);setBackupRecoveryApproved(false);
+    try{
+      const started=await managerBridge.multiHostBackupRecoveryApply(token);
+      if(!started.started||!started.previousStageWillBeRetained||
+         started.productionRestoreAllowed||started.serverProcessTouched)
+        throw new Error("A natív helyreállítás visszaigazolása érvénytelen");
+      setJobId(started.jobId);setJobKind("backup");setStatus(null);
+      setNotice("Az eredeti félbeszakadt archívum teljes egészében megőrzésre kerül. "+
+        "Az ellenőrzött offline forrásból a meglévő SHA-256 motor új archívumot készít.");
+    }catch{
+      setError("A helyreállítás nem indult el. A napló vagy a forrás a jóváhagyás után megváltozhatott, "+
+        "illetve másik Manager birtokolhatja a zárolást.");
     }finally{setBusy(false);}
   }
   async function previewBackup(){
@@ -151,6 +183,9 @@ export function MultiHostBackupPanel(){
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void previewBackup();}}><FolderOpen size={16}/> Offline mentés előnézete</button>
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
+        onClick={()=>{void previewInterruptedBackup();}}><Shield size={16}/>
+        Félbeszakadt offline archívum helyreállítása</button>
+      <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void previewRestore();}}><HardDriveDownload size={16}/> Archívum ellenőrzése / TEMP restore</button>
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void previewRestoreReplacement();}}><Shield size={16}/> TEMP sandbox cseréje / rollback előnézet</button>
@@ -184,6 +219,31 @@ export function MultiHostBackupPanel(){
         {" "}{catalogReceipt.components} fájl, Store/transfer komponensekkel.</p>
       <p>Most készítsd el a verziózott SHA-256 archívumot.
         Az éles visszaállítást ez még nem engedélyezi.</p>
+    </div>}
+    {backupRecoveryPreview&&<div className="historical-preview" role="region"
+      aria-label="Félbeszakadt multi-host archívum helyreállításának jóváhagyása">
+      <h4>Félbeszakadt archívum · {backupRecoveryPreview.archiveName}</h4>
+      <p>{backupRecoveryPreview.verifiedFiles}/{backupRecoveryPreview.components}
+        {" "}fájl ellenőrzött a korábbi SHA-256 naplóban.</p>
+      <p><b>Korábbi állapot nem törlődik:</b> a teljes .incomplete könyvtár megőrzött
+        másolatba kerül. A változatlan offline host-, Store-, világ- és transferfájlokból
+        új teljes archívum készül a már működő motorral. Ez nem automatikus folytatás
+        és nem érinti a futó ASA-t vagy az eredeti Kova-adatokat.</p>
+      <label><input type="checkbox" checked={backupRecoveryApproved}
+        disabled={busy} onChange={e=>setBackupRecoveryApproved(e.target.checked)}/>
+        Jóváhagyom a naplóval ellenőrzött régi részleges archívum megtartását
+        és a teljes újramásolást az offline forrásból.</label>
+      <div className="draft-actions">
+        <button type="button" className="primary"
+          disabled={busy||!backupRecoveryApproved}
+          onClick={()=>{void applyInterruptedBackupRecovery();}}>
+          Megőrzés és ellenőrzött újraépítés indítása
+        </button>
+        <button type="button" className="secondary" disabled={busy}
+          onClick={()=>{setBackupRecoveryPreview(null);setBackupRecoveryApproved(false);}}>
+          Mégsem
+        </button>
+      </div>
     </div>}
     {backupPreview&&<div className="historical-preview" role="region" aria-label="Multi-host mentés jóváhagyása">
       <h4>Mentési előnézet · {backupPreview.batchId.slice(0,8)}…</h4>
@@ -265,7 +325,8 @@ export function MultiHostBackupPanel(){
       {status?.state==="completed"&&<p><CheckCircle2 size={16}/>
         {status.hosts} host, {status.maps} map, {status.clusters} cluster, {status.components} fájl SHA-256 ellenőrizve.
         {status.artifactName?` Cél: ${status.artifactName}.`:""}</p>}
-      {status?.state==="completed"&&status.rollbackArtifactName&&<p>Rollback-másolat: {status.rollbackArtifactName}</p>}
+      {status?.state==="completed"&&status.rollbackArtifactName&&
+        <p>{jobKind==="backup"?"Megőrzött félbeszakadt archívum":"Rollback-másolat"}: {status.rollbackArtifactName}</p>}
       {status?.state==="needsOperator"&&
         status.stage==="TEMP_SANDBOX_CONCURRENT_MANAGER_NO_WRITES"&&
         <p><AlertTriangle size={16}/>

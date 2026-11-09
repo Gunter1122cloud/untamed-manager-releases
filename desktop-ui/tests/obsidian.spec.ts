@@ -351,6 +351,37 @@ test.beforeEach(async ({ page }) => {
           productionUnlockAllowed:false,
           evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"
         };
+        case "cluster.multiHostBackupRecoveryPreview": return {
+          token:"00000000-0000-4000-8000-000000009621",
+          batchId:"00000000-0000-4000-8000-000000009622",
+          archiveName:"Untamed-MultiHost-20261109-fixture",
+          verifiedFiles:64,components:151,needsOperator:true,
+          requiresExplicitApproval:true,previousStageWillBeRetained:true,
+          automaticResume:false,sourceFilesWillBeRevalidated:true,
+          originalStoreTouched:false,productionRestoreAllowed:false,
+          evidence:"VERIFIED_INTERRUPTED_MULTIHOST_OFFLINE_ARCHIVE_JOURNAL"
+        };
+        case "cluster.multiHostBackupRecoveryApply":
+          if(!m.confirm||m.token!=="00000000-0000-4000-8000-000000009621")
+            throw new Error("UM-MULTIHOST-RECOVERY-APPROVAL");
+          return {
+            jobId:"00000000-0000-4000-8000-000000009623",
+            started:true,previousStageWillBeRetained:true,
+            productionRestoreAllowed:false,rconUsed:false,
+            serverProcessTouched:false,
+            evidence:"OPERATOR_APPROVED_EXISTING_MULTIHOST_ARCHIVE_REBUILD"
+          };
+        case "cluster.multiHostBackupStatus": return {
+          jobId:m.jobId,kind:"backup",state:"completed",
+          stage:"ARCHIVE_SHA256_VERIFIED_AFTER_RECOVERY",
+          artifactName:"Untamed-MultiHost-20261109-fixture",
+          rollbackArtifactName:"Untamed-MultiHost-20261109-fixture.retained-abc",
+          hosts:2,clusters:1,maps:10,components:151,bytes:123456789,
+          changedUtc:"2026-11-09T19:50:00Z",
+          productionRestoreAllowed:false,liveConsistencyCertified:false,
+          storeWriterCertified:false,sqlUsed:false,rconUsed:false,
+          serverProcessTouched:false,evidence:"OFFLINE_MULTI_HOST_COPY_SHA256_VERIFIED"
+        };
         case "cluster.multiHostCatalogPreview": return {
           token:"00000000-0000-4000-8000-000000009611",
           hosts:2,clusters:1,maps:10,components:151,bytes:123456789,
@@ -2176,6 +2207,33 @@ test("N-host offline full Store/transfer catalog requires user consent and retai
   await commit.click();
   await expect(panel).toContainText("Teljes offline katalógus elkészült.");
   await expect(panel).toContainText("Az éles visszaállítást ez még nem engedélyezi");
+});
+
+test("interrupted N-host offline archive recovery requires consent and retains old stage",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await panel.getByRole("button",{
+    name:"Félbeszakadt offline archívum helyreállítása"
+  }).click();
+  const approval=panel.getByRole("region",{
+    name:"Félbeszakadt multi-host archívum helyreállításának jóváhagyása"
+  });
+  await expect(approval).toContainText("64/151");
+  await expect(approval).toContainText("a teljes .incomplete könyvtár megőrzött");
+  await expect(approval).toContainText("nem érinti a futó ASA-t");
+  const apply=approval.getByRole("button",{
+    name:"Megőrzés és ellenőrzött újraépítés indítása"
+  });
+  await expect(apply).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(panel).toContainText("Offline backup állapot: completed");
+  await expect(panel).toContainText("Megőrzött félbeszakadt archívum");
+  await expect(panel).toContainText("151 fájl SHA-256 ellenőrizve");
+  await expect(panel).not.toContainText("Éles restore engedélyezve");
 });
 
 test("N-host TEMP restore displays a competing Manager lease denial without false partial writes",async({page})=>{

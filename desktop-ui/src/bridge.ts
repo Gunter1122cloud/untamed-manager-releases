@@ -1139,6 +1139,19 @@ export type OfflineAsaArchiveStatus = {
   productionRestoreAllowed:false;sqlUsed:false;evidence:string;
 };
 
+export type MultiHostBackupRecoveryPreview = {
+  token:string;batchId:string;archiveName:string;
+  verifiedFiles:number;components:number;needsOperator:true;
+  requiresExplicitApproval:true;previousStageWillBeRetained:true;
+  automaticResume:false;sourceFilesWillBeRevalidated:true;
+  originalStoreTouched:false;productionRestoreAllowed:false;
+  evidence:"VERIFIED_INTERRUPTED_MULTIHOST_OFFLINE_ARCHIVE_JOURNAL";
+};
+export type MultiHostBackupRecoveryStarted = {
+  jobId:string;started:true;previousStageWillBeRetained:true;
+  productionRestoreAllowed:false;rconUsed:false;serverProcessTouched:false;
+  evidence:"OPERATOR_APPROVED_EXISTING_MULTIHOST_ARCHIVE_REBUILD";
+};
 export type MultiHostCatalogPreview = {
   token:string;hosts:number;clusters:number;maps:number;
   components:number;bytes:number;copiedTransferIncluded:boolean;
@@ -1269,6 +1282,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.copyPreview" | "mods.copyApply" |
   "mods.profileExport" | "mods.profileImportPreview" | "mods.profileImportApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
+  "cluster.multiHostBackupRecoveryPreview" | "cluster.multiHostBackupRecoveryApply" |
   "cluster.multiHostCatalogPreview" | "cluster.multiHostCatalogApply" |
   "cluster.multiHostBackupPreview" | "cluster.multiHostBackupApply" | "cluster.multiHostBackupStatus" |
   "cluster.multiHostRestorePreview" | "cluster.multiHostRestoreApply" | "cluster.multiHostRestoreStatus" |
@@ -1601,6 +1615,12 @@ export const managerBridge = {
     request<OfflineAsaArchiveStarted>("cluster.offlineApply",{token,confirm:true}),
   offlineArchiveStatus: (jobId:string) =>
     request<OfflineAsaArchiveStatus>("cluster.offlineStatus",{jobId}),
+  multiHostBackupRecoveryPreview: () =>
+    request<MultiHostBackupRecoveryPreview>("cluster.multiHostBackupRecoveryPreview"),
+  multiHostBackupRecoveryApply: (token:string) =>
+    request<MultiHostBackupRecoveryStarted>("cluster.multiHostBackupRecoveryApply",{
+      token,confirm:true
+    }),
   multiHostCatalogPreview: () =>
     request<MultiHostCatalogPreview>("cluster.multiHostCatalogPreview"),
   multiHostCatalogApply: (token:string) =>

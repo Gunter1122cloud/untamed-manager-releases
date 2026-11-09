@@ -20,6 +20,10 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
     private sealed record CatalogApproval(Guid Token,string Root,
         string Fingerprint,long RegistryRevision,DateTimeOffset ExpiresUtc);
     private CatalogApproval? catalogApproval;
+    private sealed record ArchiveRecoveryApproval(Guid Token,
+        MultiHostOfflineArchiveRecovery.Review Review,
+        long RegistryRevision,DateTimeOffset ExpiresUtc);
+    private ArchiveRecoveryApproval? archiveRecoveryApproval;
     private sealed record BackupApproval(Guid Token, string CatalogFile,
         string CatalogRoot, string Parent, Guid BatchId, long RegistryRevision,
         DateTimeOffset ExpiresUtc);
@@ -214,7 +218,9 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 return Fail(null, "UM-MULTIHOST-BACKUP-REQUEST");
             id = parsedId.ToString("D");
             string? method = methodRaw.GetString();
-            if (method is not ("cluster.multiHostCatalogPreview" or "cluster.multiHostCatalogApply" or
+            if (method is not ("cluster.multiHostBackupRecoveryPreview" or
+                "cluster.multiHostBackupRecoveryApply" or
+                "cluster.multiHostCatalogPreview" or "cluster.multiHostCatalogApply" or
                 "cluster.multiHostBackupPreview" or "cluster.multiHostBackupApply" or
                 "cluster.multiHostBackupStatus" or "cluster.multiHostRestorePreview" or
                 "cluster.multiHostRestoreApply" or "cluster.multiHostRestoreStatus" or
@@ -226,6 +232,33 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
             await gate.WaitAsync();
             try
             {
+                if (method == "cluster.multiHostBackupRecoveryPreview")
+                {
+                    archiveRecoveryApproval=null;
+                    string? stage=pickFolder("Válaszd ki az eredeti félbeszakadt Untamed-MultiHost-....incomplete offline archívumot");
+                    if(string.IsNullOrWhiteSpace(stage))
+                        return Fail(id,"UM-MULTIHOST-RECOVERY-CANCELLED");
+                    string? source=pickFolder("Válaszd ki a VÁLTOZATLAN offline host/map/Store/transfer másolatok katalógusmappáját");
+                    if(string.IsNullOrWhiteSpace(source))
+                        return Fail(id,"UM-MULTIHOST-RECOVERY-CANCELLED");
+                    var registry=cluster.Registry.Snapshot();
+                    var review=MultiHostOfflineArchiveRecovery.Inspect(
+                        LocalPath(stage),CatalogAt(source),OwnershipSnapshot(registry),
+                        ProtectedRoots(cluster));
+                    archiveRecoveryApproval=new ArchiveRecoveryApproval(
+                        Guid.NewGuid(),review,registry.Revision,
+                        DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new{
+                        token=archiveRecoveryApproval.Token,batchId=review.BatchId,
+                        archiveName=Path.GetFileName(review.Target),
+                        verifiedFiles=review.VerifiedFiles,components=review.Components,
+                        needsOperator=true,requiresExplicitApproval=true,
+                        previousStageWillBeRetained=true,automaticResume=false,
+                        sourceFilesWillBeRevalidated=true,
+                        originalStoreTouched=false,productionRestoreAllowed=false,
+                        evidence="VERIFIED_INTERRUPTED_MULTIHOST_OFFLINE_ARCHIVE_JOURNAL"
+                    });
+                }
                 if (method == "cluster.multiHostCatalogPreview")
                 {
                     catalogApproval=null;
@@ -444,12 +477,91 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                 }
 
                 bool backup = method == "cluster.multiHostBackupApply";
+                bool archiveRecoveryApply=method=="cluster.multiHostBackupRecoveryApply";
                 bool replaceSandboxApply = method == "cluster.multiHostRestoreReplaceApply";
                 bool recoveryApply = method == "cluster.multiHostRestoreRecoveryApply";
                 if (!request.TryGetProperty("token", out var tokenField) || tokenField.ValueKind != JsonValueKind.String ||
                     !Guid.TryParse(tokenField.GetString(), out var tokenValue) ||
                     !request.TryGetProperty("confirm", out var confirm) || confirm.ValueKind != JsonValueKind.True)
                     return Fail(id, "UM-MULTIHOST-BACKUP-APPROVAL-REQUIRED");
+
+                if(archiveRecoveryApply)
+                {
+                    var approval=archiveRecoveryApproval;
+                    archiveRecoveryApproval=null;
+                    if(approval==null||approval.Token!=tokenValue||
+                       approval.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-MULTIHOST-RECOVERY-APPROVAL-EXPIRED");
+                    var registry=cluster.Registry.Snapshot();
+                    if(registry.Revision!=approval.RegistryRevision)
+                        return Fail(id,"UM-MULTIHOST-RECOVERY-REGISTRY-CHANGED");
+                    var ownership=OwnershipSnapshot(registry);
+                    string[] protectedRoots=ProtectedRoots(cluster);
+                    var review=MultiHostOfflineArchiveRecovery.Inspect(
+                        approval.Review.Stage,approval.Review.Catalog,
+                        ownership,protectedRoots);
+                    if(review!=approval.Review)
+                        return Fail(id,"UM-MULTIHOST-RECOVERY-CHECKPOINT-CHANGED");
+                    var lease=MultiHostOfflineArchiveRecovery.AcquireLease(review.Target);
+                    try
+                    {
+                        var job=new Job{Kind="backup",
+                            Hosts=0,Clusters=0,Maps=0,
+                            Components=review.Components};
+                        current=job;
+                        currentCancellation?.Dispose();
+                        currentCancellation=new CancellationTokenSource();
+                        var cancellation=currentCancellation.Token;
+                        _=Task.Run(()=>
+                        {
+                            using(lease)
+                            {
+                                try
+                                {
+                                    Set(job,"running","RETAINING_VERIFIED_INTERRUPTED_STAGE");
+                                    cancellation.ThrowIfCancellationRequested();
+                                    string retained=MultiHostOfflineArchiveRecovery.RetainInterrupted(
+                                        review,ownership,protectedRoots);
+                                    lock(job)
+                                    {
+                                        job.RollbackArtifactName=retained;
+                                        job.ChangedUtc=DateTimeOffset.UtcNow;
+                                    }
+                                    Set(job,"running","REBUILDING_FROM_VERIFIED_OFFLINE_SOURCE");
+                                    var report=MultiHostClusterBackupArchive.BuildFromCatalog(
+                                        review.Catalog,review.Target,ownership,protectedRoots,
+                                        cancellation);
+                                    Set(job,"completed","ARCHIVE_SHA256_VERIFIED_AFTER_RECOVERY",
+                                        null,Path.GetFileName(review.Target));
+                                    lock(job)
+                                    {
+                                        job.Hosts=report.Hosts.Length;
+                                        job.Clusters=report.Clusters.Length;
+                                        job.Maps=report.Maps.Length;
+                                        job.Components=report.Components.Length;
+                                        job.ChangedUtc=DateTimeOffset.UtcNow;
+                                    }
+                                }
+                                catch(OperationCanceledException)
+                                {Set(job,"needsOperator","RECOVERY_INTERRUPTED_RETAINED_STAGE_PRESERVED");}
+                                catch(Exception)
+                                {Set(job,"needsOperator","RECOVERY_FAILED_RETAINED_STAGE_PRESERVED");}
+                            }
+                        });
+                        return Ok(id,new{
+                            jobId=job.Id,started=true,
+                            previousStageWillBeRetained=true,
+                            productionRestoreAllowed=false,
+                            rconUsed=false,serverProcessTouched=false,
+                            evidence="OPERATOR_APPROVED_EXISTING_MULTIHOST_ARCHIVE_REBUILD"
+                        });
+                    }
+                    catch
+                    {
+                        lease.Dispose();
+                        throw;
+                    }
+                }
 
                 if (backup)
                 {
@@ -469,38 +581,55 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         approval.CatalogFile, ownership, protectedRoots);
                     if (preview.BatchId != approval.BatchId)
                         return Fail(id, "UM-MULTIHOST-BACKUP-CATALOG-CHANGED");
+                    string output=Path.Combine(approval.Parent,
+                        "Untamed-MultiHost-"+DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")+
+                        "-"+approval.BatchId.ToString("N"));
+                    // A second Manager instance cannot write the same output
+                    // while this OS handle is held. A process crash releases
+                    // the lease but retains the existing v1 .incomplete journal.
+                    var lease=MultiHostOfflineArchiveRecovery.AcquireLease(output);
                     var job = new Job { Kind = "backup", Hosts = preview.Hosts,
                         Clusters = preview.Clusters, Maps = preview.Maps,
                         Components = preview.Components, Bytes = preview.Bytes };
-                    current = job;
-                    currentCancellation?.Dispose();
-                    currentCancellation = new CancellationTokenSource();
-                    var cancellation = currentCancellation.Token;
-                    _ = Task.Run(() =>
+                    try
                     {
-                        try
+                        current = job;
+                        currentCancellation?.Dispose();
+                        currentCancellation = new CancellationTokenSource();
+                        var cancellation = currentCancellation.Token;
+                        _ = Task.Run(() =>
                         {
-                            Set(job, "running", "COPYING_AND_HASHING_OFFLINE_FILES", preview);
-                            cancellation.ThrowIfCancellationRequested();
-                            string output = Path.Combine(approval.Parent,
-                                "Untamed-MultiHost-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss") +
-                                "-" + approval.BatchId.ToString("N"));
-                            var report = MultiHostClusterBackupArchive.BuildFromCatalog(
-                                approval.CatalogFile, output, ownership, protectedRoots, cancellation);
-                            Set(job, "completed", "ARCHIVE_SHA256_VERIFIED", preview,
-                                Path.GetFileName(output));
-                            lock (job)
+                            using(lease)
                             {
-                                job.Components = report.Components.Length;
-                                job.ChangedUtc = DateTimeOffset.UtcNow;
+                                try
+                                {
+                                    Set(job,"running","COPYING_AND_HASHING_OFFLINE_FILES",preview);
+                                    cancellation.ThrowIfCancellationRequested();
+                                    var report=MultiHostClusterBackupArchive.BuildFromCatalog(
+                                        approval.CatalogFile,output,ownership,protectedRoots,
+                                        cancellation);
+                                    Set(job,"completed","ARCHIVE_SHA256_VERIFIED",preview,
+                                        Path.GetFileName(output));
+                                    lock(job)
+                                    {
+                                        job.Components=report.Components.Length;
+                                        job.ChangedUtc=DateTimeOffset.UtcNow;
+                                    }
+                                }
+                                catch(OperationCanceledException)
+                                {Set(job,"needsOperator",
+                                    "CANCELLED_PARTIAL_ARCHIVE_REQUIRES_REVIEW",preview);}
+                                catch(Exception)
+                                {Set(job,"needsOperator",
+                                    "ARCHIVE_FAILED_REVIEW_OFFLINE_INPUT_AND_STAGE",preview);}
                             }
-                        }
-                        catch (OperationCanceledException)
-                        { Set(job, "needsOperator", "CANCELLED_PARTIAL_ARCHIVE_REQUIRES_REVIEW", preview); }
-                        catch (Exception e) when (e is IOException or InvalidDataException or
-                            UnauthorizedAccessException or ArgumentException or OverflowException or JsonException)
-                        { Set(job, "needsOperator", "ARCHIVE_FAILED_REVIEW_OFFLINE_INPUT_AND_STAGE", preview); }
-                    });
+                        });
+                    }
+                    catch
+                    {
+                        lease.Dispose();
+                        throw;
+                    }
                     return Ok(id, new { jobId = job.Id, started = true,
                         productionRestoreAllowed = false, rconUsed = false,
                         serverProcessTouched = false, evidence = "OFFLINE_COPY_JOB_STARTED" });
