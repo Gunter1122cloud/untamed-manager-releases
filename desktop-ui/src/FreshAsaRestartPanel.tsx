@@ -31,9 +31,13 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
         setStatus(state);
         if(state.state==="completed"){
           setJobId(null);
-          const summary="Normál ASA újraindítás befejeződött: "+
-            state.oldPid+" → "+state.newPid+
-            ". A játék/RCON készenlét és a lemezre mentés független bizonyítása külön ellenőrzést igényel.";
+          const summary=state.newProcessRole==="loaderParent"?
+            "ASA API Loaderrel végzett újraindítás: régi ASA PID "+state.oldPid+
+              " → új Loader szülő PID "+state.newPid+
+              ". Az ASA gyermekfolyamat, a játék/RCON készenlét és a lemezmentés külön igazolandó.":
+            "Normál ASA újraindítás befejeződött: "+
+              state.oldPid+" → "+state.newPid+
+              ". A játék/RCON készenlét és a lemezre mentés független bizonyítása külön ellenőrzést igényel.";
           latestRestart.set(mapId,summary);
           setMessage(summary);
           onRestarted().catch(()=>{});
@@ -83,7 +87,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     <header className="premium-panel-heading">
       <h2><RotateCcw size={19}/> ASA normál újraindítása</h2>
     </header>
-    <p>A C# Manager a régi szerver SaveWorld naplójelzését és stabil .ark mentését ellenőrzi, majd DoExit után egyszer indítja el az új folyamatot. Hiányzó mentési bizonyítéknál nincs DoExit vagy automatikus ismétlés. Csak új, helyi, nem Store-v1 mapokhoz.</p>
+    <p>A C# Manager a régi szerver SaveWorld naplójelzését és stabil .ark mentését ellenőrzi, majd DoExit után egyszer indítja el az új folyamatot. Hiányzó mentési bizonyítéknál nincs DoExit vagy automatikus ismétlés. Csak saját, helyi normál vagy újonnan regisztrált Store-mapokhoz; a történeti Kova Store-mapok külön védett műveleteket használnak.</p>
     <button type="button" className="secondary"
       disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview}
       onClick={()=>{void check();}}><RefreshCw size={16}/> Újraindítás előellenőrzése</button>
