@@ -21,6 +21,103 @@ internal static class ClusterRegistryTests
     private static Guid SyntheticMapId(int index) =>
         Guid.Parse($"00000000-0000-4000-9000-{index:D12}");
 
+    private static async Task ValidateOriginalKovaMembershipIsImmutable(string testRoot)
+    {
+        // TEN original synthetic identities only. The registry checks run
+        // against a disposable Manager profile; no ASA, Store or LAN access.
+        string root=Path.Combine(testRoot,"original-kova-registry-protection");
+        await using var service=new ClusterService("protected-kova-fixture",root,
+            _=>new ProcessCheck(false,"Synthetic test only",null,true));
+        string hp=service.Config.LocalHostId;
+        string ryzen=SyntheticHostId(801);
+        string third=SyntheticHostId(802);
+        service.Registry.RegisterHost(ryzen,"Synthetic Ryzen");
+        string[] names={"Astraeos","Genesis Part 1","Valguero","The Island",
+            "Extinction","Scorched Earth","Lost Colony","Ragnarok",
+            "The Center","Aberration"};
+        var originals=new Guid[10];
+        for(int i=0;i<10;i++)
+        {
+            originals[i]=SyntheticMapId(810+i);
+            if(i<5)
+                service.AddMap(new LocalMap{
+                    Id=originals[i],Name=names[i],
+                    HistoricalStoreProtected=true,
+                    HistoricalArchiveSha256=new string('A',64)
+                });
+            else service.Registry.RegisterRemoteMap(ryzen,originals[i],names[i]);
+        }
+        var kova=service.Registry.CreateCluster("KovaCluster",
+            "Original Untamed Kingdom",Path.Combine(root,"original-transfer"));
+        var lab=service.Registry.CreateCluster("expansion-test",
+            "Independent synthetic expansion",Path.Combine(root,"test-transfer"));
+        // Simulate the ALREADY imported original assignments without going
+        // through the normal user-facing registration API. Those assignments
+        // are immutable historical facts, not newly authorized transfer.
+        foreach(var mapId in originals)
+            service.Config.ClusterRegistry.MapAssignments.Add(
+                new ClusterMapAssignment{MapId=mapId,ClusterId=kova.ClusterId});
+        var initial=service.Registry.Snapshot();
+        Check(initial.ClusterRegistry.MapAssignments.Count==10 &&
+              initial.HostRegistry.Maps.Count==10 &&
+              initial.HostRegistry.Hosts.Count==2,
+            "original 5+5 host/map IDs have a single immutable historical cluster");
+        string sentinel=Path.Combine(root,"untouched-original-store.bin");
+        byte[] bytes={0,255,13,0,5,11,99,128};
+        File.WriteAllBytes(sentinel,bytes);
+        string originalSha=Convert.ToHexString(SHA256.HashData(bytes));
+
+        var harmless=service.Registry.PreviewMapAssignments(
+            kova.ClusterId,originals);
+        Check(harmless.IsValid&&harmless.Additions.Count==0&&
+              harmless.Removals.Count==0&&harmless.Moves.Count==0,
+            "unchanged original Kova membership remains reviewable");
+        var removal=service.Registry.PreviewMapAssignments(
+            kova.ClusterId,originals.Take(9));
+        Check(!removal.IsValid&&removal.Errors.Contains(
+              "UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE"),
+            "removal of an original Kova map denied by native preview");
+        var move=service.Registry.PreviewMapAssignments(
+            lab.ClusterId,new[]{originals[0],originals[5]});
+        Check(!move.IsValid&&move.Errors.Contains(
+              "UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE"),
+            "local historical and remote Kova member cannot move through generic API");
+        bool applyDenied=false;
+        try{service.Registry.ApplyMapAssignments(
+            lab.ClusterId,new[]{originals[0]},move.BaseRevision);}
+        catch(InvalidDataException){applyDenied=true;}
+        Check(applyDenied,
+            "direct native membership apply also rejects protected Kova map");
+        Guid extra=SyntheticMapId(820);
+        service.Registry.RegisterHost(third,"Third synthetic host");
+        service.Registry.RegisterRemoteMap(third,extra,"Future map");
+        var unauthorized=service.Registry.PreviewMapAssignments(
+            kova.ClusterId,originals.Append(extra));
+        Check(!unauthorized.IsValid&&unauthorized.Errors.Contains(
+              "UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE"),
+            "generic registration never grants an unverified eleventh map Kova Store membership");
+        var ordinary=service.Registry.PreviewMapAssignments(
+            lab.ClusterId,new[]{extra});
+        Check(ordinary.IsValid&&ordinary.Additions.Count==1,
+            "independent non-Kova cluster remains extensible on a third host");
+        service.Registry.ApplyMapAssignments(lab.ClusterId,new[]{extra},
+            ordinary.BaseRevision);
+        var after=service.Registry.Snapshot();
+        Check(after.ClusterRegistry.MapAssignments.Count(x=>
+                  x.ClusterId==kova.ClusterId)==10 &&
+              originals.All(id=>after.ClusterRegistry.MapAssignments
+                  .Count(x=>x.MapId==id&&x.ClusterId==kova.ClusterId)==1) &&
+              after.HostRegistry.Hosts.Count==3 &&
+              after.HostRegistry.Maps.Count==11 &&
+              after.ClusterRegistry.MapAssignments.Any(x=>
+                  x.MapId==extra&&x.ClusterId==lab.ClusterId),
+            "third host and eleventh map do not change any original Store assignment");
+        Check(File.ReadAllBytes(sentinel).SequenceEqual(bytes)&&
+              Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(sentinel)))==
+                  originalSha,
+            "all original synthetic Store bytes remain unchanged by registry operations");
+    }
+
     private static void ValidateLargeSyntheticTopology(string testRoot)
     {
         const int hostCount = 300;
@@ -279,6 +376,7 @@ internal static class ClusterRegistryTests
         Check(persisted.ClusterRegistry.MapAssignments.Count(x => x.MapId == mapIds[90]) == 1,
             "approved map assignment survives Manager restart without duplicate ownership");
 
+        await ValidateOriginalKovaMembershipIsImmutable(testRoot);
         ValidateLargeSyntheticTopology(testRoot);
     }
 
