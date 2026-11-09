@@ -97,6 +97,24 @@ internal static class OriginalStoreFiveMapBackupTests
             sourceSha,launchSha,mapRows.ToArray());
         var bridge=new DesktopWorldBackupBridge(cluster,
             originalSelectionProvider:()=>currentSource);
+        using(var held=OriginalStoreFiveBatchJournal.AcquireBatchLease(cluster.Store.Root))
+        {
+            bool collisionDenied=false;
+            try
+            {
+                using var competitor=OriginalStoreFiveBatchJournal.AcquireBatchLease(
+                    cluster.Store.Root);
+            }
+            catch(IOException){collisionDenied=true;}
+            Check(collisionDenied,
+                "separate live Manager file handles cannot share the five-map backup lease");
+        }
+        using(var acquiredAfterExit=OriginalStoreFiveBatchJournal.AcquireBatchLease(
+            cluster.Store.Root))
+        {
+            Check(acquiredAfterExit.CanWrite,
+                "abandoned OS lease becomes available again without deleting any journal");
+        }
         var unknown=await Call(bridge,"backup.originalBatchPreview");
         Check(!unknown.GetProperty("ok").GetBoolean(),
             "unknown stopped status on a single original map prevents five-map approval");
