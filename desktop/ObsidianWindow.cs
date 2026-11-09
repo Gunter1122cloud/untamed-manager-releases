@@ -512,7 +512,8 @@ public sealed class ObsidianWindow : Form
                             "historical.localParity" or
                             "historical.list" or
                             "historical.preview" or "historical.register" or
-                            "historical.pairedEvidence" or "historical.launchEvidence" or
+                            "historical.originalList" or "historical.originalPreview" or
+                            "historical.originalRegister" or "historical.pairedEvidence" or "historical.launchEvidence" or
                             "historical.liveGuard";
                     }
                 }
