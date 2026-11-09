@@ -18,9 +18,12 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
 {
     private sealed record Approval(Guid Token,Guid Map,string Root,string Executable,
         string Arguments,int Game,int Query,int Rcon,string Build,
+        bool UseApi,string LoaderPath,string LoaderArguments,
         DateTimeOffset CreatedUtc);
     private readonly ClusterService cluster;
     private readonly Func<Guid,bool,ProcessIdentity> launch;
+    private readonly bool nativeLauncher;
+    private readonly CancellationTokenSource closing=new();
     private readonly SemaphoreSlim gate=new(1,1);
     private Approval? pending;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -29,6 +32,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         Func<Guid,bool,ProcessIdentity>? starter=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
+        nativeLauncher=starter==null;
         launch=starter??((mapId,approved)=>cluster.LaunchFreshAsa(mapId,approved));
     }
 
@@ -86,6 +90,48 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
             map.Maintenance,state.ConfirmedStopped,state.Running,
             verifiedFreshInstall:true,explicitOperatorApproval:true).Allowed &&
             state.Identity==null&&state.LoaderIdentity==null;
+    }
+
+    // Dashboard reads NEVER persist process identity. Only an explicitly
+    // approved native Start may initiate this bounded, non-mutating OS poll.
+    // Persist the pair once the exact Loader parent, ASA child and child's
+    // owned RCON listener are jointly observed. No second Start is attempted.
+    private void ObserveApprovedFreshStoreApiPair(Guid mapId,ProcessIdentity loader)
+    {
+        if(!nativeLauncher)return; // injected synthetic launchers never poll
+        _=Task.Run(async()=>{
+            try
+            {
+                var until=DateTimeOffset.UtcNow.AddMinutes(3);
+                while(!closing.IsCancellationRequested&&DateTimeOffset.UtcNow<until)
+                {
+                    var map=Owned(mapId);
+                    if(map==null||map.HistoricalStoreProtected||
+                       !map.StartWithAsaApi||
+                       !FreshStoreEnrollmentPolicy.IsEnrolled(map))
+                        return;
+                    FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+                    var observed=cluster.ObserveLocalProcessesReadOnly(map);
+                    if(observed.Running&&!observed.ConfirmedStopped&&
+                       observed.Identity is {Pid:>0} child&&
+                       observed.LoaderIdentity is {Pid:>0} parent&&
+                       parent.Pid==loader.Pid&&
+                       parent.StartedUtc==loader.StartedUtc&&
+                       !string.Equals(parent.ExecutablePath,child.ExecutablePath,
+                           StringComparison.OrdinalIgnoreCase)&&
+                       RconPortOwnership.IsOwnedListener(map.RconPort,child.Pid))
+                    {
+                        cluster.RecordObservedIdentity(mapId,observed);
+                        return;
+                    }
+                    await Task.Delay(850,closing.Token);
+                }
+            }
+            catch(Exception)
+            {
+                // No fabricated pair, no automatic restart or Store writes.
+            }
+        },closing.Token);
     }
 
     public async Task<string> HandleAsync(string raw)
@@ -161,6 +207,9 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                         running=observed.Running,
                         confirmedStopped=observed.ConfirmedStopped,
                         pid=observed.Identity?.Pid,
+                        serverPid=observed.Identity?.Pid,
+                        loaderPid=observed.LoaderIdentity?.Pid,
+                        requestedMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
                         readyCertified=false,
                         status=observed.Status,
                         evidence="LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS"
@@ -176,6 +225,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                     pending=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
                         map.ExecutablePath,map.Arguments,map.GamePort,map.QueryPort,
                         map.RconPort,AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath),
+                        map.StartWithAsaApi,map.ApiLoaderPath,map.ApiLoaderArguments,
                         DateTimeOffset.UtcNow);
                     return Ok(id,new {
                         token=pending.Token,mapId=map.Id,mapName=map.Name,
@@ -183,6 +233,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                         queryPort=map.QueryPort,rconConfigured=map.RconPort>0 &&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
                         confirmedStopped=true,serverStarted=false,
+                        launchMode=pending.UseApi?"asaApiLoader":"directAsa",
                         evidence="FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
                     });
                 }
@@ -204,15 +255,24 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                    current.Arguments!=permit.Arguments ||
                    current.GamePort!=permit.Game || current.QueryPort!=permit.Query ||
                    current.RconPort!=permit.Rcon ||
+                   current.StartWithAsaApi!=permit.UseApi ||
+                   current.ApiLoaderPath!=permit.LoaderPath ||
+                   current.ApiLoaderArguments!=permit.LoaderArguments ||
                    AsaSteamBuildCatalog.InstalledBuild(current.InstallationPath)!=permit.Build)
                     return Error(id,"UM-FRESH-START-CHANGED");
                 var identity=launch(current.Id,true);
                 if(identity.Pid<=0 || identity.StartedUtc==default)
                     return Error(id,"UM-FRESH-START-UNVERIFIED-PROCESS");
+                if(permit.UseApi&&FreshStoreEnrollmentPolicy.IsEnrolled(current))
+                    ObserveApprovedFreshStoreApiPair(current.Id,identity);
                 return Ok(id,new{
                     mapId=current.Id,mapName=current.Name,pid=identity.Pid,
                     createdUtc=identity.StartedUtc,
                     startRequested=true,readyCertified=false,
+                    launchMode=permit.UseApi?"asaApiLoader":"directAsa",
+                    processRole=permit.UseApi?"loaderParent":"asaServer",
+                    loaderPid=permit.UseApi?(int?)identity.Pid:null,
+                    serverPid=permit.UseApi?(int?)null:identity.Pid,
                     requiresRconReadiness=true,storeTouched=false,
                     evidence="LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"
                 });
@@ -230,5 +290,10 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         JsonSerializer.Serialize(new{id,ok=true,data},Json);
     private static string Error(string? id,string message)=>
         JsonSerializer.Serialize(new{id,ok=false,error=message},Json);
-    public void Dispose()=>gate.Dispose();
+    public void Dispose()
+    {
+        closing.Cancel();
+        closing.Dispose();
+        gate.Dispose();
+    }
 }

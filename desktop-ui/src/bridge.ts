@@ -386,16 +386,22 @@ export type FreshAsaStartPreview = {
   token:string;mapId:string;mapName:string;steamBuild:string;
   gamePort:number;queryPort:number;rconConfigured:boolean;
   confirmedStopped:true;serverStarted:false;
+  launchMode:"asaApiLoader"|"directAsa";
   evidence:"FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE";
 };
 export type FreshAsaStartReceipt = {
   mapId:string;mapName:string;pid:number;createdUtc:string;
   startRequested:true;readyCertified:false;requiresRconReadiness:true;
+  launchMode:"asaApiLoader"|"directAsa";
+  processRole:"loaderParent"|"asaServer";
+  loaderPid:number|null;serverPid:number|null;
   storeTouched:false;evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY";
 };
 export type FreshAsaStartStatus = {
   mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
-  pid?:number|null;readyCertified:false;status:string;
+  pid?:number|null;serverPid?:number|null;loaderPid?:number|null;
+  requestedMode?:"asaApiLoader"|"directAsa";
+  readyCertified:false;status:string;
   evidence:"LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS";
 };
 export type StoppedSteamPreview = {
@@ -703,6 +709,23 @@ export type FreshStoreEnrollmentReceipt = {
   mapId:string;mapName:string;enrolled:true;clusterId:string;
   conversionPerformed:false;serverStarted:false;originalStoreTouched:false;
   requiresManualStart:true;evidence:string;
+};
+export type FreshStoreLoaderModeStatus = {
+  mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";confirmedStopped:boolean;
+  canChangeMode:boolean;cacheState:string;cacheRuntimeCertified:false;
+  serverStarted:false;originalStoreTouched:false;evidence:string;
+};
+export type FreshStoreLoaderModePreview = {
+  token:string;mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";cacheState:string;
+  cacheRuntimeCertified:false;startsServer:false;changesStore:false;
+  requiresStoppedProcess:true;evidence:string;
+};
+export type FreshStoreLoaderModeReceipt = {
+  mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";serverStarted:false;
+  originalStoreTouched:false;requiresManualStart:true;evidence:string;
 };
 export type HistoricalLoaderModePreview = {
   token:string;mapId:string;mapName:string;useApi:boolean;
@@ -1121,7 +1144,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
-   "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
+   "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
    "historical.rconLiveStatus" | "historical.rconPlayers" |
    "historical.rconGameLog" | "historical.rconChatLog" |
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
@@ -1527,6 +1550,14 @@ export const managerBridge = {
   freshStoreEnrollmentApply: (token:string) =>
     request<FreshStoreEnrollmentReceipt>("freshStore.enrollmentApply",{
       token,confirm:true,typedApproval:"NEW EMPTY STORE"
+    }),
+  freshStoreLoaderModeStatus: (mapId:string) =>
+    request<FreshStoreLoaderModeStatus>("freshStore.loaderModeStatus",{mapId}),
+  freshStoreLoaderModePreview: (mapId:string,useApi:boolean) =>
+    request<FreshStoreLoaderModePreview>("freshStore.loaderModePreview",{mapId,useApi}),
+  freshStoreLoaderModeApply: (token:string) =>
+    request<FreshStoreLoaderModeReceipt>("freshStore.loaderModeApply",{
+      token,confirm:true,typedApproval:"FRESH STORE API MODE"
     }),
   historicalLoaderModePreview: (mapId:string,useApi:boolean) =>
     request<HistoricalLoaderModePreview>("historical.loaderModePreview",{mapId,useApi}),

@@ -17,6 +17,7 @@ import {
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
 import { FreshStoreEnrollmentPanel } from "./FreshStoreEnrollmentPanel";
+import { FreshStoreLoaderModePanel } from "./FreshStoreLoaderModePanel";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { HistoricalRconAttach } from "./HistoricalRconAttach";
 import { HistoricalActiveStartPanel } from "./HistoricalActiveStartPanel";
@@ -1632,6 +1633,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       {map.gamePort>0 && fresh && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && (!map.storeProtected||map.freshStoreEnrolled) &&
         <FreshStoreEnrollmentPanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>}
+      {map.freshStoreEnrolled &&
+        <FreshStoreLoaderModePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
