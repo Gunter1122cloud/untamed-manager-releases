@@ -1075,6 +1075,8 @@ test.beforeEach(async ({ page }) => {
             sameSharedSession:false,sameSharedPath:false,distinctDeviceIds:false,
             bothHaveFiveActiveMaps:false,copiedMetadataPairMatches:false,
             bothPhysicalWitnessesFresh:false,samePhysicalTransferDirectory:false,
+            bothHistoricalLocalSaveWitnessesFresh:false,
+            bothHaveFiveRecentHistoricalLocalSaveReceipts:false,
             liveWriterCertified:false,characterTravelVerified:false,
             statusCode:"STORE_PEER_NOT_FRESH"
           },
@@ -1088,6 +1090,14 @@ test.beforeEach(async ({ page }) => {
           secretReturned:false,peerWritesAllowed:false,
           evidence:"DPAPI_LOCAL_LAN_SETTINGS_READ_ONLY"
         };
+        case "lan.historicalSaveProbe":
+          return {localHistoricalReceiptsReadOnly:true,
+            observedUtc:"2026-11-09T10:00:00Z",
+            recentCompletedMapReceipts:4,allFiveRecentLocalReceipts:false,
+            crossHostSaveCompleteCertified:false,
+            sharedStoreWriterCertified:false,productionRestoreAllowed:false,
+            originalStoreFilesWritten:false,rconUsed:false,
+            evidence:"ON_DEMAND_MANAGER_LOCAL_HISTORICAL_RECEIPTS_NO_WRITER_QUORUM"};
         case "lan.physicalStoreProbe":
           localPhysicalProbeRequested=true;
           return {localPhysicalDirectoryIdVerified:true,
@@ -1737,6 +1747,21 @@ test("original Store physical UNC probe is explicit and never grants transfer or
   await expect(proof).toContainText("Kétoldali ellenőrzés szükséges");
   await expect(proof).toContainText("Ez továbbra sem Store-írójog");
   await expect(proof).not.toContainText("Éles restore engedélyezve");
+});
+
+test("original Store five-map SaveComplete receipts are explicitly local and never certify a two-host writer",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:/Be.*ll/}).click();
+  const proof=page.getByTestId("lan-store-proof");
+  await expect(proof).toContainText("Nincs kétoldali friss történeti bizonyíték");
+  await proof.getByRole("button",{
+    name:"Helyi 5-map SaveComplete-naplók ellenőrzése"
+  }).click();
+  await expect(page.locator(".lan-pairing-panel")).toContainText(
+    "Helyi történeti SaveComplete naplók: 4/5");
+  await expect(proof).toContainText("Nincs kétoldali friss történeti bizonyíték");
+  await expect(proof).toContainText("valódi kétgépes Store-writer quiescence");
+  await expect(proof).not.toContainText("Production restore engedélyezve");
 });
 
 test("N-host LAN pairing adds, lists and removes peers without exposing keys",async({page})=>{
