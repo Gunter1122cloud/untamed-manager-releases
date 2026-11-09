@@ -35,6 +35,7 @@ import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
 import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
 import { FreshAsaStopPanel } from "./FreshAsaStopPanel";
 import { FreshAsaRestartPanel } from "./FreshAsaRestartPanel";
+import { LocalMapLifecycleBar } from "./LocalMapLifecycleBar";
 import type { AsaLifecycleJournal, AsaRestartJournalStatus } from "./bridge";
 import { PluginZipInstaller } from "./PluginZipInstaller";
 import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
@@ -1582,6 +1583,9 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       </div>
       <State running={map.running} status={map.status}/>
     </div>
+    <LocalMapLifecycleBar key={mapId} mapId={mapId} mapName={map.name}
+      running={map.running} historical={historical} journalBlocked={lifecycleBlocked}
+      onRefresh={onConfigured} onConfigure={()=>setSection("overview")}/>
     {journalReadError&&<div className="warning-inline" role="alert">
       <Shield size={17}/> A helyi ASA-műveleti naplók nem olvashatók.
       A Start, Stop és Restart gombok tiltva maradnak, amíg a naplók ellenőrzése nem sikerül.
