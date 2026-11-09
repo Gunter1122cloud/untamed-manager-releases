@@ -77,6 +77,39 @@ internal static class FreshStoreEnrollmentTests
 
     public static async Task Run(string testRoot)
     {
+        // The shared Start/Restart monitor accepts only a verified observed
+        // process pair and an independently owned child RCON port. Neither
+        // the test nor the monitor starts a Windows/ASA process here.
+        var syntheticStarted=DateTimeOffset.UtcNow.AddSeconds(-40);
+        var syntheticParent=new ProcessIdentity{
+            Pid=57102,StartedUtc=syntheticStarted,
+            ExecutablePath=@"C:\Synthetic\AsaApiLoader.exe",
+            Arguments="TheIsland_WP -usestore"
+        };
+        var syntheticChild=new ProcessIdentity{
+            Pid=57103,StartedUtc=syntheticStarted.AddSeconds(7),
+            ExecutablePath=@"C:\Synthetic\ArkAscendedServer.exe",
+            Arguments="TheIsland_WP -usestore"
+        };
+        var syntheticObserved=new ProcessCheck(true,"Verified synthetic family",
+            syntheticChild,false,syntheticParent);
+        Check(FreshStoreApiPairObserver.MatchesVerifiedPair(
+                syntheticObserved,syntheticParent,37551,
+                (port,pid)=>port==37551&&pid==syntheticChild.Pid),
+            "shared Start/Restart API pair observer requires exact physical parent and child-owned RCON");
+        var reusedParent=new ProcessIdentity{
+            Pid=syntheticParent.Pid,StartedUtc=syntheticStarted.AddSeconds(1),
+            ExecutablePath=syntheticParent.ExecutablePath,Arguments=syntheticParent.Arguments
+        };
+        Check(!FreshStoreApiPairObserver.MatchesVerifiedPair(
+                syntheticObserved,reusedParent,37551,(_,_)=>true)&&
+              !FreshStoreApiPairObserver.MatchesVerifiedPair(
+                syntheticObserved,syntheticParent,37551,(_,_)=>false)&&
+              !FreshStoreApiPairObserver.MatchesVerifiedPair(
+                new ProcessCheck(false,"Loader only",null,false,syntheticParent),
+                syntheticParent,37551,(_,_)=>true),
+            "reused Loader PID, foreign RCON ownership and missing ASA child never certify API pair");
+
         string root=Path.Combine(testRoot,"new-store-empty-synthetic");
         string installation=Path.Combine(root,"fresh-asa");
         string binary=Path.Combine(installation,"ShooterGame","Binaries","Win64");
