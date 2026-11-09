@@ -926,6 +926,18 @@ export type OriginalKovaLocalMapList = {
     enabledMods:number;passiveMods:number;registered:boolean}>;
   evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY";
 };
+export type OriginalKovaBatchPreview = {
+  token:string;localMaps:number;mapNames:string[];
+  sourceIdentityPreserved:true;originalFilesWritten:false;
+  processTouched:false;requiresExplicitApproval:true;
+  evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_PREVIEW";
+};
+export type OriginalKovaBatchReceipt = {
+  importedMaps:number;mapIds:string[];sourceIdentityPreserved:true;
+  originalFilesWritten:false;serverStarted:false;
+  requiresOriginalRconAttach:true;
+  evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED";
+};
 export type OriginalKovaImportPreview = {
   token:string;mapId:string;mapName:string;folderName:string;
   gamePort:number;queryPort:number;
@@ -1657,6 +1669,10 @@ export const managerBridge = {
   historicalLiveGuard: (mapId:string) => request<HistoricalLiveGuard>("historical.liveGuard",{mapId}),
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
   historicalOriginalList: () => request<OriginalKovaLocalMapList>("historical.originalList"),
+  historicalOriginalBatchPreview: () =>
+    request<OriginalKovaBatchPreview>("historical.originalBatchPreview"),
+  historicalOriginalBatchRegister: (token:string) =>
+    request<OriginalKovaBatchReceipt>("historical.originalBatchRegister",{token,confirm:true}),
   historicalOriginalPreview: (mapId:string,gamePort:number,queryPort:number) =>
     request<OriginalKovaImportPreview>("historical.originalPreview",{mapId,gamePort,queryPort}),
   historicalOriginalRegister: (token:string) =>
