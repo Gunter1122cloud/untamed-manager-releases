@@ -588,11 +588,11 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                     // while this OS handle is held. A process crash releases
                     // the lease but retains the existing v1 .incomplete journal.
                     var lease=MultiHostOfflineArchiveRecovery.AcquireLease(output);
+                    var job = new Job { Kind = "backup", Hosts = preview.Hosts,
+                        Clusters = preview.Clusters, Maps = preview.Maps,
+                        Components = preview.Components, Bytes = preview.Bytes };
                     try
                     {
-                        var job = new Job { Kind = "backup", Hosts = preview.Hosts,
-                            Clusters = preview.Clusters, Maps = preview.Maps,
-                            Components = preview.Components, Bytes = preview.Bytes };
                         current = job;
                         currentCancellation?.Dispose();
                         currentCancellation = new CancellationTokenSource();
