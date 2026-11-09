@@ -352,6 +352,7 @@ export type FreshAsaRestartStarted = {
 export type FreshAsaRestartStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   stage:string;oldPid:number;newPid:number;changedUtc:string;
+  newProcessRole?:"asaServer"|"loaderParent";
   saveCompleteProven:false;readinessCertified:false;
   preExitSaveEvidenceObserved:boolean;finalDoExitSaveCertified:false;
   gameClientRejoinVerified:false;
