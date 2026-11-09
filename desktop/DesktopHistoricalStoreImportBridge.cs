@@ -144,52 +144,52 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 {
                     if(!GuidField(data,"token",out var approval)||
                        !BoolField(data,"confirm",out var accept)||!accept||
-                       !pendingOriginal.TryGetValue(approval,out var staged))
+                       !pendingOriginal.TryGetValue(approval,out var directApproval))
                         return Fail(id,"UM-STORE-DIRECT-EXPLICIT-APPROVAL-REQUIRED");
                     pendingOriginal.Remove(approval);
-                    if(staged.ExpiresUtc<DateTimeOffset.UtcNow)
+                    if(directApproval.ExpiresUtc<DateTimeOffset.UtcNow)
                         return Fail(id,"UM-STORE-DIRECT-PREVIEW-EXPIRED");
                     var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
-                    var selected=source.Maps.SingleOrDefault(x=>x.MapId==staged.MapId);
-                    if(selected==null||source.FourFilesSha256!=staged.FourFilesHash||
-                       source.LaunchProfileSha256!=staged.LaunchProfileHash||
-                       selected.MapKey!=staged.MapKey||
-                       selected.GamePort!=staged.GamePort||
-                       selected.QueryPort!=staged.QueryPort||
-                       !selected.EnabledMods.SequenceEqual(staged.Enabled,StringComparer.Ordinal)||
-                       !selected.PassiveMods.SequenceEqual(staged.Passive,StringComparer.Ordinal))
+                    var selected=source.Maps.SingleOrDefault(x=>x.MapId==directApproval.MapId);
+                    if(selected==null||source.FourFilesSha256!=directApproval.FourFilesHash||
+                       source.LaunchProfileSha256!=directApproval.LaunchProfileHash||
+                       selected.MapKey!=directApproval.MapKey||
+                       selected.GamePort!=directApproval.GamePort||
+                       selected.QueryPort!=directApproval.QueryPort||
+                       !selected.EnabledMods.SequenceEqual(directApproval.Enabled,StringComparer.Ordinal)||
+                       !selected.PassiveMods.SequenceEqual(directApproval.Passive,StringComparer.Ordinal))
                         return Fail(id,"UM-STORE-DIRECT-ORIGINAL-SOURCE-CHANGED");
                     string root=DesktopLocalMapRegistryBridge.ValidateFixedLocalRoot(
                         selected.OriginalInstallationRoot);
-                    if(!root.Equals(staged.Root,StringComparison.OrdinalIgnoreCase))
+                    if(!root.Equals(directApproval.Root,StringComparison.OrdinalIgnoreCase))
                         return Fail(id,"UM-STORE-DIRECT-ORIGINAL-ROOT-CHANGED");
                     var installation=LocalAsaInstallLocator.Probe(root);
                     if(!installation.HasServerExecutable||
-                       !string.Equals(installation.ServerExecutable,staged.ServerExe,
+                       !string.Equals(installation.ServerExecutable,directApproval.ServerExe,
                            StringComparison.OrdinalIgnoreCase))
                         return Fail(id,"UM-STORE-DIRECT-INSTALL-CHANGED");
-                    CheckDuplicate(staged.MapId,staged.LocalName,root);
-                    var state=ObservedOriginal(staged.MapId,staged.MapKey,root,
-                        staged.ServerExe);
+                    CheckDuplicate(directApproval.MapId,directApproval.LocalName,root);
+                    var state=ObservedOriginal(directApproval.MapId,directApproval.MapKey,root,
+                        directApproval.ServerExe);
                     if(state.Running||!state.ConfirmedStopped||
                        state.Identity!=null||state.LoaderIdentity!=null)
                         return Fail(id,"UM-HISTORICAL-STOP-REQUIRED");
                     // Register ONLY in Obsidian's own ConfigStore. No original
                     // Kova file, shared session, world or transfer byte changes.
                     cluster.AddMap(new LocalMap{
-                        Id=staged.MapId,Name=staged.LocalName,
-                        InstallationPath=root,ExecutablePath=staged.ServerExe,
-                        GamePort=staged.GamePort,QueryPort=staged.QueryPort,
+                        Id=directApproval.MapId,Name=directApproval.LocalName,
+                        InstallationPath=root,ExecutablePath=directApproval.ServerExe,
+                        GamePort=directApproval.GamePort,QueryPort=directApproval.QueryPort,
                         Arguments="",HistoricalStoreProtected=true,
-                        HistoricalArchiveSha256=staged.FourFilesHash,
-                        HistoricalMapKey=staged.MapKey,
-                        HistoricalEnabledMods=staged.Enabled.ToList(),
-                        HistoricalPassiveMods=staged.Passive.ToList(),
+                        HistoricalArchiveSha256=directApproval.FourFilesHash,
+                        HistoricalMapKey=directApproval.MapKey,
+                        HistoricalEnabledMods=directApproval.Enabled.ToList(),
+                        HistoricalPassiveMods=directApproval.Passive.ToList(),
                         StartWithAsaApi=false,AutoStart=false,MonitorRcon=false,
                         RconPort=0,ApiLoaderArguments=""
                     });
                     return Ok(id,new{
-                        mapId=staged.MapId,mapName=staged.LocalName,
+                        mapId=directApproval.MapId,mapName=directApproval.LocalName,
                         registered=true,originalIdsPreserved=true,
                         originalFilesWritten=false,serverStarted=false,
                         requiresOriginalRconAttach=true,
