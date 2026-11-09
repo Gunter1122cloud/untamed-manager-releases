@@ -919,6 +919,26 @@ export type HistoricalPairEvidence = {
   evidence:"PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION";
 };
 
+export type OriginalKovaLocalMapList = {
+  sourceVerified:true;originalFourFilesUnchanged:true;
+  maps:Array<{mapId:string;mapKey:string;name:string;
+    folderName:string;registered:boolean}>;
+  evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY";
+};
+export type OriginalKovaImportPreview = {
+  token:string;mapId:string;mapName:string;folderName:string;
+  gamePort:number;queryPort:number;originalIdsPreserved:true;
+  originalFilesWritten:false;serverStarted:false;
+  requiresOriginalRconAttach:true;
+  evidence:"ORIGINAL_KOVA_DIRECT_IMPORT_PREVIEW";
+};
+export type OriginalKovaImportReceipt = {
+  mapId:string;mapName:string;registered:true;originalIdsPreserved:true;
+  originalFilesWritten:false;serverStarted:false;
+  requiresOriginalRconAttach:true;requiresExactModOrderVerification:true;
+  evidence:"ORIGINAL_KOVA_DIRECT_LOCAL_MAP_REGISTERED";
+};
+
 export type HistoricalStoreList = {
   maps: Array<{mapId:string;mapKey:string;gamePort:number;queryPort:number;
     enabledMods:number;passiveMods:number}>;
@@ -1181,6 +1201,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
+  "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
    "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
@@ -1630,6 +1651,11 @@ export const managerBridge = {
   historicalLocalStatus: () => request<HistoricalLocalStoreStatus>("historical.localStatus"),
   historicalLiveGuard: (mapId:string) => request<HistoricalLiveGuard>("historical.liveGuard",{mapId}),
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
+  historicalOriginalList: () => request<OriginalKovaLocalMapList>("historical.originalList"),
+  historicalOriginalPreview: (mapId:string,gamePort:number,queryPort:number) =>
+    request<OriginalKovaImportPreview>("historical.originalPreview",{mapId,gamePort,queryPort}),
+  historicalOriginalRegister: (token:string) =>
+    request<OriginalKovaImportReceipt>("historical.originalRegister",{token,confirm:true}),
   historicalList: (archive:string) => request<HistoricalStoreList>("historical.list", {archive}),
   historicalPreview: (archive:string, mapId:string, root:string) =>
     request<HistoricalStorePreview>("historical.preview", {archive,mapId,root}),
