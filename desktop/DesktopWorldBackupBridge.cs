@@ -29,6 +29,20 @@ public sealed class DesktopWorldBackupBridge
     private sealed record OriginalBatchTicket(Guid Token,string FourFilesSha,
         string LaunchProfileSha,Guid[] MapIds,DateTimeOffset ExpiresUtc);
     private OriginalBatchTicket? originalBatchPending;
+    // A completed point is published only after the existing Core backup
+    // engine has copied and SHA-256 verified it. No new backup format.
+    private sealed record OriginalBatchPoint(Guid MapId,string MapName,
+        string Point,int Files,long Bytes);
+    private sealed class OriginalBatchJob
+    {
+        public Guid Id=Guid.NewGuid();
+        public string State="queued",Step="queued";
+        public readonly List<OriginalBatchPoint> Points=new();
+        public long TotalBytes;
+        public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
+    }
+    private readonly object originalBatchSync=new();
+    private OriginalBatchJob? originalBatchJob;
     private readonly Func<LegacyStoreV1OriginalLocalSelection> originalSelection;
 
     public DesktopWorldBackupBridge(ClusterService cluster,
@@ -119,6 +133,65 @@ public sealed class DesktopWorldBackupBridge
         return (source,maps.ToArray());
     }
 
+    // Run off the WebView RPC gate. The per-map Core engine still enforces
+    // stopped-process, installation-owner and filesystem checks, while every
+    // map transition rechecks the exact original four-file/launch identity.
+    // If the Manager exits, already completed points remain in its existing
+    // archive history; an interrupted batch is never called successful.
+    private void RunOriginalBatch(OriginalBatchJob job,OriginalBatchTicket ticket)
+    {
+        try
+        {
+            for(int index=0;index<ticket.MapIds.Length;index++)
+            {
+                var (source,maps)=RequireOriginalStoppedFive();
+                if(source.FourFilesSha256!=ticket.FourFilesSha||
+                   source.LaunchProfileSha256!=ticket.LaunchProfileSha||
+                   !maps.Select(x=>x.Id).SequenceEqual(ticket.MapIds))
+                    throw new IOException("UM-BACKUP-ORIGINAL-FIVE-SOURCE-CHANGED");
+                var map=maps[index];
+                lock(originalBatchSync)
+                {
+                    job.State="running";
+                    job.Step="map-"+(index+1);
+                    job.ChangedUtc=DateTimeOffset.UtcNow;
+                }
+                Stopped(map);
+                var point=KovaCompatibleWorldBackup.Create(map,cluster.Store.Root,
+                    ()=>inspect(map));
+                lock(originalBatchSync)
+                {
+                    job.Points.Add(new OriginalBatchPoint(map.Id,map.Name,point.Id,
+                        point.Files,point.Bytes));
+                    job.TotalBytes=checked(job.TotalBytes+point.Bytes);
+                    job.ChangedUtc=DateTimeOffset.UtcNow;
+                }
+            }
+            var (afterSource,afterMaps)=RequireOriginalStoppedFive();
+            if(afterSource.FourFilesSha256!=ticket.FourFilesSha||
+               afterSource.LaunchProfileSha256!=ticket.LaunchProfileSha||
+               !afterMaps.Select(x=>x.Id).SequenceEqual(ticket.MapIds))
+                throw new IOException("UM-BACKUP-ORIGINAL-FIVE-SOURCE-CHANGED-AFTER-COPY");
+            lock(originalBatchSync)
+            {
+                job.State="completed";
+                job.Step="verified";
+                job.ChangedUtc=DateTimeOffset.UtcNow;
+            }
+        }
+        catch(Exception)
+        {
+            // Never invent success when a process, source, disk or Manager
+            // state changed. Per-map completed packages are still listed.
+            lock(originalBatchSync)
+            {
+                job.State="needsOperator";
+                job.Step="review-completed-per-map-points";
+                job.ChangedUtc=DateTimeOffset.UtcNow;
+            }
+        }
+    }
+
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
@@ -139,14 +212,41 @@ public sealed class DesktopWorldBackupBridge
                 "backup.create" or "backup.restorePreview" or "backup.restore" or
                 "backup.scheduleStatus" or "backup.scheduleCreate" or
                 "backup.scheduleDisable" or
-                "backup.originalBatchPreview" or "backup.originalBatchCreate"))
+                "backup.originalBatchPreview" or "backup.originalBatchCreate" or
+                "backup.originalBatchStatus"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
             {
+                if(method=="backup.originalBatchStatus")
+                {
+                    lock(originalBatchSync)
+                    {
+                        var job=originalBatchJob;
+                        if(job==null)return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-NO-JOB");
+                        if(root.TryGetProperty("jobId",out var requestedJob) &&
+                           (requestedJob.ValueKind!=JsonValueKind.String ||
+                            !Guid.TryParse(requestedJob.GetString(),out var requestedId) ||
+                            requestedId!=job.Id))
+                            return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-NOT-FOUND");
+                        return Ok(id,new{
+                            jobId=job.Id,state=job.State,step=job.Step,
+                            changedUtc=job.ChangedUtc,localMaps=5,
+                            completedMaps=job.Points.Count,
+                            points=job.Points.ToArray(),totalBytes=job.TotalBytes,
+                            allFiveVerified=job.State=="completed"&&job.Points.Count==5,
+                            originalKovaFilesWritten=false,serverStarted=false,
+                            sharedTransferIncluded=false,otherHostIncluded=false,
+                            evidence="FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM"
+                        });
+                    }
+                }
                 if(method=="backup.originalBatchPreview")
                 {
                     originalBatchPending=null;
+                    lock(originalBatchSync)
+                        if(originalBatchJob?.State is "queued" or "running")
+                            return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-BUSY");
                     var (original,maps)=RequireOriginalStoppedFive();
                     long worldBytes=0;
                     foreach(var map in maps)
@@ -184,39 +284,23 @@ public sealed class DesktopWorldBackupBridge
                        approved.LaunchProfileSha!=currentOriginal.LaunchProfileSha256||
                        !approved.MapIds.SequenceEqual(maps.Select(m=>m.Id)))
                         return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-SOURCE-CHANGED");
-                    // Keep running actual existing Core.Create; never invent
-                    // success from a detached job or mock receipt. Completed
-                    // individual map packages remain durable if a later map
-                    // fails, and no shared transfer/session bytes are touched.
-                    var createdFive=await Task.Run(()=>
+                    // Return a real tracked job immediately: a multi-GB
+                    // five-map copy must not monopolize the entire Manager
+                    // WebView bridge for up to 60 minutes.
+                    OriginalBatchJob job;
+                    lock(originalBatchSync)
                     {
-                        var points=new List<(Guid MapId,string Name,
-                            KovaCompatibleWorldBackup.Point Point)>();
-                        foreach(var map in maps)
-                        {
-                            Stopped(map);
-                            var point=KovaCompatibleWorldBackup.Create(
-                                map,cluster.Store.Root,()=>inspect(map));
-                            points.Add((map.Id,map.Name,point));
-                        }
-                        return points;
-                    });
-                    var (afterSource,afterMaps)=RequireOriginalStoppedFive();
-                    if(afterSource.FourFilesSha256!=approved.FourFilesSha||
-                       afterSource.LaunchProfileSha256!=approved.LaunchProfileSha||
-                       !afterMaps.Select(m=>m.Id).SequenceEqual(approved.MapIds))
-                        throw new IOException("UM-BACKUP-ORIGINAL-FIVE-SOURCE-CHANGED-AFTER-COPY");
+                        if(originalBatchJob?.State is "queued" or "running")
+                            return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-BUSY");
+                        job=new OriginalBatchJob();
+                        originalBatchJob=job;
+                    }
+                    _=Task.Run(()=>RunOriginalBatch(job,approved));
                     return Ok(id,new{
-                        localMaps=createdFive.Count,
-                        points=createdFive.Select(x=>new{
-                            mapId=x.MapId,mapName=x.Name,point=x.Point.Id,
-                            files=x.Point.Files,bytes=x.Point.Bytes
-                        }).ToArray(),
-                        totalBytes=createdFive.Sum(x=>x.Point.Bytes),
-                        allFiveVerified=createdFive.Count==5,
+                        jobId=job.Id,started=true,localMaps=5,
                         originalKovaFilesWritten=false,serverStarted=false,
                         sharedTransferIncluded=false,otherHostIncluded=false,
-                        evidence="FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM"
+                        evidence="FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_JOB_QUEUED"
                     });
                 }
                 if(method is "backup.scheduleStatus" or "backup.scheduleCreate" or
