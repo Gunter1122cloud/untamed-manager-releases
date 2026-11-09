@@ -581,38 +581,55 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         approval.CatalogFile, ownership, protectedRoots);
                     if (preview.BatchId != approval.BatchId)
                         return Fail(id, "UM-MULTIHOST-BACKUP-CATALOG-CHANGED");
-                    var job = new Job { Kind = "backup", Hosts = preview.Hosts,
-                        Clusters = preview.Clusters, Maps = preview.Maps,
-                        Components = preview.Components, Bytes = preview.Bytes };
-                    current = job;
-                    currentCancellation?.Dispose();
-                    currentCancellation = new CancellationTokenSource();
-                    var cancellation = currentCancellation.Token;
-                    _ = Task.Run(() =>
+                    string output=Path.Combine(approval.Parent,
+                        "Untamed-MultiHost-"+DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")+
+                        "-"+approval.BatchId.ToString("N"));
+                    // A second Manager instance cannot write the same output
+                    // while this OS handle is held. A process crash releases
+                    // the lease but retains the existing v1 .incomplete journal.
+                    var lease=MultiHostOfflineArchiveRecovery.AcquireLease(output);
+                    try
                     {
-                        try
+                        var job = new Job { Kind = "backup", Hosts = preview.Hosts,
+                            Clusters = preview.Clusters, Maps = preview.Maps,
+                            Components = preview.Components, Bytes = preview.Bytes };
+                        current = job;
+                        currentCancellation?.Dispose();
+                        currentCancellation = new CancellationTokenSource();
+                        var cancellation = currentCancellation.Token;
+                        _ = Task.Run(() =>
                         {
-                            Set(job, "running", "COPYING_AND_HASHING_OFFLINE_FILES", preview);
-                            cancellation.ThrowIfCancellationRequested();
-                            string output = Path.Combine(approval.Parent,
-                                "Untamed-MultiHost-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss") +
-                                "-" + approval.BatchId.ToString("N"));
-                            var report = MultiHostClusterBackupArchive.BuildFromCatalog(
-                                approval.CatalogFile, output, ownership, protectedRoots, cancellation);
-                            Set(job, "completed", "ARCHIVE_SHA256_VERIFIED", preview,
-                                Path.GetFileName(output));
-                            lock (job)
+                            using(lease)
                             {
-                                job.Components = report.Components.Length;
-                                job.ChangedUtc = DateTimeOffset.UtcNow;
+                                try
+                                {
+                                    Set(job,"running","COPYING_AND_HASHING_OFFLINE_FILES",preview);
+                                    cancellation.ThrowIfCancellationRequested();
+                                    var report=MultiHostClusterBackupArchive.BuildFromCatalog(
+                                        approval.CatalogFile,output,ownership,protectedRoots,
+                                        cancellation);
+                                    Set(job,"completed","ARCHIVE_SHA256_VERIFIED",preview,
+                                        Path.GetFileName(output));
+                                    lock(job)
+                                    {
+                                        job.Components=report.Components.Length;
+                                        job.ChangedUtc=DateTimeOffset.UtcNow;
+                                    }
+                                }
+                                catch(OperationCanceledException)
+                                {Set(job,"needsOperator",
+                                    "CANCELLED_PARTIAL_ARCHIVE_REQUIRES_REVIEW",preview);}
+                                catch(Exception)
+                                {Set(job,"needsOperator",
+                                    "ARCHIVE_FAILED_REVIEW_OFFLINE_INPUT_AND_STAGE",preview);}
                             }
-                        }
-                        catch (OperationCanceledException)
-                        { Set(job, "needsOperator", "CANCELLED_PARTIAL_ARCHIVE_REQUIRES_REVIEW", preview); }
-                        catch (Exception e) when (e is IOException or InvalidDataException or
-                            UnauthorizedAccessException or ArgumentException or OverflowException or JsonException)
-                        { Set(job, "needsOperator", "ARCHIVE_FAILED_REVIEW_OFFLINE_INPUT_AND_STAGE", preview); }
-                    });
+                        });
+                    }
+                    catch
+                    {
+                        lease.Dispose();
+                        throw;
+                    }
                     return Ok(id, new { jobId = job.Id, started = true,
                         productionRestoreAllowed = false, rconUsed = false,
                         serverProcessTouched = false, evidence = "OFFLINE_COPY_JOB_STARTED" });
