@@ -1065,7 +1065,10 @@ test.beforeEach(async ({ page }) => {
             worldFilesChanged:false,evidence:"HISTORICAL_STORE_V1_REGISTERED_QUARANTINED"};
         case "steam.freshCurrent": return {current:null};
         case "steam.freshBrowse": return {selected:true,installRoot:"D:\\ASA-NEW"};
-        case "steam.freshPreflight": return {
+        case "steam.freshPreflight":
+          if(m.installRoot==="D:\\ASA-Servers")
+            throw new Error("UM-FRESH-ROOT-OVERLAP|map=The Island|path=D:\\ASA-Servers\\TheIsland");
+          return {
           token:"00000000-0000-4000-8000-000000008888",
           mapName:m.mapName||"Valguero",mapLevel:"Valguero_WP",folderName:"ASA-NEW",
           steamCmdPresent:true,usingManagerDefaultSteamCmd:true,needsOfficialSteamCmdDownload:false,
@@ -1715,6 +1718,27 @@ test.beforeEach(async ({ page }) => {
           saveCompleteProven:false,readinessCertified:false,
           killPerformed:false,storeTouched:false,autoRetry:false
         };
+        case "servers.ownedKillPreview": {
+          const entry=state.local.maps.find(x=>x.id===m.mapId);
+          if(!entry||!entry.running||(entry as any).storeProtected)
+            throw new Error("UM-KILL-NOT-OWNED-OR-STORE-PROTECTED");
+          return {token:"00000000-0000-4000-8000-000000009222",
+            mapId:entry.id,mapName:entry.name,pid:44117,
+            saveWorldPerformed:false,processOnly:true,serverDataLossPossible:true,
+            originalStoreTouched:false,remoteHostTouched:false,requiresTypedApproval:true,
+            evidence:"EXACT_LOCAL_ASA_PID_OS_IDENTITY_RCON_KILL_PREFLIGHT"};
+        }
+        case "servers.ownedKillApply": {
+          if(!m.confirm||m.typedApproval!=="KILL LOCAL ASA"||
+             m.token!=="00000000-0000-4000-8000-000000009222")
+            throw new Error("UM-KILL-TYPED-APPROVAL-REQUIRED");
+          state.local.maps[0].running=false;
+          state.local.maps[0].status="Leállítva";
+          return {mapId:one,pid:44117,confirmedStopped:true,
+            saveWorldPerformed:false,serverDataLossPossible:true,
+            serverRestarted:false,originalStoreTouched:false,
+            remoteHostTouched:false,evidence:"EXPLICIT_LOCAL_NONSTORE_OS_KILL_WITH_CONFIRMED_EXIT"};
+        }
         case "servers.gracefulStopPreview": return {
           token:"00000000-0000-4000-8000-000000009444",
           mapId:m.mapId,mapName:"The Island",pid:44117,
@@ -1733,6 +1757,21 @@ test.beforeEach(async ({ page }) => {
           saveCompleteProven:false,killPerformed:false,
           restartPerformed:false,storeTouched:false
         };
+        case "steam.stoppedDiagnostics": {
+          const entry=state.local.maps.find(x=>x.id===m.mapId);
+          if(!entry)throw new Error("UM-STEAM-MAP");
+          return {mapId:entry.id,mapName:entry.name,
+            installRoot:"D:\\ASA\\Servers\\"+entry.name,
+            processes:[{mapName:entry.name,confirmedStopped:!entry.running,
+              running:entry.running,pid:entry.running?44117:null,
+              loaderPid:null,reason:entry.running?"Native ASA PID active":"Verified stopped"}],
+            overlaps:[],steamCmdFound:true,steamCmdConfigured:true,
+            availableBytes:53687091200,requiredBytes:10737418240,
+            journalBlocked:steamInterrupted,historicalBlocked:Boolean((entry as any).storeProtected),
+            canPreview:!entry.running&&!steamInterrupted&&!(entry as any).storeProtected,
+            noProcessAutoStop:true,remoteWrites:false,
+            evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"};
+        }
         case "steam.stoppedPreview": return {
           token:"00000000-0000-4000-8000-000000006666",mapId:m.mapId,
           mapName:"Astraeos",maps:["Astraeos"],installedBuild:"123456",
@@ -3324,6 +3363,60 @@ test("CurseForge official Galaxy browses categories, projects, versions, and pre
   await page.getByRole("button",{name:/Projekt ID előkészítése/}).click();
   await expect(page.getByRole("textbox",{name:"Modprojekt ID"})).toHaveValue("123456");
   await page.screenshot({path:"test-results/curseforge-galaxy-1600.png",fullPage:true});
+});
+
+test("map header always shows four real lifecycle actions and Kill requires native typed approval",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  for(const action of ["Indítás","Újraindítás","Leállítás","Kill"])
+    await expect(bar.getByRole("button",{name:action,exact:true})).toBeVisible();
+  await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeDisabled();
+  await expect(bar.getByRole("button",{name:"Kill",exact:true})).toBeEnabled();
+  await bar.getByRole("button",{name:"Kill",exact:true}).click();
+  const approval=bar.getByRole("region",{name:"Kill jóváhagyása"});
+  await expect(approval).toContainText("nem küld SaveWorld parancsot");
+  const apply=approval.getByRole("button",{name:"Művelet végrehajtása"});
+  await expect(apply).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("textbox",{name:"Életciklus művelet jóváhagyó szövege"})
+    .fill("KILL LOCAL ASA");
+  await apply.click();
+  await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
+  await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeEnabled();
+});
+test("original Kova Store maps retain four buttons but disable destructive Kill",async({page})=>{
+  await page.addInitScript(()=>{(window as any).__UNTAMED_PROTECT_TEST_MAP__?.();});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeVisible();
+  await expect(bar.getByRole("button",{name:"Kill",exact:true})).toBeDisabled();
+  await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeEnabled();
+});
+test("SteamCMD install shows exact overlapping map and offers existing ASA import",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új ASA letöltése"}).click();
+  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Servers");
+  await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
+  await expect(page.getByRole("alert").filter({hasText:"Ütköző összetevő: The Island"}))
+    .toBeVisible();
+  await expect(page.getByText(/D:\\\\ASA-Servers/).first()).toBeVisible();
+  await page.getByRole("button",{name:"Már telepített ASA-könyvtár importálása"}).click();
+  await expect(page.getByRole("heading",{name:/Meglévő.*ASA|ASA.*import/i})).toBeVisible();
+});
+test("stopped SteamCMD update displays exact local process and reserve evidence",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  await page.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  const diagnostics=page.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"});
+  await expect(diagnostics).toContainText("Astraeos");
+  await expect(diagnostics).toContainText("Leállítás igazolva");
+  await expect(diagnostics).toContainText("Szabad tárhely: 50 GiB");
+  await expect(diagnostics).toContainText("SteamCMD: Telepítve");
 });
 
 test("SteamCMD new ASA: choose map and Windows folder, one click starts download and registers verified files",async ({page})=>{
