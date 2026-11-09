@@ -1,6 +1,7 @@
 import {useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue} from "./bridge";
+import {LiveSteamMaintenancePanel} from "./LiveSteamMaintenancePanel";
 
 export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapId?:string}) {
   const [selected,setSelected]=useState("");
@@ -119,6 +120,9 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       </span>
     </div>}
     {error&&<div className="error-inline" role="alert"><AlertTriangle size={18}/>{error}</div>}
-    <p className="muted tiny">A frissítő nem állít le futó ASA-t, nem indít újra mapot, nem ír a Store-v1-be és nem kezeli a másik gépet.</p>
+    <p className="muted tiny">A fenti leállított mapos frissítő nem állít le ASA-t és nem indít újra mapot.
+      A külön, alábbi futómapos munkafolyamat valódi, előzetesen jóváhagyott
+      SaveWorld → Stop → SteamCMD → Start sorrendet hajt végre a natív bridge-eken.</p>
+    <LiveSteamMaintenancePanel maps={maps} mapId={mapId}/>
   </section>;
 }
