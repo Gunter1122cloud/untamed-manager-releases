@@ -1912,7 +1912,8 @@ test("Store A-B-A six snapshots require both return hosts and never unlock produ
 
 test("N-host TEMP restore displays a competing Manager lease denial without false partial writes",async({page})=>{
   await page.goto("/");
-  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
   const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
   await expect(panel).toBeVisible();
   await panel.getByRole("button",{name:"TEMP sandbox cseréje / rollback előnézet"}).click();
