@@ -386,16 +386,22 @@ export type FreshAsaStartPreview = {
   token:string;mapId:string;mapName:string;steamBuild:string;
   gamePort:number;queryPort:number;rconConfigured:boolean;
   confirmedStopped:true;serverStarted:false;
+  launchMode:"asaApiLoader"|"directAsa";
   evidence:"FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE";
 };
 export type FreshAsaStartReceipt = {
   mapId:string;mapName:string;pid:number;createdUtc:string;
   startRequested:true;readyCertified:false;requiresRconReadiness:true;
+  launchMode:"asaApiLoader"|"directAsa";
+  processRole:"loaderParent"|"asaServer";
+  loaderPid:number|null;serverPid:number|null;
   storeTouched:false;evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY";
 };
 export type FreshAsaStartStatus = {
   mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
-  pid?:number|null;readyCertified:false;status:string;
+  pid?:number|null;serverPid?:number|null;loaderPid?:number|null;
+  requestedMode?:"asaApiLoader"|"directAsa";
+  readyCertified:false;status:string;
   evidence:"LOCAL_OS_PROCESS_OBSERVATION_NOT_ASA_READINESS";
 };
 export type StoppedSteamPreview = {
