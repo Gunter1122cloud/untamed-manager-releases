@@ -40,7 +40,7 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
         string.Equals(Path.GetFullPath(a),Path.GetFullPath(b),
             StringComparison.OrdinalIgnoreCase);
 
-    private (string Loader,string CacheState) Preflight(LocalMap map,bool useApi)
+    private (string Loader,string CacheState) Preflight(LocalMap map,bool useApi,bool underLease=false)
     {
         FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
         if(map.HistoricalStoreProtected||map.Maintenance||
@@ -49,8 +49,8 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
             throw new InvalidOperationException("UM-FRESH-STORE-API-PROTECTED");
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
         var journal=cluster.Operations.Observe(map.InstallationPath);
-        if(journal?.Phase is UntamedOperationPhase.Prepared or
-            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+        if(!underLease && journal?.Phase is (UntamedOperationPhase.Prepared or
+            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
             throw new InvalidOperationException("UM-FRESH-STORE-API-OPERATION-PENDING");
         var state=cluster.Check(map);
         if(!state.ConfirmedStopped||state.Running||
@@ -184,7 +184,7 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
                 if(!ReferenceEquals(Owned(approval.MapId),original)||
                    JsonSerializer.Serialize(original)!=approval.Profile)
                     return Fail(id,"UM-FRESH-STORE-API-LEASE-PROFILE-CHANGED");
-                var (lockedPath,_cache)=Preflight(original,approval.UseApi);
+                var (lockedPath,_cache)=Preflight(original,approval.UseApi,underLease:true);
                 if(!SamePath(lockedPath,approval.Loader))
                     return Fail(id,"UM-FRESH-STORE-API-LEASE-CHANGED");
                 var updated=JsonSerializer.Deserialize<LocalMap>(
