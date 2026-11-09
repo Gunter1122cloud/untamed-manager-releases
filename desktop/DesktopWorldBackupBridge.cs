@@ -78,11 +78,14 @@ public sealed class DesktopWorldBackupBridge
            source.LaunchProfileSha256.Length!=64||
            source.Maps.Select(x=>x.MapId).Distinct().Count()!=5)
             throw new InvalidDataException("UM-BACKUP-ORIGINAL-FIVE-SOURCE-MISSING");
-        var historical=cluster.Config.LocalMaps.Where(m=>m.HistoricalStoreProtected)
-            .ToArray();
-        if(historical.Length!=5||
-           historical.Select(m=>m.Id).Distinct().Count()!=5)
-            throw new InvalidDataException("UM-BACKUP-ORIGINAL-FIVE-IMPORTED-REQUIRED");
+        // A historical Kova import is a five-map selection, NOT a five-map
+        // capacity limit for the Manager. Additional independent Store maps
+        // must not hide or prevent backups of these five original GUIDs.
+        var historical=source.Maps.Select(sourceMap=>
+            cluster.Config.LocalMaps.SingleOrDefault(m=>
+                m.HistoricalStoreProtected&&m.Id==sourceMap.MapId)
+            ??throw new InvalidDataException(
+                "UM-BACKUP-ORIGINAL-FIVE-IMPORTED-REQUIRED")).ToArray();
         var maps=new List<LocalMap>(5);
         var roots=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach(var original in source.Maps)
