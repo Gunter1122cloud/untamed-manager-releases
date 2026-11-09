@@ -85,6 +85,21 @@ export function LanSettingsPanel(){
         (e instanceof Error?e.message:"UM-LAN-SAFE-UPDATE-FAILED")+").");
     }finally{setWorking(false);}
   };
+  const probeOriginalPhysical=async()=>{
+    if(working)return;
+    setWorking(true);setError("");setNotice("");
+    try{
+      const response=await managerBridge.lanPhysicalStoreProbe();
+      if(!response.localPhysicalDirectoryIdVerified||
+         !response.originalMetadataUnchanged||response.productionRestoreAllowed)
+        throw new Error("UM-STORE-PHYSICAL-NOT-VERIFIED");
+      setNotice("Helyi fizikai UNC fájlazonosság ellenőrizve. A másik párosított gépen is indítsd el ugyanezt az olvasási ellenőrzést. A tanúsítvány 5 percig él; éles Store-írójogot nem ad.");
+      await reload();
+    }catch(e){
+      setError("A fizikai Store-v1 transferkönyvtár nem ellenőrizhető. Az eredeti helyi metaadatoknak és a megosztás Windows fájlazonosítójának egyeznie kell ("+
+        (e instanceof Error?e.message:"UM-STORE-PHYSICAL-UNC-UNAVAILABLE")+").");
+    }finally{setWorking(false);}
+  };
   const peerList=status?.peers??[];
 
   return <section className="glass panel lan-pairing-panel">
@@ -119,10 +134,27 @@ export function LanSettingsPanel(){
         <div className="lan-store-grid">
           <div><span>Azonos Store-session</span><b>{status.originalStorePair.sameSharedSession?"Egyező":"Nem igazolt"}</b></div>
           <div><span>Azonos UNC-megosztás</span><b>{status.originalStorePair.sameSharedPath?"Egyező":"Nem igazolt"}</b></div>
+          <div><span>Azonos fizikai transferkönyvtár (Windows fájl-ID)</span>
+            <b>{status.originalStorePair.samePhysicalTransferDirectory?
+              "Igazolt, friss kétoldali fájlazonosítóval":
+              status.originalStorePair.bothPhysicalWitnessesFresh?
+                "Különböző fizikai könyvtár – blokkolva":"Kétoldali ellenőrzés szükséges"}</b></div>
           <div><span>Külön gazdagépazonosítók</span><b>{status.originalStorePair.distinctDeviceIds?"Igazolt":"Nem igazolt"}</b></div>
           <div><span>Öt aktív Store-map gazdagépenként</span><b>{status.originalStorePair.bothHaveFiveActiveMaps?"Igazolt":"Nem igazolt"}</b></div>
         </div>
-        <p className="muted small">Ez csak hitelesített, olvasási célú metaadat-összevetés. Nem igazol Store-írójogot vagy karakterutazást.</p>
+        <div className="draft-actions">
+          <button type="button" className="secondary" disabled={working}
+            onClick={()=>{void probeOriginalPhysical();}}>
+            <Shield size={16}/> Helyi Store transferkönyvtár fizikai ellenőrzése
+          </button>
+        </div>
+        <p className="muted small">Az UNC név egyezése nem bizonyít azonos fizikai könyvtárat.
+          A gomb az eredeti négy Kova metaadatfájlt változtatás nélkül olvassa,
+          és az UNC könyvtár Windows kötet-/fájlazonosítóját ellenőrzi.
+          Mindkét gépen külön kell elindítani. A rövid életű lenyomat csak
+          a hitelesített LAN státuszban utazik; írás, új session, locktörlés,
+          SaveWorld vagy éles restore nincs. Ez továbbra sem Store-írójog- vagy
+          játékbeli karaktermegőrzési tanúsítvány.</p>
       </section>}
       <form className="lan-settings-form" onSubmit={e=>{void preflight(e);}}>
         <label>Művelet
