@@ -130,6 +130,13 @@ internal static class LegacyStorePhysicalTransferTests
               different.BothPhysicalWitnessesFresh&&
               !different.SamePhysicalTransferDirectory,
             "two identical UNC strings and valid sessions never override different physical file IDs");
+        var differentUnc=LegacyStoreV1PairComparison.Compare(local,
+            remote with{SharedPathTag=Hash("UNC_ALIAS_DIFFERENT_FROM_ORIGINAL")},true);
+        Check(!differentUnc.SameSharedPath&&!differentUnc.CopiedMetadataPairMatches&&
+              !differentUnc.BothPhysicalWitnessesFresh&&
+              !differentUnc.SamePhysicalTransferDirectory&&
+              differentUnc.StatusCode=="STORE_PEER_UNC_DIFFERS",
+            "same Windows volume/file ID cannot certify transfer when the original UNC paths differ");
         var noWitness=LegacyStoreV1PairComparison.Compare(
             local,remote with{PhysicalDirectoryTag="",PhysicalObservedUtc=null},true);
         var stale=LegacyStoreV1PairComparison.Compare(local,remote with{
