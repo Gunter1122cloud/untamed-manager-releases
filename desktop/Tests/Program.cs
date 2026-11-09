@@ -1615,6 +1615,102 @@ try
             "first profile setup preserves original ASA executable and saved data");
     }
 
+    // A manually imported CUSTOM/modded ASA map uses the same initial
+    // native bridge, but its exact Unreal level must be operator supplied.
+    // Never synthesize mod downloads, Store membership or launch ASA.
+    {
+        string customRoot=Path.Combine(root,"custom-asa-map-install");
+        string customExe=Path.Combine(customRoot,"ShooterGame","Binaries",
+            "Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(customExe)!);
+        File.Copy(valguero.ExecutablePath,customExe);
+        byte[] originalExe=File.ReadAllBytes(customExe);
+        var custom=new LocalMap{
+            Id=Guid.Parse("00000000-0000-4000-9000-000000007701"),
+            Name="Custom Atlantis Community",
+            InstallationPath=customRoot,ExecutablePath=customExe
+        };
+        cluster.AddMap(custom);
+        int customGame=FindFreeTestPort(true,testGamePort,testQueryPort);
+        int customQuery=FindFreeTestPort(true,testGamePort,testQueryPort,customGame);
+        using var customSetup=new DesktopInitialMapSetupBridge(cluster);
+        var status=await Call(customSetup.HandleAsync,"servers.initialStatus",
+            new{mapId=custom.Id});
+        Check(status.GetProperty("ok").GetBoolean() &&
+              status.GetProperty("data").GetProperty("requiresCustomLevel").GetBoolean() &&
+              status.GetProperty("data").GetProperty("initialSetupAvailable").GetBoolean() &&
+              status.GetProperty("data").GetProperty("blocker").GetString()=="NONE",
+            "unknown manually imported map offers native explicit custom level setup");
+        var missing=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=custom.Id,sessionName="Custom Test",
+                gamePort=customGame,queryPort=customQuery});
+        Check(IsError(missing,"UM-INITIAL-CUSTOM-LEVEL-REQUIRED") &&
+              custom.Arguments=="",
+            "custom level is never guessed from a map display name");
+        foreach(string unsafeLevel in new[]{
+            "Custom_WP?listen","Custom_WP -mods=12345",
+            "../Custom_WP","Custom/WP","_Custom_WP","Custom.WP",
+            "Custom\nMap"
+        })
+        {
+            var denied=await Call(customSetup.HandleAsync,"servers.initialPreview",
+                new{mapId=custom.Id,sessionName="Custom Test",
+                    gamePort=customGame,queryPort=customQuery,
+                    customLevel=unsafeLevel});
+            Check(IsError(denied,"UM-INITIAL-CUSTOM-LEVEL-INVALID"),
+                "unsafe custom Unreal-level input fails closed");
+        }
+        using(var officialSetup=new DesktopInitialMapSetupBridge(cluster))
+        {
+            var overrideDenied=await Call(officialSetup.HandleAsync,
+                "servers.initialPreview",new{mapId=valguero.Id,
+                    sessionName="Wrong Override",gamePort=customGame,
+                    queryPort=customQuery,customLevel="Foreign_WP"});
+            Check(IsError(overrideDenied,"UM-INITIAL-ALREADY-CONFIGURED"),
+                "already configured official map cannot be changed to a custom level");
+        }
+        var preview=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=custom.Id,sessionName="Untamed Custom",
+                gamePort=customGame,queryPort=customQuery,
+                customLevel="Atlantis_Custom_WP"});
+        Check(preview.GetProperty("ok").GetBoolean() &&
+              preview.GetProperty("data").GetProperty("requiresCustomLevel").GetBoolean() &&
+              preview.GetProperty("data").GetProperty("mapLevel").GetString()=="Atlantis_Custom_WP",
+            "native preview binds exact validated custom level and local ports");
+        string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var declined=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token,confirm=false});
+        Check(IsError(declined,"UM-INITIAL-CONFIRMATION-REQUIRED") &&
+              custom.Arguments=="",
+            "custom level preview cannot silently change Manager profile");
+        // A changed name invalidates a pinned preview before saving.
+        string previousName=custom.Name;
+        custom.Name="Tampered after preview";
+        var changed=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token,confirm=true});
+        Check(IsError(changed,"UM-INITIAL-CONFLICT") &&
+              custom.Arguments=="",
+            "custom level cannot be applied after map identity changes");
+        custom.Name=previousName;
+        var applied=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token,confirm=true});
+        Check(applied.GetProperty("ok").GetBoolean(),
+            "confirmed custom level is saved through existing atomic native Manager profile");
+        var registered=cluster.Config.LocalMaps.Single(x=>x.Id==custom.Id);
+        Check(registered.Arguments.StartsWith(
+                "Atlantis_Custom_WP?listen?SessionName=",StringComparison.Ordinal) &&
+              registered.GamePort==customGame && registered.QueryPort==customQuery &&
+              registered.RconPort==0 && !registered.AutoStart &&
+              File.ReadAllBytes(customExe).SequenceEqual(originalExe),
+            "custom level config retains ASA EXE bytes without starting server or enabling RCON");
+        var second=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=custom.Id,sessionName="Again",
+                gamePort=customGame,queryPort=customQuery,
+                customLevel="Malicious_WP"});
+        Check(IsError(second,"UM-INITIAL-ALREADY-CONFIGURED"),
+            "initial setup never overwrites a configured custom map");
+    }
+
     // Real native fresh RCON bootstrap is separate from map first-time
     // launch settings. No Store, running process or other INI may be modified.
     {
