@@ -280,6 +280,24 @@ public sealed class ClusterRegistryService
             if (current == null) throw new KeyNotFoundException("Cluster is not registered");
             var updated = ClusterRegistrySchema.NormalizeCluster(id, name,
                 transferDirectory, backupDirectory, current.CreatedUtc);
+            // The original Kova Store cluster may already own a live external
+            // transfer root. A generic metadata editor must never rebind or
+            // rename that source-pinned identity. The same applies to any
+            // imported historical Store member assigned to a differently
+            // named cluster. No Store writer/transfer files are touched here.
+            bool historicalMember=config.ClusterRegistry.MapAssignments.Any(a=>
+                StringComparer.OrdinalIgnoreCase.Equals(a.ClusterId,id) &&
+                config.LocalMaps.Any(m=>m.Id==a.MapId &&
+                    (m.HistoricalStoreProtected ||
+                     !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256))));
+            if((OriginalKovaCluster(id)||historicalMember) &&
+               (!StringComparer.Ordinal.Equals(current.Name,updated.Name) ||
+                !StringComparer.OrdinalIgnoreCase.Equals(
+                    current.TransferDirectory,updated.TransferDirectory) ||
+                !StringComparer.OrdinalIgnoreCase.Equals(
+                    current.BackupDirectory,updated.BackupDirectory)))
+                throw new UnauthorizedAccessException(
+                    "UM-REGISTRY-ORIGINAL-STORE-CLUSTER-IMMUTABLE");
             ClusterRegistrySchema.ValidateClusterPaths(config.ClusterRegistry.Clusters, updated);
             current.Name = updated.Name;
             current.TransferDirectory = updated.TransferDirectory;
