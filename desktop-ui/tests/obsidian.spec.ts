@@ -1066,7 +1066,7 @@ test.beforeEach(async ({ page }) => {
         case "steam.freshCurrent": return {current:null};
         case "steam.freshBrowse": return {selected:true,installRoot:"D:\\ASA-NEW"};
         case "steam.freshPreflight":
-          if(String(m.installRoot).includes("ASA-Servers"))
+          if(m.installRoot==="D:\\ASA-Servers")
             throw new Error("UM-FRESH-ROOT-OVERLAP|map=The Island|path=D:\\ASA-Servers\\TheIsland");
           return {
           token:"00000000-0000-4000-8000-000000008888",
