@@ -76,6 +76,25 @@ test.beforeEach(async ({ page }) => {
           storeLifecycleState:"preflightRequired"});
         localBackupMap=two;localBackupSaved=true;
       };
+    let originalFiveBackupCopies=0;
+    (window as typeof window & {__UNTAMED_FIVE_BACKUP_FIXTURE__?:()=>void;
+      __UNTAMED_FIVE_BACKUP_COPIES__?:()=>number})
+      .__UNTAMED_FIVE_BACKUP_FIXTURE__=()=>{
+        Object.assign(state.local.maps[0],{running:false,status:"Leállítva",
+          storeProtected:true});
+        Object.assign(state.local.maps[1],{running:false,status:"Leállítva",
+          storeProtected:true});
+        for(let index=0;index<3;index++)
+          state.local.maps.push({
+            id:`00000000-0000-4000-8000-${String(index+21).padStart(12,"0")}`,
+            name:["The Center","Scorched Earth","Extinction"][index],
+            running:false,status:"Leállítva",gamePort:7817+index*20,
+            storeProtected:true,steamBuildId:null,
+            steamUpdateState:"Nem ellenőrizhető"
+          } as typeof state.local.maps[number]);
+      };
+    (window as typeof window & {__UNTAMED_FIVE_BACKUP_COPIES__?:()=>number})
+      .__UNTAMED_FIVE_BACKUP_COPIES__=()=>originalFiveBackupCopies;
     let historicalRconAttached=false;
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
     const historicalStartToken="00000000-0000-4000-8000-000000001698";
@@ -423,6 +442,32 @@ test.beforeEach(async ({ page }) => {
           source:"LOCAL_SAVEDARKS_MAP_FOLDER",
           storeWriterTouched:false,evidence:"REAL_SHA256_BACKUP_PACKAGES"
         };
+        case "backup.originalBatchPreview":
+          if(state.local.maps.filter((x:any)=>x.storeProtected&&!x.running).length!==5)
+            throw new Error("UM-BACKUP-ORIGINAL-FIVE-STOPPED-REQUIRED");
+          return {token:"00000000-0000-4000-8000-00000000b051",
+            localMaps:5,worldBytes:5*1024*1024*1024,
+            mapNames:["The Island","Astraeos","The Center",
+              "Scorched Earth","Extinction"],
+            originalSourcePinned:true,allMapsConfirmedStopped:true,
+            requiresOperatorConfirmation:true,
+            originalKovaFilesWritten:false,serverStarted:false,
+            sharedTransferIncluded:false,otherHostIncluded:false,
+            evidence:"EXISTING_SHA256_WORLD_ENGINE_ORIGINAL_FIVE_MAP_PREFLIGHT"
+          };
+        case "backup.originalBatchCreate":
+          if(!m.confirm||m.token!=="00000000-0000-4000-8000-00000000b051")
+            throw new Error("UM-BACKUP-ORIGINAL-FIVE-APPROVAL-REQUIRED");
+          originalFiveBackupCopies++;
+          return {localMaps:5,points:state.local.maps.slice(0,5).map((map:any)=>
+            ({mapId:map.id,mapName:map.name,
+              point:"00000000-0000-4000-8000-00000000b052",
+              files:4,bytes:4096})),
+            totalBytes:20480,allFiveVerified:true,
+            originalKovaFilesWritten:false,serverStarted:false,
+            sharedTransferIncluded:false,otherHostIncluded:false,
+            evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM"
+          };
         case "backup.preview":
           localBackupMap=m.mapId??one;
           return {
@@ -3548,6 +3593,34 @@ test("SQL-free restore always targets isolated TEMP lab and requires explicit co
   await panel.getByRole("button",{name:"Státusz frissítése"}).click();
   await expect(panel).toContainText("10 map, 12 világfájl SHA-256 ellenőrizve");
   await expect(panel).toContainText("Játékbeli működés nem igazolt");
+});
+
+test("original five-map Kova backup requires one confirmed user action and uses verified per-map points",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FIVE_BACKUP_FIXTURE__?:()=>void;
+  }).__UNTAMED_FIVE_BACKUP_FIXTURE__?.());
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const section=page.getByRole("region",{name:"Eredeti Store-v1 ötmapos helyi mentés"});
+  await expect(section).toContainText("Mind az 5 eredeti helyi map");
+  await section.getByRole("button",{
+    name:"Mind az 5 eredeti helyi map mentésének ellenőrzése"
+  }).click();
+  const approval=section.getByRole("region",{
+    name:"Eredeti Store-v1 ötmapos mentés jóváhagyása"
+  });
+  await expect(approval).toContainText("Scorched Earth");
+  const start=approval.getByRole("button",{name:"Öt map mentésének indítása"});
+  await expect(start).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(section).toContainText("Mind az öt eredeti helyi map ellenőrzött mentése elkészült");
+  await expect(section).toContainText("a másik Manager mentése még külön szükséges");
+  const count=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FIVE_BACKUP_COPIES__?:()=>number;
+  }).__UNTAMED_FIVE_BACKUP_COPIES__?.());
+  expect(count).toBe(1);
 });
 
 test("SQL-free offline cluster archive requires four native folders and explicit approval",async ({page})=>{
