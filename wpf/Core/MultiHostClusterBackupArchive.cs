@@ -558,6 +558,42 @@ public static class MultiHostClusterBackupArchive
         File.Move(next, path, true);
     }
 
+    // The epoch guard alone can be bypassed by a same-length rewrite followed
+    // by resetting NTFS timestamps. Re-hash each ORIGINAL OFFLINE source before
+    // publishing the already-verified staged archive; use bounded reads and
+    // cancellation to avoid taking an uninterruptible multi-GB hash pass.
+    // This is offline copy parity only, not a two-host SaveComplete barrier.
+    private static string HashSourceForPublication(string source,
+        long expectedBytes, CancellationToken cancellationToken)
+    {
+        if ((File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("UM-MULTIHOST-OFFLINE-SOURCE-SHA256-CHANGED");
+        using var stream = new FileStream(source, FileMode.Open, FileAccess.Read,
+            FileShare.Read, 1024 * 1024, FileOptions.SequentialScan);
+        if (stream.Length != expectedBytes)
+            throw new IOException("UM-MULTIHOST-OFFLINE-SOURCE-SHA256-CHANGED");
+        using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(128 * 1024);
+        long length = 0;
+        try
+        {
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int count = stream.Read(buffer, 0, buffer.Length);
+                if (count == 0) break;
+                length = checked(length + count);
+                if (length > expectedBytes)
+                    throw new IOException("UM-MULTIHOST-OFFLINE-SOURCE-SHA256-CHANGED");
+                sha.AppendData(buffer, 0, count);
+            }
+        }
+        finally { System.Buffers.ArrayPool<byte>.Shared.Return(buffer); }
+        if (length != expectedBytes || stream.Length != expectedBytes)
+            throw new IOException("UM-MULTIHOST-OFFLINE-SOURCE-SHA256-CHANGED");
+        return Convert.ToHexString(sha.GetHashAndReset());
+    }
+
     private static (long Length, string Sha256) CopyAndHash(string source,
         string destination, MultiHostBackupComponentKind kind,
         CancellationToken cancellationToken)
@@ -873,6 +909,20 @@ public static class MultiHostClusterBackupArchive
 
         ValidateSourceSets(normalized);
         DemandStableOfflineSourceEpochs();
+        // Keep the durable .incomplete checkpoint UNTIL parity is proved.
+        // If an offline exporter changed bytes while spoofing metadata, the
+        // operator can still inspect the last verified checkpoint; never
+        // leave an unjournaled half-finalized archive.
+        for (int i = 0; i < normalized.Length; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string actualSha256 = HashSourceForPublication(normalized[i].SourceFile,
+                components[i].Length, cancellationToken);
+            if (!actualSha256.Equals(components[i].Sha256,
+                StringComparison.OrdinalIgnoreCase))
+                throw new IOException("UM-MULTIHOST-OFFLINE-SOURCE-SHA256-CHANGED");
+        }
+        DemandStableOfflineSourceEpochs();
         ValidateInventory(batchId, hosts, clusters, maps, components);
         File.Delete(Path.Combine(stage, JournalName));
         var manifest = new MultiHostBackupManifest(CurrentSchemaVersion, batchId,
@@ -885,6 +935,7 @@ public static class MultiHostClusterBackupArchive
         WriteDurable(Path.Combine(stage, ManifestHashName), HashFile(manifestPath));
         WriteDurable(Path.Combine(stage, CompleteName), batchId.ToString("N"));
         Verify(stage);
+        DemandStableOfflineSourceEpochs();
         DemandStableOfflineSourceEpochs();
         Directory.Move(stage, target);
         return Verify(target);

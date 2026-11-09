@@ -533,6 +533,52 @@ public static class MultiHostClusterBackupBridgeTests
         Check(File.ReadAllBytes(offlineWorld).SequenceEqual(protectedWorldBytes),
             "offline mutation fixture restores the original source and never modifies the registered live map");
 
+        // A metadata-only epoch check is insufficient: a hostile or broken
+        // offline exporter can replace bytes and restore both NTFS timestamps.
+        // The final source SHA-256 pass must still reject the publication.
+        string forgedEpochBatch = Path.Combine(outputRoot, "unpublished-forged-epoch");
+        DateTime protectedWorldCreated = File.GetCreationTimeUtc(offlineWorld);
+        bool forgedEpochShaDenied = false;
+        try
+        {
+            try
+            {
+                _ = MultiHostClusterBackupArchive.BuildFromCatalog(
+                    catalogPath, forgedEpochBatch,
+                    afterCopiedForTesting: componentIndex =>
+                    {
+                        if (componentIndex != catalogModel.Items.Length - 1) return;
+                        byte[] forged = (byte[])protectedWorldBytes.Clone();
+                        forged[0] ^= 0x5A; // EXACT SAME length; different bytes
+                        File.WriteAllBytes(offlineWorld, forged);
+                        File.SetCreationTimeUtc(offlineWorld, protectedWorldCreated);
+                        File.SetLastWriteTimeUtc(offlineWorld, protectedWorldWrite);
+                    });
+            }
+            catch (IOException ex) when (ex.Message.Contains(
+                "UM-MULTIHOST-OFFLINE-SOURCE-SHA256-CHANGED", StringComparison.Ordinal))
+            { forgedEpochShaDenied = true; }
+            Check(forgedEpochShaDenied &&
+                  File.ReadAllBytes(offlineWorld).Length == protectedWorldBytes.Length &&
+                  File.GetCreationTimeUtc(offlineWorld) == protectedWorldCreated &&
+                  File.GetLastWriteTimeUtc(offlineWorld) == protectedWorldWrite &&
+                  !Directory.Exists(forgedEpochBatch) &&
+                  Directory.Exists(forgedEpochBatch + ".incomplete") &&
+                  MultiHostClusterBackupArchive.InspectInterrupted(forgedEpochBatch).NeedsOperator,
+                "forged same-length/timestamp offline world modification fails SHA-256 publication without falsely completing a batch");
+        }
+        finally
+        {
+            File.WriteAllBytes(offlineWorld, protectedWorldBytes);
+            File.SetCreationTimeUtc(offlineWorld, protectedWorldCreated);
+            File.SetLastWriteTimeUtc(offlineWorld, protectedWorldWrite);
+            if (Directory.Exists(forgedEpochBatch + ".incomplete"))
+                Directory.Delete(forgedEpochBatch + ".incomplete", true);
+        }
+        Check(File.ReadAllBytes(offlineWorld).SequenceEqual(protectedWorldBytes) &&
+              File.ReadAllText(liveMarker) == "synthetic test marker only",
+            "SHA-256 tamper regression retains the live map and restores the independent offline fixture");
+
         string[] liveFiles = Directory.GetFiles(liveMapRoot, "*", SearchOption.AllDirectories);
         Check(liveFiles.Length == 1 && liveFiles[0] == liveMarker && File.ReadAllText(liveMarker) == "synthetic test marker only",
             "restore and backup never create files under the registered server installation");
