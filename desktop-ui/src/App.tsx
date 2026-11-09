@@ -16,6 +16,7 @@ import {
 } from "./bridge";
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
+import { FreshStoreEnrollmentPanel } from "./FreshStoreEnrollmentPanel";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { HistoricalRconAttach } from "./HistoricalRconAttach";
 import { HistoricalActiveStartPanel } from "./HistoricalActiveStartPanel";
@@ -1557,6 +1558,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const lifecycleBlocked=journalsVerifiedFor!==mapId||
     Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview);
   const map=snapshot.local.maps.find(m=>m.id===mapId);
+  const historical=!!map?.storeProtected&&!map?.freshStoreEnrolled;
+  const fresh=!!map&&(!map.storeProtected||!!map.freshStoreEnrolled);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   const sections: Array<{id:MapSection;name:string}>=[
     {id:"overview",name:"Áttekintés"},{id:"monitor",name:"Üzemeltetés"},
@@ -1619,19 +1622,21 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         </Panel>
       </div>
       <MapMaintenancePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>
-      {map.storeProtected&&<HistoricalRconAttach mapId={mapId} onConfigured={onConfigured}/>}
-      {map.storeProtected&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
-      {map.storeProtected&&<HistoricalStoreSaveWorldPanel key={mapId} mapId={mapId} running={map.running} onSaved={onConfigured}/>}
-      {map.storeProtected&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
-      {map.storeProtected&&<HistoricalStoreRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured}/>}
-      {map.gamePort>0 && !map.storeProtected && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} onOpenRcon={()=>setSection("rcon")} journalBlocked={lifecycleBlocked}/>}
-      {map.gamePort>0 && !map.storeProtected && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
-      {map.gamePort>0 && !map.storeProtected && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {historical&&<HistoricalRconAttach mapId={mapId} onConfigured={onConfigured}/>}
+      {historical&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
+      {historical&&<HistoricalStoreSaveWorldPanel key={mapId} mapId={mapId} running={map.running} onSaved={onConfigured}/>}
+      {historical&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
+      {historical&&<HistoricalStoreRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured}/>}
+      {map.gamePort>0 && fresh && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} onOpenRcon={()=>setSection("rcon")} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && fresh && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && fresh && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && (!map.storeProtected||map.freshStoreEnrolled) &&
+        <FreshStoreEnrollmentPanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>}
       {map.gamePort===0 && <InitialMapSetup mapId={mapId} onConfigured={async()=>{
         await onConfigured();
         setInitialSetupSaved(true);
       }}/>}
-      {map.gamePort>0 && !map.storeProtected && !map.rconConfigured && <div className="warning-inline" role="status">
+      {map.gamePort>0 && fresh && !map.rconConfigured && <div className="warning-inline" role="status">
         <Shield size={17}/> Az első ASA-indítás előtt készítsd elő a RCON-t a meglévő natív, egyszeri GameUserSettings.ini mechanizmussal.
         <button type="button" className="secondary" onClick={()=>setSection("rcon")}>Első RCON beállítása</button>
       </div>}
@@ -1652,7 +1657,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     {section==="ini" && <IniCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="backups" && <BackupCenter mapId={mapId} snapshot={snapshot}/>}
     {section==="logs" && <LogsCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
-    {section==="rcon" && (map.storeProtected
+    {section==="rcon" && (historical
       ?<><HistoricalRconLivePanel mapId={mapId} running={map.running}/>
         <HistoricalAdminRconPanel mapId={mapId} running={map.running}/></>
       :<RconReadOnlyPanel key={mapId} mapId={mapId} onConfigured={onConfigured} onOpenStart={()=>setSection("overview")}/>)}

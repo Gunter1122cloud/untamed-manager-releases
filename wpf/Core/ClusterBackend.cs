@@ -32,6 +32,12 @@ public sealed class LocalMap
     public bool StartWithAsaApi { get; set; } = false;
     public ProcessIdentity? LastLoader { get; set; }
     public string StoreTestRoot { get; set; } = "";
+    // Newly enrolled empty Store maps are distinct from imported Kova
+    // ACTIVE/DONE maps. Their original assigned cluster and physical transfer
+    // path are pinned to the existing versioned ClusterRegistry.
+    public string FreshStoreClusterId { get; set; } = "";
+    public string FreshStoreTransferDirectory { get; set; } = "";
+    public string FreshStoreTransferFileId { get; set; } = "";
     // Existing Kova Store-v1 copies are imported as quarantined metadata,
     // not as an executable or writable character profile.
     public bool HistoricalStoreProtected { get; set; } = false;
@@ -977,7 +983,13 @@ public sealed partial class ClusterService : IAsyncDisposable
             return new(false,"Történeti Store-v1 map: indítás tiltva a teljes eredeti launch/szinkron validációjáig",null);
         if((map.Arguments+" "+map.ApiLoaderArguments).Contains("converttostore",StringComparison.OrdinalIgnoreCase))
             return new(false,"Store conversion is forbidden",null);
-        if(map.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase))
+        if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
+        {
+            try{FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);}
+            catch(Exception ex) when(ex is InvalidDataException or InvalidOperationException or IOException)
+            {return new(false,"Új Store-map előfeltétele nem igazolt: "+ex.Message,null);}
+        }
+        else if(map.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase))
         {
             var store=LocalStoreProbe.Inspect(map.StoreTestRoot,VaultProtocol.ClusterId,map.Arguments);
             if(!store.Safe)return new(false,store.Reason,null);
@@ -1054,11 +1066,16 @@ public sealed partial class ClusterService : IAsyncDisposable
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
             throw new UnauthorizedAccessException("Only local registered maps may start");
-        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) || map.Maintenance ||
-           !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
-           (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-               StringComparison.OrdinalIgnoreCase))
+        bool newlyEnrolledStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
+        if(newlyEnrolledStore)
+            FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);
+        else if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
+                !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
+                (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
+                    StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Store-v1/historical launch remains locked");
+        if(map.Maintenance)
+            throw new InvalidOperationException("UM-ASA-START-MAINTENANCE");
         if(map.Id==Guid.Empty || map.GamePort is <1024 or >65535 ||
            map.QueryPort is <1024 or >65535 ||
            string.IsNullOrWhiteSpace(map.Arguments) ||
@@ -1079,7 +1096,8 @@ public sealed partial class ClusterService : IAsyncDisposable
         var build=AsaSteamBuildCatalog.InstalledBuild(root);
         if(string.IsNullOrWhiteSpace(build))
             throw new InvalidDataException("Official SteamCMD ASA build manifest is missing");
-        FreshAsaInstallationSafety.Demand(this,map);
+        if(newlyEnrolledStore)FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);
+        else FreshAsaInstallationSafety.Demand(this,map);
         if(!AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException("UM-FRESH-ASA-RCON-CONFIG-DIVERGED");
         LocalMapPortPolicy.RequireNoConflicts(map,Config.LocalMaps);
@@ -1100,7 +1118,8 @@ public sealed partial class ClusterService : IAsyncDisposable
         restartJournal.DemandAuthorizedStart(approvedRestartId);
         // Reject changed disk/host conditions after the installation-wide
         // operation lock, immediately before spawning any process.
-        FreshAsaInstallationSafety.Demand(this,map);
+        if(newlyEnrolledStore)FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);
+        else FreshAsaInstallationSafety.Demand(this,map);
         if(!AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException("UM-FRESH-ASA-RCON-CONFIG-DIVERGED");
         LocalMapPortPolicy.RequireNoConflicts(map,Config.LocalMaps);

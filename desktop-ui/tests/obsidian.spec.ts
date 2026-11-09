@@ -154,6 +154,9 @@ test.beforeEach(async ({ page }) => {
       {mapId:one,clusterId:"fixture-alpha"},{mapId:two,clusterId:"fixture-beta"},
       {mapId:"peer-1",clusterId:"fixture-gamma"}
     ];
+    let freshStoreEnrolled=false;
+    let freshStoreApprovalIssued=false;
+    const freshStoreToken="00000000-0000-4000-8000-000000009891";
     let clusterApproval="";
     let clusterPending:{clusterId:string;mapIds:string[];preview:any}|null=null;
     const peerRows=()=>Array.isArray(state.remotes)?state.remotes:(state.remote?[state.remote]:[]);
@@ -1055,6 +1058,37 @@ test.beforeEach(async ({ page }) => {
             requiresManagerRestart:true,secretReturned:false,
             remoteWritesAllowed:false,
             evidence:"ATOMIC_LOCAL_LAN_PAIRING_DPAPI_PROFILE_ONLY"};
+        case "freshStore.enrollmentStatus": return {
+          mapId:m.mapId,mapName:m.mapId===two?"Astraeos":"The Island",
+          enrolled:freshStoreEnrolled,historicalProtected:false,
+          clusterId:freshStoreEnrolled?"fixture-beta":"",
+          startsServer:false,originalStoreTouched:false,
+          evidence:"LOCAL_MAP_NEW_STORE_ENROLLMENT_STATUS"
+        };
+        case "freshStore.enrollmentPreview": {
+          if(m.mapId!==two||m.clusterId!=="fixture-beta"||freshStoreEnrolled)
+            throw new Error("UM-FRESH-STORE-PREFLIGHT-OR-ENROLLMENT-FAILED");
+          freshStoreApprovalIssued=true;
+          return {token:freshStoreToken,mapId:two,mapName:"Astraeos",
+            clusterId:"fixture-beta",gamePort:7847,queryPort:27047,
+            steamBuild:"999001",transferIdentityCheckedLocally:true,
+            remoteIdentityCertified:false,conversionPerformed:false,
+            serverStarted:false,originalStoreTouched:false,
+            automaticRetry:false,evidence:"NEW_EMPTY_STORE_ENROLLMENT_PREVIEW_ONLY"};
+        }
+        case "freshStore.enrollmentApply": {
+          if(!freshStoreApprovalIssued||m.token!==freshStoreToken||
+             m.confirm!==true||m.typedApproval!=="NEW EMPTY STORE")
+            throw new Error("UM-FRESH-STORE-EXPLICIT-APPROVAL");
+          freshStoreApprovalIssued=false;freshStoreEnrolled=true;
+          Object.assign(state.local.maps[1],{
+            storeProtected:true,freshStoreEnrolled:true,running:false,
+            status:"Leállítva",storeLifecycleState:null});
+          return {mapId:two,mapName:"Astraeos",enrolled:true,
+            clusterId:"fixture-beta",conversionPerformed:false,serverStarted:false,
+            originalStoreTouched:false,requiresManualStart:true,
+            evidence:"NEW_EMPTY_STORE_ATOMIC_LOCAL_MANAGER_PROFILE_ONLY"};
+        }
         case "cluster.registry.snapshot": return clusterRegistrySnapshot();
         case "cluster.create": {
           if(clusterClusters.some(cluster=>cluster.clusterId===m.clusterId))throw new Error("UM-CLUSTER-ALREADY-EXISTS");
@@ -2369,6 +2403,24 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await expect(historic.getByText(/valódi Windows ASA PID: 42101/)).toBeVisible();
   await expect(historic.getByText(/Nincs automatikus Start\/Restart/)).toBeVisible();
   await expect(spawn).toHaveCount(0);
+});
+
+test("new empty Store-map uses existing cluster membership, one-shot approval and distinct non-Kova UI",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const region=page.getByRole("region",{name:"Új üres Store-map"});
+  await expect(region).toBeVisible();
+  await expect(region.getByRole("combobox",{name:"Új Store-map cluster"})).toHaveValue("fixture-beta");
+  await expect(region.getByRole("button",{name:"Új Store-profil mentése"})).toHaveCount(0);
+  await region.getByRole("button",{name:"Üres Store-map előellenőrzése"}).click();
+  await expect(region.getByRole("region",{name:"Üres Store-map előnézete"})).toContainText("Másik host átviteli azonossága");
+  await expect(region.getByRole("button",{name:"Új Store-profil mentése"})).toBeDisabled();
+  await region.getByRole("checkbox",{name:/Jóváhagyom az üres map/}).check();
+  await region.getByRole("button",{name:"Új Store-profil mentése"}).click();
+  await expect(region).toContainText("Store-profil regisztrálva: fixture-beta");
+  await expect(region).toContainText("Nem fut -converttostore");
+  await expect(page.getByRole("button",{name:/ASA indítási mód választása/})).toHaveCount(0);
+  await expect(page.getByRole("region",{name:"Új üres Store-map"})).toContainText("játékbeli utazás még nem igazolt");
 });
 
 test("original Store-v1 RCON console actually queries local player, game and chat logs and never exposes write commands",async({page})=>{
