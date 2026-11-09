@@ -4,6 +4,7 @@ export type LanStatus = {
     bothOriginalProfilesPresent:boolean;
     sameSharedSession:boolean;sameSharedPath:boolean;distinctDeviceIds:boolean;
     bothHaveFiveActiveMaps:boolean;copiedMetadataPairMatches:boolean;
+    bothPhysicalWitnessesFresh:boolean;samePhysicalTransferDirectory:boolean;
     liveWriterCertified:false;characterTravelVerified:false;statusCode:string;
   };
   hostName:string; localHostId:string; expectedPeerHostId:string;
@@ -26,6 +27,13 @@ export type LanSaved = {
   saved:true;action:"upsert"|"remove";listenPort:number;hostId:string;peerCount:number;
   requiresManagerRestart:true;secretReturned:false;remoteWritesAllowed:false;
   evidence:string;
+};
+export type LanPhysicalStoreProbe = {
+  localPhysicalDirectoryIdVerified:true;localHostId:string;observedUtc:string;
+  originalMetadataUnchanged:true;rawUncPathReturned:false;
+  originalStoreFilesWritten:false;liveStoreWriterCertified:false;
+  productionRestoreAllowed:false;
+  evidence:"EXPLICIT_READ_ONLY_WINDOWS_UNC_FILE_ID_LOCAL_ONLY";
 };
 
 export type MapMaintenanceStatus={
@@ -1127,7 +1135,7 @@ export type ConfiguredMods = {
   evidence: "CONFIGURED_ONLY";
 };
 
-type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "operations.snapshot" | "operations.map" |
+type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.apply" | "lan.physicalStoreProbe" | "operations.snapshot" | "operations.map" |
   "operations.scheduleCreate" | "operations.scheduleDisable" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeOverview" |
@@ -1284,6 +1292,8 @@ export const managerBridge = {
       listenPort,hostId,hostName,peerAddress,peerPort,pairingKey,peerAction
     }),
   lanApply: (token:string) => request<LanSaved>("lan.apply",{token,confirm:true}),
+  lanPhysicalStoreProbe: () =>
+    request<LanPhysicalStoreProbe>("lan.physicalStoreProbe"),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
   operationsMap: (mapId:string) => request<OperationsSnapshot>("operations.map",{mapId}),
   operationsScheduleCreate: (mapId:string,kind:ReadOnlyScheduleKind,intervalMinutes:number) =>
