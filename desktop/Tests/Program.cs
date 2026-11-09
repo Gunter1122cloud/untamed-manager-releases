@@ -1641,6 +1641,26 @@ try
               status.GetProperty("data").GetProperty("initialSetupAvailable").GetBoolean() &&
               status.GetProperty("data").GetProperty("blocker").GetString()=="NONE",
             "unknown manually imported map offers native explicit custom level setup");
+        string officialName=new[]{"The Center","Scorched Earth","Genesis Part 1"}
+            .First(name=>!cluster.Config.LocalMaps.Any(map=>
+                map.Name.Equals(name,StringComparison.OrdinalIgnoreCase)));
+        string officialRoot=Path.Combine(root,"official-no-override-install");
+        string officialExe=Path.Combine(officialRoot,"ShooterGame","Binaries",
+            "Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(officialExe)!);
+        File.Copy(valguero.ExecutablePath,officialExe);
+        var officialUnconfigured=new LocalMap{
+            Name=officialName,InstallationPath=officialRoot,
+            ExecutablePath=officialExe
+        };
+        cluster.AddMap(officialUnconfigured);
+        var overrideRejected=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=officialUnconfigured.Id,sessionName="Official Preview",
+                gamePort=customGame,queryPort=customQuery,
+                customLevel="Hijacked_WP"});
+        Check(IsError(overrideRejected,"UM-INITIAL-OFFICIAL-LEVEL-OVERRIDE-DENIED") &&
+              officialUnconfigured.Arguments=="",
+            "official registered map cannot substitute user-supplied Unreal level");
         var missing=await Call(customSetup.HandleAsync,"servers.initialPreview",
             new{mapId=custom.Id,sessionName="Custom Test",
                 gamePort=customGame,queryPort=customQuery});
