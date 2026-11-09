@@ -54,7 +54,7 @@ public static class FreshStoreEnrollmentPolicy
     {
         // Require the existing native initial-setup grammar rather than
         // accepting arbitrary WebView-supplied process command lines.
-        if(string.IsNullOrWhiteSpace(arguments)||arguments.Length>4096||
+        if(string.IsNullOrWhiteSpace(arguments)||arguments.Length>7800||
            arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase)||
            arguments.Contains("convert",StringComparison.OrdinalIgnoreCase)||
            arguments.Contains("-clusterid",StringComparison.OrdinalIgnoreCase)||
