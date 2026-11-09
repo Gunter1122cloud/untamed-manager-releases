@@ -97,6 +97,7 @@ internal static class LegacyStorePhysicalTransferTests
         Check(witness.OriginalMetadataUnchanged&&witness.HostId==managerA&&
               witness.PhysicalDirectoryTag==physicalTag&&
               witness.SessionTag==report.SessionTag&&
+              witness.OriginalFourFilesTag==report.OriginalFourFilesTag&&
               !witness.LiveStoreWriterCertified&&!witness.ProductionRestoreAllowed,
             "explicit on-demand physical witness pins the original session and denies writer/restore authority");
         Check(files.Select(f=>Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(f))))
@@ -114,7 +115,8 @@ internal static class LegacyStorePhysicalTransferTests
         var local=new LegacyStoreV1PeerProof(true,true,5,report.SessionTag,
             report.SharedPathTag,report.DeviceTag,false,false,"SYNTHETIC_ORIGINAL")
         {
-            PhysicalDirectoryTag=physicalTag,PhysicalObservedUtc=witness.ObservedUtc
+            PhysicalDirectoryTag=physicalTag,PhysicalObservedUtc=witness.ObservedUtc,
+            OriginalFourFilesTag=report.OriginalFourFilesTag
         };
         var remote=local with{DeviceTag=Hash("other-synthetic-original-device")};
         var accepted=LegacyStoreV1PairComparison.Compare(local,remote,true);
@@ -142,10 +144,11 @@ internal static class LegacyStorePhysicalTransferTests
             "missing, expired, stale LAN or same-device witness fails closed");
 
         string managerProfile=Path.Combine(root,"synthetic-manager-profile");
+        var currentLocalSource=local with{PhysicalDirectoryTag="",
+            PhysicalObservedUtc=null};
         await using(var manager=new ClusterService("physical-test",managerProfile,
             _=>new ProcessCheck(false,"Synthetic stopped only",null,true),
-            legacyStoreProof:()=>local with{PhysicalDirectoryTag="",
-                PhysicalObservedUtc=null},
+            legacyStoreProof:()=>currentLocalSource,
             physicalStoreProbe:host=>witness with{HostId=Guid.Parse(host).ToString("N")}))
         {
             var before=manager.ReadLegacyStoreV1PeerProof();
@@ -160,6 +163,12 @@ internal static class LegacyStorePhysicalTransferTests
                 "native LAN bridge exposes explicit physical proof with no raw UNC or mutation authority");
             Check(manager.ReadLegacyStoreV1PeerProof()?.PhysicalDirectoryTag==physicalTag,
                 "explicit physical proof appears only in local RAM for encrypted LAN status");
+            currentLocalSource=currentLocalSource with{
+                OriginalFourFilesTag=Hash("synthetic-original-selection-changed")};
+            Check(manager.ReadLegacyStoreV1PeerProof()?.PhysicalDirectoryTag=="",
+                "same session and UNC cannot reuse a physical witness after original four-file bytes change");
+            currentLocalSource=currentLocalSource with{
+                OriginalFourFilesTag=report.OriginalFourFilesTag};
             var status=await Call(bridge,"lan.status");
             Check(status.GetProperty("ok").GetBoolean()&&
                   !status.GetProperty("data").GetProperty("originalStorePair")
