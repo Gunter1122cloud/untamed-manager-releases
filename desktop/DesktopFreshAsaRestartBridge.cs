@@ -24,10 +24,14 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         public Guid Id=Guid.NewGuid();
         public string State="queued",Stage="preflight";
         public int OldPid,NewPid;
+        public string NewProcessRole="asaServer";
         public bool PreExitSaveEvidenceObserved;
         public DateTimeOffset Changed=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
+    private readonly bool nativeRunner;
+    private readonly CancellationTokenSource closing=new();
+    private readonly CancellationToken closingToken;
     private readonly Func<int,int,bool> portOwner;
     private readonly Func<Guid,ProcessIdentity,Guid,Action<string>,
         Task<(AsaGracefulStopReceipt Stop,ProcessIdentity Started)>> execute;
@@ -43,6 +47,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             Task<(AsaGracefulStopReceipt Stop,ProcessIdentity Started)>>? runner=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
+        nativeRunner=runner==null;
+        closingToken=closing.Token;
         portOwner=ownsPort??RconPortOwnership.IsOwnedListener;
         execute=runner??(async(mapId,old,journalId,progress)=>{
             progress("SaveWorld → DoExit");
@@ -103,6 +109,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         lock(sync)return new{
             jobId=item.Id,state=item.State,stage=item.Stage,
             oldPid=item.OldPid,newPid=item.NewPid,
+            newProcessRole=item.NewProcessRole,
             changedUtc=item.Changed,
             saveCompleteProven=false,readinessCertified=false,
             preExitSaveEvidenceObserved=item.PreExitSaveEvidenceObserved,
@@ -218,7 +225,10 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     persisted=restartJournal.Begin(currentMap.Id,approved.Pid);
                     prepareLease.Complete();
                 }
-                var job=new Job{OldPid=approved.Pid};
+                var job=new Job{
+                    OldPid=approved.Pid,
+                    NewProcessRole=currentMap.StartWithAsaApi?"loaderParent":"asaServer"
+                };
                 current=job;
                 _=Task.Run(async()=>{
                     Change(job,"running","SaveWorld → DoExit");
@@ -236,8 +246,15 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             receipt.Stop.PreExitSaveLogAndWorldObserved;
                         restartJournal.Change(persisted.Id,AsaRestartPhase.Completed,
                             receipt.Started.Pid);
-                        Change(job,"completed","New Windows process started; readiness unverified",
+                        Change(job,"completed",
+                            job.NewProcessRole=="loaderParent"?
+                                "New Loader parent spawned; ASA child and RCON readiness unverified":
+                                "New Windows ASA process started; readiness unverified",
                             receipt.Started.Pid);
+                        if(nativeRunner&&currentMap.StartWithAsaApi&&
+                           FreshStoreEnrollmentPolicy.IsEnrolled(currentMap))
+                            FreshStoreApiPairObserver.Begin(
+                                cluster,currentMap.Id,receipt.Started,closingToken);
                     }
                     catch(Exception)
                     {
@@ -261,5 +278,10 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         JsonSerializer.Serialize(new{id,ok=true,data},Json);
     private static string Fail(string? id,string error)=>
         JsonSerializer.Serialize(new{id,ok=false,error},Json);
-    public void Dispose()=>gate.Dispose();
+    public void Dispose()
+    {
+        closing.Cancel();
+        closing.Dispose();
+        gate.Dispose();
+    }
 }
