@@ -565,6 +565,20 @@ export type OriginalFiveMapBackupPreview={
   serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
   evidence:"EXISTING_SHA256_WORLD_ENGINE_ORIGINAL_FIVE_MAP_PREFLIGHT";
 };
+export type OriginalFiveMapBackupStarted={
+  jobId:string;started:true;localMaps:5;
+  originalKovaFilesWritten:false;serverStarted:false;
+  sharedTransferIncluded:false;otherHostIncluded:false;
+  evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_JOB_QUEUED";
+};
+export type OriginalFiveMapBackupStatus={
+  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  step:string;changedUtc:string;localMaps:5;completedMaps:number;
+  points:{mapId:string;mapName:string;point:string;files:number;bytes:number}[];
+  totalBytes:number;allFiveVerified:boolean;originalKovaFilesWritten:false;
+  serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
+  evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM";
+};
 export type OriginalFiveMapBackupReceipt={
   localMaps:5;
   points:{mapId:string;mapName:string;point:string;files:number;bytes:number}[];
@@ -1514,9 +1528,11 @@ export const managerBridge = {
   backupOriginalFivePreview: () =>
     request<OriginalFiveMapBackupPreview>("backup.originalBatchPreview"),
   backupOriginalFiveCreate: (token:string) =>
-    request<OriginalFiveMapBackupReceipt>("backup.originalBatchCreate",{
+    request<OriginalFiveMapBackupStarted>("backup.originalBatchCreate",{
       token,confirm:true
     }),
+  backupOriginalFiveStatus: (jobId?:string) =>
+    request<OriginalFiveMapBackupStatus>("backup.originalBatchStatus",jobId?{jobId}:{}),
   backupRestorePreview: (mapId:string,point:string) =>
     request<WorldBackupPreview>("backup.restorePreview",{mapId,point}),
   backupRestore: (token:string,mapName:string) =>
