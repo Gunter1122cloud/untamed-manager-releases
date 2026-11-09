@@ -83,6 +83,16 @@ internal static class OriginalStoreFiveMapBackupTests
             mapRows.Add(new(id,keys[i],installation,map.GamePort,map.QueryPort,
                 enabled,passive));
         }
+        // A sixth independent historical Store map must NOT impose a
+        // five-map capacity restriction on original Kova backup selection.
+        var independent=new LocalMap{
+            Id=Guid.NewGuid(),Name="Valguero",
+            InstallationPath=Path.Combine(root,"independent-sixth-map"),
+            HistoricalStoreProtected=true,HistoricalMapKey="Valguero_WP",
+            HistoricalArchiveSha256=Sha("another-store-source"),
+            GamePort=7901,QueryPort=27901,AutoStart=false
+        };
+        cluster.AddMap(independent);
         LegacyStoreV1OriginalLocalSelection currentSource=new(
             sourceSha,launchSha,mapRows.ToArray());
         var bridge=new DesktopWorldBackupBridge(cluster,
@@ -134,6 +144,8 @@ internal static class OriginalStoreFiveMapBackupTests
             Check(KovaCompatibleWorldBackup.List(map,cluster.Store.Root).Length==1,
                 "five-map backup uses existing per-map archive history");
         }
+        Check(KovaCompatibleWorldBackup.List(independent,cluster.Store.Root).Length==0,
+            "sixth unrelated historical map remains untouched by original five-map batch");
         var replay=await Call(bridge,"backup.originalBatchCreate",
             new{token=approved,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
