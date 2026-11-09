@@ -70,6 +70,36 @@ public static class StorePathIdentity
         return id;
     }
 
+    /// <summary>
+    /// Stable opaque Windows directory identity captured at enrollment.
+    /// Rejects a later replacement of the transfer path with another file ID.
+    /// It does NOT establish identity from any other machine.
+    /// </summary>
+    public static string LocalDirectoryFingerprint(string path)
+    {
+        if(!OperatingSystem.IsWindows())
+            throw new InvalidDataException("UM-STORE-FILE-ID-WINDOWS-REQUIRED");
+        string full=Normalized(path);
+        if(!Directory.Exists(full)||Linked(full))
+            throw new InvalidDataException("UM-STORE-FILE-ID-PATH-UNSAFE");
+        try
+        {
+            var id=ReadDirectoryIdentity(full);
+            string bytes=id.VolumeSerialNumber.ToString("X16",
+                System.Globalization.CultureInfo.InvariantCulture)+
+                ":"+Convert.ToHexString(id.FileId);
+            return Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.ASCII.GetBytes(bytes)));
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+            InvalidDataException or ArgumentException or NotSupportedException or
+            System.ComponentModel.Win32Exception)
+        {
+            throw new InvalidDataException("UM-STORE-FILE-ID-NOT-VERIFIED");
+        }
+    }
+
     public static StorePathIdentityDecision CompareDirectories(string first,string second)
     {
         if(!OperatingSystem.IsWindows())
