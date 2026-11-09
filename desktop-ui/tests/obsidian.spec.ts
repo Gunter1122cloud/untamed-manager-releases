@@ -38,6 +38,9 @@ test.beforeEach(async ({ page }) => {
       };
     let freshId = "";
     let initialBlocked=false;
+    let customInitialLevel=false;
+    (window as typeof window & {__UNTAMED_CUSTOM_INITIAL_LEVEL__?:(value:boolean)=>void})
+      .__UNTAMED_CUSTOM_INITIAL_LEVEL__=(value:boolean)=>{customInitialLevel=value;};
     let nextRconStatusRefreshFails=false;
     let rconApplyCalls=0;
     (window as typeof window & {__UNTAMED_RCON_REFRESH_FAIL_ONCE__?:()=>void})
@@ -1172,7 +1175,8 @@ test.beforeEach(async ({ page }) => {
         case "servers.initialStatus": {
           const map = state.local.maps.find(x=>x.id===m.mapId);
           if(!map)throw new Error("UM-MAP-NOT-OWNED");
-          return {mapId:map.id,mapName:map.name,level:"Genesis_WP",
+          return {mapId:map.id,mapName:map.name,level:customInitialLevel?null:"Genesis_WP",
+            requiresCustomLevel:customInitialLevel,
             initialSetupAvailable:map.gamePort===0&&!initialBlocked,
             confirmedStopped:!map.running&&!initialBlocked,
             blocker:initialBlocked?"PROCESS_STOP_NOT_VERIFIED":
@@ -1185,7 +1189,9 @@ test.beforeEach(async ({ page }) => {
         case "servers.initialPreview": return {
           token:"00000000-0000-4000-8000-000000008877",mapId:m.mapId,
           mapName:"Genesis Part 1",sessionName:m.sessionName||"Untamed Kingdom",
-          mapLevel:"Genesis_WP",gamePort:m.gamePort||7797,queryPort:m.queryPort||27035,
+          mapLevel:customInitialLevel?m.customLevel:"Genesis_WP",
+          requiresCustomLevel:customInitialLevel,
+          gamePort:m.gamePort||7797,queryPort:m.queryPort||27035,
           rconEnabled:false,serverStartRequested:false,configuredArgumentsLength:93,
           evidence:"INITIAL_MAP_PROFILE_PREVIEW_NO_WRITES"
         };
@@ -3553,6 +3559,41 @@ test("Newly imported local map first setup saves session and UDP ports only afte
   await expect(page.getByText(/indítási profilja mentve/)).toBeVisible();
   await expect(page.getByText("7797").first()).toBeVisible();
   await page.screenshot({path:"test-results/asa-first-map-setup-1500.png",fullPage:true});
+});
+
+test("Imported custom map requires a safe explicit Unreal level before initial Manager profile save",async({page})=>{
+  await page.setViewportSize({width:1500,height:850});
+  await page.goto("/");
+  await page.evaluate(()=>{
+    (window as typeof window & {__UNTAMED_CUSTOM_INITIAL_LEVEL__?:(v:boolean)=>void})
+      .__UNTAMED_CUSTOM_INITIAL_LEVEL__?.(true);
+  });
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA pályaszint"})).toBeVisible();
+  await expect(page.getByText(/nem engedélyez Store-v1 transfert/)).toBeVisible();
+  await page.getByRole("textbox",{name:"ASA szerver neve"}).fill("Untamed Custom Test");
+  await page.getByRole("textbox",{name:"Első Game UDP"}).fill("7797");
+  await page.getByRole("textbox",{name:"Első Query UDP"}).fill("27035");
+  const level=page.getByRole("textbox",{name:"Egyedi ASA pályaszint"});
+  const inspect=page.getByRole("button",{name:"Beállítások ellenőrzése"});
+  await expect(inspect).toBeDisabled();
+  await level.fill("Custom_WP?listen");
+  await expect(inspect).toBeDisabled();
+  await level.fill("Atlantis_Custom_WP");
+  await expect(inspect).toBeEnabled();
+  await inspect.click();
+  await expect(page.getByText("Konfigurációs előnézet")).toBeVisible();
+  await expect(page.getByText("Atlantis_Custom_WP")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"})).toBeDisabled();
+  await page.getByText(/Jóváhagyom a regisztrált helyi map Manager-profiljának mentését/).click();
+  await page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"}).click();
+  await expect(page.getByText(/indítási profilja mentve/)).toBeVisible();
 });
 
 test("first setup follows one RCON bootstrap route and returns to native Start without automatic launch",async({page})=>{
