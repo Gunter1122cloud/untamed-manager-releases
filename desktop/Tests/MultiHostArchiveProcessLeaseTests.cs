@@ -31,7 +31,12 @@ internal static class MultiHostArchiveProcessLeaseTests
                 Console.WriteLine("UNEXPECTED_LEASE_ACQUIRED");
                 return 61;
             }
-            File.WriteAllText(arguments[3],"LEASE_HELD");
+            // Publish the ready marker by an atomic rename. Another Windows
+            // process must never observe a partially written or exclusively
+            // opened file. The OS lease remains held for the entire operation.
+            string staged=arguments[3]+".pending";
+            File.WriteAllText(staged,"LEASE_HELD");
+            File.Move(staged,arguments[3]);
             for(int i=0;i<1800;i++)
             {
                 if(File.Exists(arguments[3]+".release"))return 0;
