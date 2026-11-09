@@ -92,6 +92,12 @@ test.beforeEach(async ({ page }) => {
             storeProtected:true,steamBuildId:null,
             steamUpdateState:"Nem ellenőrizhető"
           } as typeof state.local.maps[number]);
+        state.local.maps.push({
+          id:"00000000-0000-4000-8000-000000000029",
+          name:"Independent Sixth Store Map",running:true,status:"Fut",
+          gamePort:7957,storeProtected:true,steamBuildId:null,
+          steamUpdateState:"Nem ellenőrizhető"
+        } as typeof state.local.maps[number]);
       };
     (window as typeof window & {__UNTAMED_FIVE_BACKUP_COPIES__?:()=>number})
       .__UNTAMED_FIVE_BACKUP_COPIES__=()=>originalFiveBackupCopies;
