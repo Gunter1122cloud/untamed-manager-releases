@@ -3428,6 +3428,94 @@ try
               !checkedTravel.GetProperty("data").GetProperty("productionUnlockAllowed").GetBoolean() &&
               !checkedTravel.GetProperty("data").GetProperty("liveStoreWriterCertified").GetBoolean(),
             "exactly-once synthetic travel is consistent but production Store permission stays closed");
+        // Six synthetic snapshots (5 maps per host at each of three phases)
+        // prove A→B→A file placement and exact original loose-profile SHA.
+        // No real ASA process or protected Kova path is ever used.
+        await Task.Delay(20);
+        File.Move(destinationFile,sourceFile);
+        var returnedA=await Call(travelA.HandleAsync,"travel.capture");
+        var returnedB=await Call(travelB.HandleAsync,"travel.capture");
+        var roundtripRequest=new{
+            request.beforeA,request.beforeB,
+            middleA=request.afterA,middleB=request.afterB,
+            afterA=returnedA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            afterB=returnedB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            request.sourceMap,request.destinationMap,request.profileId
+        };
+        var roundtrip=await Call(travelA.HandleAsync,
+            "travel.compareRoundTrip",roundtripRequest);
+        IsOk(roundtrip,"six-snapshot A-B-A native verifier accepts ordered two-host inventories");
+        var roundtripData=roundtrip.GetProperty("data");
+        Check(roundtripData.GetProperty("passed").GetBoolean()&&
+              roundtripData.GetProperty("outwardPlacementVerified").GetBoolean()&&
+              roundtripData.GetProperty("returnPlacementVerified").GetBoolean()&&
+              roundtripData.GetProperty("exactOriginalProfileBytes").GetBoolean()&&
+              roundtripData.GetProperty("unrelatedLooseFilesUnchanged").GetBoolean()&&
+              !roundtripData.GetProperty("productionUnlockAllowed").GetBoolean()&&
+              File.ReadAllBytes(sourceFile).SequenceEqual(survivor),
+            "synthetic A-B-A maintains profile SHA and unrelated files without granting production Store permission");
+        var replayedReturn=await Call(travelA.HandleAsync,"travel.compareRoundTrip",new{
+            roundtripRequest.beforeA,roundtripRequest.beforeB,
+            roundtripRequest.middleA,roundtripRequest.middleB,
+            afterA=roundtripRequest.middleA,afterB=roundtripRequest.middleB,
+            request.sourceMap,request.destinationMap,request.profileId
+        });
+        Check(IsError(replayedReturn,"UM-TRAVEL-EVIDENCE-UNVERIFIED"),
+            "replayed return snapshots and non-increasing epochs are rejected before any acceptance");
+        // Reappearing on both maps is not a valid return trip.
+        File.WriteAllBytes(destinationFile,survivor);
+        await Task.Delay(20);
+        var duplicateReturnA=await Call(travelA.HandleAsync,"travel.capture");
+        var duplicateReturnB=await Call(travelB.HandleAsync,"travel.capture");
+        var duplicateReturn=await Call(travelA.HandleAsync,"travel.compareRoundTrip",new{
+            roundtripRequest.beforeA,roundtripRequest.beforeB,
+            roundtripRequest.middleA,roundtripRequest.middleB,
+            afterA=duplicateReturnA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            afterB=duplicateReturnB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            request.sourceMap,request.destinationMap,request.profileId
+        });
+        Check(duplicateReturn.GetProperty("ok").GetBoolean()&&
+              !duplicateReturn.GetProperty("data").GetProperty("passed").GetBoolean()&&
+              !duplicateReturn.GetProperty("data").GetProperty("returnPlacementVerified").GetBoolean(),
+            "duplicated survivor on both hosts fails the A-B-A return leg");
+        File.Delete(destinationFile);
+        // A different returned profile body must never silently count as exact
+        // source byte parity, even when its placement is otherwise correct.
+        File.WriteAllText(sourceFile,"synthetic-modified-profile-return-body");
+        await Task.Delay(20);
+        var modifiedReturnA=await Call(travelA.HandleAsync,"travel.capture");
+        var modifiedReturnB=await Call(travelB.HandleAsync,"travel.capture");
+        var alteredReturn=await Call(travelA.HandleAsync,"travel.compareRoundTrip",new{
+            roundtripRequest.beforeA,roundtripRequest.beforeB,
+            roundtripRequest.middleA,roundtripRequest.middleB,
+            afterA=modifiedReturnA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            afterB=modifiedReturnB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            request.sourceMap,request.destinationMap,request.profileId
+        });
+        Check(alteredReturn.GetProperty("ok").GetBoolean()&&
+              !alteredReturn.GetProperty("data").GetProperty("passed").GetBoolean()&&
+              !alteredReturn.GetProperty("data").GetProperty("exactOriginalProfileBytes").GetBoolean(),
+            "changed return-profile SHA is disclosed rather than certified as exact character-byte preservation");
+        // Unrelated map's tribe/profile proof must not silently change.
+        var tamperedOtherMap=System.Text.Json.Nodes.JsonNode.Parse(roundtripRequest.afterA)!.AsObject();
+        tamperedOtherMap["maps"]!.AsArray()
+            .First(m=>m!["name"]!.GetValue<string>()=="Valguero")!["files"]!
+            .AsArray().Add(new System.Text.Json.Nodes.JsonObject{
+                ["kind"]="tribe",["id"]=new string('c',64),
+                ["sha256"]=new string('d',64),["bytes"]=123
+            });
+        var unrelatedChanged=await Call(travelA.HandleAsync,"travel.compareRoundTrip",new{
+            roundtripRequest.beforeA,roundtripRequest.beforeB,
+            roundtripRequest.middleA,roundtripRequest.middleB,
+            afterA=tamperedOtherMap.ToJsonString(),roundtripRequest.afterB,
+            request.sourceMap,request.destinationMap,request.profileId
+        });
+        Check(unrelatedChanged.GetProperty("ok").GetBoolean()&&
+              !unrelatedChanged.GetProperty("data").GetProperty("passed").GetBoolean()&&
+              !unrelatedChanged.GetProperty("data").GetProperty("unrelatedLooseFilesUnchanged").GetBoolean(),
+            "unrelated-map profile/tribe metadata modification blocks strict A-B-A parity");
+        File.WriteAllBytes(sourceFile,survivor);
+        File.Move(sourceFile,destinationFile);
         File.WriteAllBytes(Path.Combine(targetSave,"zero.arkprofile"),Array.Empty<byte>());
         var brokenAfter=await Call(travelB.HandleAsync,"travel.capture");
         var zeroResult=await Call(travelA.HandleAsync,"travel.compare",
@@ -3497,6 +3585,25 @@ try
             sourceMap=sourceMapId,destinationMap=destinationMapId,profileId="embedded"
         });
         IsOk(storeResult,"embedded Store-v1 world snapshots accepted for read-only metadata comparison");
+        await Task.Delay(20);
+        var storeReturnA=await Call(travelA.HandleAsync,"travel.capture");
+        var storeReturnB=await Call(travelB.HandleAsync,"travel.capture");
+        var embeddedRoundTrip=await Call(travelA.HandleAsync,"travel.compareRoundTrip",new{
+            beforeA=storeBeforeA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            beforeB=storeBeforeB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            middleA=storeAfterA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            middleB=storeAfterB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            afterA=storeReturnA.GetProperty("data").GetProperty("snapshot").GetString()!,
+            afterB=storeReturnB.GetProperty("data").GetProperty("snapshot").GetString()!,
+            sourceMap=sourceMapId,destinationMap=destinationMapId,profileId="embedded"
+        });
+        IsOk(embeddedRoundTrip,"three-phase Store -usestore metadata reports without reading or modifying embedded survivor records");
+        Check(embeddedRoundTrip.GetProperty("data").GetProperty("storeModeDetected").GetBoolean()&&
+              !embeddedRoundTrip.GetProperty("data").GetProperty("passed").GetBoolean()&&
+              !embeddedRoundTrip.GetProperty("data").GetProperty("embeddedSurvivorVerified").GetBoolean()&&
+              !embeddedRoundTrip.GetProperty("data").GetProperty("liveStoreWriterCertified").GetBoolean(),
+            "embedded Store A-B-A snapshots never fabricate survivor, writer or real gameplay certification");
+
         var storeData=storeResult.GetProperty("data");
         Check(storeData.GetProperty("storeModeDetected").GetBoolean() &&
               storeData.GetProperty("worldFilesPresentForStore").GetBoolean() &&

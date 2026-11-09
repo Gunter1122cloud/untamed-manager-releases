@@ -438,7 +438,7 @@ public sealed class ObsidianWindow : Form
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply";
                         stoppedSteamRoute = name is "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent";
-                        travelRoute = name is "travel.capture" or "travel.compare";
+                        travelRoute = name is "travel.capture" or "travel.compare" or "travel.compareRoundTrip";
                         embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore" or

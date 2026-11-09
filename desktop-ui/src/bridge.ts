@@ -299,6 +299,18 @@ export type TravelCapture = {
   complete:boolean;writerCertified:false;readOnly:true;
   evidence:"LOCAL_QUIESCENT_FILE_HASH_SNAPSHOT_ONLY";
 };
+export type TravelRoundTripComparison = {
+  passed:boolean;maps:10;hosts:2;
+  outwardPlacementVerified:boolean;returnPlacementVerified:boolean;
+  uniqueAtAllStages:boolean;exactOriginalProfileBytes:boolean;
+  unrelatedLooseFilesUnchanged:boolean;
+  storeModeDetected:boolean;embeddedSurvivorVerified:false;
+  gameClientRejoinVerified:false;liveStoreWriterCertified:false;
+  asaSaveCompleteCertified:false;productionUnlockAllowed:false;
+  evidence:"STORE_V1_SIX_SNAPSHOTS_EMBEDDED_SURVIVOR_NOT_VERIFIED"|
+    "SIX_QUIESCENT_TWO_HOST_LOOSE_FILE_BYTE_PARITY_ONLY";
+};
+
 export type TravelComparison = {
   passed:boolean;maps:10;hosts:2;
   beforeOnSource:boolean;afterOnTarget:boolean;uniqueDestination:boolean;
@@ -1163,7 +1175,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
   "cluster.registry.snapshot" | "cluster.host.register" | "cluster.map.register" |
   "cluster.create" | "cluster.update" | "cluster.membership.preview" | "cluster.membership.apply" |
-  "travel.capture" | "travel.compare" | "store.inspectCopy" | "store.inspectArchive" | "store.compareArchives";
+  "travel.capture" | "travel.compare" | "travel.compareRoundTrip" | "store.inspectCopy" | "store.inspectArchive" | "store.compareArchives";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   peerAction?:"upsert"|"remove";
   mapId?: string; useApi?:boolean; term?: string; page?: number; credential?: string;
@@ -1289,6 +1301,11 @@ export const managerBridge = {
     beforeA:string;beforeB:string;afterA:string;afterB:string;
     sourceMap:string;destinationMap:string;profileId:string
   }) => request<TravelComparison>("travel.compare",p),
+  travelCompareRoundTrip: (p:{
+    beforeA:string;beforeB:string;middleA:string;middleB:string;
+    afterA:string;afterB:string;
+    sourceMap:string;destinationMap:string;profileId:string;
+  }) => request<TravelRoundTripComparison>("travel.compareRoundTrip",p),
   updatePrepare: (channel:"stable"|"preview") => request<UpdatePrepared>("updates.prepare",{channel,confirm:true}),
   updateInstall: (token:string) => request<UpdateInstallReceipt>("updates.install",{token,confirm:true}),
   updateStatus: () => request<UpdateStatus>("updates.status"),
