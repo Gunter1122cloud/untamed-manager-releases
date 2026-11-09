@@ -351,6 +351,26 @@ test.beforeEach(async ({ page }) => {
           productionUnlockAllowed:false,
           evidence:"FOUR_QUIESCENT_HOST_FILE_HASH_SNAPSHOTS_ONLY"
         };
+        case "cluster.multiHostCatalogPreview": return {
+          token:"00000000-0000-4000-8000-000000009611",
+          hosts:2,clusters:1,maps:10,components:151,bytes:123456789,
+          copiedTransferIncluded:true,copiedProfilesIncluded:true,
+          copiedTribesIncluded:true,requiresExplicitApproval:true,
+          offlineCopiesOnly:true,liveConsistencyCertified:false,
+          storeWriterCertified:false,productionRestoreAllowed:false,
+          originalStoreTouched:false,
+          evidence:"CURRENT_NHOST_REGISTRY_AND_COMPLETE_OFFLINE_SOURCE_INVENTORY"
+        };
+        case "cluster.multiHostCatalogApply":
+          if(!m.confirm||m.token!=="00000000-0000-4000-8000-000000009611")
+            throw new Error("UM-MULTIHOST-AUTOCATALOG-APPROVAL");
+          return {
+            created:true,batchId:"00000000-0000-4000-8000-000000009612",
+            hosts:2,clusters:1,maps:10,components:151,bytes:123456789,
+            catalogName:"multi-host-backup-catalog.json",offlineCopiesOnly:true,
+            originalStoreTouched:false,productionRestoreAllowed:false,
+            evidence:"EXISTING_MULTIHOST_ARCHIVE_V1_VALIDATED_CATALOG_CREATED"
+          };
         case "cluster.multiHostRestoreReplacePreview": return {
           token:"00000000-0000-4000-8000-000000009601",
           batchId:"00000000-0000-4000-8000-000000009602",
@@ -2131,6 +2151,31 @@ test("Store A-B-A six snapshots require both return hosts and never unlock produ
   await expect(panel).toContainText("Eredeti profil SHA: nem igazolt");
   await expect(panel).toContainText("nem oldja fel");
   await expect(panel).not.toContainText("Éles restore engedélyezve");
+});
+
+test("N-host offline full Store/transfer catalog requires user consent and retains all ten map classes",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await panel.getByRole("button",{
+    name:"Teljes offline Store/transfer katalógus összeállítása"
+  }).click();
+  const approval=panel.getByRole("region",{
+    name:"Teljes offline Store/transfer katalógus jóváhagyása"
+  });
+  await expect(approval).toContainText("2 host, 1 cluster");
+  await expect(approval).toContainText("10 map");
+  await expect(approval).toContainText("151 fájl");
+  await expect(approval).toContainText("Transfer fájlok:");
+  await expect(approval).toContainText("inventory-, tribute- és dinoadatokat");
+  const commit=approval.getByRole("button",{name:"Ellenőrzött katalógus létrehozása"});
+  await expect(commit).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await expect(commit).toBeEnabled();
+  await commit.click();
+  await expect(panel).toContainText("Teljes offline katalógus elkészült.");
+  await expect(panel).toContainText("Az éles visszaállítást ez még nem engedélyezi");
 });
 
 test("N-host TEMP restore displays a competing Manager lease denial without false partial writes",async({page})=>{
