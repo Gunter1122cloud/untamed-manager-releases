@@ -443,7 +443,8 @@ public sealed class ObsidianWindow : Form
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
                             "backup.create" or "backup.restorePreview" or "backup.restore" or
                             "backup.scheduleStatus" or "backup.scheduleCreate" or
-                            "backup.scheduleDisable";
+                            "backup.scheduleDisable" or "backup.originalBatchPreview" or
+                            "backup.originalBatchCreate";
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";
