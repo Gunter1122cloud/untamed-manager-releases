@@ -143,6 +143,15 @@ internal static class FreshStoreEnrollmentTests
                   !enrolled.AutoStart&&
                   UntamedWorldBackup.HasLiveOrHistoricalStore(enrolled),
                 "new Store is durable and distinct from Kova archive, conversion and autostart");
+            Check(enrolled.FreshStoreTransferFileId.Length==64,
+                "new Store enrollment durably pins the actual Windows transfer directory file ID");
+            var aliasSwap=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(enrolled))!;
+            aliasSwap.FreshStoreTransferFileId=new string('F',64);
+            manager.ReplaceMap(enrolled,aliasSwap);
+            Reject(()=>FreshStoreEnrollmentPolicy.DemandEnrolled(manager,aliasSwap),
+                "changed physical transfer-directory fingerprint blocks Store process authorization");
+            manager.ReplaceMap(aliasSwap,enrolled);
             Check(manager.Check(enrolled).ConfirmedStopped&&
                   !manager.Check(enrolled).Running,
                 "new Store map uses local native process observation, not historical Kova guard");
