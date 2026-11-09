@@ -94,6 +94,16 @@ internal static class FreshStoreEnrollmentTests
                 "new-local-cluster",new[]{mapId});
             manager.Registry.ApplyMapAssignments(
                 "new-local-cluster",new[]{mapId},pending.BaseRevision);
+            var missingRcon=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(map))!;
+            missingRcon.RconPasswordProtected="";
+            manager.ReplaceMap(map,missingRcon);
+            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(
+                manager,missingRcon,"new-local-cluster"),
+                "RCON/INI must be configured before new Store enrollment, never repaired after a first Start");
+            manager.ReplaceMap(missingRcon,map);
+            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,map,"KovaCluster"),
+                "new Store map cannot enroll directly into protected historical KovaCluster");
             var plan=FreshStoreEnrollmentPolicy.Prepare(manager,map,"new-local-cluster");
             Check(plan.Arguments.Contains(" -usestore",StringComparison.Ordinal)&&
                   plan.Arguments.CountAt("-usestore")==1&&
