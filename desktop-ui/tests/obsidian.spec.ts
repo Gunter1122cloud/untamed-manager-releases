@@ -838,6 +838,31 @@ test.beforeEach(async ({ page }) => {
           productionUseAllowed:false,
           evidence:"PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION"
         };
+        case "historical.originalList": return {
+          sourceVerified:true,originalFourFilesUnchanged:true,
+          evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
+          maps:[{mapId:"00000000-0000-4000-8000-000000009001",
+            mapKey:"TheIsland_WP",name:"The Island",
+            folderName:"OriginalIsland",registered:false}]
+        };
+        case "historical.originalPreview": return {
+          token:"00000000-0000-4000-8000-000000009002",
+          mapId:m.mapId,mapName:"The Island",folderName:"OriginalIsland",
+          gamePort:m.gamePort,queryPort:m.queryPort,
+          originalIdsPreserved:true,originalFilesWritten:false,
+          serverStarted:false,requiresOriginalRconAttach:true,
+          evidence:"ORIGINAL_KOVA_DIRECT_IMPORT_PREVIEW"
+        };
+        case "historical.originalRegister":
+          state.local.maps.push({
+            id:"00000000-0000-4000-8000-000000009001",
+            name:"The Island",running:false,status:"Védett Store-v1",
+            gamePort:7777,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
+          return {mapId:"00000000-0000-4000-8000-000000009001",
+            mapName:"The Island",registered:true,originalIdsPreserved:true,
+            originalFilesWritten:false,serverStarted:false,
+            requiresOriginalRconAttach:true,requiresExactModOrderVerification:true,
+            evidence:"ORIGINAL_KOVA_DIRECT_LOCAL_MAP_REGISTERED"};
         case "historical.list": return {
           sourceVerified:true,completeLaunchArguments:false,liveStoreVerified:false,
           allowServerStart:false,evidence:"HISTORICAL_LOCAL_ARCHIVE_READ_ONLY",
@@ -3211,6 +3236,36 @@ test("verified historical archive and original local four Store files show byte 
   await expect(panel.getByText("BÁJT-PONTOSAN EGYEZIK")).toHaveCount(0);
 });
 
+test("Store-v1 direct original local Kova map registration is operator-approved and preserves identity",async ({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const section=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await section.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"})).toBeVisible();
+  await section.getByRole("combobox",{name:"Közvetlen Kova-map"})
+    .selectOption("00000000-0000-4000-8000-000000009001");
+  await section.getByRole("spinbutton",{name:"Közvetlen Game port"}).fill("7777");
+  await section.getByRole("spinbutton",{name:"Közvetlen Query port"}).fill("7777");
+  await section.getByRole("button",{
+    name:"Eredeti map regisztrációjának előellenőrzése"
+  }).click();
+  await expect(section.getByRole("alert")).toContainText("két különböző");
+  await section.getByRole("spinbutton",{name:"Közvetlen Query port"}).fill("27015");
+  await section.getByRole("button",{
+    name:"Eredeti map regisztrációjának előellenőrzése"
+  }).click();
+  const confirm=section.getByRole("region",{name:"Közvetlen Kova-import jóváhagyása"});
+  await expect(confirm).toContainText("Megmarad");
+  await expect(confirm).toContainText("Változatlanok");
+  await expect(confirm.getByRole("button",{name:"Eredeti map hozzáadása"})).toBeDisabled();
+  await confirm.getByRole("checkbox").check();
+  await confirm.getByRole("button",{name:"Eredeti map hozzáadása"}).click();
+  await expect(section).toContainText("The Island felvéve az eredeti GUID-dal");
+  await expect(page.getByRole("row",{name:/The Island/})).toBeVisible();
+});
+
 test("Store-v1 historic import preserves map identity and never permits launch before real validation",async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
@@ -3223,11 +3278,11 @@ test("Store-v1 historic import preserves map identity and never permits launch b
   await page.getByRole("textbox",{name:"Korábbi ASA map mappája"}).fill("C:\\ASA\\TestExistingMap");
   await page.getByRole("button",{name:"Map és Store-adatok előellenőrzése"}).click();
   await expect(page.getByText(/Teljes launch argumentumok/)).toBeVisible();
-  await expect(page.getByText("TILTOTT")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"})).toBeDisabled();
+  await expect(page.getByText("Külön ellenőrzés és jóváhagyás")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Védett Store-v1 map regisztrálása"})).toBeDisabled();
   await page.getByText(/Jóváhagyom a kizárólag Manager-profilba történő, zárolt regisztrációt/).click();
-  await page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"}).click();
-  await expect(page.getByText(/Store-v1 zárolt: a szerver nem indulhat/)).toBeVisible();
+  await page.getByRole("button",{name:"Védett Store-v1 map regisztrálása"}).click();
+  await expect(page.getByText(/A map saját vezérlőiben RCON-átvétel és natív Start-előellenőrzés után indítható/)).toBeVisible();
   await expect(page.getByRole("row",{name:/Scorched Earth/})).toBeVisible();
   await page.screenshot({path:"test-results/store-v1-locked-import-1600.png",fullPage:true});
 });
@@ -3273,10 +3328,10 @@ test("Store-v1 ignores stale preview replies after the ASA root changes",async (
   await page.getByRole("textbox",{name:"Korábbi ASA map mappája"}).fill("C:\\ASA\\Changed");
   await page.evaluate(()=>{(window as unknown as {releasePreview:()=>void}).releasePreview();});
   await expect(page.getByText("Teljes launch argumentumok")).toHaveCount(0);
-  await expect(page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Védett Store-v1 map regisztrálása"})).toHaveCount(0);
   await page.getByRole("button",{name:"Map és Store-adatok előellenőrzése"}).click();
   await expect(page.getByText("Teljes launch argumentumok")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Védett Store-v1 map regisztrálása"})).toBeDisabled();
 });
 
 test("Store-v1 registration locks source inputs until native receipt",async ({page})=>{
@@ -3301,12 +3356,12 @@ test("Store-v1 registration locks source inputs until native receipt",async ({pa
     host.releaseRegistration=()=>{if(delayed){const message=delayed;delayed=undefined;original(message);}};
   });
   await page.getByText(/Jóváhagyom a kizárólag Manager-profilba történő, zárolt regisztrációt/).click();
-  await page.getByRole("button",{name:"Zárolt Store-v1 map regisztrálása"}).click();
+  await page.getByRole("button",{name:"Védett Store-v1 map regisztrálása"}).click();
   await expect(page.getByRole("textbox",{name:"Korábbi Manager archívum"})).toBeDisabled();
   await expect(page.getByRole("textbox",{name:"Korábbi ASA map mappája"})).toBeDisabled();
   await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeDisabled();
   await page.evaluate(()=>{(window as unknown as {releaseRegistration:()=>void}).releaseRegistration();});
-  await expect(page.getByText(/Store-v1 zárolt: a szerver nem indulhat/)).toBeVisible();
+  await expect(page.getByText(/A map saját vezérlőiben RCON-átvétel és natív Start-előellenőrzés után indítható/)).toBeVisible();
   await expect(page.getByRole("textbox",{name:"Korábbi Manager archívum"})).toBeEnabled();
 });
 
