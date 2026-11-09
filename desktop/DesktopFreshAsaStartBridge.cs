@@ -116,9 +116,15 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                         return Error(id,"UM-FRESH-MAP");
                     var map=Owned(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
-                       !AsaReadyProbe.IsRegisteredServerBinary(map)||
-                       map.Maintenance)
+                    if(map.HistoricalStoreProtected||map.Maintenance||
+                       !AsaReadyProbe.IsRegisteredServerBinary(map))
+                        return Error(id,"UM-FRESH-READINESS-PROTECTED");
+                    if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
+                    {
+                        try{FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);}
+                        catch(Exception){return Error(id,"UM-FRESH-STORE-READINESS-PROTECTED");}
+                    }
+                    else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map))
                         return Error(id,"UM-FRESH-READINESS-PROTECTED");
                     var runtime=cluster.Check(map);
                     if(!runtime.Running||runtime.ConfirmedStopped ||
