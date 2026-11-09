@@ -155,6 +155,8 @@ public sealed class DesktopStoreTravelEvidenceBridge
                string.IsNullOrWhiteSpace(m.Name)||m.Files==null||
                m.Files.Length>1500||m.WorldBytes<0||
                (m.StoreMode&&m.WorldPresent!=(m.WorldBytes>0))||
+               m.Files.Where(p=>p!=null).GroupBy(p=>p.Kind+"|"+p.Id,
+                   StringComparer.Ordinal).Any(g=>g.Count()>1)||
                m.Files.Any(p=>p is null||p.Bytes<0||
                    p.Kind is not ("profile" or "tribe")||
                    p.Id is null||p.Sha256 is null||
@@ -290,8 +292,14 @@ public sealed class DesktopStoreTravelEvidenceBridge
         var original=Tracked(initialA,initialB,from,profileId);
         var intermediate=Tracked(middleHp,middleRyzen,to,profileId);
         var final=Tracked(finalA,finalB,from,profileId);
+        static int TotalCopies(Capture hp,Capture ryzen,string id)=>
+            hp.Maps.Concat(ryzen.Maps).Sum(m=>m.Files.Count(
+                f=>f.Kind=="profile"&&f.Id==id));
         bool uniqueAtAllStages=!store&&original.Length==1&&
             intermediate.Length==1&&final.Length==1&&
+            TotalCopies(initialA,initialB,profileId)==1&&
+            TotalCopies(middleHp,middleRyzen,profileId)==1&&
+            TotalCopies(finalA,finalB,profileId)==1&&
             original[0].Bytes>0&&intermediate[0].Bytes>0&&final[0].Bytes>0;
         bool exactOriginalProfileBytes=uniqueAtAllStages&&
             original[0].Bytes==final[0].Bytes&&
