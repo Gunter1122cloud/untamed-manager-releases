@@ -558,6 +558,20 @@ export type WorldBackupPreview={
   action:"BACKUP"|"RESTORE";
   evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT";
 };
+export type OriginalFiveMapBackupPreview={
+  token:string;localMaps:5;worldBytes:number;mapNames:string[];
+  originalSourcePinned:true;allMapsConfirmedStopped:true;
+  requiresOperatorConfirmation:true;originalKovaFilesWritten:false;
+  serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
+  evidence:"EXISTING_SHA256_WORLD_ENGINE_ORIGINAL_FIVE_MAP_PREFLIGHT";
+};
+export type OriginalFiveMapBackupReceipt={
+  localMaps:5;
+  points:{mapId:string;mapName:string;point:string;files:number;bytes:number}[];
+  totalBytes:number;allFiveVerified:true;originalKovaFilesWritten:false;
+  serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
+  evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM";
+};
 export type WorldBackupCreated={
   mapId:string;mapName:string;point:string;createdUtc:string;
   files:number;bytes:number;characters:number;tribes:number;
@@ -1250,6 +1264,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "api.coreRollbackCandidates" | "api.coreRollbackPreview" | "api.coreRollbackApply" |
   "updates.status" | "updates.check" | "updates.prepare" | "updates.install" | "rcon.configStatus" | "rcon.configPreview" | "rcon.configApply" | "rcon.status" | "rcon.listPlayers" | "rcon.gameLog" | "rcon.chatLog" | "rcon.saveWorld" | "rcon.saveStatus" | "rcon.adminPreview" | "rcon.adminSend" |
   "backup.history" | "backup.preview" | "backup.create" |
+  "backup.originalBatchPreview" | "backup.originalBatchCreate" |
   "backup.restorePreview" | "backup.restore" |
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
   "cluster.registry.snapshot" | "cluster.host.register" | "cluster.map.register" |
@@ -1304,7 +1319,8 @@ function timeoutFor(method: WireRequest["method"]): number {
   if (method === "store.inspectArchive" || method === "store.compareArchives" ||
       method === "store.inspectCopy" || method === "historical.localParity" ||
       method === "historical.pairedEvidence" || method === "backup.create" ||
-      method === "backup.restore") return 60 * 60_000; // bounded large-file workflows
+      method === "backup.restore" ||
+      method === "backup.originalBatchCreate") return 60 * 60_000; // bounded large-file workflows
   return 120_000;
 }
 
@@ -1495,6 +1511,12 @@ export const managerBridge = {
     request<WorldBackupPreview>("backup.preview",{mapId}),
   backupCreate: (token:string) =>
     request<WorldBackupCreated>("backup.create",{token,confirm:true}),
+  backupOriginalFivePreview: () =>
+    request<OriginalFiveMapBackupPreview>("backup.originalBatchPreview"),
+  backupOriginalFiveCreate: (token:string) =>
+    request<OriginalFiveMapBackupReceipt>("backup.originalBatchCreate",{
+      token,confirm:true
+    }),
   backupRestorePreview: (mapId:string,point:string) =>
     request<WorldBackupPreview>("backup.restorePreview",{mapId,point}),
   backupRestore: (token:string,mapName:string) =>
