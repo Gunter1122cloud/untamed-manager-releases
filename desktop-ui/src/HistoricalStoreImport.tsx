@@ -1,7 +1,8 @@
 import { useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
-  type OriginalKovaLocalMapList, type OriginalKovaImportPreview } from "./bridge";
+  type OriginalKovaLocalMapList, type OriginalKovaImportPreview,
+  type OriginalKovaBatchPreview } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -10,6 +11,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [directGamePort,setDirectGamePort]=useState("");
   const [directQueryPort,setDirectQueryPort]=useState("");
   const [directPreview,setDirectPreview]=useState<OriginalKovaImportPreview|null>(null);
+  const [batchPreview,setBatchPreview]=useState<OriginalKovaBatchPreview|null>(null);
+  const [batchApproved,setBatchApproved]=useState(false);
   const [directApproved,setDirectApproved]=useState(false);
   const [directBusy,setDirectBusy]=useState(false);
   const [directError,setDirectError]=useState("");
@@ -101,6 +104,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     const epoch=++directEpoch.current;
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setDirectList(null);setDirectPreview(null);setDirectApproved(false);
+    setBatchPreview(null);setBatchApproved(false);
     try{
       const result=await managerBridge.historicalOriginalList();
       if(epoch!==directEpoch.current)return;
@@ -127,6 +131,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     const epoch=++directEpoch.current;
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setDirectPreview(null);setDirectApproved(false);
+    setBatchPreview(null);setBatchApproved(false);
     try{
       const result=await managerBridge.historicalOriginalPreview(directMapId,game,query);
       if(epoch===directEpoch.current)setDirectPreview(result);
@@ -157,6 +162,46 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       if(epoch===directEpoch.current)setDirectError(
         "A közvetlen Kova-import nem fejeződött be ("+
         (e instanceof Error?e.message:"natív ellenőrzés")+"). Az eredeti Kova fájlok változatlanok.");
+    }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
+  };
+
+  const previewBatch=async()=>{
+    if(directBusy||registering||!directList||
+       !directList.maps.some(m=>!m.registered))return;
+    const epoch=++directEpoch.current;
+    setDirectBusy(true);setDirectError("");setDirectNotice("");
+    setDirectPreview(null);setDirectApproved(false);
+    setBatchPreview(null);setBatchApproved(false);
+    try{
+      const result=await managerBridge.historicalOriginalBatchPreview();
+      if(epoch===directEpoch.current)setBatchPreview(result);
+    }catch(e){
+      if(epoch===directEpoch.current)setDirectError(
+        "A teljes helyi Store-import előellenőrzése nem sikerült ("+
+        (e instanceof Error?e.message:"forrás vagy folyamatállapot")+").");
+    }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
+  };
+  const confirmBatch=async()=>{
+    if(directBusy||registering||!batchApproved||!batchPreview)return;
+    const token=batchPreview.token,epoch=++directEpoch.current;
+    setDirectBusy(true);setDirectError("");setDirectNotice("");
+    setBatchPreview(null);setBatchApproved(false);
+    try{
+      const receipt=await managerBridge.historicalOriginalBatchRegister(token);
+      if(epoch!==directEpoch.current)return;
+      setDirectNotice(receipt.importedMaps+
+        " eredeti map atomikusan felvéve. A korábbi Kova-adatok érintetlenek. "+
+        "RCON-csatlakoztatás és külön natív indítás-jóváhagyás szükséges.");
+      setDirectList(prev=>prev?{...prev,
+        maps:prev.maps.map(m=>receipt.mapIds.includes(m.mapId)?
+          {...m,registered:true}:m)}:prev);
+      setDirectMapId("");
+      try{await onImported();}
+      catch{setDirectError("A mapok regisztrálva vannak, de a nézet frissítése sikertelen.");}
+    }catch(e){
+      if(epoch===directEpoch.current)setDirectError(
+        "A kötegelt import nem került teljesen rögzítésre ("+
+        (e instanceof Error?e.message:"natív hiba")+"). Ellenőrizd a mapregisztert.");
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
 
@@ -239,6 +284,37 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <Archive size={16}/>{directBusy?"Eredeti mapok ellenőrzése...":
             "Öt eredeti Kova-map felismerése"}
         </button>
+        {directList&&directList.maps.some(m=>!m.registered)&&
+          <div className="settings-actions">
+            <button type="button" className="primary"
+              disabled={directBusy||registering}
+              onClick={()=>{void previewBatch();}}>
+              <Archive size={16}/> Összes hiányzó helyi map átvétele egy lépésben
+            </button>
+          </div>}
+        {batchPreview&&<div className="historical-preview" role="region"
+          aria-label="Összes eredeti Kova-map importálásának jóváhagyása">
+          <h4>{batchPreview.localMaps} eredeti map egyetlen regisztrációval</h4>
+          <p>{batchPreview.mapNames.join(", ")}</p>
+          <p className="muted small">A natív Manager valamennyi mapot,
+            telepítést, eredeti mod-sorrendet és leállított folyamatot ellenőrizte.
+            Egyetlen ConfigStore-mentést végez. Az eredeti ASA, Kova és
+            Store-session adatok nem módosulnak, szerver nem indul.</p>
+          <label className="historical-approval">
+            <input type="checkbox" checked={batchApproved}
+              disabled={directBusy} onChange={e=>setBatchApproved(e.target.checked)}/>
+            Jóváhagyom az összes felsorolt eredeti map együttes,
+            GUID-megőrző regisztrációját.
+          </label>
+          <div className="settings-actions">
+            <button type="button" className="primary"
+              disabled={!batchApproved||directBusy} onClick={()=>{void confirmBatch();}}>
+              <Archive size={16}/> {batchPreview.localMaps} map hozzáadása
+            </button>
+            <button type="button" className="secondary" disabled={directBusy}
+              onClick={()=>{setBatchPreview(null);setBatchApproved(false);}}>Mégsem</button>
+          </div>
+        </div>}
         {directList&&<form className="historical-import-form"
           onSubmit={e=>{void previewOriginalMap(e);}}>
           <label>Átveendő helyi map
