@@ -1544,9 +1544,11 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     let active=true;
     setLifecycle(null);setRestartJournal(null);
     setJournalsVerifiedFor("");setJournalReadError(false);
+    const currentMap=snapshot.local.maps.find(m=>m.id===mapId);
+    const originalStore=!!currentMap?.storeProtected&&!currentMap?.freshStoreEnrolled;
     Promise.all([
       managerBridge.asaLifecycleJournal(mapId),
-      managerBridge.freshAsaRestartCurrent(mapId)
+      originalStore?Promise.resolve(null):managerBridge.freshAsaRestartCurrent(mapId)
     ]).then(([lifecycleState,restartState])=>{
       if(!active)return;
       setLifecycle(lifecycleState);
