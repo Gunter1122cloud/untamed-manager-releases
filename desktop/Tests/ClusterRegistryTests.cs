@@ -62,6 +62,35 @@ internal static class ClusterRegistryTests
               initial.HostRegistry.Maps.Count==10 &&
               initial.HostRegistry.Hosts.Count==2,
             "original 5+5 host/map IDs have a single immutable historical cluster");
+        var beforeProtectedEdit=service.Registry.Snapshot();
+        bool pathRebindDenied=false;
+        try
+        {
+            service.Registry.UpdateCluster(kova.ClusterId,kova.Name,
+                Path.Combine(root,"unverified-replacement-transfer"));
+        }
+        catch(UnauthorizedAccessException){pathRebindDenied=true;}
+        Check(pathRebindDenied,
+            "native registry refuses changing original Kova transfer directory");
+        bool nameEditDenied=false;
+        try
+        {
+            service.Registry.UpdateCluster(kova.ClusterId,"Renamed Historical Cluster",
+                kova.TransferDirectory);
+        }
+        catch(UnauthorizedAccessException){nameEditDenied=true;}
+        Check(nameEditDenied,
+            "generic cluster editor cannot rename original Store-v1 cluster");
+        var unchangedOriginal=service.Registry.Snapshot();
+        Check(unchangedOriginal.Revision==beforeProtectedEdit.Revision &&
+              unchangedOriginal.ClusterRegistry.Clusters.Single(x=>
+                x.ClusterId==kova.ClusterId).TransferDirectory==kova.TransferDirectory,
+            "rejected original cluster metadata changes preserve revision and transfer path");
+        var independentChange=service.Registry.UpdateCluster(lab.ClusterId,
+            "Synthetic Other Cluster Updated",lab.TransferDirectory);
+        Check(independentChange.Name=="Synthetic Other Cluster Updated",
+            "ordinary independent non-Store cluster metadata remains editable");
+
         string sentinel=Path.Combine(root,"untouched-original-store.bin");
         byte[] bytes={0,255,13,0,5,11,99,128};
         File.WriteAllBytes(sentinel,bytes);
