@@ -55,7 +55,7 @@ internal static class FreshStoreEnrollmentTests
         string root=Path.Combine(testRoot,"new-store-empty-synthetic");
         string installation=Path.Combine(root,"fresh-asa");
         string binary=Path.Combine(installation,"ShooterGame","Binaries","Win64");
-        string transfer=Path.Combine(root,"synthetic-transfer");
+        string transfer=Path.Combine(root,"synthetic transfer with spaces");
         Directory.CreateDirectory(binary);
         Directory.CreateDirectory(transfer);
         File.WriteAllBytes(Path.Combine(binary,"ArkAscendedServer.exe"),new byte[]{77,90,7,8});
@@ -109,6 +109,8 @@ internal static class FreshStoreEnrollmentTests
                   plan.Arguments.CountAt("-usestore")==1&&
                   !plan.Arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase)&&
                   plan.Arguments.Contains("-clusterid=new-local-cluster")&&
+                  plan.Arguments.Contains("-ClusterDirOverride=\""+transfer+"\"",
+                      StringComparison.Ordinal)&&
                   plan.InstalledBuild=="980812"&&plan.RegistryRevision>0,
                 "new empty Store launch uses existing cluster metadata, exactly one -usestore, zero conversion");
             string untouched=map.Arguments;
