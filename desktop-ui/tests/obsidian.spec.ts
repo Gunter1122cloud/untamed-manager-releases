@@ -382,6 +382,37 @@ test.beforeEach(async ({ page }) => {
           storeWriterCertified:false,sqlUsed:false,rconUsed:false,
           serverProcessTouched:false,evidence:"OFFLINE_MULTI_HOST_COPY_SHA256_VERIFIED"
         };
+        case "cluster.multiHostHostStagePreview": return {
+          token:"00000000-0000-4000-8000-000000009631",
+          hostId:"laboratory-1",batchId:"00000000-0000-4000-8000-000000009632",
+          maps:5,clusters:1,components:61,bytes:123456789,
+          stageDirectoryName:"Untamed-HostRestore-laboratory-1-fixture",
+          requiresExplicitApproval:true,sourceSandboxVerified:true,
+          allSharedClusterFilesIncluded:true,
+          originalStoreTouched:false,productionRestoreAllowed:false,
+          remoteHostWritten:false,liveCutoverCertified:false,
+          evidence:"EXACT_LOCAL_HOST_AND_SHARED_CLUSTER_SANDBOX_SHA256_PREFLIGHT"
+        };
+        case "cluster.multiHostHostStageApply":
+          if(!m.confirm||m.typedApproval!=="HOST RESTORE TEST"||
+             m.token!=="00000000-0000-4000-8000-000000009631")
+            throw new Error("UM-HOSTRESTORE-TYPED-APPROVAL-REQUIRED");
+          return {jobId:"00000000-0000-4000-8000-000000009633",
+            started:true,hostId:"laboratory-1",originalStoreTouched:false,
+            remoteHostWritten:false,productionRestoreAllowed:false,
+            evidence:"APPROVED_LOCAL_HOST_OFFLINE_RESTORE_STAGE_STARTED"
+          };
+        case "cluster.multiHostHostStageStatus": return {
+          jobId:m.jobId,kind:"hoststage",state:"completed",
+          stage:"LOCAL_HOST_STAGE_SHA256_VERIFIED",
+          artifactName:"Untamed-HostRestore-laboratory-1-fixture",
+          rollbackArtifactName:"",hosts:1,clusters:1,maps:5,components:61,
+          bytes:123456789,changedUtc:"2026-11-09T20:00:00Z",
+          productionRestoreAllowed:false,liveConsistencyCertified:false,
+          storeWriterCertified:false,sqlUsed:false,rconUsed:false,
+          serverProcessTouched:false,
+          evidence:"LOCAL_HOST_FULL_MAP_STORE_TRANSFER_STAGE_SHA256_VERIFIED_NO_LIVE_CUTOVER"
+        };
         case "cluster.multiHostCatalogPreview": return {
           token:"00000000-0000-4000-8000-000000009611",
           hosts:2,clusters:1,maps:10,components:151,bytes:123456789,
@@ -2278,6 +2309,33 @@ test("interrupted N-host offline archive recovery requires consent and retains o
   await expect(panel).toContainText("Megőrzött félbeszakadt archívum");
   await expect(panel).toContainText("151 fájl SHA-256 ellenőrizve");
   await expect(panel).not.toContainText("Éles restore engedélyezve");
+});
+
+test("complete local host restore staging uses typed approval and displays native SHA256 receipt",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await panel.getByRole("button",{
+    name:"Helyi host teljes restore állomány előkészítése"
+  }).click();
+  const approve=panel.getByRole("region",{
+    name:"Helyi host teljes restore állomány jóváhagyása"
+  });
+  await expect(approve).toContainText("5 saját map");
+  await expect(approve).toContainText("Store/transfer");
+  await expect(approve).toContainText("Nem történik éles restore");
+  const commit=approve.getByRole("button",{
+    name:"Ellenőrzött helyi restore állomány létrehozása"
+  });
+  await expect(commit).toBeDisabled();
+  await approve.getByRole("checkbox").check();
+  await approve.getByRole("textbox",{name:"Host restore jóváhagyó szövege"})
+    .fill("HOST RESTORE TEST");
+  await commit.click();
+  await expect(panel).toContainText("Helyi host restore állomány állapot: completed");
+  await expect(panel).toContainText("LOCAL_HOST_STAGE_SHA256_VERIFIED");
+  await expect(panel).toContainText("61 fájl SHA-256 ellenőrizve");
 });
 
 test("N-host TEMP restore displays a competing Manager lease denial without false partial writes",async({page})=>{

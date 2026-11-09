@@ -4,7 +4,7 @@ import {managerBridge,type MultiHostClusterBackupPreview,
   type MultiHostClusterRestorePreview,type MultiHostClusterBackupStatus,
   type MultiHostRestoreRecoveryListing,type MultiHostRestoreRecoveryPreview,
   type MultiHostCatalogPreview,type MultiHostCatalogCreated,
-  type MultiHostBackupRecoveryPreview} from "./bridge";
+  type MultiHostBackupRecoveryPreview,type MultiHostHostStagePreview} from "./bridge";
 
 export function MultiHostBackupPanel(){
   const [catalogPreview,setCatalogPreview]=useState<MultiHostCatalogPreview|null>(null);
@@ -12,6 +12,9 @@ export function MultiHostBackupPanel(){
   const [catalogApproved,setCatalogApproved]=useState(false);
   const [backupRecoveryPreview,setBackupRecoveryPreview]=useState<MultiHostBackupRecoveryPreview|null>(null);
   const [backupRecoveryApproved,setBackupRecoveryApproved]=useState(false);
+  const [hostStagePreview,setHostStagePreview]=useState<MultiHostHostStagePreview|null>(null);
+  const [hostStageApproved,setHostStageApproved]=useState(false);
+  const [hostStagePhrase,setHostStagePhrase]=useState("");
   const [backupPreview,setBackupPreview]=useState<MultiHostClusterBackupPreview|null>(null);
   const [restorePreview,setRestorePreview]=useState<MultiHostClusterRestorePreview|null>(null);
   const [recoveryListing,setRecoveryListing]=useState<MultiHostRestoreRecoveryListing|null>(null);
@@ -19,7 +22,7 @@ export function MultiHostBackupPanel(){
   const [recoveryPreview,setRecoveryPreview]=useState<MultiHostRestoreRecoveryPreview|null>(null);
   const [approved,setApproved]=useState(false);
   const [jobId,setJobId]=useState("");
-  const [jobKind,setJobKind]=useState<"backup"|"restore"|"">("");
+  const [jobKind,setJobKind]=useState<"backup"|"restore"|"hoststage"|"">("");
   const [status,setStatus]=useState<MultiHostClusterBackupStatus|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -29,7 +32,9 @@ export function MultiHostBackupPanel(){
     if(!jobId||status?.state==="completed"||status?.state==="needsOperator")return;
     const poll=()=>{
       const read=jobKind==="restore"?
-        managerBridge.multiHostRestoreStatus(jobId):managerBridge.multiHostBackupStatus(jobId);
+        managerBridge.multiHostRestoreStatus(jobId):
+        jobKind==="hoststage"?managerBridge.multiHostHostStageStatus(jobId):
+        managerBridge.multiHostBackupStatus(jobId);
       void read.then(setStatus).catch(()=>setError("A művelet állapota nem olvasható; az archívumot ne használd ellenőrzés nélkül."));
     };
     poll();
@@ -37,6 +42,31 @@ export function MultiHostBackupPanel(){
     return ()=>window.clearInterval(timer);
   },[jobId,jobKind,status?.state]);
 
+  async function previewHostStage(){
+    if(busy||(jobId&&status?.state!=="completed"&&status?.state!=="needsOperator"))return;
+    setBusy(true);setError("");setNotice("");setHostStagePreview(null);
+    setHostStageApproved(false);setHostStagePhrase("");
+    try{setHostStagePreview(await managerBridge.multiHostHostStagePreview());}
+    catch(e){setError("A host restore staging nem engedélyezhető: "+
+      (e instanceof Error?e.message:"TEMP sandbox vagy tulajdonos nem igazolható"));}
+    finally{setBusy(false);}
+  }
+  async function applyHostStage(){
+    if(busy||!hostStagePreview||!hostStageApproved||hostStagePhrase!=="HOST RESTORE TEST")return;
+    const token=hostStagePreview.token;
+    setHostStagePreview(null);setHostStageApproved(false);setHostStagePhrase("");
+    setBusy(true);setError("");setNotice("");
+    try{
+      const result=await managerBridge.multiHostHostStageApply(token,"HOST RESTORE TEST");
+      if(!result.started||result.productionRestoreAllowed||
+         result.remoteHostWritten||result.originalStoreTouched)
+        throw new Error("UM-HOSTRESTORE-NATIVE-RECEIPT-MISMATCH");
+      setJobId(result.jobId);setJobKind("hoststage");setStatus(null);
+      setNotice("A meglévő SHA-256 TEMP restore-ból a helyi host összes map-, karakter-, tribe-, Store- és transferfájlja külön ellenőrzött tesztkönyvtárba kerül. Éles adathoz nincs írás.");
+    }catch(e){setError("A host staging indítása sikertelen: "+
+      (e instanceof Error?e.message:"natív művelet elutasítva"));}
+    finally{setBusy(false);}
+  }
   async function previewCatalog(){
     if(busy||jobId&&status?.state!=="completed"&&status?.state!=="needsOperator")return;
     setBusy(true);setError("");setNotice("");setCatalogApproved(false);
@@ -183,6 +213,9 @@ export function MultiHostBackupPanel(){
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void previewBackup();}}><FolderOpen size={16}/> Offline mentés előnézete</button>
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
+        onClick={()=>{void previewHostStage();}}><HardDriveDownload size={16}/>
+        Helyi host teljes restore állomány előkészítése</button>
+      <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
         onClick={()=>{void previewInterruptedBackup();}}><Shield size={16}/>
         Félbeszakadt offline archívum helyreállítása</button>
       <button type="button" className="secondary" disabled={busy||Boolean(jobId&&!finished)}
@@ -243,6 +276,36 @@ export function MultiHostBackupPanel(){
           onClick={()=>{setBackupRecoveryPreview(null);setBackupRecoveryApproved(false);}}>
           Mégsem
         </button>
+      </div>
+    </div>}
+    {hostStagePreview&&<div className="historical-preview" role="region"
+      aria-label="Helyi host teljes restore állomány jóváhagyása">
+      <h4>Hostonkénti restore csomag · {hostStagePreview.hostId}</h4>
+      <p>{hostStagePreview.maps} saját map · {hostStagePreview.clusters} cluster ·
+        {" "}{hostStagePreview.components} fájl ·
+        {" "}{(hostStagePreview.bytes/1073741824).toFixed(2)} GiB</p>
+      <p>A meglévő teljes N-host archívum igazolt TEMP restore fájljaiból készül
+        el a helyi host teljes map-, profil-, tribe-, inventory-, tribute-,
+        dino-, INI-, mod-, plugin- és Store/transfer tesztcsomagja.</p>
+      <p><b>Nem történik éles restore:</b> nincs ASA vagy Kova írás, nincs
+        távoli host-művelet, és nem kap jogot a Store writer újranyitására.</p>
+      <label><input type="checkbox" disabled={busy} checked={hostStageApproved}
+        onChange={e=>setHostStageApproved(e.target.checked)}/>
+        Jóváhagyom a kizárólag elkülönített helyi tesztcsomag létrehozását.</label>
+      <label>Írd be: HOST RESTORE TEST
+        <input aria-label="Host restore jóváhagyó szövege"
+          disabled={busy} value={hostStagePhrase}
+          onChange={e=>setHostStagePhrase(e.target.value)}/>
+      </label>
+      <div className="draft-actions">
+        <button type="button" className="primary" disabled={busy||
+          !hostStageApproved||hostStagePhrase!=="HOST RESTORE TEST"}
+          onClick={()=>{void applyHostStage();}}>
+          Ellenőrzött helyi restore állomány létrehozása
+        </button>
+        <button type="button" className="secondary" disabled={busy}
+          onClick={()=>{setHostStagePreview(null);setHostStageApproved(false);
+            setHostStagePhrase("");}}>Mégsem</button>
       </div>
     </div>}
     {backupPreview&&<div className="historical-preview" role="region" aria-label="Multi-host mentés jóváhagyása">
@@ -320,7 +383,7 @@ export function MultiHostBackupPanel(){
         onClick={()=>{setRecoveryPreview(null);setApproved(false);}}>Mégsem</button>
     </div>}
     {jobId&&<div className="uk-rcon-receipt" role="status">
-      <strong>{jobKind==="restore"?"TEMP restore":"Offline backup"} állapot: {status?.state||"ellenőrzés folyamatban"}</strong>
+      <strong>{jobKind==="restore"?"TEMP restore":jobKind==="hoststage"?"Helyi host restore állomány":"Offline backup"} állapot: {status?.state||"ellenőrzés folyamatban"}</strong>
       <p>{status?.stage||"NATÍV MŰVELET INDÍTÁSA"}</p>
       {status?.state==="completed"&&<p><CheckCircle2 size={16}/>
         {status.hosts} host, {status.maps} map, {status.clusters} cluster, {status.components} fájl SHA-256 ellenőrizve.
@@ -338,7 +401,9 @@ export function MultiHostBackupPanel(){
         <p><AlertTriangle size={16}/>
           A művelet nem fejeződött be ellenőrzötten. A részleges archívum vagy TEMP stage kézi felülvizsgálatot igényel; nincs automatikus újrapróbálás.</p>}
       {!finished&&<button className="secondary" type="button" disabled={busy}
-        onClick={()=>{const read=jobKind==="restore"?managerBridge.multiHostRestoreStatus(jobId):managerBridge.multiHostBackupStatus(jobId);
+        onClick={()=>{const read=jobKind==="restore"?managerBridge.multiHostRestoreStatus(jobId):
+          jobKind==="hoststage"?managerBridge.multiHostHostStageStatus(jobId):
+          managerBridge.multiHostBackupStatus(jobId);
           void read.then(setStatus).catch(()=>setError("A státusz nem elérhető."));}}>
         <RefreshCw size={15}/> Státusz frissítése</button>}
       {finished&&<button type="button" className="secondary" disabled={busy}

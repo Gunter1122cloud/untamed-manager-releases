@@ -144,6 +144,59 @@ internal static class MultiHostOfflineCatalogAssemblerTests
             Check(sandboxReport.SourceBatchId==verified.BatchId&&
                   sandboxReport.Maps.Length==10&&!sandboxReport.ProductionRestoreAllowed,
                 "ten-map restore is byte-verified and scoped to an isolated TEMP sandbox");
+            // Restore staging for each REAL host identity from the same
+            // verified existing TEMP restore: no alternate archive format.
+            // The common cluster transfer tree is included byte-for-byte in
+            // BOTH offline inspection bundles; it is NOT a new Store writer.
+            string[] stageRoots={Path.Combine(sandbox,"host-restore-stage-hp"),
+                Path.Combine(sandbox,"host-restore-stage-ryzen")};
+            // Unrelated extra hosts/maps/clusters are allowed in the CURRENT
+            // unlimited Registry. The archive remains a complete 2-host
+            // subset of that registry and every included ID must still match.
+            var expanded=new MultiHostBackupOwnershipSnapshot(ownership.LocalHostId,
+                ownership.Hosts.Concat(new[]{
+                    new MultiHostBackupHostOwnership("unrelated-third-host",
+                        "Independent Third Host",false,true)}).ToArray(),
+                ownership.Clusters.Concat(new[]{
+                    new MultiHostBackupClusterOwnership("unrelated-cluster",
+                        "Another legitimate cluster")}).ToArray(),
+                ownership.Maps.Concat(new[]{
+                    new MultiHostBackupMapOwnership(Guid.NewGuid(),
+                        "unrelated-third-host","Another ASA map","unrelated-cluster")
+                }).ToArray());
+            for(int side=0;side<2;side++)
+            {
+                Directory.CreateDirectory(stageRoots[side]);
+                var plan=MultiHostHostRestoreStaging.Inspect(destination,hosts[side],
+                    stageRoots[side],expanded);
+                Check(plan.Maps==5&&plan.Clusters==1&&plan.Components>20&&
+                      plan.IdentitySha256.Length==64,
+                    "full host Restore preflight binds exact 5-map owner and shared Store/transfer copy");
+                var receipt=MultiHostHostRestoreStaging.Stage(plan,expanded);
+                string hostStage=Path.Combine(stageRoots[side],plan.StageDirectoryName);
+                var validated=MultiHostHostRestoreStaging.Verify(hostStage);
+                Check(receipt.BatchId==catalog.BatchId&&
+                      validated.Components.Length==plan.Components&&
+                      !validated.ProductionRestoreAllowed,
+                    "per-host complete staging verifies all SHA-256 payloads without live cutover");
+                string transferStage=Path.Combine(hostStage,"data","clusters",cluster,
+                    "TransferFiles",hosts[0],"tribute.bin");
+                Check(File.ReadAllBytes(transferStage).SequenceEqual(
+                    File.ReadAllBytes(transfer)),
+                    "host-specific bundle includes original shared tribute transfer bytes");
+                bool refusedOverwrite=false;
+                try{MultiHostHostRestoreStaging.Inspect(destination,hosts[side],
+                    stageRoots[side],expanded);}
+                catch(IOException){refusedOverwrite=true;}
+                Check(refusedOverwrite,"existing host stage cannot be overwritten or silently reimported");
+                var stagedMap=mapRecords.First(m=>m.HostId==hosts[side]);
+                string stageWorld=Path.Combine(hostStage,"data","hosts",hosts[side],
+                    "maps",stagedMap.MapId.ToString("N"),"Saved","world.ark");
+                Check(File.ReadAllBytes(stageWorld).SequenceEqual(
+                    sourceHashes["maps/"+stagedMap.MapId.ToString("N")+"/Saved/world.ark"]),
+                    "real host world bytes preserve original identity and restore mapping");
+            }
+
             foreach(var kv in sourceHashes)
             {
                 string[] parts=kv.Key.Split('/');

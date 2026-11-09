@@ -1175,6 +1175,21 @@ export type MultiHostBackupRecoveryStarted = {
   productionRestoreAllowed:false;rconUsed:false;serverProcessTouched:false;
   evidence:"OPERATOR_APPROVED_EXISTING_MULTIHOST_ARCHIVE_REBUILD";
 };
+export type MultiHostHostStagePreview = {
+  token:string;hostId:string;batchId:string;maps:number;
+  clusters:number;components:number;bytes:number;stageDirectoryName:string;
+  requiresExplicitApproval:true;sourceSandboxVerified:true;
+  allSharedClusterFilesIncluded:true;originalStoreTouched:false;
+  productionRestoreAllowed:false;remoteHostWritten:false;
+  liveCutoverCertified:false;
+  evidence:"EXACT_LOCAL_HOST_AND_SHARED_CLUSTER_SANDBOX_SHA256_PREFLIGHT";
+};
+export type MultiHostHostStageStarted = {
+  jobId:string;started:true;hostId:string;
+  originalStoreTouched:false;remoteHostWritten:false;
+  productionRestoreAllowed:false;
+  evidence:"APPROVED_LOCAL_HOST_OFFLINE_RESTORE_STAGE_STARTED";
+};
 export type MultiHostCatalogPreview = {
   token:string;hosts:number;clusters:number;maps:number;
   components:number;bytes:number;copiedTransferIncluded:boolean;
@@ -1204,7 +1219,7 @@ export type MultiHostClusterBackupStarted = {
   rconUsed:false;serverProcessTouched:false;evidence:string;
 };
 export type MultiHostClusterBackupStatus = {
-  jobId:string;kind:"backup"|"restore";
+  jobId:string;kind:"backup"|"restore"|"hoststage";
   state:"queued"|"running"|"completed"|"needsOperator";
   stage:string;artifactName:string;rollbackArtifactName:string;hosts:number;clusters:number;maps:number;
   components:number;bytes:number;changedUtc:string;
@@ -1305,6 +1320,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "mods.copyPreview" | "mods.copyApply" |
   "mods.profileExport" | "mods.profileImportPreview" | "mods.profileImportApply" |
   "cluster.offlinePreview" | "cluster.offlineApply" | "cluster.offlineStatus" |
+  "cluster.multiHostHostStagePreview" | "cluster.multiHostHostStageApply" |
+  "cluster.multiHostHostStageStatus" |
   "cluster.multiHostBackupRecoveryPreview" | "cluster.multiHostBackupRecoveryApply" |
   "cluster.multiHostCatalogPreview" | "cluster.multiHostCatalogApply" |
   "cluster.multiHostBackupPreview" | "cluster.multiHostBackupApply" | "cluster.multiHostBackupStatus" |
@@ -1646,6 +1663,14 @@ export const managerBridge = {
     request<OfflineAsaArchiveStarted>("cluster.offlineApply",{token,confirm:true}),
   offlineArchiveStatus: (jobId:string) =>
     request<OfflineAsaArchiveStatus>("cluster.offlineStatus",{jobId}),
+  multiHostHostStagePreview: () =>
+    request<MultiHostHostStagePreview>("cluster.multiHostHostStagePreview"),
+  multiHostHostStageApply: (token:string,typedApproval:string) =>
+    request<MultiHostHostStageStarted>("cluster.multiHostHostStageApply",{
+      token,confirm:true,typedApproval
+    }),
+  multiHostHostStageStatus: (jobId:string) =>
+    request<MultiHostClusterBackupStatus>("cluster.multiHostHostStageStatus",{jobId}),
   multiHostBackupRecoveryPreview: () =>
     request<MultiHostBackupRecoveryPreview>("cluster.multiHostBackupRecoveryPreview"),
   multiHostBackupRecoveryApply: (token:string) =>
