@@ -1964,11 +1964,30 @@ try
                 return new SteamStoppedMapUpdater.Receipt(m.Id,m.InstallationPath,
                     "123456","123457","fake-backup",
                     DateTimeOffset.UtcNow,true);
-            });
+            },
+            (map,_)=>Task.FromResult(AsaSteamBuildCatalog.Compare(
+                map.InstallationPath,"public","123456","123457",DateTimeOffset.UtcNow)));
         var unknown=await Call(updater.HandleAsync,"steam.stoppedPreview",
             new{mapId=Guid.NewGuid()});
         Check(IsError(unknown,"UM-MAP-NOT-OWNED"),
             "remote or unknown map cannot schedule local SteamCMD update");
+        var publishedDenied=await Call(updater.HandleAsync,"steam.publishedBuild",
+            new{mapId=Guid.NewGuid()});
+        Check(IsError(publishedDenied,"UM-MAP-NOT-OWNED"),
+            "unknown or remote map cannot query native Steam metadata");
+        var published=await Call(updater.HandleAsync,"steam.publishedBuild",
+            new{mapId=target.Id});
+        IsOk(published,"read-only published ASA Steam build check uses native Core comparison");
+        var buildInfo=published.GetProperty("data");
+        Check(buildInfo.GetProperty("installedBuild").GetString()=="123456" &&
+              buildInfo.GetProperty("availableBuild").GetString()=="123457" &&
+              buildInfo.GetProperty("updateAvailable").GetBoolean() &&
+              !buildInfo.GetProperty("downloadStarted").GetBoolean() &&
+              !buildInfo.GetProperty("serverStopped").GetBoolean() &&
+              !buildInfo.GetProperty("storeWriterTouched").GetBoolean()&&
+              executions==0&&
+              original.SequenceEqual(File.ReadAllBytes(target.ExecutablePath)),
+            "published appinfo check never executes the updater or modifies ASA files");
         var proposed=await Call(updater.HandleAsync,"steam.stoppedPreview",
             new{mapId=target.Id});
         IsOk(proposed,"stopped-map SteamCMD update preflight is functional");
