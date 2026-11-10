@@ -3254,16 +3254,72 @@ test("P0 live original five-map Store takeover is explicit, single-use and prese
   await expect(proof).toContainText("ACTIVE/DONE");
   await expect(proof).toContainText("ASA API Loader");
   const apply=proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"});
+  const confirmation=proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  });
+  const blockReason=proof.locator("#store-live-approval-reason");
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toBeEditable();
+  await confirmation.scrollIntoViewIfNeeded();
+  const fieldAppearance=await confirmation.evaluate(el=>{
+    const box=el.getBoundingClientRect(),styles=getComputedStyle(el);
+    return {width:box.width,height:box.height,display:styles.display,
+      visibility:styles.visibility,opacity:Number(styles.opacity),
+      foreground:styles.color,background:styles.backgroundColor};
+  });
+  expect(fieldAppearance.width).toBeGreaterThan(200);
+  expect(fieldAppearance.height).toBeGreaterThanOrEqual(42);
+  expect(fieldAppearance.display).not.toBe("none");
+  expect(fieldAppearance.visibility).toBe("visible");
+  expect(fieldAppearance.opacity).toBe(1);
+  expect(fieldAppearance.foreground).not.toBe(fieldAppearance.background);
   await expect(apply).toBeDisabled();
+  await expect(blockReason).toContainText("Hiányzik a Kova-felügyelet");
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeDisabled();
-  await proof.getByRole("textbox",{
-    name:"Store-v1 futó átvétel megerősítése"
-  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await expect(blockReason).toContainText("Írd be a pontos");
+  await confirmation.fill("HIBÁS MEGERŐSÍTÉS");
+  await expect(apply).toBeDisabled();
+  await confirmation.fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await expect(confirmation).toHaveValue("STORE-V1 FUTÓ ÁTVÉTEL");
+  await expect(blockReason).toContainText("Minden jóváhagyási feltétel teljesült");
   await expect(apply).toBeEnabled();
   await apply.click();
   await expect(proof).toHaveCount(0);
   await expect(panel).toContainText("nem módosult");
+});
+
+test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",async({page})=>{
+  await page.setViewportSize({width:940,height:620});
+  await page.goto("/");
+  await page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_ORIGINAL_LIVE_FIVE__?:()=>void}
+  ).__UNTAMED_ORIGINAL_LIVE_FIVE__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  await panel.getByRole("button",{
+    name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
+  }).click();
+  const proof=panel.getByRole("region",{
+    name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
+  });
+  const input=proof.getByTestId("store-live-approval-input");
+  const apply=proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"});
+  await input.scrollIntoViewIfNeeded();
+  await expect(input).toBeVisible();
+  const dimensions=await input.boundingBox();
+  expect(dimensions).not.toBeNull();
+  expect(dimensions!.width).toBeGreaterThan(220);
+  expect(dimensions!.height).toBeGreaterThanOrEqual(42);
+  await input.fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await expect(apply).toBeDisabled();
+  await expect(proof.locator("#store-live-approval-reason")).toContainText(
+    "Hiányzik a Kova-felügyelet");
+  await proof.getByRole("checkbox").check();
+  await expect(apply).toBeEnabled();
+  // Do NOT click: this test asserts the exact two-factor gate only.
 });
 
 test("P0 original Kova five-map live takeover reattaches partially registered originals without duplicates",async({page})=>{
