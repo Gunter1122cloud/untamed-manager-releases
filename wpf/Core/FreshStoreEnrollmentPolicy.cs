@@ -101,6 +101,16 @@ public static class FreshStoreEnrollmentPolicy
         if(normalized.Equals("kovacluster",StringComparison.OrdinalIgnoreCase))
             Deny("UM-FRESH-STORE-KOVA-CLUSTER-RESERVED");
         var snapshot=cluster.Registry.Snapshot();
+        // Imported historical Store clusters may have a source-pinned ID
+        // different from the conventional "KovaCluster" label. A fresh
+        // Store writer must never enroll through this generic new-cluster
+        // path when ANY member is historical.
+        if(snapshot.ClusterRegistry.MapAssignments.Any(a=>
+            a.ClusterId.Equals(normalized,StringComparison.OrdinalIgnoreCase) &&
+            cluster.Config.LocalMaps.Any(m=>m.Id==a.MapId &&
+                (m.HistoricalStoreProtected ||
+                 !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256)))))
+            Deny("UM-FRESH-STORE-HISTORICAL-CLUSTER-RESERVED");
         var entry=snapshot.ClusterRegistry.Clusters.SingleOrDefault(x=>
             x.ClusterId.Equals(normalized,StringComparison.Ordinal));
         if(entry==null)Deny("UM-FRESH-STORE-CLUSTER-NOT-REGISTERED");
