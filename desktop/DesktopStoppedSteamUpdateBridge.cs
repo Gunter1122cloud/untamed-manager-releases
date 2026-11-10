@@ -54,16 +54,17 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     }
     private bool Stopped(LocalMap map)
     {
-        if(map.HistoricalStoreProtected||map.Maintenance)return false;
-        string root=Path.GetFullPath(map.InstallationPath);
-        return cluster.Config.LocalMaps.Where(x=>
-            !string.IsNullOrWhiteSpace(x.InstallationPath)&&
-            string.Equals(Path.GetFullPath(x.InstallationPath),root,
-                StringComparison.OrdinalIgnoreCase)).All(x=>{
-                    var state=cluster.Check(x);
-                    return state.ConfirmedStopped&&!state.Running&&
-                        state.Identity==null&&state.LoaderIdentity==null;
-                });
+        // Exactly the same ownership guard as the Core updater. A single map
+        // button must never skip Store siblings or overlapping local roots.
+        try
+        {
+            SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,map);
+            return true;
+        }
+        catch(Exception ex) when(ex is InvalidDataException or
+            InvalidOperationException or UnauthorizedAccessException or
+            ArgumentException or NotSupportedException)
+        { return false; }
     }
     private bool HasBlockedJournal()
     {
@@ -163,7 +164,15 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         p.pid==null&&p.loaderPid==null);
                     bool journalBlocked=HasBlockedJournal();
                     bool historical=related.Any(m=>m.HistoricalStoreProtected||
-                        m.Maintenance);
+                        m.Maintenance ||
+                        !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256) ||
+                        !string.IsNullOrWhiteSpace(m.HistoricalMapKey) ||
+                        !string.IsNullOrWhiteSpace(m.FreshStoreClusterId) ||
+                        !string.IsNullOrWhiteSpace(m.FreshStoreTransferDirectory) ||
+                        !string.IsNullOrWhiteSpace(m.StoreTestRoot) ||
+                        KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(m) ||
+                        KovaCompatibleWorldBackup.InstallationRecoveryRequired(m));
+                    bool safeInstallation=Stopped(owned);
                     return Ok(id,new{
                         mapId=owned.Id,mapName=owned.Name,installRoot=root,
                         processes,overlaps,
@@ -171,8 +180,10 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             !string.IsNullOrWhiteSpace(steamExe),
                         availableBytes=free,requiredBytes=Reserve,
                         journalBlocked,historicalBlocked=historical,
-                        canPreview=stopped&&!historical&&!journalBlocked&&
-                            steamFound&&free>=Reserve&&overlaps.Length==0,
+                        safeInstallation,
+                        canPreview=stopped&&!historical&&safeInstallation&&
+                            !journalBlocked&&steamFound&&free>=Reserve&&
+                            overlaps.Length==0,
                         noProcessAutoStop=true,remoteWrites=false,
                         evidence="REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"
                     });
