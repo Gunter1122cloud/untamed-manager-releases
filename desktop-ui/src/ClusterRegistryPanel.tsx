@@ -412,7 +412,7 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
           és kétgépes utazási igazolás szükséges.</div>
       </div>}
     </RegistryPanel>
-    {notice&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{notice}</div>
+    {notice&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{notice}</div>}
     {error&&<div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
     <div className="warning-inline"><Shield size={17}/> A regisztrált vagy kijelölt távoli host még nem hitelesített peer. A cluster-tagság módosítása nem engedélyez Start, Stop, RCON vagy távoli fájlírás műveletet.</div>
   </div>;
