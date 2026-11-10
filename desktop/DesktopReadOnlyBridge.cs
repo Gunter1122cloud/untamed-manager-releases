@@ -51,7 +51,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 
             id = parsedId.ToString("D");
             string? method = rawMethod.GetString();
-            if (method is not ("dashboard.snapshot" or "mods.configured" or "curseforge.search" or "plugins.inventory" or "backups.summary" or "logs.read" or "steam.installations" or "servers.suggestPorts" or "mods.sharedInventory"))
+            if (method is not ("dashboard.snapshot" or "mods.configured" or "curseforge.search" or "plugins.inventory" or "backups.summary" or "logs.read" or "steam.installations" or "servers.suggestPorts" or "mods.sharedInventory" or "servers.runningLocal"))
                 return Error(id, "UM-METHOD-DENIED");
 
             string? mapId = null;
@@ -99,6 +99,15 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                     "logs.read" => await Task.Run<object>(() => GetLogTail(Guid.Parse(mapId!))),
                     "steam.installations" => await Task.Run<object>(() => GetInstallationInventory()),
                     "servers.suggestPorts" => GetSuggestedLocalPorts(),
+                    "servers.runningLocal" => await Task.Run<object>(() => new {
+                        observedUtc = DateTimeOffset.UtcNow,
+                        processes = LocalRunningAsaDiscovery.Inspect(_cluster.Config.LocalMaps),
+                        readOnly = true,
+                        ownershipVerified = false,
+                        lifecycleAuthorized = false,
+                        storeWriterAuthorized = false,
+                        evidence = "LOCAL_WMI_SNAPSHOT_PROFILE_CANDIDATES_NOT_OWNER_PROOF"
+                    }),
                     "mods.sharedInventory" => await Task.Run<object>(() => DesktopSharedModInventory.Read(_cluster.Config.LocalMaps)),
                     _ => throw new InvalidOperationException("Disallowed bridge operation")
                 };
