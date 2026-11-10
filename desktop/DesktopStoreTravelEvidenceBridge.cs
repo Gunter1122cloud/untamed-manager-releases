@@ -126,12 +126,23 @@ public sealed class DesktopStoreTravelEvidenceBridge
         {
             if((File.GetAttributes(world)&FileAttributes.ReparsePoint)!=0)
                 throw new InvalidDataException("UM-TRAVEL-WORLD-SYMLINK");
-            var first=new FileInfo(world);
-            worldBytes=first.Length;
-            worldPresent=worldBytes>0;
-            var touched=first.LastWriteTimeUtc;
-            var second=new FileInfo(world);
-            worldUnstable=first.Length!=second.Length||touched!=second.LastWriteTimeUtc;
+            // A Store-v1 .ark can contain the only authoritative embedded
+            // character/tribe record. Do not hash multi-gigabyte worlds here,
+            // but refuse even metadata-only success while a separate writer
+            // has the world open. Read sharing is exclusive of writers and
+            // renames for the duration of this metadata observation.
+            using(var snapshot=new FileStream(world,FileMode.Open,FileAccess.Read,
+                FileShare.Read,4096,FileOptions.RandomAccess))
+            {
+                var first=new FileInfo(world);
+                worldBytes=snapshot.Length;
+                worldPresent=worldBytes>0;
+                var touched=first.LastWriteTimeUtc;
+                var second=new FileInfo(world);
+                worldUnstable=worldBytes!=first.Length||
+                    worldBytes!=second.Length||
+                    touched!=second.LastWriteTimeUtc;
+            }
         }
         var after=cluster.ObserveLocalProcessesReadOnly(map);
         if(quiescent&&(after.Running||!after.ConfirmedStopped||
