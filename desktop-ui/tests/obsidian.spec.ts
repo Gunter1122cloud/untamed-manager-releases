@@ -298,8 +298,11 @@ test.beforeEach(async ({ page }) => {
     let opsJobCreated=false;
     let opsJobEnabled=false;
     let partialStoreIndex=false;
+    let mixedStoreIndex=false;
     (window as typeof window & {__UNTAMED_GENESIS_PARTIAL_INDEX__?:()=>void})
       .__UNTAMED_GENESIS_PARTIAL_INDEX__=()=>{partialStoreIndex=true;};
+    (window as typeof window & {__UNTAMED_MIXED_STORE_INDEX__?:()=>void})
+      .__UNTAMED_MIXED_STORE_INDEX__=()=>{mixedStoreIndex=true;};
     const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; frequency?:string;minuteOfDay?:number;daysMask?:number; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; confirmation?:string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;maintenance?:boolean;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
       switch (m.method) {
         case "store.inspectArchive": return {
@@ -340,13 +343,18 @@ test.beforeEach(async ({ page }) => {
           }))
         };
         case "store.inspectCopy": return {
-          fileName:partialStoreIndex?"Genesis_WP.ark":"TheIsland_WP.ark",
-          state:partialStoreIndex?"INDEX_PREFIX_VALID_TRAILING_UNVERIFIED":"INDEX_SCANNED",
+          fileName:partialStoreIndex?"Genesis_WP.ark":
+            mixedStoreIndex?"SyntheticMixed_WP.ark":"TheIsland_WP.ark",
+          state:partialStoreIndex?"INDEX_PREFIX_VALID_TRAILING_UNVERIFIED":
+            mixedStoreIndex?"INDEX_SCANNED_WITH_UNCLASSIFIED_OR_DUPLICATES":"INDEX_SCANNED",
           format:1,storeBytes:partialStoreIndex?618041:412,
-          sections:2,profileCandidates:partialStoreIndex?5:2,
+          sections:mixedStoreIndex?1:2,
+          profileCandidates:partialStoreIndex?5:mixedStoreIndex?1:2,
           tribeCandidates:partialStoreIndex?6:1,
-          unclassifiedCandidates:0,supersededEntries:partialStoreIndex?11:1,
-          duplicateKeys:0,indexBoundsVerified:!partialStoreIndex,sourceUnchanged:true,
+          unclassifiedCandidates:mixedStoreIndex?1:0,
+          supersededEntries:partialStoreIndex?11:1,
+          duplicateKeys:mixedStoreIndex?1:0,
+          indexBoundsVerified:!partialStoreIndex,sourceUnchanged:true,
           gameplayVerified:false,characterTravelVerified:false,
           evidence:partialStoreIndex?"OFFLINE_SQLITE_PARTIAL_STORE_INDEX_UNVERIFIED":
             "OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY"
@@ -2453,6 +2461,27 @@ test("offline Genesis Store-index prefix stays unverified and visibly warns oper
   await expect(warning).toContainText("további vizsgálatot igényel");
   await expect(warning).toContainText("nem bizonyítanak ép karaktert");
   await expect(embedded).toContainText("a Store-v1 írásvédelem változatlan követelmény");
+});
+
+test("mixed embedded Store record classes and duplicates show a warning despite verified index bounds",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    (window as typeof window & {__UNTAMED_MIXED_STORE_INDEX__?:()=>void})
+      .__UNTAMED_MIXED_STORE_INDEX__?.();
+  });
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const embedded=page.getByRole("region",{name:"Beágyazott Store-v1 ellenőrzése"});
+  await embedded.getByRole("button",{name:"Offline .ark másolat megvizsgálása"}).click();
+  await expect(embedded).toContainText("SyntheticMixed_WP.ark");
+  await expect(embedded).toContainText("1 karakterindex-bejegyzés");
+  await expect(embedded).toContainText("1 tribe-index-bejegyzés");
+  await expect(embedded).toContainText("1 nem besorolt bejegyzés");
+  await expect(embedded).toContainText("indexhatárok: ellenőrizve");
+  const warning=embedded.getByRole("alert");
+  await expect(warning).toContainText("NEM teljesen igazolt");
+  await expect(warning).toContainText("Ismeretlen típusú vagy ismétlődő");
+  await expect(warning).toContainText("nem bizonyítanak ép karaktert");
 });
 
 test("Cluster page owns character travel evidence without unlocking Store",async({page})=>{
