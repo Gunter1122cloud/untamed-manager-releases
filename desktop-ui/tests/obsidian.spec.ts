@@ -343,9 +343,9 @@ test.beforeEach(async ({ page }) => {
           fileName:partialStoreIndex?"Genesis_WP.ark":"TheIsland_WP.ark",
           state:partialStoreIndex?"INDEX_PREFIX_VALID_TRAILING_UNVERIFIED":"INDEX_SCANNED",
           format:1,storeBytes:partialStoreIndex?618041:412,
-          sections:2,profileCandidates:partialStoreIndex?12:2,
-          tribeCandidates:partialStoreIndex?10:1,
-          unclassifiedCandidates:0,supersededEntries:1,
+          sections:2,profileCandidates:partialStoreIndex?5:2,
+          tribeCandidates:partialStoreIndex?6:1,
+          unclassifiedCandidates:0,supersededEntries:partialStoreIndex?11:1,
           duplicateKeys:0,indexBoundsVerified:!partialStoreIndex,sourceUnchanged:true,
           gameplayVerified:false,characterTravelVerified:false,
           evidence:partialStoreIndex?"OFFLINE_SQLITE_PARTIAL_STORE_INDEX_UNVERIFIED":
@@ -2446,8 +2446,8 @@ test("offline Genesis Store-index prefix stays unverified and visibly warns oper
   const embedded=page.getByRole("region",{name:"Beágyazott Store-v1 ellenőrzése"});
   await embedded.getByRole("button",{name:"Offline .ark másolat megvizsgálása"}).click();
   await expect(embedded).toContainText("Genesis_WP.ark");
-  await expect(embedded).toContainText("12 karakterindex-bejegyzés");
-  await expect(embedded).toContainText("10 tribe-index-bejegyzés");
+  await expect(embedded).toContainText("5 karakterindex-bejegyzés");
+  await expect(embedded).toContainText("6 tribe-index-bejegyzés");
   const warning=embedded.getByRole("alert");
   await expect(warning).toContainText("NEM teljesen ellenőrzött");
   await expect(warning).toContainText("további vizsgálatot igényel");
