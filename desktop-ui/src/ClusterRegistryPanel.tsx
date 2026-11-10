@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, CirclePlus, RefreshCw, Save, Shield } from "lucide-react";
 import {
   managerBridge, type ClusterMembershipPreviewResult,
-  type ClusterRegistrySnapshot, type RegisteredHost
+  type ClusterRegistrySnapshot, type RegisteredHost,
+  type HistoricalExpansionReadiness
 } from "./bridge";
 import "./cluster-registry.css";
 
@@ -32,6 +33,8 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
   const [mapQuery,setMapQuery]=useState("");
   const [mapHostFilter,setMapHostFilter]=useState("all");
   const [preview,setPreview]=useState<ClusterMembershipPreviewResult|null>(null);
+  const [expansionMapId,setExpansionMapId]=useState("");
+  const [expansion,setExpansion]=useState<HistoricalExpansionReadiness|null>(null);
   const [hostId,setHostId]=useState("");
   const [hostName,setHostName]=useState("");
   const [remoteMapId,setRemoteMapId]=useState("");
@@ -46,6 +49,7 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
     try {
       const value=await managerBridge.clusterRegistrySnapshot();
       setSnapshot(value);
+      setExpansion(null);
       const preferred=preferredClusterId??clusterIdRef.current;
       const selected=value.clusterRegistry.clusters.find(x=>x.clusterId===preferred)
         ??value.clusterRegistry.clusters[0];
@@ -71,6 +75,12 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
 
   const selectedCluster=useMemo(()=>snapshot?.clusterRegistry.clusters.find(
     x=>x.clusterId===clusterId)??null,[snapshot,clusterId]);
+  const localCandidates=useMemo(()=>{
+    const host=snapshot?.hostRegistry.hosts.find(x=>x.isLocal);
+    return (snapshot?.hostRegistry.maps??[]).filter(map=>
+      host?.hostId===map.hostId && map.localConfigurationPresent &&
+      !protectedMapIds.has(map.mapId.toLowerCase()));
+  },[snapshot,protectedMapIds]);
   const owners=useMemo(()=>new Map((snapshot?.hostRegistry.hosts??[])
     .map(host=>[host.hostId,host] as const)),[snapshot]);
   const groupedMaps=useMemo(()=>{
@@ -110,10 +120,10 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
 
   const beginNew=()=>{
     setClusterId("");setFields(blankCluster);setEditing(false);
-    setSelectedMapIds(new Set());setPreview(null);setNotice("");setError("");
+    setSelectedMapIds(new Set());setPreview(null);setExpansion(null);setNotice("");setError("");
   };
   const selectCluster=(value:string)=>{
-    setClusterId(value);setPreview(null);setNotice("");setError("");
+    setClusterId(value);setPreview(null);setExpansion(null);setNotice("");setError("");
     const selected=snapshot?.clusterRegistry.clusters.find(x=>x.clusterId===value);
     if(selected){
       setFields({clusterId:selected.clusterId,name:selected.name,
@@ -181,6 +191,18 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
     }catch(e){
       const code=e instanceof Error?e.message:"UM-REGISTRY-FAILED";
       setPreview(null);setError("A jóváhagyás elutasítva vagy az előnézet elavult ("+code+"). Készíts új előnézetet.");
+    }finally{setBusy(false);}
+  };
+
+  const inspectHistoricalExpansion=async()=>{
+    if(!selectedCluster || !expansionMapId || busy)return;
+    setExpansion(null);setBusy(true);setError("");
+    try{
+      setExpansion(await managerBridge.historicalExpansionInspect(
+        expansionMapId,selectedCluster.clusterId));
+    }catch(e){
+      setError("A történeti Store-v1 előellenőrzés sikertelen ("+
+        (e instanceof Error?e.message:"UM-EXPANSION-PREFLIGHT-FAILED")+").");
     }finally{setBusy(false);}
   };
 
@@ -348,7 +370,49 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
         </div>}
       </>}
     </RegistryPanel>
-    {notice&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{notice}</div>}
+    <RegistryPanel title="Új map a meglévő Kova Store-v1 clusterhez">
+      <p className="muted small">A történeti, eredeti öt helyi mapot és a Kova
+        négy Store-metaadatát változatlanul ellenőrzi. A rendszer csak az
+        eredeti, forrásból olvasott clusterazonosítót és az igazolt helyi
+        transferkönyvtárat fogadhatja el. Ez az ellenőrzés nem indít ASA-t,
+        nem hoz létre új clustert és nem módosít karakteradatot.</p>
+      <div className="cluster-registry-form">
+        <label className="cluster-registry-field">Új, helyi map
+          <select aria-label="Bővítendő helyi map" disabled={busy}
+            value={expansionMapId}
+            onChange={e=>{setExpansionMapId(e.target.value);setExpansion(null);}}>
+            <option value="">Válassz egy új mapot</option>
+            {localCandidates.map(map=><option key={map.mapId} value={map.mapId}>
+              {map.mapName}</option>)}
+          </select>
+        </label>
+        <button className="secondary" type="button"
+          disabled={busy||!selectedCluster||!expansionMapId}
+          onClick={()=>{void inspectHistoricalExpansion();}}>
+          <RefreshCw size={16}/> Eredeti cluster-kompatibilitás ellenőrzése
+        </button>
+      </div>
+      {expansion&&<div className="cluster-membership-preview" role="region"
+        aria-label="Történeti Store-map ellenőrzése">
+        <strong>{expansion.mapName} – {expansion.requestedClusterId}</strong>
+        <div className="cluster-membership-counts">
+          <span>Eredeti Store-forrás: {expansion.originalSourceVerified?"igazolt":"nem igazolt"}</span>
+          <span>Eredeti 5 map: {expansion.originalFivePreserved?"megőrizve":"nem igazolt"}</span>
+          <span>Transfer fizikai azonossága: {expansion.samePhysicalTransferDirectory?"igazolt":"nem igazolt"}</span>
+          <span>Helyi profil: {expansion.nativeLocalSetupVerified?"ellenőrizve":"hiányos"}</span>
+        </div>
+        {expansion.blockers.map(code=><div className="error-inline" key={code}>
+          <AlertTriangle size={16}/>{code}</div>)}
+        {expansion.localPreflightReady&&<div className="success-inline">
+          <CheckCircle2 size={16}/> A helyi, írásmentes előfeltételek megfelelnek.
+        </div>}
+        <div className="warning-inline"><Shield size={17}/>
+          Az új map Store-v1 tagsága és a kétgépes karakterutazás még
+          nincs engedélyezve. Ehhez külön writer/session/lock kompatibilitási
+          és kétgépes utazási igazolás szükséges.</div>
+      </div>}
+    </RegistryPanel>
+    {notice&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{notice}</div>
     {error&&<div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
     <div className="warning-inline"><Shield size={17}/> A regisztrált vagy kijelölt távoli host még nem hitelesített peer. A cluster-tagság módosítása nem engedélyez Start, Stop, RCON vagy távoli fájlírás műveletet.</div>
   </div>;
