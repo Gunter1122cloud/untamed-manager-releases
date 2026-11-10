@@ -278,7 +278,7 @@ export function StoreTravelWorkbench(){
     </section>
     <EmbeddedStoreCopyInspector/>
     <div className="uk-travel-grid">
-      <section className="premium-panel uk-travel-capture">
+      <section className="premium-panel uk-travel-capture" aria-label="Helyi ötmapos mentéslenyomat">
         <header className="premium-panel-heading"><h2><HardDrive size={19}/> 1. Helyi mentéslenyomat</h2></header>
         <div className="uk-travel-inner">
           <p className="muted small">A Manager csak az öt helyileg regisztrált map
