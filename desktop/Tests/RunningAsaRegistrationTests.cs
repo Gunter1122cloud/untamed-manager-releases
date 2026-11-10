@@ -122,6 +122,21 @@ internal static class RunningAsaRegistrationTests
                     .Single() is {MatchState:"profileCandidate",
                         ObservedReadOnlyImported:true},
                 "fresh lifecycle remains denied while observation reattaches");
+            var runningEvidence=ObservedAsaDashboardTelemetry.For(map,
+                LocalRunningAsaDiscovery.Classify(observations,cluster.Config.LocalMaps));
+            Check(runningEvidence.Code=="observedRunning"&&
+                runningEvidence.ObservedPid==71221,
+                "one exact WMI profile candidate is labelled observed, not adopted");
+            var duplicateEvidence=ObservedAsaDashboardTelemetry.For(map,
+                LocalRunningAsaDiscovery.Classify(new[]{
+                    sample,sample with{Pid=71222,StartedUtc=started.AddSeconds(1)}
+                },cluster.Config.LocalMaps));
+            Check(duplicateEvidence.Code=="unverified" &&
+                duplicateEvidence.ObservedPid==null,
+                "two matching PIDs cannot become a confirmed observed runtime");
+            Check(ObservedAsaDashboardTelemetry.For(map,
+                Array.Empty<LocalRunningAsaDiscovery.Observation>()).Code=="unverified",
+                "WMI absence is not proof that external ASA stopped");
             Check(!cluster.Check(map).ConfirmedStopped &&
                 !cluster.Check(map).Running && cluster.Check(map).Identity==null,
                 "unowned observed map cannot become confirmed stopped for disk writers");
