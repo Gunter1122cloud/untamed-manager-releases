@@ -345,7 +345,7 @@ internal static class LegacyStorePhysicalTransferTests
                     HistoricalArchiveSha256=report.OriginalFourFilesTag
                 });
             using(var registryBridge=new DesktopHistoricalStoreImportBridge(
-                manager,localLegacyDataDirectory:original))
+                bootstrap,localLegacyDataDirectory:original))
             {
                 var peek=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterPreview");
@@ -372,10 +372,10 @@ internal static class LegacyStorePhysicalTransferTests
                       bootstrap.Registry.Snapshot().ClusterRegistry.Clusters.Single()
                         .ClusterId=="kovacluster",
                     "explicit native commit atomically adopts five original assignments in Manager metadata only");
-                var replay=await CallHistoricalBootstrap(registryBridge,
+                var bootstrapReplay=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterApply",approvalToken,
                     "EREDETI KOVA REGISZTER");
-                Check(!replay.GetProperty("ok").GetBoolean(),
+                Check(!bootstrapReplay.GetProperty("ok").GetBoolean(),
                     "one-use metadata approval token cannot be replayed");
                 long revision=bootstrap.Registry.Snapshot().Revision;
                 var again=await CallHistoricalBootstrap(registryBridge,
