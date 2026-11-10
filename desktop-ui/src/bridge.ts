@@ -1135,13 +1135,15 @@ export type OriginalKovaBatchReceipt = {
 export type OriginalKovaLiveBatchPreview = {
   token:string;localMaps:number;mapNames:string[];runningProcesses:number;
   directProcesses:number;apiLoaderPairs:number;
+  alreadyRegistered:number;newlyDiscovered:number;
   sourceIdentityPreserved:true;existingAsaProcessesUnaffected:true;
   originalSessionLockWritten:false;storeWriterAuthorizedByImport:false;
   requiresExternalControllerStopped:true;requiresTypedApproval:true;
   evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT";
 };
 export type OriginalKovaLiveBatchReceipt = {
-  importedMaps:number;mapIds:string[];apiLoaderPairs:number;
+  importedMaps:number;addedMaps:number;reconnectedMaps:number;
+  unchangedMaps:number;mapIds:string[];apiLoaderPairs:number;
   managerProfileOnly:true;originalStoreFilesWritten:false;
   serverStarted:false;serverStopped:false;
   storeWriterAuthorizedByImport:false;requiresOriginalRconAttach:true;
