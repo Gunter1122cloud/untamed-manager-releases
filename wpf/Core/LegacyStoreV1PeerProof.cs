@@ -72,6 +72,10 @@ public sealed record LegacyStoreV1PairObservation(
     public bool SamePhysicalTransferDirectory {get;init;}
     public bool BothHistoricalLocalSaveWitnessesFresh {get;init;}
     public bool BothHaveFiveRecentHistoricalLocalSaveReceipts {get;init;}
+    // Authenticated Manager host identity, NOT original Kova device/session.
+    // Only populated if exactly one fresh N-host peer matches original
+    // Store metadata. Multiple possible owners must fail closed.
+    public string OriginalPeerHostId {get;init;}="";
 }
 
 /// <summary>
@@ -82,6 +86,45 @@ public sealed record LegacyStoreV1PairObservation(
 public static class LegacyStoreV1PairComparison
 {
     private static bool Hash(string? s)=>s?.Length==64&&s.All(Uri.IsHexDigit)==true;
+    /// <summary>
+    /// N-host LAN views cannot use RemoteSnapshot (the FIRST online host):
+    /// after adding a third, unrelated Manager it may precede the original
+    /// Kova second peer in configuration order. Choose one and only one
+    /// authenticated/fresh Manager that matches the ORIGINAL five-map,
+    /// shared-session, shared-path, distinct-device evidence instead.
+    /// This is historical read-only metadata matching, never writer proof.
+    /// </summary>
+    public static LegacyStoreV1PairObservation CompareAcrossPeers(
+        LegacyStoreV1PeerProof? local,IEnumerable<LanPeerObservation> peers)
+    {
+        ArgumentNullException.ThrowIfNull(peers);
+        var fresh=peers.Where(p=>p!=null&&p.IsFresh&&p.Snapshot!=null&&
+                Guid.TryParse(p.HostId,out var peerId)&&peerId!=Guid.Empty&&
+                Guid.TryParse(p.Snapshot.HostId,out var packetId)&&
+                packetId==peerId&&
+                StatusFreshness.IsFresh(p.Snapshot.ObservedUtc,DateTimeOffset.UtcNow))
+            .ToArray();
+        if(local?.SourcePresent!=true||local.LocalMetadataValid!=true)
+            return Compare(local,null,fresh.Length>0);
+        var matching=fresh.Select(p=>new{
+                Peer=p,Result=Compare(local,p.Snapshot!.OriginalStoreV1,true)
+            }).Where(x=>x.Result.CopiedMetadataPairMatches).ToArray();
+        if(matching.Length==1)
+            return matching[0].Result with{
+                OriginalPeerHostId=Guid.Parse(matching[0].Peer.HostId).ToString("N")
+            };
+        if(matching.Length>1)
+            return Compare(local,null,false) with{
+                StatusCode="STORE_ORIGINAL_PEER_AMBIGUOUS"
+            };
+        if(fresh.Length==1)
+            return Compare(local,fresh[0].Snapshot!.OriginalStoreV1,true);
+        return Compare(local,null,false) with{
+            StatusCode=fresh.Length==0?
+                "STORE_PEER_NOT_FRESH":"STORE_ORIGINAL_PEER_NOT_FOUND"
+        };
+    }
+
     public static LegacyStoreV1PairObservation Compare(
         LegacyStoreV1PeerProof? local,LegacyStoreV1PeerProof? remote,bool remoteFresh)
     {

@@ -1,6 +1,7 @@
 /* Explicit allowlisted Windows host contract; only guarded native methods may mutate local Manager configuration. */
 export type LanStatus = {
   originalStorePair:{
+    originalPeerHostId:string;
     bothOriginalProfilesPresent:boolean;
     sameSharedSession:boolean;sameSharedPath:boolean;distinctDeviceIds:boolean;
     bothHaveFiveActiveMaps:boolean;copiedMetadataPairMatches:boolean;

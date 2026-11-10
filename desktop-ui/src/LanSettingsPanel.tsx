@@ -150,6 +150,14 @@ export function LanSettingsPanel(){
       {status?.originalStorePair&&<section className="lan-store-proof" data-testid="lan-store-proof" aria-label="Eredeti többhostos Store-v1 egyezőség">
         <div className="lan-store-heading"><Shield size={18}/><strong>Eredeti Store-v1 · helyi összevetés</strong>
           <span>{status.originalStorePair.copiedMetadataPairMatches?"Történeti metaadatok egyeznek":"További ellenőrzés szükséges"}</span></div>
+        <p className="muted small">{
+          status.originalStorePair.originalPeerHostId
+            ? "Eredeti Kova partner: "+(status.peers.find(p=>
+                p.hostId.replace(/-/g,"").toLowerCase()===
+                status.originalStorePair.originalPeerHostId.toLowerCase())?.hostName??"ismeretlen Manager")
+            : "Eredeti Kova partner: még nem azonosítható ("
+              +status.originalStorePair.statusCode+")"
+        }. Az egyezés kizárólag történeti metaadat, nem élő Store-writer vagy karakterutazási bizonyíték.</p>
         <div className="lan-store-grid">
           <div><span>Azonos Store-session</span><b>{status.originalStorePair.sameSharedSession?"Egyező":"Nem igazolt"}</b></div>
           <div><span>Azonos UNC-megosztás</span><b>{status.originalStorePair.sameSharedPath?"Egyező":"Nem igazolt"}</b></div>

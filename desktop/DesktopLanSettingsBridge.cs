@@ -60,13 +60,15 @@ public sealed class DesktopLanSettingsBridge
     private object Status()
     {
         var observations=cluster.PeerObservations;
-        var pair=LegacyStoreV1PairComparison.Compare(
-            cluster.ReadLegacyStoreV1PeerProof(),
-            cluster.RemoteIsFresh?cluster.RemoteSnapshot?.OriginalStoreV1:null,
-            cluster.RemoteIsFresh);
+        // Select the exact original Kova peer among ALL authenticated N-host
+        // observations. The first connected host may be an unrelated new
+        // machine; it must not replace the historical 5+5 partner.
+        var pair=LegacyStoreV1PairComparison.CompareAcrossPeers(
+            cluster.ReadLegacyStoreV1PeerProof(),observations);
         var primary=observations.FirstOrDefault();
         return new{
             originalStorePair=new{
+                originalPeerHostId=pair.OriginalPeerHostId,
                 bothOriginalProfilesPresent=pair.BothOriginalProfilesPresent,
                 sameSharedSession=pair.SameSharedSession,sameSharedPath=pair.SameSharedPath,
                 distinctDeviceIds=pair.DistinctDeviceIds,bothHaveFiveActiveMaps=pair.BothHaveFiveActiveMaps,

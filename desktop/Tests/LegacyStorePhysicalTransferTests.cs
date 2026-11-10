@@ -204,6 +204,80 @@ internal static class LegacyStorePhysicalTransferTests
             OriginalFourFilesTag=report.OriginalFourFilesTag
         };
         var remote=local with{DeviceTag=Hash("other-synthetic-original-device")};
+        // A three/four-host Manager cannot assume the FIRST fresh LAN peer
+        // is its original historical Kova counterpart. Only exact shared
+        // session/path and distinct original device can be considered.
+        LanPeerObservation Peer(string host,LegacyStoreV1PeerProof? proof,
+            bool fresh=true,string? announcedHost=null)=>
+            new() {
+                HostId=host,IsFresh=fresh,
+                Snapshot=new HostStatus{
+                    HostId=announcedHost??host,
+                    HostName="synthetic-"+host[..8],
+                    ObservedUtc=DateTimeOffset.UtcNow,
+                    OriginalStoreV1=proof
+                }
+            };
+        string unrelatedHost=Guid.NewGuid().ToString("N");
+        string originalPeer=Guid.NewGuid().ToString("N");
+        string anotherHost=Guid.NewGuid().ToString("N");
+        var unrelated=remote with{
+            SessionTag=Hash("different-cluster-not-original")
+        };
+        var remotePeers=new[]{
+            Peer(unrelatedHost,unrelated),
+            Peer(originalPeer,remote),
+            Peer(anotherHost,null)
+        };
+        var resolved=LegacyStoreV1PairComparison.CompareAcrossPeers(
+            local,remotePeers);
+        Check(resolved.CopiedMetadataPairMatches&&
+              resolved.SamePhysicalTransferDirectory&&
+              resolved.OriginalPeerHostId==originalPeer&&
+              !resolved.LiveWriterCertified&&!resolved.CharacterTravelVerified,
+            "three fresh Managers choose the actual historical Kova peer, not the first unrelated host");
+        var offlineOriginal=LegacyStoreV1PairComparison.CompareAcrossPeers(
+            local,new[]{
+                Peer(unrelatedHost,unrelated),
+                Peer(originalPeer,remote,false),
+                Peer(anotherHost,null)
+            });
+        Check(!offlineOriginal.CopiedMetadataPairMatches&&
+              !offlineOriginal.SamePhysicalTransferDirectory&&
+              offlineOriginal.OriginalPeerHostId==""&&
+              offlineOriginal.StatusCode=="STORE_ORIGINAL_PEER_NOT_FOUND",
+            "other online Managers cannot substitute for the offline original Store peer");
+        var conflicting=LegacyStoreV1PairComparison.CompareAcrossPeers(
+            local,new[]{
+                Peer(originalPeer,remote),
+                Peer(anotherHost,remote with{
+                    DeviceTag=Hash("another-original-device")
+                })
+            });
+        Check(!conflicting.CopiedMetadataPairMatches&&
+              !conflicting.SamePhysicalTransferDirectory&&
+              conflicting.OriginalPeerHostId==""&&
+              conflicting.StatusCode=="STORE_ORIGINAL_PEER_AMBIGUOUS",
+            "two independently paired candidate Store hosts are ambiguous and must fail closed");
+        var spoofedStatus=LegacyStoreV1PairComparison.CompareAcrossPeers(
+            local,new[]{Peer(originalPeer,remote,true,unrelatedHost)});
+        Check(!spoofedStatus.CopiedMetadataPairMatches&&
+              spoofedStatus.OriginalPeerHostId=="",
+            "authenticated peer host ID must match its packet's own Manager host ID");
+        var expiredStatus=LegacyStoreV1PairComparison.CompareAcrossPeers(
+            local,new[]{
+                new LanPeerObservation{
+                    HostId=originalPeer,IsFresh=true,
+                    Snapshot=new HostStatus{
+                        HostId=originalPeer,
+                        ObservedUtc=DateTimeOffset.UtcNow.AddHours(-2),
+                        OriginalStoreV1=remote
+                    }
+                }
+            });
+        Check(!expiredStatus.CopiedMetadataPairMatches&&
+              expiredStatus.StatusCode=="STORE_PEER_NOT_FRESH",
+            "stale LAN snapshot cannot be revived by a misleading IsFresh bit");
         var accepted=LegacyStoreV1PairComparison.Compare(local,remote,true);
         Check(accepted.CopiedMetadataPairMatches&&accepted.BothPhysicalWitnessesFresh&&
               accepted.SamePhysicalTransferDirectory&&!accepted.LiveWriterCertified&&
