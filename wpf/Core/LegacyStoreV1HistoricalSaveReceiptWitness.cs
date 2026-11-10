@@ -9,8 +9,10 @@ namespace UntamedManager.Core;
 
 /// <summary>
 /// Explicit operator-triggered inspection of the FIVE Manager-owned, durable
-/// historical SaveWorld receipts. Never opens the Kova shared transfer path,
-/// sends RCON, grants Store writer authority or creates a backup.
+/// historical SaveWorld receipts. Uses the original read-only ACTIVE/DONE
+/// source guard, including shared coordination evidence, on explicit operator
+/// request. Never writes a Kova transfer file, sends RCON, grants Store writer
+/// authority or creates a backup.
 /// "Recent" means recent local LOG witnesses, NOT current writer quiescence,
 /// an atomic cross-host snapshot, or replay-safe game character travel.
 /// </summary>
@@ -30,6 +32,7 @@ public static class LegacyStoreV1HistoricalSaveReceiptProbe
         string managerProfileRoot, string managerHostId,
         LegacyStoreV1PeerProof? originalMetadata,
         IReadOnlyCollection<LocalMap> registeredMaps,
+        Func<LocalMap,string> readCurrentOriginalSourceEpoch,
         DateTimeOffset? observedAtUtc=null)
     {
         if(!Guid.TryParse(managerHostId,out var host)||host==Guid.Empty ||
@@ -41,6 +44,7 @@ public static class LegacyStoreV1HistoricalSaveReceiptProbe
             throw new InvalidDataException("UM-STORE-SAVE-PAIR-ORIGINAL-NOT-VERIFIED");
         if(registeredMaps==null)
             throw new InvalidDataException("UM-STORE-SAVE-PAIR-MAPS-MISSING");
+        ArgumentNullException.ThrowIfNull(readCurrentOriginalSourceEpoch);
 
         var maps=registeredMaps.Where(x=>x!=null && x.HistoricalStoreProtected)
             .OrderBy(x=>x.Id).ToArray();
@@ -57,6 +61,7 @@ public static class LegacyStoreV1HistoricalSaveReceiptProbe
             throw new InvalidDataException("UM-STORE-SAVE-PAIR-INVALID-TIME");
         int recent=0;
         string? commonOriginalSourceSha=null;
+        LocalMap? firstVerifiedMap=null;
         using var digest=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach(var map in maps)
         {
@@ -76,10 +81,20 @@ public static class LegacyStoreV1HistoricalSaveReceiptProbe
                receipt.SharedStoreWriterCertified || receipt.BothHostsSaveCompleteCertified)
                 throw new InvalidDataException(
                     "UM-STORE-SAVE-PAIR-RECEIPT-MAP-OR-AUTHORITY");
-            // Five independently completed local observations must all have
-            // been approved against the SAME original Store session/lock
-            // fingerprint. Mixed source epochs cannot form even a historical
-            // five-map set, regardless of timestamp or map ownership.
+            // The journal's SourceStateSha256 covers the exact original
+            // local four files plus both DONE peers and shared operation/
+            // attempted records. OriginalFourFilesTag covers ONLY the local
+            // four files: these two different hashes must never be directly
+            // compared. Re-run the existing original ACTIVE/DONE source guard
+            // for each qualifying receipt so FIVE mutually stale receipts
+            // cannot certify the current source epoch.
+            string currentEpoch=readCurrentOriginalSourceEpoch(map);
+            if(!Sha(currentEpoch)||
+               !string.Equals(currentEpoch,receipt.OriginalSourceSha256,
+                   StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    "UM-STORE-SAVE-PAIR-ORIGINAL-EPOCH-CHANGED");
+            firstVerifiedMap??=map;
             if(commonOriginalSourceSha!=null &&
                !string.Equals(commonOriginalSourceSha,
                    receipt.OriginalSourceSha256,StringComparison.Ordinal))
@@ -94,6 +109,14 @@ public static class LegacyStoreV1HistoricalSaveReceiptProbe
             digest.AppendData(BitConverter.GetBytes(bytes.Length));
             digest.AppendData(bytes);
         }
+        // Detect a shared-source change during the sequential five-map
+        // read. This is a fresh historical witness, never a writer lease;
+        // a later source change requires the operator to probe again.
+        if(firstVerifiedMap!=null &&
+           !string.Equals(readCurrentOriginalSourceEpoch(firstVerifiedMap),
+               commonOriginalSourceSha,StringComparison.Ordinal))
+            throw new InvalidDataException(
+                "UM-STORE-SAVE-PAIR-ORIGINAL-EPOCH-CHANGED");
         return new(host.ToString("N"),originalMetadata.SessionTag,
             originalMetadata.OriginalFourFilesTag,now,recent,
             recent==5,Convert.ToHexString(digest.GetHashAndReset()),
