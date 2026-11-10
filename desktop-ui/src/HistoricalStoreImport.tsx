@@ -414,7 +414,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <AlertTriangle size={16}/>{directError}</div>}
         {directNotice&&<div role="status" className="success-inline">
           <CheckCircle2 size={16}/>{directNotice}</div>}
-        <div className="historical-parity-check" aria-label="Eredeti Kova Cluster-regiszter átvétele">
+        <section className="historical-parity-check" aria-label="Eredeti Kova Cluster-regiszter átvétele">
           <h3>Eredeti 5 map hozzárendelése a Cluster-regiszterhez</h3>
           <p className="muted small">Ha az eredeti mapokat már felvetted, ezzel
             a régi négy Kova-metaadatfájlból átvehető a pontos clusterazonosító
@@ -449,7 +449,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <AlertTriangle size={16}/>{clusterError}</div>}
           {clusterNotice&&<div role="status" className="success-inline">
             <CheckCircle2 size={16}/>{clusterNotice}</div>}
-        </div>
+        </section>
       </section>
       <section className="historical-peer-check" aria-label="Korábbi helyi Store-v1 állapot">
         <h3>Eredeti helyi Store-v1 állapot · közvetlen, csak olvasási ellenőrzés</h3>
