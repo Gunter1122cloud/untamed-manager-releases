@@ -2280,12 +2280,13 @@ test("multi-cluster membership filters 100+ maps, protects Store-v1 and applies 
 
   await page.getByRole("combobox",{name:"Kiválasztott cluster"}).selectOption("fixture-beta");
   await page.getByRole("textbox",{name:"Cluster map keresése"}).fill("The Island");
-  const protectedMap=page.getByRole("checkbox",{name:/The Island/});
+  const membershipCheckboxes=page.locator(".cluster-registry-map-groups");
+  const protectedMap=membershipCheckboxes.getByRole("checkbox",{name:/The Island/});
   await expect(protectedMap).toBeDisabled();
   await expect(page.getByText("Kova Store-v1 védett")).toBeVisible();
 
   await page.getByRole("textbox",{name:"Cluster map keresése"}).fill("Local Map 4");
-  const movedMap=page.getByRole("checkbox",{name:/Local Map 4/});
+  const movedMap=membershipCheckboxes.getByRole("checkbox",{name:/Local Map 4/});
   await expect(movedMap).not.toBeChecked();
   await movedMap.check();
   await page.getByRole("button",{name:"Tagságváltozás előnézete"}).click();
@@ -2294,7 +2295,7 @@ test("multi-cluster membership filters 100+ maps, protects Store-v1 and applies 
   await page.getByRole("button",{name:"Előnézet jóváhagyása és mentése"}).click();
   await expect(page.getByRole("status")).toContainText("1 áthelyezés");
   await page.getByRole("combobox",{name:"Kiválasztott cluster"}).selectOption("fixture-alpha");
-  await expect(page.getByRole("checkbox",{name:/Local Map 4/})).not.toBeChecked();
+  await expect(membershipCheckboxes.getByRole("checkbox",{name:/Local Map 4/})).not.toBeChecked();
 });
 
 test("historical Kova new-map compatibility check is native, read-only and never enables writer or live travel",async({page})=>{
@@ -3663,7 +3664,7 @@ test("cluster bulk SteamCMD queues only explicitly approved stopped local map be
   const targets=panel.getByRole("group",{name:"Soros SteamCMD célmapok"});
   await expect(targets.getByRole("checkbox")).toHaveCount(25);
   await panel.getByRole("button",{name:"Következő SteamCMD-oldal"}).click();
-  await expect(targets).toContainText("Local Map 30");
+  await expect(targets).toContainText("Local Map 60");
   await panel.getByRole("searchbox",{name:"Soros SteamCMD célmap keresése"})
     .fill("Local Map 60");
   await expect(targets.getByRole("checkbox")).toHaveCount(1);
