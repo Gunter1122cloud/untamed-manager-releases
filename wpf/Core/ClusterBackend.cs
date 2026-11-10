@@ -778,9 +778,12 @@ public sealed partial class ClusterService : IAsyncDisposable
            Config.ClusterRegistry?.MapAssignments!=null&&
            Config.ClusterRegistry.Clusters.Count(c=>c!=null&&
                string.Equals(c.ClusterId,VaultProtocol.ClusterId,
+                   StringComparison.OrdinalIgnoreCase))==1&&
+           Config.ClusterRegistry.Clusters.Any(c=>c!=null&&
+               string.Equals(c.ClusterId,VaultProtocol.ClusterId,
                    StringComparison.OrdinalIgnoreCase)&&
                LegacyStoreV1RosterIdentity.MatchesOriginalSharedTransfer(
-                   c.TransferDirectory,source.SharedPathTag))==1)
+                   c.TransferDirectory,source.SharedPathTag)))
         {
             try
             {
