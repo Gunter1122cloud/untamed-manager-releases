@@ -183,6 +183,46 @@ internal static class FreshStoreEnrollmentTests
                     "new-local-cluster"),
                 "unreviewed launch flags cannot enter a source-derived Store Start profile");
             manager.ReplaceMap(unknownFlag,map);
+
+            // PR #118 permits explicit custom Unreal levels during native
+            // first-setup. The subsequent fresh Store enrollment must accept
+            // that EXACT validated command line, without relaxing official
+            // level pinning or permitting a second command-line token.
+            var customMap=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(map))!;
+            customMap.Name="Custom Atlantis Community";
+            customMap.Arguments=AsaSteamMapCatalog.LaunchArgumentsForLevel(
+                "Atlantis_WP","Synthetic Store Map",7851,27551)+
+                " -mods=100123,100124 -passivemods=100124";
+            manager.ReplaceMap(map,customMap);
+            var customPlan=FreshStoreEnrollmentPolicy.Prepare(
+                manager,customMap,"new-local-cluster");
+            Check(customPlan.Arguments.StartsWith(
+                    "Atlantis_WP?listen?SessionName=\"Synthetic Store Map\"",
+                    StringComparison.Ordinal)&&
+                  customPlan.Arguments.EndsWith(" -usestore",
+                    StringComparison.Ordinal),
+                "strict native custom-level profile joins new empty Store without guessing level");
+            var customInjected=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(customMap))!;
+            customInjected.Arguments=customInjected.Arguments.Replace(
+                "Atlantis_WP?listen","Atlantis_WP?Injected=1?listen",
+                StringComparison.Ordinal);
+            manager.ReplaceMap(customMap,customInjected);
+            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(
+                    manager,customInjected,"new-local-cluster"),
+                "injected custom level options cannot enter Store startup");
+            manager.ReplaceMap(customInjected,map);
+            var officialOverride=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(map))!;
+            officialOverride.Arguments=AsaSteamMapCatalog.LaunchArgumentsForLevel(
+                "Unverified_WP","Synthetic Store Map",7851,27551)+
+                " -mods=100123,100124 -passivemods=100124";
+            manager.ReplaceMap(map,officialOverride);
+            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(
+                    manager,officialOverride,"new-local-cluster"),
+                "official map level cannot be overridden by a custom startup token");
+            manager.ReplaceMap(officialOverride,map);
             var incorrectPassive=JsonSerializer.Deserialize<LocalMap>(
                 JsonSerializer.Serialize(map))!;
             incorrectPassive.Arguments=incorrectPassive.Arguments.Replace(

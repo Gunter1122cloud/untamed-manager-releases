@@ -66,8 +66,27 @@ public static class FreshStoreEnrollmentPolicy
             RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100));
         if(!session.Success)
             Deny("UM-FRESH-STORE-NATIVE-SETUP-REQUIRED");
-        string baseline=AsaSteamMapCatalog.LaunchArguments(map.Name,
-            session.Groups["name"].Value,map.GamePort,map.QueryPort);
+        // Official map names remain pinned to the verified Steam level.
+        // For a manually imported custom map, recover only the strict
+        // single-token level saved by native first-setup (#118). Rebuild
+        // the entire expected command line; never trust arbitrary flags.
+        string baseline;
+        try
+        {
+            baseline=AsaSteamMapCatalog.LaunchArguments(map.Name,
+                session.Groups["name"].Value,map.GamePort,map.QueryPort);
+        }
+        catch(InvalidDataException)
+        {
+            const string marker="?listen?SessionName=";
+            int separator=arguments.IndexOf(marker,StringComparison.Ordinal);
+            if(separator is <1 or >80)
+                Deny("UM-FRESH-STORE-CUSTOM-LEVEL-NATIVE-SETUP-REQUIRED");
+            string level=AsaSteamMapCatalog.ValidateCustomLevel(
+                arguments[..separator]);
+            baseline=AsaSteamMapCatalog.LaunchArgumentsForLevel(level,
+                session.Groups["name"].Value,map.GamePort,map.QueryPort);
+        }
         if(!arguments.StartsWith(baseline,StringComparison.Ordinal))
             Deny("UM-FRESH-STORE-NATIVE-SETUP-REQUIRED");
         string suffix=arguments[baseline.Length..];
