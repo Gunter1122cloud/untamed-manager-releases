@@ -177,6 +177,18 @@ export type ClusterMembershipReceipt = {
   clusterId:string;revision:number;addedCount:number;removedCount:number;
   movedCount:number;appliedUtc:string;
 };
+/** Native read-only original Store-v1 expansion preflight, never admission. */
+export type HistoricalExpansionReadiness = {
+  mapId:string;mapName:string;requestedClusterId:string;sourceClusterId:string;
+  originalSourceVerified:boolean;originalFivePreserved:boolean;
+  samePhysicalTransferDirectory:boolean;nativeLocalSetupVerified:boolean;
+  localPreflightReady:boolean;sourceEvidenceTag:string;blockers:string[];
+  originalStoreFilesWritten:false;storeWriterTouched:false;
+  originalTenMapIdentitiesChanged:false;remoteWriterSessionCertified:false;
+  characterTravelVerified:false;newMapStoreEnrollmentAllowed:false;
+  serverStarted:false;
+  evidence:"READ_ONLY_ORIGINAL_STORE_EXPANSION_PREFLIGHT_NO_WRITER_AUTHORITY";
+};
 
 export type DashboardSnapshot = {
   mode: "LIVE_READ_ONLY";
@@ -1364,7 +1376,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "backup.restorePreview" | "backup.restore" |
   "backup.scheduleStatus" | "backup.scheduleCreate" | "backup.scheduleDisable" |
   "cluster.registry.snapshot" | "cluster.host.register" | "cluster.map.register" |
-  "cluster.create" | "cluster.update" | "cluster.membership.preview" | "cluster.membership.apply" |
+  "cluster.create" | "cluster.update" | "cluster.membership.preview" | "cluster.membership.apply" | "cluster.historicalExpansionInspect" |
   "travel.capture" | "travel.compare" | "travel.compareRoundTrip" | "store.inspectCopy" | "store.inspectArchive" | "store.compareArchives";
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   peerAction?:"upsert"|"remove";
@@ -1468,6 +1480,8 @@ export const managerBridge = {
     request<ClusterMembershipPreviewResult>("cluster.membership.preview",{clusterId,mapIds}),
   clusterMembershipApply: (token:string) =>
     request<ClusterMembershipReceipt>("cluster.membership.apply",{token,confirm:true}),
+  historicalExpansionInspect: (mapId:string,clusterId:string) =>
+    request<HistoricalExpansionReadiness>("cluster.historicalExpansionInspect",{mapId,clusterId}),
   lanStatus: () => request<LanStatus>("lan.status"),
   lanPreview: (listenPort:number,hostId:string,hostName:string,peerAddress:string,
     peerPort:number,pairingKey:string,peerAction:"upsert"|"remove"="upsert") =>
