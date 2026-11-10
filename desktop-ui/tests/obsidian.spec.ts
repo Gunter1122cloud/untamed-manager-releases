@@ -1404,6 +1404,7 @@ test.beforeEach(async ({ page }) => {
             bothOriginalProfilesPresent:false,
             sameSharedSession:false,sameSharedPath:false,distinctDeviceIds:false,
             bothHaveFiveActiveMaps:false,copiedMetadataPairMatches:false,
+            bothOriginalFiveRegisteredInManagers:false,
             bothPhysicalWitnessesFresh:false,samePhysicalTransferDirectory:false,
             bothHistoricalLocalSaveWitnessesFresh:false,
             bothHaveFiveRecentHistoricalLocalSaveReceipts:false,
@@ -2274,6 +2275,11 @@ test("original Store physical UNC probe is explicit and never grants transfer or
   await page.getByRole("button",{name:/Be.*ll/}).click();
   const proof=page.getByTestId("lan-store-proof");
   await expect(proof).toContainText("Kétoldali ellenőrzés szükséges");
+  await expect(proof).toContainText(
+    "Az eredeti öt-öt GUID és mapnév tényleges Manager-regisztrációja");
+  await expect(proof).toContainText("Hiányzik vagy eltér – ellenőrzés szükséges");
+  await expect(proof).toContainText(
+    "Öt aktív Store-map az eredeti Kova-forrásfájlokban");
   await proof.getByRole("button",{
     name:"Helyi Store transferkönyvtár fizikai ellenőrzése"
   }).click();

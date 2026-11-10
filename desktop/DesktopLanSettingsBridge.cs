@@ -70,6 +70,8 @@ public sealed class DesktopLanSettingsBridge
             originalStorePair=new{
                 originalPeerHostId=pair.OriginalPeerHostId,
                 bothOriginalProfilesPresent=pair.BothOriginalProfilesPresent,
+                bothOriginalFiveRegisteredInManagers=
+                    pair.BothOriginalFiveRegisteredInManagers,
                 sameSharedSession=pair.SameSharedSession,sameSharedPath=pair.SameSharedPath,
                 distinctDeviceIds=pair.DistinctDeviceIds,bothHaveFiveActiveMaps=pair.BothHaveFiveActiveMaps,
                 copiedMetadataPairMatches=pair.CopiedMetadataPairMatches,

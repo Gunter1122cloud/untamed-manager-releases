@@ -763,7 +763,31 @@ public sealed partial class ClusterService : IAsyncDisposable
         var source=_legacyStoreProof();
         if(source?.SourcePresent!=true||source.LocalMetadataValid!=true)
             return source;
-        var result=source;
+        var roster=Config.LocalMaps.Where(m=>m.HistoricalStoreProtected).ToArray();
+        bool imported=false;
+        if(roster.Length==5&&source.OriginalMapRosterTag is {Length:64}&&
+           source.OriginalMapRosterTag.All(Uri.IsHexDigit)&&
+           roster.All(m=>m.HistoricalArchiveSha256?.Equals(
+               source.OriginalFourFilesTag,StringComparison.Ordinal)==true)&&
+           Config.ClusterRegistry?.MapAssignments!=null)
+        {
+            try
+            {
+                string actual=LegacyStoreV1RosterIdentity.Tag(
+                    roster.Select(m=>(m.Id,m.HistoricalMapKey,m.InstallationPath)));
+                imported=actual==source.OriginalMapRosterTag&&
+                    roster.All(m=>Config.ClusterRegistry.MapAssignments.Count(a=>
+                        a!=null&&a.MapId==m.Id&&string.Equals(a.ClusterId,
+                            VaultProtocol.ClusterId,
+                            StringComparison.OrdinalIgnoreCase))==1);
+            }
+            catch(InvalidDataException)
+            {
+                // Historical original membership is not proven. Never
+                // infer enrollment from a copied legacy metadata profile.
+            }
+        }
+        var result=source with{OriginalFiveRegisteredInManager=imported};
         lock(_physicalWitnessGate)
         {
             var proof=_physicalWitness;

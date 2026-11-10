@@ -197,12 +197,23 @@ internal static class LegacyStorePhysicalTransferTests
         Check(linkedMutationDenied&&File.ReadAllText(files[0])==originalJson[0],
             "original metadata handle blocks a competing writer for the entire physical UNC inspection");
 
-        var local=new LegacyStoreV1PeerProof(true,true,5,report.SessionTag,
-            report.SharedPathTag,report.DeviceTag,false,false,"SYNTHETIC_ORIGINAL")
+        var local=LegacyStoreV1PeerProof.FromLocal(original) with
         {
-            PhysicalDirectoryTag=physicalTag,PhysicalObservedUtc=witness.ObservedUtc,
-            OriginalFourFilesTag=report.OriginalFourFilesTag
+            PhysicalDirectoryTag=physicalTag,PhysicalObservedUtc=witness.ObservedUtc
         };
+        Check(local.LocalMetadataValid&&local.ActiveMapCount==5&&
+              local.OriginalMapRosterTag.Length==64&&
+              local.OriginalMapRosterTag.All(Uri.IsHexDigit)&&
+              !local.OriginalFiveRegisteredInManager,
+            "original five GUID/level pairs are fingerprinted from original local Kova files, not presumed registered");
+        var syntheticBothEnrolled=LegacyStoreV1PairComparison.Compare(
+            local with{OriginalFiveRegisteredInManager=true},
+            local with{DeviceTag=Hash("other-device"),
+                OriginalFiveRegisteredInManager=true},true);
+        Check(syntheticBothEnrolled.BothOriginalFiveRegisteredInManagers&&
+              !syntheticBothEnrolled.LiveWriterCertified&&
+              !syntheticBothEnrolled.CharacterTravelVerified,
+            "two independently registered original map rosters are historical identity proof only");
         var remote=local with{DeviceTag=Hash("other-synthetic-original-device")};
         // A three/four-host Manager cannot assume the FIRST fresh LAN peer
         // is its original historical Kova counterpart. Only exact shared
@@ -336,7 +347,7 @@ internal static class LegacyStorePhysicalTransferTests
             foreach(var member in members)
                 manager.AddMap(new LocalMap{
                     Id=Guid.Parse(member.id),Name=member.map,
-                    HistoricalMapKey=member.map,
+                    HistoricalMapKey=member.map,InstallationPath=member.root,
                     HistoricalStoreProtected=true,
                     HistoricalArchiveSha256=report.OriginalFourFilesTag
                 });
@@ -348,6 +359,31 @@ internal static class LegacyStorePhysicalTransferTests
                         MapId=Guid.Parse(member.id),
                         ClusterId=originalRegistered.ClusterId
                     });
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "all five original GUID/level pairs plus their pinned four-file fingerprints and Kova cluster assignments match actual Manager registrations");
+            var membership=manager.Config.ClusterRegistry.MapAssignments[0];
+            membership.ClusterId="unrelated-synthetic-cluster";
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "reassigning one original map to an unrelated cluster revokes five-map registration parity without altering original source");
+            membership.ClusterId=originalRegistered.ClusterId;
+            var firstRegistered=manager.Config.LocalMaps.Single(m=>m.Id==Guid.Parse(members[0].id));
+            string originalKey=firstRegistered.HistoricalMapKey;
+            firstRegistered.HistoricalMapKey="WrongLevelIdentity";
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "rebound original map level under the same GUID is not registered Kova parity");
+            firstRegistered.HistoricalMapKey=originalKey;
+            string originalRoot=firstRegistered.InstallationPath;
+            firstRegistered.InstallationPath=Path.Combine(root,"wrong-original-source-root");
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "same original GUID and level with a DIFFERENT registered ASA installation root is not source parity");
+            firstRegistered.InstallationPath=originalRoot;
+            string originalTag=firstRegistered.HistoricalArchiveSha256;
+            firstRegistered.HistoricalArchiveSha256=Hash("invalid-original-kova-four-files");
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "Manager registration from different four-file historical Store session is not source parity");
+            firstRegistered.HistoricalArchiveSha256=originalTag;
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "restoring exact synthetic source-pinned map identities recovers read-only registration parity");
             Guid futureId=Guid.NewGuid();
             manager.AddMap(new LocalMap{
                 Id=futureId,Name="Synthetic Future Atlantis",

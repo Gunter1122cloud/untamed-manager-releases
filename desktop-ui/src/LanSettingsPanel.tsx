@@ -171,7 +171,10 @@ export function LanSettingsPanel(){
               "Mindkét oldali korábbi naplóbizonylat egyező előfeltételekkel" :
               "Nincs kétoldali friss történeti bizonyíték – tiltva"}</b></div>
           <div><span>Külön gazdagépazonosítók</span><b>{status.originalStorePair.distinctDeviceIds?"Igazolt":"Nem igazolt"}</b></div>
-          <div><span>Öt aktív Store-map gazdagépenként</span><b>{status.originalStorePair.bothHaveFiveActiveMaps?"Igazolt":"Nem igazolt"}</b></div>
+          <div><span>Öt aktív Store-map az eredeti Kova-forrásfájlokban</span><b>{status.originalStorePair.bothHaveFiveActiveMaps?"Igazolt":"Nem igazolt"}</b></div>
+          <div><span>Az eredeti öt-öt GUID és mapnév tényleges Manager-regisztrációja</span>
+            <b>{status.originalStorePair.bothOriginalFiveRegisteredInManagers?
+              "Mindkét Managerben igazolt":"Hiányzik vagy eltér – ellenőrzés szükséges"}</b></div>
         </div>
         <div className="draft-actions">
           <button type="button" className="secondary" disabled={working}

@@ -22,7 +22,12 @@ public static class LegacyStoreV1LocalReader
         "shared-store-device-v1.json","shared-store-lock-v1.json"
     };
     public sealed record MapEvidence(string MapKey,bool Active,bool SessionMatches,
-        bool RootMatches,bool Selected,bool BackupIdentityPresent);
+        bool RootMatches,bool Selected,bool BackupIdentityPresent)
+    {
+        // Original source GUID never serialized into a LAN status packet.
+        public Guid MapId {get;init;}
+        public string OriginalRoot {get;init;}="";
+    }
     public sealed record Report(bool LocalFilesVerified,bool ClusterHashVerified,
         bool LocalLockVerified,bool AllLocalMapsActive,bool LocalSnapshotReady,
         bool LiveTwoHostVerified,bool CharacterTravelVerified,
@@ -36,6 +41,7 @@ public static class LegacyStoreV1LocalReader
         // Complete four-file byte identity, including original map members,
         // ordered selection and backup IDs; never expose the source bytes.
         public string OriginalFourFilesTag {get;init;}="";
+        public string OriginalMapRosterTag {get;init;}="";
     }
     private static string Tag(string input)=>Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(input.Trim().ToLowerInvariant())));
@@ -102,7 +108,8 @@ public static class LegacyStoreV1LocalReader
             bool marked=selection.Contains(id,StringComparer.OrdinalIgnoreCase);
             bool backup=Guid.TryParse(Text(record,"backupId"),out var backupId)&&
                 backupId!=Guid.Empty;
-            evidence.Add(new(name,active,sameSession,sameRoot,marked,backup));
+            evidence.Add(new(name,active,sameSession,sameRoot,marked,backup)
+            {MapId=memberId,OriginalRoot=install});
         }
         if(!ids.SetEquals(selection))
             throw new InvalidDataException("UM-LOCAL-STORE-SELECTED-IDS");
@@ -125,6 +132,8 @@ public static class LegacyStoreV1LocalReader
             SessionTag=Tag(session.ToString("D")),
             SharedPathTag=Tag(Text(cluster,"path").Replace('/','\\').TrimEnd('\\')),
             DeviceTag=Tag(Text(device,"id")),
+            OriginalMapRosterTag=LegacyStoreV1RosterIdentity.Tag(
+                evidence.Select(m=>(m.MapId,m.MapKey,m.OriginalRoot))),
             OriginalFourFilesTag=Convert.ToHexString(SHA256.HashData(
                 Encoding.ASCII.GetBytes("STORE_V1_ORIGINAL_FOUR_FILES:"+
                     string.Join(":",Names.Select(n=>Convert.ToHexString(
