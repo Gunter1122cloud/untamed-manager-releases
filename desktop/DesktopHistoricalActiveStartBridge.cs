@@ -200,9 +200,24 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     if(map==null||!map.HistoricalStoreProtected)
                         return Fail(id,"UM-STORE-ACTIVE-LOCAL-ONLY");
                     var observed=cluster.ObserveLocalProcessesReadOnly(map);
+                    bool confirmedStopped=observed.ConfirmedStopped;
+                    if(!observed.Running&&!confirmedStopped&&
+                       observed.Identity==null&&observed.LoaderIdentity==null)
+                    {
+                        // Ordinary original Store observation is intentionally
+                        // conservative and may report "unknown" even when no
+                        // ASA process exists. Only the DEDICATED native
+                        // stopped-family check can enable mode selection.
+                        // Missing WMI/EXE metadata still denies permission.
+                        var stopped=LegacyStoreV1ProcessObserver.
+                            ObserveStoppedForNativeStart(map,cluster.Config.LocalMaps);
+                        confirmedStopped=stopped.ConfirmedStopped&&
+                            !stopped.Running&&stopped.Identity==null&&
+                            stopped.LoaderIdentity==null;
+                    }
                     return Ok(id,new{
                         mapId,mapName=map.Name,running=observed.Running,
-                        confirmedStopped=observed.ConfirmedStopped,
+                        confirmedStopped,
                         pid=observed.Identity?.Pid,
                         serverPid=observed.Identity?.Pid,
                         loaderPid=observed.LoaderIdentity?.Pid,
