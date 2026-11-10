@@ -45,6 +45,20 @@ internal static class LocalRunningAsaDiscoveryTests
             "unreadable process identity cannot be mistaken for a registered map");
         Check(found.All(x=>!x.Controllable&&!x.StoreWriteAuthorized),
             "even successful source-key candidates grant zero lifecycle or Store authority");
+        var childWithoutMap=sample[1] with{
+            CommandLine="\""+server+"\" -log -NoBattlEye"};
+        var inferred=LocalRunningAsaDiscovery.Classify(
+            new[]{sample[0],childWithoutMap},new[]{original}).Last();
+        Check(inferred.MapKey=="TheIsland_WP"&&inferred.LoaderParentObserved&&
+              inferred.MatchState=="unverified"&&inferred.ProfileMapId==null&&
+              !inferred.Controllable&&!inferred.StoreWriteAuthorized,
+            "child without map argument displays verified loader hint but has no ownership");
+        var unrelatedChild=childWithoutMap with{ParentPid=12345};
+        var denied=LocalRunningAsaDiscovery.Classify(
+            new[]{sample[0],unrelatedChild},new[]{original}).Last();
+        Check(denied.MapKey=="unknown"&&!denied.LoaderParentObserved&&
+              denied.MatchState=="unverified",
+            "unrelated child cannot inherit a loader map hint");
         var spoof=sample[1] with{CommandLine="\""+loader+
             "\" TheIsland_WP?listen -Port=7777"};
         Check(LocalRunningAsaDiscovery.Classify(new[]{spoof},new[]{original})
