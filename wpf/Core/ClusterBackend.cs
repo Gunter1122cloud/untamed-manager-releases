@@ -1189,6 +1189,8 @@ public sealed partial class ClusterService : IAsyncDisposable
     public ProcessCheck Check(LocalMap map)
     {
         if(!Config.LocalMaps.Contains(map)) throw new UnauthorizedAccessException("Not a local map");
+        if(map.ObservedReadOnlyImported)
+            return new(false,"UM-LIVE-OBSERVATION-ONLY-STOP-UNVERIFIED",null,false);
         if(map.HistoricalStoreProtected)
             return new(false,"Történeti Store-v1 map: indítás tiltva a teljes eredeti launch/szinkron validációjáig",null);
         if((map.Arguments+" "+map.ApiLoaderArguments).Contains("converttostore",StringComparison.OrdinalIgnoreCase))
