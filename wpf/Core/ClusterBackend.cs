@@ -1234,7 +1234,16 @@ public sealed partial class ClusterService : IAsyncDisposable
             }
             if(original==null)
             {
-                staged.Add(observed);added++;continue;
+                // Never retain a reference to the live WMI/import candidate
+                // inside the durable Manager registry. The candidate may be
+                // reused by a preflight or test and later mutated; storing
+                // that alias would silently rewrite source-identifying
+                // fields in memory without a ConfigStore CAS or revalidation.
+                var isolated=JsonSerializer.Deserialize<LocalMap>(
+                    JsonSerializer.Serialize(observed))??
+                    throw new InvalidDataException(
+                        "UM-ORIGINAL-LIVE-NEW-PROFILE-CLONE-FAILED");
+                staged.Add(isolated);added++;continue;
             }
             // Previous direct/STOPPED imports did not yet know whether an
             // existing Kova ASA was an API child. This is the ONLY permitted
