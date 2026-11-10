@@ -22,7 +22,17 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
   useEffect(()=>{
     let active=true;
     managerBridge.steamStoppedCurrent()
-      .then(value=>{if(active)setJournal(value);})
+      .then(value=>{
+        if(!active)return;
+        setJournal(value);
+        // Reattach to a verified in-memory native job after WebView2/UI
+        // navigation or renderer reload. Never re-dispatch SteamCMD here.
+        if(value.activeJob && (value.activeJob.state==="queued"||
+           value.activeJob.state==="running")){
+          setJob(value.activeJob);
+          setJobId(value.activeJob.jobId);
+        }
+      })
       .catch(()=>{/* Older isolated UI fixtures may lack the journal endpoint. */});
     return ()=>{active=false;};
   },[]);
