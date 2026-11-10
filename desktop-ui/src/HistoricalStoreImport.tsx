@@ -2,7 +2,8 @@ import { useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
   type OriginalKovaLocalMapList, type OriginalKovaImportPreview,
-  type OriginalKovaBatchPreview, type OriginalKovaClusterPreview } from "./bridge";
+  type OriginalKovaBatchPreview, type OriginalKovaLiveBatchPreview,
+  type OriginalKovaClusterPreview } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -13,6 +14,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [directPreview,setDirectPreview]=useState<OriginalKovaImportPreview|null>(null);
   const [batchPreview,setBatchPreview]=useState<OriginalKovaBatchPreview|null>(null);
   const [batchApproved,setBatchApproved]=useState(false);
+  const [liveBatchPreview,setLiveBatchPreview]=useState<OriginalKovaLiveBatchPreview|null>(null);
+  const [liveControllerStopped,setLiveControllerStopped]=useState(false);
+  const [liveTypedApproval,setLiveTypedApproval]=useState("");
   const [clusterPreview,setClusterPreview]=useState<OriginalKovaClusterPreview|null>(null);
   const [clusterApproval,setClusterApproval]=useState("");
   const [clusterBusy,setClusterBusy]=useState(false);
@@ -110,6 +114,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setDirectList(null);setDirectPreview(null);setDirectApproved(false);
     setBatchPreview(null);setBatchApproved(false);
+    setLiveBatchPreview(null);setLiveControllerStopped(false);setLiveTypedApproval("");
     try{
       const result=await managerBridge.historicalOriginalList();
       if(epoch!==directEpoch.current)return;
@@ -207,6 +212,53 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       if(epoch===directEpoch.current)setDirectError(
         "A kötegelt import nem került teljesen rögzítésre ("+
         (e instanceof Error?e.message:"natív hiba")+"). Ellenőrizd a mapregisztert.");
+    }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
+  };
+
+  const previewLiveFive=async()=>{
+    if(directBusy||registering||!directList||
+       directList.maps.some(m=>m.registered))return;
+    const epoch=++directEpoch.current;
+    setDirectBusy(true);setDirectError("");setDirectNotice("");
+    setBatchPreview(null);setBatchApproved(false);setLiveBatchPreview(null);
+    setLiveControllerStopped(false);setLiveTypedApproval("");
+    try{
+      const proof=await managerBridge.historicalOriginalLiveBatchPreview();
+      if(epoch===directEpoch.current)setLiveBatchPreview(proof);
+    }catch(e){
+      if(epoch===directEpoch.current)setDirectError(
+        "A futó eredeti Store-v1 szerverek natív ACTIVE/DONE, WMI/PID, "+
+        "kétpeer session vagy mod/port ellenőrzése sikertelen ("+
+        (e instanceof Error?e.message:"UM-ORIGINAL-LIVE-UNVERIFIED")+"). "+
+        "Nem állítottunk le és nem indítottunk ASA-folyamatot.");
+    }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
+  };
+  const applyLiveFive=async()=>{
+    if(directBusy||registering||!liveBatchPreview||
+       !liveControllerStopped||liveTypedApproval!=="STORE-V1 FUTÓ ÁTVÉTEL")return;
+    const token=liveBatchPreview.token,epoch=++directEpoch.current;
+    setDirectBusy(true);setDirectError("");setDirectNotice("");
+    setLiveBatchPreview(null);setLiveTypedApproval("");setLiveControllerStopped(false);
+    try{
+      const receipt=await managerBridge.historicalOriginalLiveBatchApply(
+        token,true,"STORE-V1 FUTÓ ÁTVÉTEL");
+      if(epoch!==directEpoch.current)return;
+      setDirectNotice(receipt.importedMaps+" futó, eredeti Store-v1 map bekerült "+
+        "az Obsidian helyi regiszterébe a régi GUID-dal és folyamat-PID-vel. "+
+        "Nem indult, nem állt le ASA, és semmilyen Store-writer, session "+
+        "vagy karakterfájl nem módosult. A meglévő RCON csatlakoztatása külön "+
+        "natív ellenőrzés után végezhető el.");
+      setDirectList(prev=>prev?{...prev,maps:prev.maps.map(m=>
+        receipt.mapIds.includes(m.mapId)?{...m,registered:true}:m)}:prev);
+      setDirectMapId("");
+      try{await onImported();}
+      catch{setDirectError("A Store-profil átvétele megtörtént, "+
+        "de a frissített maplista nem tölthető be. Ne ismételd automatikusan.");}
+    }catch(e){
+      if(epoch===directEpoch.current)setDirectError(
+        "Az eredeti futó Store-v1 mapok átvétele nem igazolható ("+
+        (e instanceof Error?e.message:"UM-ORIGINAL-LIVE-FAILED")+
+        "). Ellenőrizd a Manager helyi mapregiszterét, ne futtasd újra vakon.");
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
 
@@ -309,7 +361,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           Az eredeti launch-profiles-v1.json fájlból veszi át a Game/Query portokat,
           az aktív és passzív modok pontos sorrendjét. Ha ez a fájl hiányzik,
           a korábbi Manager ZIP alapú importálása használható.
-          A map legyen leállítva; az import csak az Obsidian saját regiszterét módosítja.
+          A leállított mapokra a szokásos kötegelt import használható.
+          Már futó mind az öt eredeti Store-v1 maphoz a külön natív,
+          ACTIVE/DONE és PID/ASA API-szülő–gyermek ellenőrzéses átvétel
+          elérhető, szerverleállítás és újrakonvertálás nélkül.
         </p>
         <button type="button" className="secondary"
           disabled={directBusy||registering} onClick={()=>{void loadOriginalMaps();}}>
@@ -324,6 +379,53 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <Archive size={16}/> Összes hiányzó helyi map átvétele egy lépésben
             </button>
           </div>}
+        {directList&&directList.maps.length===5&&
+          directList.maps.every(m=>!m.registered)&&<div className="settings-actions">
+            <button type="button" className="secondary" disabled={directBusy||registering}
+              onClick={()=>{void previewLiveFive();}}>
+              <Shield size={16}/> Öt már futó eredeti Store-v1 map teljes natív felismerése
+            </button>
+          </div>}
+        {liveBatchPreview&&<div className="historical-preview" role="region"
+          aria-label="Öt futó Store-v1 szerver átvételének jóváhagyása">
+          <h4>{liveBatchPreview.localMaps} eredeti, futó Kova-map átvétele</h4>
+          <p>{liveBatchPreview.mapNames.join(", ")}</p>
+          <p className="muted small">
+            {liveBatchPreview.directProcesses} közvetlen ASA,
+            {liveBatchPreview.apiLoaderPairs} ellenőrzött ASA API Loader-pár.
+            A natív Windows azonosító, folyamatindítási idő, teljes eredeti
+            argumentumok, Kova ACTIVE/DONE session és mindkét peer forrása egyezik.
+            Az átvétel nem hoz létre új ASA-folyamatot, nem végez Store-írást.
+          </p>
+          <p className="muted small">
+            A korábbi Kova Manager vezérlését előzőleg meg kell szüntetni,
+            de a futó ASA-folyamatokat nem kell leállítani. Két Manager
+            egyszerre nem vezérelheti ugyanazokat a mapokat.
+          </p>
+          <label className="historical-approval">
+            <input type="checkbox" checked={liveControllerStopped}
+              disabled={directBusy}
+              onChange={e=>setLiveControllerStopped(e.target.checked)}/>
+            Megerősítem, hogy a régi Kova Manager már nem felügyeli ezeket
+            a folyamatokat. Nem állítottam le az ASA-szervereket.
+          </label>
+          <label>Végső jóváhagyás – írd be: STORE-V1 FUTÓ ÁTVÉTEL
+            <input aria-label="Store-v1 futó átvétel megerősítése"
+              value={liveTypedApproval} disabled={directBusy}
+              onChange={e=>setLiveTypedApproval(e.target.value)}/>
+          </label>
+          <div className="settings-actions">
+            <button type="button" className="primary"
+              disabled={directBusy||!liveControllerStopped||
+                liveTypedApproval!=="STORE-V1 FUTÓ ÁTVÉTEL"}
+              onClick={()=>{void applyLiveFive();}}>
+              <Shield size={16}/> Eredeti öt futó Store-v1 map átvétele
+            </button>
+            <button type="button" className="secondary" disabled={directBusy}
+              onClick={()=>{setLiveBatchPreview(null);setLiveTypedApproval("");
+                setLiveControllerStopped(false);}}>Mégsem</button>
+          </div>
+        </div>}
         {batchPreview&&<div className="historical-preview" role="region"
           aria-label="Összes eredeti Kova-map importálásának jóváhagyása">
           <h4>{batchPreview.localMaps} eredeti map egyetlen regisztrációval</h4>
