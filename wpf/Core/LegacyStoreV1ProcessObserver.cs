@@ -87,6 +87,76 @@ public static class LegacyStoreV1ProcessObserver
     }
 
     /// <summary>
+    /// ASA API may launch an ASA CHILD with no map/cluster switches at all:
+    /// the exact ORIGINAL map, Store and port grammar remains on its parent.
+    /// The child can be attributed to that original map ONLY when Windows
+    /// proves an exact unique Loader PID/creation-time/parent relationship,
+    /// both executables live in that exact original installation, and the
+    /// parent's complete source command matches. This never infers Store
+    /// writer ownership, RCON access, or process lifecycle permission.
+    /// Nonempty child source switches (including another map, port, cluster
+    /// or conversion) are deliberately rejected.
+    /// </summary>
+    public static bool MatchesOriginalApiLoaderChild(
+        string? childCommand,string expectedServer,int childPid,int childParentPid,
+        DateTimeOffset childStarted,string? loaderCommand,string expectedLoader,
+        int loaderPid,DateTimeOffset loaderStarted,LocalMap map)
+    {
+        if(map==null||!map.HistoricalStoreProtected||
+           childPid<=0||loaderPid<=0||childPid==loaderPid||
+           childParentPid!=loaderPid||
+           childStarted.Year<2020||loaderStarted.Year<2020||
+           loaderStarted>childStarted||
+           string.IsNullOrWhiteSpace(expectedServer)||
+           string.IsNullOrWhiteSpace(expectedLoader))
+            return false;
+        try
+        {
+            string expected=Path.GetFullPath(map.ExecutablePath);
+            string loader=Path.Combine(Path.GetDirectoryName(expected)!,
+                "AsaApiLoader.exe");
+            if(!expected.Equals(Path.GetFullPath(expectedServer),
+                    StringComparison.OrdinalIgnoreCase)||
+               !loader.Equals(Path.GetFullPath(expectedLoader),
+                    StringComparison.OrdinalIgnoreCase)||
+               !MatchesOriginalActiveCommand(loaderCommand,loader,map))
+                return false;
+            string? childArgs=ExtractArguments(childCommand,expected);
+            if(childArgs==null||childArgs.IndexOfAny(new[]{'"','\r','\n','\0'})>=0)
+                return false;
+            // Only harmless child-local runtime flags are accepted. Launch
+            // parameters that affect game, Query/RCON, Store or transfer must
+            // be proved by the parent, and may NOT be independently overridden.
+            string[] tokens=childArgs.Split((char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries);
+            return tokens.All(token=>
+                token.Equals("-log",StringComparison.OrdinalIgnoreCase)||
+                token.Equals("-NoBattlEye",StringComparison.OrdinalIgnoreCase)||
+                token.Equals("-NoHangDetection",StringComparison.OrdinalIgnoreCase));
+        }
+        catch(Exception ex) when(ex is ArgumentException or InvalidDataException or
+            NotSupportedException or PathTooLongException)
+        {return false;}
+    }
+
+    private static bool MinimalOriginalApiChildArguments(
+        string? commandLine,string expectedServer)
+    {
+        try
+        {
+            var args=ExtractArguments(commandLine,expectedServer);
+            if(args==null||args.IndexOfAny(new[]{'"','\r','\n','\0'})>=0)return false;
+            return args.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries)
+                .All(token=>
+                    token.Equals("-log",StringComparison.OrdinalIgnoreCase)||
+                    token.Equals("-NoBattlEye",StringComparison.OrdinalIgnoreCase)||
+                    token.Equals("-NoHangDetection",StringComparison.OrdinalIgnoreCase));
+        }
+        catch(Exception ex) when(ex is ArgumentException or NotSupportedException
+            or PathTooLongException){return false;}
+    }
+
+    /// <summary>
     /// Multiple owned ASA maps may legitimately share ONE executable path.
     /// A process with an unequivocally DIFFERENT original MAP?listen token
     /// is not a candidate for this map and must not poison its evidence.
