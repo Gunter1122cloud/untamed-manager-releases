@@ -21,6 +21,11 @@ public sealed record LegacyStoreV1PeerProof(
     public string PhysicalDirectoryTag {get;init;}="";
     public DateTimeOffset? PhysicalObservedUtc {get;init;}
     public string OriginalFourFilesTag {get;init;}="";
+    // A source roster tag is only a hash of the original five GUID/level
+    // pairs. Whether Obsidian has registered those exact original five maps
+    // is checked independently; source metadata alone is NOT enrollment.
+    public string OriginalMapRosterTag {get;init;}="";
+    public bool OriginalFiveRegisteredInManager {get;init;}
 
     // Only explicitly requested historical, MANAGER-LOCAL SaveComplete
     // receipts. This is neither live ASA quiescence nor Store writer proof.
@@ -47,7 +52,8 @@ public sealed record LegacyStoreV1PeerProof(
                 report.SessionTag,report.SharedPathTag,report.DeviceTag,
                 false,false,"ORIGINAL_FOUR_LOCAL_STORE_FILES_HASHED_READ_ONLY")
             {
-                OriginalFourFilesTag=report.OriginalFourFilesTag
+                OriginalFourFilesTag=report.OriginalFourFilesTag,
+                OriginalMapRosterTag=report.OriginalMapRosterTag
             };
         }
         catch(Exception)
@@ -68,6 +74,7 @@ public sealed record LegacyStoreV1PairObservation(
     bool CopiedMetadataPairMatches,bool LiveWriterCertified,
     bool CharacterTravelVerified,string StatusCode)
 {
+    public bool BothOriginalFiveRegisteredInManagers {get;init;}
     public bool BothPhysicalWitnessesFresh {get;init;}
     public bool SamePhysicalTransferDirectory {get;init;}
     public bool BothHistoricalLocalSaveWitnessesFresh {get;init;}
@@ -183,6 +190,10 @@ public static class LegacyStoreV1PairComparison
         return new(present,session,shared,distinct,five,matching,
             false,false,code)
         {
+            BothOriginalFiveRegisteredInManagers=matching&&
+                local!.OriginalFiveRegisteredInManager&&
+                remote!.OriginalFiveRegisteredInManager&&
+                Hash(local.OriginalMapRosterTag)&&Hash(remote.OriginalMapRosterTag),
             BothPhysicalWitnessesFresh=bothPhysical,
             SamePhysicalTransferDirectory=samePhysical,
             BothHistoricalLocalSaveWitnessesFresh=bothSaveFresh,
