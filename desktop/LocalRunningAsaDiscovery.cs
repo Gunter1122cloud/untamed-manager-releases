@@ -22,7 +22,8 @@ public static class LocalRunningAsaDiscovery
         string ProcessKind,string MapKey,string MatchState,string? ProfileMapId,
         string? ProfileMapName,bool LoaderParentObserved,
         bool Controllable=false,bool StoreWriteAuthorized=false,
-        LocalAsaLaunchFacts.Facts? LaunchFacts=null);
+        LocalAsaLaunchFacts.Facts? LaunchFacts=null,
+        bool ObservedReadOnlyImported=false);
 
     private static readonly Regex MapToken=new(
         @"\A(?<map>[A-Za-z0-9_]{1,100})\?listen\z",
@@ -161,7 +162,8 @@ public static class LocalRunningAsaDiscovery
             result.Add(new Observation(p.Pid,p.ParentPid,p.StartedUtc,kind,
                 key??"unknown",matchState,selected?.Id.ToString("D"),
                 selected?.Name,hasLoaderParent,false,false,
-                LocalAsaLaunchFacts.Parse(p.CommandLine,p.ExecutablePath)));
+                LocalAsaLaunchFacts.Parse(p.CommandLine,p.ExecutablePath),
+                selected?.ObservedReadOnlyImported??false));
         }
         return result.OrderBy(x=>x.Pid).ToArray();
     }
