@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -27,6 +28,24 @@ internal static class LegacyStorePhysicalTransferTests
             new{id=Guid.NewGuid().ToString("D"),method}));
         using var parsed=JsonDocument.Parse(response);
         return parsed.RootElement.Clone();
+    }
+
+    private static async Task<JsonElement> CallHistoricalBootstrap(
+        DesktopHistoricalStoreImportBridge bridge,string method,
+        string? token=null,string? typedApproval=null)
+    {
+        var request=new Dictionary<string,object?>{
+            ["id"]=Guid.NewGuid().ToString("D"),["method"]=method
+        };
+        if(token!=null)
+        {
+            request["token"]=token;
+            request["confirm"]=true;
+            request["typedApproval"]=typedApproval;
+        }
+        using var json=JsonDocument.Parse(await bridge.HandleAsync(
+            JsonSerializer.Serialize(request)));
+        return json.RootElement.Clone();
     }
 
     public static async Task Run(string testRoot)
@@ -236,6 +255,73 @@ internal static class LegacyStorePhysicalTransferTests
                   !status.GetProperty("data").GetProperty("originalStorePair")
                     .GetProperty("samePhysicalTransferDirectory").GetBoolean(),
                 "local proof ALONE cannot certify remote UNC identity or authorize a Store transfer");
+            // A separate native Manager metadata transaction must now be
+            // able to import the five source-pinned historical memberships.
+            // Do not silently rewrite any original Store file or the UNC.
+            foreach(var originalMap in members)
+                manager.AddMap(new LocalMap{
+                    Id=Guid.Parse(originalMap.id),
+                    Name=originalMap.map,
+                    HistoricalStoreProtected=true,
+                    HistoricalMapKey=originalMap.map,
+                    HistoricalArchiveSha256=report.OriginalFourFilesTag
+                });
+            using(var registryBridge=new DesktopHistoricalStoreImportBridge(
+                manager,localLegacyDataDirectory:original))
+            {
+                var peek=await CallHistoricalBootstrap(registryBridge,
+                    "historical.originalClusterPreview");
+                Check(peek.GetProperty("ok").GetBoolean() &&
+                      peek.GetProperty("data").GetProperty("fiveOriginalMaps")
+                        .GetInt32()==5 &&
+                      peek.GetProperty("data").GetProperty("missingAssignments")
+                        .GetInt32()==5 &&
+                      !peek.GetRawText().Contains(fakeUnc,StringComparison.Ordinal),
+                    "source-pinned historical Cluster bootstrap preview does not disclose UNC or mutate registry");
+                string approvalToken=peek.GetProperty("data").GetProperty("token").GetString()!;
+                var denied=await CallHistoricalBootstrap(registryBridge,
+                    "historical.originalClusterApply",approvalToken,"WRONG");
+                Check(!denied.GetProperty("ok").GetBoolean() &&
+                      manager.Registry.Snapshot().ClusterRegistry.Clusters.Count==0,
+                    "wrong source-metadata approval never creates a cluster");
+                var complete=await CallHistoricalBootstrap(registryBridge,
+                    "historical.originalClusterApply",approvalToken,
+                    "EREDETI KOVA REGISZTER");
+                Check(complete.GetProperty("ok").GetBoolean() &&
+                      complete.GetProperty("data").GetProperty("addedCount").GetInt32()==5 &&
+                      !complete.GetProperty("data").GetProperty("serverStarted").GetBoolean() &&
+                      manager.Registry.Snapshot().ClusterRegistry.MapAssignments.Count==5 &&
+                      manager.Registry.Snapshot().ClusterRegistry.Clusters.Single()
+                        .ClusterId=="kovacluster",
+                    "explicit native commit atomically adopts five original assignments in Manager metadata only");
+                var replay=await CallHistoricalBootstrap(registryBridge,
+                    "historical.originalClusterApply",approvalToken,
+                    "EREDETI KOVA REGISZTER");
+                Check(!replay.GetProperty("ok").GetBoolean(),
+                    "one-use metadata approval token cannot be replayed");
+                long revision=manager.Registry.Snapshot().Revision;
+                var again=await CallHistoricalBootstrap(registryBridge,
+                    "historical.originalClusterPreview");
+                Check(again.GetProperty("ok").GetBoolean() &&
+                      again.GetProperty("data").GetProperty("missingAssignments")
+                        .GetInt32()==0,
+                    "already imported original five members are shown as an idempotent no-op");
+                string repeatToken=again.GetProperty("data").GetProperty("token").GetString()!;
+                var repeat=await CallHistoricalBootstrap(registryBridge,
+                    "historical.originalClusterApply",repeatToken,
+                    "EREDETI KOVA REGISZTER");
+                Check(repeat.GetProperty("ok").GetBoolean() &&
+                      repeat.GetProperty("data").GetProperty("addedCount").GetInt32()==0 &&
+                      manager.Registry.Snapshot().Revision==revision,
+                    "repeat of exact original metadata does not change revision");
+                bool transferRebindBlocked=false;
+                try{manager.Registry.UpdateCluster("KovaCluster",
+                    "Original Kova Store-v1",Path.Combine(root,"foreign-transfer"));}
+                catch(UnauthorizedAccessException){transferRebindBlocked=true;}
+                Check(transferRebindBlocked,
+                    "original Kova transfer metadata remains protected after bootstrap");
+            }
+
         }
         await using(var restarted=new ClusterService("physical-test",managerProfile,
             _=>new ProcessCheck(false,"Synthetic stopped only",null,true),
