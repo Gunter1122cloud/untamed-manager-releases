@@ -149,8 +149,71 @@ internal static class OriginalKovaDirectImportTests
               imported.HistoricalEnabledMods.SequenceEqual(
                   new[]{"123456789","987654321"})&&
               imported.HistoricalPassiveMods.SequenceEqual(new[]{"123456789"})&&
-              !imported.AutoStart,
-            "registered map keeps original identity and requires separate native Start/RCON");
+              !imported.AutoStart&&imported.HistoricalLaunchModeNeedsApproval,
+            "stopped original import preserves identity but blocks unapproved direct ASA launch");
+        bool startBlocked=false;
+        try{_=LegacyStoreV1NativeStartPlanner.Prepare(cluster,imported);}
+        catch(InvalidDataException ex)
+        {
+            startBlocked=ex.Message=="UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED";
+        }
+        Check(startBlocked,
+            "unapproved stopped Kova import cannot reach any Process.Start or RCON preflight");
+
+        // Native mode approval is kept separate from import. A test-only
+        // preflight delegate models a STOPPED API-capable map without touching
+        // any real Kova, ASA process, RCON listener or shared drive.
+        await using(var modeCluster=new ClusterService("synthetic-mode-lab",
+            Path.Combine(baseRoot,"launch-mode-approval-manager"),
+            _=>new ProcessCheck(false,"synthetic stopped",null,true)))
+        {
+            var stagedMap=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(imported))!;
+            stagedMap.RconPort=37015;
+            stagedMap.RconPasswordProtected=SecureStore.Protect(
+                "SYNTHETIC_TEST_ONLY_RCON_PASSWORD");
+            modeCluster.AddMap(stagedMap);
+            using var modeBridge=new DesktopHistoricalActiveStartBridge(
+                modeCluster,null,null,(_,_)=>true);
+            var modeStatus=await Call(modeBridge.HandleAsync,
+                "historical.activeStartStatus",new{mapId=stagedMap.Id});
+            Check(modeStatus.GetProperty("ok").GetBoolean()&&
+                  modeStatus.GetProperty("data").GetProperty(
+                      "launchModeApprovalRequired").GetBoolean(),
+                "stopped import's native status exposes unresolved Loader mode");
+            var deniedStart=await Call(modeBridge.HandleAsync,
+                "historical.activeStartPreview",new{mapId=stagedMap.Id});
+            Check(!deniedStart.GetProperty("ok").GetBoolean()&&
+                  deniedStart.GetProperty("error").GetString()==
+                    "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED",
+                "first direct ASA Start is denied while launch mode is unconfirmed");
+            var approveApi=await Call(modeBridge.HandleAsync,
+                "historical.loaderModePreview",
+                new{mapId=stagedMap.Id,useApi=true});
+            Check(approveApi.GetProperty("ok").GetBoolean()&&
+                  approveApi.GetProperty("data").GetProperty("useApi").GetBoolean(),
+                "stopped map can select ASA API Loader with explicit preview");
+            var declined=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",
+                new{token=approveApi.GetProperty("data").GetProperty("token").GetString(),
+                    confirm=false});
+            Check(!declined.GetProperty("ok").GetBoolean()&&
+                  stagedMap.HistoricalLaunchModeNeedsApproval,
+                "no approval never changes launch mode or starts the server");
+            var approveApiAgain=await Call(modeBridge.HandleAsync,
+                "historical.loaderModePreview",
+                new{mapId=stagedMap.Id,useApi=true});
+            var selected=await Call(modeBridge.HandleAsync,
+                "historical.loaderModeApply",
+                new{token=approveApiAgain.GetProperty("data").GetProperty("token").GetString(),
+                    confirm=true});
+            Check(selected.GetProperty("ok").GetBoolean()&&
+                  stagedMap.StartWithAsaApi&&
+                  !stagedMap.HistoricalLaunchModeNeedsApproval&&
+                  stagedMap.ApiLoaderPath.EndsWith("AsaApiLoader.exe",
+                      StringComparison.OrdinalIgnoreCase),
+                "explicit native approval selects Loader, clears gate and never launches ASA");
+        }
 
         var duplicate=await Call(bridge,"historical.originalPreview",
             new{mapId=ids[0],gamePort=7777,queryPort=27015});
@@ -245,8 +308,9 @@ internal static class OriginalKovaDirectImportTests
               batchCluster.Config.LocalMaps.Select(m=>m.Id.ToString("D")).SequenceEqual(ids),
             "one approved native batch registers five original GUIDs atomically");
         Check(batchCluster.Config.LocalMaps.All(m=>m.HistoricalStoreProtected&&
+              m.HistoricalLaunchModeNeedsApproval&&
               !m.AutoStart&&m.RconPort==0),
-            "all batch-imported maps remain operator-controlled without auto-start");
+            "all batch-imported maps require explicit launch-mode selection before first Start");
         var afterBatch=await Call(batchBridge,"historical.originalBatchPreview");
         Check(!afterBatch.GetProperty("ok").GetBoolean(),
             "repeating an already imported five-map batch does not duplicate entries");
