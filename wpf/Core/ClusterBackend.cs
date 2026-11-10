@@ -1297,6 +1297,9 @@ public sealed partial class ClusterService : IAsyncDisposable
                 JsonSerializer.Serialize(original))??
                 throw new InvalidDataException("UM-ORIGINAL-LIVE-CLONE-FAILED");
             clone.StartWithAsaApi=observed.StartWithAsaApi;
+            // A complete fresh WMI/source/parent-child proof resolves any
+            // launch-mode uncertainty from an earlier stopped Kova import.
+            clone.HistoricalLaunchModeNeedsApproval=false;
             clone.ApiLoaderPath=observed.ApiLoaderPath;
             clone.LastProcess=observed.LastProcess;
             clone.LastLoader=observed.LastLoader;
