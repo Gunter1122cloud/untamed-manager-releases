@@ -74,11 +74,17 @@ internal static class EmbeddedStorePartialIndexTests
             DataSource=path,Mode=SqliteOpenMode.ReadWriteCreate,Pooling=false
         }.ToString());
         db.Open();
-        using var command=db.CreateCommand();
-        command.CommandText="CREATE TABLE IF NOT EXISTS custom(key TEXT PRIMARY KEY,value BLOB);"+
-            "INSERT OR REPLACE INTO custom(key,value) VALUES('GameModeCustomBytes',$data)";
-        command.Parameters.AddWithValue("$data",blob);
-        command.ExecuteNonQuery();
+        using(var create=db.CreateCommand())
+        {
+            create.CommandText="CREATE TABLE IF NOT EXISTS custom(key TEXT PRIMARY KEY,value BLOB)";
+            create.ExecuteNonQuery();
+        }
+        using(var insert=db.CreateCommand())
+        {
+            insert.CommandText="INSERT OR REPLACE INTO custom(key,value) VALUES('GameModeCustomBytes',$data)";
+            insert.Parameters.AddWithValue("$data",blob);
+            insert.ExecuteNonQuery();
+        }
     }
     private static bool Denies(Func<object> read)
     {
