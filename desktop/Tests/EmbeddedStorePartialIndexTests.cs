@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -14,6 +15,11 @@ using UntamedDesktop;
 // Kova metadata or private archives are committed to this repository.
 internal static class EmbeddedStorePartialIndexTests
 {
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,EntryPoint="CreateHardLinkW",
+        SetLastError=true)]
+    [return:MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateSyntheticHardLink(
+        string newFile,string existingFile,IntPtr security);
     private static void Check(bool condition,string reason)
     {
         if(!condition)throw new InvalidOperationException(
@@ -89,7 +95,7 @@ internal static class EmbeddedStorePartialIndexTests
     private static bool Denies(Func<object> read)
     {
         try {_=read();return false;}
-        catch(InvalidDataException){return true;}
+        catch(Exception ex) when(ex is InvalidDataException or IOException){return true;}
     }
     public static async Task Run(string sandbox)
     {
@@ -129,6 +135,33 @@ internal static class EmbeddedStorePartialIndexTests
                   !response.Contains(folder,StringComparison.OrdinalIgnoreCase),
                 "native offline picker reports partial results but exposes no private source paths");
         }
+
+        // When a separate process owns a writable handle the read-only
+        // index inspector must not issue any SQLite BLOB reads or imply a
+        // stable original world, even if file length and mtime did not move.
+        SetBlob(world,Blob("valid"));
+        using(var foreignWriter=new FileStream(world,FileMode.Open,
+            FileAccess.ReadWrite,FileShare.ReadWrite))
+        {
+            Check(Denies(()=>EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(world)),
+                "outstanding original .ark writable handle rejects offline index proof");
+            using var protectedBridge=new DesktopEmbeddedStoreBridge(()=>world);
+            var denied=await protectedBridge.HandleAsync(JsonSerializer.Serialize(
+                new{id=Guid.NewGuid().ToString("D"),method="store.inspectCopy"}));
+            using var deniedDoc=JsonDocument.Parse(denied);
+            Check(!deniedDoc.RootElement.GetProperty("ok").GetBoolean(),
+                "read-only Store UI bridge fails closed during concurrent world writes");
+        }
+        string alias=Path.Combine(folder,"linked-world.ark");
+        Check(CreateSyntheticHardLink(alias,world,IntPtr.Zero),
+            "synthetic original world hardlink alias created on Windows");
+        Check(Denies(()=>EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(world))&&
+              Denies(()=>EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(alias)),
+            "both hardlinked .ark names are rejected even without a reparse point");
+        File.Delete(alias);
+        var ordinary=EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(world);
+        Check(ordinary.IndexBoundsVerified&&ordinary.State=="INDEX_SCANNED",
+            "single-link stable offline world remains readable after alias removal");
 
         using(var output=new MemoryStream())
         using(var w=new BinaryWriter(output,Encoding.UTF8,true))
