@@ -56,6 +56,22 @@ export function LocalRunningAsaPanel() {
             "Nem igazolható folyamatidentitás"
           }</p>
           {p.profileMapName && <p>Manager-profil: {p.profileMapName}</p>}
+          {p.launchFacts?.argumentsValidated && <>
+            <p>Game: {p.launchFacts.gamePort??"nem igazolt"} · Query: {p.launchFacts.queryPort??"nem igazolt"} · RCON: csak külön INI-ellenőrzéssel</p>
+            <p>Aktív modok: {p.launchFacts.activeModsState==="parsed"?
+              p.launchFacts.activeModIds.join(", "):
+              p.launchFacts.activeModsState==="notDeclared"?"nem szerepel a parancssorban":"nem igazolható"}
+            </p>
+            <p>Passzív modok: {p.launchFacts.passiveModsState==="parsed"?
+              p.launchFacts.passiveModIds.join(", "):
+              p.launchFacts.passiveModsState==="notDeclared"?"nem szerepel a parancssorban":"nem igazolható"}
+            </p>
+            <p>Store-v1: {p.launchFacts.storeFlagPresent?"kapcsoló észlelve":"nem igazolt"} ·
+              Cluster-ID kapcsoló: {p.launchFacts.clusterSwitchPresent?"észlelve":"nem igazolt"} ·
+              Transfer-útvonal kapcsoló: {p.launchFacts.transferOverridePresent?"észlelve":"nem igazolt"}</p>
+            {p.launchFacts.conversionFlagPresent && <p className="muted">
+              Konverziós kapcsoló észlelve – csak megfigyelés, újraindítás és átvétel tiltva.</p>}
+          </>}
           {p.loaderParentObserved && <p>ASA API Loader szülőfolyamat észlelve (csak megfigyelés).</p>}
         </div>
       </div>)}

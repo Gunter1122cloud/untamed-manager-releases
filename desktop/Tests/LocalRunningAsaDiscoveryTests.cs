@@ -80,5 +80,9 @@ internal static class LocalRunningAsaDiscoveryTests
         Check(!LocalRunningAsaDiscovery.Classify(new[]{sample[0],pidCollision},
               new[]{original}).Last().LoaderParentObserved,
             "self-parent never proves loader ancestry");
+        var extended=Enumerable.Range(0,72).Select(index=>
+            sample[2] with{Pid=20_000+index}).ToArray();
+        Check(LocalRunningAsaDiscovery.Classify(extended,new[]{original}).Count==72,
+            "local process discovery does not hard-code a ten-map or 64-process limit");
     }
 }

@@ -21,7 +21,8 @@ public static class LocalRunningAsaDiscovery
     public sealed record Observation(int Pid,int ParentPid,DateTimeOffset? StartedUtc,
         string ProcessKind,string MapKey,string MatchState,string? ProfileMapId,
         string? ProfileMapName,bool LoaderParentObserved,
-        bool Controllable=false,bool StoreWriteAuthorized=false);
+        bool Controllable=false,bool StoreWriteAuthorized=false,
+        LocalAsaLaunchFacts.Facts? LaunchFacts=null);
 
     private static readonly Regex MapToken=new(
         @"\A(?<map>[A-Za-z0-9_]{1,100})\?listen\z",
@@ -43,9 +44,12 @@ public static class LocalRunningAsaDiscovery
             or PathTooLongException){return false;}
     }
 
-    private static string? LaunchMap(string? command,string? expectedExe)
+    // Shared sanitized parser entry point. An unexpected executable identity,
+    // control character or excessive command line is not trusted.
+    internal static string? CommandArguments(string? command,string? expectedExe)
     {
-        if(string.IsNullOrWhiteSpace(command)||
+        if(string.IsNullOrWhiteSpace(command)||command.Length>8192||
+           command.Any(char.IsControl)||
            string.IsNullOrWhiteSpace(expectedExe))return null;
         string line=command.Trim(), executable;
         if(line.StartsWith('"'))
@@ -64,7 +68,13 @@ public static class LocalRunningAsaDiscovery
             executable=expectedExe;
             line=line[expectedExe.Length..].TrimStart();
         }
-        if(!SamePath(executable,expectedExe))return null;
+        return SamePath(executable,expectedExe)?line:null;
+    }
+
+    private static string? LaunchMap(string? command,string? expectedExe)
+    {
+        string? line=CommandArguments(command,expectedExe);
+        if(string.IsNullOrWhiteSpace(line))return null;
         var first=line.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries)
             .FirstOrDefault();
         if(first==null)return null;
@@ -115,7 +125,6 @@ public static class LocalRunningAsaDiscovery
             (p.Name.Equals("ArkAscendedServer.exe",StringComparison.OrdinalIgnoreCase)||
              p.Name.Equals("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase)))
             .ToArray();
-        if(samples.Length>64)throw new InvalidDataException("Too many ASA process observations");
         var result=new List<Observation>();
         foreach(var p in samples)
         {
@@ -146,7 +155,8 @@ public static class LocalRunningAsaDiscovery
                         StringComparison.OrdinalIgnoreCase));
             result.Add(new Observation(p.Pid,p.ParentPid,p.StartedUtc,kind,
                 key??"unknown",matchState,selected?.Id.ToString("D"),
-                selected?.Name,hasLoaderParent));
+                selected?.Name,hasLoaderParent,false,false,
+                LocalAsaLaunchFacts.Parse(p.CommandLine,p.ExecutablePath)));
         }
         return result.OrderBy(x=>x.Pid).ToArray();
     }
@@ -177,8 +187,6 @@ public static class LocalRunningAsaDiscovery
             samples.Add(new Sample(pid,Convert.ToInt32(item["ParentProcessId"]),
                 started,name,Convert.ToString(item["ExecutablePath"]),
                 Convert.ToString(item["CommandLine"])));
-            if(samples.Count>64)
-                throw new InvalidDataException("Too many ASA process observations");
         }
         return Classify(samples,maps);
     }

@@ -1285,6 +1285,10 @@ test.beforeEach(async ({ page }) => {
             {pid:4442,parentPid:4441,startedUtc:"2026-11-10T16:00:09Z",
               processKind:"asaServer",mapKey:"TheIsland_WP",matchState:"profileCandidate",
               profileMapId:one,profileMapName:"The Island",loaderParentObserved:true,
+              launchFacts:{gamePort:7777,queryPort:27015,activeModIds:["100011","100012"],
+                passiveModIds:["100013"],activeModsState:"parsed",passiveModsState:"parsed",
+                storeFlagPresent:true,clusterSwitchPresent:true,transferOverridePresent:true,
+                conversionFlagPresent:false,argumentsValidated:true},
               controllable:false,storeWriteAuthorized:false},
             {pid:4443,parentPid:3000,startedUtc:"2026-11-10T15:00:00Z",
               processKind:"asaServer",mapKey:"Ragnarok_WP",matchState:"unregistered",
@@ -2929,6 +2933,11 @@ test("P0 read-only native ASA discovery displays server/loader identities withou
   await expect(panel).toContainText("Egyező helyi profiljelölt");
   await expect(panel).toContainText("Nincs egyező helyi profil");
   await expect(panel).toContainText("ASA API Loader szülőfolyamat észlelve");
+  await expect(panel).toContainText("Game: 7777 · Query: 27015");
+  await expect(panel).toContainText("100011, 100012");
+  await expect(panel).toContainText("100013");
+  await expect(panel).toContainText("Cluster-ID kapcsoló: észlelve");
+  await expect(panel).toContainText("Transfer-útvonal kapcsoló: észlelve");
   await expect(panel).toContainText("Azonosítás ≠ lifecycle-jogosultság");
   await expect(panel.getByRole("button",{name:"Új ellenőrzés"})).toBeEnabled();
   await panel.getByRole("button",{name:"Új ellenőrzés"}).click();

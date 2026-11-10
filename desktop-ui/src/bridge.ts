@@ -132,12 +132,22 @@ export type PublicMap = {
   rconConfigured?: boolean;  // credentials set, not connection verification
 };
 
+export type LocalAsaLaunchFacts = {
+  gamePort:number|null;queryPort:number|null;
+  activeModIds:string[];passiveModIds:string[];
+  activeModsState:"parsed"|"notDeclared"|"conflict"|"unverified";
+  passiveModsState:"parsed"|"notDeclared"|"conflict"|"unverified";
+  storeFlagPresent:boolean;clusterSwitchPresent:boolean;
+  transferOverridePresent:boolean;conversionFlagPresent:boolean;
+  argumentsValidated:boolean;
+};
 export type RunningLocalAsaProcess = {
   pid:number;parentPid:number;startedUtc:string|null;
   processKind:"asaServer"|"apiLoader";mapKey:string;
   matchState:"unverified"|"ambiguous"|"profileCandidate"|"unregistered";
   profileMapId:string|null;profileMapName:string|null;
   loaderParentObserved:boolean;
+  launchFacts:LocalAsaLaunchFacts|null;
   controllable:false;storeWriteAuthorized:false;
 };
 export type RunningLocalAsaSnapshot = {
