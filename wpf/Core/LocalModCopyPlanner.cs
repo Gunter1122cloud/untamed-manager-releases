@@ -30,7 +30,7 @@ public static class LocalModCopyPlanner
     private static void RequireEligible(LocalMap map)
     {
         if(map.Id==Guid.Empty || map.Maintenance ||
-           map.HistoricalStoreProtected ||
+           map.HistoricalStoreProtected || map.ObservedReadOnlyImported ||
            UntamedWorldBackup.HasLiveOrHistoricalStore(map))
             throw new UnauthorizedAccessException(
                 "Historical, Store-v1 or maintenance map cannot be modified by mod copy");
