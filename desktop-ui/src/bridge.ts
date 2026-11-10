@@ -492,6 +492,27 @@ export type StoppedSteamStatus = {
   stage:string;changedUtc:string;oldBuild:string;newBuild:string;
   protectedFilesIntact:boolean;restartPerformed:false;storeTouched:false;
 };
+export type StoppedSteamBatchPreview = {
+  token:string;requestedMaps:number;installations:number;
+  details:Array<{mapId:string;mapName:string;installedBuild:string;
+    sharedMapCount:number;availableBytes:number;requiredReserveBytes:number}>;
+  requiresTypedApproval:true;serverStopRequested:false;
+  storeWriterTouched:false;remoteHostTouched:false;
+  evidence:"LOCAL_STOPPED_STEAM_SERIAL_BATCH_PREFLIGHT_NO_WRITES";
+};
+export type StoppedSteamBatchJob = {
+  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  stage:string;position:number;total:number;activeMapName:string;
+  completedInstallations:number;changedUtc:string;
+  serverStopRequested:false;remoteHostTouched:false;
+  storeWriterTouched:false;automaticRetry:false;
+};
+export type StoppedSteamBatchCurrent = {
+  activeJob:StoppedSteamBatchJob|null;journalExists:boolean;
+  journalPhase:string|null;journalNextIndex:number|null;
+  journalTotal:number|null;needsOperatorReview:boolean;
+  automaticRetry:false;remoteWritesAllowed:false;
+};
 export type RconConfigStatus = {
   mapId:string;mapName:string;rconPort:number;configured:boolean;permitted:boolean;
   evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE";
@@ -1371,7 +1392,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" |
+  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
@@ -1582,6 +1603,18 @@ export const managerBridge = {
     request<StoppedSteamStarted>("steam.stoppedApply",{token,confirm:true}),
   steamStoppedStatus: (jobId:string) =>
     request<StoppedSteamStatus>("steam.stoppedStatus",{jobId}),
+  steamBatchCurrent: () =>
+    request<StoppedSteamBatchCurrent>("steam.batchCurrent"),
+  steamBatchPreview: (mapIds:string[]) =>
+    request<StoppedSteamBatchPreview>("steam.batchPreview",{mapIds}),
+  steamBatchApply: (token:string,typedApproval:string) =>
+    request<{jobId:string;started:true;serverStopRequested:false;
+      remoteHostTouched:false;storeWriterTouched:false;
+      automaticRetry:false;evidence:string}>("steam.batchApply",{
+        token,confirm:true,typedApproval
+      }),
+  steamBatchStatus: (jobId:string) =>
+    request<StoppedSteamBatchJob>("steam.batchStatus",{jobId}),
   rconConfigStatus: (mapId:string) => request<RconConfigStatus>("rcon.configStatus",{mapId}),
   rconConfigPreview: (mapId:string,rconPort:number,password:string,createIni:boolean) =>
     request<RconConfigPreview>("rcon.configPreview",{mapId,rconPort,password,createIni}),
