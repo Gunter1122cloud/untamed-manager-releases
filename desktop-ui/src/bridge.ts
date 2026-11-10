@@ -314,7 +314,7 @@ export type EmbeddedStoreCopyReport = {
   unclassifiedCandidates:number;supersededEntries:number;duplicateKeys:number;
   indexBoundsVerified:boolean;sourceUnchanged:boolean;
   gameplayVerified:false;characterTravelVerified:false;
-  evidence:"OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY";
+  evidence:"OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY"|"OFFLINE_SQLITE_PARTIAL_STORE_INDEX_UNVERIFIED";
 };
 
 export type TravelMapProof = {
