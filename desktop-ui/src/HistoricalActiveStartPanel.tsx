@@ -27,12 +27,12 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     }).catch(()=>{if(active)setError("A történeti Store-v1 folyamatállapot nem ellenőrizhető.");});
     return ()=>{active=false;};
   },[mapId,rconAttached]);
-  const changeMode=async()=>{
+  const changeMode=async(useApi=state?.requestedMode!=="asaApiLoader")=>{
     if(!state?.confirmedStopped||busy||preview||modePreview)return;
     setBusy(true);setError("");setNotice("");
     try{
       setModePreview(await managerBridge.historicalLoaderModePreview(
-        mapId,state.requestedMode!=="asaApiLoader"));
+        mapId,useApi));
     }catch{
       setError("Az indítási mód nem módosítható: az eredeti map folyamatállapota, "+
         "RCON-ja, naplója vagy Loader/API előfeltétele nem igazolt.");
@@ -55,7 +55,8 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     }finally{setBusy(false);}
   };
   const inspect=async()=>{
-    if(busy||state?.running||!state?.rconConfigured)return;
+    if(busy||state?.running||!state?.rconConfigured||
+       state?.launchModeApprovalRequired)return;
     setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
     try{
       const result=await managerBridge.historicalActiveStartPreview(mapId);
@@ -99,7 +100,16 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         lock, meglévő ASA/RCON INI, portok és leállított folyamat minden
         indítás előtt a natív Windows rétegben újraellenőrzésre kerül.</p>
       <div className="details-line"><span>Kiválasztott indítás</span>
-        <b>{state?.requestedMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b></div>
+        <b>{state?.launchModeApprovalRequired?
+          "Még nem jóváhagyott · indítás tiltva":
+          state?.requestedMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b></div>
+      {state?.launchModeApprovalRequired&&<div className="warning-inline" role="alert">
+        <Shield size={17}/> A mapot leállított Kova-profilból importáltad. Az
+        eredeti indítási mód nem bizonyítható a futó folyamat nélkül.
+        A meglévő RCON csatlakoztatása után még az első Start előtt
+        jóvá kell hagyni az ASA API Loader vagy a közvetlen ASA módot.
+        Addig az Obsidian natív rétege semmilyen indítást nem enged.
+      </div>}
       <div className="details-line"><span>Megfigyelt ASA</span>
         <b>{state?.running?"Fut · ASA PID "+(state.serverPid??"nem igazolt"):
           state?.loaderPid?"Loader PID "+state.loaderPid+" · ASA még nem igazolt":
@@ -111,6 +121,13 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
           <Shield size={16}/> {state?.requestedMode==="asaApiLoader"?
             "Közvetlen ASA mód választása":"ASA API Loader mód választása"}
         </button>
+        {state?.launchModeApprovalRequired&&
+          state.requestedMode==="directAsa"&&
+          <button type="button" className="secondary"
+            disabled={busy||!state.confirmedStopped||!!preview||!!modePreview||
+              !state.rconConfigured} onClick={()=>{void changeMode(false);}}>
+            <Shield size={16}/> Közvetlen ASA mód kifejezett jóváhagyása
+          </button>}
       </div>
       {modePreview&&<div className="warning-inline" role="region"
         aria-label="Eredeti Store-v1 indítási mód módosítása">
@@ -133,7 +150,8 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       <div className="settings-actions">
         <button className="secondary" type="button"
           onClick={()=>{void inspect();}} disabled={busy||!!preview||
-            !state||state.running||!state.rconConfigured}>
+            !state||state.running||!state.rconConfigured||
+            state.launchModeApprovalRequired}>
           <Shield size={16}/> Eredeti Store-v1 indítás előellenőrzése
         </button>
       </div>
