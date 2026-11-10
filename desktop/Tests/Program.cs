@@ -921,6 +921,113 @@ try
         }
     }
 
+    // P0 scheduled STOPPED-only SteamCMD end-to-end: public build evidence,
+    // durable consent/claim, Core updater invocation and negative Store guard.
+    // This is an isolated Windows TEMP fixture; no real SteamCMD, ASA or RCON.
+    {
+        string lab=Path.Combine(root,"p0-auto-stopped-steam");
+        string install=Path.Combine(lab,"install");
+        string executable=Path.Combine(install,"ShooterGame","Binaries","Win64",
+            "ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
+        File.WriteAllBytes(executable,new byte[]{1,2,3,4,5});
+        string isolatedSteamApps=Path.Combine(install,"steamapps");
+        Directory.CreateDirectory(isolatedSteamApps);
+        string manifest=Path.Combine(isolatedSteamApps,"appmanifest_2430930.acf");
+        static void FakeManifest(string path,string build)=>
+            File.WriteAllText(path,
+                "\"AppState\"\n{\n  \"appid\" \"2430930\"\n  \"buildid\" \""+
+                build+"\"\n}\n");
+        FakeManifest(manifest,"123456");
+        await using var host=new ClusterService("p0-auto-stopped",
+            Path.Combine(lab,"manager-profile"),
+            _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true));
+        var target=new LocalMap {
+            Id=Guid.NewGuid(),Name="Isolated stopped Steam map",
+            InstallationPath=install,ExecutablePath=executable,
+            Arguments="TheIsland_WP?SessionName=Fixture"
+        };
+        host.AddMap(target);
+        int autoRuns=0;
+        string backup=Path.Combine(lab,"verified-fixture-backup");
+        Directory.CreateDirectory(backup);
+        using var supervisor=new DesktopScheduledStoppedSteamSupervisor(host,
+            (map,token)=>{
+                token.ThrowIfCancellationRequested();
+                autoRuns++;
+                Check(map.Id==target.Id,"scheduled Steam mutation only targets owned local map");
+                FakeManifest(manifest,"123457");
+                return Task.FromResult(new SteamStoppedMapUpdater.Receipt(
+                    map.Id,map.InstallationPath,"123456","123457",backup,
+                    DateTimeOffset.UtcNow,true));
+            });
+        var bridge=new DesktopScheduledStoppedSteamBridge(host,supervisor);
+        Check(supervisor.Snapshot().Length==0 && autoRuns==0,
+            "automatic stopped Steam update is disabled until explicit opt-in");
+        var bad=await Call(bridge.HandleAsync,"steam.scheduleSet",
+            new{mapId=target.Id,intervalMinutes=60,confirm=true,
+                typedApproval="NO"});
+        Check(IsError(bad,"UM-STEAM-SCHEDULE-APPROVAL")&&autoRuns==0,
+            "scheduled Steam update rejects missing typed native consent");
+        var unknown=await Call(bridge.HandleAsync,"steam.scheduleSet",
+            new{mapId=Guid.NewGuid(),intervalMinutes=60,confirm=true,
+                typedApproval="AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS"});
+        Check(IsError(unknown,"UM-STEAM-SCHEDULE-NOT-LOCAL")&&autoRuns==0,
+            "scheduled Steam updater never admits a remote or unknown map");
+        var sibling=new LocalMap {
+            Id=Guid.NewGuid(),Name="Original Store sibling",
+            InstallationPath=install,ExecutablePath=executable,
+            HistoricalMapKey="original-Kova-unchanged"
+        };
+        host.AddMap(sibling);
+        var protectedResult=await Call(bridge.HandleAsync,"steam.scheduleSet",
+            new{mapId=target.Id,intervalMinutes=60,confirm=true,
+                typedApproval="AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS"});
+        Check(!protectedResult.GetProperty("ok").GetBoolean() && autoRuns==0,
+            "a historical Store map sharing the installation blocks automatic scheduling");
+        host.RemoveMap(sibling.Id);
+        var start=DateTimeOffset.UtcNow;
+        var scheduled=supervisor.Configure(target.Id,60,start);
+        Check(scheduled.Enabled&&scheduled.NextDueUtc==start.AddMinutes(60),
+            "explicit scheduled Steam task persists next due timestamp");
+        var noPublished=await supervisor.TickOnceAsync(start.AddMinutes(61));
+        Check(noPublished.Single().LastStatus=="no-fresh-authoritative-update"&&
+              autoRuns==0,
+            "no trusted public Steam metadata means no autonomous SteamCMD update");
+        // The existing read-only build checker is the sole source of truth.
+        var status=new SteamBuildStatusStore(host.Store.Root);
+        status.SaveCheck(target,AsaSteamBuildCatalog.Compare(
+            install,"public","123456","123457",DateTimeOffset.UtcNow));
+        supervisor.Configure(target.Id,60,start);
+        var completed=await supervisor.TickOnceAsync(start.AddMinutes(61));
+        Check(completed.Single().LastStatus=="verified-stopped-install-updated"&&
+              completed.Single().OldBuild=="123456"&&
+              completed.Single().NewBuild=="123457"&&autoRuns==1 &&
+              AsaSteamBuildCatalog.InstalledBuild(install)=="123457",
+            "fresh public metadata triggers exactly one verified stopped-only Core update");
+        var sameSlot=await supervisor.TickOnceAsync(start.AddMinutes(61));
+        Check(autoRuns==1&&sameSlot.Single().LastStatus==
+              "verified-stopped-install-updated",
+            "same durable update slot never replays");
+        using(var reattached=new DesktopScheduledStoppedSteamSupervisor(host,
+            (_,_)=>throw new InvalidOperationException("must not replay")))
+        {
+            Check(reattached.Snapshot().Single().LastStatus==
+                  "verified-stopped-install-updated",
+                "Manager restart reattaches completed Steam schedule receipt");
+            var disabled=await Call(bridge.HandleAsync,"steam.scheduleDisable",
+                new{mapId=target.Id,confirm=true,
+                    typedApproval="AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS"});
+            IsOk(disabled,"operator can durably disable autonomous stopped Steam updates");
+            Check(!reattached.Snapshot().Single().Enabled&&autoRuns==1,
+                "disabled scheduled Steam updater stays off across Manager recreation");
+        }
+        Check(File.ReadAllBytes(executable).SequenceEqual(
+                  new byte[]{1,2,3,4,5})&&
+              !Directory.Exists(Path.Combine(install,"ShooterGame","Saved")),
+            "scheduled update fixture never touches ASA world/character/Store data");
+    }
+
     // Explicit new-ASA schedule engine uses durable local claim records and
     // existing native bridges. Injected callbacks are isolated synthetic test
     // runners only; no RCON, SteamCMD, port bind or production file is used.

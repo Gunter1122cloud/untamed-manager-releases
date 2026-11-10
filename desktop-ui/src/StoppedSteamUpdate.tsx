@@ -1,6 +1,7 @@
 import {useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue,type StoppedSteamDiagnostics,type SteamPublishedBuild} from "./bridge";
+import {ScheduledStoppedSteamSettings} from "./ScheduledStoppedSteamSettings";
 
 export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapId?:string}) {
   const [selected,setSelected]=useState("");
@@ -187,6 +188,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       </span>
     </div>}
     {error&&<div className="error-inline" role="alert"><AlertTriangle size={18}/>{error}</div>}
+    <ScheduledStoppedSteamSettings mapId={mapId}/>
     <p className="muted tiny">A frissítő nem állít le futó ASA-t, nem indít újra mapot, nem ír a Store-v1-be és nem kezeli a másik gépet.</p>
   </section>;
 }
