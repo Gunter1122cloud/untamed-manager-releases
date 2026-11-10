@@ -30,6 +30,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly object sync=new();
     private readonly Func<LocalMap,SteamUpdatePreview> planner;
     private readonly Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>> runner;
+    private readonly Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>> publishedBuild;
     private Preview? pending;
     private Job? job;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -37,7 +38,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
 
     public DesktopStoppedSteamUpdateBridge(ClusterService owner,
         Func<LocalMap,SteamUpdatePreview>? plan=null,
-        Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>>? execute=null)
+        Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>>? execute=null,
+        Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>>? inspectPublished=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
         planner=plan??(map=>SteamUpdateDryRun.Plan(
@@ -46,6 +48,9 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         runner=execute??((map,progress)=>SteamStoppedMapUpdater.UpdateAsync(
             cluster,map,cluster.Config.SteamCmdExecutable,Reserve,
             TimeSpan.FromHours(2),progress));
+        publishedBuild=inspectPublished??((map,token)=>
+            AsaSteamBuildCatalog.CheckAsync(cluster.Config.SteamCmdExecutable,
+                map.InstallationPath,"public",TimeSpan.FromSeconds(90),token));
     }
     private bool Stopped(LocalMap map)
     {
@@ -114,7 +119,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
             id=requestId.ToString("D");
             string? method=field.GetString();
             if(method is not ("steam.stoppedDiagnostics" or "steam.stoppedPreview" or
-                "steam.stoppedApply" or "steam.stoppedStatus" or "steam.stoppedCurrent"))
+                "steam.stoppedApply" or "steam.stoppedStatus" or "steam.stoppedCurrent" or
+                "steam.publishedBuild"))
                 return Fail(id,"UM-METHOD-DENIED");
             await mutex.WaitAsync();
             try
@@ -169,6 +175,45 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             steamFound&&free>=Reserve&&overlaps.Length==0,
                         noProcessAutoStop=true,remoteWrites=false,
                         evidence="REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"
+                    });
+                }
+                if(method=="steam.publishedBuild")
+                {
+                    if(!GuidField(data,"mapId",out var candidateId))
+                        return Fail(id,"UM-STEAM-MAP");
+                    var candidate=cluster.Config.LocalMaps.SingleOrDefault(
+                        x=>x.Id==candidateId);
+                    if(candidate==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    if(job!=null)
+                    {
+                        lock(sync)
+                            if(job.State is "queued" or "running")
+                                return Fail(id,"UM-STEAM-UPDATE-IN-PROGRESS");
+                    }
+                    if(HasBlockedJournal())
+                        return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
+                    if(!AsaReadyProbe.IsRegisteredServerBinary(candidate) ||
+                       string.IsNullOrWhiteSpace(cluster.Config.SteamCmdExecutable))
+                        return Fail(id,"UM-STEAM-PUBLISHED-PREFLIGHT");
+                    using var deadline=new CancellationTokenSource(
+                        TimeSpan.FromSeconds(95));
+                    var report=await publishedBuild(candidate,deadline.Token);
+                    if(!string.Equals(Path.GetFullPath(report.InstallationRoot),
+                           Path.GetFullPath(candidate.InstallationPath),
+                           StringComparison.OrdinalIgnoreCase)||
+                       report.Branch!="public")
+                        return Fail(id,"UM-STEAM-PUBLISHED-RECEIPT-INVALID");
+                    return Ok(id,new{
+                        mapId=candidate.Id,mapName=candidate.Name,
+                        installedBuild=report.InstalledBuild,
+                        availableBuild=report.AvailableBuild,
+                        state=report.State.ToString(),
+                        checkedUtc=report.CheckedUtc,
+                        explanation=report.Explanation,
+                        updateAvailable=report.State==AsaSteamBuildState.UpdateAvailable,
+                        downloadStarted=false,serverStopped=false,
+                        storeWriterTouched=false,remoteHostTouched=false,
+                        evidence="STEAM_PUBLIC_BRANCH_APPINFO_READ_ONLY_NO_UPDATE"
                     });
                 }
                 if(method=="steam.stoppedCurrent")
