@@ -10,6 +10,7 @@
     <Compile Include="../../Core/VaultReadSnapshot.cs" Link="Core/VaultReadSnapshot.cs" />
     <Compile Include="../../Core/LegacyStoreV1ActiveLaunch.cs" Link="Core/LegacyStoreV1ActiveLaunch.cs" />
     <Compile Include="../../Core/LegacyStoreV1LocalReader.cs" Link="Core/LegacyStoreV1LocalReader.cs" />
+    <Compile Include="../../Core/LegacyStoreV1RosterIdentity.cs" Link="Core/LegacyStoreV1RosterIdentity.cs" />
     <Compile Include="../../Core/LegacyStoreV1PhaseGate.cs" Link="Core/LegacyStoreV1PhaseGate.cs" />
     <Compile Include="../../Core/LegacyStoreV1PeerProof.cs" Link="Core/LegacyStoreV1PeerProof.cs" />
     <Compile Include="../../Core/ClusterVaultArchiveInspector.cs" Link="Core/ClusterVaultArchiveInspector.cs" />
