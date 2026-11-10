@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
   type OriginalKovaLocalMapList, type OriginalKovaImportPreview,
-  type OriginalKovaBatchPreview } from "./bridge";
+  type OriginalKovaBatchPreview, type OriginalKovaClusterPreview } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -13,6 +13,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [directPreview,setDirectPreview]=useState<OriginalKovaImportPreview|null>(null);
   const [batchPreview,setBatchPreview]=useState<OriginalKovaBatchPreview|null>(null);
   const [batchApproved,setBatchApproved]=useState(false);
+  const [clusterPreview,setClusterPreview]=useState<OriginalKovaClusterPreview|null>(null);
+  const [clusterApproval,setClusterApproval]=useState("");
+  const [clusterBusy,setClusterBusy]=useState(false);
+  const [clusterError,setClusterError]=useState("");
+  const [clusterNotice,setClusterNotice]=useState("");
   const [directApproved,setDirectApproved]=useState(false);
   const [directBusy,setDirectBusy]=useState(false);
   const [directError,setDirectError]=useState("");
@@ -205,6 +210,33 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
 
+  const previewOriginalCluster=async()=>{
+    if(clusterBusy||directBusy||registering)return;
+    setClusterPreview(null);setClusterApproval("");setClusterError("");setClusterNotice("");
+    setClusterBusy(true);
+    try{setClusterPreview(await managerBridge.historicalOriginalClusterPreview());}
+    catch(e){setClusterError("Az eredeti öt map forrásazonos, írásmentes Cluster-regiszter előellenőrzése sikertelen ("+
+      (e instanceof Error?e.message:"UM-ORIGINAL-CLUSTER-INVALID")+").");}
+    finally{setClusterBusy(false);}
+  };
+  const applyOriginalCluster=async()=>{
+    if(clusterBusy||!clusterPreview||clusterApproval!=="EREDETI KOVA REGISZTER")return;
+    const token=clusterPreview.token;
+    setClusterBusy(true);setClusterError("");setClusterNotice("");
+    setClusterPreview(null);setClusterApproval("");
+    try{
+      const result=await managerBridge.historicalOriginalClusterApply(
+        token,"EREDETI KOVA REGISZTER");
+      setClusterNotice(result.addedCount+" eredeti map-tagság átvezetve az Obsidian Cluster-regiszterbe. A korábbi Kova-session, writer lock és karakteradatok változatlanok.");
+      try{await onImported();}
+      catch{setClusterError("A regiszter mentése sikeres, de a nézet frissítése meghiúsult; ne ismételd meg automatikusan.");}
+    }catch(e){
+      setClusterError("A jóváhagyás elutasítva, lejárt vagy a forrás megváltozott ("+
+        (e instanceof Error?e.message:"UM-ORIGINAL-CLUSTER-FAILED")+
+        "). Ellenőrizd a natív regiszter állapotát, mielőtt újra próbálnád.");
+    }finally{setClusterBusy(false);}
+  };
+
   const checkLaunch=async(e:FormEvent)=>{
     e.preventDefault();
     if(!known || !mapId || !launchCommand.trim() || registering)return;
@@ -382,6 +414,42 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <AlertTriangle size={16}/>{directError}</div>}
         {directNotice&&<div role="status" className="success-inline">
           <CheckCircle2 size={16}/>{directNotice}</div>}
+        <div className="historical-parity-check" aria-label="Eredeti Kova Cluster-regiszter átvétele">
+          <h3>Eredeti 5 map hozzárendelése a Cluster-regiszterhez</h3>
+          <p className="muted small">Ha az eredeti mapokat már felvetted, ezzel
+            a régi négy Kova-metaadatfájlból átvehető a pontos clusterazonosító
+            és az öt eredeti helyi map-tagság az Obsidian saját regiszterébe.
+            Az eredeti Store-fájlok, közös transfermappa és a szerverek nem módosulnak.</p>
+          <button type="button" className="secondary" disabled={clusterBusy||directBusy}
+            onClick={()=>{void previewOriginalCluster();}}>
+            <Shield size={16}/> Eredeti Cluster-regiszter előellenőrzése
+          </button>
+          {clusterPreview&&<div className="historical-preview" role="region"
+            aria-label="Eredeti Cluster-regiszter jóváhagyása">
+            <div className="historical-proof-grid">
+              <span>Forrás cluster</span><strong>{clusterPreview.clusterId}</strong>
+              <span>Eredeti map</span><strong>{clusterPreview.fiveOriginalMaps} db</strong>
+              <span>Már hozzárendelt</span><strong>{clusterPreview.alreadyAssigned}</strong>
+              <span>Hozzáadandó</span><strong>{clusterPreview.missingAssignments}</strong>
+              <span>Korábbi Kova és writer lock</span><strong>Változatlan</strong>
+            </div>
+            <label>Pontos jóváhagyó szöveg
+              <input aria-label="Eredeti Cluster-regiszter jóváhagyó szöveg"
+                value={clusterApproval} disabled={clusterBusy} autoComplete="off"
+                onChange={e=>setClusterApproval(e.target.value)}
+                placeholder="EREDETI KOVA REGISZTER"/>
+            </label>
+            <button type="button" className="primary"
+              disabled={clusterBusy||clusterApproval!=="EREDETI KOVA REGISZTER"}
+              onClick={()=>{void applyOriginalCluster();}}>
+              Eredeti map-tagság rögzítése
+            </button>
+          </div>}
+          {clusterError&&<div role="alert" className="error-inline">
+            <AlertTriangle size={16}/>{clusterError}</div>}
+          {clusterNotice&&<div role="status" className="success-inline">
+            <CheckCircle2 size={16}/>{clusterNotice}</div>}
+        </div>
       </section>
       <section className="historical-peer-check" aria-label="Korábbi helyi Store-v1 állapot">
         <h3>Eredeti helyi Store-v1 állapot · közvetlen, csak olvasási ellenőrzés</h3>
