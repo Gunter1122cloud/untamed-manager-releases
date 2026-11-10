@@ -765,7 +765,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             return source;
         var roster=Config.LocalMaps.Where(m=>m.HistoricalStoreProtected).ToArray();
         bool imported=false;
-        if(roster.Length==5&&source.OriginalMapRosterTag.Length==64&&
+        if(roster.Length==5&&source.OriginalMapRosterTag is {Length:64}&&
            source.OriginalMapRosterTag.All(Uri.IsHexDigit)&&
            roster.All(m=>m.HistoricalArchiveSha256?.Equals(
                source.OriginalFourFilesTag,StringComparison.Ordinal)==true)&&
@@ -777,7 +777,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                     roster.Select(m=>(m.Id,m.HistoricalMapKey)));
                 imported=actual==source.OriginalMapRosterTag&&
                     roster.All(m=>Config.ClusterRegistry.MapAssignments.Count(a=>
-                        a.MapId==m.Id&&a.ClusterId.Equals(
+                        a!=null&&a.MapId==m.Id&&string.Equals(a.ClusterId,
                             VaultProtocol.ClusterId,
                             StringComparison.OrdinalIgnoreCase))==1);
             }
