@@ -34,7 +34,7 @@ export function UpdateCenterPage(){
     return ()=>{active=false;};
   },[]);
   const check=async()=>{
-    if(loading)return;
+    if(loading||installing||handedOff)return;
     setLoading(true);setError("");setLatest(null);
     setPrepared(null);setApproved(false);
     try{const result=await managerBridge.updateCheck(channel);setLatest(result);}
@@ -42,14 +42,34 @@ export function UpdateCenterPage(){
     finally{setLoading(false);}
   };
   const prepare=async()=>{
-    if(!latest?.newer||!latest.found||loading||installing)return;
+    if(!latest?.newer||!latest.found||!latest.tag||!latest.sha256||
+       loading||installing||handedOff)return;
+    const checkedTag=latest.tag,checkedDigest=latest.sha256;
     setLoading(true);setError("");setPrepared(null);setApproved(false);
-    try{setPrepared(await managerBridge.updatePrepare(channel));}
-    catch{setError("Az Obsidian telepítő ellenőrzése nem sikerült. A jelenlegi program és minden ASA-fájl változatlan maradt.");}
+    try{
+      const staged=await managerBridge.updatePrepare(channel,checkedTag,checkedDigest);
+      // Defense in depth: the native bridge already pins tag + SHA before
+      // download. An unexpectedly mixed frontend/native build must fail closed.
+      if(staged.tag!==checkedTag ||
+         staged.sha256.toLowerCase()!==checkedDigest.toLowerCase())
+        throw new Error("UM-UPDATE-CHECK-STALE");
+      setPrepared(staged);
+    }
+    catch(e){
+      const code=e instanceof Error?e.message:"";
+      if(code==="UM-UPDATE-CHECK-STALE" || code==="UM-UPDATE-CHECK-REQUIRED"){
+        setLatest(null);
+        setError("A GitHub kiadás az ellenőrzés óta megváltozott, vagy a telepített UI és natív host verziója eltér. Keresd újra a frissítést; az eltérő telepítő nem lett elfogadva.");
+      }else{
+        setError("Az Obsidian telepítő ellenőrzése nem sikerült ("+
+          (code||"UM-UPDATE-VERIFY-FAILED")+
+          "). A jelenlegi program és minden ASA-fájl változatlan maradt.");
+      }
+    }
     finally{setLoading(false);}
   };
   const install=async()=>{
-    if(!prepared||!approved||installing)return;
+    if(!prepared||!approved||installing||handedOff||loading)return;
     setInstalling(true);setError("");
     try{
       const response=await managerBridge.updateInstall(prepared.token);
@@ -95,7 +115,7 @@ export function UpdateCenterPage(){
           <p className="uk-updates-channel"><strong>Obsidian Command Preview</strong> — az egyetlen támogatott kiadási ág.
             A régi WPF nem választható frissítési forrásként.</p>
           <button type="button" className="primary uk-updates-check" onClick={()=>{void check();}}
-            disabled={loading}>
+            disabled={loading||installing||handedOff}>
             <RefreshCw size={18} className={loading?"spin":""}/>
             {loading?"GitHub kiadványok ellenőrzése...":"Frissítések keresése"}
           </button>
@@ -115,7 +135,7 @@ export function UpdateCenterPage(){
             </>}
 
             {latest.newer&&!prepared&&<button className="secondary uk-updates-check"
-              type="button" disabled={loading||installing} onClick={()=>{void prepare();}}>
+              type="button" disabled={loading||installing||handedOff} onClick={()=>{void prepare();}}>
               <CloudDownload size={18}/>
               {loading?"Obsidian telepítő ellenőrzése...":"Telepítő letöltése és SHA-256 ellenőrzése"}
             </button>}
@@ -128,7 +148,7 @@ export function UpdateCenterPage(){
                 Engedélyezem a Manager bezárását és a külön külső updater
                 indítását, mentéssel és automatikus visszaállítással hiba esetén.
               </label>
-              <button className="primary uk-updates-check" disabled={!approved||installing||handedOff}
+              <button className="primary uk-updates-check" disabled={!approved||installing||handedOff||loading}
                 type="button" onClick={()=>{void install();}}>
                 <ShieldCheck size={17}/>{installing?"Külső frissítő indítása...":
                   "Ellenőrzött frissítés telepítése"}
