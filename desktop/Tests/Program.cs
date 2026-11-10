@@ -936,8 +936,8 @@ try
         string manifest=Path.Combine(steamDir,"appmanifest_2430930.acf");
         static void FakeManifest(string path,string build)=>
             File.WriteAllText(path,
-                "\"AppState\"\\n{\\n  \"appid\" \"2430930\"\\n  \"buildid\" \""+
-                build+"\"\\n}\\n");
+                "\"AppState\"\n{\n  \"appid\" \"2430930\"\n  \"buildid\" \""+
+                build+"\"\n}\n");
         FakeManifest(manifest,"123456");
         await using var host=new ClusterService("p0-auto-stopped",
             Path.Combine(lab,"manager-profile"),
