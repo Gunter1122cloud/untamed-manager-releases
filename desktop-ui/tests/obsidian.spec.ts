@@ -1326,8 +1326,24 @@ test.beforeEach(async ({ page }) => {
         }
         case "operations.snapshot":
         case "operations.map": {
-          const maps=state.local.maps.filter(x=>
-            m.method==="operations.snapshot"||m.mapId===x.id).map(x=>({
+          const fixture=new URLSearchParams(window.location.search).get("fixture");
+          const expanded=(m.method==="operations.snapshot" &&
+              (fixture==="largeOps"||fixture==="changingOps"))
+            ?[...state.local.maps,...Array.from({length:123},(_,i)=>({
+              ...state.local.maps[1],
+              id:"00000000-0000-4000-8000-"+String(i+1000).padStart(12,"0"),
+              name:"Paged map "+String(i+1).padStart(3,"0"),
+              running:false,status:"Leállítva",gamePort:0
+            }))]
+            :state.local.maps;
+          const all=expanded.filter(x=>
+            m.method==="operations.snapshot"||m.mapId===x.id);
+          const offset=m.method==="operations.snapshot"?(m.offset??0):0;
+          const limit=m.method==="operations.snapshot"?(m.limit??50):50;
+          const chosen=all.slice(offset,offset+limit);
+          const pageKey=fixture==="changingOps"&&offset>0
+            ?"B".repeat(64):"A".repeat(64);
+          const maps=chosen.map(x=>({
               mapId:x.id,mapName:x.name,
               running:x.running,confirmedStopped:!x.running,status:x.status,
               pid:x.running?12345:null,startedUtc:x.running?"2026-11-06T09:00:00Z":null,
@@ -1339,6 +1355,9 @@ test.beforeEach(async ({ page }) => {
               evidence:"EXACT_LOCAL_PROCESS_IDENTITY_NO_NETWORK_OR_FILE_WRITE"
             }));
           return {hostName:state.local.hostName,observedUtc:"2026-11-06T11:00:00Z",
+            totalMaps:all.length,pageOffset:offset,pageLimit:limit,
+            nextOffset:offset+chosen.length<all.length?offset+chosen.length:null,
+            snapshotKey:pageKey,
             maps,schedules:[{
               id:"00000000-0000-4000-8000-000000009987",mapId:one,
               mapName:"The Island",kind:"Observation",frequency:"Daily",
@@ -1350,7 +1369,8 @@ test.beforeEach(async ({ page }) => {
               nextUtc:"2026-11-07T12:00:00Z",
               state:opsJobEnabled?"read-only-preview":"disabled",
               autoExecutionPermitted:false
-            }]:[])].filter(job=>m.method==="operations.snapshot"||job.mapId===m.mapId),schedulingIsReadOnly:true,
+            }]:[])].filter(job=>maps.some(map=>map.mapId===job.mapId)),
+            schedulingIsReadOnly:true,
             supervisorState:"active",
             scheduleReceipts:opsJobCreated?[{
               job:opsJobId,map:one,slotUtc:"2026-11-07T11:30:00Z",
@@ -2093,6 +2113,37 @@ test("native Operations Center displays local PID RAM uptime and saved schedules
   await expect(page.locator(".ops-map")).toHaveCount(1);
   await expect(page.locator(".ops-map").first()).toContainText("12345");
   await expect(page.locator(".ops-schedules")).toHaveCount(0);
+});
+
+test("large host Operations roster renders all 125 local maps in paged UI",async({page})=>{
+  await page.setViewportSize({width:1366,height:768});
+  await page.goto("/?fixture=largeOps");
+  await page.getByRole("button",{name:"Üzemeltetés",exact:true}).click();
+  await expect(page.locator(".ops-summary")).toContainText("125");
+  const rows=page.locator(".ops-compact-table tbody tr");
+  const paginator=page.getByRole("group",{name:"Helyi mapok lapozása"});
+  await expect(rows).toHaveCount(50);
+  await expect(paginator).toContainText("1/3. oldal");
+  await paginator.getByRole("button",{name:"Következő mapoldal"}).click();
+  await expect(rows).toHaveCount(50);
+  await expect(paginator).toContainText("2/3. oldal");
+  await paginator.getByRole("button",{name:"Következő mapoldal"}).click();
+  await expect(rows).toHaveCount(25);
+  await expect(rows.last()).toContainText("Paged map 123");
+  await expect(paginator).toContainText("125 / 125 helyi map");
+  await paginator.getByRole("button",{name:"Előző mapoldal"}).click();
+  await expect(rows).toHaveCount(50);
+  await page.getByRole("button",{name:"Futók",exact:true}).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("The Island");
+  await expect(paginator).toHaveCount(0);
+});
+
+test("operations roster refuses a changed native registry rather than showing partial maps",async({page})=>{
+  await page.goto("/?fixture=changingOps");
+  await page.getByRole("button",{name:"Üzemeltetés",exact:true}).click();
+  await expect(page.getByRole("alert")).toContainText("UM-OPS-REGISTRY-CHANGED");
+  await expect(page.locator(".ops-compact-table tbody tr")).toHaveCount(0);
 });
 
 test("read-only operations scheduler requires approval, shows durable receipt and can be disabled",async({page})=>{
