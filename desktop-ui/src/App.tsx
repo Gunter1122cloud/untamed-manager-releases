@@ -32,6 +32,7 @@ import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
 import { UpdateCenterPage } from "./UpdateCenterPage";
 import { StoppedSteamUpdate } from "./StoppedSteamUpdate";
+import { StoppedSteamBatchPanel } from "./StoppedSteamBatchPanel";
 import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
 import { FreshAsaStopPanel } from "./FreshAsaStopPanel";
 import { FreshAsaRestartPanel } from "./FreshAsaRestartPanel";
@@ -1524,6 +1525,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
       </Panel>
     </div>
     <ClusterRegistryPanel protectedMapIds={protectedMapIds}/>
+    <StoppedSteamBatchPanel maps={snapshot.local.maps}/>
     <MultiHostBackupPanel/>
     <StoreTravelWorkbench/>
   </>;

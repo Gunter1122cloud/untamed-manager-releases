@@ -120,6 +120,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopRconAdminBridge _rconAdmin;
     private readonly DesktopRconConfigurationBridge _rconConfig;
     private readonly DesktopStoppedSteamUpdateBridge _steamUpdate;
+    private readonly DesktopStoppedSteamBatchBridge _steamBatch;
     private readonly DesktopFreshAsaStartBridge _freshStart;
     private readonly DesktopFreshAsaStopBridge _freshStop;
     private readonly DesktopOwnedAsaKillBridge _ownedKill;
@@ -184,6 +185,7 @@ public sealed class ObsidianWindow : Form
         _rconAdmin = new DesktopRconAdminBridge(_bridge.LocalCluster);
         _rconConfig = new DesktopRconConfigurationBridge(_bridge.LocalCluster);
         _steamUpdate = new DesktopStoppedSteamUpdateBridge(_bridge.LocalCluster);
+        _steamBatch = new DesktopStoppedSteamBatchBridge(_bridge.LocalCluster);
         _freshStart = new DesktopFreshAsaStartBridge(_bridge.LocalCluster);
         _freshStop = new DesktopFreshAsaStopBridge(_bridge.LocalCluster);
         _ownedKill = new DesktopOwnedAsaKillBridge(_bridge.LocalCluster);
@@ -268,6 +270,7 @@ public sealed class ObsidianWindow : Form
             _embeddedStore.Dispose();
             _rconConfig.Dispose();
             _steamUpdate.Dispose();
+            _steamBatch.Dispose();
             _freshStart.Dispose();
             _freshStop.Dispose();
             _freshRestart.Dispose();
@@ -398,6 +401,7 @@ public sealed class ObsidianWindow : Form
                 bool embeddedStoreRoute = false;
                 bool worldBackupRoute = false;
                 bool stoppedSteamRoute = false;
+                bool stoppedSteamBatchRoute = false;
                 bool freshStartRoute = false;
                 bool freshStopRoute = false;
                 bool ownedKillRoute = false;
@@ -442,6 +446,8 @@ public sealed class ObsidianWindow : Form
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply" or "lan.physicalStoreProbe" or "lan.historicalSaveProbe";
                         stoppedSteamRoute = name is "steam.stoppedDiagnostics" or "steam.stoppedPreview" or "steam.stoppedApply" or
                             "steam.stoppedStatus" or "steam.stoppedCurrent" or "steam.publishedBuild";
+                        stoppedSteamBatchRoute = name is "steam.batchPreview" or "steam.batchApply" or
+                            "steam.batchStatus" or "steam.batchCurrent";
                         travelRoute = name is "travel.capture" or "travel.compare" or "travel.compareRoundTrip";
                         embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
@@ -553,6 +559,7 @@ public sealed class ObsidianWindow : Form
                         : freshStartRoute ? await _freshStart.HandleAsync(incoming)
                         : pluginJsonRoute ? await _pluginJson.HandleAsync(incoming)
                         : pluginZipRoute ? await _pluginZip.HandleAsync(incoming)
+                        : stoppedSteamBatchRoute ? await _steamBatch.HandleAsync(incoming)
                         : stoppedSteamRoute ? await _steamUpdate.HandleAsync(incoming)
                         : rconConfigRoute ? await _rconConfig.HandleAsync(incoming)
                         : rconAdminRoute ? await _rconAdmin.HandleAsync(incoming)
