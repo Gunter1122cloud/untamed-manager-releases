@@ -1282,6 +1282,8 @@ public sealed partial class ClusterService : IAsyncDisposable
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
             throw new UnauthorizedAccessException("Only local registered maps may start");
+        if(map.ObservedReadOnlyImported)
+            throw new UnauthorizedAccessException("UM-LIVE-OBSERVED-MAP-READONLY");
         bool newlyEnrolledStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if(newlyEnrolledStore)
             FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);
@@ -1503,6 +1505,8 @@ public sealed partial class ClusterService : IAsyncDisposable
         // RC safety enforcement belongs to the service, not merely the WPF button:
         // prevent timers, other UI components or direct method callers from
         // launching actual ArkAscendedServer.exe before production validation.
+        if(map.ObservedReadOnlyImported)
+            throw new UnauthorizedAccessException("UM-LIVE-OBSERVED-MAP-READONLY");
         if(map.HistoricalStoreProtected)
             throw new InvalidOperationException("Historical Store-v1 profile is locked until full launch parity validation");
         ReleaseCapabilityGate.DemandFakeAsaStart(this,map);
