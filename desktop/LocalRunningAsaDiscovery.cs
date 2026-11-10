@@ -83,6 +83,23 @@ public static class LocalRunningAsaDiscovery
             ?match.Groups["map"].Value:null);
     }
 
+    private static bool PossibleLoaderProfile(LocalMap map,string? path)
+    {
+        // Original Kova may have been launched through ASA API before Obsidian
+        // registered the StartWithAsaApi switch. Discovery must not hide that
+        // loader, but it also must not turn the observation into authority.
+        if(SamePath(map.ApiLoaderPath,path))return true;
+        try
+        {
+            if(string.IsNullOrWhiteSpace(map.ExecutablePath))return false;
+            string? directory=Path.GetDirectoryName(map.ExecutablePath);
+            return !string.IsNullOrWhiteSpace(directory)&&
+                SamePath(Path.Combine(directory,"AsaApiLoader.exe"),path);
+        }
+        catch(Exception ex) when(ex is ArgumentException or NotSupportedException
+            or PathTooLongException){return false;}
+    }
+
     /// <summary>
     /// Pure classification accepts only an immutable local snapshot; suitable
     /// for synthetic regression tests with no actual ASA processes.
@@ -110,7 +127,7 @@ public static class LocalRunningAsaDiscovery
             string? key=validPath?LaunchMap(p.CommandLine,p.ExecutablePath):null;
             var matches=key==null?Array.Empty<LocalMap>():maps.Where(m=>
                 string.Equals(ProfileMap(m),key,StringComparison.OrdinalIgnoreCase)&&
-                (isLoader?m.StartWithAsaApi&&SamePath(m.ApiLoaderPath,p.ExecutablePath):
+                (isLoader?PossibleLoaderProfile(m,p.ExecutablePath):
                     SamePath(m.ExecutablePath,p.ExecutablePath))).ToArray();
             bool stable=p.StartedUtc!=null&&p.StartedUtc.Value.Year>=2020;
             string matchState=!validPath||!stable||key==null?"unverified":
