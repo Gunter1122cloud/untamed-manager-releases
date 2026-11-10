@@ -22,6 +22,10 @@ public sealed class LocalMap
     public string ExecutablePath { get; set; } = "";
     public string InstallationPath { get; set; } = "";
     public string Arguments { get; set; } = "";
+    // Level explicitly validated when the native SteamCMD wizard installed
+    // this map. Preserved in Manager-only metadata so first setup need not
+    // ask for the same custom Unreal level twice. Empty for older imports.
+    public string FreshInstallMapLevel { get; set; } = "";
     public List<string> DisabledModIds { get; set; } = new();
     public bool ModChangesPending { get; set; } = false;
     public string LogFilePath { get; set; } = "";
