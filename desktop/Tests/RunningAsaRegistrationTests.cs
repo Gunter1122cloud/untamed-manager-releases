@@ -139,6 +139,13 @@ internal static class RunningAsaRegistrationTests
                     deniedIni.RootElement.GetProperty("error").GetString()==
                     "UM-OBSERVED-OR-HISTORICAL-READONLY",
                     "observed map is denied before on-disk INI access");
+            bool coreReplacementDenied=false;
+            try{cluster.ReplaceMap(map,new LocalMap{
+                Id=map.Id,Name=map.Name,InstallationPath=map.InstallationPath,
+                ExecutablePath=map.ExecutablePath,ObservedReadOnlyImported=false});}
+            catch(UnauthorizedAccessException){coreReplacementDenied=true;}
+            Check(coreReplacementDenied && map.ObservedReadOnlyImported,
+                "generic Core map replacement cannot promote observed ownership");
             bool copyDenied=false;
             try{LocalModCopyPlanner.Preview(cluster,map.Id,
                 new[]{map.Id},LocalModCopyMode.Merge);}
