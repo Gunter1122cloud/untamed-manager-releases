@@ -604,10 +604,12 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
         </button>
       </div>
     </div>
-    <LocalRunningAsaPanel/>
+    {/* Show the requested import action immediately below its toolbar.
+        The process observation list can be many screens tall on API Loader hosts. */}
     {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap} onImport={()=>setImportMode("existing")}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
     {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}
+    <LocalRunningAsaPanel/>
     {serverView==="gallery"?<Panel title="Mapkártyák · helyi kezelés / távoli megfigyelés">
       <ClusterMapGallery snapshot={snapshot} query={search} onSelect={onSelect}
         onInstall={openInstall} onImport={()=>setImportMode("existing")}/>
