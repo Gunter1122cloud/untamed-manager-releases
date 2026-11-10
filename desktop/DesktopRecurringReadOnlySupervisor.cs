@@ -57,7 +57,9 @@ public sealed class DesktopRecurringReadOnlySupervisor : IDisposable
         var maps=cluster.Config.LocalMaps.ToDictionary(m=>m.Id);
         // Multiple due maps using a single ASA installation share one
         // authoritative Steam appinfo query in this tick (not an update).
-        var publicCache=new Dictionary<string,AsaSteamBuildCheck>(
+        // Cache the Task (including a failed result) so two due maps on
+        // one installation never start two appinfo processes in a tick.
+        var publicCache=new Dictionary<string,Task<AsaSteamBuildCheck>>(
             StringComparer.OrdinalIgnoreCase);
         return journal.Tick(schedules,maps.Keys.ToHashSet(),now,
             job=>!maps.TryGetValue(job.Map,out var map)||map.Maintenance,
@@ -100,15 +102,37 @@ public sealed class DesktopRecurringReadOnlySupervisor : IDisposable
                         string? installed=AsaSteamBuildCatalog.InstalledBuild(root);
                         if(string.IsNullOrWhiteSpace(installed))
                             throw new InvalidDataException("Installed Steam Build ID unknown");
-                        if(!publicCache.TryGetValue(root,out var report))
+                        if(!publicCache.TryGetValue(root,out var query))
                         {
                             using var deadline=CancellationTokenSource.CreateLinkedTokenSource(
                                 cancel.Token);
                             deadline.CancelAfter(TimeSpan.FromSeconds(90));
-                            report=publishedSteam(map,deadline.Token)
-                                .GetAwaiter().GetResult();
-                            publicCache.Add(root,report);
+                            try
+                            { query=publishedSteam(map,deadline.Token); }
+                            catch(Exception ex)
+                            { query=Task.FromException<AsaSteamBuildCheck>(ex); }
+                            query??=Task.FromException<AsaSteamBuildCheck>(
+                                new InvalidDataException("Missing Steam metadata task"));
+                            publicCache.Add(root,query);
+                            // The query is fully awaited before disposing the
+                            // linked cancellation source.
+                            var checkedReport=query.GetAwaiter().GetResult();
+                            ValidateAndPersist(root,installed,map,checkedReport);
+                            break;
                         }
+                        var report=query.GetAwaiter().GetResult();
+                        ValidateAndPersist(root,installed,map,report);
+                        break;
+                    }
+                    default:
+                        throw new UnauthorizedAccessException("Autonomous lifecycle operation forbidden");
+                }
+            });
+    }
+
+    private void ValidateAndPersist(string root,string installed,LocalMap map,
+        AsaSteamBuildCheck report)
+    {
                         if(report==null || report.Branch!="public" ||
                            !string.Equals(root,Path.TrimEndingDirectorySeparator(
                                Path.GetFullPath(report.InstallationRoot)),
@@ -122,12 +146,6 @@ public sealed class DesktopRecurringReadOnlySupervisor : IDisposable
                             throw new InvalidDataException(
                                 "UM-STEAM-READONLY-PUBLISHED-BUILD-UNVERIFIED");
                         steamStatus.SaveCheck(map,report);
-                        break;
-                    }
-                    default:
-                        throw new UnauthorizedAccessException("Autonomous lifecycle operation forbidden");
-                }
-            });
     }
 
     public void Start()
