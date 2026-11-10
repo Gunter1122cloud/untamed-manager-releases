@@ -24,13 +24,17 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
     private readonly ClusterService cluster;
     private readonly Func<LocalMap,bool> originalGuard;
     private readonly Func<LocalMap,bool> rconProof;
+    private readonly Func<LocalMap,ProcessCheck> apiProcessObserver;
+    private readonly Func<int,int,bool> ownsRconListener;
     private readonly SemaphoreSlim gate=new(1,1);
     private Approval? pending;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopHistoricalRconAttachBridge(ClusterService service,
         Func<LocalMap,bool>? sourceGuard=null,
-        Func<LocalMap,bool>? iniEvidence=null)
+        Func<LocalMap,bool>? iniEvidence=null,
+        Func<LocalMap,ProcessCheck>? apiObserver=null,
+        Func<int,int,bool>? listenerOwner=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         originalGuard=sourceGuard??(map=>
@@ -39,6 +43,9 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                     Environment.SpecialFolder.ApplicationData),"Kova"))
                 .CompletedOriginalSourceGuard);
         rconProof=iniEvidence??AsaRconConfigurationEvidence.Matches;
+        apiProcessObserver=apiObserver??(map=>
+            LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
+        ownsRconListener=listenerOwner??RconPortOwnership.IsOwnedListener;
     }
 
     private static bool GuidValue(JsonElement item,string key,out Guid id)
@@ -55,8 +62,14 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         string.IsNullOrWhiteSpace(map.StoreTestRoot)&&
         string.IsNullOrWhiteSpace(map.Arguments)&&
         string.IsNullOrWhiteSpace(map.ApiLoaderArguments)&&
-        !map.StartWithAsaApi&&map.RconPort==0&&
+        map.RconPort==0&&
         string.IsNullOrWhiteSpace(map.RconPasswordProtected)&&
+        (!map.StartWithAsaApi ||
+         (map.LastProcess is {Pid:>0,
+             Arguments:"HISTORICAL_STORE_V1_API_CHILD_VERIFIED"} &&
+          map.LastLoader is {Pid:>0,
+             Arguments:"HISTORICAL_STORE_V1_API_LOADER_VERIFIED"} &&
+          !string.IsNullOrWhiteSpace(map.ApiLoaderPath)))&&
         map.GamePort is >=1024 and <=65535 &&
         map.QueryPort is >=1024 and <=65535;
 
@@ -80,6 +93,58 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         copy.RconPasswordProtected=protectedPassword;
         return copy;
     }
+    private bool VerifiedApiRconOwner(LocalMap map,int requestedPort)
+    {
+        if(!map.StartWithAsaApi)return true;
+        var pinnedChild=map.LastProcess;
+        var pinnedLoader=map.LastLoader;
+        if(pinnedChild is not {Pid:>0,
+                Arguments:"HISTORICAL_STORE_V1_API_CHILD_VERIFIED"}||
+           pinnedLoader is not {Pid:>0,
+                Arguments:"HISTORICAL_STORE_V1_API_LOADER_VERIFIED"}||
+           pinnedChild.Pid==pinnedLoader.Pid||
+           pinnedLoader.StartedUtc>pinnedChild.StartedUtc||
+           string.IsNullOrWhiteSpace(map.ApiLoaderPath))return false;
+        try
+        {
+            string server=Path.GetFullPath(map.ExecutablePath);
+            string loader=Path.Combine(Path.GetDirectoryName(server)!,
+                "AsaApiLoader.exe");
+            if(!Path.GetFullPath(map.ApiLoaderPath).Equals(loader,
+                    StringComparison.OrdinalIgnoreCase)||
+               !File.Exists(loader)||
+               !Path.GetFullPath(pinnedChild.ExecutablePath).Equals(server,
+                    StringComparison.OrdinalIgnoreCase)||
+               !Path.GetFullPath(pinnedLoader.ExecutablePath).Equals(loader,
+                    StringComparison.OrdinalIgnoreCase))
+                return false;
+            var observed=apiProcessObserver(map);
+            var child=observed.Identity;
+            var parent=observed.LoaderIdentity;
+            if(!observed.Running||observed.ConfirmedStopped||
+               child is not {Pid:>0,
+                   Arguments:"HISTORICAL_STORE_V1_API_CHILD_VERIFIED"}||
+               parent is not {Pid:>0,
+                   Arguments:"HISTORICAL_STORE_V1_API_LOADER_VERIFIED"}||
+               child.Pid!=pinnedChild.Pid||
+               child.StartedUtc!=pinnedChild.StartedUtc||
+               parent.Pid!=pinnedLoader.Pid||
+               parent.StartedUtc!=pinnedLoader.StartedUtc||
+               !Path.GetFullPath(child.ExecutablePath).Equals(server,
+                   StringComparison.OrdinalIgnoreCase)||
+               !Path.GetFullPath(parent.ExecutablePath).Equals(loader,
+                   StringComparison.OrdinalIgnoreCase))
+                return false;
+            return ownsRconListener(requestedPort,child.Pid);
+        }
+        catch(Exception)
+        {
+            // A stopped/changed process, inaccessible WMI or unknown TCP
+            // listener does not become Manager write authority.
+            return false;
+        }
+    }
+
     private void Demand(LocalMap map,int port,string protectedPassword,string iniHash)
     {
         if(!Historical(map)||port is <1024 or >65535 ||
@@ -91,6 +156,14 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
             throw new InvalidDataException("UM-HISTORICAL-RCON-INI-CHANGED");
         if(!originalGuard(map))
             throw new InvalidDataException("UM-HISTORICAL-RCON-ORIGINAL-STORE-INVALID");
+        // An ORIGINAL Store ASA API child is never the loader itself.
+        // #151 retains a verified original process pair when importing live
+        // Kova maps. Re-check that exact pair and the CHILD-owned RCON port
+        // before granting its Manager profile the existing RCON credentials.
+        // The listener and Windows WMI are independently rechecked under
+        // the native installation operation lease on Apply.
+        if(map.StartWithAsaApi&&!VerifiedApiRconOwner(map,port))
+            throw new InvalidDataException("UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED");
         // The bridge is attaching credentials only; no TCP command is sent.
         // An already-running original ASA process may remain untouched.
     }
