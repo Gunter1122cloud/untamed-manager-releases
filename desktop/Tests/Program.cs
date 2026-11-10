@@ -4332,6 +4332,14 @@ try
         File.Delete(destinationFile);
         File.WriteAllBytes(Path.Combine(targetSave,"old-leftover.arkprofile"),
             Array.Empty<byte>());
+        string originalStoreWorld=Path.Combine(sourceSave,"TheIsland_WP.ark");
+        using(var concurrentStoreWriter=new FileStream(originalStoreWorld,
+            FileMode.Open,FileAccess.ReadWrite,FileShare.ReadWrite))
+        {
+            var conflictingWorld=await Call(travelA.HandleAsync,"travel.capture");
+            Check(IsError(conflictingWorld,"UM-TRAVEL-EVIDENCE-UNVERIFIED"),
+                "open external writer prevents even metadata-only -usestore world validation");
+        }
         var storeBeforeA=await Call(travelA.HandleAsync,"travel.capture");
         var storeBeforeB=await Call(travelB.HandleAsync,"travel.capture");
         Check(storeBeforeA.GetProperty("data").GetProperty("complete").GetBoolean() &&
