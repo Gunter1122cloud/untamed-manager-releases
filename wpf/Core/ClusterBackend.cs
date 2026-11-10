@@ -1202,6 +1202,15 @@ public sealed partial class ClusterService : IAsyncDisposable
             roots.Add(root);
         }
 
+        // Preserve the original five-map socket ownership. A previously
+        // registered foreign map cannot silently share a Game/Query port,
+        // and two Kova originals cannot be bound to the same local socket.
+        foreach(var proposed in live)
+        {
+            if(LocalMapPortPolicy.Conflicts(proposed,live).Count!=0 ||
+               LocalMapPortPolicy.Conflicts(proposed,Config.LocalMaps).Count!=0)
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-PORT-COLLISION");
+        }
         var staged=Config.LocalMaps.ToList();
         int added=0,already=0;
         foreach(var observed in live)
@@ -1254,6 +1263,10 @@ public sealed partial class ClusterService : IAsyncDisposable
                original.HistoricalPassiveMods?.SequenceEqual(
                    observed.HistoricalPassiveMods,StringComparer.Ordinal)!=true)
                 throw new InvalidDataException("UM-ORIGINAL-LIVE-EXISTING-SOURCE-CONFLICT");
+            // A retained RCON secret must still identify a UNIQUE TCP
+            // listener; another original profile cannot claim that port.
+            if(LocalMapPortPolicy.Conflicts(original,Config.LocalMaps).Count!=0)
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-RCON-PORT-COLLISION");
             bool hasPort=original.RconPort is >=1024 and <=65535;
             bool hasPassword=!string.IsNullOrWhiteSpace(
                 original.RconPasswordProtected);
