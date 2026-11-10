@@ -33,7 +33,7 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
         cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id);
 
     private static bool SafeMap(LocalMap m)=>
-        !m.HistoricalStoreProtected && !m.Maintenance &&
+        !m.HistoricalStoreProtected && !m.ObservedReadOnlyImported && !m.Maintenance &&
         m.GamePort>0 && m.QueryPort>0 && !string.IsNullOrWhiteSpace(m.Arguments) &&
         !m.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase) &&
         !m.Arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase) &&
