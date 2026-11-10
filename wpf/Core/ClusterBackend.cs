@@ -774,7 +774,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             try
             {
                 string actual=LegacyStoreV1RosterIdentity.Tag(
-                    roster.Select(m=>(m.Id,m.HistoricalMapKey)));
+                    roster.Select(m=>(m.Id,m.HistoricalMapKey,m.InstallationPath)));
                 imported=actual==source.OriginalMapRosterTag&&
                     roster.All(m=>Config.ClusterRegistry.MapAssignments.Count(a=>
                         a!=null&&a.MapId==m.Id&&string.Equals(a.ClusterId,
