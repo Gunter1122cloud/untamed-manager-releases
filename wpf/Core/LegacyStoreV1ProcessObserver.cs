@@ -454,14 +454,21 @@ public static class LegacyStoreV1ProcessObserver
             }
             foreach(var candidate in unparameterizedApiChildren)
             {
-                if(loaderProcesses.Count!=1||
-                   !loaderCommands.TryGetValue(loaderProcesses[0].Pid,
-                       out var parentCommand)||
-                   !MatchesOriginalApiLoaderChild(candidate.Command,exe,
-                       candidate.Process.Pid,candidate.Process.ParentPid,
-                       candidate.Process.StartedUtc,parentCommand,loader,
-                       loaderProcesses[0].Pid,loaderProcesses[0].StartedUtc,map))
-                    uncertain=true;
+                bool pairedNow=loaderProcesses.Count==1&&
+                    loaderCommands.TryGetValue(loaderProcesses[0].Pid,
+                        out var parentCommand)&&
+                    MatchesOriginalApiLoaderChild(candidate.Command,exe,
+                        candidate.Process.Pid,candidate.Process.ParentPid,
+                        candidate.Process.StartedUtc,parentCommand,loader,
+                        loaderProcesses[0].Pid,loaderProcesses[0].StartedUtc,map);
+                // A Loader is allowed to exit after ASA has spawned, but
+                // only the exact previously persisted and verified pair can
+                // preserve read-only observation. A new or recycled child
+                // with no running Loader must remain unverified.
+                bool pairedEarlier=loaderProcesses.Count==0&&
+                    PreviouslyVerifiedOriginalApiChild(candidate.Process,
+                        exe,loader,map.LastProcess,map.LastLoader);
+                if(!pairedNow&&!pairedEarlier)uncertain=true;
                 else serverProcesses.Add(candidate.Process);
             }
             if(uncertain||serverProcesses.Count>1||loaderProcesses.Count>1)
