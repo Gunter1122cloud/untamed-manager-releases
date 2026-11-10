@@ -26,6 +26,7 @@ public static class LegacyStoreV1LocalReader
     {
         // Original source GUID never serialized into a LAN status packet.
         public Guid MapId {get;init;}
+        public string OriginalRoot {get;init;}="";
     }
     public sealed record Report(bool LocalFilesVerified,bool ClusterHashVerified,
         bool LocalLockVerified,bool AllLocalMapsActive,bool LocalSnapshotReady,
@@ -108,7 +109,7 @@ public static class LegacyStoreV1LocalReader
             bool backup=Guid.TryParse(Text(record,"backupId"),out var backupId)&&
                 backupId!=Guid.Empty;
             evidence.Add(new(name,active,sameSession,sameRoot,marked,backup)
-            {MapId=memberId});
+            {MapId=memberId,OriginalRoot=install});
         }
         if(!ids.SetEquals(selection))
             throw new InvalidDataException("UM-LOCAL-STORE-SELECTED-IDS");
@@ -132,7 +133,7 @@ public static class LegacyStoreV1LocalReader
             SharedPathTag=Tag(Text(cluster,"path").Replace('/','\\').TrimEnd('\\')),
             DeviceTag=Tag(Text(device,"id")),
             OriginalMapRosterTag=LegacyStoreV1RosterIdentity.Tag(
-                evidence.Select(m=>(m.MapId,m.MapKey))),
+                evidence.Select(m=>(m.MapId,m.MapKey,m.OriginalRoot))),
             OriginalFourFilesTag=Convert.ToHexString(SHA256.HashData(
                 Encoding.ASCII.GetBytes("STORE_V1_ORIGINAL_FOUR_FILES:"+
                     string.Join(":",Names.Select(n=>Convert.ToHexString(
