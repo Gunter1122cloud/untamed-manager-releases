@@ -153,6 +153,9 @@ internal static class OriginalStoreLiveReconcileTests
               cluster.Config.LocalMaps.Single(m=>m.Id==live[4].Id)
               .LastLoader?.Pid==70004,
             "historical stopped-mode Genesis profile correctly reattaches to its live Loader");
+        Check(!ReferenceEquals(cluster.Config.LocalMaps.Single(m=>
+                  m.Id==live[2].Id),live[2]),
+            "newly imported live process evidence cannot alias Manager-owned profile");
         var again=cluster.ReconcileOriginalStoreLiveFive(live,()=>true);
         Check(again.Unchanged==5&&again.Added==0,
             "same process IDs reattach idempotently without map duplication");
