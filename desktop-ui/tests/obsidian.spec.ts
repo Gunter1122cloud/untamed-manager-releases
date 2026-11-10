@@ -49,6 +49,9 @@ test.beforeEach(async ({ page }) => {
     let adoptedObserved=false;
     let originalLiveFiveFixture=false;
     let originalLiveMixedFixture=false;
+    let travelCaptureMissingFive=false;
+    (window as typeof window & {__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__?:()=>void})
+      .__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__=()=>{travelCaptureMissingFive=true;};
     (window as typeof window & {__UNTAMED_ORIGINAL_LIVE_FIVE__?:()=>void;
       __UNTAMED_ORIGINAL_LIVE_MIXED__?:()=>void})
       .__UNTAMED_ORIGINAL_LIVE_FIVE__=()=>{originalLiveFiveFixture=true;};
@@ -379,6 +382,8 @@ test.beforeEach(async ({ page }) => {
             "OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY"
         };
         case "travel.capture": {
+          if(travelCaptureMissingFive)
+            throw new Error("UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS");
           const names=["Astraeos","Genesis Part 1","Valguero","The Island","Extinction"];
           const list=names.map((name,i)=>({
             mapId:i===3?one:"00000000-0000-4000-8000-00000000001"+i,
@@ -2275,7 +2280,8 @@ test.beforeEach(async ({ page }) => {
               // Preserve the concrete synthetic installer error code, just as
               // the native C# reply does; other mocked denials remain generic.
               const error=e instanceof Error&&
-                e.message.startsWith("UM-FRESH-ROOT-OVERLAP|")
+                (e.message.startsWith("UM-FRESH-ROOT-OVERLAP|")||
+                  e.message==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS")
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
             }
@@ -2661,6 +2667,23 @@ test("Cluster page owns character travel evidence without unlocking Store",async
   await expect(page.getByRole("textbox",{name:"Helyi mentéslenyomat JSON"})).not.toBeEmpty();
   await expect(page.getByText(/nem oldja fel a védett mapok indítási zárolását/)).toBeVisible();
   await page.screenshot({path:"test-results/untamed-store-travel-workbench-1600.png",fullPage:false});
+});
+
+test("Store capture shows missing original five-map registration immediately beside its action",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    (window as typeof window & {__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__?:()=>void})
+      .__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__?.();
+  });
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const capture=page.getByRole("region",{name:"Helyi ötmapos mentéslenyomat"});
+  await capture.getByRole("button",{name:"Helyi 5 map ellenőrzése"}).click();
+  const warning=capture.getByRole("alert");
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText("nincs pontosan öt egyedi ASA-map");
+  await expect(warning).toContainText("futó szervereket ne állítsd le");
+  await expect(capture.locator(".uk-travel-map-results>div")).toHaveCount(0);
 });
 
 test("Store A-B-A six snapshots require both return hosts and never unlock production",async({page})=>{
