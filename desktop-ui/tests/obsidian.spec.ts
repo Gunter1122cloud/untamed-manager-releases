@@ -244,7 +244,18 @@ test.beforeEach(async ({ page }) => {
         mapId:entry.map.id,clusterId:clusterClusters[index%clusterClusters.length].clusterId}));
       clusterRevision=1;
     };
-    if(new URLSearchParams(window.location.search).get("fixture")==="large")applyLargeHostFixture();
+    const fixtureMode=new URLSearchParams(window.location.search).get("fixture");
+    if(fixtureMode==="large"||fixtureMode==="modLarge")applyLargeHostFixture();
+    if(fixtureMode==="modLarge"){
+      Object.assign(state.local.maps[0],{storeProtected:false});
+      for(let i=27;i<=65;i++)
+        state.local.maps.push({
+          id:`00000000-0000-4000-8000-${String(i+400).padStart(12,"0")}`,
+          name:`Local Map ${i}`,running:false,status:"Leállítva",
+          gamePort:8000+i,storeProtected:false,steamBuildId:null,
+          steamUpdateState:"Nem ellenőrizhető"
+        } as typeof state.local.maps[number]);
+    }
     let rconAllowed=false;
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
@@ -1625,6 +1636,21 @@ test.beforeEach(async ({ page }) => {
             remoteWritesAllowed:false,storeTouched:false,sqlUsed:false,
             evidence:"LOCAL_ATOMIC_PROFILE_IMPORT_PENDING_RESTART"};
         case "mods.copyPreview":
+          if(fixtureMode==="modLarge"){
+            if(!m.sourceMapId||!Array.isArray(m.targets)||
+               m.targets.length<1||m.targets.length>25||
+               !m.targets.every((id:string)=>state.local.maps.some(map=>map.id===id)))
+              throw new Error("UM-MOD-COPY-INVALID-TARGET");
+            return {token:modCopyToken,sourceMapId:m.sourceMapId,mode:m.mode,
+              targets:m.targets.map((id:string)=>{
+                const entry=state.local.maps.find(map=>map.id===id)!;
+                return {mapId:id,mapName:entry.name,changed:true,
+                  before:{active:[],passive:[],disabled:[]},
+                  after:{active:["123456"],passive:[],disabled:[]}};
+              }),operationCount:m.targets.length,changed:true,requiresRestart:true,
+              remoteWritesAllowed:false,storeWriterTouched:false,
+              evidence:"LOCAL_MOD_COPY_PREVIEW_NO_WRITES"};
+          }
           if(!m.sourceMapId || !Array.isArray(m.targets)||m.targets.length!==1 ||
              m.targets[0]!==two)throw new Error("UM-MOD-COPY-INVALID-TARGET");
           modCopyApproved=false;
@@ -4042,6 +4068,41 @@ test("Mod Center Copy To merges selected local maps only after native diff appro
   await preview.getByRole("checkbox").check();
   await preview.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
   await expect(panel).toContainText("helyi map modkonfigurációja mentve");
+});
+
+test("mod copy supports more than 25 local maps through paged selection without bypassing the native batch cap",async({page})=>{
+  await page.goto("/?fixture=modLarge");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("tab",{name:"Másolás több mapra"}).click();
+  const panel=page.getByRole("region",{name:"Modlista másolása több mapra"});
+  const targetGroup=panel.getByRole("group",{name:"Célmapok kiválasztása"});
+  await expect(targetGroup.getByRole("checkbox")).toHaveCount(25);
+  await panel.getByRole("button",{name:"Következő célmap-oldal"}).click();
+  await expect(targetGroup).toContainText("Local Map 30");
+  await panel.getByRole("textbox",{name:"Modmásolás célmap keresése"}).fill("Local Map 60");
+  await expect(targetGroup.getByRole("checkbox")).toHaveCount(1);
+  await targetGroup.getByRole("checkbox").check();
+  await panel.getByRole("button",{name:"Változások előnézete"}).click();
+  await expect(panel.getByRole("region",{name:"Többmapos modmásolás előnézete"}))
+    .toContainText("Local Map 60");
+  await expect(panel).toContainText("1 / 64 helyi célmap");
+  await expect(panel.getByRole("button",{name:"Jóváhagyás és mentés"})).toBeDisabled();
+});
+
+test("portable mod profile exposes the full local map roster by filtering and paging",async({page})=>{
+  await page.goto("/?fixture=modLarge");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("tab",{name:"Modprofilok – N host"}).click();
+  const panel=page.getByRole("region",{name:"Többhostos modprofil átadás"});
+  const targets=panel.getByRole("group",{name:"Modprofil célmapok"});
+  await expect(targets.getByRole("checkbox")).toHaveCount(25);
+  await panel.getByRole("button",{name:"Következő modprofil-oldal"}).click();
+  await expect(targets).toContainText("Local Map 30");
+  await panel.getByRole("textbox",{name:"Modprofil célmap keresése"}).fill("Local Map 65");
+  await expect(targets.getByRole("checkbox")).toHaveCount(1);
+  await targets.getByRole("checkbox").check();
+  await expect(panel).toContainText("1 / 65 helyi map");
+  await expect(panel.getByRole("button",{name:"JSON-profil kiválasztása és előnézete"})).toBeEnabled();
 });
 
 test("cross-map mod inventory uses actual native contract, filtering and map selection",async ({page})=>{
