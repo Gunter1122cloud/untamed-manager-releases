@@ -172,6 +172,8 @@ export function LocalRunningAsaPanel() {
             p.matchState==="profileCandidate"?"Egyező helyi profiljelölt":
             p.matchState==="unregistered"?"Nincs egyező helyi profil":
             p.matchState==="ambiguous"?"Több lehetséges helyi profil":
+            p.loaderParentObserved&&p.mapKey!=="unknown"?
+              "ASA API Loader alapján azonosított mapjelölt · gyermekfolyamat nincs hitelesítve":
             "Nem igazolható folyamatidentitás"
           }</p>
           {p.profileMapName && <p>Manager-profil: {p.profileMapName}</p>}
