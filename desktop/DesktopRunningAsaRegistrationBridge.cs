@@ -72,7 +72,7 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
         IReadOnlyList<LocalRunningAsaDiscovery.Sample> all,
         IEnumerable<LocalMap> maps)
     {
-        if(server.Name!="ArkAscendedServer.exe"||
+        if(!server.Name.Equals("ArkAscendedServer.exe",StringComparison.OrdinalIgnoreCase)||
            server.StartedUtc is not {Year:>=2020}||
            server.ExecutablePath==null||server.CommandLine==null)
             throw new InvalidDataException("UM-LIVE-IDENTITY-UNVERIFIED");
@@ -86,7 +86,18 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
         if(!facts.ArgumentsValidated)
             throw new InvalidDataException("UM-LIVE-ARGUMENTS-UNVERIFIED");
         // This path cannot bypass original Kova Store identity/session proofs.
-        if(facts.StoreFlagPresent||facts.ClusterSwitchPresent||
+        // A duplicate -usestore can make a cardinality-based telemetry flag
+        // false. Reject ANY sensitive switch spelling before profile writes.
+        var sanitizedArgs=LocalRunningAsaDiscovery.CommandArguments(
+            server.CommandLine,server.ExecutablePath);
+        if(sanitizedArgs==null)
+            throw new InvalidDataException("UM-LIVE-ARGUMENTS-UNVERIFIED");
+        var tokens=sanitizedArgs.Split((char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries).Skip(1);
+        bool risky=tokens.Any(t=>t.Contains("store",StringComparison.OrdinalIgnoreCase)||
+            t.StartsWith("-cluster",StringComparison.OrdinalIgnoreCase)||
+            t.StartsWith("-convert",StringComparison.OrdinalIgnoreCase));
+        if(risky||facts.StoreFlagPresent||facts.ClusterSwitchPresent||
            facts.TransferOverridePresent||facts.ConversionFlagPresent)
             throw new InvalidDataException("UM-LIVE-STORE-REQUIRES-HISTORICAL-IMPORT");
         var exe=Path.GetFullPath(server.ExecutablePath);
