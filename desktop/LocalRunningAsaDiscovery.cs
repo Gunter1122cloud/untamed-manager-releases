@@ -43,9 +43,12 @@ public static class LocalRunningAsaDiscovery
             or PathTooLongException){return false;}
     }
 
-    private static string? LaunchMap(string? command,string? expectedExe)
+    // Shared sanitized parser entry point. An unexpected executable identity,
+    // control character or excessive command line is not trusted.
+    internal static string? CommandArguments(string? command,string? expectedExe)
     {
-        if(string.IsNullOrWhiteSpace(command)||
+        if(string.IsNullOrWhiteSpace(command)||command.Length>8192||
+           command.Any(char.IsControl)||
            string.IsNullOrWhiteSpace(expectedExe))return null;
         string line=command.Trim(), executable;
         if(line.StartsWith('"'))
@@ -64,7 +67,13 @@ public static class LocalRunningAsaDiscovery
             executable=expectedExe;
             line=line[expectedExe.Length..].TrimStart();
         }
-        if(!SamePath(executable,expectedExe))return null;
+        return SamePath(executable,expectedExe)?line:null;
+    }
+
+    private static string? LaunchMap(string? command,string? expectedExe)
+    {
+        string? line=CommandArguments(command,expectedExe);
+        if(string.IsNullOrWhiteSpace(line))return null;
         var first=line.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries)
             .FirstOrDefault();
         if(first==null)return null;
