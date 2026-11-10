@@ -238,7 +238,8 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
                         cluster.Config.LocalMaps.Count(candidate=>
                             candidate.Id==originalMapId&&
                             candidate.HistoricalStoreProtected&&
-                            !string.IsNullOrWhiteSpace(candidate.HistoricalArchiveSha256)&&
+                            string.Equals(candidate.HistoricalArchiveSha256,
+                                before.OriginalFourFilesTag,StringComparison.OrdinalIgnoreCase)&&
                             string.Equals(candidate.HistoricalMapKey,key,
                                 StringComparison.Ordinal))==1;
                 });
