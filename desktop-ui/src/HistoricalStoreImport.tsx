@@ -17,6 +17,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [liveBatchPreview,setLiveBatchPreview]=useState<OriginalKovaLiveBatchPreview|null>(null);
   const [liveControllerStopped,setLiveControllerStopped]=useState(false);
   const [liveTypedApproval,setLiveTypedApproval]=useState("");
+  const liveApprovalPhrase="STORE-V1 FUTÓ ÁTVÉTEL";
   const [clusterPreview,setClusterPreview]=useState<OriginalKovaClusterPreview|null>(null);
   const [clusterApproval,setClusterApproval]=useState("");
   const [clusterBusy,setClusterBusy]=useState(false);
@@ -247,7 +248,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   };
   const applyLiveFive=async()=>{
     if(directBusy||registering||!liveBatchPreview||
-       !liveControllerStopped||liveTypedApproval!=="STORE-V1 FUTÓ ÁTVÉTEL")return;
+       liveApprovalDisabledReason!==null)return;
     const token=liveBatchPreview.token,epoch=++directEpoch.current;
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setLiveBatchPreview(null);setLiveTypedApproval("");setLiveControllerStopped(false);
@@ -350,6 +351,16 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           "A négy fájl egyezősége nem ellenőrizhető. Az eredeti fájlok változatlanok maradtak.");
     }finally{if(epoch===parityEpoch.current)setParityBusy(false);}
   };
+  // The exact typed phrase is intentionally required for native Store-v1
+  // ownership handoff. The UI must explain EVERY disabled action gate.
+  const liveApprovalDisabledReason=directBusy||registering?
+    "A natív ellenőrzés vagy egy korábbi művelet még folyamatban van.":
+    !liveControllerStopped?
+      "Hiányzik a Kova-felügyelet leállításának jelölése.":
+      liveTypedApproval!==liveApprovalPhrase?
+        "Írd be a pontos jóváhagyó szöveget a látható mezőbe.":
+        null;
+
   const comparePeers=async(e:FormEvent)=>{
     e.preventDefault();const epoch=++pairEpoch.current;setPairResult(null);setPairError("");setPairBusy(true);
     try {
@@ -434,18 +445,29 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             Megerősítem, hogy a régi Kova Manager már nem felügyeli ezeket
             a folyamatokat. Nem állítottam le az ASA-szervereket.
           </label>
-          <label>Végső jóváhagyás – írd be: STORE-V1 FUTÓ ÁTVÉTEL
-            <input aria-label="Store-v1 futó átvétel megerősítése"
-              value={liveTypedApproval} disabled={directBusy}
+          <label className="historical-typed-confirmation" htmlFor="store-live-approval-text">
+            <span>Végső jóváhagyás – írd be pontosan: <strong>{liveApprovalPhrase}</strong></span>
+            <input id="store-live-approval-text" type="text"
+              aria-label="Store-v1 futó átvétel megerősítése"
+              aria-describedby="store-live-approval-reason"
+              data-testid="store-live-approval-input"
+              value={liveTypedApproval} disabled={directBusy||registering}
+              maxLength={64} autoComplete="off" spellCheck={false}
+              placeholder={liveApprovalPhrase}
               onChange={e=>setLiveTypedApproval(e.target.value)}/>
           </label>
-          <div className="settings-actions">
+          <div className="settings-actions historical-live-action-row">
             <button type="button" className="primary"
-              disabled={directBusy||!liveControllerStopped||
-                liveTypedApproval!=="STORE-V1 FUTÓ ÁTVÉTEL"}
+              disabled={liveApprovalDisabledReason!==null}
+              aria-describedby="store-live-approval-reason"
               onClick={()=>{void applyLiveFive();}}>
               <Shield size={16}/> Eredeti öt futó Store-v1 map átvétele
             </button>
+            <span id="store-live-approval-reason" role="status"
+              className="historical-approval-reason">
+              {liveApprovalDisabledReason??
+                "Minden jóváhagyási feltétel teljesült. Az átvétel külön kattintással indul."}
+            </span>
             <button type="button" className="secondary" disabled={directBusy}
               onClick={()=>{setLiveBatchPreview(null);setLiveTypedApproval("");
                 setLiveControllerStopped(false);}}>Mégsem</button>
@@ -563,9 +585,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <span>Hozzáadandó</span><strong>{clusterPreview.missingAssignments}</strong>
               <span>Korábbi Kova és writer lock</span><strong>Változatlan</strong>
             </div>
-            <label>Pontos jóváhagyó szöveg
-              <input aria-label="Eredeti Cluster-regiszter jóváhagyó szöveg"
+            <label className="historical-typed-confirmation">Pontos jóváhagyó szöveg
+              <input type="text" aria-label="Eredeti Cluster-regiszter jóváhagyó szöveg"
                 value={clusterApproval} disabled={clusterBusy} autoComplete="off"
+                spellCheck={false}
                 onChange={e=>setClusterApproval(e.target.value)}
                 placeholder="EREDETI KOVA REGISZTER"/>
             </label>
