@@ -37,6 +37,7 @@ test.beforeEach(async ({ page }) => {
         state.peerMessage="Peer nincs beállítva";
       };
     let freshId = "";
+    let importedObserved=false;
     let initialBlocked=false;
     let customInitialLevel=false;
     (window as typeof window & {__UNTAMED_CUSTOM_INITIAL_LEVEL__?:(value:boolean)=>void})
@@ -1291,8 +1292,11 @@ test.beforeEach(async ({ page }) => {
                 conversionFlagPresent:false,argumentsValidated:true},
               controllable:false,storeWriteAuthorized:false},
             {pid:4443,parentPid:3000,startedUtc:"2026-11-10T15:00:00Z",
-              processKind:"asaServer",mapKey:"Ragnarok_WP",matchState:"unregistered",
-              profileMapId:null,profileMapName:null,loaderParentObserved:false,
+              processKind:"asaServer",mapKey:"Ragnarok_WP",
+              matchState:importedObserved?"profileCandidate":"unregistered",
+              profileMapId:importedObserved?"00000000-0000-4000-8000-000000007148":null,
+              profileMapName:importedObserved?"Ragnarok":null,
+              observedReadOnlyImported:importedObserved,loaderParentObserved:false,
               launchFacts:{gamePort:7827,queryPort:27037,activeModIds:[],passiveModIds:[],
                 activeModsState:"notDeclared",passiveModsState:"notDeclared",
                 storeFlagPresent:false,clusterSwitchPresent:false,transferOverridePresent:false,
@@ -1314,6 +1318,7 @@ test.beforeEach(async ({ page }) => {
         case "servers.runningRegister": {
           if(m.token!=="00000000-0000-4000-8000-000000007147"||m.confirm!==true)
             throw new Error("UM-LIVE-APPROVAL-REQUIRED");
+          importedObserved=true;
           return {mapId:"00000000-0000-4000-8000-000000007148",
             mapName:"Ragnarok",mapKey:"Ragnarok_WP",pid:4443,
             readOnly:true,lifecycleAuthorized:false,storeWriterAuthorized:false,
@@ -2982,8 +2987,8 @@ test("P0 running ASA import previews exact PID and explicitly registers read-onl
   await expect(importPanel.getByLabel("Futó ASA import előnézet")).toContainText("Ragnarok_WP");
   await expect(importPanel.getByLabel("Futó ASA import előnézet")).toContainText("Game 7827");
   await importPanel.getByRole("button",{name:"Regisztrálás · csak Manager"}).click();
-  await expect(importPanel.getByRole("button",{name:"Regisztráció ellenőrzése"})).toBeVisible();
-  await expect(importPanel.getByRole("button",{name:"Regisztrálás · csak Manager"})).toHaveCount(0);
+  await expect(panel).toContainText("Managerhez regisztrálva · kizárólag megfigyelés");
+  await expect(panel.getByLabel("Futó ASA regisztrálása PID 4443")).toHaveCount(0);
   await expect(panel).toContainText("Store/cluster folyamat:");
   await expect(panel.getByRole("button",{name:/Leállítás|Újraindítás|SaveWorld|Átvétel/})).toHaveCount(0);
 });
