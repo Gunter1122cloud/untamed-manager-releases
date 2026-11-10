@@ -2178,7 +2178,7 @@ test("historical Kova new-map compatibility check is native, read-only and never
   const candidate=page.getByRole("combobox",{name:"Bővítendő helyi map"});
   expect(await candidate.locator("option").count()).toBeGreaterThan(1);
   await candidate.selectOption({label:"Local Map 4"});
-  const revision=await page.locator(".cluster-registry-metrics > div").nth(3).innerText();
+  const revision=await page.locator(".cluster-registry-metrics > div").nth(3).locator("b").innerText();
   await page.getByRole("button",{name:"Eredeti cluster-kompatibilitás ellenőrzése"}).click();
   const inspected=page.getByRole("region",{name:"Történeti Store-map ellenőrzése"});
   await expect(inspected).toContainText("Eredeti Store-forrás: igazolt");
@@ -2187,7 +2187,7 @@ test("historical Kova new-map compatibility check is native, read-only and never
   await expect(inspected).toContainText("UM-EXPANSION-FRESH-ASA-SETUP-REQUIRED");
   await expect(inspected).toContainText("még nincs engedélyezve");
   await expect(inspected.getByRole("button",{name:/csatlakoztat|Store-profil mentése/i})).toHaveCount(0);
-  await expect(page.locator(".cluster-registry-metrics > div").nth(3)).toHaveText(revision);
+  await expect(page.locator(".cluster-registry-metrics > div").nth(3).locator("b")).toHaveText(revision);
 });
 
 test("cluster screen creates and edits a cluster through the native bridge contract",async({page})=>{
