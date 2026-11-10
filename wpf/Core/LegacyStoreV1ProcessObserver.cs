@@ -122,11 +122,24 @@ public static class LegacyStoreV1ProcessObserver
                !MatchesOriginalActiveCommand(loaderCommand,loader,map))
                 return false;
             string? childArgs=ExtractArguments(childCommand,expected);
-            if(childArgs==null||childArgs.IndexOfAny(new[]{'"','\r','\n','\0'})>=0)
-                return false;
-            // Only harmless child-local runtime flags are accepted. Launch
-            // parameters that affect game, Query/RCON, Store or transfer must
-            // be proved by the parent, and may NOT be independently overridden.
+            if(childArgs==null)
+            {
+                // Real ASA API Loader may copy ITS own complete command line
+                // into Win32_Process.CommandLine for ArkAscendedServer.exe.
+                // Process.Name/ExecutablePath must still be the genuine ASA
+                // child; this fallback never trusts the argv[0] executable.
+                // Only the EXACT SAME, complete original Loader launch is
+                // accepted, after independently validating the real Loader
+                // PID/creation-time/parent relationship above.
+                string? aliasArgs=ExtractArguments(childCommand,loader);
+                string? parentArgs=ExtractArguments(loaderCommand,loader);
+                return aliasArgs!=null&&parentArgs!=null&&
+                    aliasArgs.Equals(parentArgs,StringComparison.OrdinalIgnoreCase)&&
+                    MatchesOriginalActiveCommand(childCommand,loader,map);
+            }
+            if(childArgs.IndexOfAny(new[]{'"','\r','\n','\0'})>=0)return false;
+            // For a true ASA argv[0], only harmless child-local flags are
+            // accepted; source-affecting overrides must never be added.
             string[] tokens=childArgs.Split((char[]?)null,
                 StringSplitOptions.RemoveEmptyEntries);
             return tokens.All(token=>
@@ -427,7 +440,11 @@ public static class LegacyStoreV1ProcessObserver
                     // defer its classification until its exact original
                     // ASA API Loader parent has been verified separately.
                     bool childOnly=!exact&&server&&map.StartWithAsaApi&&
-                        MinimalOriginalApiChildArguments(command,exe);
+                        (MinimalOriginalApiChildArguments(command,exe)||
+                         // The WMI child has ArkAscendedServer.exe as its
+                         // actual executable, but inherited the Loader's
+                         // exact argv[0] and original Kova launch grammar.
+                         MatchesOriginalActiveCommand(command,loader,map));
                     if(!exact&&!childOnly)
                     {uncertain=true;continue;}
                     int pid=Convert.ToInt32(entry["ProcessId"]);
