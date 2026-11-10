@@ -107,6 +107,66 @@ internal static class OriginalStoreLiveBatchEvidenceTests
                 StartedUtc=x.StartedUtc!.Value.AddSeconds(8)}:x).ToArray());
         Check(replay.ProcessSha256!=good.ProcessSha256,
             "PID creation-time change invalidates native approval fingerprint");
+        // Simulate the UK-HOME-02 topology: all five Kova maps are ACTIVE,
+        // every child is a real ASA process started by its exact full-argument
+        // ASA API Loader, but the child itself has only benign WMI flags.
+        // No real Kova/ASA process, share, writer or RCON is touched.
+        var apiOnly=new List<LocalRunningAsaDiscovery.Sample>();
+        for(int i=0;i<maps.Count;i++)
+        {
+            var m=maps[i];
+            var child=sample.Single(x=>x.Pid==23000+i);
+            string childExe=child.ExecutablePath!;
+            string loader=Path.Combine(Path.GetDirectoryName(childExe)!,
+                "AsaApiLoader.exe");
+            File.WriteAllBytes(loader,new byte[]{77,90,4,0});
+            string originalArgs=string.Join(" ",LegacyStoreV1ActiveLaunch.Build(
+                new LegacyStoreV1ActiveLaunch.Input(
+                    m.MapKey,m.GamePort,m.QueryPort,m.EnabledMods,m.PassiveMods,
+                    VaultProtocol.ClusterId,unc,"active","")).Arguments);
+            apiOnly.Add(new(31000+i,400,started,"AsaApiLoader.exe",
+                loader,"\""+loader+"\" "+originalArgs));
+            apiOnly.Add(child with{
+                ParentPid=31000+i,CommandLine="\""+childExe+"\" -log -NoBattlEye"});
+        }
+        var paired=OriginalStoreLiveBatchEvidence.Classify(selection,apiOnly);
+        Check(paired.Maps.Length==5&&paired.ApiLoaderPairs==5&&
+              paired.DirectProcesses==0&&
+              paired.Maps.All(m=>m.StartWithAsaApi&&
+                  m.LastLoader is {Pid:>0}&&m.LastProcess is {Pid:>0}&&
+                  m.LastLoader.Pid!=m.LastProcess.Pid&&
+                  !m.AutoStart&&!m.MonitorRcon&&m.RconPort==0),
+            "five API Loader children with no map flags reconcile only as observed original Store profiles");
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            apiOnly.Where(x=>x.Pid!=31003).ToArray())),
+            "an API child without its verified Loader cannot be imported");
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            apiOnly.Select(x=>x.Pid==23001?x with{ParentPid=31003}:x).ToArray())),
+            "child with the wrong original Loader parent is rejected");
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            apiOnly.Select(x=>x.Pid==23002?x with{
+                CommandLine=x.CommandLine+" -converttostore"}:x).ToArray())),
+            "child conversion flag denies the entire batch");
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            apiOnly.Select(x=>x.Pid==23002?x with{
+                CommandLine=x.CommandLine+" -Port=9999"}:x).ToArray())),
+            "child Game port override denies the entire batch");
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            apiOnly.Select(x=>x.Pid==23001?x with{
+                CommandLine=x.CommandLine+" OtherMap_WP?listen"}:x).ToArray())),
+            "child foreign map token denies the entire batch");
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            apiOnly.Select(x=>x.Pid==23004?x with{CommandLine=null}:x).ToArray())),
+            "unreadable child WMI command line never confers ownership");
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            apiOnly.Select(x=>x.Pid==31000?x with{
+                CommandLine=x.CommandLine!.Replace("-usestore","-converttostore")}:x).ToArray())),
+            "mutated original Loader Store mode denies the entire batch");
+        var altered=OriginalStoreLiveBatchEvidence.Classify(selection,
+            apiOnly.Select(x=>x.Pid==31000?x with{
+                StartedUtc=x.StartedUtc!.Value.AddSeconds(1)}:x).ToArray());
+        Check(altered.ProcessSha256!=paired.ProcessSha256,
+            "Loader restart instant change invalidates the five-map handoff token");
         Check(sample.All(x=>x.CommandLine!.Contains("-usestore") &&
               !x.CommandLine.Contains("-converttostore")),
             "original source grammar remains conversion-free after all regressions");
