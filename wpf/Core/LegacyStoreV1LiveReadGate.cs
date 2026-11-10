@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace UntamedManager.Core;
 
@@ -64,7 +66,37 @@ public static class LegacyStoreV1LiveReadGate
             throw new InvalidDataException("UM-STORE-LIVE-SHARE-UNSAFE");
         return s.TrimEnd('\\');
     }
-    private static byte[] ReadShared(string path)
+    // The original Kova shared-store.mjs read() rejects a shared Store
+    // coordination JSON file unless stat.nlink==1. Merely checking the
+    // ReparsePoint attribute misses ordinary NTFS hard links. This handle
+    // check preserves that exact original source safety rule.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowsFileTime {public uint Low;public uint High;}
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowsFileInfo
+    {
+        public uint Attributes;
+        public WindowsFileTime Created,Accessed,Modified;
+        public uint VolumeSerial,SizeHigh,SizeLow,LinkCount,IndexHigh,IndexLow;
+    }
+    [DllImport("kernel32.dll",SetLastError=true)]
+    [return:MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileInformationByHandle(
+        SafeFileHandle handle,out WindowsFileInfo info);
+
+    private static void DemandOriginalSingleLink(FileStream opened)
+    {
+        if(!OperatingSystem.IsWindows()||
+           !GetFileInformationByHandle(opened.SafeFileHandle,out var info)||
+           info.LinkCount!=1||
+           (info.Attributes & (uint)FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException(
+                "UM-STORE-LIVE-ORIGINAL-SHARED-REQUIRES-SINGLE-LINK");
+    }
+
+    // Internal visibility is for isolated Windows-native regression. No
+    // renderer path/remote command reaches this primitive.
+    internal static byte[] ReadShared(string path)
     {
         var attr=File.GetAttributes(path);
         if((attr&FileAttributes.ReparsePoint)!=0||!(attr.HasFlag(FileAttributes.Archive)||
@@ -73,6 +105,7 @@ public static class LegacyStoreV1LiveReadGate
             throw new InvalidDataException("UM-STORE-LIVE-SHARED-FILE-INVALID");
         using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,
             FileShare.Read,4096,FileOptions.SequentialScan);
+        DemandOriginalSingleLink(stream);
         if(stream.Length is <=0 or >1048576)
             throw new InvalidDataException("UM-STORE-LIVE-SHARED-SIZE");
         byte[] data=new byte[checked((int)stream.Length)];
