@@ -1422,7 +1422,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
-  "servers.inspectLocal" | "servers.importLocal" |
+  "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
