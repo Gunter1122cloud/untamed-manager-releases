@@ -41,9 +41,26 @@ public static class AsaSteamMapCatalog
             throw new InvalidDataException("Unknown ASA map: choose an official level before automatic installation");
         return level;
     }
-    public static string LaunchArguments(string name,string session,int gamePort,int queryPort)
+    // A manually imported mod map can expose a level not present in this
+    // official-name table. It may be entered ONLY by an operator during the
+    // separate first-setup preflight, never inferred from display names or
+    // accepted as extra command-line arguments.
+    public static string ValidateCustomLevel(string level)
     {
-        string level=LevelFor(name);
+        static bool Letter(char c) => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+        static bool Digit(char c) => c is >= '0' and <= '9';
+        if(string.IsNullOrWhiteSpace(level) || level.Length>80 ||
+           !Letter(level[0]) ||
+           level.Any(c=>!Letter(c) && !Digit(c) && c!='_'))
+            throw new InvalidDataException("UM-INITIAL-CUSTOM-LEVEL-INVALID");
+        return level;
+    }
+    public static string LaunchArguments(string name,string session,int gamePort,int queryPort) =>
+        LaunchArgumentsForLevel(LevelFor(name),session,gamePort,queryPort);
+
+    public static string LaunchArgumentsForLevel(string level,string session,int gamePort,int queryPort)
+    {
+        level=ValidateCustomLevel(level);
         if(gamePort is <1 or >65535 || queryPort is <1 or >65535 || gamePort==queryPort)
             throw new InvalidDataException("Invalid Game/Query UDP port");
         if(string.IsNullOrWhiteSpace(session)||session.Length>75||
