@@ -1490,6 +1490,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
   token?: string; file?: IniFile; content?: string;
   name?: string; root?: string; importToken?: string;
+  pid?:number; startedUtc?:string;
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
