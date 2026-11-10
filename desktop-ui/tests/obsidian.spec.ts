@@ -56,6 +56,10 @@ test.beforeEach(async ({ page }) => {
     let pluginZipInstalled = false;
     let apiCoreRolledBack = false;
     let steamUpdateStarted = false;
+    let steamBatchApplyCount=0;
+    let steamBatchStarted=false;
+    (window as typeof window & {__UNTAMED_STEAM_BATCH_APPLIES__?:()=>number})
+      .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
     let freshStarted=false;
     let restartInterrupted=false;
     (window as typeof window & {__UNTAMED_RESTART_INTERRUPTED__?:()=>void})
@@ -1890,6 +1894,45 @@ test.beforeEach(async ({ page }) => {
             noProcessAutoStop:true,remoteWrites:false,
             evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"};
         }
+        case "steam.batchCurrent": return {
+          activeJob:null,journalExists:false,journalPhase:null,
+          journalNextIndex:null,journalTotal:null,needsOperatorReview:false,
+          automaticRetry:false,remoteWritesAllowed:false
+        };
+        case "steam.batchPreview": {
+          if(!Array.isArray(m.mapIds)||m.mapIds.length<1||
+             m.mapIds.length>25||new Set(m.mapIds).size!==m.mapIds.length)
+            throw new Error("UM-STEAM-BATCH-INVALID-MAPS");
+          const local=m.mapIds.map((id:string)=>
+            state.local.maps.find(x=>x.id===id&&!x.running&&!x.storeProtected));
+          if(local.some((x:any)=>!x))throw new Error("UM-STEAM-BATCH-PROTECTED-OR-REMOTE");
+          return {token:"00000000-0000-4000-8000-000000008880",
+            requestedMaps:local.length,installations:local.length,
+            details:local.map((x:any)=>({
+              mapId:x.id,mapName:x.name,installedBuild:"123456",
+              sharedMapCount:1,availableBytes:30000000000,requiredReserveBytes:10000000000
+            })),
+            requiresTypedApproval:true,serverStopRequested:false,
+            storeWriterTouched:false,remoteHostTouched:false,
+            evidence:"LOCAL_STOPPED_STEAM_SERIAL_BATCH_PREFLIGHT_NO_WRITES"};
+        }
+        case "steam.batchApply":
+          if(m.token!=="00000000-0000-4000-8000-000000008880" ||
+             m.confirm!==true||m.typedApproval!=="HELYI SOROS STEAMCMD"||
+             steamBatchStarted)throw new Error("UM-STEAM-BATCH-CONFIRMATION-REQUIRED");
+          steamBatchStarted=true;steamBatchApplyCount++;
+          return {jobId:"00000000-0000-4000-8000-000000008881",
+            started:true,serverStopRequested:false,remoteHostTouched:false,
+            storeWriterTouched:false,automaticRetry:false,
+            evidence:"EXPLICIT_LOCAL_STOPPED_SERIAL_STEAM_BATCH_STARTED"};
+        case "steam.batchStatus":
+          if(!steamBatchStarted)throw new Error("UM-STEAM-BATCH-JOB-MISSING");
+          return {jobId:"00000000-0000-4000-8000-000000008881",
+            state:"completed",stage:"verified",position:1,total:1,
+            activeMapName:"Local Map 60",completedInstallations:1,
+            changedUtc:"2026-11-10T09:30:00Z",
+            serverStopRequested:false,remoteHostTouched:false,
+            storeWriterTouched:false,automaticRetry:false};
         case "steam.publishedBuild": return {
           mapId:m.mapId,mapName:"Astraeos",
           installedBuild:"123456",availableBuild:"123457",
@@ -3610,6 +3653,37 @@ test("stopped SteamCMD update displays exact local process and reserve evidence"
   await expect(diagnostics).toContainText("Leállítás igazolva");
   await expect(diagnostics).toContainText("Szabad tárhely: 50 GiB");
   await expect(diagnostics).toContainText("SteamCMD: Telepítve");
+});
+
+test("cluster bulk SteamCMD queues only explicitly approved stopped local map beyond page 1",async({page})=>{
+  await page.goto("/?fixture=modLarge");
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Helyi mapok soros SteamCMD frissítése"});
+  const targets=panel.getByRole("group",{name:"Soros SteamCMD célmapok"});
+  await expect(targets.getByRole("checkbox")).toHaveCount(25);
+  await panel.getByRole("button",{name:"Következő SteamCMD-oldal"}).click();
+  await expect(targets).toContainText("Local Map 30");
+  await panel.getByRole("searchbox",{name:"Soros SteamCMD célmap keresése"})
+    .fill("Local Map 60");
+  await expect(targets.getByRole("checkbox")).toHaveCount(1);
+  await targets.getByRole("checkbox").check();
+  await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
+  const consent=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
+  await expect(consent).toContainText("Local Map 60");
+  const apply=consent.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"});
+  await expect(apply).toBeDisabled();
+  await consent.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
+    .fill("HELYI SOROS");
+  await expect(apply).toBeDisabled();
+  await consent.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
+    .fill("HELYI SOROS STEAMCMD");
+  await apply.click();
+  await expect(panel).toContainText("SteamCMD: completed");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
+  }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(1);
+  await expect(consent).toHaveCount(0);
 });
 
 test("per-map Steam build check compares installed/public IDs without starting update or stopping ASA",async({page})=>{
