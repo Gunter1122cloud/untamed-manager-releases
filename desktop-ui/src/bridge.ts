@@ -366,6 +366,7 @@ export type DurableSteamQueue = {
   exists:boolean;queueId?:string;phase?:string;activeMapName?:string|null;
   nextIndex?:number;total?:number;changedUtc?:string;summary?:string;
   needsOperatorReview:boolean;autoResumeAllowed:false;hostName?:string;
+  activeJob?:StoppedSteamStatus|null;
   evidence?:"DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL";
 };
 export type AsaLifecycleJournal = {

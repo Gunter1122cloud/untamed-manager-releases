@@ -177,14 +177,23 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     // establish a completed queue after a Manager UI restart.
                     var journal=new SteamSerialMaintenanceQueue(
                         cluster.Store.Root,cluster.Config.LocalHostId).Observe();
-                    if(journal==null)
-                        return Ok(id,new{exists=false,needsOperatorReview=false,
-                            autoResumeAllowed=false});
-                    bool active=false;
+                    // WebView2 may reload or the operator may leave this
+                    // tab while native SteamCMD remains active. Expose only
+                    // this bridge's in-memory job receipt to REATTACH the
+                    // renderer, never a capability to replay an update.
+                    object? activeJob=null;
                     if(job!=null)
                     {
-                        lock(sync)active=job.State is "queued" or "running";
+                        lock(sync)
+                        {
+                            if(job.State is "queued" or "running")
+                                activeJob=Snapshot(job);
+                        }
                     }
+                    bool active=activeJob!=null;
+                    if(journal==null)
+                        return Ok(id,new{exists=false,needsOperatorReview=false,
+                            autoResumeAllowed=false,activeJob});
                     bool needsReview=!active && journal.Phase is
                         (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress
                             or SteamQueuePhase.NeedsOperator);
@@ -198,6 +207,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         changedUtc=journal.ChangedUtc,
                         summary=journal.Summary,
                         needsOperatorReview=needsReview,autoResumeAllowed=false,
+                        activeJob,
                         hostName=cluster.Config.LocalHostName,
                         evidence="DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL"
                     });

@@ -1900,7 +1900,14 @@ test.beforeEach(async ({ page }) => {
           return {jobId:"00000000-0000-4000-8000-000000007777",started:true,
             restartPerformed:false,remoteHostTouched:false,
             evidence:"REAL_LOCAL_STOPPED_STEAM_UPDATE_STARTED"};
-        case "steam.stoppedCurrent": return steamInterrupted?{
+        case "steam.stoppedCurrent": return new URLSearchParams(window.location.search)
+          .get("fixture")==="steamReattach"?{
+            exists:false,needsOperatorReview:false,autoResumeAllowed:false,
+            activeJob:{jobId:"00000000-0000-4000-8000-000000007777",
+              state:"running",stage:"steamcmd",changedUtc:"2026-11-10T08:40:00Z",
+              oldBuild:"123456",newBuild:"",protectedFilesIntact:false,
+              restartPerformed:false,storeTouched:false}
+          }:steamInterrupted?{
           exists:true,queueId:"00000000-0000-4000-8000-000000008888",
           phase:"NeedsOperator",activeMapName:"Astraeos",
           nextIndex:0,total:1,changedUtc:"2026-11-06T09:10:00Z",
@@ -1909,6 +1916,11 @@ test.beforeEach(async ({ page }) => {
           evidence:"DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL"
         }:{exists:false,needsOperatorReview:false,autoResumeAllowed:false};
         case "steam.stoppedStatus":
+          if(new URLSearchParams(window.location.search).get("fixture")==="steamReattach")
+            return {jobId:"00000000-0000-4000-8000-000000007777",
+              state:"completed",stage:"verified",changedUtc:"2026-11-10T08:42:00Z",
+              oldBuild:"123456",newBuild:"123457",protectedFilesIntact:true,
+              restartPerformed:false,storeTouched:false};
           return {jobId:"00000000-0000-4000-8000-000000007777",
             state:steamUpdateStarted?"completed":"queued",
             stage:steamUpdateStarted?"verified":"preflight",
@@ -4254,6 +4266,18 @@ test("real stopped-map SteamCMD update is opt-in and reports verified outcome",a
   await start.click();
   await expect(page.getByText(/Build 123456 → 123457/)).toBeVisible({timeout:15000});
   await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
+});
+
+test("SteamCMD monitor reattaches to existing native job after WebView2 reload without another Steam update",async({page})=>{
+  await page.goto("/?fixture=steamReattach");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await expect(panel).toContainText("Frissítés: completed");
+  await expect(panel).toContainText("Build 123456 → 123457");
+  await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"}))
+    .toHaveCount(0);
 });
 
 test("interrupted SteamCMD queue survives UI restart and blocks accidental retry",async({page})=>{
