@@ -763,13 +763,27 @@ public sealed partial class ClusterService : IAsyncDisposable
         var source=_legacyStoreProof();
         if(source?.SourcePresent!=true||source.LocalMetadataValid!=true)
             return source;
-        var roster=Config.LocalMaps.Where(m=>m.HistoricalStoreProtected).ToArray();
+        // The original Kova source always has exactly FIVE source-pinned
+        // maps per host, but Obsidian supports unlimited additional local
+        // maps and independent Store profiles. Do not invalidate the original
+        // five when a sixth unrelated map is registered. Equally, a sixth
+        // map claiming the SAME original four-file identity is ambiguous and
+        // must fail closed instead of being silently ignored.
+        var roster=Config.LocalMaps.Where(m=>m.HistoricalStoreProtected&&
+            string.Equals(m.HistoricalArchiveSha256,
+                source.OriginalFourFilesTag,StringComparison.Ordinal)).ToArray();
         bool imported=false;
         if(roster.Length==5&&source.OriginalMapRosterTag is {Length:64}&&
            source.OriginalMapRosterTag.All(Uri.IsHexDigit)&&
-           roster.All(m=>m.HistoricalArchiveSha256?.Equals(
-               source.OriginalFourFilesTag,StringComparison.Ordinal)==true)&&
-           Config.ClusterRegistry?.MapAssignments!=null)
+           Config.ClusterRegistry?.MapAssignments!=null&&
+           Config.ClusterRegistry.Clusters.Count(c=>c!=null&&
+               string.Equals(c.ClusterId,VaultProtocol.ClusterId,
+                   StringComparison.OrdinalIgnoreCase))==1&&
+           Config.ClusterRegistry.Clusters.Any(c=>c!=null&&
+               string.Equals(c.ClusterId,VaultProtocol.ClusterId,
+                   StringComparison.OrdinalIgnoreCase)&&
+               LegacyStoreV1RosterIdentity.MatchesOriginalSharedTransfer(
+                   c.TransferDirectory,source.SharedPathTag)))
         {
             try
             {

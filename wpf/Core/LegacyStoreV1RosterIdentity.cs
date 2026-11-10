@@ -15,6 +15,17 @@ namespace UntamedManager.Core;
 /// </summary>
 internal static class LegacyStoreV1RosterIdentity
 {
+    internal static bool MatchesOriginalSharedTransfer(string candidate,string expectedSha)
+    {
+        if(string.IsNullOrWhiteSpace(candidate)||!candidate.StartsWith(@"\\",StringComparison.Ordinal)||
+           expectedSha is not {Length:64} || !expectedSha.All(Uri.IsHexDigit))
+            return false;
+        string normalized=candidate.Replace('/','\\').TrimEnd('\\');
+        string sha=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            normalized.Trim().ToLowerInvariant())));
+        return string.Equals(sha,expectedSha,StringComparison.Ordinal);
+    }
+
     internal static string Tag(IEnumerable<(Guid Id,string MapKey,string MapRoot)> entries)
     {
         ArgumentNullException.ThrowIfNull(entries);

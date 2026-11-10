@@ -361,6 +361,29 @@ internal static class LegacyStorePhysicalTransferTests
                     });
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
                 "all five original GUID/level pairs plus their pinned four-file fingerprints and Kova cluster assignments match actual Manager registrations");
+            var originalDefinition=manager.Config.ClusterRegistry.Clusters.Single(c=>
+                c.ClusterId.Equals(VaultProtocol.ClusterId,StringComparison.OrdinalIgnoreCase));
+            string originalRegisteredTransfer=originalDefinition.TransferDirectory;
+            originalDefinition.TransferDirectory=@"\\synthetic-foreign-peer\wrong-transfer";
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "matching five assignments cannot certify a Kova cluster whose transfer UNC no longer matches the ORIGINAL source");
+            originalDefinition.TransferDirectory=originalRegisteredTransfer;
+            manager.Config.ClusterRegistry.Clusters.Remove(originalDefinition);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "orphan KovaCluster map assignments without a registered cluster definition cannot certify enrollment");
+            manager.Config.ClusterRegistry.Clusters.Add(originalDefinition);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "restored registered cluster definition and original transfer UNC recover exact five-map enrollment");
+            var forgedDuplicate=new RegisteredCluster{
+                ClusterId=originalDefinition.ClusterId,Name="Forged duplicate original",
+                TransferDirectory=@"\\synthetic-other\ambiguous-transfer"
+            };
+            manager.Config.ClusterRegistry.Clusters.Add(forgedDuplicate);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "duplicate KovaCluster definition with a second mismatching UNC is never accepted just because one record matches");
+            manager.Config.ClusterRegistry.Clusters.Remove(forgedDuplicate);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "original cluster registration recovers after synthetic duplicate is removed");
             var membership=manager.Config.ClusterRegistry.MapAssignments[0];
             membership.ClusterId="unrelated-synthetic-cluster";
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
@@ -389,6 +412,28 @@ internal static class LegacyStorePhysicalTransferTests
                 Id=futureId,Name="Synthetic Future Atlantis",
                 InstallationPath=Path.Combine(root,"future-map-install")
             });
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "an unrelated sixth fresh map does not erase the original Kova five-map registration");
+            Guid independentId=Guid.NewGuid();
+            manager.AddMap(new LocalMap{
+                Id=independentId,Name="Synthetic Independent Historical Profile",
+                HistoricalMapKey="Independent_WP",
+                HistoricalStoreProtected=true,
+                HistoricalArchiveSha256=Hash("independent historical four-file set"),
+                InstallationPath=Path.Combine(root,"independent-store-root")
+            });
+            var independent=manager.Config.LocalMaps.Single(m=>m.Id==independentId);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "an unrelated historical Store profile never suppresses a valid original 5-map roster");
+            independent.HistoricalArchiveSha256=report.OriginalFourFilesTag;
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "a sixth historical map claiming the SAME original source fingerprint creates ambiguous ownership and fails closed");
+            independent.HistoricalArchiveSha256=Hash("independent historical four-file set");
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "removing the synthetic original-source impersonation restores original roster parity without mutating Kova");
+            manager.RemoveMap(independentId);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "removed synthetic unrelated historical map leaves the original five source assignments intact");
             var beforeRevision=manager.Registry.Snapshot().Revision;
             using(var expansionBridge=new DesktopClusterRegistryBridge(
                 manager,original,(first,second)=>
