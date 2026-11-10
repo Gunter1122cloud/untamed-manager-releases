@@ -401,6 +401,13 @@ public sealed class ClusterRegistryService
             map.HistoricalStoreProtected ||
             !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256))
             .Select(map => map.Id).ToHashSet();
+        // Historical Store identity comes from the imported source, not
+        // from an assumed literal KovaCluster ID. Protect every cluster
+        // holding a locally source-pinned historical member.
+        var protectedClusterIds = snapshot.ClusterRegistry.MapAssignments
+            .Where(a => protectedLocal.Contains(a.MapId))
+            .Select(a => a.ClusterId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (Guid mapId in requested.Distinct())
         {
             if (mapId == Guid.Empty || !maps.TryGetValue(mapId, out var map))
@@ -417,7 +424,8 @@ public sealed class ClusterRegistryService
             var owner = snapshot.ClusterRegistry.MapAssignments.SingleOrDefault(x => x.MapId == mapId);
             if (owner != null && StringComparer.OrdinalIgnoreCase.Equals(owner.ClusterId, id)) continue;
             if (protectedLocal.Contains(mapId) || OriginalKovaCluster(owner?.ClusterId) ||
-                OriginalKovaCluster(id))
+                OriginalKovaCluster(id) || protectedClusterIds.Contains(id) ||
+                (owner != null && protectedClusterIds.Contains(owner.ClusterId)))
             {
                 preview.Errors.Add("UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE");
                 continue;
@@ -436,7 +444,8 @@ public sealed class ClusterRegistryService
             StringComparer.OrdinalIgnoreCase.Equals(x.ClusterId, id) && !requested.Contains(x.MapId)))
         {
             if (protectedLocal.Contains(assignment.MapId) ||
-                OriginalKovaCluster(assignment.ClusterId))
+                OriginalKovaCluster(assignment.ClusterId) ||
+                protectedClusterIds.Contains(assignment.ClusterId))
             {
                 preview.Errors.Add("UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE");
                 continue;
