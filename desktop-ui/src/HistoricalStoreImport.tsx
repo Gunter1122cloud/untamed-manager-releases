@@ -231,11 +231,18 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       const proof=await managerBridge.historicalOriginalLiveBatchPreview();
       if(epoch===directEpoch.current)setLiveBatchPreview(proof);
     }catch(e){
-      if(epoch===directEpoch.current)setDirectError(
-        "A futó eredeti Store-v1 szerverek natív ACTIVE/DONE, WMI/PID, "+
-        "kétpeer session vagy mod/port ellenőrzése sikertelen ("+
-        (e instanceof Error?e.message:"UM-ORIGINAL-LIVE-UNVERIFIED")+"). "+
-        "Nem állítottunk le és nem indítottunk ASA-folyamatot.");
+      if(epoch===directEpoch.current){
+        const code=e instanceof Error?e.message:"UM-ORIGINAL-LIVE-UNVERIFIED";
+        setDirectError(code==="UM-METHOD-DENIED"?
+          "A telepített Obsidian natív WebView2-dispatchere elutasította a "+
+          "historical.originalLiveBatchPreview hívást (UM-METHOD-DENIED). "+
+          "Ez alkalmazásverzió-/útvonalhiba, NEM Kova ACTIVE/DONE-, PID-, "+
+          "mod- vagy porthiba. A futó szervereket ne állítsd le; "+
+          "telepíts azonos kiadásból származó React + Windows host frissítést.":
+          "A futó eredeti Store-v1 szerverek natív ACTIVE/DONE, WMI/PID, "+
+          "kétpeer session vagy mod/port ellenőrzése sikertelen ("+
+          code+"). Nem állítottunk le és nem indítottunk ASA-folyamatot.");
+      }
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
   const applyLiveFive=async()=>{
@@ -261,10 +268,17 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       catch{setDirectError("A Store-profil átvétele megtörtént, "+
         "de a frissített maplista nem tölthető be. Ne ismételd automatikusan.");}
     }catch(e){
-      if(epoch===directEpoch.current)setDirectError(
-        "Az eredeti futó Store-v1 mapok átvétele nem igazolható ("+
-        (e instanceof Error?e.message:"UM-ORIGINAL-LIVE-FAILED")+
-        "). Ellenőrizd a Manager helyi mapregiszterét, ne futtasd újra vakon.");
+      if(epoch===directEpoch.current){
+        const code=e instanceof Error?e.message:"UM-ORIGINAL-LIVE-FAILED";
+        setDirectError(code==="UM-METHOD-DENIED"?
+          "A telepített natív dispatcher elutasította a "+
+          "historical.originalLiveBatchApply hívást (UM-METHOD-DENIED). "+
+          "Ez alkalmazáskomponens-/kiadáseltérés, nem Store-migrációs "+
+          "bizonyíték. Ellenőrizd a helyi mapregisztert, majd frissíts "+
+          "azonos React + Windows host buildre. Ne ismételd vakon az átvételt.":
+          "Az eredeti futó Store-v1 mapok átvétele nem igazolható ("+
+          code+"). Ellenőrizd a Manager helyi mapregiszterét, ne futtasd újra vakon.");
+      }
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
 
