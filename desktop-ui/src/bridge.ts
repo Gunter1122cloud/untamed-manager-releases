@@ -1465,6 +1465,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
   "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
   "servers.runningPreview" | "servers.runningRegister" |
+  "servers.runningAdoptPreview" | "servers.runningAdoptApply" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
