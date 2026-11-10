@@ -371,5 +371,167 @@ internal static class MultiHostOfflineCatalogAssemblerTests
         try{MultiHostOfflineCatalogAssembler.Inspect(source,ownership);}
         catch(IOException){denied=true;}
         Check(denied,"generated offline catalog cannot be silently overwritten");
+
+        // P0 expansion regression of the SHIPPING N-host archive and host staging.
+        // Original ten map GUIDs, host owners and file bytes stay unchanged:
+        // (two hosts / ten maps) -> (two hosts / eleven maps) ->
+        // (three hosts / twelve maps), all in the SAME cluster ID.
+        // No Kova writer, LAN peer or live ASA session is emulated/certified.
+        static void CopyOfflineRoot(string from,string to)
+        {
+            Directory.CreateDirectory(to);
+            foreach(string full in Directory.GetFiles(from,"*",
+                SearchOption.AllDirectories))
+            {
+                string rel=Path.GetRelativePath(from,full);
+                // A new immutable catalog must be calculated for the
+                // expanded snapshot, never copied from the previous batch.
+                if(rel.Equals(MultiHostOfflineCatalogAssembler.CatalogName,
+                    StringComparison.OrdinalIgnoreCase))continue;
+                Write(to,rel,File.ReadAllBytes(full));
+            }
+        }
+        static void AddExpandedMap(string root,Guid mapId,string marker)
+        {
+            string prefix="maps/"+mapId.ToString("N")+"/";
+            Write(root,prefix+"Saved/world.ark",
+                Encoding.UTF8.GetBytes("SYNTHETIC-WORLD-"+marker));
+            Write(root,prefix+"Saved/survivor.arkprofile",
+                Encoding.UTF8.GetBytes("SYNTHETIC-CHARACTER-"+marker));
+            Write(root,prefix+"Saved/tribe.arktribe",
+                Encoding.UTF8.GetBytes("SYNTHETIC-TRIBE-"+marker));
+            Write(root,prefix+"Saved/inventory.bin",
+                Encoding.UTF8.GetBytes("SYNTHETIC-INVENTORY-"+marker));
+            Write(root,prefix+"WindowsServer/Game.ini",
+                "[ServerSettings]\nSampleOnly=true");
+            Write(root,prefix+"WindowsServer/GameUserSettings.ini",
+                "[ServerSettings]\nServerPassword=\n");
+            Write(root,prefix+"Manager/mods.json","{\"mods\":[]}");
+            Write(root,prefix+"Manager/plugins.json","{\"plugins\":[]}");
+            Write(root,prefix+"ASAApi/empty-state.json","{\"files\":[]}");
+            Write(root,prefix+"ASAApi/ArkShop/persistent-data.bin",
+                "SYNTHETIC-PLUGIN-"+marker);
+        }
+        void VerifyOriginalTen(string restored,string label)
+        {
+            foreach(var pair in sourceHashes)
+            {
+                string[] parts=pair.Key.Split('/');
+                Guid mapId=Guid.ParseExact(parts[1],"N");
+                string mapOwner=mapRecords.Single(m=>m.MapId==mapId).HostId;
+                string relative=string.Join('/',parts.Skip(2));
+                string full=Path.Combine(restored,"data","hosts",mapOwner,
+                    "maps",mapId.ToString("N"),
+                    relative.Replace('/',Path.DirectorySeparatorChar));
+                Check(File.Exists(full)&&File.ReadAllBytes(full)
+                    .SequenceEqual(pair.Value),
+                    label+" preserves the original ten world/profile/tribe/INI/plugin bytes: "+pair.Key);
+            }
+        }
+        void VerifyExpandedSnapshot(string copiedSource,
+            MultiHostBackupOwnershipSnapshot expanded,
+            int expectedMaps,int expectedHosts,int[] perHost,
+            string label)
+        {
+            var preview=MultiHostOfflineCatalogAssembler.Inspect(copiedSource,expanded);
+            Check(preview.Catalog.Maps.Length==expectedMaps&&
+                  preview.Catalog.Hosts.Length==expectedHosts&&
+                  preview.Catalog.Clusters.Length==1,
+                label+" catalog retains the original cluster identity and expanded ownership");
+            var published=MultiHostOfflineCatalogAssembler.Publish(
+                copiedSource,expanded,preview.Fingerprint);
+            string backup=Path.Combine(sandbox,
+                "expanded-archive-"+expectedMaps.ToString());
+            var archived=MultiHostClusterBackupArchive.BuildFromCatalog(
+                Path.Combine(copiedSource,MultiHostOfflineCatalogAssembler.CatalogName),
+                backup,expanded);
+            string expandedRestore=Path.Combine(Path.GetTempPath(),
+                "Untamed-MultiHost-Restore-"+Guid.NewGuid().ToString("N"));
+            try
+            {
+                var receipt=MultiHostClusterBackupArchive.RestoreToIsolatedSandbox(
+                    backup,expandedRestore);
+                Check(receipt.Maps.Length==expectedMaps&&
+                      !receipt.ProductionRestoreAllowed&&
+                      archived.Maps.Length==expectedMaps&&
+                      archived.Hosts.Length==expectedHosts&&
+                      published.Maps.Length==expectedMaps,
+                    label+" existing archive and TEMP restore preserve every expanded map");
+                VerifyOriginalTen(expandedRestore,label);
+                Check(archived.Components.Count(c=>c.Kind==
+                        MultiHostBackupComponentKind.ClusterTransferFile &&
+                        c.Length==0)==9,
+                    label+" preserves nine original extensionless zero-byte transfer placeholders");
+                string[] includedHosts=expanded.Maps.Select(m=>m.HostId)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Order(StringComparer.Ordinal).ToArray();
+                for(int i=0;i<includedHosts.Length;i++)
+                {
+                    string parent=Path.Combine(sandbox,
+                        "expanded-host-stage-"+expectedMaps+"-"+i);
+                    Directory.CreateDirectory(parent);
+                    var plan=MultiHostHostRestoreStaging.Inspect(
+                        expandedRestore,includedHosts[i],parent,expanded);
+                    Check(plan.Maps==perHost[i]&&plan.Components>0&&
+                          plan.Clusters==1,
+                        label+" stages correct local map ownership for "+includedHosts[i]);
+                    var staged=MultiHostHostRestoreStaging.Stage(plan,expanded);
+                    var verifiedStage=MultiHostHostRestoreStaging.Verify(
+                        Path.Combine(parent,plan.StageDirectoryName));
+                    Check(!staged.ProductionRestoreAllowed&&
+                          verifiedStage.BatchId==receipt.SourceBatchId&&
+                          verifiedStage.Components.Count(c=>c.Kind==
+                            MultiHostBackupComponentKind.ClusterTransferFile&&
+                            c.Length==0)==9,
+                        label+" host-specific restore stage includes original shared transfer bytes");
+                }
+            }
+            finally
+            {
+                if(Directory.Exists(expandedRestore))
+                    Directory.Delete(expandedRestore,true);
+            }
+        }
+
+        // First addition uses an EXISTING host, never a new cluster.
+        string elevenRoot=Path.Combine(sandbox,"expanded-eleven-source");
+        CopyOfflineRoot(source,elevenRoot);
+        Guid eleventhId=Guid.NewGuid();
+        AddExpandedMap(elevenRoot,eleventhId,"MAP-11-EXISTING-HOST");
+        var elevenMaps=mapRecords.Concat(new[]{
+            new MultiHostBackupMapOwnership(eleventhId,hosts[0],
+                "Synthetic Future Map 11",cluster)}).ToArray();
+        var elevenOwner=new MultiHostBackupOwnershipSnapshot(
+            hosts[0],hostRecords,clusterRecords,elevenMaps);
+        VerifyExpandedSnapshot(elevenRoot,elevenOwner,11,2,
+            new[]{6,5},"10-to-11 map existing-host expansion");
+
+        // Next addition registers a third independent host. Its cluster ID
+        // is identical; host-local Store and shared transfer evidence are
+        // distinct and retained in the N-host archive, not merged as writers.
+        string twelveRoot=Path.Combine(sandbox,"expanded-twelve-source");
+        CopyOfflineRoot(elevenRoot,twelveRoot);
+        const string thirdHost="test-host-third";
+        Write(twelveRoot,"hosts/"+thirdHost+"/configuration/host-config.json",
+            "{\"version\":1}");
+        Write(twelveRoot,"hosts/"+thirdHost+"/clusters/"+cluster+
+            "/Store-v1/session.json",
+            "{\"host\":\"test-host-third\",\"phase\":\"done\"}");
+        Write(twelveRoot,"clusters/"+cluster+"/Store-v1/"+thirdHost+"/store.json",
+            "{\"saved\":\"test-host-third\"}");
+        Write(twelveRoot,"clusters/"+cluster+"/Transfer/"+thirdHost+
+            "/transfer-third.bin","synthetic third-host transfer");
+        Guid twelfthId=Guid.NewGuid();
+        AddExpandedMap(twelveRoot,twelfthId,"MAP-12-NEW-HOST");
+        var twelveHosts=hostRecords.Concat(new[]{
+            new MultiHostBackupHostOwnership(thirdHost,
+                "Synthetic Third Host",false,true)}).ToArray();
+        var twelveMaps=elevenMaps.Concat(new[]{
+            new MultiHostBackupMapOwnership(twelfthId,thirdHost,
+                "Synthetic Future Map 12",cluster)}).ToArray();
+        var twelveOwner=new MultiHostBackupOwnershipSnapshot(
+            hosts[0],twelveHosts,clusterRecords,twelveMaps);
+        VerifyExpandedSnapshot(twelveRoot,twelveOwner,12,3,
+            new[]{6,5,1},"11-to-12 map and 2-to-3 host expansion");
     }
 }
