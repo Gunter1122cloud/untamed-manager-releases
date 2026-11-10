@@ -146,6 +146,10 @@ public static class SteamStoppedMapUpdater
         var selected=candidates.GroupBy(m=>Path.GetFullPath(m.InstallationPath)
             .TrimEnd(Path.DirectorySeparatorChar),StringComparer.OrdinalIgnoreCase)
             .Select(g=>g.First()).ToArray();
+        // Reject any Store owner or nested installation BEFORE writing the
+        // durable serial queue journal, not after marking work in progress.
+        foreach(var selectedMap in selected)
+            DemandSafeLocalInstallation(cluster,selectedMap);
         var receipts=new List<Receipt>();
         var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
         await queue.ExecuteAsync(selected,cluster.Config.LocalMaps,cluster.Check,
