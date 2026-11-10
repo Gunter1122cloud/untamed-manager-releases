@@ -4959,11 +4959,35 @@ try
             tag,"v8.2.0-obsidian-preview."+new string('9',60),StringComparison.Ordinal);
         Check(ObsidianReleaseCatalog.Select(oversizedPreview,UpdateChannel.Preview)==null,
             "malformed oversized GitHub preview run ID cannot crash release discovery");
+        // The release metadata the human reviewed is not necessarily
+        // the latest by the time the installer is staged. Pin both exact
+        // tag and immutable expected bytes; any newer/mutated GitHub release
+        // must require another explicit Check rather than installing unseen.
+        Check(DesktopObsidianUpdateInstallBridge.MatchesCheckedRelease(
+                    selected,tag,new string('F',64))&&
+              !DesktopObsidianUpdateInstallBridge.MatchesCheckedRelease(
+                    selected,"v8.2.0-obsidian-preview.4",new string('f',64))&&
+              !DesktopObsidianUpdateInstallBridge.MatchesCheckedRelease(
+                    selected,tag,new string('a',64))&&
+              !DesktopObsidianUpdateInstallBridge.MatchesCheckedRelease(
+                    selected with{AssetUrl="https://attacker.invalid/setup.exe"},
+                    tag,new string('f',64))&&
+              !DesktopObsidianUpdateInstallBridge.MatchesCheckedRelease(
+                    null,tag,new string('f',64)),
+            "updater refuses changed tag, changed digest, untrusted asset or absent release");
         var staging=new DesktopObsidianUpdateInstallBridge();
         var missingConsent=await Call(staging.HandleAsync,"updates.prepare",
             new{channel="preview",confirm=false});
         Check(IsError(missingConsent,"UM-UPDATE-EXPLICIT-CONFIRMATION-REQUIRED"),
             "updater cannot stage an installation without explicit local approval");
+        var missingCheck=await Call(staging.HandleAsync,"updates.prepare",
+            new{channel="preview",confirm=true});
+        Check(IsError(missingCheck,"UM-UPDATE-CHECK-REQUIRED"),
+            "native installer staging requires previously checked release tag and SHA");
+        var malformedCheck=await Call(staging.HandleAsync,"updates.prepare",
+            new{channel="preview",confirm=true,expectedTag=tag,expectedSha256="wrong"});
+        Check(IsError(malformedCheck,"UM-UPDATE-CHECK-REQUIRED"),
+            "native updater rejects malformed digest before any download or application inspection");
         var replay=await Call(staging.HandleAsync,"updates.install",
             new{token=Guid.NewGuid(),confirm=true});
         Check(IsError(replay,"UM-UPDATE-PREPARE-EXPIRED"),
