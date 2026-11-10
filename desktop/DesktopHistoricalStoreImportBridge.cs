@@ -39,6 +39,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
     private sealed record OriginalBatchPrepared(Guid Token,string FourFilesHash,
         string LaunchProfileHash,Guid[] MapIds,DateTimeOffset ExpiresUtc);
     private OriginalBatchPrepared? pendingOriginalBatch;
+    private sealed record OriginalClusterPrepared(Guid Token,string FourFilesSha256,
+        string SourceClusterId,string SourcePath,Guid[] OriginalMapIds,
+        long RegistryRevision,DateTimeOffset ExpiresUtc);
+    private OriginalClusterPrepared? pendingOriginalCluster;
 
     public DesktopHistoricalStoreImportBridge(ClusterService service,
         Func<LocalMap,ProcessCheck>? processInspector=null,
@@ -71,7 +75,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.launchEvidence" or "historical.liveGuard" or
                 "historical.originalList" or "historical.originalPreview" or
                 "historical.originalRegister" or "historical.originalBatchPreview" or
-                "historical.originalBatchRegister"))
+                "historical.originalBatchRegister" or
+                "historical.originalClusterPreview" or
+                "historical.originalClusterApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
@@ -82,6 +88,86 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     .Select(x=>x.Key).ToArray())pendingOriginal.Remove(expired);
                 if(pendingOriginalBatch?.ExpiresUtc<DateTimeOffset.UtcNow)
                     pendingOriginalBatch=null;
+                if(pendingOriginalCluster?.ExpiresUtc<DateTimeOffset.UtcNow)
+                    pendingOriginalCluster=null;
+
+                if(method=="historical.originalClusterPreview")
+                {
+                    // Four source files are stable-handle read ONLY; no ASA,
+                    // SMB writer, original Kova metadata or process mutation.
+                    using var held=new VaultReadSnapshot();
+                    var source=HistoricalClusterSource(held);
+                    var registry=cluster.Registry.Snapshot();
+                    var registered=registry.ClusterRegistry.Clusters.SingleOrDefault(c=>
+                        c.ClusterId.Equals(source.ClusterId,StringComparison.OrdinalIgnoreCase));
+                    int assigned=source.Members.Count(m=>
+                        registry.ClusterRegistry.MapAssignments.Any(a=>
+                            a.MapId==m.MapId&&a.ClusterId.Equals(source.ClusterId,
+                                StringComparison.OrdinalIgnoreCase)));
+                    bool sourcePinned=source.Members.All(m=>
+                        cluster.Config.LocalMaps.Any(map=>
+                            map.Id==m.MapId&&map.HistoricalStoreProtected&&
+                            map.HistoricalArchiveSha256.Equals(source.Sha,StringComparison.OrdinalIgnoreCase)&&
+                            string.Equals(map.HistoricalMapKey,m.MapKey,StringComparison.Ordinal)));
+                    if(!sourcePinned)
+                        return Fail(id,"UM-ORIGINAL-CLUSTER-LOCAL-FIVE-NOT-IMPORTED");
+                    if(registered!=null && !string.Equals(
+                        registered.TransferDirectory,source.TransferDirectory,
+                        StringComparison.Ordinal))
+                        return Fail(id,"UM-ORIGINAL-CLUSTER-TRANSFER-MISMATCH");
+                    if(registry.ClusterRegistry.MapAssignments.Any(a=>
+                        source.Members.Any(m=>m.MapId==a.MapId)&&
+                        !a.ClusterId.Equals(source.ClusterId,StringComparison.OrdinalIgnoreCase)))
+                        return Fail(id,"UM-ORIGINAL-CLUSTER-FOREIGN-ASSIGNMENT");
+                    var token=Guid.NewGuid();
+                    pendingOriginalCluster=new(token,source.Sha,source.ClusterId,
+                        source.TransferDirectory,source.Members.Select(m=>m.MapId).ToArray(),
+                        registry.Revision,DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new{
+                        token,clusterId=source.ClusterId,
+                        fiveOriginalMaps=source.Members.Length,
+                        alreadyAssigned=assigned,missingAssignments=5-assigned,
+                        registryRevision=registry.Revision,
+                        sourceIdentityPreserved=true,originalStoreFilesWritten=false,
+                        asaProcessTouched=false,writerSessionLockTouched=false,
+                        requiresExactApproval=true,
+                        evidence="ORIGINAL_FIVE_MAP_METADATA_BOOTSTRAP_PREVIEW_ONLY"
+                    });
+                }
+                if(method=="historical.originalClusterApply")
+                {
+                    if(!GuidField(data,"token",out var token)||
+                       !BoolField(data,"confirm",out var confirmed)||!confirmed||
+                       !TextField(data,"typedApproval",60,out var approval)||
+                       !string.Equals(approval,"EREDETI KOVA REGISZTER",StringComparison.Ordinal)||
+                       pendingOriginalCluster==null||
+                       pendingOriginalCluster.Token!=token)
+                        return Fail(id,"UM-ORIGINAL-CLUSTER-APPROVAL-REQUIRED");
+                    var pendingStage=pendingOriginalCluster;
+                    pendingOriginalCluster=null; // single-use, never replay
+                    if(pendingStage.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-ORIGINAL-CLUSTER-PREVIEW-EXPIRED");
+                    using var held=new VaultReadSnapshot();
+                    var source=HistoricalClusterSource(held);
+                    if(!string.Equals(source.Sha,pendingStage.FourFilesSha256,StringComparison.Ordinal)||
+                       !string.Equals(source.ClusterId,pendingStage.SourceClusterId,StringComparison.Ordinal)||
+                       !string.Equals(source.TransferDirectory,pendingStage.SourcePath,StringComparison.Ordinal)||
+                       !source.Members.Select(m=>m.MapId).SequenceEqual(pendingStage.OriginalMapIds))
+                        return Fail(id,"UM-ORIGINAL-CLUSTER-SOURCE-CHANGED");
+                    var receipt=cluster.Registry.ImportHistoricalOriginalLocalMembership(
+                        source.ClusterId,source.TransferDirectory,source.Sha,
+                        source.Members,pendingStage.RegistryRevision);
+                    var after=LegacyStoreV1LocalReader.Inspect(localLegacyDataDirectory);
+                    if(!after.LocalSnapshotReady||after.OriginalFourFilesTag!=source.Sha)
+                        throw new IOException("UM-ORIGINAL-CLUSTER-SOURCE-CHANGED-DURING-COMMIT");
+                    return Ok(id,new{
+                        receipt.ClusterId,receipt.Revision,receipt.AddedCount,
+                        receipt.RemovedCount,receipt.MovedCount,
+                        originalFilesWritten=false,transferFilesWritten=false,
+                        storeWriterTouched=false,serverStarted=false,
+                        evidence="ORIGINAL_FIVE_MAP_MANAGER_REGISTRY_METADATA_ONLY"
+                    });
+                }
 
                 if(method=="historical.originalBatchPreview")
                 {
@@ -612,6 +698,39 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             // Never echo private paths, usernames, Kova IDs or ZIP content to UI.
             return Fail(id,"UM-HISTORICAL-VERIFICATION-FAILED");
         }
+    }
+
+    private sealed record HistoricalClusterSourceData(string ClusterId,
+        string TransferDirectory,string Sha,(Guid MapId,string MapKey)[] Members);
+
+    private HistoricalClusterSourceData HistoricalClusterSource(VaultReadSnapshot held)
+    {
+        var reportBefore=LegacyStoreV1LocalReader.Inspect(localLegacyDataDirectory);
+        if(!reportBefore.LocalSnapshotReady || reportBefore.Maps.Length!=5)
+            throw new InvalidDataException("UM-ORIGINAL-CLUSTER-SOURCE-NOT-READY");
+        var bytes=held.Read(Path.Combine(localLegacyDataDirectory,"cluster-v1.json"),
+            1_048_576);
+        // Hold all FOUR originals open throughout preview/apply. If a writer
+        // races the operation, Windows sharing rules reject its mutation.
+        foreach(string name in new[]{"cluster-store-v1.json",
+             "shared-store-device-v1.json","shared-store-lock-v1.json"})
+            _=held.Read(Path.Combine(localLegacyDataDirectory,name),1_048_576);
+        using var doc=JsonDocument.Parse(bytes);
+        var root=doc.RootElement;
+        string id=VaultReadSnapshot.Text(root,"id");
+        string path=VaultReadSnapshot.Text(root,"path");
+        var members=root.GetProperty("members").EnumerateArray().Select(m=>{
+            if(!Guid.TryParseExact(VaultReadSnapshot.Text(m,"id"),"D",out var guid)||
+               guid==Guid.Empty)throw new InvalidDataException(
+                    "UM-ORIGINAL-CLUSTER-MEMBER-INVALID");
+            return(MapId:guid,MapKey:VaultReadSnapshot.Text(m,"map"));
+        }).ToArray();
+        var after=LegacyStoreV1LocalReader.Inspect(localLegacyDataDirectory);
+        if(!after.LocalSnapshotReady||
+           !string.Equals(reportBefore.OriginalFourFilesTag,
+               after.OriginalFourFilesTag,StringComparison.Ordinal))
+            throw new IOException("UM-ORIGINAL-CLUSTER-SOURCE-CHANGED");
+        return new(id,path,after.OriginalFourFilesTag,members);
     }
 
     private static string MapName(string key)=>key switch
