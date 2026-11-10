@@ -18,6 +18,8 @@ namespace UntamedDesktop;
 public sealed class DesktopClusterRegistryBridge : IDisposable
 {
     private readonly ClusterService cluster;
+    private readonly string originalLegacyProfile;
+    private readonly Func<string,string,bool> samePhysicalTransferDirectory;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<Guid, PendingMembership> pending = new();
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -25,8 +27,18 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
     private sealed record PendingMembership(Guid Token, string ClusterId,
         Guid[] MapIds, long Revision, DateTimeOffset CreatedUtc);
 
-    public DesktopClusterRegistryBridge(ClusterService owner) =>
+    public DesktopClusterRegistryBridge(ClusterService owner,
+        string? originalLegacyProfile = null,
+        Func<string,string,bool>? verifiedTransferIdentity = null)
+    {
         cluster = owner ?? throw new ArgumentNullException(nameof(owner));
+        this.originalLegacyProfile=originalLegacyProfile??Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
+        // Test-only injection is used with disposable local fixtures. In the
+        // shipped Windows host this calls the REAL filesystem identity probe.
+        samePhysicalTransferDirectory=verifiedTransferIdentity??((a,b)=>
+            StorePathIdentity.CompareDirectories(a,b).SameFileSystemObject);
+    }
 
     public async Task<string> HandleAsync(string raw)
     {
@@ -42,7 +54,8 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
             id = requestId.ToString("D");
             if (method is not ("cluster.registry.snapshot" or "cluster.host.register" or
                 "cluster.map.register" or "cluster.create" or "cluster.update" or
-                "cluster.membership.preview" or "cluster.membership.apply"))
+                "cluster.membership.preview" or "cluster.membership.apply" or
+                "cluster.historicalExpansionInspect"))
                 return Failure(id, "UM-METHOD-DENIED");
 
             await gate.WaitAsync();
@@ -51,6 +64,13 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
                 ExpirePreviews();
                 if (method == "cluster.registry.snapshot")
                     return Success(id, cluster.Registry.Snapshot());
+                if (method == "cluster.historicalExpansionInspect")
+                {
+                    if(!GuidField(request,"mapId",out var newMapId)||
+                       !StringField(request,"clusterId",64,out var selectedId))
+                        return Failure(id,"UM-EXPANSION-MAP-OR-CLUSTER-INVALID");
+                    return Success(id,InspectHistoricalExpansion(newMapId,selectedId));
+                }
                 if (method == "cluster.host.register")
                 {
                     if (!StringField(request, "hostId", 64, out var hostId) ||
@@ -115,6 +135,177 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
         catch (InvalidOperationException) { return Failure(id, "UM-REGISTRY-CONFLICT"); }
         catch (IOException) { return Failure(id, "UM-REGISTRY-CONFIG-CHANGED"); }
         catch (Exception) { return Failure(id, "UM-REGISTRY-FAILED"); }
+    }
+
+    /// <summary>
+    /// Real, on-demand, read-only first step for a FUTURE map joining the
+    /// ORIGINAL shared Kova cluster. This never assigns Store membership,
+    /// changes launch flags, opens a Store writer or grants character travel.
+    /// Only a separately implemented peer-verified transaction may do that.
+    /// </summary>
+    private object InspectHistoricalExpansion(Guid mapId,string chosenClusterId)
+    {
+        string selected=ClusterRegistrySchema.NormalizeClusterId(chosenClusterId);
+        var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
+        if(map==null)throw new KeyNotFoundException("UM-EXPANSION-NOT-LOCAL");
+        var initial=cluster.Registry.Snapshot();
+        var existing=initial.ClusterRegistry.Clusters.SingleOrDefault(c=>
+            string.Equals(c.ClusterId,selected,StringComparison.OrdinalIgnoreCase));
+        var warnings=new List<string>();
+        bool originalSourceVerified=false,originalFivePreserved=false;
+        bool sameTransferObject=false,sourceIdMatches=false;
+        string sourceId="";
+        string sourceTag="";
+        if(existing==null)
+            warnings.Add("UM-EXPANSION-CLUSTER-NOT-REGISTERED");
+        if(initial.ClusterRegistry.MapAssignments.Any(a=>a.MapId==mapId))
+            warnings.Add("UM-EXPANSION-MAP-ALREADY-ASSIGNED");
+        if(map.HistoricalStoreProtected ||
+           !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256) ||
+           !string.IsNullOrWhiteSpace(map.FreshStoreClusterId) ||
+           KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
+            warnings.Add("UM-EXPANSION-CANDIDATE-NOT-NEW");
+        bool localSetupVerified=false;
+        try
+        {
+            var process=cluster.Check(map);
+            if(!process.ConfirmedStopped||process.Running||
+               process.Identity!=null||process.LoaderIdentity!=null||
+               map.AutoStart||map.Maintenance)
+                warnings.Add("UM-EXPANSION-STOP-OR-MAINTENANCE");
+            else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map) ||
+                    !AsaReadyProbe.IsRegisteredServerBinary(map) ||
+                    map.GamePort is <1 or >65535 ||
+                    map.QueryPort is <1 or >65535 ||
+                    map.GamePort==map.QueryPort ||
+                    string.IsNullOrWhiteSpace(map.Arguments))
+                warnings.Add("UM-EXPANSION-FRESH-ASA-SETUP-REQUIRED");
+            else
+            {
+                // This uses the same strict official/custom map-level
+                // parser as the shipping backup paths, never a guessed name.
+                string level=AsaSaveLayoutResolver.MapToken(map);
+                if(string.IsNullOrWhiteSpace(level)||
+                   !map.Arguments.StartsWith(level+"?listen?SessionName=",
+                       StringComparison.OrdinalIgnoreCase))
+                    warnings.Add("UM-EXPANSION-NATIVE-LAUNCH-SETUP-REQUIRED");
+                else
+                    localSetupVerified=true;
+            }
+            if(!string.IsNullOrWhiteSpace(map.InstallationPath) &&
+               Path.IsPathFullyQualified(map.InstallationPath))
+            {
+                foreach(var folder in new[]{
+                    Path.Combine(map.InstallationPath,"ShooterGame","Saved","SavedArks"),
+                    Path.Combine(map.InstallationPath,"ShooterGame","Saved","SavedArksLocal")})
+                    if(Directory.Exists(folder)&&
+                       Directory.EnumerateFileSystemEntries(folder).Any())
+                    {
+                        warnings.Add("UM-EXPANSION-EXISTING-SAVE-REQUIRES-REVIEW");
+                        localSetupVerified=false;
+                        break;
+                    }
+            }
+        }
+        catch(Exception ex) when(ex is InvalidDataException or IOException or
+            UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            warnings.Add("UM-EXPANSION-LOCAL-SETUP-UNVERIFIED");
+            localSetupVerified=false;
+        }
+        try
+        {
+            var before=LegacyStoreV1LocalReader.Inspect(originalLegacyProfile);
+            if(!before.LocalSnapshotReady)
+                warnings.Add("UM-EXPANSION-ORIGINAL-FIVE-NOT-READY");
+            else
+            {
+                // Only the exact old local source files are read. The
+                // source-provided ID/path must be preserved byte-identically;
+                // the renderer never supplies or receives the UNC.
+                using var held=new VaultReadSnapshot();
+                byte[] sourceBytes=held.Read(Path.Combine(originalLegacyProfile,
+                    "cluster-v1.json"),1_048_576);
+                using var doc=JsonDocument.Parse(sourceBytes);
+                var source=doc.RootElement;
+                sourceId=VaultReadSnapshot.Text(source,"id");
+                string sourcePath=VaultReadSnapshot.Text(source,"path");
+                var members=source.GetProperty("members").EnumerateArray().ToArray();
+                originalFivePreserved=members.Length==5&&members.All(m=>{
+                    var rawId=VaultReadSnapshot.Text(m,"id");
+                    var key=VaultReadSnapshot.Text(m,"map");
+                    return Guid.TryParse(rawId,out var originalMapId)&&
+                        cluster.Config.LocalMaps.Count(candidate=>
+                            candidate.Id==originalMapId&&
+                            candidate.HistoricalStoreProtected&&
+                            !string.IsNullOrWhiteSpace(candidate.HistoricalArchiveSha256)&&
+                            string.Equals(candidate.HistoricalMapKey,key,
+                                StringComparison.Ordinal))==1;
+                });
+                if(!originalFivePreserved)
+                    warnings.Add("UM-EXPANSION-ORIGINAL-FIVE-NOT-IMPORTED");
+                sourceIdMatches=string.Equals(sourceId,selected,
+                    StringComparison.OrdinalIgnoreCase);
+                if(!sourceIdMatches)
+                    warnings.Add("UM-EXPANSION-SOURCE-CLUSTER-ID-DIFFERS");
+                if(existing!=null&&sourceIdMatches)
+                {
+                    try
+                    {
+                        if(!sourcePath.StartsWith(@"\\",StringComparison.Ordinal) ||
+                           !existing.TransferDirectory.StartsWith(@"\\",
+                               StringComparison.Ordinal))
+                            warnings.Add("UM-EXPANSION-UNC-SOURCE-REQUIRED");
+                        else
+                        {
+                            sameTransferObject=samePhysicalTransferDirectory(
+                                sourcePath,existing.TransferDirectory);
+                            if(!sameTransferObject)
+                                warnings.Add("UM-EXPANSION-TRANSFER-FILE-ID-DIFFERS");
+                        }
+                    }
+                    catch(Exception ex) when(ex is IOException or
+                        UnauthorizedAccessException or InvalidDataException or
+                        ArgumentException or NotSupportedException)
+                    {
+                        warnings.Add("UM-EXPANSION-TRANSFER-FILE-ID-UNAVAILABLE");
+                    }
+                }
+                var after=LegacyStoreV1LocalReader.Inspect(originalLegacyProfile);
+                originalSourceVerified=after.LocalSnapshotReady&&
+                    string.Equals(before.OriginalFourFilesTag,
+                        after.OriginalFourFilesTag,StringComparison.Ordinal);
+                if(!originalSourceVerified)
+                    warnings.Add("UM-EXPANSION-ORIGINAL-SOURCE-CHANGED");
+                else sourceTag=before.OriginalFourFilesTag;
+            }
+        }
+        catch(Exception ex) when(ex is IOException or InvalidDataException or
+            UnauthorizedAccessException or JsonException or
+            ArgumentException or KeyNotFoundException or NotSupportedException)
+        {
+            warnings.Add("UM-EXPANSION-ORIGINAL-SOURCE-UNAVAILABLE");
+        }
+        if(cluster.Registry.Snapshot().Revision!=initial.Revision)
+            warnings.Add("UM-EXPANSION-REGISTRY-CHANGED");
+        // Deliberate fail-closed gate: local readiness is NOT permission to
+        // enter original Kova Store. Peer-authenticated writer/session/lock
+        // extension has not yet been certified, including A->B->A travel.
+        return new{
+            mapId,mapName=map.Name,requestedClusterId=selected,
+            sourceClusterId=originalSourceVerified?sourceId:"",
+            originalSourceVerified,originalFivePreserved,
+            samePhysicalTransferDirectory=sameTransferObject,
+            nativeLocalSetupVerified=localSetupVerified,
+            localPreflightReady=warnings.Count==0,
+            sourceEvidenceTag=sourceTag,
+            blockers=warnings.Distinct(StringComparer.Ordinal).ToArray(),
+            originalStoreFilesWritten=false,storeWriterTouched=false,
+            originalTenMapIdentitiesChanged=false,
+            remoteWriterSessionCertified=false,characterTravelVerified=false,
+            newMapStoreEnrollmentAllowed=false,serverStarted=false,
+            evidence="READ_ONLY_ORIGINAL_STORE_EXPANSION_PREFLIGHT_NO_WRITER_AUTHORITY"
+        };
     }
 
     private void ExpirePreviews()
