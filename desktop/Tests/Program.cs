@@ -6020,13 +6020,21 @@ try
         };
         historical.AddMap(originalRconMap);
         bool sourceReady=true,listenerOwned=true;
+        string sourceEpoch=new string('A',64);
+        bool changeEpochBeforeDispatch=false,changeEpochDuringDispatch=false;
+        int epochReads=0;
         int sent=0;
         int currentPid=43210;
         using(var bridge=new DesktopHistoricalRconReadOnlyBridge(historical,
             processInspector:_=>new ProcessCheck(true,"Synthetic owned",new ProcessIdentity{
                 Pid=currentPid,StartedUtc=new DateTimeOffset(2026,11,7,10,0,0,TimeSpan.Zero),
                 ExecutablePath=exe,Arguments="SYNTHETIC_ORIGINAL_ACTIVE"},false),
-            sourceGuard:_=>sourceReady,
+            sourceEpochProof:_=>{
+                epochReads++;
+                if(changeEpochBeforeDispatch&&epochReads>=2)
+                    sourceEpoch=new string('B',64);
+                return sourceReady?sourceEpoch:"invalid";
+            },
             portOwner:(p,pid)=>p==port&&pid==43210&&listenerOwned,
             dispatch:(host,actualPort,password,command,ct)=>{
                 Check(host=="127.0.0.1"&&actualPort==port&&password==secret,
@@ -6034,6 +6042,8 @@ try
                 Check(command is "ListPlayers" or "GetGameLog" or "GetChat",
                     "original Store RCON never transmits SaveWorld, DoExit, or arbitrary mutations");
                 sent++;
+                if(changeEpochDuringDispatch)
+                    sourceEpoch=new string('C',64);
                 return Task.FromResult("SYNTHETIC_"+command);
             }))
         {
@@ -6080,6 +6090,27 @@ try
                 new{mapId=originalRconMap.Id});
             Check(!replaced.GetProperty("ok").GetBoolean()&&sent==3,
                 "replaced original Store ASA PID is not authorized by previous TCP owner");
+            currentPid=43210;listenerOwned=true;sourceReady=true;
+            sourceEpoch=new string('A',64);
+            changeEpochBeforeDispatch=true;
+            epochReads=0;
+            var preSwap=await Call(bridge.HandleAsync,"historical.rconPlayers",
+                new{mapId=originalRconMap.Id});
+            Check(IsError(preSwap,"UM-ORIGINAL-RCON-SOURCE-EPOCH-CHANGED")&&sent==3,
+                "new valid Store epoch between preflight and send blocks RCON before bytes");
+            changeEpochBeforeDispatch=false;
+            sourceEpoch=new string('A',64);
+            changeEpochDuringDispatch=true;
+            var duringSwap=await Call(bridge.HandleAsync,"historical.rconChatLog",
+                new{mapId=originalRconMap.Id});
+            Check(IsError(duringSwap,"UM-ORIGINAL-RCON-SOURCE-EPOCH-CHANGED")&&sent==4,
+                "source epoch change while read-only RCON is in flight never verifies old reply");
+            changeEpochDuringDispatch=false;
+            sourceEpoch=new string('A',64);
+            var afterRecovery=await Call(bridge.HandleAsync,"historical.rconPlayers",
+                new{mapId=originalRconMap.Id});
+            Check(afterRecovery.GetProperty("ok").GetBoolean()&&sent==5,
+                "fresh operator read-only RCON may proceed after a new stable source epoch is verified");
         }
         Check(File.ReadAllBytes(ini).SequenceEqual(originalIni),
             "every native original Store RCON query preserves exact ASA INI file bytes");

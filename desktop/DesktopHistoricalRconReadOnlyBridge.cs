@@ -18,7 +18,7 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
 {
     private readonly ClusterService cluster;
     private readonly Func<LocalMap,ProcessCheck> inspect;
-    private readonly Func<LocalMap,bool> source;
+    private readonly Func<LocalMap,string> sourceEpoch;
     private readonly Func<int,int,bool> owner;
     private readonly Func<string,int,string,string,CancellationToken,Task<string>> send;
     private readonly SemaphoreSlim serial=new(1,1);
@@ -32,18 +32,18 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
     // session, WMI process, local Windows TCP listener and original ASA INI.
     internal DesktopHistoricalRconReadOnlyBridge(ClusterService service,
         Func<LocalMap,ProcessCheck>? processInspector,
-        Func<LocalMap,bool>? sourceGuard,
+        Func<LocalMap,string>? sourceEpochProof,
         Func<int,int,bool>? portOwner,
         Func<string,int,string,string,CancellationToken,Task<string>>? dispatch)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         inspect=processInspector??(map=>LegacyStoreV1ProcessObserver.Observe(
             map,cluster.Config.LocalMaps));
-        source=sourceGuard??(map=>
-            LegacyStoreV1LiveReadGate.InspectOriginalActive(map,
-                Path.Combine(Environment.GetFolderPath(
-                    Environment.SpecialFolder.ApplicationData),"Kova"))
-                .CompletedOriginalSourceGuard);
+        // Read the SAME exact original two-peer ACTIVE/DONE source SHA
+        // used by the native historical Start and SaveWorld paths. A mere
+        // boolean probe cannot detect an A->B shared-session swap during
+        // a successful read-only RCON request.
+        sourceEpoch=sourceEpochProof??LegacyStoreV1GracefulStop.OriginalSource;
         owner=portOwner??RconPortOwnership.IsOwnedListener;
         send=dispatch??RconProtocol.Execute;
     }
@@ -58,7 +58,7 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
     private static bool Identical(ProcessIdentity a,ProcessIdentity b)=>
         a.Pid>0&&a.Pid==b.Pid&&a.StartedUtc==b.StartedUtc&&
         string.Equals(a.ExecutablePath,b.ExecutablePath,StringComparison.OrdinalIgnoreCase);
-    private (LocalMap Map,ProcessIdentity Process) Require(Guid mapId)
+    private (LocalMap Map,ProcessIdentity Process,string Epoch) Require(Guid mapId)
     {
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId)
             ??throw new UnauthorizedAccessException("UM-ORIGINAL-RCON-LOCAL-MAP");
@@ -70,14 +70,17 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
            !AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidOperationException("UM-ORIGINAL-RCON-CONFIGURATION");
         // RCON admin password remains in DPAPI. Never return it to renderer.
-        if(!source(map))
-            throw new InvalidDataException("UM-ORIGINAL-RCON-SOURCE-CHANGED");
+        // The SHA binds local four metadata files, both shared DONE peers,
+        // operation/attempted records and the original Store lock/session.
+        string epoch=sourceEpoch(map);
+        if(epoch==null||epoch.Length!=64||epoch.Any(c=>!Uri.IsHexDigit(c)))
+            throw new InvalidDataException("UM-ORIGINAL-RCON-SOURCE-EPOCH-INVALID");
         var observed=inspect(map);
         if(!observed.Running||observed.ConfirmedStopped||
            observed.Identity is not {Pid:>0} identity||
            !owner(map.RconPort,identity.Pid))
             throw new InvalidOperationException("UM-ORIGINAL-RCON-PID-PORT-UNVERIFIED");
-        return(map,identity);
+        return(map,identity,epoch);
     }
 
     public async Task<string> HandleAsync(string raw)
@@ -111,7 +114,7 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
                         return Error(id,"UM-ORIGINAL-RCON-LOCAL-MAP");
                     try
                     {
-                        var (map,identity)=Require(mapId);
+                        var (map,identity,_)=Require(mapId);
                         return Ok(id,new{
                             mapId,mapName=map.Name,configured=true,
                             processVerified=true,portOwned=true,
@@ -135,7 +138,7 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
                         });
                     }
                 }
-                var (ownedMap,expected)=Require(mapId);
+                var (ownedMap,expected,approvedEpoch)=Require(mapId);
                 string command=method switch{
                     "historical.rconPlayers"=>"ListPlayers",
                     "historical.rconGameLog"=>"GetGameLog",
@@ -146,15 +149,19 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
                 // Source/ownership can change between preview and dispatch.
                 // Recheck before any RCON call; a later source change cannot
                 // turn this read-only channel into a mutating command.
-                var (current,now)=Require(mapId);
+                var (current,now,dispatchEpoch)=Require(mapId);
                 if(!ReferenceEquals(current,ownedMap)||!Identical(expected,now))
                     return Error(id,"UM-ORIGINAL-RCON-PROCESS-CHANGED");
+                if(!string.Equals(approvedEpoch,dispatchEpoch,StringComparison.Ordinal))
+                    return Error(id,"UM-ORIGINAL-RCON-SOURCE-EPOCH-CHANGED");
                 string password=SecureStore.Unprotect(ownedMap.RconPasswordProtected);
                 string response=await send("127.0.0.1",ownedMap.RconPort,
                     password,command,deadline.Token);
-                var (after,observed)=Require(mapId);
+                var (after,observed,completedEpoch)=Require(mapId);
                 if(!ReferenceEquals(after,ownedMap)||!Identical(expected,observed))
                     return Error(id,"UM-ORIGINAL-RCON-POST-DISPATCH-CHANGED");
+                if(!string.Equals(approvedEpoch,completedEpoch,StringComparison.Ordinal))
+                    return Error(id,"UM-ORIGINAL-RCON-SOURCE-EPOCH-CHANGED");
                 if(response==null)
                     return Error(id,"UM-ORIGINAL-RCON-NO-RESPONSE");
                 if(response.Length>32_768)response=response[..32_768];
