@@ -32,7 +32,8 @@ internal static class LocalAsaLaunchFactsTests
               known.TransferOverridePresent&&!known.ConversionFlagPresent,
             "Store-v1 and cluster flags are observed without writer authority");
         string sanitized=JsonSerializer.Serialize(known);
-        Check(!sanitized.Contains(share,StringComparison.Ordinal)&&
+        Check(!sanitized.Contains("synthetic.example",StringComparison.Ordinal)&&
+              !sanitized.Contains("PrivateStoreRoot",StringComparison.Ordinal)&&
               !sanitized.Contains("KovaCluster",StringComparison.Ordinal)&&
               !sanitized.Contains("SessionName",StringComparison.Ordinal)&&
               !sanitized.Contains("DO_NOT_RETURN",StringComparison.Ordinal),
