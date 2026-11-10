@@ -154,10 +154,11 @@ internal static class LegacyStoreSaveReceiptPairTests
             InstallationPath=x.InstallationPath
         }).ToArray();
         LegacyStoreV1PeerProof current=source;
+        string liveOriginalEpoch=SourceSha;
         await using(var manager=new ClusterService("pair-lab",root,
             _=>new ProcessCheck(false,"Synthetic stopped only",null,true),
             legacyStoreProof:()=>current,
-            historicalSaveSourceProbe:_=>SourceSha))
+            historicalSaveSourceProbe:_=>liveOriginalEpoch))
         {
             foreach(var map in mapCopies)manager.AddMap(map);
             // The test Manager's actual journal root is manager.Store.Root,
@@ -186,6 +187,16 @@ internal static class LegacyStoreSaveReceiptPairTests
                 "real native LAN bridge reads only the explicitly requested local receipt summary");
             Check(manager.ReadLegacyStoreV1PeerProof()?.RecentLocalSaveReceipts==5,
                 "explicit receipt witness is cached only in Manager memory");
+            liveOriginalEpoch=Sha("shared-operation-updated-original-four-unchanged");
+            var failedEpochProbe=await Call(bridge,"lan.historicalSaveProbe");
+            Check(!failedEpochProbe.GetProperty("ok").GetBoolean()&&
+                  manager.ReadLegacyStoreV1PeerProof()?.RecentLocalSaveReceipts==0,
+                "native bridge revokes cached five-map success when shared source epoch changes");
+            liveOriginalEpoch=SourceSha;
+            var refreshed=await Call(bridge,"lan.historicalSaveProbe");
+            Check(refreshed.GetProperty("ok").GetBoolean()&&
+                  manager.ReadLegacyStoreV1PeerProof()?.RecentLocalSaveReceipts==5,
+                "valid original source can be independently re-verified by operator");
             current=current with{OriginalFourFilesTag=Sha("original-session-changed")};
             Check(manager.ReadLegacyStoreV1PeerProof()?.RecentLocalSaveReceipts==0,
                 "old local receipt witness cannot survive changed original four-file identity");
