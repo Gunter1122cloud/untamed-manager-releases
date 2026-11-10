@@ -1639,9 +1639,11 @@ try
             new{token=planned.GetProperty("data").GetProperty("token").GetString(),
                 confirm=true});
         IsOk(committed,"approved custom first setup writes only local launch profile");
-        Check(customMap.Arguments.StartsWith(customLevel+"?listen",
+        var configuredCustom=customCluster.Config.LocalMaps.Single(m=>m.Id==customMap.Id);
+        Check(configuredCustom.Arguments.StartsWith(customLevel+"?listen",
                   StringComparison.Ordinal) &&
-              customMap.GamePort==7951 && customMap.QueryPort==27951,
+              configuredCustom.FreshInstallMapLevel==customLevel &&
+              configuredCustom.GamePort==7951 && configuredCustom.QueryPort==27951,
             "custom ASA level and selected ports persist without starting the server");
     }
 
