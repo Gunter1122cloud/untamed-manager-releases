@@ -4124,7 +4124,7 @@ try
               !liveSnapshot.GetProperty("data").GetProperty("complete").GetBoolean()&&
               liveSnapshot.GetProperty("data").GetProperty("maps")
                   .EnumerateArray().All(m=>m.GetProperty("profileCount").GetInt32()==0&&
-                    m.GetProperty("Unstable").GetBoolean()),
+                    m.GetProperty("unstable").GetBoolean()),
             "running ASA never triggers player/tribe file enumeration or success");
         syntheticAsaRunning=false;
         using(var concurrentWriter=new FileStream(sourceFile,FileMode.Open,
