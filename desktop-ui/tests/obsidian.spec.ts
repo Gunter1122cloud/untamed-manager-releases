@@ -2130,7 +2130,7 @@ test("large host Operations roster renders all 125 local maps in paged UI",async
   await paginator.getByRole("button",{name:"Következő mapoldal"}).click();
   await expect(rows).toHaveCount(25);
   await expect(rows.last()).toContainText("Paged map 123");
-  await expect(paginator).toContainText("125 / 125 helyi map");
+  await expect(paginator).toContainText("125/ 125 helyi map");
   await paginator.getByRole("button",{name:"Előző mapoldal"}).click();
   await expect(rows).toHaveCount(50);
   await page.getByRole("button",{name:"Futók",exact:true}).click();
