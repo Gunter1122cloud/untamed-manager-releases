@@ -176,6 +176,15 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
         return await Task.Run<object>(() =>
         {
             var local = _cluster.LocalStatus();
+            // WMI is observation only: never write a PID or turn a candidate
+            // into a managed lifecycle/Store owner. Failure stays "unverified".
+            IReadOnlyList<LocalRunningAsaDiscovery.Observation> observed =
+                Array.Empty<LocalRunningAsaDiscovery.Observation>();
+            if(_cluster.Config.LocalMaps.Any(m=>m.ObservedReadOnlyImported))
+            {
+                try{observed=LocalRunningAsaDiscovery.Inspect(_cluster.Config.LocalMaps);}
+                catch(Exception){/* No WMI evidence; fail closed. */}
+            }
             var resources = LocalHostResourceProbe.Read();
             var remote = _cluster.RemoteIsFresh ? _cluster.RemoteSnapshot : null;
             var remotes=_cluster.PeerObservations.Select(peer=>new{
@@ -213,6 +222,8 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                             steamBuildId = m.SteamBuildId, steamUpdateState = m.SteamUpdateState,
                             storeProtected = protectedStore,
                             observedReadOnlyImported = config?.ObservedReadOnlyImported ?? false,
+                            observedRuntimeState = config==null ? "notApplicable" :
+                                ObservedAsaDashboardTelemetry.For(config,observed).Code,
                             freshStoreEnrolled = config != null && FreshStoreEnrollmentPolicy.IsEnrolled(config),
                             storeLifecycleState = historicalStore ?
                                 ReadOriginalStoreLifecycle(config,m.Running) : null,
