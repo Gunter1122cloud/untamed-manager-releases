@@ -1111,11 +1111,13 @@ test.beforeEach(async ({ page }) => {
         case "steam.freshCurrent": return {current:null};
         case "steam.freshBrowse": return {selected:true,installRoot:"D:\\ASA-NEW"};
         case "steam.freshPreflight":
+          if(m.customLevel && !/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(m.customLevel))
+            throw new Error("UM-FRESH-MAP-LEVEL-INVALID");
           if(m.installRoot==="D:\\ASA-Servers")
             throw new Error("UM-FRESH-ROOT-OVERLAP|map=The Island|path=D:\\ASA-Servers\\TheIsland");
           return {
           token:"00000000-0000-4000-8000-000000008888",
-          mapName:m.mapName||"Valguero",mapLevel:"Valguero_WP",folderName:"ASA-NEW",
+          mapName:m.mapName||"Valguero",mapLevel:m.customLevel||"Valguero_WP",folderName:"ASA-NEW",
           steamCmdPresent:true,usingManagerDefaultSteamCmd:true,needsOfficialSteamCmdDownload:false,
           existingInterruptedInstall:false,minimumFreeGiB:35,
           evidence:"FRESH_INSTALL_PREFLIGHT_NO_FILE_MUTATION"
@@ -3573,6 +3575,28 @@ test("SteamCMD new ASA: choose map and Windows folder, one click starts download
   await expect(page.getByText("Valguero").first()).toBeVisible();
   await expect(page.getByRole("textbox",{name:"SteamCMD EXE"})).toHaveCount(0);
   await page.screenshot({path:"test-results/steam-fresh-install-1600.png",fullPage:true});
+});
+
+test("custom ASA map SteamCMD installer requires exact level, rejects injected flags, then downloads base files only",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("__custom__");
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA map neve"})).toBeVisible();
+  await page.getByRole("textbox",{name:"Egyedi ASA map neve"}).fill("Synthetic Atlantis");
+  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\CustomASA");
+  await page.getByRole("textbox",{name:"Egyedi ASA level azonosító"})
+    .fill("Bad?listen -admincheat");
+  await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
+  await expect(page.getByRole("alert")).toContainText("pontos, legfeljebb 80 karakteres Unreal level");
+  await page.getByRole("textbox",{name:"Egyedi ASA level azonosító"})
+    .fill("SyntheticAtlantis_WP");
+  await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
+  await expect(page.getByText(/ASA EXE és Steam appmanifest ellenőrizve/))
+    .toBeVisible({timeout:12000});
+  await expect(page.getByText(/letöltve és hozzáadva a Managerhez/))
+    .toBeVisible({timeout:12000});
+  await expect(page.getByText(/Az egyedi pálya modjait később a Mod Centerben/))
+    .toBeVisible();
 });
 
 test("Servers page offers immediate real ASA download separately from importing an existing server",async ({page})=>{
