@@ -30,6 +30,17 @@ internal static class LegacyStorePhysicalTransferTests
         return parsed.RootElement.Clone();
     }
 
+    private static async Task<JsonElement> CallExpansion(
+        DesktopClusterRegistryBridge bridge,Guid mapId,string clusterId)
+    {
+        using var doc=JsonDocument.Parse(await bridge.HandleAsync(
+            JsonSerializer.Serialize(new{
+                id=Guid.NewGuid().ToString("D"),
+                method="cluster.historicalExpansionInspect",mapId,clusterId
+            })));
+        return doc.RootElement.Clone();
+    }
+
     private static async Task<JsonElement> CallHistoricalBootstrap(
         DesktopHistoricalStoreImportBridge bridge,string method,
         string? token=null,string? typedApproval=null)
@@ -232,6 +243,65 @@ internal static class LegacyStorePhysicalTransferTests
             legacyStoreProof:()=>currentLocalSource,
             physicalStoreProbe:host=>witness with{HostId=Guid.Parse(host).ToString("N")}))
         {
+            // Native end-to-end read-only preview for a future map that
+            // must eventually join the EXISTING source-pinned Kova cluster.
+            // The real profile is never used: UNC identity is injected into
+            // this synthetic test only and no Store writer is opened.
+            foreach(var member in members)
+                manager.AddMap(new LocalMap{
+                    Id=Guid.Parse(member.id),Name=member.map,
+                    HistoricalMapKey=member.map,
+                    HistoricalStoreProtected=true,
+                    HistoricalArchiveSha256=report.OriginalFourFilesTag
+                });
+            var originalRegistered=manager.Registry.CreateCluster(
+                VaultProtocol.ClusterId,"Synthetic original Kova",fakeUnc);
+            foreach(var member in members)
+                manager.Config.ClusterRegistry.MapAssignments.Add(
+                    new ClusterMapAssignment{
+                        MapId=Guid.Parse(member.id),
+                        ClusterId=originalRegistered.ClusterId
+                    });
+            Guid futureId=Guid.NewGuid();
+            manager.AddMap(new LocalMap{
+                Id=futureId,Name="Synthetic Future Atlantis",
+                InstallationPath=Path.Combine(root,"future-map-install")
+            });
+            var beforeRevision=manager.Registry.Snapshot().Revision;
+            using(var expansionBridge=new DesktopClusterRegistryBridge(
+                manager,original,(first,second)=>
+                    first==fakeUnc&&second==fakeUnc))
+            {
+                var expansion=await CallExpansion(expansionBridge,futureId,
+                    originalRegistered.ClusterId);
+                var inspected=expansion.GetProperty("data");
+                Check(expansion.GetProperty("ok").GetBoolean() &&
+                      inspected.GetProperty("originalSourceVerified").GetBoolean() &&
+                      inspected.GetProperty("originalFivePreserved").GetBoolean() &&
+                      inspected.GetProperty("samePhysicalTransferDirectory").GetBoolean() &&
+                      !inspected.GetProperty("newMapStoreEnrollmentAllowed").GetBoolean() &&
+                      !inspected.GetProperty("remoteWriterSessionCertified").GetBoolean() &&
+                      !inspected.GetProperty("serverStarted").GetBoolean() &&
+                      inspected.GetProperty("blockers").EnumerateArray()
+                          .Any(x=>x.GetString()=="UM-EXPANSION-FRESH-ASA-SETUP-REQUIRED") &&
+                      !expansion.GetRawText().Contains(fakeUnc,StringComparison.Ordinal),
+                    "new-map Kova preflight reads exact original source and physical identity without authorizing Store enrollment");
+
+                var another=manager.Registry.CreateCluster("unrelated-lab",
+                    "Unrelated Synthetic",Path.Combine(root,"unrelated"));
+                var mismatch=await CallExpansion(expansionBridge,futureId,
+                    another.ClusterId);
+                Check(mismatch.GetProperty("ok").GetBoolean() &&
+                      !mismatch.GetProperty("data").GetProperty("localPreflightReady").GetBoolean() &&
+                      mismatch.GetProperty("data").GetProperty("blockers").EnumerateArray()
+                        .Any(x=>x.GetString()=="UM-EXPANSION-SOURCE-CLUSTER-ID-DIFFERS"),
+                    "another cluster ID cannot impersonate historical Kova source");
+            }
+            Check(files.Select(f=>Convert.ToHexString(
+                    SHA256.HashData(File.ReadAllBytes(f))))
+                  .SequenceEqual(beforeHashes) &&
+                  manager.Registry.Snapshot().Revision==beforeRevision+1,
+                "historical expansion preflight leaves source files and registry unchanged");
             var before=manager.ReadLegacyStoreV1PeerProof();
             Check(before?.PhysicalDirectoryTag=="",
                 "Manager never reads a Kova physical UNC file ID on startup or background polling");
@@ -255,11 +325,19 @@ internal static class LegacyStorePhysicalTransferTests
                   !status.GetProperty("data").GetProperty("originalStorePair")
                     .GetProperty("samePhysicalTransferDirectory").GetBoolean(),
                 "local proof ALONE cannot certify remote UNC identity or authorize a Store transfer");
+        }
+        // Separate isolated TEMP profile: the #123 expansion fixture
+        // already imported its original five, so bootstrap test starts with
+        // a distinct, empty Manager registry and no shared Store writes.
+        await using(var bootstrap=new ClusterService("metadata-bootstrap",
+            Path.Combine(root,"bootstrap-manager"),_=>new ProcessCheck(false,
+                "Synthetic stopped only",null,true)))
+        {
             // A separate native Manager metadata transaction must now be
             // able to import the five source-pinned historical memberships.
             // Do not silently rewrite any original Store file or the UNC.
             foreach(var originalMap in members)
-                manager.AddMap(new LocalMap{
+                bootstrap.AddMap(new LocalMap{
                     Id=Guid.Parse(originalMap.id),
                     Name=originalMap.map,
                     HistoricalStoreProtected=true,
@@ -282,7 +360,7 @@ internal static class LegacyStorePhysicalTransferTests
                 var denied=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterApply",approvalToken,"WRONG");
                 Check(!denied.GetProperty("ok").GetBoolean() &&
-                      manager.Registry.Snapshot().ClusterRegistry.Clusters.Count==0,
+                      bootstrap.Registry.Snapshot().ClusterRegistry.Clusters.Count==0,
                     "wrong source-metadata approval never creates a cluster");
                 var complete=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterApply",approvalToken,
@@ -290,8 +368,8 @@ internal static class LegacyStorePhysicalTransferTests
                 Check(complete.GetProperty("ok").GetBoolean() &&
                       complete.GetProperty("data").GetProperty("addedCount").GetInt32()==5 &&
                       !complete.GetProperty("data").GetProperty("serverStarted").GetBoolean() &&
-                      manager.Registry.Snapshot().ClusterRegistry.MapAssignments.Count==5 &&
-                      manager.Registry.Snapshot().ClusterRegistry.Clusters.Single()
+                      bootstrap.Registry.Snapshot().ClusterRegistry.MapAssignments.Count==5 &&
+                      bootstrap.Registry.Snapshot().ClusterRegistry.Clusters.Single()
                         .ClusterId=="kovacluster",
                     "explicit native commit atomically adopts five original assignments in Manager metadata only");
                 var replay=await CallHistoricalBootstrap(registryBridge,
@@ -299,7 +377,7 @@ internal static class LegacyStorePhysicalTransferTests
                     "EREDETI KOVA REGISZTER");
                 Check(!replay.GetProperty("ok").GetBoolean(),
                     "one-use metadata approval token cannot be replayed");
-                long revision=manager.Registry.Snapshot().Revision;
+                long revision=bootstrap.Registry.Snapshot().Revision;
                 var again=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterPreview");
                 Check(again.GetProperty("ok").GetBoolean() &&
@@ -312,10 +390,10 @@ internal static class LegacyStorePhysicalTransferTests
                     "EREDETI KOVA REGISZTER");
                 Check(repeat.GetProperty("ok").GetBoolean() &&
                       repeat.GetProperty("data").GetProperty("addedCount").GetInt32()==0 &&
-                      manager.Registry.Snapshot().Revision==revision,
+                      bootstrap.Registry.Snapshot().Revision==revision,
                     "repeat of exact original metadata does not change revision");
                 bool transferRebindBlocked=false;
-                try{manager.Registry.UpdateCluster("KovaCluster",
+                try{bootstrap.Registry.UpdateCluster("KovaCluster",
                     "Original Kova Store-v1",Path.Combine(root,"foreign-transfer"));}
                 catch(UnauthorizedAccessException){transferRebindBlocked=true;}
                 Check(transferRebindBlocked,

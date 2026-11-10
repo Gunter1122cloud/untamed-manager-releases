@@ -1482,6 +1482,25 @@ test.beforeEach(async ({ page }) => {
             evidence:"NEW_STORE_LOCAL_API_MODE_CONFIG_ONLY"};
         }
         case "cluster.registry.snapshot": return clusterRegistrySnapshot();
+        case "cluster.historicalExpansionInspect": {
+          const current=allFixtureMaps().find((item:any)=>
+            item.map.id.toLowerCase()===String(m.mapId||"").toLowerCase());
+          if(!current||current.hostId!==state.local.hostId)
+            throw new Error("UM-EXPANSION-NOT-LOCAL");
+          return {
+            mapId:m.mapId,mapName:current.map.name,
+            requestedClusterId:m.clusterId||"",sourceClusterId:"kovacluster",
+            originalSourceVerified:true,originalFivePreserved:true,
+            samePhysicalTransferDirectory:true,nativeLocalSetupVerified:false,
+            localPreflightReady:false,sourceEvidenceTag:"A".repeat(64),
+            blockers:["UM-EXPANSION-FRESH-ASA-SETUP-REQUIRED"],
+            originalStoreFilesWritten:false,storeWriterTouched:false,
+            originalTenMapIdentitiesChanged:false,remoteWriterSessionCertified:false,
+            characterTravelVerified:false,newMapStoreEnrollmentAllowed:false,
+            serverStarted:false,
+            evidence:"READ_ONLY_ORIGINAL_STORE_EXPANSION_PREFLIGHT_NO_WRITER_AUTHORITY"
+          };
+        }
         case "cluster.create": {
           if(clusterClusters.some(cluster=>cluster.clusterId===m.clusterId))throw new Error("UM-CLUSTER-ALREADY-EXISTS");
           const created={clusterId:m.clusterId||"",name:m.name||"",transferDirectory:m.transferDirectory||"",
@@ -2184,6 +2203,25 @@ test("multi-cluster membership filters 100+ maps, protects Store-v1 and applies 
   await expect(page.getByRole("status")).toContainText("1 áthelyezés");
   await page.getByRole("combobox",{name:"Kiválasztott cluster"}).selectOption("fixture-alpha");
   await expect(page.getByRole("checkbox",{name:/Local Map 4/})).not.toBeChecked();
+});
+
+test("historical Kova new-map compatibility check is native, read-only and never enables writer or live travel",async({page})=>{
+  await page.goto("/?fixture=large");
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const candidate=page.getByRole("combobox",{name:"Bővítendő helyi map"});
+  expect(await candidate.locator("option").count()).toBeGreaterThan(1);
+  await candidate.selectOption({label:"Local Map 4"});
+  const revision=await page.locator(".cluster-registry-metrics > div").nth(3).locator("b").innerText();
+  await page.getByRole("button",{name:"Eredeti cluster-kompatibilitás ellenőrzése"}).click();
+  const inspected=page.getByRole("region",{name:"Történeti Store-map ellenőrzése"});
+  await expect(inspected).toContainText("Eredeti Store-forrás: igazolt");
+  await expect(inspected).toContainText("Eredeti 5 map: megőrizve");
+  await expect(inspected).toContainText("Transfer fizikai azonossága: igazolt");
+  await expect(inspected).toContainText("UM-EXPANSION-FRESH-ASA-SETUP-REQUIRED");
+  await expect(inspected).toContainText("még nincs engedélyezve");
+  await expect(inspected.getByRole("button",{name:/csatlakoztat|Store-profil mentése/i})).toHaveCount(0);
+  await expect(page.locator(".cluster-registry-metrics > div").nth(3).locator("b")).toHaveText(revision);
 });
 
 test("cluster screen creates and edits a cluster through the native bridge contract",async({page})=>{
