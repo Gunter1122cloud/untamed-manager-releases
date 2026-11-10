@@ -347,7 +347,7 @@ internal static class LegacyStorePhysicalTransferTests
             foreach(var member in members)
                 manager.AddMap(new LocalMap{
                     Id=Guid.Parse(member.id),Name=member.map,
-                    HistoricalMapKey=member.map,
+                    HistoricalMapKey=member.map,InstallationPath=member.root,
                     HistoricalStoreProtected=true,
                     HistoricalArchiveSha256=report.OriginalFourFilesTag
                 });
@@ -372,6 +372,11 @@ internal static class LegacyStorePhysicalTransferTests
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
                 "rebound original map level under the same GUID is not registered Kova parity");
             firstRegistered.HistoricalMapKey=originalKey;
+            string originalRoot=firstRegistered.InstallationPath;
+            firstRegistered.InstallationPath=Path.Combine(root,"wrong-original-source-root");
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "same original GUID and level with a DIFFERENT registered ASA installation root is not source parity");
+            firstRegistered.InstallationPath=originalRoot;
             string originalTag=firstRegistered.HistoricalArchiveSha256;
             firstRegistered.HistoricalArchiveSha256=Hash("invalid-original-kova-four-files");
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
