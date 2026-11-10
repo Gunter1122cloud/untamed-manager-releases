@@ -374,6 +374,16 @@ internal static class LegacyStorePhysicalTransferTests
             manager.Config.ClusterRegistry.Clusters.Add(originalDefinition);
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
                 "restored registered cluster definition and original transfer UNC recover exact five-map enrollment");
+            var forgedDuplicate=new RegisteredCluster{
+                ClusterId=originalDefinition.ClusterId,Name="Forged duplicate original",
+                TransferDirectory=@"\\synthetic-other\ambiguous-transfer"
+            };
+            manager.Config.ClusterRegistry.Clusters.Add(forgedDuplicate);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "duplicate KovaCluster definition with a second mismatching UNC is never accepted just because one record matches");
+            manager.Config.ClusterRegistry.Clusters.Remove(forgedDuplicate);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "original cluster registration recovers after synthetic duplicate is removed");
             var membership=manager.Config.ClusterRegistry.MapAssignments[0];
             membership.ClusterId="unrelated-synthetic-cluster";
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
