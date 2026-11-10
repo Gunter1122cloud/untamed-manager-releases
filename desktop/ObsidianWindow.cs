@@ -121,6 +121,8 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopRconConfigurationBridge _rconConfig;
     private readonly DesktopStoppedSteamUpdateBridge _steamUpdate;
     private readonly DesktopStoppedSteamBatchBridge _steamBatch;
+    private readonly DesktopScheduledStoppedSteamSupervisor _scheduledSteam;
+    private readonly DesktopScheduledStoppedSteamBridge _scheduledSteamBridge;
     private readonly DesktopFreshAsaStartBridge _freshStart;
     private readonly DesktopFreshAsaStopBridge _freshStop;
     private readonly DesktopOwnedAsaKillBridge _ownedKill;
@@ -186,6 +188,8 @@ public sealed class ObsidianWindow : Form
         _rconConfig = new DesktopRconConfigurationBridge(_bridge.LocalCluster);
         _steamUpdate = new DesktopStoppedSteamUpdateBridge(_bridge.LocalCluster);
         _steamBatch = new DesktopStoppedSteamBatchBridge(_bridge.LocalCluster);
+        _scheduledSteam = new DesktopScheduledStoppedSteamSupervisor(_bridge.LocalCluster);
+        _scheduledSteamBridge = new DesktopScheduledStoppedSteamBridge(_bridge.LocalCluster,_scheduledSteam);
         _freshStart = new DesktopFreshAsaStartBridge(_bridge.LocalCluster);
         _freshStop = new DesktopFreshAsaStopBridge(_bridge.LocalCluster);
         _ownedKill = new DesktopOwnedAsaKillBridge(_bridge.LocalCluster);
@@ -237,6 +241,7 @@ public sealed class ObsidianWindow : Form
                 // never starts/stops any ARK server or touches shared Store.
                 _readOnlySupervisor.Start();
                 _scheduledBackups.Start();
+                _scheduledSteam.Start();
                 _nativeSchedules.Start();
                 try { await _bridge.LocalCluster.BeginLanAsync(); }
                 catch (Exception) { /* UI remains usable; peer status stays unknown */ }
@@ -256,6 +261,7 @@ public sealed class ObsidianWindow : Form
         {
             _readOnlySupervisor.Dispose();
             _scheduledBackups.Dispose();
+            _scheduledSteam.Dispose();
             _nativeSchedules.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
@@ -402,6 +408,7 @@ public sealed class ObsidianWindow : Form
                 bool worldBackupRoute = false;
                 bool stoppedSteamRoute = false;
                 bool stoppedSteamBatchRoute = false;
+                bool scheduledSteamRoute = false;
                 bool freshStartRoute = false;
                 bool freshStopRoute = false;
                 bool ownedKillRoute = false;
@@ -448,6 +455,8 @@ public sealed class ObsidianWindow : Form
                             "steam.stoppedStatus" or "steam.stoppedCurrent" or "steam.publishedBuild";
                         stoppedSteamBatchRoute = name is "steam.batchPreview" or "steam.batchApply" or
                             "steam.batchStatus" or "steam.batchCurrent";
+                        scheduledSteamRoute = name is "steam.scheduleStatus" or "steam.scheduleSet" or
+                            "steam.scheduleDisable";
                         travelRoute = name is "travel.capture" or "travel.compare" or "travel.compareRoundTrip";
                         embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
@@ -559,6 +568,7 @@ public sealed class ObsidianWindow : Form
                         : freshStartRoute ? await _freshStart.HandleAsync(incoming)
                         : pluginJsonRoute ? await _pluginJson.HandleAsync(incoming)
                         : pluginZipRoute ? await _pluginZip.HandleAsync(incoming)
+                        : scheduledSteamRoute ? await _scheduledSteamBridge.HandleAsync(incoming)
                         : stoppedSteamBatchRoute ? await _steamBatch.HandleAsync(incoming)
                         : stoppedSteamRoute ? await _steamUpdate.HandleAsync(incoming)
                         : rconConfigRoute ? await _rconConfig.HandleAsync(incoming)
