@@ -18,9 +18,12 @@ internal static class OriginalKovaDirectImportTests
         Console.WriteLine("PASS direct Kova import: "+reason);
     }
 
-    private static async Task<JsonElement> Call(
+    private static Task<JsonElement> Call(
         DesktopHistoricalStoreImportBridge bridge,string method,
-        object? values=null)
+        object? values=null)=>Call(bridge.HandleAsync,method,values);
+
+    private static async Task<JsonElement> Call(
+        Func<string,Task<string>> handle,string method,object? values=null)
     {
         var request=new System.Collections.Generic.Dictionary<string,object?>{
             ["id"]=Guid.NewGuid().ToString("D"),["method"]=method
@@ -31,7 +34,7 @@ internal static class OriginalKovaDirectImportTests
             foreach(var prop in extra.RootElement.EnumerateObject())
                 request[prop.Name]=prop.Value.Clone();
         }
-        string result=await bridge.HandleAsync(JsonSerializer.Serialize(request));
+        string result=await handle(JsonSerializer.Serialize(request));
         using var parsed=JsonDocument.Parse(result);
         return parsed.RootElement.Clone();
     }
