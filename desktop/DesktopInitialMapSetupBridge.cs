@@ -64,7 +64,16 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     bool initial=Initial(map);
                     string? level=null;
                     try { level=AsaSteamMapCatalog.LevelFor(map.Name); }
-                    catch(InvalidDataException) { }
+                    catch(InvalidDataException)
+                    {
+                        if(!string.IsNullOrWhiteSpace(map.FreshInstallMapLevel))
+                        {
+                            try { level=AsaSteamMapCatalog.ValidateCustomLevel(
+                                map.FreshInstallMapLevel); }
+                            catch(InvalidDataException)
+                            { return Fail(id,"UM-INITIAL-INSTALLED-LEVEL-INVALID"); }
+                        }
+                    }
                     bool executable=ServerExePresent(map);
                     bool stopped=process.ConfirmedStopped && !process.Running;
                     string blocker=!initial ? "PROFILE_ALREADY_CONFIGURED_OR_PROTECTED" :
@@ -116,11 +125,26 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     }
                     else
                     {
-                        if(!args.TryGetProperty("customLevel",out var custom) ||
-                           custom.ValueKind!=JsonValueKind.String ||
-                           string.IsNullOrWhiteSpace(custom.GetString()))
+                        // A level entered during the verified SteamCMD install
+                        // is already an explicit operator choice. Reuse it,
+                        // but never allow another level to override this
+                        // installed profile without a separate migration.
+                        string requested="";
+                        if(args.TryGetProperty("customLevel",out var custom))
+                        {
+                            if(custom.ValueKind!=JsonValueKind.String)
+                                return Fail(id,"UM-INITIAL-CUSTOM-LEVEL-INVALID");
+                            requested=custom.GetString()??"";
+                        }
+                        if(string.IsNullOrWhiteSpace(requested))
+                            requested=map.FreshInstallMapLevel;
+                        if(string.IsNullOrWhiteSpace(requested))
                             return Fail(id,"UM-INITIAL-CUSTOM-LEVEL-REQUIRED");
-                        try{level=AsaSteamMapCatalog.ValidateCustomLevel(custom.GetString()!);}
+                        if(!string.IsNullOrWhiteSpace(map.FreshInstallMapLevel)&&
+                           !string.Equals(requested,map.FreshInstallMapLevel,
+                               StringComparison.Ordinal))
+                            return Fail(id,"UM-INITIAL-INSTALLED-LEVEL-MISMATCH");
+                        try{level=AsaSteamMapCatalog.ValidateCustomLevel(requested);}
                         catch(InvalidDataException)
                         {return Fail(id,"UM-INITIAL-CUSTOM-LEVEL-INVALID");}
                     }

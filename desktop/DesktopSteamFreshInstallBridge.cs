@@ -32,8 +32,9 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private sealed record Prepared(
-        Guid Token,Guid MapId,string Name,string Root,string SteamExe,
-        bool DownloadSteamCmd,bool ExplicitRetry,DateTimeOffset CreatedUtc);
+        Guid Token,Guid MapId,string Name,string? CustomMapLevel,
+        string Root,string SteamExe,bool DownloadSteamCmd,
+        bool ExplicitRetry,DateTimeOffset CreatedUtc);
     private sealed class InstallJob
     {
         public required Guid Id {get;init;}
@@ -150,7 +151,23 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                         retry=retryValue.GetBoolean();
                     }
                     mapName=LocalMapNameRules.Normalize(mapName);
-                    string level=AsaSteamMapCatalog.LevelFor(mapName);
+                    string? customLevel=null;
+                    if(data.TryGetProperty("customLevel",out var levelArg))
+                    {
+                        if(levelArg.ValueKind!=JsonValueKind.String ||
+                           levelArg.GetString() is {Length:>80})
+                            return Error(id,"UM-FRESH-CUSTOM-LEVEL-INVALID");
+                        customLevel=levelArg.GetString();
+                    }
+                    string level;
+                    try {
+                        level=AsaSteamMapCatalog.LevelForNewInstallation(
+                            mapName,customLevel);
+                    }
+                    catch(InvalidDataException)
+                    {
+                        return Error(id,"UM-FRESH-MAP-LEVEL-INVALID");
+                    }
                     try { installRoot=Canonical(installRoot); }
                     catch(Exception ex) when(ex is InvalidDataException or IOException or
                         UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -199,7 +216,10 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     {
                         if(!retry ||
                            !string.Equals(interrupted.MapName,mapName,StringComparison.OrdinalIgnoreCase) ||
-                           !Same(interrupted.SteamCmdExecutable,steamExe))
+                           !Same(interrupted.SteamCmdExecutable,steamExe) ||
+                           !string.Equals(interrupted.MapLevel ??
+                               AsaSteamMapCatalog.LevelFor(mapName),level,
+                               StringComparison.Ordinal))
                             return Error(id,"UM-FRESH-RETRY-REVIEW-REQUIRED");
                         mapId=interrupted.MapId;
                     }
@@ -224,8 +244,8 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     }
                     var token=Guid.NewGuid();
                     prepared.Clear();
-                    prepared[token]=new(token,mapId,mapName,installRoot,steamExe,download,
-                        retry,DateTimeOffset.UtcNow);
+                    prepared[token]=new(token,mapId,mapName,customLevel,
+                        installRoot,steamExe,download,retry,DateTimeOffset.UtcNow);
                     return Ok(id,new{
                         token,mapName,mapLevel=level,folderName=Path.GetFileName(installRoot),
                         steamCmdPresent=validSteam,
@@ -322,8 +342,12 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                             return Error(id,"UM-FRESH-NOT-VERIFIED");
                         receipt=selected.Receipt;
                     }
+                    string expectedMapLevel=AsaSteamMapCatalog.LevelForNewInstallation(
+                        selected.Request.Name,selected.Request.CustomMapLevel);
                     if(!File.Exists(receipt.ServerExecutable) ||
-                       AsaSteamBuildCatalog.InstalledBuild(receipt.InstallationRoot)!=receipt.BuildId)
+                       AsaSteamBuildCatalog.InstalledBuild(receipt.InstallationRoot)!=receipt.BuildId ||
+                       !string.Equals(receipt.MapLevel,expectedMapLevel,
+                           StringComparison.Ordinal))
                         return Error(id,"UM-FRESH-RECEIPT-INVALID");
                     // Recheck root/map overlap and original binary location.
                     if(cluster.Config.LocalMaps.Any(m=>
@@ -336,7 +360,8 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                         InstallationPath=receipt.InstallationRoot,
                         ExecutablePath=receipt.ServerExecutable,
                         GamePort=0,QueryPort=0,RconPort=0,
-                        Arguments="",AutoStart=false,StartWithAsaApi=false
+                        Arguments="",FreshInstallMapLevel=expectedMapLevel,
+                        AutoStart=false,StartWithAsaApi=false
                     };
                     cluster.AddMap(localMap); // original atomic CAS Manager-only config.
                     lock(stateGate)
@@ -370,7 +395,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
             var req=job.Request;
             var request=new SteamFreshInstallRequest(req.MapId,req.Name,"",
                 req.Root,req.SteamExe,req.DownloadSteamCmd,
-                ExplicitRetry:req.ExplicitRetry);
+                ExplicitRetry:req.ExplicitRetry,CustomMapLevel:req.CustomMapLevel);
             var progress=new SynchronousProgress(item=>{
                 lock(stateGate)
                 {

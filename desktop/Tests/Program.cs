@@ -1513,6 +1513,140 @@ try
             "manager can restore verified native Steam job status after UI navigation");
     }
 
+    // Synthetic custom/unofficial map SteamCMD: the ASA 2430930 binaries
+    // are shared, but the Unreal map level is an explicit validated token.
+    // No custom level text may become a SteamCMD command-line argument.
+    {
+        string customRoot=Path.Combine(root,"fresh-custom-asa-empty");
+        await using var customCluster=new ClusterService("synthetic-custom-installer",
+            Path.Combine(root,"custom-installer-manager"),
+            _=>new ProcessCheck(false,"Synthetic stopped only",null,true));
+        int customDownloads=0;
+        const string customName="Synthetic Custom Atlantis";
+        const string customLevel="SyntheticAtlantis_WP";
+        Check(AsaSteamMapCatalog.LevelForNewInstallation(customName,customLevel)
+                ==customLevel &&
+              AsaSteamMapCatalog.LevelForNewInstallation("Valguero",null)
+                =="Valguero_WP",
+            "custom and official Steam installations use distinct explicitly validated levels");
+        bool unsafeLevel=false,officialOverride=false;
+        try{AsaSteamMapCatalog.LevelForNewInstallation(customName,
+            "Bad?listen -port=1");}
+        catch(InvalidDataException){unsafeLevel=true;}
+        try{AsaSteamMapCatalog.LevelForNewInstallation("Valguero",
+            "UntrustedLevel_WP");}
+        catch(InvalidDataException){officialOverride=true;}
+        Check(unsafeLevel&&officialOverride,
+            "native catalog rejects launch-switch injection and official level override");
+
+        async Task<SteamFreshInstallReceipt> SyntheticCustomRunner(
+            SteamFreshInstallRequest request,LocalMap[] existing,
+            IProgress<SteamInstallProgress>? progress,CancellationToken token)
+        {
+            customDownloads++;
+            Check(request.MapName==customName&&request.CustomMapLevel==customLevel &&
+                  !existing.Any(m=>m.Name==customName),
+                "native fresh installer forwards the custom level without converting original map data");
+            await Task.Delay(40,token);
+            string bin=Path.Combine(request.InstallRoot,"ShooterGame","Binaries","Win64");
+            Directory.CreateDirectory(bin);
+            string server=Path.Combine(bin,"ArkAscendedServer.exe");
+            File.WriteAllText(server,"SYNTHETIC CUSTOM ASA EXE - NEVER EXECUTE");
+            string manifests=Path.Combine(request.InstallRoot,"steamapps");
+            Directory.CreateDirectory(manifests);
+            File.WriteAllText(Path.Combine(manifests,"appmanifest_2430930.acf"),
+                "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
+            progress?.Report(new("complete","SYNTHETIC custom Steam success",100));
+            return new(request.MapId,request.InstallRoot,server,"123456",
+                DateTimeOffset.UtcNow,request.SteamCmdExecutable,customLevel);
+        }
+        using var customBridge=new DesktopSteamFreshInstallBridge(customCluster,
+            SyntheticCustomRunner,()=>customRoot,
+            availableFreeBytes:_=>100L*1024*1024*1024);
+        var missing=await Call(customBridge.HandleAsync,"steam.freshPreflight",
+            new{mapName=customName,installRoot=customRoot,steamExe,
+                allowSteamCmdDownload=false,explicitRetry=false});
+        Check(IsError(missing,"UM-FRESH-MAP-LEVEL-INVALID")&&
+              !Directory.Exists(customRoot),
+            "custom level cannot be guessed from the map display name");
+        var overrideAttempt=await Call(customBridge.HandleAsync,"steam.freshPreflight",
+            new{mapName="Valguero",customLevel="Injected_WP",
+                installRoot=customRoot,steamExe,allowSteamCmdDownload=false});
+        Check(IsError(overrideAttempt,"UM-FRESH-MAP-LEVEL-INVALID")&&
+              !Directory.Exists(customRoot),
+            "official ASA map level cannot be overridden in fresh installer");
+        var injected=await Call(customBridge.HandleAsync,"steam.freshPreflight",
+            new{mapName=customName,customLevel="Atlantis_WP?listen -NoBattlEye",
+                installRoot=customRoot,steamExe,allowSteamCmdDownload=false});
+        Check(IsError(injected,"UM-FRESH-MAP-LEVEL-INVALID")&&
+              !Directory.Exists(customRoot)&&customDownloads==0,
+            "custom Steam preflight refuses injected command line without disk writes");
+        var customPlan=await Call(customBridge.HandleAsync,"steam.freshPreflight",
+            new{mapName=customName,customLevel,installRoot=customRoot,
+                steamExe,allowSteamCmdDownload=false,explicitRetry=false});
+        IsOk(customPlan,"new custom level permits exact local ASA download preview");
+        Check(customPlan.GetProperty("data").GetProperty("mapLevel").GetString()
+                ==customLevel && customDownloads==0&&!Directory.Exists(customRoot),
+            "custom level preview is read-only and never starts SteamCMD");
+        var customLaunch=await Call(customBridge.HandleAsync,"steam.freshStart",
+            new{token=customPlan.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true});
+        IsOk(customLaunch,"approved custom level schedules native SteamCMD");
+        string customJob=customLaunch.GetProperty("data").GetProperty("jobId").GetString()!;
+        JsonElement customState=default;
+        for(int attempt=0;attempt<60;attempt++)
+        {
+            customState=await Call(customBridge.HandleAsync,"steam.freshStatus",
+                new{jobId=customJob});
+            if(customState.GetProperty("data").GetProperty("verified").GetBoolean())break;
+            await Task.Delay(35);
+        }
+        Check(customState.GetProperty("data").GetProperty("verified").GetBoolean() &&
+              customDownloads==1,"custom Steam binaries verified exactly once");
+        var customRegistered=await Call(customBridge.HandleAsync,"steam.freshRegister",
+            new{jobId=customJob,confirm=true});
+        IsOk(customRegistered,"custom map registration after verified fresh Steam files");
+        var customMap=customCluster.Config.LocalMaps.Single(m=>m.Name==customName);
+        Check(customMap.Arguments==""&&!customMap.AutoStart&&
+              !customMap.StartWithAsaApi&&customMap.GamePort==0&&
+              customMap.FreshInstallMapLevel==customLevel&&
+              !Directory.Exists(Path.Combine(customRoot,"ShooterGame","Saved")),
+            "custom map download pins level in Manager metadata but leaves launch, mods and Store unconfigured");
+        using var customSetup=new DesktopInitialMapSetupBridge(customCluster);
+        var customStatus=await Call(customSetup.HandleAsync,"servers.initialStatus",
+            new{mapId=customMap.Id});
+        IsOk(customStatus,"downloaded custom level is eligible for manual native first setup");
+        Check(!customStatus.GetProperty("data").GetProperty("requiresCustomLevel")
+                 .GetBoolean() &&
+              customStatus.GetProperty("data").GetProperty("level").GetString()
+                ==customLevel,
+            "initial setup reuses exact operator-approved custom level without duplicate input");
+        var mismatchedLevel=await Call(customSetup.HandleAsync,
+            "servers.initialPreview",new{mapId=customMap.Id,
+                sessionName="Synthetic Custom Server",gamePort=7951,queryPort=27951,
+                customLevel="OtherCustom_WP"});
+        Check(IsError(mismatchedLevel,"UM-INITIAL-INSTALLED-LEVEL-MISMATCH")&&
+              customMap.Arguments==""&&customMap.GamePort==0,
+            "a different Unreal map level cannot silently replace original installed level");
+        var planned=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=customMap.Id,sessionName="Synthetic Custom Server",
+                gamePort=7951,queryPort=27951,customLevel=""});
+        IsOk(planned,"pinned custom map obtains strict native initial launch preview");
+        Check(planned.GetProperty("data").GetProperty("mapLevel").GetString()
+                ==customLevel,
+            "initial launch preview keeps the source-pinned Unreal level");
+        var committed=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token=planned.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true});
+        IsOk(committed,"approved custom first setup writes only local launch profile");
+        var configuredCustom=customCluster.Config.LocalMaps.Single(m=>m.Id==customMap.Id);
+        Check(configuredCustom.Arguments.StartsWith(customLevel+"?listen",
+                  StringComparison.Ordinal) &&
+              configuredCustom.FreshInstallMapLevel==customLevel &&
+              configuredCustom.GamePort==7951 && configuredCustom.QueryPort==27951,
+            "custom ASA level and selected ports persist without starting the server");
+    }
+
     // Verify that launch settings are a separate explicit stage after ASA
     // files exist. This never starts an ASA process or enables RCON.
     var valguero=cluster.Config.LocalMaps.Single(m=>m.Name=="Valguero");
