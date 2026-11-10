@@ -1,11 +1,12 @@
 import {useEffect,useState} from "react";
 import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-react";
-import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue,type StoppedSteamDiagnostics} from "./bridge";
+import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue,type StoppedSteamDiagnostics,type SteamPublishedBuild} from "./bridge";
 
 export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapId?:string}) {
   const [selected,setSelected]=useState("");
   const [preview,setPreview]=useState<StoppedSteamPreview|null>(null);
   const [diagnostics,setDiagnostics]=useState<StoppedSteamDiagnostics|null>(null);
+  const [published,setPublished]=useState<SteamPublishedBuild|null>(null);
   const [job,setJob]=useState<StoppedSteamStatus|null>(null);
   const [jobId,setJobId]=useState<string|null>(null);
   const [journal,setJournal]=useState<DurableSteamQueue|null>(null);
@@ -18,7 +19,8 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     ?(maps.some(m=>m.id===fixedMapId)?fixedMapId:"")
     :(maps.some(m=>m.id===selected)?selected:(maps[0]?.id??""));
 
-  useEffect(()=>{setPreview(null);setDiagnostics(null);setApproved(false);},[mapId]);
+  useEffect(()=>{setPreview(null);setDiagnostics(null);setPublished(null);
+    setApproved(false);},[mapId]);
   useEffect(()=>{
     let active=true;
     managerBridge.steamStoppedCurrent()
@@ -39,7 +41,16 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
   useEffect(()=>{
     if(!jobId)return;
     let active=true;
-    const check=async()=>{
+    const checkPublished=async()=>{
+    if(!mapId||busy||jobId||journal?.needsOperatorReview)return;
+    setBusy(true);setPublished(null);setError("");
+    try{setPublished(await managerBridge.steamPublishedBuild(mapId));}
+    catch(e){setError("A Steam nyilvános ASA buildjét nem sikerült hitelesen lekérdezni ("+
+      (e instanceof Error?e.message:"UM-STEAM-PUBLISHED-UNAVAILABLE")+
+      "). Ettől még nem indul frissítés.");}
+    finally{setBusy(false);}
+  };
+  const check=async()=>{
       try{
         const status=await managerBridge.steamStoppedStatus(jobId);
         if(!active)return;
@@ -108,8 +119,22 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
           </select>
         </label>}
       <button type="button" className="secondary" disabled={!mapId||busy||!!jobId||Boolean(journal?.needsOperatorReview)}
+        onClick={()=>{void checkPublished();}}><RefreshCw size={16}/> Elérhető ASA verzió ellenőrzése</button>
+      <button type="button" className="secondary" disabled={!mapId||busy||!!jobId||Boolean(journal?.needsOperatorReview)}
         onClick={()=>{void check();}}><RefreshCw size={16}/> Frissítés előellenőrzése</button>
     </div>
+    {published&&<div className="historical-preview" role="region"
+      aria-label="ASA Steam build összehasonlítása">
+      <b>{published.mapName} – {published.updateAvailable?
+        "Új Steam build elérhető":published.state==="Current"?
+          "A telepített build naprakész":"A publikált build nem ellenőrizhető"}</b>
+      <p>Telepített ASA build: {published.installedBuild??"ismeretlen"}.
+        Nyilvános Steam build: {published.availableBuild??"ismeretlen"}.</p>
+      <p>{published.explanation}</p>
+      <p className="muted small">Ez kizárólag a Steam 2430930 publikus buildadatait
+        vizsgálja; nem állít le szervert, nem indít letöltést vagy újraindítást.
+        Frissítés csak külön előellenőrzés és jóváhagyás után történhet.</p>
+    </div>}
     {journal?.exists&&<div role="status" className={journal.needsOperatorReview?"warning-inline":"uk-rcon-receipt"}>
       <Shield size={18}/>
       <span>Helyi SteamCMD-napló: {journal.phase}
