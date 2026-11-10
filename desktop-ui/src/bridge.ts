@@ -1026,6 +1026,19 @@ export type OriginalKovaBatchReceipt = {
   requiresOriginalRconAttach:true;
   evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED";
 };
+export type OriginalKovaClusterPreview = {
+  token:string;clusterId:string;fiveOriginalMaps:5;alreadyAssigned:number;
+  missingAssignments:number;registryRevision:number;sourceIdentityPreserved:true;
+  originalStoreFilesWritten:false;asaProcessTouched:false;
+  writerSessionLockTouched:false;requiresExactApproval:true;
+  evidence:"ORIGINAL_FIVE_MAP_METADATA_BOOTSTRAP_PREVIEW_ONLY";
+};
+export type OriginalKovaClusterReceipt = {
+  clusterId:string;revision:number;addedCount:number;
+  removedCount:number;movedCount:number;originalFilesWritten:false;
+  transferFilesWritten:false;storeWriterTouched:false;serverStarted:false;
+  evidence:"ORIGINAL_FIVE_MAP_MANAGER_REGISTRY_METADATA_ONLY";
+};
 export type OriginalKovaImportPreview = {
   token:string;mapId:string;mapName:string;folderName:string;
   gamePort:number;queryPort:number;
@@ -1354,7 +1367,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
-  "historical.originalBatchPreview" | "historical.originalBatchRegister" |
+  "historical.originalBatchPreview" | "historical.originalBatchRegister" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
    "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
@@ -1861,6 +1874,12 @@ export const managerBridge = {
     request<OriginalKovaBatchPreview>("historical.originalBatchPreview"),
   historicalOriginalBatchRegister: (token:string) =>
     request<OriginalKovaBatchReceipt>("historical.originalBatchRegister",{token,confirm:true}),
+  historicalOriginalClusterPreview: () =>
+    request<OriginalKovaClusterPreview>("historical.originalClusterPreview"),
+  historicalOriginalClusterApply: (token:string,typedApproval:string) =>
+    request<OriginalKovaClusterReceipt>("historical.originalClusterApply",{
+      token,confirm:true,typedApproval
+    }),
   historicalOriginalPreview: (mapId:string,gamePort:number,queryPort:number) =>
     request<OriginalKovaImportPreview>("historical.originalPreview",{mapId,gamePort,queryPort}),
   historicalOriginalRegister: (token:string) =>

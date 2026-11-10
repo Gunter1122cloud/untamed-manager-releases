@@ -205,6 +205,12 @@ test.beforeEach(async ({ page }) => {
     const freshStoreToken="00000000-0000-4000-8000-000000009891";
     let clusterApproval="";
     let clusterPending:{clusterId:string;mapIds:string[];preview:any}|null=null;
+    let sourceKovaClusterToken="";
+    let sourceKovaClusterAssigned=false;
+    let sourceKovaClusterApplies=0;
+    (window as typeof window & {
+      __UNTAMED_KOVA_REGISTRY_APPLIES__?:()=>number
+    }).__UNTAMED_KOVA_REGISTRY_APPLIES__=()=>sourceKovaClusterApplies;
     const peerRows=()=>Array.isArray(state.remotes)?state.remotes:(state.remote?[state.remote]:[]);
     const allFixtureMaps=()=>[
       ...state.local.maps.map(map=>({map,hostId:state.local.hostId,hostName:state.local.hostName,local:true})),
@@ -1043,6 +1049,34 @@ test.beforeEach(async ({ page }) => {
             folderName:"OriginalIsland",gamePort:7777,queryPort:27015,
             enabledMods:22,passiveMods:3,registered:false}]
         };
+        case "historical.originalClusterPreview": {
+          sourceKovaClusterToken="00000000-0000-4000-8000-000000009555";
+          return {
+            token:sourceKovaClusterToken,clusterId:"KovaCluster",
+            fiveOriginalMaps:5,alreadyAssigned:sourceKovaClusterAssigned?5:0,
+            missingAssignments:sourceKovaClusterAssigned?0:5,
+            registryRevision:clusterRevision,sourceIdentityPreserved:true,
+            originalStoreFilesWritten:false,asaProcessTouched:false,
+            writerSessionLockTouched:false,requiresExactApproval:true,
+            evidence:"ORIGINAL_FIVE_MAP_METADATA_BOOTSTRAP_PREVIEW_ONLY"
+          };
+        }
+        case "historical.originalClusterApply": {
+          if(!sourceKovaClusterToken||m.token!==sourceKovaClusterToken||
+             m.confirm!==true||m.typedApproval!=="EREDETI KOVA REGISZTER")
+            throw new Error("UM-ORIGINAL-CLUSTER-APPROVAL-REQUIRED");
+          sourceKovaClusterToken="";sourceKovaClusterApplies++;
+          const missing=sourceKovaClusterAssigned?0:5;
+          sourceKovaClusterAssigned=true;
+          if(missing)clusterRevision++;
+          return {
+            clusterId:"kovacluster",revision:clusterRevision,
+            addedCount:missing,removedCount:0,movedCount:0,
+            originalFilesWritten:false,transferFilesWritten:false,
+            storeWriterTouched:false,serverStarted:false,
+            evidence:"ORIGINAL_FIVE_MAP_MANAGER_REGISTRY_METADATA_ONLY"
+          };
+        }
         case "historical.originalBatchPreview": return {
           token:"00000000-0000-4000-8000-000000009003",
           localMaps:1,mapNames:["The Island"],
@@ -3785,6 +3819,34 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   await expect(section).toContainText("The Island felvéve az eredeti GUID-dal");
   await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"}))
     .toHaveValue("");
+});
+
+test("original Kova Cluster registry adoption requires exact typed approval and never writes Store data",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Kova Cluster-regiszter átvétele"});
+  await panel.getByRole("button",{name:"Eredeti Cluster-regiszter előellenőrzése"}).click();
+  const confirmation=panel.getByRole("region",{name:"Eredeti Cluster-regiszter jóváhagyása"});
+  await expect(confirmation).toContainText("KovaCluster");
+  await expect(confirmation).toContainText("Hozzáadandó");
+  const approval=confirmation.getByRole("button",{name:"Eredeti map-tagság rögzítése"});
+  await expect(approval).toBeDisabled();
+  await confirmation.getByRole("textbox",{name:"Eredeti Cluster-regiszter jóváhagyó szöveg"})
+    .fill("EREDETI KOVA");
+  await expect(approval).toBeDisabled();
+  await confirmation.getByRole("textbox",{name:"Eredeti Cluster-regiszter jóváhagyó szöveg"})
+    .fill("EREDETI KOVA REGISZTER");
+  await expect(approval).toBeEnabled();
+  await approval.click();
+  await expect(panel).toContainText("5 eredeti map-tagság átvezetve");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_KOVA_REGISTRY_APPLIES__?:()=>number
+  }).__UNTAMED_KOVA_REGISTRY_APPLIES__?.())).toBe(1);
+  await expect(confirmation).toHaveCount(0);
+  await panel.getByRole("button",{name:"Eredeti Cluster-regiszter előellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"Eredeti Cluster-regiszter jóváhagyása"}))
+    .toContainText("0");
 });
 
 test("original Kova batch import requires one consent and registers all missing local maps atomically",async({page})=>{

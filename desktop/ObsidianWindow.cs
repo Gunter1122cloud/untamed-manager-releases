@@ -530,7 +530,9 @@ public sealed class ObsidianWindow : Form
                             "historical.preview" or "historical.register" or
                             "historical.originalList" or "historical.originalPreview" or
                             "historical.originalRegister" or "historical.originalBatchPreview" or
-                            "historical.originalBatchRegister" or "historical.pairedEvidence" or "historical.launchEvidence" or
+                            "historical.originalBatchRegister" or
+                            "historical.originalClusterPreview" or "historical.originalClusterApply" or
+                            "historical.pairedEvidence" or "historical.launchEvidence" or
                             "historical.liveGuard";
                     }
                 }

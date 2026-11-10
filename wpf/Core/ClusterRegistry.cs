@@ -269,6 +269,110 @@ public sealed class ClusterRegistryService
         });
     }
 
+    /// <summary>
+    /// One-time reconstruction of the LOCAL original Store-v1 membership in
+    /// Obsidian's metadata registry. This is NOT the old shared Store writer:
+    /// original file bytes, writer/session/lock and launch settings are NEVER
+    /// mutated. The caller must read/pin the original four files with stable
+    /// local handles and pass ONLY the source-derived five members and UNC.
+    /// </summary>
+    internal ClusterMembershipReceipt ImportHistoricalOriginalLocalMembership(
+        string sourceClusterId,string originalTransferDirectory,
+        string originalFourFilesSha256,
+        IReadOnlyList<(Guid MapId,string MapKey)> originalFive,
+        long expectedRevision)
+    {
+        string id=ClusterRegistrySchema.NormalizeClusterId(sourceClusterId);
+        if(originalFourFilesSha256 is not {Length:64} ||
+           !originalFourFilesSha256.All(Uri.IsHexDigit) ||
+           originalFive==null||originalFive.Count!=5||
+           originalFive.Any(m=>m.MapId==Guid.Empty||
+               string.IsNullOrWhiteSpace(m.MapKey))||
+           originalFive.Select(m=>m.MapId).Distinct().Count()!=5||
+           originalFive.Select(m=>m.MapKey).Distinct(
+               StringComparer.OrdinalIgnoreCase).Count()!=5)
+            throw new InvalidDataException("UM-ORIGINAL-CLUSTER-FIVE-SOURCE-INVALID");
+        var proposed=ClusterRegistrySchema.NormalizeCluster(id,
+            "Original Kova Store-v1",originalTransferDirectory,null,
+            DateTimeOffset.UtcNow);
+        if(!proposed.TransferDirectory.StartsWith(@"\\",
+            StringComparison.Ordinal))
+            throw new InvalidDataException("UM-ORIGINAL-CLUSTER-UNC-REQUIRED");
+        var originalIds=originalFive.Select(m=>m.MapId).ToHashSet();
+
+        static void RequireSourcePins(ManagerConfig config,
+            IReadOnlyList<(Guid MapId,string MapKey)> members,string sha)
+        {
+            foreach(var item in members)
+            {
+                var local=config.LocalMaps.SingleOrDefault(m=>m.Id==item.MapId);
+                if(local==null||!local.HistoricalStoreProtected||
+                   !string.Equals(local.HistoricalArchiveSha256,sha,
+                       StringComparison.OrdinalIgnoreCase)||
+                   !string.Equals(local.HistoricalMapKey,item.MapKey,
+                       StringComparison.Ordinal))
+                    throw new UnauthorizedAccessException(
+                        "UM-ORIGINAL-CLUSTER-MAP-SOURCE-DIFFERS");
+            }
+        }
+
+        var snapshot=Snapshot();
+        if(snapshot.Revision!=expectedRevision)
+            throw new InvalidOperationException("UM-ORIGINAL-CLUSTER-REGISTRY-CHANGED");
+        RequireSourcePins(owner.Config,originalFive,originalFourFilesSha256);
+        var already=snapshot.ClusterRegistry.Clusters.SingleOrDefault(c=>
+            StringComparer.OrdinalIgnoreCase.Equals(c.ClusterId,id));
+        if(already!=null && !string.Equals(
+            already.TransferDirectory,proposed.TransferDirectory,
+                StringComparison.Ordinal))
+            throw new UnauthorizedAccessException(
+                "UM-ORIGINAL-CLUSTER-TRANSFER-MISMATCH");
+        if(snapshot.ClusterRegistry.MapAssignments.Any(a=>
+            originalIds.Contains(a.MapId)&&
+            !StringComparer.OrdinalIgnoreCase.Equals(a.ClusterId,id)))
+            throw new UnauthorizedAccessException(
+                "UM-ORIGINAL-CLUSTER-FOREIGN-ASSIGNMENT");
+        int needed=originalIds.Count(mid=>!snapshot.ClusterRegistry.MapAssignments
+            .Any(a=>a.MapId==mid&&
+                StringComparer.OrdinalIgnoreCase.Equals(a.ClusterId,id)));
+        if(already!=null&&needed==0)
+            return new ClusterMembershipReceipt{
+                ClusterId=id,Revision=expectedRevision,
+                AddedCount=0,RemovedCount=0,MovedCount=0
+            };
+        return owner.UpdateClusterRegistry(expectedRevision,config=>
+        {
+            RequireSourcePins(config,originalFive,originalFourFilesSha256);
+            var registered=config.ClusterRegistry.Clusters.SingleOrDefault(c=>
+                StringComparer.OrdinalIgnoreCase.Equals(c.ClusterId,id));
+            if(registered==null)
+            {
+                ClusterRegistrySchema.ValidateClusterPaths(
+                    config.ClusterRegistry.Clusters,proposed);
+                config.ClusterRegistry.Clusters.Add(proposed);
+            }
+            else if(!string.Equals(registered.TransferDirectory,
+                proposed.TransferDirectory,StringComparison.Ordinal))
+                throw new UnauthorizedAccessException(
+                    "UM-ORIGINAL-CLUSTER-TRANSFER-MISMATCH");
+            if(config.ClusterRegistry.MapAssignments.Any(a=>
+                originalIds.Contains(a.MapId)&&
+                !StringComparer.OrdinalIgnoreCase.Equals(a.ClusterId,id)))
+                throw new UnauthorizedAccessException(
+                    "UM-ORIGINAL-CLUSTER-FOREIGN-ASSIGNMENT");
+            foreach(var member in originalFive)
+                if(!config.ClusterRegistry.MapAssignments.Any(a=>
+                    a.MapId==member.MapId))
+                    config.ClusterRegistry.MapAssignments.Add(new ClusterMapAssignment{
+                        MapId=member.MapId,ClusterId=id
+                    });
+            return new ClusterMembershipReceipt{
+                ClusterId=id,Revision=checked(expectedRevision+1),
+                AddedCount=needed,RemovedCount=0,MovedCount=0
+            };
+        });
+    }
+
     public RegisteredCluster UpdateCluster(string clusterId, string name,
         string transferDirectory, string? backupDirectory = null)
     {
