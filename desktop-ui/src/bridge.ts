@@ -174,6 +174,20 @@ export type RunningAsaImportReceipt = {
   evidence:"EXISTING_MANAGER_CONFIG_PROFILE_ONLY_LIVE_ASA_NOT_ADOPTED";
 };
 
+export type RunningAsaAdoptPreview = {
+  token:string;mapId:string;mapName:string;mapKey:string;pid:number;
+  gamePort:number;queryPort:number;noProcessMutation:true;
+  storeWriterAuthorized:false;requiresExternalControllerStopped:true;
+  requiresRconSetup:true;
+  evidence:"EXACT_NONSTORE_RUNNING_ADOPTION_PREVIEW_NO_WRITE";
+};
+export type RunningAsaAdoptReceipt = {
+  mapId:string;mapName:string;pid:number;lifecycleAuthorized:true;
+  storeWriterAuthorized:false;rconRequiresSeparateConfiguration:true;
+  processStarted:false;processStopped:false;
+  evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE";
+};
+
 export type LocalHost = {
   hostName: string;
   hostId: string;
@@ -1907,6 +1921,11 @@ export const managerBridge = {
     request<RunningAsaImportPreview>("servers.runningPreview", {pid,startedUtc,name,gamePort,queryPort}),
   runningAsaRegister: (token:string) =>
     request<RunningAsaImportReceipt>("servers.runningRegister", {token,confirm:true}),
+  runningAsaAdoptPreview: (mapId:string) =>
+    request<RunningAsaAdoptPreview>("servers.runningAdoptPreview",{mapId}),
+  runningAsaAdoptApply: (token:string,externalControllerStopped:boolean) =>
+    request<RunningAsaAdoptReceipt>("servers.runningAdoptApply",
+      {token,confirm:true,externalControllerStopped}),
   inspectLocalAsa: (name: string, root: string) =>
     request<LocalImportPreview>("servers.inspectLocal", { name, root }),
   importLocalAsa: (importToken: string) =>
