@@ -125,7 +125,6 @@ public static class LocalRunningAsaDiscovery
             (p.Name.Equals("ArkAscendedServer.exe",StringComparison.OrdinalIgnoreCase)||
              p.Name.Equals("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase)))
             .ToArray();
-        if(samples.Length>64)throw new InvalidDataException("Too many ASA process observations");
         var result=new List<Observation>();
         foreach(var p in samples)
         {
@@ -188,8 +187,6 @@ public static class LocalRunningAsaDiscovery
             samples.Add(new Sample(pid,Convert.ToInt32(item["ParentProcessId"]),
                 started,name,Convert.ToString(item["ExecutablePath"]),
                 Convert.ToString(item["CommandLine"])));
-            if(samples.Count>64)
-                throw new InvalidDataException("Too many ASA process observations");
         }
         return Classify(samples,maps);
     }
