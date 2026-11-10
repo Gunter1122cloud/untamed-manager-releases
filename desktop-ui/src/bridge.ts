@@ -1748,7 +1748,7 @@ export const managerBridge = {
   freshBrowse: () => request<{selected:boolean;installRoot?:string}>("steam.freshBrowse"),
   freshPreflight: (args: {
     mapName:string; installRoot:string; steamExe:string;
-    allowSteamCmdDownload:boolean; explicitRetry:boolean;
+    allowSteamCmdDownload:boolean; explicitRetry:boolean; customLevel?:string;
   }) => request<FreshInstallPreflight>("steam.freshPreflight", args),
   freshStart: (token:string) =>
     request<{jobId:string;started:true;evidence:"EXPLICIT_FRESH_INSTALL_STARTED"}>("steam.freshStart", {token, confirm:true}),
