@@ -217,7 +217,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
 
   const previewLiveFive=async()=>{
     if(directBusy||registering||!directList||
-       directList.maps.some(m=>m.registered))return;
+       directList.maps.length!==5)return;
     const epoch=++directEpoch.current;
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setBatchPreview(null);setBatchApproved(false);setLiveBatchPreview(null);
@@ -243,7 +243,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       const receipt=await managerBridge.historicalOriginalLiveBatchApply(
         token,true,"STORE-V1 FUTÓ ÁTVÉTEL");
       if(epoch!==directEpoch.current)return;
-      setDirectNotice(receipt.importedMaps+" futó, eredeti Store-v1 map bekerült "+
+      setDirectNotice(receipt.addedMaps+" hiányzó Kova-map hozzáadva, "+
+        receipt.reconnectedMaps+" már ismert futó szerver újracsatlakoztatva "+
         "az Obsidian helyi regiszterébe a régi GUID-dal és folyamat-PID-vel. "+
         "Nem indult, nem állt le ASA, és semmilyen Store-writer, session "+
         "vagy karakterfájl nem módosult. A meglévő RCON csatlakoztatása külön "+
@@ -379,8 +380,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <Archive size={16}/> Összes hiányzó helyi map átvétele egy lépésben
             </button>
           </div>}
-        {directList&&directList.maps.length===5&&
-          directList.maps.every(m=>!m.registered)&&<div className="settings-actions">
+        {directList&&directList.maps.length===5&&<div className="settings-actions">
             <button type="button" className="secondary" disabled={directBusy||registering}
               onClick={()=>{void previewLiveFive();}}>
               <Shield size={16}/> Öt már futó eredeti Store-v1 map teljes natív felismerése
@@ -393,6 +393,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <p className="muted small">
             {liveBatchPreview.directProcesses} közvetlen ASA,
             {liveBatchPreview.apiLoaderPairs} ellenőrzött ASA API Loader-pár.
+            {" "}{liveBatchPreview.alreadyRegistered} már regisztrált map újracsatlakoztatása,
+            {" "}{liveBatchPreview.newlyDiscovered} még hiányzó map felvétele.
             A natív Windows azonosító, folyamatindítási idő, teljes eredeti
             argumentumok, Kova ACTIVE/DONE session és mindkét peer forrása egyezik.
             Az átvétel nem hoz létre új ASA-folyamatot, nem végez Store-írást.

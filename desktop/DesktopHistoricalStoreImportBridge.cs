@@ -41,7 +41,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
     private OriginalBatchPrepared? pendingOriginalBatch;
     private sealed record OriginalLiveBatchPrepared(Guid Token,string FourFilesHash,
         string LaunchHash,string ProcessHash,string SharedStateHash,
-        Guid[] MapIds,DateTimeOffset ExpiresUtc);
+        string RegistryHash,Guid[] MapIds,DateTimeOffset ExpiresUtc);
     private OriginalLiveBatchPrepared? pendingOriginalLiveBatch;
     private sealed record OriginalClusterPrepared(Guid Token,string FourFilesSha256,
         string SourceClusterId,string SourcePath,Guid[] OriginalMapIds,
@@ -181,10 +181,12 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 {
                     pendingOriginalLiveBatch=null;
                     var (original,observed,shared)=VerifyLiveOriginalFive();
+                    var preview=cluster.PreviewOriginalStoreLiveFive(observed.Maps);
+                    var registryHash=OriginalLiveRegistryHash(original);
                     var token=Guid.NewGuid();
                     pendingOriginalLiveBatch=new(token,original.FourFilesSha256,
                         original.LaunchProfileSha256,observed.ProcessSha256,shared,
-                        observed.Maps.Select(m=>m.Id).ToArray(),
+                        registryHash,observed.Maps.Select(m=>m.Id).ToArray(),
                         DateTimeOffset.UtcNow.AddMinutes(3));
                     return Ok(id,new {
                         token,localMaps=observed.Maps.Length,
@@ -192,6 +194,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         runningProcesses=observed.Maps.Length,
                         directProcesses=observed.DirectProcesses,
                         apiLoaderPairs=observed.ApiLoaderPairs,
+                        alreadyRegistered=preview.Reattached,
+                        newlyDiscovered=preview.Added,
                         sourceIdentityPreserved=true,
                         existingAsaProcessesUnaffected=true,
                         originalSessionLockWritten=false,
@@ -220,16 +224,30 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                        original.LaunchProfileSha256!=approved.LaunchHash||
                        observed.ProcessSha256!=approved.ProcessHash||
                        shared!=approved.SharedStateHash||
+                       OriginalLiveRegistryHash(original)!=approved.RegistryHash||
                        !observed.Maps.Select(m=>m.Id).SequenceEqual(approved.MapIds))
                         return Fail(id,"UM-ORIGINAL-LIVE-SOURCE-OR-PROCESS-CHANGED");
-                    // Only the Manager's own local registry is written here.
-                    // Existing ASA processes, Kova 2-peer session, Store-writer,
-                    // character, tribe and shared transfer files are unchanged.
-                    // Each subsequent RCON/Stop/Restart performs its own live
-                    // original source and exact PID/port preflight.
-                    cluster.AddMapsAtomically(observed.Maps);
+                    // Lock all five installations in deterministic order.
+                    // Under those locks the Core calls back for a SECOND
+                    // complete original source + real Windows PID/parent
+                    // inspection. Only the Manager registry is updated in
+                    // a single ConfigStore CAS. All original Kova/ASA and
+                    // two-host transfer bytes remain untouched.
+                    var outcome=cluster.ReconcileOriginalStoreLiveFive(
+                        observed.Maps,()=>{
+                            var (again,now,peer)=VerifyLiveOriginalFive();
+                            return again.FourFilesSha256==approved.FourFilesHash&&
+                                again.LaunchProfileSha256==approved.LaunchHash&&
+                                now.ProcessSha256==approved.ProcessHash&&
+                                peer==approved.SharedStateHash&&
+                                OriginalLiveRegistryHash(again)==approved.RegistryHash&&
+                                now.Maps.Select(m=>m.Id).SequenceEqual(approved.MapIds);
+                        });
                     return Ok(id,new {
                         importedMaps=observed.Maps.Length,
+                        addedMaps=outcome.Added,
+                        reconnectedMaps=outcome.Reattached,
+                        unchangedMaps=outcome.Unchanged,
                         mapIds=observed.Maps.Select(m=>m.Id).ToArray(),
                         apiLoaderPairs=observed.ApiLoaderPairs,
                         managerProfileOnly=true,
@@ -819,23 +837,39 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         _=>LocalMapNameRules.Normalize(key)
     };
 
+    private string OriginalLiveRegistryHash(
+        LegacyStoreV1OriginalLocalSelection original)
+    {
+        // No raw configuration or DPAPI credential is exposed to WebView.
+        // Any other Manager/editor changing one of these profiles between
+        // the preview, apply and installation leases invalidates consent.
+        var rows=original.Maps.Select(row=>{
+            var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==row.MapId);
+            return new{row.MapId,Profile=map==null?"<not-registered>":
+                JsonSerializer.Serialize(map)};
+        }).ToArray();
+        return Convert.ToHexString(SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(
+                JsonSerializer.Serialize(rows))));
+    }
+
     private (LegacyStoreV1OriginalLocalSelection Original,
         OriginalStoreLiveBatchEvidence.Result Observed,string SharedState)
         VerifyLiveOriginalFive()
     {
         var original=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
-        // This is an ATOMIC exact-five import. Previously registered maps
-        // must use the existing historical paths; never register twice.
-        if(original.Maps.Any(m=>cluster.Config.LocalMaps.Any(x=>
-            x.Id==m.MapId)))
-            throw new InvalidDataException("UM-ORIGINAL-LIVE-PROFILE-ALREADY-REGISTERED");
+        // Original five-map identity is mandatory, but a partly registered
+        // Obsidian must be able to recover the OTHER maps without deleting
+        // previously imported Kova profiles. Core validates any existing
+        // owner against original GUID, root, map, exact mod order and ports.
         var observed=OriginalStoreLiveBatchEvidence.Classify(original,
             LocalRunningAsaDiscovery.ReadSamples());
         string? sharedSha=null;
         foreach(var map in observed.Maps)
         {
-            CheckDuplicate(map.Id,map.Name,
-                Path.GetFullPath(map.InstallationPath));
+            if(!cluster.Config.LocalMaps.Any(m=>m.Id==map.Id))
+                CheckDuplicate(map.Id,map.Name,
+                    Path.GetFullPath(map.InstallationPath));
             var proof=LegacyStoreV1LiveReadGate.InspectOriginalActive(
                 map,localLegacyDataDirectory);
             if(!proof.CompletedOriginalSourceGuard||
@@ -858,6 +892,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                (!map.StartWithAsaApi&&fresh.LoaderIdentity!=null))
                 throw new InvalidDataException("UM-ORIGINAL-LIVE-PHYSICAL-IDENTITY-CHANGED");
         }
+        // Enforce all five ownership invariants even in preview, not only
+        // after approval. A foreign/reused GUID or modified INI/RCON profile
+        // must remain a hard failure.
+        _=cluster.PreviewOriginalStoreLiveFive(observed.Maps);
         var reread=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
         if(reread.FourFilesSha256!=original.FourFilesSha256||
            reread.LaunchProfileSha256!=original.LaunchProfileSha256)
