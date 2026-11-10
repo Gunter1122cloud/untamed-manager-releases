@@ -308,3 +308,26 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 .row-wrap .quiet{font-size:11px;border:1px solid #3c5b59;border-radius:7px;
   padding:4px 7px;max-width:100%;white-space:normal;text-align:left}
 .row-wrap .quiet:focus-visible{outline:2px solid #7fe9c2;outline-offset:2px}
+
+
+/* WebView2 on Windows can otherwise render the native option popup with
+   light background and inherited pale text (unreadable TEMP journal names). */
+.uk-multihost-backup .uk-temp-recovery-select {
+  width:100%;
+  max-width:750px;
+  min-height:42px;
+  padding:8px 12px;
+  color-scheme:dark;
+  background-color:#132f35;
+  color:#f0fff7;
+  border:1px solid #6baa91;
+  border-radius:8px;
+}
+.uk-multihost-backup .uk-temp-recovery-select option {
+  background-color:#132f35;
+  color:#f0fff7;
+}
+.uk-multihost-backup .uk-temp-recovery-select option:checked {
+  background-color:#225944;
+  color:#fff;
+}
