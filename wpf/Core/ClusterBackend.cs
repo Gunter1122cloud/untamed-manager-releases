@@ -602,6 +602,7 @@ public sealed partial class ClusterService : IAsyncDisposable
     private readonly Func<LocalMap, ProcessCheck> _inspect;
     private readonly bool _customInspector;
     private readonly Func<LegacyStoreV1PeerProof?> _legacyStoreProof;
+    private readonly Func<LocalMap,string> _historicalSaveSourceProbe;
     private readonly Func<string,LegacyStoreV1PhysicalTransferWitness> _physicalStoreProbe;
     private readonly object _physicalWitnessGate=new();
     private LegacyStoreV1PhysicalTransferWitness? _physicalWitness;
@@ -638,10 +639,21 @@ public sealed partial class ClusterService : IAsyncDisposable
     public ClusterService(string profile = "default",string? rootOverride=null,
         Func<LocalMap, ProcessCheck>? inspect = null,
         Func<LegacyStoreV1PeerProof?>? legacyStoreProof=null,
-        Func<string,LegacyStoreV1PhysicalTransferWitness>? physicalStoreProbe=null)
+        Func<string,LegacyStoreV1PhysicalTransferWitness>? physicalStoreProbe=null,
+        Func<LocalMap,string>? historicalSaveSourceProbe=null)
     {
         Store=new ConfigStore(profile,rootOverride);
         Operations=new UntamedOperationCoordinator();
+        if(rootOverride==null && historicalSaveSourceProbe!=null)
+            throw new UnauthorizedAccessException(
+                "UM-STORE-SAVE-PAIR-PRODUCTION-SOURCE-PROBE-NOT-OVERRIDABLE");
+        // Production always reuses the original read-only two-peer ACTIVE/DONE
+        // source guard. Isolated test profiles must explicitly inject a
+        // synthetic epoch provider and can never probe current-user Kova.
+        _historicalSaveSourceProbe=historicalSaveSourceProbe??(rootOverride==null
+            ?LegacyStoreV1GracefulStop.OriginalSource
+            :_=>throw new UnauthorizedAccessException(
+                "UM-STORE-SAVE-PAIR-SYNTHETIC-SOURCE-NOT-PROVIDED"));
         _legacyStoreProof=legacyStoreProof??(rootOverride==null
             ?()=>LegacyStoreV1PeerProof.FromCurrentUserLegacyProfile()
             :()=>null);
@@ -712,7 +724,8 @@ public sealed partial class ClusterService : IAsyncDisposable
         // identity before/after, without mutating Kova or accessing SMB.
         var before=_legacyStoreProof();
         var witness=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            Store.Root,Config.LocalHostId,before,Config.LocalMaps);
+            Store.Root,Config.LocalHostId,before,Config.LocalMaps,
+            _historicalSaveSourceProbe);
         var after=_legacyStoreProof();
         if(after?.LocalMetadataValid!=true||before==null||
            after.SessionTag!=before.SessionTag||
