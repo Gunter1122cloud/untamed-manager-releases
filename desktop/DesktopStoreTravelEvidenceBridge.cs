@@ -74,6 +74,14 @@ public sealed class DesktopStoreTravelEvidenceBridge
         // We inspect world existence/size/stability WITHOUT hashing the huge
         // world (the manager must remain low I/O on live hardware).
         bool storeMode=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
+        // Never hash or enumerate loose player/tribe files while ASA is
+        // running, its loader remains alive or its stopped identity is
+        // uncertain. A snapshot taken during a world save can look stable
+        // in size and mtime while containing torn character bytes.
+        if(!quiescent)
+            return new(map.Id,map.Name,false,!missing,ambiguous,
+                0,0,false,true,Array.Empty<Proof>(),storeMode,
+                false,0,true);
         bool worldPresent=false,worldUnstable=false;
         long worldBytes=0;
         string world=layout.WorldFile;
@@ -97,9 +105,17 @@ public sealed class DesktopStoreTravelEvidenceBridge
                     throw new InvalidDataException("UM-TRAVEL-SNAPSHOT-TOO-LARGE");
                 total+=start.Length;
                 string sha="";
+                // Refuse capture if another Windows process already owns
+                // a writable handle. FileShare.Read also prevents new
+                // writes/renames during the SHA-256 pass. The old ReadWrite
+                // | Delete share admitted concurrent mutation and could
+                // return a torn yet apparently valid profile digest.
                 using(var stream=new FileStream(file,FileMode.Open,FileAccess.Read,
-                    FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.SequentialScan))
+                    FileShare.Read,65536,FileOptions.SequentialScan))
+                {
+                    if(stream.Length!=start.Length)unstable=true;
                     sha=Hex(SHA256.HashData(stream));
+                }
                 var end=new FileInfo(file);
                 if(start.Length!=end.Length||start.LastWriteTimeUtc!=end.LastWriteTimeUtc)
                     unstable=true;
