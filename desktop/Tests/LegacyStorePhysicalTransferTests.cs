@@ -408,6 +408,9 @@ internal static class LegacyStorePhysicalTransferTests
             independent.HistoricalArchiveSha256=Hash("independent historical four-file set");
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
                 "removing the synthetic original-source impersonation restores original roster parity without mutating Kova");
+            manager.RemoveMap(independentId);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "removed synthetic unrelated historical map leaves the original five source assignments intact");
             var beforeRevision=manager.Registry.Snapshot().Revision;
             using(var expansionBridge=new DesktopClusterRegistryBridge(
                 manager,original,(first,second)=>
