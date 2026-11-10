@@ -204,10 +204,10 @@ internal static class RunningAsaRegistrationTests
                 Check(!noApproval.GetProperty("ok").GetBoolean() &&
                     map.ObservedReadOnlyImported && map.Arguments=="",
                     "missing external Manager shutdown acknowledgement denies takeover");
-                var replay=await AdoptCall(takeover,
+                var deniedTokenReplay=await AdoptCall(takeover,
                     "servers.runningAdoptApply",
                     new{token=adoptToken,confirm=true,externalControllerStopped=true});
-                Check(!replay.GetProperty("ok").GetBoolean(),
+                Check(!deniedTokenReplay.GetProperty("ok").GetBoolean(),
                     "denied takeover approval token cannot be replayed");
                 adoptPreview=await AdoptCall(takeover,
                     "servers.runningAdoptPreview",new{mapId=map.Id});
