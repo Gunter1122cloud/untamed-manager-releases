@@ -745,6 +745,83 @@ try
             "map inspection reads only this map persisted schedule, never creates recurring jobs");
     }
 
+    // P0/P1 N-map scaling: 125 isolated local identities must all be visible.
+    // Paginated telemetry remains read-only; a changing registry invalidates
+    // a later page instead of returning a truncated or mixed roster.
+    {
+        var center=new DesktopOperationsCenterBridge(cluster);
+        var extras=Enumerable.Range(0,124).Select(i=>{
+            string home=Path.Combine(root,"ops-roster-page-fixture",i.ToString("D3"));
+            return new LocalMap{
+                Id=Guid.NewGuid(),Name="Paginated synthetic map "+i.ToString("D3"),
+                InstallationPath=home,
+                ExecutablePath=Path.Combine(home,"ShooterGame","Binaries",
+                    "Win64","ArkAscendedServer.exe")
+            };
+        }).ToArray();
+        byte[] beforeRoster=File.ReadAllBytes(cluster.Store.FilePath);
+        try
+        {
+            foreach(var extra in extras)cluster.Config.LocalMaps.Add(extra);
+            var first=await Call(center.HandleAsync,"operations.snapshot",
+                new{offset=0,limit=50});
+            IsOk(first,"native first bounded operations page of 125 maps");
+            var entry=first.GetProperty("data");
+            Check(entry.GetProperty("totalMaps").GetInt32()==125 &&
+                entry.GetProperty("maps").GetArrayLength()==50 &&
+                entry.GetProperty("nextOffset").GetInt32()==50 &&
+                entry.GetProperty("pageOffset").GetInt32()==0,
+                "no global fifty-map limit: first page has a durable next cursor");
+            string key=entry.GetProperty("snapshotKey").GetString()!;
+            Check(key.Length==64 && key.All(Uri.IsHexDigit),
+                "operations snapshot carries a stable, non-secret registry fingerprint");
+            var deniedNoKey=await Call(center.HandleAsync,"operations.snapshot",
+                new{offset=50,limit=50});
+            Check(IsError(deniedNoKey,"UM-OPS-SNAPSHOT-KEY-REQUIRED"),
+                "a later page cannot mix registry revisions without a token");
+            var second=await Call(center.HandleAsync,"operations.snapshot",
+                new{offset=50,limit=50,snapshotKey=key});
+            var third=await Call(center.HandleAsync,"operations.snapshot",
+                new{offset=100,limit=50,snapshotKey=key});
+            IsOk(second,"native second 50-map page");
+            IsOk(third,"native final 25-map page");
+            var all=new[]{entry,second.GetProperty("data"),third.GetProperty("data")}
+                .SelectMany(x=>x.GetProperty("maps").EnumerateArray()
+                    .Select(m=>m.GetProperty("mapId").GetString()!)).ToArray();
+            Check(all.Length==125&&all.Distinct().Count()==125&&
+                third.GetProperty("data").GetProperty("maps").GetArrayLength()==25&&
+                third.GetProperty("data").GetProperty("nextOffset").ValueKind==
+                    JsonValueKind.Null,
+                "all 125 unique host-local maps are returned without silent omission");
+            var late=await Call(center.HandleAsync,"operations.map",
+                new{mapId=extras[^1].Id});
+            IsOk(late,"map detail beyond index 50 remains directly addressable");
+            Check(late.GetProperty("data").GetProperty("maps")[0]
+                    .GetProperty("mapId").GetString()==extras[^1].Id.ToString("D"),
+                "native detail route has no fifty-map cap");
+            var invalidLimit=await Call(center.HandleAsync,"operations.snapshot",
+                new{offset=0,limit=101});
+            Check(IsError(invalidLimit,"UM-OPS-PAGE-LIMIT"),
+                "untrusted renderer cannot request an unbounded native response");
+            cluster.Config.LocalMaps.Add(new LocalMap{
+                Id=Guid.NewGuid(),Name="Post-page newly registered test map",
+                InstallationPath=Path.Combine(root,"ops-roster-page-fixture","new")
+            });
+            var stale=await Call(center.HandleAsync,"operations.snapshot",
+                new{offset=50,limit=50,snapshotKey=key});
+            Check(IsError(stale,"UM-OPS-SNAPSHOT-CHANGED"),
+                "registry mutation invalidates an old page token instead of silently truncating the UI");
+        }
+        finally
+        {
+            foreach(var extra in extras)cluster.Config.LocalMaps.Remove(extra);
+            cluster.Config.LocalMaps.RemoveAll(m=>
+                m.Name=="Post-page newly registered test map");
+        }
+        Check(beforeRoster.SequenceEqual(File.ReadAllBytes(cluster.Store.FilePath)),
+            "large local operations roster reads never write the Manager profile or ASA files");
+    }
+
     // Ticking the durable operational scheduler must produce REAL local,
     // read-only observations and persistent receipts, without touching any
     // ASA process, config during the tick, Store-v1, RCON or network peer.
