@@ -1357,6 +1357,30 @@ test.beforeEach(async ({ page }) => {
             processStarted:false,processStopped:false,
             evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE"};
         }
+        case "historical.originalLiveBatchPreview":
+          return {token:"00000000-0000-4000-8000-000000007151",localMaps:5,
+            mapNames:["The Island","Extinction","Valguero","Astraeos","Genesis Part 1"],
+            runningProcesses:5,directProcesses:4,apiLoaderPairs:1,
+            sourceIdentityPreserved:true,existingAsaProcessesUnaffected:true,
+            originalSessionLockWritten:false,storeWriterAuthorizedByImport:false,
+            requiresExternalControllerStopped:true,requiresTypedApproval:true,
+            evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT"};
+        case "historical.originalLiveBatchApply":
+          if(m.token!=="00000000-0000-4000-8000-000000007151"||
+             m.confirm!==true||m.externalControllerStopped!==true||
+             m.typedApproval!=="STORE-V1 FUTÓ ÁTVÉTEL")
+            throw new Error("UM-ORIGINAL-LIVE-EXPLICIT-APPROVAL-REQUIRED");
+          return {importedMaps:5,mapIds:[
+              "00000000-0000-4000-8000-000000007101",
+              "00000000-0000-4000-8000-000000007102",
+              "00000000-0000-4000-8000-000000007103",
+              "00000000-0000-4000-8000-000000007104",
+              "00000000-0000-4000-8000-000000007105"
+            ],apiLoaderPairs:1,managerProfileOnly:true,
+            originalStoreFilesWritten:false,serverStarted:false,
+            serverStopped:false,storeWriterAuthorizedByImport:false,
+            requiresOriginalRconAttach:true,
+            evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_MAPS_REGISTERED_NO_ASA_MUTATION"};
         case "servers.inspectLocal": return {importToken:"00000000-0000-4000-8000-000000009999",name:m.name||"The Island",folderName:"ASA-LAB",exeFound:true,apiLoaderDetected:false,portsConfigured:false,evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"};
         case "servers.importLocal":
           state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
@@ -3074,6 +3098,35 @@ test("P0 native non-Store live ASA takeover requires explicit approval and prese
   await expect(panel.getByLabel("Futó ASA vezérlés átvétele PID 4442")).toHaveCount(0);
 });
 
+test("P0 live original five-map Store takeover is explicit, single-use and preserves historical RCON gate",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const live=panel.getByRole("button",{
+    name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
+  });
+  await expect(live).toBeVisible();
+  await live.click();
+  const proof=panel.getByRole("region",{
+    name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
+  });
+  await expect(proof).toContainText("ACTIVE/DONE");
+  await expect(proof).toContainText("ASA API Loader");
+  const apply=proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"});
+  await expect(apply).toBeDisabled();
+  await proof.getByRole("checkbox").check();
+  await expect(apply).toBeDisabled();
+  await proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(proof).toHaveCount(0);
+  await expect(panel).toContainText("nem módosult");
+});
+
 test("P0-2 Servers switches between keyboard-accessible list and premium 2-host map gallery",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
@@ -3385,7 +3438,8 @@ test("local map card opens map-specific details, functional tabs, back navigatio
 
 test("RCON settings use the selected local map port and never retain another map password",async({page})=>{
   await page.goto("/");
-  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"RCON / Konzol"}).click();
   await expect(page.getByRole("spinbutton",{name:"RCON beállítás port"})).toHaveValue("37085");
   await expect(page.getByRole("textbox",{name:"RCON beállítás jelszó"})).toBeEnabled();
