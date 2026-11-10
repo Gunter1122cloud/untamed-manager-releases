@@ -931,9 +931,9 @@ try
             "ArkAscendedServer.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
         File.WriteAllBytes(executable,new byte[]{1,2,3,4,5});
-        string steamDir=Path.Combine(install,"steamapps");
-        Directory.CreateDirectory(steamDir);
-        string manifest=Path.Combine(steamDir,"appmanifest_2430930.acf");
+        string isolatedSteamApps=Path.Combine(install,"steamapps");
+        Directory.CreateDirectory(isolatedSteamApps);
+        string manifest=Path.Combine(isolatedSteamApps,"appmanifest_2430930.acf");
         static void FakeManifest(string path,string build)=>
             File.WriteAllText(path,
                 "\"AppState\"\n{\n  \"appid\" \"2430930\"\n  \"buildid\" \""+
