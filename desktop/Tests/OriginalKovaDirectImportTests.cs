@@ -120,6 +120,42 @@ internal static class OriginalKovaDirectImportTests
         using var bridge=new DesktopHistoricalStoreImportBridge(
             cluster,
             _=>new ProcessCheck(false,"isolated synthetic stopped",null,true),local);
+        // Production WebView2 HOST DISPATCH -> real native handler, using
+        // ONLY a private TEMP synthetic Kova profile. This is not a React
+        // mock and does not access any live Store, ASA writer or remote peer.
+        // Route selection is the exact helper called by ObsidianWindow's
+        // WebMessageReceived event, including its read-only fallback.
+        bool hitFallback=false;
+        async Task<string> ThroughActualHostDispatcher(string raw)
+        {
+            using var request=JsonDocument.Parse(raw);
+            var method=request.RootElement.GetProperty("method").GetString();
+            return await ObsidianWindow.DispatchHistoricalOrReadOnlyAsync(
+                method,raw,bridge.HandleAsync,body=>{
+                    hitFallback=true;
+                    return Task.FromResult(JsonSerializer.Serialize(new{
+                        id=request.RootElement.GetProperty("id").GetString(),
+                        ok=false,error="UM-METHOD-DENIED"}));
+                });
+        }
+        var liveRoute=await Call(ThroughActualHostDispatcher,
+            "historical.originalLiveBatchPreview");
+        Check(!liveRoute.GetProperty("ok").GetBoolean()&&
+              liveRoute.GetProperty("error").GetString()!="UM-METHOD-DENIED"&&
+              !hitFallback,
+            "real WebView2 host dispatcher routes originalLiveBatchPreview to native proof checks");
+        var applyRoute=await Call(ThroughActualHostDispatcher,
+            "historical.originalLiveBatchApply");
+        Check(!applyRoute.GetProperty("ok").GetBoolean()&&
+              applyRoute.GetProperty("error").GetString()!="UM-METHOD-DENIED"&&
+              !hitFallback&&cluster.Config.LocalMaps.Count==0,
+            "real WebView2 host dispatcher routes originalLiveBatchApply to native approval gate without writes");
+        var unknownRoute=await Call(ThroughActualHostDispatcher,
+            "historical.unsafeOperation");
+        Check(unknownRoute.GetProperty("error").GetString()=="UM-METHOD-DENIED"&&
+              hitFallback&&cluster.Config.LocalMaps.Count==0,
+            "unknown historical method still follows deny-by-default fallback");
+
         var list=await Call(bridge,"historical.originalList");
         Check(list.GetProperty("ok").GetBoolean()&&
               list.GetProperty("data").GetProperty("maps").GetArrayLength()==5,
