@@ -1538,6 +1538,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   coordinationArchive?: string; localMetadataArchive?: string;
   plugin?: string; enabled?: boolean; channel?: "stable"|"preview";
   assetName?:string;transactionId?:string;
+  expectedTag?:string;expectedSha256?:string;
   point?:string; action?:string; message?:string; typedApproval?:string; confirmation?:string;
   rconPort?:number; password?:string; createIni?:boolean;
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
@@ -1692,7 +1693,10 @@ export const managerBridge = {
     afterA:string;afterB:string;
     sourceMap:string;destinationMap:string;profileId:string;
   }) => request<TravelRoundTripComparison>("travel.compareRoundTrip",p),
-  updatePrepare: (channel:"stable"|"preview") => request<UpdatePrepared>("updates.prepare",{channel,confirm:true}),
+  updatePrepare: (channel:"stable"|"preview",expectedTag:string,expectedSha256:string) =>
+    request<UpdatePrepared>("updates.prepare",{
+      channel,expectedTag,expectedSha256,confirm:true
+    }),
   updateInstall: (token:string) => request<UpdateInstallReceipt>("updates.install",{token,confirm:true}),
   updateStatus: () => request<UpdateStatus>("updates.status"),
   asaLifecycleJournal: (mapId:string) =>
