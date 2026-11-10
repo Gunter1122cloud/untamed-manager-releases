@@ -4884,6 +4884,23 @@ try
               !malformed.Contains("not-json",StringComparison.Ordinal),
             "malformed native WebView payload cannot leak details or kill the UI");
     }
+    // WebView2 never loads a stale prior-release index.html from the
+    // persistent host profile; URL scoping cannot escape the trusted origin.
+    {
+        string oldUrl=ObsidianWindow.ReleaseScopedUiUrl(
+            "v2.0.0-obsidian-preview.2031");
+        string newUrl=ObsidianWindow.ReleaseScopedUiUrl(
+            "v2.0.0-obsidian-preview.2035");
+        string malformed=ObsidianWindow.ReleaseScopedUiUrl(
+            "https://attacker.example/x?evil=true");
+        Check(oldUrl!=newUrl&&
+              oldUrl.StartsWith("https://untamed-app.example/index.html?release=",
+                  StringComparison.Ordinal)&&
+              newUrl.StartsWith("https://untamed-app.example/index.html?release=",
+                  StringComparison.Ordinal)&&
+              malformed=="https://untamed-app.example/index.html?release=unversioned",
+            "packaged React startup always stays local and changes URL when native release changes");
+    }
     Check(!ObsidianWindow.RequiresGlobalBridgeGate("updates.prepare") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectCopy") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectArchive") &&
