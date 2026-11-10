@@ -775,7 +775,12 @@ public sealed partial class ClusterService : IAsyncDisposable
         bool imported=false;
         if(roster.Length==5&&source.OriginalMapRosterTag is {Length:64}&&
            source.OriginalMapRosterTag.All(Uri.IsHexDigit)&&
-           Config.ClusterRegistry?.MapAssignments!=null)
+           Config.ClusterRegistry?.MapAssignments!=null&&
+           Config.ClusterRegistry.Clusters.Count(c=>c!=null&&
+               string.Equals(c.ClusterId,VaultProtocol.ClusterId,
+                   StringComparison.OrdinalIgnoreCase)&&
+               LegacyStoreV1RosterIdentity.MatchesOriginalSharedTransfer(
+                   c.TransferDirectory,source.SharedPathTag))==1)
         {
             try
             {
