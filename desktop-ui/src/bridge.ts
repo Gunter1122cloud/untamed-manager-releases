@@ -1132,6 +1132,21 @@ export type OriginalKovaBatchReceipt = {
   requiresOriginalRconAttach:true;
   evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED";
 };
+export type OriginalKovaLiveBatchPreview = {
+  token:string;localMaps:number;mapNames:string[];runningProcesses:number;
+  directProcesses:number;apiLoaderPairs:number;
+  sourceIdentityPreserved:true;existingAsaProcessesUnaffected:true;
+  originalSessionLockWritten:false;storeWriterAuthorizedByImport:false;
+  requiresExternalControllerStopped:true;requiresTypedApproval:true;
+  evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT";
+};
+export type OriginalKovaLiveBatchReceipt = {
+  importedMaps:number;mapIds:string[];apiLoaderPairs:number;
+  managerProfileOnly:true;originalStoreFilesWritten:false;
+  serverStarted:false;serverStopped:false;
+  storeWriterAuthorizedByImport:false;requiresOriginalRconAttach:true;
+  evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_MAPS_REGISTERED_NO_ASA_MUTATION";
+};
 export type OriginalKovaClusterPreview = {
   token:string;clusterId:string;fiveOriginalMaps:5;alreadyAssigned:number;
   missingAssignments:number;registryRevision:number;sourceIdentityPreserved:true;
@@ -1475,7 +1490,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
-  "historical.originalBatchPreview" | "historical.originalBatchRegister" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
+  "historical.originalBatchPreview" | "historical.originalBatchRegister" |
+  "historical.originalLiveBatchPreview" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
    "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
@@ -2053,6 +2069,12 @@ export const managerBridge = {
     request<OriginalKovaBatchPreview>("historical.originalBatchPreview"),
   historicalOriginalBatchRegister: (token:string) =>
     request<OriginalKovaBatchReceipt>("historical.originalBatchRegister",{token,confirm:true}),
+  historicalOriginalLiveBatchPreview: () =>
+    request<OriginalKovaLiveBatchPreview>("historical.originalLiveBatchPreview"),
+  historicalOriginalLiveBatchApply: (token:string,externalControllerStopped:boolean,typedApproval:string) =>
+    request<OriginalKovaLiveBatchReceipt>("historical.originalLiveBatchApply",{
+      token,externalControllerStopped,typedApproval,confirm:true
+    }),
   historicalOriginalClusterPreview: () =>
     request<OriginalKovaClusterPreview>("historical.originalClusterPreview"),
   historicalOriginalClusterApply: (token:string,typedApproval:string) =>
