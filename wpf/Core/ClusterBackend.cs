@@ -722,21 +722,33 @@ public sealed partial class ClusterService : IAsyncDisposable
         // Explicit local operator action. Read ONLY Manager-owned receipt
         // journals; compare against the existing original Store local source
         // identity before/after, without mutating Kova or accessing SMB.
-        var before=_legacyStoreProof();
-        var witness=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            Store.Root,Config.LocalHostId,before,Config.LocalMaps,
-            _historicalSaveSourceProbe);
-        var after=_legacyStoreProof();
-        if(after?.LocalMetadataValid!=true||before==null||
-           after.SessionTag!=before.SessionTag||
-           after.SharedPathTag!=before.SharedPathTag||
-           after.DeviceTag!=before.DeviceTag||
-           after.OriginalFourFilesTag!=before.OriginalFourFilesTag)
-            throw new InvalidDataException(
-                "UM-STORE-SAVE-PAIR-ORIGINAL-CHANGED-DURING-PROBE");
-        lock(_historicalSaveWitnessGate)_historicalSaveWitness=witness;
-        lock(_telemetryGate)_telemetryCache=null;
-        return witness;
+        // Explicit failure must revoke a previously cached five-map witness.
+        // Otherwise an operator who re-probes after an original shared epoch
+        // change could still see a stale green historical receipt summary.
+        try
+        {
+            var before=_legacyStoreProof();
+            var witness=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
+                Store.Root,Config.LocalHostId,before,Config.LocalMaps,
+                _historicalSaveSourceProbe);
+            var after=_legacyStoreProof();
+            if(after?.LocalMetadataValid!=true||before==null||
+               after.SessionTag!=before.SessionTag||
+               after.SharedPathTag!=before.SharedPathTag||
+               after.DeviceTag!=before.DeviceTag||
+               after.OriginalFourFilesTag!=before.OriginalFourFilesTag)
+                throw new InvalidDataException(
+                    "UM-STORE-SAVE-PAIR-ORIGINAL-CHANGED-DURING-PROBE");
+            lock(_historicalSaveWitnessGate)_historicalSaveWitness=witness;
+            lock(_telemetryGate)_telemetryCache=null;
+            return witness;
+        }
+        catch
+        {
+            lock(_historicalSaveWitnessGate)_historicalSaveWitness=null;
+            lock(_telemetryGate)_telemetryCache=null;
+            throw;
+        }
     }
 
     public LegacyStoreV1PeerProof? ReadLegacyStoreV1PeerProof()
