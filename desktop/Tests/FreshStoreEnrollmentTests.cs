@@ -165,6 +165,37 @@ internal static class FreshStoreEnrollmentTests
                 "new-local-cluster",new[]{mapId});
             manager.Registry.ApplyMapAssignments(
                 "new-local-cluster",new[]{mapId},pending.BaseRevision);
+
+            // Original Kova ID is source-provided, not always literally
+            // "KovaCluster". No generic fresh Store enrollment may create
+            // a second writer in ANY cluster holding historical local data.
+            Guid sourceHistoricalId=Guid.Parse(
+                "11111111-2222-4333-8444-555555555556");
+            manager.AddMap(new LocalMap{
+                Id=sourceHistoricalId,Name="Imported Synthetic Historical Member"
+            });
+            var addOld=manager.Registry.PreviewMapAssignments(
+                "new-local-cluster",new[]{mapId,sourceHistoricalId});
+            Check(addOld.IsValid,"fixture can assign source member before historical protection");
+            manager.Registry.ApplyMapAssignments("new-local-cluster",
+                new[]{mapId,sourceHistoricalId},addOld.BaseRevision);
+            var imported=manager.Config.LocalMaps.Single(
+                m=>m.Id==sourceHistoricalId);
+            imported.HistoricalStoreProtected=true;
+            imported.HistoricalArchiveSha256=new string('A',64);
+            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(
+                    manager,map,"new-local-cluster"),
+                "generic new Store preflight rejects source-named historical cluster membership");
+            imported.HistoricalStoreProtected=false;
+            imported.HistoricalArchiveSha256="";
+            var removeOld=manager.Registry.PreviewMapAssignments(
+                "new-local-cluster",new[]{mapId});
+            Check(removeOld.IsValid,
+                "fixture can remove restored nonhistorical member");
+            manager.Registry.ApplyMapAssignments(
+                "new-local-cluster",new[]{mapId},removeOld.BaseRevision);
+            manager.RemoveMap(sourceHistoricalId);
+
             var missingRcon=JsonSerializer.Deserialize<LocalMap>(
                 JsonSerializer.Serialize(map))!;
             missingRcon.RconPasswordProtected="";
