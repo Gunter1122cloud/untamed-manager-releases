@@ -26,6 +26,10 @@ public sealed class LocalMap
     // this map. Preserved in Manager-only metadata so first setup need not
     // ask for the same custom Unreal level twice. Empty for older imports.
     public string FreshInstallMapLevel { get; set; } = "";
+    // A running non-Store ASA may be registered strictly for observation.
+    // These fields cannot confer process/RCON/Store-writer authority.
+    public string ObservedMapKey { get; set; } = "";
+    public bool ObservedReadOnlyImported { get; set; } = false;
     public List<string> DisabledModIds { get; set; } = new();
     public bool ModChangesPending { get; set; } = false;
     public string LogFilePath { get; set; } = "";
