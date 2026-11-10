@@ -6,6 +6,9 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
   maps:PublicMap[];sourceMapId:string;onApplied:()=>void
 }){
   const [targets,setTargets]=useState<string[]>([]);
+  const [query,setQuery]=useState("");
+  const [page,setPage]=useState(0);
+  const pageSize=25;
   const [mode,setMode]=useState<ModCopyMode>("merge");
   const [preview,setPreview]=useState<ModCopyPreview|null>(null);
   const [approved,setApproved]=useState(false);
@@ -14,10 +17,18 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
   const [notice,setNotice]=useState("");
   const eligible=useMemo(()=>maps.filter(m=>
     m.id!==sourceMapId && !m.storeProtected && !m.maintenance),[maps,sourceMapId]);
+  const filtered=useMemo(()=>eligible.filter(m=>{
+    const needle=query.trim().toLocaleLowerCase("hu-HU");
+    return !needle||m.name.toLocaleLowerCase("hu-HU").includes(needle)||
+      m.id.toLocaleLowerCase("hu-HU").includes(needle);
+  }),[eligible,query]);
+  const pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));
+  const safePage=Math.min(page,pageCount-1);
+  const visible=filtered.slice(safePage*pageSize,(safePage+1)*pageSize);
   const source=maps.find(m=>m.id===sourceMapId);
   const sourceAllowed=Boolean(source && !source.storeProtected && !source.maintenance);
   useEffect(()=>{
-    setTargets([]);setPreview(null);setApproved(false);
+    setTargets([]);setQuery("");setPage(0);setPreview(null);setApproved(false);
     setError("");setNotice("");
   },[sourceMapId]);
   const invalidate=()=>{
@@ -71,9 +82,27 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
       <span className="muted small">{targets.length} / {eligible.length} helyi célmap</span>
     </div>
     {eligible.length>25&&<p className="warning-inline">A natív előnézet legfeljebb 25 célmapot fogad egyszerre. A többi helyi map külön, jóváhagyott kötegben állítható be; ez nem globális host/map korlát.</p>}
+    <label>Helyi célmap keresése
+      <input aria-label="Modmásolás célmap keresése" type="search"
+        disabled={busy} value={query}
+        placeholder="Mapnév vagy azonosító"
+        onChange={e=>{setQuery(e.target.value);setPage(0);invalidate();}}/>
+    </label>
+    <div className="draft-actions">
+      <button type="button" className="secondary" disabled={busy||!sourceAllowed||visible.length===0}
+        onClick={()=>{
+          setTargets(old=>[...new Set([...old,...visible.map(m=>m.id)])].slice(0,25));
+          invalidate();
+        }}>Látható célmapok kijelölése (max. 25)</button>
+      <button type="button" className="quiet" disabled={busy||safePage===0}
+        onClick={()=>setPage(p=>Math.max(0,p-1))}>Előző célmap-oldal</button>
+      <button type="button" className="quiet" disabled={busy||safePage>=pageCount-1}
+        onClick={()=>setPage(p=>Math.min(pageCount-1,p+1))}>Következő célmap-oldal</button>
+      <span className="muted small">{safePage+1}. / {pageCount} oldal · {filtered.length} találat</span>
+    </div>
     <div className="premium-mod-copy-targets" role="group" aria-label="Célmapok kiválasztása">
-      {eligible.length===0?<p className="muted small">Nincs biztonságosan szerkeszthető további helyi map.</p>:
-        eligible.map(map=><label key={map.id} className="plugin-row">
+      {visible.length===0?<p className="muted small">Nincs a keresésnek megfelelő helyi célmap.</p>:
+        visible.map(map=><label key={map.id} className="plugin-row">
           <input type="checkbox" checked={targets.includes(map.id)} disabled={busy||(!targets.includes(map.id)&&targets.length>=25)}
             onChange={()=>toggle(map.id)}/>
           <span><strong>{map.name}</strong><small>{map.running?
