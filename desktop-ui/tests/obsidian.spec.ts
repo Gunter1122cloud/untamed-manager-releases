@@ -1888,6 +1888,15 @@ test.beforeEach(async ({ page }) => {
             noProcessAutoStop:true,remoteWrites:false,
             evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"};
         }
+        case "steam.publishedBuild": return {
+          mapId:m.mapId,mapName:"Astraeos",
+          installedBuild:"123456",availableBuild:"123457",
+          state:"UpdateAvailable",checkedUtc:"2026-11-10T09:00:00Z",
+          explanation:"Újabb Steam-frissítés elérhető",
+          updateAvailable:true,downloadStarted:false,serverStopped:false,
+          storeWriterTouched:false,remoteHostTouched:false,
+          evidence:"STEAM_PUBLIC_BRANCH_APPINFO_READ_ONLY_NO_UPDATE"
+        };
         case "steam.stoppedPreview": return {
           token:"00000000-0000-4000-8000-000000006666",mapId:m.mapId,
           mapName:"Astraeos",maps:["Astraeos"],installedBuild:"123456",
@@ -3599,6 +3608,22 @@ test("stopped SteamCMD update displays exact local process and reserve evidence"
   await expect(diagnostics).toContainText("Leállítás igazolva");
   await expect(diagnostics).toContainText("Szabad tárhely: 50 GiB");
   await expect(diagnostics).toContainText("SteamCMD: Telepítve");
+});
+
+test("per-map Steam build check compares installed/public IDs without starting update or stopping ASA",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  await page.getByRole("button",{name:"Elérhető ASA verzió ellenőrzése"}).click();
+  const release=page.getByRole("region",{name:"ASA Steam build összehasonlítása"});
+  await expect(release).toContainText("Astraeos");
+  await expect(release).toContainText("Új Steam build elérhető");
+  await expect(release).toContainText("Telepített ASA build: 123456");
+  await expect(release).toContainText("Nyilvános Steam build: 123457");
+  await expect(release).toContainText("nem állít le szervert");
+  await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"}))
+    .toHaveCount(0);
 });
 
 test("SteamCMD new ASA: choose map and Windows folder, one click starts download and registers verified files",async ({page})=>{
