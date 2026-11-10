@@ -9,6 +9,9 @@ on:
       - "desktop/**"
       - "desktop-ui/**"
       - "wpf/Core/**"
+      - "wpf/Updater/**"
+      - "wpf/Testing/**"
+      - "wpf/Assets/**"
       - "docs/release/**"
       - ".github/workflows/build-obsidian-desktop.yml"
   pull_request:
@@ -16,6 +19,9 @@ on:
       - "desktop/**"
       - "desktop-ui/**"
       - "wpf/Core/**"
+      - "wpf/Updater/**"
+      - "wpf/Testing/**"
+      - "wpf/Assets/**"
       - "docs/release/**"
       - ".github/workflows/build-obsidian-desktop.yml"
   workflow_dispatch:
