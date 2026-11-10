@@ -40,7 +40,8 @@ test.beforeEach(async ({ page }) => {
       .__UNTAMED_OBSERVED_MAP_FIXTURE__=()=>{
         Object.assign(state.local.maps[1],{
           observedReadOnlyImported:true,
-          status:"UM-LIVE-OBSERVATION-ONLY-STOP-UNVERIFIED",running:false
+          status:"UM-LIVE-OBSERVATION-ONLY-STOP-UNVERIFIED",running:false,
+          observedRuntimeState:"observedRunning"
         });
       };
     let freshId = "";
@@ -2990,11 +2991,15 @@ test("P0 observed-only map detail never exposes lifecycle, RCON, or disk writer 
   });
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
-  await page.locator(".premium-map-line.is-local").last().click();
+  const observationRow=page.locator(".premium-map-line.is-local").last();
+  await expect(observationRow).toContainText("Megfigyelt · fut");
+  await expect(observationRow).not.toContainText("Leállítva");
+  await observationRow.click();
   const detail=page.getByRole("region",{name:"Megfigyelési map adatlapja"});
   await expect(detail).toBeVisible();
   await expect(detail.getByRole("heading",{name:"Astraeos"})).toBeVisible();
   await expect(detail).toContainText("CSAK MEGFIGYELÉS");
+  await expect(detail).toContainText("WMI-jelzés: megfigyelt futó szerver");
   await expect(detail).toContainText("SaveWorld, RCON, INI, mod, plugin, SteamCMD");
   await expect(detail.getByRole("tab")).toHaveCount(0);
   await expect(detail.getByRole("button",{
