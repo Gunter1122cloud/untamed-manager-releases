@@ -238,10 +238,22 @@ internal static class LegacyStorePhysicalTransferTests
         string managerProfile=Path.Combine(root,"synthetic-manager-profile");
         var currentLocalSource=local with{PhysicalDirectoryTag="",
             PhysicalObservedUtc=null};
+        var currentPhysicalWitness=witness;
+        bool simulateOfflineUnc=false;
+        bool stillGreenWhileReprobing=false;
+        ClusterService? reprobingManager=null;
         await using(var manager=new ClusterService("physical-test",managerProfile,
             _=>new ProcessCheck(false,"Synthetic stopped only",null,true),
             legacyStoreProof:()=>currentLocalSource,
-            physicalStoreProbe:host=>witness with{HostId=Guid.Parse(host).ToString("N")}))
+            physicalStoreProbe:host=>{
+                stillGreenWhileReprobing=reprobingManager?.ReadLegacyStoreV1PeerProof()
+                    ?.PhysicalDirectoryTag==physicalTag;
+                if(simulateOfflineUnc)throw new IOException(
+                    "Synthetic SMB disconnected; no original UNC accessed");
+                return currentPhysicalWitness with{
+                    HostId=Guid.Parse(host).ToString("N")
+                };
+            }))
         {
             // Native end-to-end read-only preview for a future map that
             // must eventually join the EXISTING source-pinned Kova cluster.
@@ -305,6 +317,7 @@ internal static class LegacyStorePhysicalTransferTests
             var before=manager.ReadLegacyStoreV1PeerProof();
             Check(before?.PhysicalDirectoryTag=="",
                 "Manager never reads a Kova physical UNC file ID on startup or background polling");
+            reprobingManager=manager;
             var bridge=new DesktopLanSettingsBridge(manager);
             var probe=await Call(bridge,"lan.physicalStoreProbe");
             Check(probe.GetProperty("ok").GetBoolean()&&
@@ -314,6 +327,36 @@ internal static class LegacyStorePhysicalTransferTests
                 "native LAN bridge exposes explicit physical proof with no raw UNC or mutation authority");
             Check(manager.ReadLegacyStoreV1PeerProof()?.PhysicalDirectoryTag==physicalTag,
                 "explicit physical proof appears only in local RAM for encrypted LAN status");
+            Check(!stillGreenWhileReprobing,
+                "a fresh explicit physical probe revokes old directory-ID status BEFORE the probe reads SMB");
+            currentPhysicalWitness=currentPhysicalWitness with{
+                PhysicalDirectoryTag=Hash("different-unverified-transfer-id")};
+            var changedDirectory=await Call(bridge,"lan.physicalStoreProbe");
+            Check(changedDirectory.GetProperty("ok").GetBoolean()&&
+                  manager.ReadLegacyStoreV1PeerProof()?.PhysicalDirectoryTag==
+                      currentPhysicalWitness.PhysicalDirectoryTag,
+                "new physical directory identity replaces old Manager-only proof after an accepted reprobe");
+            currentPhysicalWitness=currentPhysicalWitness with{
+                OriginalFourFilesTag=Hash("changed-original-meta-not-accepted")};
+            var invalidOriginal=await Call(bridge,"lan.physicalStoreProbe");
+            Check(!invalidOriginal.GetProperty("ok").GetBoolean()&&
+                  manager.ReadLegacyStoreV1PeerProof()?.PhysicalDirectoryTag=="",
+                "failed original four-file match REVOKES prior matching physical identity");
+            currentPhysicalWitness=witness;
+            var recoveredProof=await Call(bridge,"lan.physicalStoreProbe");
+            Check(recoveredProof.GetProperty("ok").GetBoolean()&&
+                  manager.ReadLegacyStoreV1PeerProof()?.PhysicalDirectoryTag==physicalTag,
+                "fresh independent original source and physical ID proof can recover after a failed reprobe");
+            simulateOfflineUnc=true;
+            var disconnected=await Call(bridge,"lan.physicalStoreProbe");
+            Check(!disconnected.GetProperty("ok").GetBoolean()&&
+                  manager.ReadLegacyStoreV1PeerProof()?.PhysicalDirectoryTag=="",
+                "unreachable synthetic SMB source immediately revokes the earlier positive physical proof");
+            simulateOfflineUnc=false;
+            var onlineAgain=await Call(bridge,"lan.physicalStoreProbe");
+            Check(onlineAgain.GetProperty("ok").GetBoolean()&&
+                  manager.ReadLegacyStoreV1PeerProof()?.PhysicalDirectoryTag==physicalTag,
+                "verified operator retry alone restores a physical witness; no implicit background re-probe");
             currentLocalSource=currentLocalSource with{
                 OriginalFourFilesTag=Hash("synthetic-original-selection-changed")};
             Check(manager.ReadLegacyStoreV1PeerProof()?.PhysicalDirectoryTag=="",

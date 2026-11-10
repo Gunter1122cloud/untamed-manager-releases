@@ -696,6 +696,13 @@ public sealed partial class ClusterService : IAsyncDisposable
     {
         // Must be triggered by the local operator. Never changes the
         // original two-peer ACTIVE/DONE session or original shared lock.
+        // Re-probing REVOKES the previous short-lived positive observation
+        // immediately. A disconnected SMB share, altered directory file ID
+        // or failed source guard must never leave an earlier "same physical
+        // transfer directory" proof visible for the rest of its TTL.
+        // This is a read-only Manager-memory invalidation, not a Kova write.
+        lock(_physicalWitnessGate)_physicalWitness=null;
+        lock(_telemetryGate)_telemetryCache=null;
         var observed=_physicalStoreProbe(Config.LocalHostId);
         var source=_legacyStoreProof();
         bool sha(string? value)=>value is { Length:64 }&&value.All(Uri.IsHexDigit);
