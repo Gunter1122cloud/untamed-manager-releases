@@ -3,6 +3,8 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using Microsoft.Data.Sqlite;
 
 namespace UntamedDesktop;
@@ -20,6 +22,48 @@ public static class EmbeddedStoreReadOnlyInspector
     private const int MaxEntries=100_000;
     private const int EntrySize=16; // key[8], offset[int32], size[int32]
     private const string StoreKey="GameModeCustomBytes";
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeFileInfo
+    {
+        public uint Attributes,CreationLow,CreationHigh,AccessLow,AccessHigh,
+            WriteLow,WriteHigh,Volume,SizeHigh,SizeLow,Links,IndexHigh,IndexLow;
+    }
+    [DllImport("kernel32.dll",SetLastError=true)]
+    [return:MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileInformationByHandle(
+        SafeFileHandle handle,out NativeFileInfo info);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]
+    private static extern uint GetFinalPathNameByHandle(
+        SafeFileHandle handle,StringBuilder path,uint length,uint flags);
+
+    // Pin an original, single-link OFFLINE world throughout every SQLite
+    // BLOB-slice read. A concurrent writer/rename or NTFS hardlink alias
+    // must not produce an apparently stable index with a torn survivor.
+    private static FileStream PinOfflineCopy(string file)
+    {
+        FileStream held=new(file,FileMode.Open,FileAccess.Read,
+            FileShare.Read,4096,FileOptions.RandomAccess);
+        try
+        {
+            if(!OperatingSystem.IsWindows()||
+               !GetFileInformationByHandle(held.SafeFileHandle,out var info)||
+               info.Links!=1||
+               (info.Attributes&(uint)FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("UM-STORE-COPY-LINK-UNVERIFIED");
+            var final=new StringBuilder(32768);
+            uint count=GetFinalPathNameByHandle(held.SafeFileHandle,final,
+                (uint)final.Capacity,0);
+            string actual=final.ToString();
+            if(actual.StartsWith(@"\\?\",StringComparison.Ordinal))
+                actual=actual[4..];
+            if(count==0||count>=final.Capacity||
+               !string.Equals(actual,file,StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("UM-STORE-COPY-PATH-CHANGED");
+            return held;
+        }
+        catch {held.Dispose();throw;}
+    }
 
     public sealed record Report(string FileName,string State,int Format,
         long StoreBytes,int Sections,int ProfileCandidates,int TribeCandidates,
@@ -56,9 +100,13 @@ public static class EmbeddedStoreReadOnlyInspector
     public static Report InspectOfflineCopy(string path)
     {
         string file=FixedLocalCopy(path);
+        // Keep the read-only Windows handle until AFTER SQLite connection
+        // disposal and the final snapshot metadata check. In particular, a
+        // SQLite read transaction alone does not prohibit external writes.
+        using var pinnedWorld=PinOfflineCopy(file);
         var before=new FileInfo(file);
-        if(before.Length<128)
-            throw new InvalidDataException("UM-STORE-COPY-TOO-SMALL");
+        if(before.Length<128||before.Length!=pinnedWorld.Length)
+            throw new InvalidDataException("UM-STORE-COPY-TOO-SMALL-OR-CHANGED");
         using var db=new SqliteConnection(new SqliteConnectionStringBuilder {
             DataSource=file,Mode=SqliteOpenMode.ReadOnly,
             Cache=SqliteCacheMode.Private,Pooling=false
@@ -99,6 +147,7 @@ public static class EmbeddedStoreReadOnlyInspector
         {
             var after=new FileInfo(file);
             bool same=before.Length==after.Length&&
+                before.Length==pinnedWorld.Length&&
                 before.LastWriteTimeUtc==after.LastWriteTimeUtc;
             if(!same)throw new InvalidDataException("UM-STORE-COPY-CHANGED-DURING-READ");
             return new(Path.GetFileName(file),state,format,blobSize,sections,
