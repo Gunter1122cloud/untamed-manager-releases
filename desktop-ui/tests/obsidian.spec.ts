@@ -49,6 +49,9 @@ test.beforeEach(async ({ page }) => {
     let adoptedObserved=false;
     let originalLiveFiveFixture=false;
     let originalLiveMixedFixture=false;
+    let travelCaptureMissingFive=false;
+    (window as typeof window & {__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__?:()=>void})
+      .__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__=()=>{travelCaptureMissingFive=true;};
     (window as typeof window & {__UNTAMED_ORIGINAL_LIVE_FIVE__?:()=>void;
       __UNTAMED_ORIGINAL_LIVE_MIXED__?:()=>void})
       .__UNTAMED_ORIGINAL_LIVE_FIVE__=()=>{originalLiveFiveFixture=true;};
@@ -379,6 +382,8 @@ test.beforeEach(async ({ page }) => {
             "OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY"
         };
         case "travel.capture": {
+          if(travelCaptureMissingFive)
+            throw new Error("UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS");
           const names=["Astraeos","Genesis Part 1","Valguero","The Island","Extinction"];
           const list=names.map((name,i)=>({
             mapId:i===3?one:"00000000-0000-4000-8000-00000000001"+i,
@@ -506,6 +511,19 @@ test.beforeEach(async ({ page }) => {
           restoreTarget:"EXISTING VERIFIED TEMP SANDBOX WITH PROTECTIVE ROLLBACK",
           productionRestoreAllowed:false,liveConsistencyCertified:false,
           storeWriterCertified:false,evidence:"SYNTHETIC_TEMP_SANDBOX_ONLY"
+        };
+        case "cluster.multiHostRestoreRecoveryList": return {
+          truncated:false,
+          transactions:[
+            {targetDirectoryName:"Untamed-MultiHost-Restore-rollback-fixture",
+              transactionId:"00000000-0000-4000-8000-000000009671",
+              phase:"rolledBack",needsOperator:true,canRollback:false,
+              reason:"Already rolled back; journal retained for review"},
+            {targetDirectoryName:"Untamed-MultiHost-Restore-active-fixture",
+              transactionId:"00000000-0000-4000-8000-000000009672",
+              phase:"needsOperator",needsOperator:true,canRollback:true,
+              reason:"Isolated TEMP rollback available"}
+          ]
         };
         case "cluster.multiHostRestoreReplaceApply": return {
           jobId:"00000000-0000-4000-8000-000000009604",started:true,
@@ -2275,7 +2293,8 @@ test.beforeEach(async ({ page }) => {
               // Preserve the concrete synthetic installer error code, just as
               // the native C# reply does; other mocked denials remain generic.
               const error=e instanceof Error&&
-                e.message.startsWith("UM-FRESH-ROOT-OVERLAP|")
+                (e.message.startsWith("UM-FRESH-ROOT-OVERLAP|")||
+                  e.message==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS")
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
             }
@@ -2661,6 +2680,23 @@ test("Cluster page owns character travel evidence without unlocking Store",async
   await expect(page.getByRole("textbox",{name:"Helyi mentéslenyomat JSON"})).not.toBeEmpty();
   await expect(page.getByText(/nem oldja fel a védett mapok indítási zárolását/)).toBeVisible();
   await page.screenshot({path:"test-results/untamed-store-travel-workbench-1600.png",fullPage:false});
+});
+
+test("Store capture shows missing original five-map registration immediately beside its action",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    (window as typeof window & {__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__?:()=>void})
+      .__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__?.();
+  });
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const capture=page.getByRole("region",{name:"Helyi ötmapos mentéslenyomat"});
+  await capture.getByRole("button",{name:"Helyi 5 map ellenőrzése"}).click();
+  const warning=capture.getByRole("alert");
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText("nincs pontosan öt egyedi ASA-map");
+  await expect(warning).toContainText("futó szervereket ne állítsd le");
+  await expect(capture.locator(".uk-travel-map-results>div")).toHaveCount(0);
 });
 
 test("Store A-B-A six snapshots require both return hosts and never unlock production",async({page})=>{
@@ -3079,6 +3115,55 @@ test("P0 observed-only map detail never exposes lifecycle, RCON, or disk writer 
     name:/Indítás|Leállítás|Újraindítás|Modok kezelése|INI szerkesztése|RCON beállítása/
   })).toHaveCount(0);
   await expect(detail.getByRole("region",{name:"Futó helyi ASA-folyamatok"})).toBeVisible();
+});
+
+test("Server import actions render BEFORE the potentially long running-ASA process list",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const observation=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const historical=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await expect(historical).toBeVisible();
+  await expect(page.getByRole("button",{name:"Store-v1 import bezárása"})).toBeVisible();
+  expect(await historical.evaluate(node=>{
+    const observed=document.querySelector('[aria-label="Futó helyi ASA-folyamatok"]');
+    return !!observed&&Boolean(node.compareDocumentPosition(observed)&Node.DOCUMENT_POSITION_FOLLOWING);
+  })).toBeTruthy();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await expect(page.getByText("Helyi ASA-telepítés felvétele")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Import bezárása"})).toBeVisible();
+  const form=page.getByText("Helyi ASA-telepítés felvétele").first();
+  expect(await form.evaluate(node=>{
+    const observed=document.querySelector('[aria-label="Futó helyi ASA-folyamatok"]');
+    return !!observed&&Boolean(node.compareDocumentPosition(observed)&Node.DOCUMENT_POSITION_FOLLOWING);
+  })).toBeTruthy();
+  await expect(observation).toBeVisible();
+});
+
+test("TEMP restore native Windows select gives readable journal choices and rolledBack explanation",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await panel.getByRole("button",{
+    name:"TEMP restore tranzakciók keresése / rollback"
+  }).click();
+  const listing=panel.getByRole("region",{name:"TEMP restore tranzakciók"});
+  const choice=listing.getByRole("combobox",{name:"Helyreállítandó TEMP tranzakció"});
+  await expect(choice).toBeVisible();
+  await expect(choice.locator("option")).toHaveCount(3);
+  await expect(choice.locator("option").nth(1)).toContainText("már visszaállítva · napló");
+  await expect(choice.locator("option").nth(2)).toContainText("rollback ellenőrizhető");
+  const colors=await choice.evaluate((el)=>{
+    const select=getComputedStyle(el);
+    const option=getComputedStyle(el.querySelector("option")!);
+    return {scheme:select.colorScheme,background:option.backgroundColor,color:option.color};
+  });
+  expect(colors.scheme).toContain("dark");
+  expect(colors.background).not.toBe("rgba(0, 0, 0, 0)");
+  expect(colors.color).not.toBe(colors.background);
+  await choice.selectOption("Untamed-MultiHost-Restore-rollback-fixture");
+  await expect(listing.getByRole("button",{name:"Kiválasztott napló teljes ellenőrzése"})).toBeEnabled();
 });
 
 test("P0 running ASA import previews exact PID and explicitly registers read-only local profile",async({page})=>{

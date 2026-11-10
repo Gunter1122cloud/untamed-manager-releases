@@ -139,26 +139,37 @@ public static class LocalRunningAsaDiscovery
             bool validPath=p.ExecutablePath!=null&&
                 string.Equals(Path.GetFileName(p.ExecutablePath),p.Name,
                     StringComparison.OrdinalIgnoreCase);
-            string? key=validPath?LaunchMap(p.CommandLine,p.ExecutablePath):null;
-            var matches=key==null?Array.Empty<LocalMap>():maps.Where(m=>
-                string.Equals(ProfileMap(m),key,StringComparison.OrdinalIgnoreCase)&&
+            string? directKey=validPath?LaunchMap(p.CommandLine,p.ExecutablePath):null;
+            bool stable=p.StartedUtc!=null&&p.StartedUtc.Value.Year>=2020;
+            // ASA API can start an ASA child whose WMI command line omits
+            // the map token. Its single verified parent loader can supply a
+            // DISPLAY-ONLY hint; it must never prove identity or ownership.
+            var parents=!isLoader&&validPath&&stable? samples.Where(loader=>
+                loader.Pid==p.ParentPid&&loader.Pid!=p.Pid&&
+                loader.StartedUtc!=null&&loader.StartedUtc<=p.StartedUtc&&
+                loader.Name.Equals("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase)&&
+                !string.IsNullOrWhiteSpace(loader.ExecutablePath)&&
+                string.Equals(Path.GetDirectoryName(loader.ExecutablePath),
+                    Path.GetDirectoryName(p.ExecutablePath),
+                    StringComparison.OrdinalIgnoreCase)&&
+                LaunchMap(loader.CommandLine,loader.ExecutablePath)!=null).Take(2).ToArray():
+                Array.Empty<Sample>();
+            string? parentKey=parents.Length==1?
+                LaunchMap(parents[0].CommandLine,parents[0].ExecutablePath):null;
+            bool hasLoaderParent=parentKey!=null&&
+                (directKey==null||
+                 string.Equals(parentKey,directKey,StringComparison.OrdinalIgnoreCase));
+            string? key=directKey??(hasLoaderParent?parentKey:null);
+            // A loader-derived key is never enough for a profileCandidate,
+            // registration, process reattachment, or any lifecycle authority.
+            var matches=directKey==null?Array.Empty<LocalMap>():maps.Where(m=>
+                string.Equals(ProfileMap(m),directKey,StringComparison.OrdinalIgnoreCase)&&
                 (isLoader?PossibleLoaderProfile(m,p.ExecutablePath):
                     SamePath(m.ExecutablePath,p.ExecutablePath))).ToArray();
-            bool stable=p.StartedUtc!=null&&p.StartedUtc.Value.Year>=2020;
-            string matchState=!validPath||!stable||key==null?"unverified":
+            string matchState=!validPath||!stable||directKey==null?"unverified":
                 matches.Length>1?"ambiguous":
                 matches.Length==1?"profileCandidate":"unregistered";
             var selected=matchState=="profileCandidate"?matches[0]:null;
-            bool hasLoaderParent=!isLoader&&stable&&key!=null&&
-                samples.Any(loader=>loader.Pid==p.ParentPid&&
-                    loader.Pid!=p.Pid&&loader.StartedUtc!=null&&
-                    loader.StartedUtc<=p.StartedUtc&&
-                    loader.Name.Equals("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase)&&
-                    string.Equals(LaunchMap(loader.CommandLine,loader.ExecutablePath),
-                        key,StringComparison.OrdinalIgnoreCase)&&
-                    string.Equals(Path.GetDirectoryName(loader.ExecutablePath),
-                        Path.GetDirectoryName(p.ExecutablePath),
-                        StringComparison.OrdinalIgnoreCase));
             result.Add(new Observation(p.Pid,p.ParentPid,p.StartedUtc,kind,
                 key??"unknown",matchState,selected?.Id.ToString("D"),
                 selected?.Name,hasLoaderParent,false,false,

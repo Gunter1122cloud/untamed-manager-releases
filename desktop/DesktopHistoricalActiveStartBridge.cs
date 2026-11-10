@@ -124,7 +124,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-LOADER-MODE-SELECTION");
                     bool useApi=setting.GetBoolean();
                     var map=Owned(mapId);
-                    if(!Imported(map)||map!.StartWithAsaApi==useApi)
+                    if(!Imported(map)||
+                       (map!.StartWithAsaApi==useApi&&
+                        !map.HistoricalLaunchModeNeedsApproval))
                         return Fail(id,"UM-STORE-LOADER-MODE-UNCHANGED-OR-NOT-OWNED");
                     string loader=Path.Combine(Path.GetDirectoryName(
                         Path.GetFullPath(map.ExecutablePath))!,"AsaApiLoader.exe");
@@ -154,7 +156,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-LOADER-MODE-APPROVAL");
                     var requested=pendingMode;pendingMode=null;pending=null;
                     var map=Owned(requested.MapId);
-                    if(!Imported(map)||map!.StartWithAsaApi==requested.UseApi||
+                    if(!Imported(map)||
+                       (map!.StartWithAsaApi==requested.UseApi&&
+                        !map.HistoricalLaunchModeNeedsApproval)||
                        JsonSerializer.Serialize(map)!=requested.Profile)
                         return Fail(id,"UM-STORE-LOADER-MODE-PROFILE-CHANGED");
                     if(!modePreflight(map,requested.UseApi))
@@ -165,14 +169,17 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                        !modePreflight(map,requested.UseApi))
                         return Fail(id,"UM-STORE-LOADER-MODE-LEASE-CHANGED");
                     bool before=map.StartWithAsaApi;
+                    bool neededApproval=map.HistoricalLaunchModeNeedsApproval;
                     string priorPath=map.ApiLoaderPath;
                     operation.MarkMutationStarted();
                     map.StartWithAsaApi=requested.UseApi;
+                    map.HistoricalLaunchModeNeedsApproval=false;
                     if(requested.UseApi)map.ApiLoaderPath=requested.LoaderPath;
                     try{cluster.Save();}
                     catch
                     {
                         map.StartWithAsaApi=before;
+                        map.HistoricalLaunchModeNeedsApproval=neededApproval;
                         map.ApiLoaderPath=priorPath;
                         throw;
                     }
@@ -193,13 +200,29 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     if(map==null||!map.HistoricalStoreProtected)
                         return Fail(id,"UM-STORE-ACTIVE-LOCAL-ONLY");
                     var observed=cluster.ObserveLocalProcessesReadOnly(map);
+                    bool confirmedStopped=observed.ConfirmedStopped;
+                    if(!observed.Running&&!confirmedStopped&&
+                       observed.Identity==null&&observed.LoaderIdentity==null)
+                    {
+                        // Ordinary original Store observation is intentionally
+                        // conservative and may report "unknown" even when no
+                        // ASA process exists. Only the DEDICATED native
+                        // stopped-family check can enable mode selection.
+                        // Missing WMI/EXE metadata still denies permission.
+                        var stopped=LegacyStoreV1ProcessObserver.
+                            ObserveStoppedForNativeStart(map,cluster.Config.LocalMaps);
+                        confirmedStopped=stopped.ConfirmedStopped&&
+                            !stopped.Running&&stopped.Identity==null&&
+                            stopped.LoaderIdentity==null;
+                    }
                     return Ok(id,new{
                         mapId,mapName=map.Name,running=observed.Running,
-                        confirmedStopped=observed.ConfirmedStopped,
+                        confirmedStopped,
                         pid=observed.Identity?.Pid,
                         serverPid=observed.Identity?.Pid,
                         loaderPid=observed.LoaderIdentity?.Pid,
                         requestedMode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
+                        launchModeApprovalRequired=map.HistoricalLaunchModeNeedsApproval,
                         rconConfigured=map.RconPort>0&&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
                         originalStartAutomatic=false,
@@ -214,7 +237,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-ACTIVE-MAP");
                     var map=Owned(mapId);
                     if(!Imported(map))return Fail(id,"UM-STORE-ACTIVE-RCON-REQUIRED");
-                    var plan=await Task.Run(()=>prepare(map!));
+                    if(map!.HistoricalLaunchModeNeedsApproval)
+                        return Fail(id,"UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED");
+                    var plan=await Task.Run(()=>prepare(map));
                     if(plan==null||plan.Fingerprint.Length!=64||
                        plan.UseApi!=map!.StartWithAsaApi||
                        plan.Arguments.Length is <16 or >8192)

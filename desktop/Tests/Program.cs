@@ -88,6 +88,12 @@ var map=new LocalMap{
         "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
 };
 cluster.AddMap(map);
+// The travel capture endpoint must explain an incomplete Manager registry,
+// not silently collapse it into a generic evidence error.
+var incompleteFiveCapture=await Call(
+    new DesktopStoreTravelEvidenceBridge(cluster).HandleAsync,"travel.capture");
+Check(IsError(incompleteFiveCapture,"UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"),
+    "travel capture reports the exact five-local-map prerequisite without reading ASA files");
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();
 await RunningAsaRegistrationTests.Run(root);

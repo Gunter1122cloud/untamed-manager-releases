@@ -344,20 +344,25 @@ export function MultiHostBackupPanel(){
       </div>
     </div>}
     {recoveryListing&&<div className="historical-preview" role="region" aria-label="TEMP restore tranzakciók">
-      <h4>Helyreállítható TEMP tranzakciók</h4>
+      <h4>TEMP restore tranzakciók és korábbi visszaállítások</h4>
       {recoveryListing.transactions.length===0
         ?<p>Nincs helyreállítási napló a TEMP mappában.</p>
         :<>
           <label>Tranzakció kiválasztása
-            <select aria-label="Helyreállítandó TEMP tranzakció" value={recoveryCandidateName}
+            <select className="uk-temp-recovery-select" aria-label="Helyreállítandó TEMP tranzakció" value={recoveryCandidateName}
               disabled={busy} onChange={e=>{setRecoveryCandidateName(e.target.value);setRecoveryPreview(null);setApproved(false);}}>
               <option value="">Válassz egy tranzakciót</option>
               {recoveryListing.transactions.map(candidate=><option key={candidate.targetDirectoryName}
                 value={candidate.targetDirectoryName}>{candidate.targetDirectoryName} · {candidate.phase}
-                {candidate.canRollback?" · rollback ellenőrizhető":" · kézi felülvizsgálat"}</option>)}
+                {candidate.canRollback?" · rollback ellenőrizhető":
+                  candidate.phase==="rolledBack"?" · már visszaállítva · napló":
+                  " · kézi felülvizsgálat"}</option>)}
             </select>
           </label>
           <p className="muted small">A lista csak a TEMP naplóneveket olvassa. A teljes ellenőrzés a kiválasztott napló SHA-256 és sandbox-validációjával történik.</p>
+          {!recoveryListing.transactions.some(candidate=>candidate.canRollback)&&
+            <p role="status" className="muted small">A felsorolt tranzakciók között nincs azonnal visszagörgethető állapot.
+              A már visszaállított naplók csak korábbi műveleteket jelentenek; nem hiba, és nem állítanak vissza éles szervert.</p>}
           <div className="draft-actions"><button type="button" className="secondary"
             disabled={!recoveryCandidateName||busy} onClick={()=>{void previewRestoreRecovery();}}>
             Kiválasztott napló teljes ellenőrzése</button></div>

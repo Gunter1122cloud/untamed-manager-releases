@@ -112,6 +112,28 @@ public static class OriginalStoreLiveBatchEvidence
             var matching=matchingPaths.Where(m=>
                 LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
                     p.CommandLine,p.ExecutablePath,m)).ToArray();
+            if(server&&matching.Length==0)
+            {
+                // A verified original ASA API Loader may pass map/Store flags
+                // to the child without repeating them in the child's WMI
+                // command line. Reconstruct only an EXACT parent/child pair:
+                // same installation, full original Kova loader launch,
+                // original map GUID, PID ancestry and creation times.
+                // No unmatched map or unexpected child source flag is allowed.
+                matching=matchingPaths.Where(m=>
+                    snapshot.Any(parent=>
+                        parent!=null&&parent.Name=="AsaApiLoader.exe"&&
+                        parent.Pid>0&&parent.StartedUtc!=null&&
+                        Same(parent.ExecutablePath,Path.Combine(
+                            Path.GetDirectoryName(m.ExecutablePath)!,
+                            "AsaApiLoader.exe"))&&
+                        LegacyStoreV1ProcessObserver.MatchesOriginalApiLoaderChild(
+                            p.CommandLine,m.ExecutablePath,
+                            p.Pid,p.ParentPid,p.StartedUtc!.Value,
+                            parent.CommandLine,parent.ExecutablePath!,
+                            parent.Pid,parent.StartedUtc.Value,m)))
+                    .ToArray();
+            }
             if(matching.Length!=1)
                 throw new InvalidDataException("UM-ORIGINAL-LIVE-UNRECOGNIZED-STORE-PROCESS");
             relevant.Add((p,matching[0],!server));

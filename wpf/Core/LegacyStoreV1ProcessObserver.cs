@@ -87,6 +87,89 @@ public static class LegacyStoreV1ProcessObserver
     }
 
     /// <summary>
+    /// ASA API may launch an ASA CHILD with no map/cluster switches at all:
+    /// the exact ORIGINAL map, Store and port grammar remains on its parent.
+    /// The child can be attributed to that original map ONLY when Windows
+    /// proves an exact unique Loader PID/creation-time/parent relationship,
+    /// both executables live in that exact original installation, and the
+    /// parent's complete source command matches. This never infers Store
+    /// writer ownership, RCON access, or process lifecycle permission.
+    /// Nonempty child source switches (including another map, port, cluster
+    /// or conversion) are deliberately rejected.
+    /// </summary>
+    public static bool MatchesOriginalApiLoaderChild(
+        string? childCommand,string expectedServer,int childPid,int childParentPid,
+        DateTimeOffset childStarted,string? loaderCommand,string expectedLoader,
+        int loaderPid,DateTimeOffset loaderStarted,LocalMap map)
+    {
+        if(map==null||!map.HistoricalStoreProtected||
+           childPid<=0||loaderPid<=0||childPid==loaderPid||
+           childParentPid!=loaderPid||
+           childStarted.Year<2020||loaderStarted.Year<2020||
+           loaderStarted>childStarted||
+           string.IsNullOrWhiteSpace(expectedServer)||
+           string.IsNullOrWhiteSpace(expectedLoader))
+            return false;
+        try
+        {
+            string expected=Path.GetFullPath(map.ExecutablePath);
+            string loader=Path.Combine(Path.GetDirectoryName(expected)!,
+                "AsaApiLoader.exe");
+            if(!expected.Equals(Path.GetFullPath(expectedServer),
+                    StringComparison.OrdinalIgnoreCase)||
+               !loader.Equals(Path.GetFullPath(expectedLoader),
+                    StringComparison.OrdinalIgnoreCase)||
+               !MatchesOriginalActiveCommand(loaderCommand,loader,map))
+                return false;
+            string? childArgs=ExtractArguments(childCommand,expected);
+            if(childArgs==null)
+            {
+                // Real ASA API Loader may copy ITS own complete command line
+                // into Win32_Process.CommandLine for ArkAscendedServer.exe.
+                // Process.Name/ExecutablePath must still be the genuine ASA
+                // child; this fallback never trusts the argv[0] executable.
+                // Only the EXACT SAME, complete original Loader launch is
+                // accepted, after independently validating the real Loader
+                // PID/creation-time/parent relationship above.
+                string? aliasArgs=ExtractArguments(childCommand,loader);
+                string? parentArgs=ExtractArguments(loaderCommand,loader);
+                return aliasArgs!=null&&parentArgs!=null&&
+                    aliasArgs.Equals(parentArgs,StringComparison.OrdinalIgnoreCase)&&
+                    MatchesOriginalActiveCommand(childCommand,loader,map);
+            }
+            if(childArgs.IndexOfAny(new[]{'"','\r','\n','\0'})>=0)return false;
+            // For a true ASA argv[0], only harmless child-local flags are
+            // accepted; source-affecting overrides must never be added.
+            string[] tokens=childArgs.Split((char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries);
+            return tokens.All(token=>
+                token.Equals("-log",StringComparison.OrdinalIgnoreCase)||
+                token.Equals("-NoBattlEye",StringComparison.OrdinalIgnoreCase)||
+                token.Equals("-NoHangDetection",StringComparison.OrdinalIgnoreCase));
+        }
+        catch(Exception ex) when(ex is ArgumentException or InvalidDataException or
+            NotSupportedException or PathTooLongException)
+        {return false;}
+    }
+
+    private static bool MinimalOriginalApiChildArguments(
+        string? commandLine,string expectedServer)
+    {
+        try
+        {
+            var args=ExtractArguments(commandLine,expectedServer);
+            if(args==null||args.IndexOfAny(new[]{'"','\r','\n','\0'})>=0)return false;
+            return args.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries)
+                .All(token=>
+                    token.Equals("-log",StringComparison.OrdinalIgnoreCase)||
+                    token.Equals("-NoBattlEye",StringComparison.OrdinalIgnoreCase)||
+                    token.Equals("-NoHangDetection",StringComparison.OrdinalIgnoreCase));
+        }
+        catch(Exception ex) when(ex is ArgumentException or NotSupportedException
+            or PathTooLongException){return false;}
+    }
+
+    /// <summary>
     /// Multiple owned ASA maps may legitimately share ONE executable path.
     /// A process with an unequivocally DIFFERENT original MAP?listen token
     /// is not a candidate for this map and must not poison its evidence.
@@ -322,6 +405,8 @@ public static class LegacyStoreV1ProcessObserver
             string loader=Path.Combine(Path.GetDirectoryName(exe)!,"AsaApiLoader.exe");
             var serverProcesses=new List<ObservedProcess>();
             var loaderProcesses=new List<ObservedProcess>();
+            var unparameterizedApiChildren=new List<(ObservedProcess Process,string Command)>();
+            var loaderCommands=new Dictionary<int,string>();
             bool uncertain=false;
             using var searcher=new ManagementObjectSearcher(
                 "SELECT ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process");
@@ -349,7 +434,18 @@ public static class LegacyStoreV1ProcessObserver
                     if(api&&ProvenDistinctOwnedApiLoader(
                         command,exe,map,locallyRegisteredMaps))
                         continue;
-                    if(!MatchesOriginalActiveCommand(command,api?loader:exe,map))
+                    bool exact=MatchesOriginalActiveCommand(
+                        command,api?loader:exe,map);
+                    // A bare child command is not independently original:
+                    // defer its classification until its exact original
+                    // ASA API Loader parent has been verified separately.
+                    bool childOnly=!exact&&server&&map.StartWithAsaApi&&
+                        (MinimalOriginalApiChildArguments(command,exe)||
+                         // The WMI child has ArkAscendedServer.exe as its
+                         // actual executable, but inherited the Loader's
+                         // exact argv[0] and original Kova launch grammar.
+                         MatchesOriginalActiveCommand(command,loader,map));
+                    if(!exact&&!childOnly)
                     {uncertain=true;continue;}
                     int pid=Convert.ToInt32(entry["ProcessId"]);
                     int parentPid=Convert.ToInt32(entry["ParentProcessId"]);
@@ -362,11 +458,35 @@ public static class LegacyStoreV1ProcessObserver
                     {uncertain=true;continue;}
                     var observed=new ObservedProcess(pid,parentPid,started,path,
                         "HISTORICAL_STORE_V1_SOURCE_VERIFIED");
-                    if(api)loaderProcesses.Add(observed);
+                    if(api)
+                    {
+                        loaderProcesses.Add(observed);
+                        loaderCommands.Add(pid,command);
+                    }
+                    else if(childOnly)unparameterizedApiChildren.Add((observed,command));
                     else serverProcesses.Add(observed);
                 }
                 catch(Exception)
                 {uncertain=true;}
+            }
+            foreach(var candidate in unparameterizedApiChildren)
+            {
+                bool pairedNow=loaderProcesses.Count==1&&
+                    loaderCommands.TryGetValue(loaderProcesses[0].Pid,
+                        out var parentCommand)&&
+                    MatchesOriginalApiLoaderChild(candidate.Command,exe,
+                        candidate.Process.Pid,candidate.Process.ParentPid,
+                        candidate.Process.StartedUtc,parentCommand,loader,
+                        loaderProcesses[0].Pid,loaderProcesses[0].StartedUtc,map);
+                // A Loader is allowed to exit after ASA has spawned, but
+                // only the exact previously persisted and verified pair can
+                // preserve read-only observation. A new or recycled child
+                // with no running Loader must remain unverified.
+                bool pairedEarlier=loaderProcesses.Count==0&&
+                    PreviouslyVerifiedOriginalApiChild(candidate.Process,
+                        exe,loader,map.LastProcess,map.LastLoader);
+                if(!pairedNow&&!pairedEarlier)uncertain=true;
+                else serverProcesses.Add(candidate.Process);
             }
             if(uncertain||serverProcesses.Count>1||loaderProcesses.Count>1)
                 return new(false,

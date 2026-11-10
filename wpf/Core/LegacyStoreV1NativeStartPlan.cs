@@ -28,6 +28,12 @@ internal static class LegacyStoreV1NativeStartPlanner
         LocalMap map,Guid? approvedRestartId=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
+        // Stopped Kova imports cannot establish whether the previous process
+        // used AsaApiLoader. Fail BEFORE file, RCON, port or launch checks:
+        // neither executable can be spawned on an unconfirmed default.
+        if(map?.HistoricalStoreProtected==true&&
+           map.HistoricalLaunchModeNeedsApproval)
+            throw new InvalidDataException("UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED");
         if(map==null||!cluster.Config.LocalMaps.Contains(map)||
            map.Id==Guid.Empty||!map.HistoricalStoreProtected||
            map.Maintenance||
