@@ -27,6 +27,7 @@ import { HistoricalGracefulStopPanel } from "./HistoricalGracefulStopPanel";
 import { HistoricalStoreRestartPanel } from "./HistoricalStoreRestartPanel";
 import { HistoricalStoreSaveWorldPanel } from "./HistoricalStoreSaveWorldPanel";
 import { PremiumDashboard } from "./PremiumDashboard";
+import { LocalRunningAsaPanel } from "./LocalRunningAsaPanel";
 import { ClusterMapGallery } from "./ClusterMapGallery";
 import { MapCover } from "./MapArtwork";
 import { PremiumModBoard } from "./PremiumModBoard";
@@ -595,6 +596,7 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
         </button>
       </div>
     </div>
+    <LocalRunningAsaPanel/>
     {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap} onImport={()=>setImportMode("existing")}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
     {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}

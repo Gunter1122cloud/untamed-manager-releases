@@ -1273,6 +1273,24 @@ test.beforeEach(async ({ page }) => {
             rconEnabled:false,serverStarted:false,
             evidence:"ATOMIC_MANAGER_PROFILE_INITIAL_SETUP_ONLY"};
         }
+        case "servers.runningLocal": return {
+          observedUtc:"2026-11-10T17:00:00Z",readOnly:true,
+          ownershipVerified:false,lifecycleAuthorized:false,storeWriterAuthorized:false,
+          evidence:"LOCAL_WMI_SNAPSHOT_PROFILE_CANDIDATES_NOT_OWNER_PROOF",
+          processes:[
+            {pid:4441,parentPid:3000,startedUtc:"2026-11-10T16:00:00Z",
+              processKind:"apiLoader",mapKey:"TheIsland_WP",matchState:"profileCandidate",
+              profileMapId:one,profileMapName:"The Island",loaderParentObserved:false,
+              controllable:false,storeWriteAuthorized:false},
+            {pid:4442,parentPid:4441,startedUtc:"2026-11-10T16:00:09Z",
+              processKind:"asaServer",mapKey:"TheIsland_WP",matchState:"profileCandidate",
+              profileMapId:one,profileMapName:"The Island",loaderParentObserved:true,
+              controllable:false,storeWriteAuthorized:false},
+            {pid:4443,parentPid:3000,startedUtc:"2026-11-10T15:00:00Z",
+              processKind:"asaServer",mapKey:"Ragnarok_WP",matchState:"unregistered",
+              profileMapId:null,profileMapName:null,loaderParentObserved:false,
+              controllable:false,storeWriteAuthorized:false}
+          ]};
         case "servers.inspectLocal": return {importToken:"00000000-0000-4000-8000-000000009999",name:m.name||"The Island",folderName:"ASA-LAB",exeFound:true,apiLoaderDetected:false,portsConfigured:false,evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"};
         case "servers.importLocal":
           state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
@@ -2900,6 +2918,22 @@ test("P0-1 gallery keeps missing map installers accessible on a partly configure
   await page.getByRole("combobox",{name:"Gazdagép szűrő"}).selectOption("all");
   await catalog.getByRole("button",{name:"Valguero · új szerver telepítése"}).click();
   await expect(page.getByRole("combobox",{name:"Új ASA map"})).toHaveValue("Valguero");
+});
+
+test("P0 read-only native ASA discovery displays server/loader identities without adoption",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
+  await expect(panel).toContainText("ARK Ascended Server · PID 4442");
+  await expect(panel).toContainText("ASA API Loader · PID 4441");
+  await expect(panel).toContainText("Egyező helyi profiljelölt");
+  await expect(panel).toContainText("Nincs egyező helyi profil");
+  await expect(panel).toContainText("ASA API Loader szülőfolyamat észlelve");
+  await expect(panel).toContainText("Azonosítás ≠ lifecycle-jogosultság");
+  await expect(panel.getByRole("button",{name:"Új ellenőrzés"})).toBeEnabled();
+  await panel.getByRole("button",{name:"Új ellenőrzés"}).click();
+  await expect(panel).toContainText("ARK Ascended Server · PID 4442");
+  await expect(panel.getByRole("button",{name:/Átvétel|Leállítás|Mentés|Restart/})).toHaveCount(0);
 });
 
 test("P0-2 Servers switches between keyboard-accessible list and premium 2-host map gallery",async({page})=>{

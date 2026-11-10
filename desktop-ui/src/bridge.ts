@@ -132,6 +132,21 @@ export type PublicMap = {
   rconConfigured?: boolean;  // credentials set, not connection verification
 };
 
+export type RunningLocalAsaProcess = {
+  pid:number;parentPid:number;startedUtc:string|null;
+  processKind:"asaServer"|"apiLoader";mapKey:string;
+  matchState:"unverified"|"ambiguous"|"profileCandidate"|"unregistered";
+  profileMapId:string|null;profileMapName:string|null;
+  loaderParentObserved:boolean;
+  controllable:false;storeWriteAuthorized:false;
+};
+export type RunningLocalAsaSnapshot = {
+  observedUtc:string;processes:RunningLocalAsaProcess[];
+  readOnly:true;ownershipVerified:false;
+  lifecycleAuthorized:false;storeWriterAuthorized:false;
+  evidence:"LOCAL_WMI_SNAPSHOT_PROFILE_CANDIDATES_NOT_OWNER_PROOF";
+};
+
 export type LocalHost = {
   hostName: string;
   hostId: string;
@@ -1407,7 +1422,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
-  "servers.inspectLocal" | "servers.importLocal" |
+  "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
@@ -1858,6 +1873,7 @@ export const managerBridge = {
   iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
   iniClose: (token: string) => request<{closed:true}>("ini.close", { token }),
+  runningLocalAsa: () => request<RunningLocalAsaSnapshot>("servers.runningLocal"),
   inspectLocalAsa: (name: string, root: string) =>
     request<LocalImportPreview>("servers.inspectLocal", { name, root }),
   importLocalAsa: (importToken: string) =>
