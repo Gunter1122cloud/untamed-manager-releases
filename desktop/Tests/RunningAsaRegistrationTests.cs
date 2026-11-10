@@ -122,6 +122,28 @@ internal static class RunningAsaRegistrationTests
                     .Single() is {MatchState:"profileCandidate",
                         ObservedReadOnlyImported:true},
                 "fresh lifecycle remains denied while observation reattaches");
+            Check(!cluster.Check(map).ConfirmedStopped &&
+                !cluster.Check(map).Running && cluster.Check(map).Identity==null,
+                "unowned observed map cannot become confirmed stopped for disk writers");
+            using(var drafts=new DesktopModDraftBridge(cluster))
+            using(var deniedDraft=JsonDocument.Parse(await drafts.HandleAsync(
+                JsonSerializer.Serialize(new{id=Guid.NewGuid(),
+                    method="mods.draftStart",mapId=map.Id}))))
+                Check(!deniedDraft.RootElement.GetProperty("ok").GetBoolean(),
+                    "observed map cannot enter mod draft editor");
+            using(var ini=new DesktopIniBridge(cluster))
+            using(var deniedIni=JsonDocument.Parse(await ini.HandleAsync(
+                JsonSerializer.Serialize(new{id=Guid.NewGuid(),
+                    method="ini.open",mapId=map.Id,file="GameUserSettings.ini"}))))
+                Check(!deniedIni.RootElement.GetProperty("ok").GetBoolean() &&
+                    deniedIni.RootElement.GetProperty("error").GetString()==
+                    "UM-OBSERVED-OR-HISTORICAL-READONLY",
+                    "observed map is denied before on-disk INI access");
+            bool copyDenied=false;
+            try{LocalModCopyPlanner.Preview(cluster,map.Id,
+                new[]{map.Id},LocalModCopyMode.Merge);}
+            catch(UnauthorizedAccessException){copyDenied=true;}
+            Check(copyDenied,"observed map cannot be a mod copy source or target");
             Check(File.ReadAllBytes(world).SequenceEqual(original) &&
                 File.ReadAllBytes(exe).SequenceEqual(new byte[]{77,90,4,7}),
                 "existing world and executable remain untouched");
