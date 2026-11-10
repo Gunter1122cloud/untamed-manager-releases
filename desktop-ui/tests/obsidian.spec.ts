@@ -2831,9 +2831,17 @@ test("complete local host restore staging uses typed approval and displays nativ
     name:"Ellenőrzött helyi restore állomány létrehozása"
   });
   await expect(commit).toBeDisabled();
+  const hostPhrase=approve.getByRole("textbox",{name:"Host restore jóváhagyó szövege"});
+  await hostPhrase.scrollIntoViewIfNeeded();
+  await expect(hostPhrase).toBeVisible();
+  await expect(hostPhrase).toBeEditable();
+  const hostSize=await hostPhrase.boundingBox();
+  expect(hostSize).not.toBeNull();
+  expect(hostSize!.height).toBeGreaterThanOrEqual(42);
+  expect(hostSize!.width).toBeGreaterThan(200);
   await approve.getByRole("checkbox").check();
-  await approve.getByRole("textbox",{name:"Host restore jóváhagyó szövege"})
-    .fill("HOST RESTORE TEST");
+  await hostPhrase.fill("HOST RESTORE TEST");
+  await expect(commit).toBeEnabled();
   await commit.click();
   await expect(panel).toContainText("Helyi host restore állomány állapot: completed");
   await expect(panel).toContainText("LOCAL_HOST_STAGE_SHA256_VERIFIED");
@@ -3887,7 +3895,15 @@ test("original Store-v1 SaveWorld-only runs the real native map action without s
   await expect(approve).toContainText("RCON 37145");
   const save=approve.getByRole("button",{name:"SaveWorld végrehajtása"});
   await expect(save).toBeDisabled();
-  await approve.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD DOEXIT");
+  const savePhrase=approve.getByLabel("Store-v1 mentés jóváhagyó szöveg");
+  await savePhrase.scrollIntoViewIfNeeded();
+  await expect(savePhrase).toBeVisible();
+  await expect(savePhrase).toBeEditable();
+  const saveSize=await savePhrase.boundingBox();
+  expect(saveSize).not.toBeNull();
+  expect(saveSize!.width).toBeGreaterThan(180);
+  expect(saveSize!.height).toBeGreaterThanOrEqual(40);
+  await savePhrase.fill("STORE-V1 SAVEWORLD DOEXIT");
   await expect(save).toBeDisabled();
   await approve.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
   await expect(save).toBeEnabled();
@@ -3986,8 +4002,14 @@ test("Store-v1 interrupted SaveWorld can be explicitly reviewed when stopped wit
   const review=panel.getByRole("region",{name:"Korábbi Store-v1 mentés felülvizsgálata"});
   const accept=review.getByRole("button",{name:"Korábbi mentési napló felülvizsgálatának jóváhagyása"});
   await expect(accept).toBeDisabled();
-  await review.getByLabel("Store-v1 mentés felülvizsgálati megerősítése")
-    .fill("REVIEW STORE SAVE");
+  const reviewPhraseInput=review.getByLabel(
+    "Store-v1 mentés felülvizsgálati megerősítése");
+  await reviewPhraseInput.scrollIntoViewIfNeeded();
+  await expect(reviewPhraseInput).toBeVisible();
+  const reviewSize=await reviewPhraseInput.boundingBox();
+  expect(reviewSize).not.toBeNull();
+  expect(reviewSize!.height).toBeGreaterThanOrEqual(40);
+  await reviewPhraseInput.fill("REVIEW STORE SAVE");
   await expect(accept).toBeEnabled();
   await accept.click();
   await expect(panel).toContainText("a műveleti napló operátori ellenőrzéssel feloldva");
@@ -4224,9 +4246,17 @@ test("map header always shows four real lifecycle actions and Kill requires nati
   await expect(approval).toContainText("nem küld SaveWorld parancsot");
   const apply=approval.getByRole("button",{name:"Művelet végrehajtása"});
   await expect(apply).toBeDisabled();
+  const killPhrase=approval.getByRole("textbox",{
+    name:"Életciklus művelet jóváhagyó szövege"});
+  await killPhrase.scrollIntoViewIfNeeded();
+  await expect(killPhrase).toBeVisible();
+  await expect(killPhrase).toBeEditable();
+  const killSize=await killPhrase.boundingBox();
+  expect(killSize).not.toBeNull();
+  expect(killSize!.height).toBeGreaterThanOrEqual(40);
   await approval.getByRole("checkbox").check();
-  await approval.getByRole("textbox",{name:"Életciklus művelet jóváhagyó szövege"})
-    .fill("KILL LOCAL ASA");
+  await killPhrase.fill("KILL LOCAL ASA");
+  await expect(apply).toBeEnabled();
   await apply.click();
   await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
   await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeEnabled();
