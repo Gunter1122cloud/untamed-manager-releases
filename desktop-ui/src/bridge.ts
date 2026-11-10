@@ -951,6 +951,7 @@ export type HistoricalActiveStartStatus = {
   mapId:string;mapName:string;running:boolean;confirmedStopped:boolean;
   pid:number|null;serverPid:number|null;loaderPid:number|null;
   requestedMode:"asaApiLoader"|"directAsa";
+  launchModeApprovalRequired:boolean;
   rconConfigured:boolean;originalStartAutomatic:false;
   saveCompleteProven:false;gameplayTravelVerified:false;
   evidence:"HISTORICAL_ORIGINAL_PROCESS_READ_ONLY_STATUS";
