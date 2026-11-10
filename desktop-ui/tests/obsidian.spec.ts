@@ -297,6 +297,9 @@ test.beforeEach(async ({ page }) => {
     const opsJobId="00000000-0000-4000-8000-000000009988";
     let opsJobCreated=false;
     let opsJobEnabled=false;
+    let partialStoreIndex=false;
+    (window as typeof window & {__UNTAMED_GENESIS_PARTIAL_INDEX__?:()=>void})
+      .__UNTAMED_GENESIS_PARTIAL_INDEX__=()=>{partialStoreIndex=true;};
     const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; frequency?:string;minuteOfDay?:number;daysMask?:number; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; confirmation?:string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;maintenance?:boolean;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
       switch (m.method) {
         case "store.inspectArchive": return {
@@ -337,12 +340,16 @@ test.beforeEach(async ({ page }) => {
           }))
         };
         case "store.inspectCopy": return {
-          fileName:"TheIsland_WP.ark",state:"INDEX_SCANNED",
-          format:1,storeBytes:412,sections:2,profileCandidates:2,
-          tribeCandidates:1,unclassifiedCandidates:0,supersededEntries:1,
-          duplicateKeys:0,indexBoundsVerified:true,sourceUnchanged:true,
+          fileName:partialStoreIndex?"Genesis_WP.ark":"TheIsland_WP.ark",
+          state:partialStoreIndex?"INDEX_PREFIX_VALID_TRAILING_UNVERIFIED":"INDEX_SCANNED",
+          format:1,storeBytes:partialStoreIndex?618041:412,
+          sections:2,profileCandidates:partialStoreIndex?5:2,
+          tribeCandidates:partialStoreIndex?6:1,
+          unclassifiedCandidates:0,supersededEntries:partialStoreIndex?11:1,
+          duplicateKeys:0,indexBoundsVerified:!partialStoreIndex,sourceUnchanged:true,
           gameplayVerified:false,characterTravelVerified:false,
-          evidence:"OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY"
+          evidence:partialStoreIndex?"OFFLINE_SQLITE_PARTIAL_STORE_INDEX_UNVERIFIED":
+            "OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY"
         };
         case "travel.capture": {
           const names=["Astraeos","Genesis Part 1","Valguero","The Island","Extinction"];
@@ -2426,6 +2433,26 @@ test("cluster screen creates and edits a cluster through the native bridge contr
   await page.getByRole("textbox",{name:"Megjelenített név"}).fill("Fixture Delta Updated");
   await page.getByRole("button",{name:"Cluster beállításainak mentése"}).click();
   await expect(selected.locator("option:checked")).toContainText("Fixture Delta Updated");
+});
+
+test("offline Genesis Store-index prefix stays unverified and visibly warns operators",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    (window as typeof window & {__UNTAMED_GENESIS_PARTIAL_INDEX__?:()=>void})
+      .__UNTAMED_GENESIS_PARTIAL_INDEX__?.();
+  });
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const embedded=page.getByRole("region",{name:"Beágyazott Store-v1 ellenőrzése"});
+  await embedded.getByRole("button",{name:"Offline .ark másolat megvizsgálása"}).click();
+  await expect(embedded).toContainText("Genesis_WP.ark");
+  await expect(embedded).toContainText("5 karakterindex-bejegyzés");
+  await expect(embedded).toContainText("6 tribe-index-bejegyzés");
+  const warning=embedded.getByRole("alert");
+  await expect(warning).toContainText("NEM teljesen ellenőrzött");
+  await expect(warning).toContainText("további vizsgálatot igényel");
+  await expect(warning).toContainText("nem bizonyítanak ép karaktert");
+  await expect(embedded).toContainText("a Store-v1 írásvédelem változatlan követelmény");
 });
 
 test("Cluster page owns character travel evidence without unlocking Store",async({page})=>{

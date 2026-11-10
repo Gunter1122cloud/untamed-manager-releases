@@ -100,6 +100,7 @@ await MultiHostArchiveProcessLeaseTests.Run(root);
 await LegacyStoreSaveReviewBridgeTests.Run(root);
 await LegacyStoreSaveEvidenceProcessTests.Run(root);
 await OriginalKovaMutationProcessTests.Run(root);
+await EmbeddedStorePartialIndexTests.Run(root);
 await LegacyStoreSaveReceiptPairTests.Run(root);
 await FreshStoreEnrollmentTests.Run(root);
 await OwnedAsaKillBridgeTests.Run(root);

@@ -140,6 +140,13 @@ function EmbeddedStoreCopyInspector(){
         </div>
         <p>Tárolóformátum: {data.format} · indexhatárok: {data.indexBoundsVerified?"ellenőrizve":"nem ellenőrizhető"}
           · eredeti másolat változatlan: {data.sourceUnchanged?"igen":"nem igazolt"}.</p>
+        {!data.indexBoundsVerified&&<p role="alert" className="uk-travel-warning">
+          <AlertTriangle size={16}/> A beágyazott Store-index NEM teljesen ellenőrzött.
+          {data.state==="INDEX_PREFIX_VALID_TRAILING_UNVERIFIED"
+            ?" Csak az érvényes előtag rekordjelöltjei láthatók: a további szekciófejléc vagy lezárás eltér, ezért a mentés további vizsgálatot igényel."
+            :" A tárolóformátum nem támogatott vagy az indexhatárok nem igazolhatók."}
+          Ezek a számok nem bizonyítanak ép karaktert, helyes tribe-adatot vagy biztonságos visszaállítást.
+        </p>}
         <p>Az indexben talált rekordok nem igazolják a karakter beléphetőségét,
           a tribe tulajdonjogát, az inventoryt vagy az A→B→A utazást.
           A játékbeli igazolás és a Store-v1 írásvédelem változatlan követelmény.</p>

@@ -16,6 +16,7 @@ namespace UntamedDesktop;
 public static class EmbeddedStoreReadOnlyInspector
 {
     private const int MaxSections=3;
+    private const string PartialState="INDEX_PREFIX_VALID_TRAILING_UNVERIFIED";
     private const int MaxEntries=100_000;
     private const int EntrySize=16; // key[8], offset[int32], size[int32]
     private const string StoreKey="GameModeCustomBytes";
@@ -102,7 +103,9 @@ public static class EmbeddedStoreReadOnlyInspector
             if(!same)throw new InvalidDataException("UM-STORE-COPY-CHANGED-DURING-READ");
             return new(Path.GetFileName(file),state,format,blobSize,sections,
                 players,tribes,unknown,superseded,duplicates,bounds,true,
-                false,false,"OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY");
+                false,false,bounds?
+                    "OFFLINE_SQLITE_EMBEDDED_STORE_INDEX_ONLY":
+                    "OFFLINE_SQLITE_PARTIAL_STORE_INDEX_UNVERIFIED");
         }
 
         if(blobSize<=8)return Result("NO_EMBEDDED_STORE",0,0,0,0,0,0,0,false);
@@ -115,24 +118,48 @@ public static class EmbeddedStoreReadOnlyInspector
         long position=4;
         for(int section=0;section<=MaxSections;section++)
         {
+            // A real original Genesis Part 1 offline copy has two valid
+            // sections followed by a nonconforming trailing header. A
+            // validated prefix can be reported as CANDIDATE counts only;
+            // it must never pass IndexBoundsVerified or imply a playable
+            // survivor, backup consistency or production restore.
+            if(blobSize-position<8&&sections>0)
+                return Result(PartialState,format,sections,players,tribes,
+                    unknown,superseded,duplicates,false);
             var header=Read(position,8);
             position=checked(position+8);
             int dataSize=BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(0,4));
             int count=BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(4,4));
             if(dataSize==0&&count==0)
             {
+                // A valid terminator must be the actual END of the BLOB.
+                // Nonempty trailing bytes used to be silently ignored and
+                // were incorrectly presented as a fully checked index.
+                if(position!=blobSize)
+                    return Result(PartialState,format,sections,players,tribes,
+                        unknown,superseded,duplicates,false);
                 string state=unknown>0||duplicates>0?
                     "INDEX_SCANNED_WITH_UNCLASSIFIED_OR_DUPLICATES":"INDEX_SCANNED";
                 return Result(state,format,sections,players,tribes,unknown,
                     superseded,duplicates,true);
             }
             if(section==MaxSections||dataSize<0||count<0||count>MaxEntries)
+            {
+                if(sections>0)
+                    return Result(PartialState,format,sections,players,tribes,
+                        unknown,superseded,duplicates,false);
                 throw new InvalidDataException("UM-STORE-COPY-INVALID-SECTION");
+            }
             long dataStart=position;
             long indexStart=checked(dataStart+dataSize);
             long indexEnd=checked(indexStart+(long)count*EntrySize);
             if(indexEnd>blobSize)
+            {
+                if(sections>0)
+                    return Result(PartialState,format,sections,players,tribes,
+                        unknown,superseded,duplicates,false);
                 throw new InvalidDataException("UM-STORE-COPY-INDEX-OUT-OF-BOUNDS");
+            }
             var currentKeys=new HashSet<ulong>();
             int live=0;
             string kind="";
