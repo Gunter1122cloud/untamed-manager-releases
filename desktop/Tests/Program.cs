@@ -10,6 +10,8 @@ using UntamedManager.Core;
 // ordinary native test setup; it never opens an ASA installation or Kova data.
 if (args.Length > 0 && args[0] == LegacyStoreSaveEvidenceProcessTests.ChildSwitch)
     Environment.Exit(LegacyStoreSaveEvidenceProcessTests.RunChild(args));
+if (args.Length > 0 && args[0] == OriginalKovaMutationProcessTests.ChildSwitch)
+    Environment.Exit(OriginalKovaMutationProcessTests.RunChild(args));
 if (args.Length > 0 && args[0] == MultiHostTempProcessLeaseTests.ChildSwitch)
     Environment.Exit(MultiHostTempProcessLeaseTests.RunChild(args));
 if (args.Length > 0 && args[0] == MultiHostArchiveProcessLeaseTests.ChildSwitch)
@@ -97,6 +99,7 @@ MultiHostOfflineCatalogAssemblerTests.Run(root);
 await MultiHostArchiveProcessLeaseTests.Run(root);
 await LegacyStoreSaveReviewBridgeTests.Run(root);
 await LegacyStoreSaveEvidenceProcessTests.Run(root);
+await OriginalKovaMutationProcessTests.Run(root);
 await LegacyStoreSaveReceiptPairTests.Run(root);
 await FreshStoreEnrollmentTests.Run(root);
 await OwnedAsaKillBridgeTests.Run(root);
