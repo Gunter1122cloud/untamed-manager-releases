@@ -20,7 +20,7 @@ public sealed class DesktopMapMaintenanceBridge
         cluster=owner??throw new ArgumentNullException(nameof(owner));
 
     private static bool Protected(LocalMap map) =>
-        map.HistoricalStoreProtected ||
+        map.HistoricalStoreProtected || map.ObservedReadOnlyImported ||
         !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
         KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
         KovaCompatibleWorldBackup.InstallationRecoveryRequired(map);
