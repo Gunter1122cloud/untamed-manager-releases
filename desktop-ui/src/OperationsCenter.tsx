@@ -203,7 +203,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
               <option value="Observation">Folyamat / PID megfigyelése</option>
               <option value="ModCheck">Konfigurált modok ellenőrzése</option>
               <option value="ApiCheck">ASA API helyi fájlellenőrzés</option>
-              <option value="SteamCheck">Telepített Steam Build ID</option>
+              <option value="SteamCheck">ASA Steam-verzió (telepített + publikus)</option>
             </select>
           </label>
           <label>Ismétlés (perc)
