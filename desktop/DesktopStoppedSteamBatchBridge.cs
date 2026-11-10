@@ -77,7 +77,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     }
     private bool RunningJob()
     {
-        lock(sync)return job!=null&&job.State is "queued" or "running";
+        lock(sync)return job!=null&&(job.State is "queued" or "running");
     }
     private object JobSnapshot(Job item)
     {
@@ -119,7 +119,9 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                 throw new UnauthorizedAccessException("UM-STEAM-BATCH-NOT-LOCAL");
             if(local.HistoricalStoreProtected || local.Maintenance ||
                !string.IsNullOrWhiteSpace(local.HistoricalArchiveSha256) ||
+               !string.IsNullOrWhiteSpace(local.HistoricalMapKey) ||
                !string.IsNullOrWhiteSpace(local.FreshStoreClusterId) ||
+               !string.IsNullOrWhiteSpace(local.FreshStoreTransferDirectory) ||
                !string.IsNullOrWhiteSpace(local.StoreTestRoot) ||
                KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(local) ||
                !AsaReadyProbe.IsRegisteredServerBinary(local))
@@ -149,7 +151,11 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                 if(state.Running||!state.ConfirmedStopped||
                    state.Identity!=null||state.LoaderIdentity!=null||
                    sibling.HistoricalStoreProtected||sibling.Maintenance||
+                   !string.IsNullOrWhiteSpace(sibling.HistoricalMapKey)||
+                   !string.IsNullOrWhiteSpace(sibling.HistoricalArchiveSha256)||
                    !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId)||
+                   !string.IsNullOrWhiteSpace(sibling.FreshStoreTransferDirectory)||
+                   !string.IsNullOrWhiteSpace(sibling.StoreTestRoot)||
                    KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling))
                     throw new InvalidOperationException(
                         "UM-STEAM-BATCH-SHARED-INSTALL-BLOCKED");
