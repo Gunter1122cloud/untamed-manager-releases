@@ -826,6 +826,75 @@ try
             "disabled recurring task never runs even after its prior due time");
     }
 
+    // P0 scheduled public Steam build comparison: the original SteamCheck
+    // only opened appmanifest, so it could NEVER detect a public update.
+    // This isolated fixture injects a deterministic appinfo result and
+    // proves that no actual steamcmd.exe, ASA process, RCON or Store runs.
+    {
+        string watchRoot=Path.Combine(root,"p0-scheduled-public-steam-check");
+        string watchInstall=Path.Combine(watchRoot,"single-install");
+        string steamApps=Path.Combine(watchInstall,"steamapps");
+        Directory.CreateDirectory(steamApps);
+        string acf=Path.Combine(steamApps,"appmanifest_2430930.acf");
+        File.WriteAllText(acf,
+            "\"AppState\"\n{\n  \"appid\" \"2430930\"\n  \"buildid\" \"123456\"\n}\n");
+        byte[] originalManifest=File.ReadAllBytes(acf);
+        await using var watched=new ClusterService("scheduled-public-check",
+            Path.Combine(watchRoot,"manager-profile"),
+            _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true));
+        var firstWatched=new LocalMap {
+            Id=Guid.NewGuid(),Name="Public version check A",
+            InstallationPath=watchInstall,
+            ExecutablePath=Path.Combine(watchInstall,"ShooterGame","Binaries",
+                "Win64","ArkAscendedServer.exe")
+        };
+        var secondWatched=new LocalMap {
+            Id=Guid.NewGuid(),Name="Public version check B",
+            InstallationPath=watchInstall,
+            ExecutablePath=firstWatched.ExecutablePath
+        };
+        watched.AddMap(firstWatched);
+        watched.AddMap(secondWatched);
+        foreach(var target in new[]{firstWatched,secondWatched})
+            watched.Config.RecurringSchedules.Add(new RecurringSchedule{
+                Id=Guid.NewGuid(),Map=target.Id,Kind=OperationalTaskKind.SteamCheck,
+                Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=5,
+                Enabled=true
+            });
+        watched.Save();
+        byte[] managerBefore=File.ReadAllBytes(watched.Store.FilePath);
+        int publicQueries=0;
+        using var scheduled=new DesktopRecurringReadOnlySupervisor(watched,
+            _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true),
+            (target,_)=>{
+                publicQueries++;
+                return Task.FromResult(AsaSteamBuildCatalog.Compare(
+                    target.InstallationPath,"public","123456","123457",
+                    DateTimeOffset.UtcNow));
+            });
+        var baseTime=DateTimeOffset.UtcNow;
+        Check(scheduled.TickOnce(baseTime).Length==0 &&
+              publicQueries==0,
+            "first scheduled Steam check only persists future due time");
+        var verified=scheduled.TickOnce(baseTime.AddMinutes(6));
+        Check(verified.Count(x=>x.Status=="succeeded")==2 &&
+              publicQueries==1,
+            "two map schedules sharing one installation use a single published Steam appinfo comparison");
+        var statuses=new SteamBuildStatusStore(watched.Store.Root);
+        Check(new[]{firstWatched,secondWatched}.All(m=>{
+                var s=statuses.Read(m);
+                return s.State==AsaSteamBuildState.UpdateAvailable &&
+                    s.LocalBuild=="123456" && s.AvailableBuild=="123457" &&
+                    s.LastCheckedUtc.HasValue && !s.LastUpdatedUtc.HasValue;
+            }) &&
+            originalManifest.SequenceEqual(File.ReadAllBytes(acf)) &&
+            managerBefore.SequenceEqual(File.ReadAllBytes(watched.Store.FilePath)),
+            "scheduled public build checks persist true update availability only in Manager profile without touching ASA files/config");
+        Check(scheduled.TickOnce(baseTime.AddMinutes(6)).Length==0 &&
+              publicQueries==1,
+            "claimed Steam check slots cannot be replayed or launch a second appinfo query");
+    }
+
     // Explicit new-ASA schedule engine uses durable local claim records and
     // existing native bridges. Injected callbacks are isolated synthetic test
     // runners only; no RCON, SteamCMD, port bind or production file is used.
