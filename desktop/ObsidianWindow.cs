@@ -101,6 +101,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopAsaApiCoreBridge _apiCore;
     private readonly DesktopIniBridge _iniEditor;
     private readonly DesktopLocalMapRegistryBridge _mapRegistry;
+    private readonly DesktopRunningAsaRegistrationBridge _runningAsaRegistration;
     private readonly DesktopClusterRegistryBridge _clusterRegistry;
     private readonly DesktopCurseForgeDiscoveryBridge _modCatalog;
     private readonly DesktopSteamFreshInstallBridge _freshInstall;
@@ -170,6 +171,7 @@ public sealed class ObsidianWindow : Form
         _apiCore = new DesktopAsaApiCoreBridge(_bridge.LocalCluster);
         _iniEditor = new DesktopIniBridge(_bridge.LocalCluster);
         _mapRegistry = new DesktopLocalMapRegistryBridge(_bridge.LocalCluster);
+        _runningAsaRegistration = new DesktopRunningAsaRegistrationBridge(_bridge.LocalCluster);
         _clusterRegistry = new DesktopClusterRegistryBridge(_bridge.LocalCluster);
         _modCatalog = new DesktopCurseForgeDiscoveryBridge(_bridge.LocalCluster);
         _freshInstall = new DesktopSteamFreshInstallBridge(_bridge.LocalCluster);
@@ -286,6 +288,7 @@ public sealed class ObsidianWindow : Form
             _freshInstall.Dispose();
             _modCatalog.Dispose();
             _mapRegistry.Dispose();
+            _runningAsaRegistration.Dispose();
             _clusterRegistry.Dispose();
             _iniEditor.Dispose();
             _modDrafts.Dispose();
@@ -381,6 +384,7 @@ public sealed class ObsidianWindow : Form
                 bool multiHostBackupRoute = false;
                 bool iniRoute = false;
                 bool registryRoute = false;
+                bool runningAsaRegistrationRoute = false;
                 bool clusterRegistryRoute = false;
                 bool discoveryRoute = false;
                 bool freshRoute = false;
@@ -502,6 +506,8 @@ public sealed class ObsidianWindow : Form
                             "ini.save" or "ini.close";
                         registryRoute = name is "servers.inspectLocal" or
                             "servers.importLocal";
+                        runningAsaRegistrationRoute = name is "servers.runningPreview" or
+                            "servers.runningRegister";
                         clusterRegistryRoute = name is "cluster.registry.snapshot" or
                             "cluster.host.register" or "cluster.map.register" or
                             "cluster.create" or "cluster.update" or
@@ -589,6 +595,7 @@ public sealed class ObsidianWindow : Form
                         : draftRoute ? await _modDrafts.HandleAsync(incoming)
                             : iniRoute ? await _iniEditor.HandleAsync(incoming)
                                 : clusterRegistryRoute ? await _clusterRegistry.HandleAsync(incoming)
+                                    : runningAsaRegistrationRoute ? await _runningAsaRegistration.HandleAsync(incoming)
                                     : registryRoute ? await _mapRegistry.HandleAsync(incoming)
                                     : discoveryRoute ? await _modCatalog.HandleAsync(incoming)
                                         : freshRoute ? await _freshInstall.HandleAsync(incoming)
