@@ -2078,11 +2078,11 @@ try
     // Synthetic runner blocks so we can prove single-use approval and
     // read-only reattachment; no actual SteamCMD or ASA process is launched.
     {
-        var candidate=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
+        var batchTarget=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
         var second=new LocalMap {
             Name="Synthetic shared Steam installation",
-            InstallationPath=candidate.InstallationPath,
-            ExecutablePath=candidate.ExecutablePath
+            InstallationPath=batchTarget.InstallationPath,
+            ExecutablePath=batchTarget.ExecutablePath
         };
         cluster.AddMap(second);
         int batchRuns=0;
@@ -2090,13 +2090,13 @@ try
             TaskCreationOptions.RunContinuationsAsynchronously);
         var release=new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        byte[] untouched=File.ReadAllBytes(candidate.ExecutablePath);
+        byte[] untouched=File.ReadAllBytes(batchTarget.ExecutablePath);
         try
         {
             using var batch=new DesktopStoppedSteamBatchBridge(cluster,
                 async (maps,progress)=>{
                     batchRuns++;
-                    Check(maps.Count==1&&maps[0].Id==candidate.Id,
+                    Check(maps.Count==1&&maps[0].Id==batchTarget.Id,
                         "shared ASA installations are updated only once in first-selected order");
                     progress.Report(new SteamQueueProgress(1,1,maps[0].Name,"Synthetic running"));
                     entered.TrySetResult(true);
@@ -2108,7 +2108,7 @@ try
                 },
                 map=>new SteamUpdatePreview(
                     Path.GetFullPath(map.InstallationPath),
-                    new[]{candidate.Name,second.Name},"SYNTHETIC-STEAM",
+                    new[]{batchTarget.Name,second.Name},"SYNTHETIC-STEAM",
                     "123456",10L*1024*1024*1024,20L*1024*1024*1024,
                     true,"Isolated preview"));
 
@@ -2117,17 +2117,17 @@ try
             Check(!unknown.GetProperty("ok").GetBoolean()&&batchRuns==0,
                 "local Steam batch cannot accept unknown or remote map IDs");
             var duplicates=await Call(batch.HandleAsync,"steam.batchPreview",
-                new{mapIds=new[]{candidate.Id,candidate.Id}});
+                new{mapIds=new[]{batchTarget.Id,batchTarget.Id}});
             Check(!duplicates.GetProperty("ok").GetBoolean()&&batchRuns==0,
                 "duplicated map IDs cannot execute multiple SteamCMD jobs");
             second.HistoricalStoreProtected=true;
             var quarantined=await Call(batch.HandleAsync,"steam.batchPreview",
-                new{mapIds=new[]{candidate.Id,second.Id}});
+                new{mapIds=new[]{batchTarget.Id,second.Id}});
             Check(!quarantined.GetProperty("ok").GetBoolean()&&batchRuns==0,
                 "a historical Store sibling blocks shared-install Steam update");
             second.HistoricalStoreProtected=false;
             var planned=await Call(batch.HandleAsync,"steam.batchPreview",
-                new{mapIds=new[]{candidate.Id,second.Id}});
+                new{mapIds=new[]{batchTarget.Id,second.Id}});
             IsOk(planned,"native serial SteamCMD preview validates both local map identities");
             var info=planned.GetProperty("data");
             Check(info.GetProperty("requestedMaps").GetInt32()==2 &&
@@ -2173,7 +2173,7 @@ try
                   progress.GetProperty("data").GetProperty("completedInstallations")
                     .GetInt32()==1 &&
                   batchRuns==1 &&
-                  untouched.SequenceEqual(File.ReadAllBytes(candidate.ExecutablePath)),
+                  untouched.SequenceEqual(File.ReadAllBytes(batchTarget.ExecutablePath)),
                 "serial Steam batch executes exactly once and leaves real ASA binary unchanged in fixture");
         }
         finally{release.TrySetResult(true);cluster.RemoveMap(second.Id);}
