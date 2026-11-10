@@ -490,7 +490,8 @@ public sealed class ObsidianWindow : Form
                         clusterRegistryRoute = name is "cluster.registry.snapshot" or
                             "cluster.host.register" or "cluster.map.register" or
                             "cluster.create" or "cluster.update" or
-                            "cluster.membership.preview" or "cluster.membership.apply";
+                            "cluster.membership.preview" or "cluster.membership.apply" or
+                            "cluster.historicalExpansionInspect";
                         discoveryRoute = name is "curseforge.categories" or
                             "curseforge.featured" or "curseforge.browse" or
                             "curseforge.project" or "curseforge.files" or "curseforge.summary";

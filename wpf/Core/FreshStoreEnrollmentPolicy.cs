@@ -50,7 +50,7 @@ public static class FreshStoreEnrollmentPolicy
         return path;
     }
 
-    private static string ValidateBaseArguments(LocalMap map,string arguments)
+    internal static string ValidateBaseArguments(LocalMap map,string arguments)
     {
         // Require the existing native initial-setup grammar rather than
         // accepting arbitrary WebView-supplied process command lines.
