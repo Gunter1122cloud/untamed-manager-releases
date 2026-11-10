@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using UntamedManager.Core;
 
@@ -101,12 +103,52 @@ public sealed class DesktopOperationsCenterBridge
                     return Task.FromResult(Fail(id,"UM-MAP-NOT-OWNED"));
             }
 
+            // A large N-host cluster must never silently lose the maps past
+            // row 50. Each RPC stays bounded, while the React host requests
+            // every page with the same registry fingerprint.
+            const int DefaultPageSize=50;
+            int offset=0,limit=DefaultPageSize;
+            if(method=="operations.snapshot")
+            {
+                if(request.TryGetProperty("offset",out var rawOffset) &&
+                   (rawOffset.ValueKind!=JsonValueKind.Number ||
+                    !rawOffset.TryGetInt32(out offset)||offset<0))
+                    return Task.FromResult(Fail(id,"UM-OPS-PAGE-OFFSET"));
+                if(request.TryGetProperty("limit",out var rawLimit) &&
+                   (rawLimit.ValueKind!=JsonValueKind.Number ||
+                    !rawLimit.TryGetInt32(out limit)||limit is <1 or >100))
+                    return Task.FromResult(Fail(id,"UM-OPS-PAGE-LIMIT"));
+            }
+            var local=cluster.Config.LocalMaps.ToArray();
+            if(method=="operations.snapshot" && offset>local.Length)
+                return Task.FromResult(Fail(id,"UM-OPS-PAGE-OUT-OF-RANGE"));
+            var fingerprintSource=JsonSerializer.Serialize(new {
+                Host=cluster.Config.LocalHostId,
+                Maps=local.Select(m=>new{m.Id,m.Name,m.InstallationPath})
+            });
+            string snapshotKey=Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintSource)));
+            if(method=="operations.snapshot")
+            {
+                bool supplied=request.TryGetProperty("snapshotKey",out var token);
+                if(offset>0 && !supplied)
+                    return Task.FromResult(Fail(id,"UM-OPS-SNAPSHOT-KEY-REQUIRED"));
+                if(supplied && (token.ValueKind!=JsonValueKind.String ||
+                   !string.Equals(token.GetString(),snapshotKey,
+                       StringComparison.Ordinal)))
+                    return Task.FromResult(Fail(id,"UM-OPS-SNAPSHOT-CHANGED"));
+            }
+            var page=method=="operations.snapshot"
+                ?local.Skip(offset).Take(limit).ToArray()
+                :local.Where(m=>m.Id==selectedId).ToArray();
+            var pageMapIds=page.Select(m=>m.Id).ToHashSet();
+            int totalMaps=method=="operations.snapshot"?local.Length:page.Length;
+            int? nextOffset=method=="operations.snapshot" &&
+                (long)offset+page.Length<totalMaps ? offset+page.Length : null;
             var now=DateTimeOffset.UtcNow;
-            // No mutation or state capture on a status read. The Core checks
-            // process command, executable and start identity itself.
-            var maps = cluster.Config.LocalMaps
-                .Where(m => method == "operations.snapshot" || m.Id == selectedId)
-                .Take(50).Select(m => Describe(m,now)).ToArray();
+            // No state mutation on telemetry reads. Process identity remains
+            // independently verified for every locally registered map.
+            var maps=page.Select(m=>Describe(m,now)).ToArray();
             // Read the persisted due cursor, not a moving estimate relative
             // to each screen refresh. If journal access fails, expose the
             // distinction explicitly and keep all server operations blocked.
@@ -119,9 +161,13 @@ public sealed class DesktopOperationsCenterBridge
                 catch(Exception){journalState="journal-unavailable";}
             }
             var schedules = cluster.SnapshotRecurringSchedules()
-                .Where(job => method == "operations.snapshot" || job.Map == selectedId)
-                .Take(200).Select(job => {
-                    var owned=cluster.Config.LocalMaps.FirstOrDefault(m=>m.Id==job.Map);
+                // Page all registered-map schedules, plus orphaned schedules
+                // on page zero so malformed/old configuration stays visible.
+                .Where(job=>pageMapIds.Contains(job.Map) ||
+                    (method=="operations.snapshot" && offset==0 &&
+                     !local.Any(m=>m.Id==job.Map)))
+                .Select(job => {
+                    var owned=local.FirstOrDefault(m=>m.Id==job.Map);
                     try {
                         var due=OperationalScheduler.Next(job,now,
                             owned!=null,owned?.Maintenance??false);
@@ -154,6 +200,8 @@ public sealed class DesktopOperationsCenterBridge
             return Task.FromResult(Ok(id,new {
                 hostName=cluster.Config.LocalHostName,
                 observedUtc=now, maps, schedules,
+                totalMaps,pageOffset=offset,pageLimit=limit,
+                nextOffset,snapshotKey,
                 scheduleReceipts=receipts,supervisorState,
                 schedulingIsReadOnly=true,
                 remoteCommandsAllowed=false,
