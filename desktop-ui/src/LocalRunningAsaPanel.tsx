@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Activity, AlertTriangle, RefreshCw, Shield } from "lucide-react";
 import { managerBridge, type RunningLocalAsaSnapshot, type RunningLocalAsaProcess,
-  type RunningAsaImportPreview } from "./bridge";
+  type RunningAsaImportPreview, type RunningAsaAdoptPreview } from "./bridge";
 
 
 /** Two-stage registration changes ONLY the local Manager profile, never ASA. */
@@ -59,6 +59,61 @@ function LiveImportControls({process,afterImport}:{process:RunningLocalAsaProces
           <button type="button" disabled={busy} onClick={()=>{void confirm();}}>
             Regisztrálás · csak Manager
           </button>
+        </div>}
+      {error&&<p className="error-inline" role="alert">{error}</p>}
+    </div>
+  </div>;
+}
+
+/** Explicit two-stage ownership handoff for registered, running NON-STORE ASA. */
+function LiveAdoptControls({process,afterAdopt}:{
+  process:RunningLocalAsaProcess;afterAdopt:()=>void
+}) {
+  const [preview,setPreview]=useState<RunningAsaAdoptPreview|null>(null);
+  const [approved,setApproved]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  if(!process.profileMapId)return null;
+  const prepare=async()=>{
+    setBusy(true);setError("");setPreview(null);setApproved(false);
+    try {setPreview(await managerBridge.runningAsaAdoptPreview(process.profileMapId!));}
+    catch(e){setError(e instanceof Error?e.message:"UM-ADOPT-PREVIEW-FAILED");}
+    finally{setBusy(false);}
+  };
+  const apply=async()=>{
+    if(!preview||!approved)return;
+    setBusy(true);setError("");
+    try {
+      const done=await managerBridge.runningAsaAdoptApply(preview.token,approved);
+      if(!done.lifecycleAuthorized||done.storeWriterAuthorized||
+         done.processStarted||done.processStopped)
+        throw new Error("UM-ADOPT-INVALID-NATIVE-RECEIPT");
+      setPreview(null);setApproved(false);afterAdopt();
+    } catch(e) {
+      setPreview(null);setApproved(false);
+      setError(e instanceof Error?e.message:"UM-ADOPT-APPLY-FAILED");
+    } finally{setBusy(false);}
+  };
+  return <div className="import-preview" aria-label={`Futó ASA vezérlés átvétele PID ${process.pid}`}>
+    <div>
+      <p><b>Vezérlés átvétele · meglévő nem-Store szerver</b></p>
+      <p className="muted small">Kétlépcsős, helyi Windows-azonosítás.
+        Az átvétel nem állítja le és nem indítja újra az ASA-t; a meglévő
+        adatokat és INI-fájlokat nem módosítja. Store-v1 maphoz nem használható.
+        RCON/SaveWorld/Stop csak külön konfiguráció és sikeres előfeltétel-ellenőrzés után működik.</p>
+      {!preview?<button type="button" className="secondary" disabled={busy}
+        onClick={()=>{void prepare();}}>Vezérlés átvételének ellenőrzése</button>:
+        <div aria-label="Natív vezérlésátvétel előnézet">
+          <p>{preview.mapName} · {preview.mapKey} · PID {preview.pid} ·
+            Game {preview.gamePort} / Query {preview.queryPort}</p>
+          <label className="muted small">
+            <input type="checkbox" checked={approved} disabled={busy}
+              onChange={e=>setApproved(e.target.checked)}/>
+            Megerősítem, hogy a korábbi Manager már nem felügyeli ezt
+            a nem-Store ASA-folyamatot. A vezérlés átvételét kérem.
+          </label>
+          <button type="button" disabled={busy||!approved}
+            onClick={()=>{void apply();}}>Vezérlés átvétele – natív ellenőrzéssel</button>
         </div>}
       {error&&<p className="error-inline" role="alert">{error}</p>}
     </div>
@@ -137,6 +192,11 @@ export function LocalRunningAsaPanel() {
               Konverziós kapcsoló észlelve – csak megfigyelés, újraindítás és átvétel tiltva.</p>}
           </>}
           {p.loaderParentObserved && <p>ASA API Loader szülőfolyamat észlelve (csak megfigyelés).</p>}
+          {p.processKind==="asaServer" && p.matchState==="profileCandidate" &&
+            p.observedReadOnlyImported && p.profileMapId && !p.loaderParentObserved &&
+            !p.launchFacts?.storeFlagPresent && !p.launchFacts?.clusterSwitchPresent &&
+            !p.launchFacts?.transferOverridePresent && !p.launchFacts?.conversionFlagPresent &&
+            <LiveAdoptControls process={p} afterAdopt={()=>{void inspect();}}/>}
           {p.processKind==="asaServer" && p.matchState==="unregistered" &&
             p.launchFacts?.argumentsValidated && !p.launchFacts.storeFlagPresent &&
             !p.launchFacts.clusterSwitchPresent && !p.launchFacts.transferOverridePresent &&
@@ -149,8 +209,9 @@ export function LocalRunningAsaPanel() {
               ellenőrzött történeti regisztráció szükséges. Ez az importútvonal tiltott.</p>}
         </div>
       </div>)}
-      <p className="muted small"><Shield size={14}/> Csak explicit, kétlépcsős, read-only profilregisztráció érhető el. Nincs RCON,
-        leállítás, újraindítás vagy közös Store-módosítás. Azonosítás ≠ lifecycle-jogosultság.</p>
+      <p className="muted small"><Shield size={14}/> Az import első lépése csak megfigyelést ad. A nem-Store profilok natív
+        vezérlésátvétele külön jóváhagyást és friss Windows-folyamatellenőrzést igényel;
+        a történeti Store-v1 adatok továbbra is védettek.</p>
     </div>
   </section>;
 }

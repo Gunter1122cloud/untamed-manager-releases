@@ -46,6 +46,7 @@ test.beforeEach(async ({ page }) => {
       };
     let freshId = "";
     let importedObserved=false;
+    let adoptedObserved=false;
     let initialBlocked=false;
     let customInitialLevel=false;
     (window as typeof window & {__UNTAMED_CUSTOM_INITIAL_LEVEL__?:(value:boolean)=>void})
@@ -1304,7 +1305,7 @@ test.beforeEach(async ({ page }) => {
               matchState:importedObserved?"profileCandidate":"unregistered",
               profileMapId:importedObserved?"00000000-0000-4000-8000-000000007148":null,
               profileMapName:importedObserved?"Ragnarok":null,
-              observedReadOnlyImported:importedObserved,loaderParentObserved:false,
+              observedReadOnlyImported:importedObserved&&!adoptedObserved,loaderParentObserved:false,
               launchFacts:{gamePort:7827,queryPort:27037,activeModIds:[],passiveModIds:[],
                 activeModsState:"notDeclared",passiveModsState:"notDeclared",
                 storeFlagPresent:false,clusterSwitchPresent:false,transferOverridePresent:false,
@@ -1332,6 +1333,29 @@ test.beforeEach(async ({ page }) => {
             readOnly:true,lifecycleAuthorized:false,storeWriterAuthorized:false,
             reattachOnRefresh:true,needsExplicitLifecycleEnrollment:true,
             evidence:"EXISTING_MANAGER_CONFIG_PROFILE_ONLY_LIVE_ASA_NOT_ADOPTED"};
+        }
+        case "servers.runningAdoptPreview": {
+          if(!importedObserved||adoptedObserved||
+             m.mapId!=="00000000-0000-4000-8000-000000007148")
+            throw new Error("UM-ADOPT-NOT-OBSERVED-NONSTORE");
+          return {token:"00000000-0000-4000-8000-000000007150",
+            mapId:m.mapId,mapName:"Ragnarok",mapKey:"Ragnarok_WP",pid:4443,
+            gamePort:7827,queryPort:27037,noProcessMutation:true,
+            storeWriterAuthorized:false,requiresExternalControllerStopped:true,
+            requiresRconSetup:true,
+            evidence:"EXACT_NONSTORE_RUNNING_ADOPTION_PREVIEW_NO_WRITE"};
+        }
+        case "servers.runningAdoptApply": {
+          if(!importedObserved||adoptedObserved||
+             m.token!=="00000000-0000-4000-8000-000000007150"||
+             m.confirm!==true||m.externalControllerStopped!==true)
+            throw new Error("UM-ADOPT-EXPLICIT-APPROVAL-REQUIRED");
+          adoptedObserved=true;
+          return {mapId:"00000000-0000-4000-8000-000000007148",
+            mapName:"Ragnarok",pid:4443,lifecycleAuthorized:true,
+            storeWriterAuthorized:false,rconRequiresSeparateConfiguration:true,
+            processStarted:false,processStopped:false,
+            evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE"};
         }
         case "servers.inspectLocal": return {importToken:"00000000-0000-4000-8000-000000009999",name:m.name||"The Island",folderName:"ASA-LAB",exeFound:true,apiLoaderDetected:false,portsConfigured:false,evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"};
         case "servers.importLocal":
@@ -2976,7 +3000,7 @@ test("P0 read-only native ASA discovery displays server/loader identities withou
   await expect(panel).toContainText("100013");
   await expect(panel).toContainText("Cluster-ID kapcsoló: észlelve");
   await expect(panel).toContainText("Transfer-útvonal kapcsoló: észlelve");
-  await expect(panel).toContainText("Azonosítás ≠ lifecycle-jogosultság");
+  await expect(panel).toContainText("a történeti Store-v1 adatok továbbra is védettek");
   await expect(panel.getByRole("button",{name:"Új ellenőrzés"})).toBeEnabled();
   await panel.getByRole("button",{name:"Új ellenőrzés"}).click();
   await expect(panel).toContainText("ARK Ascended Server · PID 4442");
@@ -3023,7 +3047,31 @@ test("P0 running ASA import previews exact PID and explicitly registers read-onl
   await expect(panel).toContainText("Managerhez regisztrálva · kizárólag megfigyelés");
   await expect(panel.getByLabel("Futó ASA regisztrálása PID 4443")).toHaveCount(0);
   await expect(panel).toContainText("Store/cluster folyamat:");
-  await expect(panel.getByRole("button",{name:/Leállítás|Újraindítás|SaveWorld|Átvétel/})).toHaveCount(0);
+  await expect(panel.getByRole("button",{name:/Leállítás|Újraindítás|SaveWorld/})).toHaveCount(0);
+  await expect(panel.getByRole("button",{name:"Vezérlés átvételének ellenőrzése"})).toBeVisible();
+});
+
+test("P0 native non-Store live ASA takeover requires explicit approval and preserves Store lockdown",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
+  const registration=panel.getByLabel("Futó ASA regisztrálása PID 4443");
+  await registration.getByRole("button",{name:"Regisztráció ellenőrzése"}).click();
+  await registration.getByRole("button",{name:"Regisztrálás · csak Manager"}).click();
+  const handoff=panel.getByLabel("Futó ASA vezérlés átvétele PID 4443");
+  await expect(handoff).toBeVisible();
+  await expect(panel.getByLabel("Futó ASA vezérlés átvétele PID 4442")).toHaveCount(0);
+  await handoff.getByRole("button",{name:"Vezérlés átvételének ellenőrzése"}).click();
+  const preview=handoff.getByLabel("Natív vezérlésátvétel előnézet");
+  await expect(preview).toContainText("Ragnarok_WP");
+  await expect(preview).toContainText("PID 4443");
+  const apply=preview.getByRole("button",{name:"Vezérlés átvétele – natív ellenőrzéssel"});
+  await expect(apply).toBeDisabled();
+  await preview.getByRole("checkbox").check();
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(handoff).toHaveCount(0);
+  await expect(panel.getByLabel("Futó ASA vezérlés átvétele PID 4442")).toHaveCount(0);
 });
 
 test("P0-2 Servers switches between keyboard-accessible list and premium 2-host map gallery",async({page})=>{

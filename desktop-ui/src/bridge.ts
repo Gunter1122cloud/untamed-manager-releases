@@ -174,6 +174,20 @@ export type RunningAsaImportReceipt = {
   evidence:"EXISTING_MANAGER_CONFIG_PROFILE_ONLY_LIVE_ASA_NOT_ADOPTED";
 };
 
+export type RunningAsaAdoptPreview = {
+  token:string;mapId:string;mapName:string;mapKey:string;pid:number;
+  gamePort:number;queryPort:number;noProcessMutation:true;
+  storeWriterAuthorized:false;requiresExternalControllerStopped:true;
+  requiresRconSetup:true;
+  evidence:"EXACT_NONSTORE_RUNNING_ADOPTION_PREVIEW_NO_WRITE";
+};
+export type RunningAsaAdoptReceipt = {
+  mapId:string;mapName:string;pid:number;lifecycleAuthorized:true;
+  storeWriterAuthorized:false;rconRequiresSeparateConfiguration:true;
+  processStarted:false;processStopped:false;
+  evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE";
+};
+
 export type LocalHost = {
   hostName: string;
   hostId: string;
@@ -1451,6 +1465,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
   "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
   "servers.runningPreview" | "servers.runningRegister" |
+  "servers.runningAdoptPreview" | "servers.runningAdoptApply" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
@@ -1496,7 +1511,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
-   confirm?: boolean; maintenance?:boolean; jobId?: string; watchId?: string; sessionName?: string;
+   confirm?: boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
@@ -1907,6 +1922,11 @@ export const managerBridge = {
     request<RunningAsaImportPreview>("servers.runningPreview", {pid,startedUtc,name,gamePort,queryPort}),
   runningAsaRegister: (token:string) =>
     request<RunningAsaImportReceipt>("servers.runningRegister", {token,confirm:true}),
+  runningAsaAdoptPreview: (mapId:string) =>
+    request<RunningAsaAdoptPreview>("servers.runningAdoptPreview",{mapId}),
+  runningAsaAdoptApply: (token:string,externalControllerStopped:boolean) =>
+    request<RunningAsaAdoptReceipt>("servers.runningAdoptApply",
+      {token,confirm:true,externalControllerStopped}),
   inspectLocalAsa: (name: string, root: string) =>
     request<LocalImportPreview>("servers.inspectLocal", { name, root }),
   importLocalAsa: (importToken: string) =>

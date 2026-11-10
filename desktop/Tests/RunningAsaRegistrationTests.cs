@@ -175,6 +175,74 @@ internal static class RunningAsaRegistrationTests
                 new[]{Guid.NewGuid()},LocalModCopyMode.Merge);}
             catch(UnauthorizedAccessException){copyDenied=true;}
             Check(copyDenied,"observed map cannot be a mod copy source or target");
+            // Native takeover is a distinct, explicit, non-Store-only workflow.
+            // Synthetic WMI must NEVER be accepted as physical process evidence.
+            using(var takeover=new DesktopRunningAsaAdoptionBridge(cluster,Observe))
+            {
+                static async Task<JsonElement> AdoptCall(
+                    DesktopRunningAsaAdoptionBridge bridge,string method,object payload)
+                {
+                    using var input=JsonDocument.Parse(JsonSerializer.Serialize(payload));
+                    var props=input.RootElement.EnumerateObject()
+                        .ToDictionary(p=>p.Name,p=>(object?)p.Value.Clone());
+                    props["id"]=Guid.NewGuid().ToString("D");
+                    props["method"]=method;
+                    using var response=JsonDocument.Parse(
+                        await bridge.HandleAsync(JsonSerializer.Serialize(props)));
+                    return response.RootElement.Clone();
+                }
+                var adoptPreview=await AdoptCall(takeover,
+                    "servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(adoptPreview.GetProperty("ok").GetBoolean() &&
+                    cluster.Config.LocalMaps.Single().ObservedReadOnlyImported,
+                    "non-Store takeover preview checks observed candidate without ownership changes");
+                string adoptToken=adoptPreview.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                var noApproval=await AdoptCall(takeover,
+                    "servers.runningAdoptApply",
+                    new{token=adoptToken,confirm=true,externalControllerStopped=false});
+                Check(!noApproval.GetProperty("ok").GetBoolean() &&
+                    map.ObservedReadOnlyImported && map.Arguments=="",
+                    "missing external Manager shutdown acknowledgement denies takeover");
+                var deniedTokenReplay=await AdoptCall(takeover,
+                    "servers.runningAdoptApply",
+                    new{token=adoptToken,confirm=true,externalControllerStopped=true});
+                Check(!deniedTokenReplay.GetProperty("ok").GetBoolean(),
+                    "denied takeover approval token cannot be replayed");
+                adoptPreview=await AdoptCall(takeover,
+                    "servers.runningAdoptPreview",new{mapId=map.Id});
+                adoptToken=adoptPreview.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                observations=new[]{sample with{CommandLine=command+" -passivemods=100004"}};
+                var changedTakeover=await AdoptCall(takeover,
+                    "servers.runningAdoptApply",
+                    new{token=adoptToken,confirm=true,externalControllerStopped=true});
+                Check(!changedTakeover.GetProperty("ok").GetBoolean() &&
+                    map.ObservedReadOnlyImported,
+                    "changed live launch identity denies takeover");
+                observations=new[]{sample with{CommandLine=command+" -usestore"}};
+                var originalStoreDenied=await AdoptCall(takeover,
+                    "servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(!originalStoreDenied.GetProperty("ok").GetBoolean(),
+                    "a Store flag never permits registered non-Store promotion");
+                observations=new[]{sample,sample with{Pid=71222}};
+                var duplicateDenied=await AdoptCall(takeover,
+                    "servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(!duplicateDenied.GetProperty("ok").GetBoolean(),
+                    "ambiguous same-map live processes never authorize takeover");
+                observations=new[]{sample};
+                adoptPreview=await AdoptCall(takeover,
+                    "servers.runningAdoptPreview",new{mapId=map.Id});
+                adoptToken=adoptPreview.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                var syntheticCannotPromote=await AdoptCall(takeover,
+                    "servers.runningAdoptApply",
+                    new{token=adoptToken,confirm=true,externalControllerStopped=true});
+                Check(!syntheticCannotPromote.GetProperty("ok").GetBoolean() &&
+                    map.ObservedReadOnlyImported && map.LastProcess==null &&
+                    map.Arguments=="",
+                    "synthetic observation cannot bypass Core physical Windows WMI proof");
+            }
             Check(File.ReadAllBytes(world).SequenceEqual(original) &&
                 File.ReadAllBytes(exe).SequenceEqual(new byte[]{77,90,4,7}),
                 "existing world and executable remain untouched");

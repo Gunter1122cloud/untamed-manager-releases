@@ -1149,6 +1149,102 @@ public sealed partial class ClusterService : IAsyncDisposable
             throw;
         }
     }
+    /// <summary>
+    /// A separately approved transition from WMI observation to LOCAL process
+    /// ownership for an already-running NON-STORE ASA. Never creates, stops or
+    /// restarts an ASA process. The current PID/start/arguments must agree with
+    /// a fresh physical Windows inspection while the installation lease is held.
+    /// This entry point is intentionally separate from ReplaceMap: no general
+    /// configuration editor can remove the observation-only protection.
+    /// </summary>
+    public void AdoptObservedNonStore(Guid id,string exactArguments,
+        ProcessIdentity expected)
+    {
+        var original=Config.LocalMaps.SingleOrDefault(m=>m.Id==id) ??
+            throw new UnauthorizedAccessException("UM-ADOPT-LOCAL-MAP-REQUIRED");
+        if(!original.ObservedReadOnlyImported || original.HistoricalStoreProtected ||
+           !string.IsNullOrWhiteSpace(original.HistoricalArchiveSha256) ||
+           !string.IsNullOrWhiteSpace(original.FreshStoreClusterId) ||
+           !string.IsNullOrWhiteSpace(original.StoreTestRoot) ||
+           original.StartWithAsaApi || !string.IsNullOrWhiteSpace(original.ApiLoaderPath) ||
+           original.LastProcess!=null || original.LastLoader!=null)
+            throw new UnauthorizedAccessException("UM-ADOPT-FOREIGN-OR-STORE-PROTECTED");
+        if(expected==null || expected.Pid<=0 || expected.StartedUtc.Year<2020 ||
+           string.IsNullOrWhiteSpace(exactArguments) || exactArguments.Length>2048 ||
+           exactArguments.Any(char.IsControl) ||
+           exactArguments.Contains("store",StringComparison.OrdinalIgnoreCase) ||
+           exactArguments.Contains("cluster",StringComparison.OrdinalIgnoreCase) ||
+           exactArguments.Contains("convert",StringComparison.OrdinalIgnoreCase) ||
+           exactArguments.Contains("password",StringComparison.OrdinalIgnoreCase) ||
+           exactArguments.Contains("secret",StringComparison.OrdinalIgnoreCase) ||
+           exactArguments.Contains("token",StringComparison.OrdinalIgnoreCase) ||
+           exactArguments.Contains("auth",StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("UM-ADOPT-ARGUMENTS-UNSAFE");
+        string first=exactArguments.Split((char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()??"";
+        if(!first.Equals(original.ObservedMapKey+"?listen",
+            StringComparison.OrdinalIgnoreCase) ||
+           original.GamePort is <1024 or >65535 ||
+           original.QueryPort is <1024 or >65535 ||
+           original.GamePort==original.QueryPort)
+            throw new InvalidDataException("UM-ADOPT-MAP-PORTS-UNVERIFIED");
+        string root=Path.GetFullPath(original.InstallationPath);
+        string exe=Path.GetFullPath(original.ExecutablePath);
+        string expectedExe=Path.Combine(root,"ShooterGame","Binaries",
+            "Win64","ArkAscendedServer.exe");
+        if(!exe.Equals(expectedExe,StringComparison.OrdinalIgnoreCase) ||
+           !string.Equals(Path.GetFullPath(expected.ExecutablePath),exe,
+               StringComparison.OrdinalIgnoreCase) ||
+           !string.Equals(exactArguments,expected.Arguments,StringComparison.Ordinal) ||
+           !File.Exists(exe) || !AsaReadyProbe.IsRegisteredServerBinary(original))
+            throw new InvalidDataException("UM-ADOPT-EXECUTABLE-UNVERIFIED");
+        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(original) ||
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(original))
+            throw new UnauthorizedAccessException("UM-ADOPT-STORE-OR-RECOVERY-LOCKED");
+        // A Store or read-only map in the same installation remains a blocker.
+        // This is a safety restriction, not an N-host/M-map product limit.
+        if(Config.LocalMaps.Any(m=>m.Id!=id &&
+            !string.IsNullOrWhiteSpace(m.InstallationPath) &&
+            string.Equals(Path.GetFullPath(m.InstallationPath).TrimEnd(
+                Path.DirectorySeparatorChar),root.TrimEnd(
+                Path.DirectorySeparatorChar),StringComparison.OrdinalIgnoreCase) &&
+            (m.ObservedReadOnlyImported || m.HistoricalStoreProtected ||
+             KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(m))))
+            throw new UnauthorizedAccessException("UM-ADOPT-SHARED-INSTALLATION-LOCKED");
+        var replacement=JsonSerializer.Deserialize<LocalMap>(
+            JsonSerializer.Serialize(original)) ??
+            throw new InvalidDataException("UM-ADOPT-PROFILE-CLONE-FAILED");
+        replacement.ObservedReadOnlyImported=false;
+        replacement.Arguments=exactArguments;
+        replacement.LastProcess=new ProcessIdentity {
+            Pid=expected.Pid,StartedUtc=expected.StartedUtc,
+            ExecutablePath=exe,Arguments=exactArguments
+        };
+        replacement.AutoStart=false;
+        replacement.MonitorRcon=false;
+        using var operation=Operations.Acquire(root,UntamedOperationKind.Configuration);
+        if(!ReferenceEquals(Config.LocalMaps.SingleOrDefault(m=>m.Id==id),original))
+            throw new InvalidOperationException("UM-ADOPT-PROFILE-CHANGED");
+        // Fresh, independent WMI evidence is authoritative; a renderer-provided
+        // PID or an earlier observation can never authorize promotion by itself.
+        var now=new WindowsProcessInspector().Inspect(replacement);
+        if(!now.Running || now.Identity==null || now.ConfirmedStopped ||
+           now.Identity.Pid!=expected.Pid ||
+           now.Identity.StartedUtc!=expected.StartedUtc ||
+           !string.Equals(now.Identity.ExecutablePath,exe,
+               StringComparison.OrdinalIgnoreCase) ||
+           !string.Equals(now.Identity.Arguments,exactArguments,
+               StringComparison.Ordinal))
+            throw new InvalidOperationException("UM-ADOPT-PROCESS-CHANGED");
+        int index=Config.LocalMaps.IndexOf(original);
+        if(index<0)throw new InvalidOperationException("UM-ADOPT-PROFILE-CHANGED");
+        operation.MarkMutationStarted();
+        Config.LocalMaps[index]=replacement;
+        try {Save();}
+        catch {Config.LocalMaps[index]=original;throw;}
+        operation.Complete();
+    }
+
     public void RemoveMap(Guid id)
     {
         int index=Config.LocalMaps.FindIndex(m=>m.Id==id);
