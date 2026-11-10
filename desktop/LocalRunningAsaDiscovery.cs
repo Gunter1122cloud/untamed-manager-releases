@@ -12,7 +12,7 @@ namespace UntamedDesktop;
 /// <summary>
 /// One-shot Windows-only, read-only ASA/ASA API process discovery. Results are
 /// observations, NOT ownership, process adoption, SaveWorld or Store grants.
-/// No PID, password, launch line or UNC path is persisted or returned.
+/// PIDs are returned only to the local renderer; no identity is persisted, and raw executable paths, credentials, launch lines and UNC paths never leave the native host.
 /// </summary>
 public static class LocalRunningAsaDiscovery
 {
