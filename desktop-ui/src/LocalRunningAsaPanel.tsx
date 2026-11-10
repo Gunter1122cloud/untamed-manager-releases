@@ -39,7 +39,7 @@ export function LocalRunningAsaPanel() {
     <div className="panel-inner">
       <p className="muted small">A Windows folyamatlistáját olvassa. A találat nem jelenti, hogy a
         Manager átvette a szerver vezérlését vagy a Store-v1 írási jogát.</p>
-      {error && <div className="error-inline" role="status"><AlertTriangle size={16}/>
+      {error && <div className="error-inline" aria-live="polite"><AlertTriangle size={16}/>
         A helyi folyamatfelderítés nem elérhető ({error}); az állapot ismeretlen.</div>}
       {!error && loading && !snapshot && <p className="muted small">Helyi folyamatok ellenőrzése…</p>}
       {!loading && snapshot?.processes.length===0 && <p className="muted small">
