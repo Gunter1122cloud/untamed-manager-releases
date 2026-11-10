@@ -359,7 +359,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             HistoricalMapKey=batchMap.MapKey,
                             HistoricalEnabledMods=batchMap.EnabledMods.ToList(),
                             HistoricalPassiveMods=batchMap.PassiveMods.ToList(),
-                            StartWithAsaApi=false,AutoStart=false,MonitorRcon=false,
+                            StartWithAsaApi=false,
+                            HistoricalLaunchModeNeedsApproval=true,
+                            AutoStart=false,MonitorRcon=false,
                             RconPort=0,ApiLoaderArguments=""
                         });
                     }
@@ -481,7 +483,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         HistoricalMapKey=directApproval.MapKey,
                         HistoricalEnabledMods=directApproval.Enabled.ToList(),
                         HistoricalPassiveMods=directApproval.Passive.ToList(),
-                        StartWithAsaApi=false,AutoStart=false,MonitorRcon=false,
+                        StartWithAsaApi=false,
+                        HistoricalLaunchModeNeedsApproval=true,
+                        AutoStart=false,MonitorRcon=false,
                         RconPort=0,ApiLoaderArguments=""
                     });
                     return Ok(id,new{
