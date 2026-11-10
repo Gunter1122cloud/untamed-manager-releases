@@ -113,6 +113,7 @@ export function LocalRunningAsaPanel() {
         <div>
           <b>{p.processKind==="apiLoader"?"ASA API Loader":"ARK Ascended Server"} · PID {p.pid}</b>
           <p>{p.mapKey==="unknown"?"Ismeretlen map":p.mapKey} · {
+            p.observedReadOnlyImported?"Managerhez regisztrálva · kizárólag megfigyelés":
             p.matchState==="profileCandidate"?"Egyező helyi profiljelölt":
             p.matchState==="unregistered"?"Nincs egyező helyi profil":
             p.matchState==="ambiguous"?"Több lehetséges helyi profil":
