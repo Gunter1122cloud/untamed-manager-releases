@@ -20,6 +20,11 @@ public static class EmbeddedStoreReadOnlyInspector
     private const int MaxSections=3;
     private const string PartialState="INDEX_PREFIX_VALID_TRAILING_UNVERIFIED";
     private const int MaxEntries=100_000;
+    // Each class name requires a separate, bounded SQLite BLOB slice.
+    // Larger sections retain structurally bounded index evidence but excess
+    // records are UNCLASSIFIED rather than optimistically labeled as the
+    // first seen player/tribe type.
+    private const int MaxClassReadsPerSection=2_048;
     private const int EntrySize=16; // key[8], offset[int32], size[int32]
     private const string StoreKey="GameModeCustomBytes";
 
@@ -210,8 +215,7 @@ public static class EmbeddedStoreReadOnlyInspector
                 throw new InvalidDataException("UM-STORE-COPY-INDEX-OUT-OF-BOUNDS");
             }
             var currentKeys=new HashSet<ulong>();
-            int live=0;
-            string kind="";
+            int classReads=0,sectionPlayers=0,sectionTribes=0,sectionUnknown=0;
             // Small batches keep UI/Manager memory independent of survivor count.
             for(int first=0;first<count;first+=64)
             {
@@ -227,31 +231,36 @@ public static class EmbeddedStoreReadOnlyInspector
                     if(offset<0||bytes<=0||(long)offset+bytes>dataSize)
                         throw new InvalidDataException("UM-STORE-COPY-ENTRY-OUT-OF-BOUNDS");
                     if(!currentKeys.Add(key))duplicates++;
-                    live++;
-                    if(kind.Length==0&&bytes>=36)
+                    // Never infer every record's type from the first class
+                    // observed in the section. A mixed player/tribe section
+                    // or malformed class name would fabricate counts.
+                    if(bytes<36||classReads>=MaxClassReadsPerSection)
                     {
-                        // Embedded file class name follows its 32-byte header.
-                        // Unknown classes remain unclassified, never guessed.
-                        byte[] prefix=Read(dataStart+offset,Math.Min(bytes,292));
-                        int classBytes=BinaryPrimitives.ReadInt32LittleEndian(
-                            prefix.AsSpan(32,4));
-                        if(classBytes is >=1 and <=256 && classBytes<=prefix.Length-36)
-                        {
-                            string className=Encoding.Latin1.GetString(prefix,36,classBytes);
-                            if(className.Contains("PrimalTribeData",StringComparison.Ordinal))
-                                kind="tribe";
-                            else if(className.Contains("PrimalPlayerData",StringComparison.Ordinal))
-                                kind="profile";
-                        }
+                        sectionUnknown++;
+                        continue;
                     }
+                    classReads++;
+                    byte[] prefix=Read(dataStart+offset,Math.Min(bytes,292));
+                    int classBytes=BinaryPrimitives.ReadInt32LittleEndian(
+                        prefix.AsSpan(32,4));
+                    if(classBytes is <1 or >256||classBytes>prefix.Length-36)
+                    {
+                        sectionUnknown++;
+                        continue;
+                    }
+                    string className=Encoding.Latin1.GetString(prefix,36,classBytes);
+                    bool isProfile=className.Contains(
+                        "PrimalPlayerData",StringComparison.Ordinal);
+                    bool isTribe=className.Contains(
+                        "PrimalTribeData",StringComparison.Ordinal);
+                    if(isProfile&&!isTribe)sectionPlayers++;
+                    else if(isTribe&&!isProfile)sectionTribes++;
+                    else sectionUnknown++;
                 }
             }
-            switch(kind)
-            {
-                case "profile": players=checked(players+live);break;
-                case "tribe": tribes=checked(tribes+live);break;
-                default: unknown=checked(unknown+live);break;
-            }
+            players=checked(players+sectionPlayers);
+            tribes=checked(tribes+sectionTribes);
+            unknown=checked(unknown+sectionUnknown);
             sections++;
             position=indexEnd;
         }
