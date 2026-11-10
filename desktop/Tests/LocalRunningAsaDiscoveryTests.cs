@@ -50,6 +50,18 @@ internal static class LocalRunningAsaDiscoveryTests
         Check(LocalRunningAsaDiscovery.Classify(new[]{spoof},new[]{original})
               .Single().MatchState=="unverified",
             "executable mismatch in a command line denies profile match");
+        var importedButNotAdopted=new LocalMap{
+            Id=Guid.NewGuid(),Name="Kova historical loader not adopted",
+            HistoricalMapKey="TheIsland_WP",HistoricalStoreProtected=true,
+            ExecutablePath=server,InstallationPath=original.InstallationPath,
+            StartWithAsaApi=false,ApiLoaderPath=""
+        };
+        var passive=LocalRunningAsaDiscovery.Classify(
+            new[]{sample[0]},new[]{importedButNotAdopted}).Single();
+        Check(passive.MatchState=="profileCandidate"&&!passive.Controllable&&
+              !passive.StoreWriteAuthorized,
+            "original Kova API loader is discovered even before Manager API opt-in, without ownership");
+
         var duplicate=new LocalMap{
             Id=Guid.NewGuid(),Name="Duplicate synthetic profile",
             HistoricalMapKey="TheIsland_WP",HistoricalStoreProtected=true,
