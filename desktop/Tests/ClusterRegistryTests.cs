@@ -145,6 +145,47 @@ internal static class ClusterRegistryTests
               Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(sentinel)))==
                   originalSha,
             "all original synthetic Store bytes remain unchanged by registry operations");
+
+        // The true cluster ID must be copied from historical Kova metadata.
+        // A differently named source-pinned cluster has exactly the same
+        // fail-closed generic-edit and fresh-map protection as KovaCluster.
+        var sourceNamed=service.Registry.CreateCluster("source-import-id-42",
+            "Historical source-provided ID",
+            Path.Combine(root,"different-historical-transfer"));
+        Guid sourceMember=SyntheticMapId(821);
+        service.AddMap(new LocalMap{
+            Id=sourceMember,Name="Synthetic Historical Other",
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=new string('B',64)
+        });
+        // As with the original 5+5 fixture, model an ALREADY imported
+        // source-pinned assignment without permitting generic re-enrollment.
+        service.Config.ClusterRegistry.MapAssignments.Add(new ClusterMapAssignment{
+            MapId=sourceMember,ClusterId=sourceNamed.ClusterId});
+        var sourceBaseline=service.Registry.Snapshot();
+        var noChange=service.Registry.PreviewMapAssignments(
+            sourceNamed.ClusterId,new[]{sourceMember});
+        Check(noChange.IsValid&&noChange.Additions.Count==0,
+            "source-named historical cluster remains readable without membership changes");
+        var addToSource=service.Registry.PreviewMapAssignments(
+            sourceNamed.ClusterId,new[]{sourceMember,extra});
+        Check(!addToSource.IsValid&&addToSource.Errors.Contains(
+              "UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE"),
+            "unverified future map cannot enter a historical Store cluster with non-Kova ID");
+        bool sourceApplyDenied=false;
+        try{service.Registry.ApplyMapAssignments(
+            sourceNamed.ClusterId,new[]{sourceMember,extra},addToSource.BaseRevision);}
+        catch(InvalidDataException){sourceApplyDenied=true;}
+        Check(sourceApplyDenied&&
+              service.Registry.Snapshot().Revision==sourceBaseline.Revision,
+            "source-named historical cluster rejects direct apply without registry mutation");
+        bool sourceRebindDenied=false;
+        try{service.Registry.UpdateCluster(sourceNamed.ClusterId,sourceNamed.Name,
+            Path.Combine(root,"unauthorized-source-transfer-rebind"));}
+        catch(UnauthorizedAccessException){sourceRebindDenied=true;}
+        Check(sourceRebindDenied&&
+              File.ReadAllBytes(sentinel).SequenceEqual(bytes),
+            "source-named historical cluster transfer path and original Store bytes are protected");
     }
 
     private static void ValidateLargeSyntheticTopology(string testRoot)
