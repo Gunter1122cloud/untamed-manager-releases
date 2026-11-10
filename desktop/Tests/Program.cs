@@ -4088,9 +4088,12 @@ try
         };
         var pathA=Path.Combine(root,"travel-lab-a");
         var pathB=Path.Combine(root,"travel-lab-b");
+        bool syntheticAsaRunning=false;
         await using var firstHost=new ClusterService("travel-lab-a",
             Path.Combine(root,"travel-profile-a"),
-            _=>new ProcessCheck(false,"confirmed stopped synthetic travel",null,true));
+            _=>syntheticAsaRunning
+                ?new ProcessCheck(true,"synthetic ASA running",null,false)
+                :new ProcessCheck(false,"confirmed stopped synthetic travel",null,true));
         await using var secondHost=new ClusterService("travel-lab-b",
             Path.Combine(root,"travel-profile-b"),
             _=>new ProcessCheck(false,"confirmed stopped synthetic travel",null,true));
@@ -4115,6 +4118,22 @@ try
         File.WriteAllText(tribePath,"synthetic tribe");
         var travelA=new DesktopStoreTravelEvidenceBridge(firstHost);
         var travelB=new DesktopStoreTravelEvidenceBridge(secondHost);
+        syntheticAsaRunning=true;
+        var liveSnapshot=await Call(travelA.HandleAsync,"travel.capture");
+        Check(liveSnapshot.GetProperty("ok").GetBoolean()&&
+              !liveSnapshot.GetProperty("data").GetProperty("complete").GetBoolean()&&
+              liveSnapshot.GetProperty("data").GetProperty("maps")
+                  .EnumerateArray().All(m=>m.GetProperty("profileCount").GetInt32()==0&&
+                    m.GetProperty("Unstable").GetBoolean()),
+            "running ASA never triggers player/tribe file enumeration or success");
+        syntheticAsaRunning=false;
+        using(var concurrentWriter=new FileStream(sourceFile,FileMode.Open,
+            FileAccess.ReadWrite,FileShare.ReadWrite))
+        {
+            var conflicting=await Call(travelA.HandleAsync,"travel.capture");
+            Check(IsError(conflicting,"UM-TRAVEL-EVIDENCE-UNVERIFIED"),
+                "open external writer prevents SHA-256 travel snapshot rather than producing torn evidence");
+        }
         var beforeA=await Call(travelA.HandleAsync,"travel.capture");
         var beforeB=await Call(travelB.HandleAsync,"travel.capture");
         IsOk(beforeA,"first 5 local map inventory captured without write");
