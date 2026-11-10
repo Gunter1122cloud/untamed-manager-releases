@@ -137,7 +137,7 @@ internal static class RunningAsaRegistrationTests
                     method="ini.open",mapId=map.Id,file="GameUserSettings.ini"}))))
                 Check(!deniedIni.RootElement.GetProperty("ok").GetBoolean() &&
                     deniedIni.RootElement.GetProperty("error").GetString()==
-                    "UM-OBSERVED-OR-HISTORICAL-READONLY",
+                    "UM-LIVE-OBSERVED-MAP-READONLY",
                     "observed map is denied before on-disk INI access");
             bool coreLaunchDenied=false,legacyLaunchDenied=false;
             try{cluster.LaunchFreshAsa(map.Id,true);}
