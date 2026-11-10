@@ -88,6 +88,7 @@ var map=new LocalMap{
         "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
 };
 cluster.AddMap(map);
+LocalRunningAsaDiscoveryTests.Run();
 await ClusterRegistryTests.Run(root);
 await LegacyStorePhysicalTransferTests.Run(root);
 LegacyStoreOriginalLinkTests.Run(root);
