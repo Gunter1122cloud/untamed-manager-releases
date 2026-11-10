@@ -125,6 +125,7 @@ export type PublicMap = {
   steamUpdateState: string;
   storeProtected?: boolean;  // only populated for locally owned maps
   observedReadOnlyImported?: boolean; // observation-only map, no lifecycle/Store owner
+  observedRuntimeState?: "notApplicable"|"observedRunning"|"unverified"; // WMI only, no PID authority
   freshStoreEnrolled?: boolean; // new local Store map, not historical Kova
   /** Read-only native state, never Start/Stop or Store-session authorization. */
   storeLifecycleState?: "running"|"preflightRequired"|"needsConfiguration"|
