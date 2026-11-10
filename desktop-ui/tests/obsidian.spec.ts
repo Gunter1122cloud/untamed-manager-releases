@@ -36,6 +36,13 @@ test.beforeEach(async ({ page }) => {
         state.remote=null;
         state.peerMessage="Peer nincs beállítva";
       };
+    (window as typeof window & {__UNTAMED_OBSERVED_MAP_FIXTURE__?:()=>void})
+      .__UNTAMED_OBSERVED_MAP_FIXTURE__=()=>{
+        Object.assign(state.local.maps[1],{
+          observedReadOnlyImported:true,
+          status:"UM-LIVE-OBSERVATION-ONLY-STOP-UNVERIFIED",running:false
+        });
+      };
     let freshId = "";
     let importedObserved=false;
     let initialBlocked=false;
@@ -2973,6 +2980,27 @@ test("P0 read-only native ASA discovery displays server/loader identities withou
   await panel.getByRole("button",{name:"Új ellenőrzés"}).click();
   await expect(panel).toContainText("ARK Ascended Server · PID 4442");
   await expect(panel.getByRole("button",{name:/Átvétel|Leállítás|Mentés|Restart/})).toHaveCount(0);
+});
+
+test("P0 observed-only map detail never exposes lifecycle, RCON, or disk writer controls",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    (window as typeof window & {__UNTAMED_OBSERVED_MAP_FIXTURE__?:()=>void})
+      .__UNTAMED_OBSERVED_MAP_FIXTURE__?.();
+  });
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").last().click();
+  const detail=page.getByRole("region",{name:"Megfigyelési map adatlapja"});
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole("heading",{name:"Astraeos"})).toBeVisible();
+  await expect(detail).toContainText("CSAK MEGFIGYELÉS");
+  await expect(detail).toContainText("SaveWorld, RCON, INI, mod, plugin, SteamCMD");
+  await expect(detail.getByRole("tab")).toHaveCount(0);
+  await expect(detail.getByRole("button",{
+    name:/Indítás|Leállítás|Újraindítás|Modok kezelése|INI szerkesztése|RCON beállítása/
+  })).toHaveCount(0);
+  await expect(detail.getByRole("region",{name:"Futó helyi ASA-folyamatok"})).toBeVisible();
 });
 
 test("P0 running ASA import previews exact PID and explicitly registers read-only local profile",async({page})=>{
