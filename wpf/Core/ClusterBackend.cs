@@ -1133,6 +1133,10 @@ public sealed partial class ClusterService : IAsyncDisposable
         int index=Config.LocalMaps.IndexOf(existing);
         if(index<0 || replacement.Id!=existing.Id)
             throw new UnauthorizedAccessException("Map identity changed or is not registered locally");
+        // Observation-only imported processes never confer Manager write ownership.
+        // Do not allow another bridge to silently promote or edit this profile.
+        if(existing.ObservedReadOnlyImported || replacement.ObservedReadOnlyImported)
+            throw new UnauthorizedAccessException("UM-LIVE-OBSERVED-MAP-READONLY");
         replacement.Name=LocalMapNameRules.Normalize(replacement.Name);
         if(Config.LocalMaps.Any(m=>m.Id!=existing.Id &&
             m.Name.Equals(replacement.Name,StringComparison.OrdinalIgnoreCase)))
