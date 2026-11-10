@@ -26,6 +26,10 @@ public sealed class LocalMap
     // this map. Preserved in Manager-only metadata so first setup need not
     // ask for the same custom Unreal level twice. Empty for older imports.
     public string FreshInstallMapLevel { get; set; } = "";
+    // A running non-Store ASA may be registered strictly for observation.
+    // These fields cannot confer process/RCON/Store-writer authority.
+    public string ObservedMapKey { get; set; } = "";
+    public bool ObservedReadOnlyImported { get; set; } = false;
     public List<string> DisabledModIds { get; set; } = new();
     public bool ModChangesPending { get; set; } = false;
     public string LogFilePath { get; set; } = "";
@@ -1129,6 +1133,10 @@ public sealed partial class ClusterService : IAsyncDisposable
         int index=Config.LocalMaps.IndexOf(existing);
         if(index<0 || replacement.Id!=existing.Id)
             throw new UnauthorizedAccessException("Map identity changed or is not registered locally");
+        // Observation-only imported processes never confer Manager write ownership.
+        // Do not allow another bridge to silently promote or edit this profile.
+        if(existing.ObservedReadOnlyImported || replacement.ObservedReadOnlyImported)
+            throw new UnauthorizedAccessException("UM-LIVE-OBSERVED-MAP-READONLY");
         replacement.Name=LocalMapNameRules.Normalize(replacement.Name);
         if(Config.LocalMaps.Any(m=>m.Id!=existing.Id &&
             m.Name.Equals(replacement.Name,StringComparison.OrdinalIgnoreCase)))
@@ -1185,6 +1193,8 @@ public sealed partial class ClusterService : IAsyncDisposable
     public ProcessCheck Check(LocalMap map)
     {
         if(!Config.LocalMaps.Contains(map)) throw new UnauthorizedAccessException("Not a local map");
+        if(map.ObservedReadOnlyImported)
+            return new(false,"UM-LIVE-OBSERVATION-ONLY-STOP-UNVERIFIED",null,false);
         if(map.HistoricalStoreProtected)
             return new(false,"Történeti Store-v1 map: indítás tiltva a teljes eredeti launch/szinkron validációjáig",null);
         if((map.Arguments+" "+map.ApiLoaderArguments).Contains("converttostore",StringComparison.OrdinalIgnoreCase))
@@ -1272,6 +1282,8 @@ public sealed partial class ClusterService : IAsyncDisposable
     {
         var map=Config.LocalMaps.SingleOrDefault(x=>x.Id==id) ??
             throw new UnauthorizedAccessException("Only local registered maps may start");
+        if(map.ObservedReadOnlyImported)
+            throw new UnauthorizedAccessException("UM-LIVE-OBSERVED-MAP-READONLY");
         bool newlyEnrolledStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if(newlyEnrolledStore)
             FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);
@@ -1493,6 +1505,8 @@ public sealed partial class ClusterService : IAsyncDisposable
         // RC safety enforcement belongs to the service, not merely the WPF button:
         // prevent timers, other UI components or direct method callers from
         // launching actual ArkAscendedServer.exe before production validation.
+        if(map.ObservedReadOnlyImported)
+            throw new UnauthorizedAccessException("UM-LIVE-OBSERVED-MAP-READONLY");
         if(map.HistoricalStoreProtected)
             throw new InvalidOperationException("Historical Store-v1 profile is locked until full launch parity validation");
         ReleaseCapabilityGate.DemandFakeAsaStart(this,map);

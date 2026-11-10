@@ -55,6 +55,7 @@ public sealed class DesktopModDraftBridge : IDisposable
                     var local=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
                     if(local==null)return Error(id,"UM-MAP-NOT-OWNED");
                     if(local.HistoricalStoreProtected)return Error(id,"UM-HISTORICAL-STORE-LOCKED");
+                    if(local.ObservedReadOnlyImported)return Error(id,"UM-LIVE-OBSERVED-MAP-READONLY");
                     foreach(var old in drafts.Where(x=>x.Value.MapId==mapId)
                         .Select(x=>x.Key).ToArray())drafts.Remove(old);
                     if(drafts.Count>=8)return Error(id,"UM-TOO-MANY-DRAFTS");
@@ -69,6 +70,7 @@ public sealed class DesktopModDraftBridge : IDisposable
                 var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==current.MapId);
                 if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
                 if(map.HistoricalStoreProtected)return Error(id,"UM-HISTORICAL-STORE-LOCKED");
+                if(map.ObservedReadOnlyImported)return Error(id,"UM-LIVE-OBSERVED-MAP-READONLY");
                 if(!current.Session.MatchesLive(map))return Error(id,"UM-DRAFT-CONFLICT");
 
                 if(method=="mods.draftDiscard")

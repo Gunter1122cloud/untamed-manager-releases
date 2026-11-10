@@ -69,6 +69,7 @@ public sealed class DesktopIniBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     if(map.HistoricalStoreProtected)return Fail(id,"UM-HISTORICAL-STORE-LOCKED");
+                    if(map.ObservedReadOnlyImported)return Fail(id,"UM-LIVE-OBSERVED-MAP-READONLY");
                     var check=cluster.Check(map);
                     if(!check.ConfirmedStopped || check.Running || map.Maintenance)
                         return Fail(id,"UM-INI-STOP-REQUIRED");
@@ -118,6 +119,7 @@ public sealed class DesktopIniBridge : IDisposable
                 var owned=Owned(openedFile.MapId);
                 if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
                 if(owned.HistoricalStoreProtected)return Fail(id,"UM-HISTORICAL-STORE-LOCKED");
+                if(owned.ObservedReadOnlyImported)return Fail(id,"UM-LIVE-OBSERVED-MAP-READONLY");
 
                 if(method=="ini.close")
                 {

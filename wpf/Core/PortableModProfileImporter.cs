@@ -21,6 +21,7 @@ public static class PortableModProfileImporter
     private static void Eligible(LocalMap map)
     {
         if(map.Id==Guid.Empty||map.Maintenance||map.HistoricalStoreProtected||
+           map.ObservedReadOnlyImported||
            UntamedWorldBackup.HasLiveOrHistoricalStore(map))
             throw new UnauthorizedAccessException("Store-v1 or maintenance map is not editable");
         _=ModStateController.Read(map);

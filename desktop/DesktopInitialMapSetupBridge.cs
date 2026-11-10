@@ -220,7 +220,7 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
     private LocalMap? Owned(Guid id)=>
         cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id);
     private static bool Initial(LocalMap map)=>
-        !map.HistoricalStoreProtected &&
+        !map.HistoricalStoreProtected && !map.ObservedReadOnlyImported &&
         string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256) &&
         string.IsNullOrWhiteSpace(map.StoreTestRoot) &&
         string.IsNullOrWhiteSpace(map.FreshStoreClusterId) &&

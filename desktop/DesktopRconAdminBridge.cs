@@ -74,7 +74,7 @@ public sealed class DesktopRconAdminBridge
     {
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
         if(map==null)throw new UnauthorizedAccessException("UM-RCON-MAP-NOT-OWNED");
-        if(map.HistoricalStoreProtected||map.Maintenance)
+        if(map.HistoricalStoreProtected||map.ObservedReadOnlyImported||map.Maintenance)
             throw new InvalidOperationException("UM-RCON-MAP-PROTECTED");
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
         if(FreshStoreEnrollmentPolicy.IsEnrolled(map))

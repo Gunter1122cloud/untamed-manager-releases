@@ -60,7 +60,7 @@ public sealed class DesktopPluginZipBridge : IDisposable
     private void EnsureStopped(LocalMap map)
     {
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
-        if(map.HistoricalStoreProtected||map.Maintenance||
+        if(map.HistoricalStoreProtected||map.ObservedReadOnlyImported||map.Maintenance||
            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
             throw new InvalidOperationException("UM-PLUGIN-STORE-PROTECTED");
         string root=Path.GetFullPath(map.InstallationPath);
@@ -73,7 +73,7 @@ public sealed class DesktopPluginZipBridge : IDisposable
         foreach(var sibling in siblings)
         {
             var process=cluster.Check(sibling);
-            if(sibling.HistoricalStoreProtected||sibling.Maintenance||
+            if(sibling.HistoricalStoreProtected||sibling.ObservedReadOnlyImported||sibling.Maintenance||
                process.Running||!process.ConfirmedStopped||
                process.Identity!=null||process.LoaderIdentity!=null)
                 throw new InvalidOperationException("UM-PLUGIN-SHARED-INSTALLATION-ACTIVE");

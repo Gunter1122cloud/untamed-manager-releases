@@ -80,6 +80,7 @@ public sealed class DesktopRconReadOnlyBridge
                 var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
                 if(map==null)return Deny(id,"UM-MAP-NOT-OWNED");
                 if(map.HistoricalStoreProtected)return Deny(id,"UM-HISTORICAL-STORE-LOCKED");
+                if(map.ObservedReadOnlyImported)return Deny(id,"UM-LIVE-OBSERVATION-NO-RCON-AUTHORITY");
                 // Store-v1 is checked BEFORE ordinary RCON preflight: a
                 // changed historical command line may invalidate the owned
                 // PID check, but it must never hide the stronger Store write

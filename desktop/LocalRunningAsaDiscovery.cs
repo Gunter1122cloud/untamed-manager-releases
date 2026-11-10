@@ -22,7 +22,8 @@ public static class LocalRunningAsaDiscovery
         string ProcessKind,string MapKey,string MatchState,string? ProfileMapId,
         string? ProfileMapName,bool LoaderParentObserved,
         bool Controllable=false,bool StoreWriteAuthorized=false,
-        LocalAsaLaunchFacts.Facts? LaunchFacts=null);
+        LocalAsaLaunchFacts.Facts? LaunchFacts=null,
+        bool ObservedReadOnlyImported=false);
 
     private static readonly Regex MapToken=new(
         @"\A(?<map>[A-Za-z0-9_]{1,100})\?listen\z",
@@ -84,6 +85,11 @@ public static class LocalRunningAsaDiscovery
 
     private static string? ProfileMap(LocalMap map)
     {
+        if(map.ObservedReadOnlyImported &&
+           Regex.IsMatch(map.ObservedMapKey??"",
+               @"\A[A-Za-z0-9_]{1,100}\z",
+               RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100)))
+            return map.ObservedMapKey;
         if(!string.IsNullOrWhiteSpace(map.HistoricalMapKey))
             return Regex.IsMatch(map.HistoricalMapKey,
                 @"\A[A-Za-z0-9_]{1,100}\z")?map.HistoricalMapKey:null;
@@ -156,13 +162,14 @@ public static class LocalRunningAsaDiscovery
             result.Add(new Observation(p.Pid,p.ParentPid,p.StartedUtc,kind,
                 key??"unknown",matchState,selected?.Id.ToString("D"),
                 selected?.Name,hasLoaderParent,false,false,
-                LocalAsaLaunchFacts.Parse(p.CommandLine,p.ExecutablePath)));
+                LocalAsaLaunchFacts.Parse(p.CommandLine,p.ExecutablePath),
+                selected?.ObservedReadOnlyImported??false));
         }
         return result.OrderBy(x=>x.Pid).ToArray();
     }
 
     /// <summary>Enumerates Windows WMI processes without altering any process.</summary>
-    public static IReadOnlyList<Observation> Inspect(IEnumerable<LocalMap> maps)
+    internal static IReadOnlyList<Sample> ReadSamples()
     {
         var samples=new List<Sample>();
         using var query=new ManagementObjectSearcher(
@@ -188,6 +195,9 @@ public static class LocalRunningAsaDiscovery
                 started,name,Convert.ToString(item["ExecutablePath"]),
                 Convert.ToString(item["CommandLine"])));
         }
-        return Classify(samples,maps);
+        return samples;
     }
+
+    public static IReadOnlyList<Observation> Inspect(IEnumerable<LocalMap> maps)=>
+        Classify(ReadSamples(),maps);
 }
