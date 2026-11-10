@@ -1109,6 +1109,217 @@ public sealed partial class ClusterService : IAsyncDisposable
         }
     }
 
+
+    /// <summary>
+    /// One native 5-map ownership handoff, including partial previous Kova
+    /// registrations. Existing source-pinned Store map IDs/ports/mod order
+    /// and optional DPAPI RCON credentials are PRESERVED; only the observed
+    /// current ASA/Loader process identity and verified launch mode are
+    /// reconciled. New IDs are added in the SAME single Manager-profile CAS.
+    /// Never creates a new Store writer, edits Kova metadata, sends RCON,
+    /// stops/starts ASA, or replaces a character, tribe or transfer record.
+    /// The caller must recheck real WMI and the two original DONE peers under
+    /// all five installation leases immediately before the profile write.
+    /// </summary>
+    public sealed record OriginalLiveFiveReconcileResult(
+        int Added,int Reattached,int Unchanged);
+    private static bool OriginalLiveProcessIdentity(ProcessIdentity? identity,
+        string expectedExe,string expectedMarker)
+    {
+        if(identity is not {Pid:>0}||identity.StartedUtc.Year<2020||
+           identity.Arguments!=expectedMarker)return false;
+        try{return Path.GetFullPath(identity.ExecutablePath).Equals(
+            Path.GetFullPath(expectedExe),StringComparison.OrdinalIgnoreCase);}
+        catch{return false;}
+    }
+
+    private (List<LocalMap> Next,int Already,int Missing)
+        PrepareOriginalLiveFive(IReadOnlyList<LocalMap> live)
+    {
+        if(live==null||live.Count!=5||live.Any(m=>m==null||
+           m.Id==Guid.Empty||!m.HistoricalStoreProtected||
+           string.IsNullOrWhiteSpace(m.HistoricalMapKey)||
+           m.HistoricalArchiveSha256?.Length!=64||
+           !m.HistoricalArchiveSha256.All(Uri.IsHexDigit)||
+           m.ObservedReadOnlyImported||m.Maintenance||m.AutoStart||
+           !string.IsNullOrWhiteSpace(m.Arguments)||
+           !string.IsNullOrWhiteSpace(m.ApiLoaderArguments)||
+           !string.IsNullOrWhiteSpace(m.StoreTestRoot)||
+           !string.IsNullOrWhiteSpace(m.FreshStoreClusterId)||
+           !string.IsNullOrWhiteSpace(m.FreshStoreTransferDirectory)||
+           m.LastProcess==null||
+           m.RconPort!=0||!string.IsNullOrWhiteSpace(m.RconPasswordProtected))||
+           live.Select(m=>m.Id).Distinct().Count()!=5||
+           live.Select(m=>m.HistoricalMapKey)
+              .Distinct(StringComparer.OrdinalIgnoreCase).Count()!=5||
+           live.Select(m=>m.HistoricalArchiveSha256)
+              .Distinct(StringComparer.Ordinal).Count()!=1)
+            throw new InvalidDataException("UM-ORIGINAL-LIVE-FIVE-SOURCE-INVALID");
+
+        var roots=new List<string>();
+        foreach(var candidate in live)
+        {
+            if(string.IsNullOrWhiteSpace(candidate.InstallationPath)||
+               !Path.IsPathFullyQualified(candidate.InstallationPath)||
+               candidate.InstallationPath.StartsWith(@"\\",StringComparison.Ordinal)||
+               !Path.IsPathFullyQualified(candidate.ExecutablePath)||
+               !File.Exists(candidate.ExecutablePath)||
+               candidate.GamePort is <1024 or >65535||
+               candidate.QueryPort is <1024 or >65535||
+               candidate.GamePort==candidate.QueryPort||
+               candidate.HistoricalEnabledMods==null||
+               candidate.HistoricalPassiveMods==null)
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-FIVE-LOCAL-INVALID");
+            string root=Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(candidate.InstallationPath));
+            string exe=Path.Combine(root,"ShooterGame","Binaries","Win64",
+                "ArkAscendedServer.exe");
+            if(!Path.GetFullPath(candidate.ExecutablePath).Equals(exe,
+                   StringComparison.OrdinalIgnoreCase)||
+               !OriginalLiveProcessIdentity(candidate.LastProcess,exe,
+                   candidate.StartWithAsaApi?
+                   "HISTORICAL_STORE_V1_API_CHILD_VERIFIED":
+                   "HISTORICAL_STORE_V1_READ_ONLY_OBSERVATION"))
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-FIVE-IDENTITY-INVALID");
+            string api=Path.Combine(root,"ShooterGame","Binaries","Win64",
+                "AsaApiLoader.exe");
+            if(candidate.StartWithAsaApi?
+               !OriginalLiveProcessIdentity(candidate.LastLoader,api,
+                   "HISTORICAL_STORE_V1_API_LOADER_VERIFIED")||
+               candidate.LastLoader!.Pid==candidate.LastProcess!.Pid||
+               candidate.LastLoader.StartedUtc>candidate.LastProcess.StartedUtc||
+               !Path.GetFullPath(candidate.ApiLoaderPath).Equals(api,
+                   StringComparison.OrdinalIgnoreCase):
+               candidate.LastLoader!=null||!string.IsNullOrWhiteSpace(
+                   candidate.ApiLoaderPath))
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-API-IDENTITY-INVALID");
+            if(roots.Any(other=>root.Equals(other,StringComparison.OrdinalIgnoreCase)||
+               root.StartsWith(other+Path.DirectorySeparatorChar,
+                   StringComparison.OrdinalIgnoreCase)||
+               other.StartsWith(root+Path.DirectorySeparatorChar,
+                   StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-FIVE-OVERLAPPING-ROOTS");
+            roots.Add(root);
+        }
+
+        var staged=Config.LocalMaps.ToList();
+        int added=0,already=0;
+        foreach(var observed in live)
+        {
+            var original=Config.LocalMaps.SingleOrDefault(m=>m.Id==observed.Id);
+            foreach(var other in Config.LocalMaps.Where(m=>m.Id!=observed.Id))
+            {
+                if(other.Name.Equals(observed.Name,StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("UM-ORIGINAL-LIVE-FOREIGN-NAME");
+                if(string.IsNullOrWhiteSpace(other.InstallationPath))continue;
+                string a=Path.TrimEndingDirectorySeparator(
+                    Path.GetFullPath(other.InstallationPath));
+                string root=Path.TrimEndingDirectorySeparator(
+                    Path.GetFullPath(observed.InstallationPath));
+                if(a.Equals(root,StringComparison.OrdinalIgnoreCase)||
+                   a.StartsWith(root+Path.DirectorySeparatorChar,
+                       StringComparison.OrdinalIgnoreCase)||
+                   root.StartsWith(a+Path.DirectorySeparatorChar,
+                       StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("UM-ORIGINAL-LIVE-FOREIGN-INSTALLATION");
+            }
+            if(original==null)
+            {
+                staged.Add(observed);added++;continue;
+            }
+            // Previous direct/STOPPED imports did not yet know whether an
+            // existing Kova ASA was an API child. This is the ONLY permitted
+            // mode correction: it must be backed by exact fresh physical WMI
+            // and both ACTIVE/DONE peers, never inferred from a checkbox.
+            if(!original.HistoricalStoreProtected||
+               original.ObservedReadOnlyImported||original.Maintenance||
+               original.AutoStart||
+               !string.IsNullOrWhiteSpace(original.Arguments)||
+               !string.IsNullOrWhiteSpace(original.ApiLoaderArguments)||
+               !string.IsNullOrWhiteSpace(original.StoreTestRoot)||
+               !string.IsNullOrWhiteSpace(original.FreshStoreClusterId)||
+               !string.IsNullOrWhiteSpace(original.FreshStoreTransferDirectory)||
+               original.HistoricalArchiveSha256!=observed.HistoricalArchiveSha256||
+               original.HistoricalMapKey!=observed.HistoricalMapKey||
+               !Path.GetFullPath(original.InstallationPath).Equals(
+                   Path.GetFullPath(observed.InstallationPath),
+                   StringComparison.OrdinalIgnoreCase)||
+               !Path.GetFullPath(original.ExecutablePath).Equals(
+                   Path.GetFullPath(observed.ExecutablePath),
+                   StringComparison.OrdinalIgnoreCase)||
+               original.GamePort!=observed.GamePort||
+               original.QueryPort!=observed.QueryPort||
+               original.HistoricalEnabledMods?.SequenceEqual(
+                   observed.HistoricalEnabledMods,StringComparer.Ordinal)!=true||
+               original.HistoricalPassiveMods?.SequenceEqual(
+                   observed.HistoricalPassiveMods,StringComparer.Ordinal)!=true)
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-EXISTING-SOURCE-CONFLICT");
+            bool hasPort=original.RconPort is >=1024 and <=65535;
+            bool hasPassword=!string.IsNullOrWhiteSpace(
+                original.RconPasswordProtected);
+            if(hasPort!=hasPassword||
+               (!hasPort&&original.RconPort!=0)||
+               (hasPort&&!AsaRconConfigurationEvidence.Matches(original)))
+                throw new InvalidDataException(
+                    "UM-ORIGINAL-LIVE-EXISTING-RCON-UNVERIFIED");
+            // Never mutate the caller's prior profile object. Preserve the
+            // original encrypted secret, RCON host, custom name, and all
+            // previously verified Store/backup metadata byte-for-byte.
+            var clone=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(original))??
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-CLONE-FAILED");
+            clone.StartWithAsaApi=observed.StartWithAsaApi;
+            clone.ApiLoaderPath=observed.ApiLoaderPath;
+            clone.LastProcess=observed.LastProcess;
+            clone.LastLoader=observed.LastLoader;
+            staged[staged.IndexOf(original)]=clone;
+            already++;
+        }
+        return(staged,already,added);
+    }
+
+    public OriginalLiveFiveReconcileResult PreviewOriginalStoreLiveFive(
+        IReadOnlyList<LocalMap> observed)
+    {
+        var planned=PrepareOriginalLiveFive(observed);
+        return new(planned.Missing,planned.Already,0);
+    }
+
+    public OriginalLiveFiveReconcileResult ReconcileOriginalStoreLiveFive(
+        IReadOnlyList<LocalMap> observed,Func<bool> verifyPhysicalSourceUnderLease)
+    {
+        ArgumentNullException.ThrowIfNull(verifyPhysicalSourceUnderLease);
+        var roots=observed.Select(m=>m.InstallationPath).ToArray();
+        using var batch=Operations.AcquireMany(roots,UntamedOperationKind.Configuration);
+        var planned=PrepareOriginalLiveFive(observed);
+        if(!verifyPhysicalSourceUnderLease())
+            throw new InvalidDataException("UM-ORIGINAL-LIVE-APPROVED-SOURCE-CHANGED");
+        // Core verifies the registry again after the second source/physical
+        // read; native approval cannot authorize a stale or foreign map.
+        var verified=PrepareOriginalLiveFive(observed);
+        if(verified.Missing!=planned.Missing||verified.Already!=planned.Already)
+            throw new InvalidDataException("UM-ORIGINAL-LIVE-REGISTRY-CHANGED");
+        var before=Config.LocalMaps.ToArray();
+        var next=verified.Next;
+        if(JsonSerializer.Serialize(before)==JsonSerializer.Serialize(next))
+        {
+            batch.Complete();
+            return new(0,0,5);
+        }
+        batch.MarkMutationStarted();
+        Config.LocalMaps.Clear();
+        Config.LocalMaps.AddRange(next);
+        try {Save();}
+        catch
+        {
+            Config.LocalMaps.Clear();
+            Config.LocalMaps.AddRange(before);
+            throw;
+        }
+        batch.Complete();
+        return new(verified.Missing,verified.Already,0);
+    }
+
     public void AddMap(LocalMap map)
     {
         // Names are user-supplied; the installed game's current map list is not a cap.
