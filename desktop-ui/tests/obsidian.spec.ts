@@ -47,6 +47,9 @@ test.beforeEach(async ({ page }) => {
     let freshId = "";
     let importedObserved=false;
     let adoptedObserved=false;
+    let originalLiveFiveFixture=false;
+    (window as typeof window & {__UNTAMED_ORIGINAL_LIVE_FIVE__?:()=>void})
+      .__UNTAMED_ORIGINAL_LIVE_FIVE__=()=>{originalLiveFiveFixture=true;};
     let initialBlocked=false;
     let customInitialLevel=false;
     (window as typeof window & {__UNTAMED_CUSTOM_INITIAL_LEVEL__?:(value:boolean)=>void})
@@ -1077,7 +1080,17 @@ test.beforeEach(async ({ page }) => {
         case "historical.originalList": return {
           sourceVerified:true,originalFourFilesUnchanged:true,
           evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
-          maps:[{mapId:"00000000-0000-4000-8000-000000009001",
+          maps:originalLiveFiveFixture?[
+            ["TheIsland_WP","The Island"],["Extinction_WP","Extinction"],
+            ["Valguero_WP","Valguero"],["Astraeos_WP","Astraeos"],
+            ["Genesis_WP","Genesis Part 1"]
+          ].map(([mapKey,name],i)=>({
+            mapId:"00000000-0000-4000-8000-"+
+              String(7151+i).padStart(12,"0"),
+            mapKey,name,folderName:"SyntheticOriginal"+i,
+            gamePort:7777+10*i,queryPort:27015+10*i,
+            enabledMods:22,passiveMods:3,registered:false
+          })):[{mapId:"00000000-0000-4000-8000-000000009001",
             mapKey:"TheIsland_WP",name:"The Island",
             folderName:"OriginalIsland",gamePort:7777,queryPort:27015,
             enabledMods:22,passiveMods:3,registered:false}]
@@ -3100,6 +3113,9 @@ test("P0 native non-Store live ASA takeover requires explicit approval and prese
 
 test("P0 live original five-map Store takeover is explicit, single-use and preserves historical RCON gate",async({page})=>{
   await page.goto("/");
+  await page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_ORIGINAL_LIVE_FIVE__?:()=>void}
+  ).__UNTAMED_ORIGINAL_LIVE_FIVE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
   const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
