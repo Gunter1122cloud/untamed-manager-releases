@@ -37,7 +37,18 @@ export function UpdateCenterPage(){
     if(loading||installing||handedOff)return;
     setLoading(true);setError("");setLatest(null);
     setPrepared(null);setApproved(false);
-    try{const result=await managerBridge.updateCheck(channel);setLatest(result);}
+    try{
+      const result=await managerBridge.updateCheck(channel);
+      if(result.found&&result.newer&&
+         (!result.tag||
+          !/^v\d{1,4}\.\d{1,4}\.\d{1,4}-obsidian(?:-preview\.\d{1,12})?$/.test(result.tag)||
+          !result.sha256||!/^[a-fA-F0-9]{64}$/.test(result.sha256))){
+        setError("A GitHub frissítésből hiányzik a pontos Obsidian kiadásazonosító vagy a SHA-256. A letöltés tiltva marad; ellenőrizd újra a kiadást.");
+        setLatest(null);
+        return;
+      }
+      setLatest(result);
+    }
     catch{setError("A GitHub kiadványok ellenőrzése sikertelen. A telepített Manager változatlan maradt.");}
     finally{setLoading(false);}
   };
