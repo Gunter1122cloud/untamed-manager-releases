@@ -21,7 +21,8 @@ public static class LocalRunningAsaDiscovery
     public sealed record Observation(int Pid,int ParentPid,DateTimeOffset? StartedUtc,
         string ProcessKind,string MapKey,string MatchState,string? ProfileMapId,
         string? ProfileMapName,bool LoaderParentObserved,
-        bool Controllable=false,bool StoreWriteAuthorized=false);
+        bool Controllable=false,bool StoreWriteAuthorized=false,
+        LocalAsaLaunchFacts.Facts? LaunchFacts=null);
 
     private static readonly Regex MapToken=new(
         @"\A(?<map>[A-Za-z0-9_]{1,100})\?listen\z",
@@ -155,7 +156,8 @@ public static class LocalRunningAsaDiscovery
                         StringComparison.OrdinalIgnoreCase));
             result.Add(new Observation(p.Pid,p.ParentPid,p.StartedUtc,kind,
                 key??"unknown",matchState,selected?.Id.ToString("D"),
-                selected?.Name,hasLoaderParent));
+                selected?.Name,hasLoaderParent,false,false,
+                LocalAsaLaunchFacts.Parse(p.CommandLine,p.ExecutablePath)));
         }
         return result.OrderBy(x=>x.Pid).ToArray();
     }
