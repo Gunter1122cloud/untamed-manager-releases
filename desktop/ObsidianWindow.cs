@@ -16,6 +16,34 @@ public sealed class ObsidianWindow : Form
 {
     private const string AppOrigin = "https://untamed-app.example";
 
+    // Production WebView2 dispatcher AND isolated native integration tests
+    // share this exact allowlist. Never route by prefix: an unapproved
+    // historical.* method must continue to fail closed in the fallback.
+    internal static bool IsHistoricalStoreMethod(string? method)=>method is
+        "historical.localStatus" or "historical.localParity" or
+        "historical.list" or "historical.preview" or "historical.register" or
+        "historical.originalList" or "historical.originalPreview" or
+        "historical.originalRegister" or
+        "historical.originalBatchPreview" or "historical.originalBatchRegister" or
+        "historical.originalLiveBatchPreview" or "historical.originalLiveBatchApply" or
+        "historical.originalClusterPreview" or "historical.originalClusterApply" or
+        "historical.pairedEvidence" or "historical.launchEvidence" or
+        "historical.liveGuard";
+
+    // This is the ACTUAL final host dispatch for the historical Store bridge,
+    // not a test-only imitation. The host's WebMessageReceived event uses
+    // this method; synthetic tests call it with the real native bridge.
+    internal static Task<string> DispatchHistoricalOrReadOnlyAsync(
+        string? method,string raw,
+        Func<string,Task<string>> historicalHandler,
+        Func<string,Task<string>> readOnlyFallback)
+    {
+        ArgumentNullException.ThrowIfNull(historicalHandler);
+        ArgumentNullException.ThrowIfNull(readOnlyFallback);
+        return IsHistoricalStoreMethod(method)?
+            historicalHandler(raw):readOnlyFallback(raw);
+    }
+
     // Staging an installer is isolated from ASA maps and local configuration.
     // It can take minutes on a slow connection, so the WebView host must not
     // block Dashboard/RCON/status RPCs behind the global command gate.
@@ -395,7 +423,6 @@ public sealed class ObsidianWindow : Form
                 bool initialRoute = false;
                 bool freshStoreEnrollmentRoute = false;
                 bool freshStoreLoaderModeRoute = false;
-                bool historicalRoute = false;
                 bool historicalRconRoute = false;
                 bool historicalStartRoute = false;
                 bool historicalReadOnlyRconRoute = false;
@@ -551,16 +578,6 @@ public sealed class ObsidianWindow : Form
                             "historical.loaderModePreview" or "historical.loaderModeApply";
                         historicalRconRoute = name is "historical.rconStatus" or
                             "historical.rconPreview" or "historical.rconApply";
-                        historicalRoute = name is "historical.localStatus" or
-                            "historical.localParity" or
-                            "historical.list" or
-                            "historical.preview" or "historical.register" or
-                            "historical.originalList" or "historical.originalPreview" or
-                            "historical.originalRegister" or "historical.originalBatchPreview" or
-                            "historical.originalBatchRegister" or
-                            "historical.originalClusterPreview" or "historical.originalClusterApply" or
-                            "historical.pairedEvidence" or "historical.launchEvidence" or
-                            "historical.liveGuard";
                     }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
@@ -615,8 +632,10 @@ public sealed class ObsidianWindow : Form
                                                  : historicalReadOnlyRconRoute ? await _historicalReadOnlyRcon.HandleAsync(incoming)
                                                  : historicalStartRoute ? await _historicalStart.HandleAsync(incoming)
                                                  : historicalRconRoute ? await _historicalRcon.HandleAsync(incoming)
-                                                 : historicalRoute ? await _historicalStore.HandleAsync(incoming)
-                                                    : await _bridge.HandleAsync(incoming);
+                                                 : await DispatchHistoricalOrReadOnlyAsync(
+                                                       methodName,incoming,
+                                                       _historicalStore.HandleAsync,
+                                                       _bridge.HandleAsync);
                     if (!_browser.IsDisposed && _browser.CoreWebView2 is not null)
                         _browser.CoreWebView2.PostWebMessageAsJson(response);
                     if (updateInstallRoute && response.Contains("\"externalUpdaterStarted\":true",

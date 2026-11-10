@@ -49,6 +49,11 @@ test.beforeEach(async ({ page }) => {
     let adoptedObserved=false;
     let originalLiveFiveFixture=false;
     let originalLiveMixedFixture=false;
+    let originalLiveDispatchDenied=false;
+    (window as typeof window & {__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__?:()=>void})
+      .__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__=()=>{
+        originalLiveFiveFixture=true;originalLiveDispatchDenied=true;
+      };
     let travelCaptureMissingFive=false;
     (window as typeof window & {__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__?:()=>void})
       .__UNTAMED_TRAVEL_CAPTURE_MISSING_FIVE__=()=>{travelCaptureMissingFive=true;};
@@ -1396,6 +1401,7 @@ test.beforeEach(async ({ page }) => {
             evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE"};
         }
         case "historical.originalLiveBatchPreview":
+          if(originalLiveDispatchDenied)throw new Error("UM-METHOD-DENIED");
           return {token:"00000000-0000-4000-8000-000000007151",localMaps:5,
             mapNames:["The Island","Extinction","Valguero","Astraeos","Genesis Part 1"],
             runningProcesses:5,directProcesses:4,apiLoaderPairs:1,
@@ -3206,6 +3212,26 @@ test("P0 native non-Store live ASA takeover requires explicit approval and prese
   await apply.click();
   await expect(handoff).toHaveCount(0);
   await expect(panel.getByLabel("Futó ASA vezérlés átvétele PID 4442")).toHaveCount(0);
+});
+
+test("P0 original live Store method denial is identified as native dispatch/build mismatch, never Kova process proof failure",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__?:()=>void}
+  ).__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  await panel.getByRole("button",{
+    name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
+  }).click();
+  await expect(panel).toContainText("UM-METHOD-DENIED");
+  await expect(panel).toContainText("natív WebView2-dispatchere elutasította");
+  await expect(panel).toContainText("NEM Kova ACTIVE/DONE");
+  await expect(panel.getByRole("region",{
+    name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
+  })).toHaveCount(0);
 });
 
 test("P0 live original five-map Store takeover is explicit, single-use and preserves historical RCON gate",async({page})=>{
