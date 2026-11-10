@@ -41,15 +41,6 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
   useEffect(()=>{
     if(!jobId)return;
     let active=true;
-    const checkPublished=async()=>{
-    if(!mapId||busy||jobId||journal?.needsOperatorReview)return;
-    setBusy(true);setPublished(null);setError("");
-    try{setPublished(await managerBridge.steamPublishedBuild(mapId));}
-    catch(e){setError("A Steam nyilvános ASA buildjét nem sikerült hitelesen lekérdezni ("+
-      (e instanceof Error?e.message:"UM-STEAM-PUBLISHED-UNAVAILABLE")+
-      "). Ettől még nem indul frissítés.");}
-    finally{setBusy(false);}
-  };
   const check=async()=>{
       try{
         const status=await managerBridge.steamStoppedStatus(jobId);
@@ -71,6 +62,15 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     return ()=>{active=false;window.clearInterval(timer);};
   },[jobId]);
 
+  const checkPublished=async()=>{
+    if(!mapId||busy||jobId||journal?.needsOperatorReview)return;
+    setBusy(true);setPublished(null);setError("");
+    try{setPublished(await managerBridge.steamPublishedBuild(mapId));}
+    catch(e){setError("A Steam nyilvános ASA buildjét nem sikerült hitelesen lekérdezni ("+
+      (e instanceof Error?e.message:"UM-STEAM-PUBLISHED-UNAVAILABLE")+
+      "). Ettől még nem indul frissítés.");}
+    finally{setBusy(false);}
+  };
   const check=async()=>{
     if(!mapId||busy||jobId||journal?.needsOperatorReview)return;
     setBusy(true);setPreview(null);setApproved(false);setError("");
