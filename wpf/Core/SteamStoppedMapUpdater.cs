@@ -191,6 +191,10 @@ public static class SteamStoppedMapUpdater
         if(group.Length==0)throw new InvalidDataException("ASA installation ownership is missing");
         void VerifyStopped()
         {
+            // Recheck the entire live local registry at every irreversible
+            // boundary; a newly registered Store sibling cannot be hidden
+            // behind the initial preflight snapshot.
+            DemandSafeLocalInstallation(cluster,map);
             foreach(var participant in group)
             {
                 var state=cluster.Check(participant);
