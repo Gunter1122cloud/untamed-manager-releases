@@ -2176,7 +2176,7 @@ test("historical Kova new-map compatibility check is native, read-only and never
   await page.getByRole("navigation",{name:"Fő navigáció"})
     .getByRole("button",{name:"Cluster",exact:true}).click();
   const candidate=page.getByRole("combobox",{name:"Bővítendő helyi map"});
-  await expect(candidate.locator("option").count()).resolves.toBeGreaterThan(1);
+  expect(await candidate.locator("option").count()).toBeGreaterThan(1);
   await candidate.selectOption({label:"Local Map 4"});
   const revision=await page.locator(".cluster-registry-metrics > div").nth(3).innerText();
   await page.getByRole("button",{name:"Eredeti cluster-kompatibilitás ellenőrzése"}).click();
