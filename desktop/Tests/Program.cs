@@ -1609,15 +1609,40 @@ try
         var customMap=customCluster.Config.LocalMaps.Single(m=>m.Name==customName);
         Check(customMap.Arguments==""&&!customMap.AutoStart&&
               !customMap.StartWithAsaApi&&customMap.GamePort==0&&
+              customMap.FreshInstallMapLevel==customLevel&&
               !Directory.Exists(Path.Combine(customRoot,"ShooterGame","Saved")),
-            "custom map download leaves launch, mods, first setup and Store unconfigured");
+            "custom map download pins level in Manager metadata but leaves launch, mods and Store unconfigured");
         using var customSetup=new DesktopInitialMapSetupBridge(customCluster);
         var customStatus=await Call(customSetup.HandleAsync,"servers.initialStatus",
             new{mapId=customMap.Id});
         IsOk(customStatus,"downloaded custom level is eligible for manual native first setup");
-        Check(customStatus.GetProperty("data").GetProperty("requiresCustomLevel")
-                .GetBoolean(),
-            "custom new map requires explicit map level again for initial launch setup");
+        Check(!customStatus.GetProperty("data").GetProperty("requiresCustomLevel")
+                 .GetBoolean() &&
+              customStatus.GetProperty("data").GetProperty("level").GetString()
+                ==customLevel,
+            "initial setup reuses exact operator-approved custom level without duplicate input");
+        var mismatchedLevel=await Call(customSetup.HandleAsync,
+            "servers.initialPreview",new{mapId=customMap.Id,
+                sessionName="Synthetic Custom Server",gamePort=7951,queryPort=27951,
+                customLevel="OtherCustom_WP"});
+        Check(IsError(mismatchedLevel,"UM-INITIAL-INSTALLED-LEVEL-MISMATCH")&&
+              customMap.Arguments==""&&customMap.GamePort==0,
+            "a different Unreal map level cannot silently replace original installed level");
+        var planned=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=customMap.Id,sessionName="Synthetic Custom Server",
+                gamePort=7951,queryPort=27951,customLevel=""});
+        IsOk(planned,"pinned custom map obtains strict native initial launch preview");
+        Check(planned.GetProperty("data").GetProperty("mapLevel").GetString()
+                ==customLevel,
+            "initial launch preview keeps the source-pinned Unreal level");
+        var committed=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token=planned.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true});
+        IsOk(committed,"approved custom first setup writes only local launch profile");
+        Check(customMap.Arguments.StartsWith(customLevel+"?listen",
+                  StringComparison.Ordinal) &&
+              customMap.GamePort==7951 && customMap.QueryPort==27951,
+            "custom ASA level and selected ports persist without starting the server");
     }
 
     // Verify that launch settings are a separate explicit stage after ASA
