@@ -212,6 +212,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                             status = m.Status, gamePort = m.GamePort,
                             steamBuildId = m.SteamBuildId, steamUpdateState = m.SteamUpdateState,
                             storeProtected = protectedStore,
+                            observedReadOnlyImported = config?.ObservedReadOnlyImported ?? false,
                             freshStoreEnrolled = config != null && FreshStoreEnrollmentPolicy.IsEnrolled(config),
                             storeLifecycleState = historicalStore ?
                                 ReadOriginalStoreLifecycle(config,m.Running) : null,
