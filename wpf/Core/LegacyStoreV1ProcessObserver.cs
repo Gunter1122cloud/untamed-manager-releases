@@ -392,6 +392,8 @@ public static class LegacyStoreV1ProcessObserver
             string loader=Path.Combine(Path.GetDirectoryName(exe)!,"AsaApiLoader.exe");
             var serverProcesses=new List<ObservedProcess>();
             var loaderProcesses=new List<ObservedProcess>();
+            var unparameterizedApiChildren=new List<(ObservedProcess Process,string Command)>();
+            var loaderCommands=new Dictionary<int,string>();
             bool uncertain=false;
             using var searcher=new ManagementObjectSearcher(
                 "SELECT ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process");
@@ -419,7 +421,14 @@ public static class LegacyStoreV1ProcessObserver
                     if(api&&ProvenDistinctOwnedApiLoader(
                         command,exe,map,locallyRegisteredMaps))
                         continue;
-                    if(!MatchesOriginalActiveCommand(command,api?loader:exe,map))
+                    bool exact=MatchesOriginalActiveCommand(
+                        command,api?loader:exe,map);
+                    // A bare child command is not independently original:
+                    // defer its classification until its exact original
+                    // ASA API Loader parent has been verified separately.
+                    bool childOnly=!exact&&server&&map.StartWithAsaApi&&
+                        MinimalOriginalApiChildArguments(command,exe);
+                    if(!exact&&!childOnly)
                     {uncertain=true;continue;}
                     int pid=Convert.ToInt32(entry["ProcessId"]);
                     int parentPid=Convert.ToInt32(entry["ParentProcessId"]);
@@ -432,11 +441,28 @@ public static class LegacyStoreV1ProcessObserver
                     {uncertain=true;continue;}
                     var observed=new ObservedProcess(pid,parentPid,started,path,
                         "HISTORICAL_STORE_V1_SOURCE_VERIFIED");
-                    if(api)loaderProcesses.Add(observed);
+                    if(api)
+                    {
+                        loaderProcesses.Add(observed);
+                        loaderCommands.Add(pid,command);
+                    }
+                    else if(childOnly)unparameterizedApiChildren.Add((observed,command));
                     else serverProcesses.Add(observed);
                 }
                 catch(Exception)
                 {uncertain=true;}
+            }
+            foreach(var candidate in unparameterizedApiChildren)
+            {
+                if(loaderProcesses.Count!=1||
+                   !loaderCommands.TryGetValue(loaderProcesses[0].Pid,
+                       out var parentCommand)||
+                   !MatchesOriginalApiLoaderChild(candidate.Command,exe,
+                       candidate.Process.Pid,candidate.Process.ParentPid,
+                       candidate.Process.StartedUtc,parentCommand,loader,
+                       loaderProcesses[0].Pid,loaderProcesses[0].StartedUtc,map))
+                    uncertain=true;
+                else serverProcesses.Add(candidate.Process);
             }
             if(uncertain||serverProcesses.Count>1||loaderProcesses.Count>1)
                 return new(false,
