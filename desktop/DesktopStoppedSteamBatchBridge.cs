@@ -158,6 +158,10 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
         var details=new List<object>();
         foreach(var map in unique)
         {
+            // Keep the React batch preflight identical to the Core updater;
+            // mixed Store or nested unselected ownership must fail before
+            // an approval token is issued.
+            SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,map);
             string root=Path.GetFullPath(map.InstallationPath);
             foreach(var sibling in cluster.Config.LocalMaps.Where(m=>
                 !string.IsNullOrWhiteSpace(m.InstallationPath) &&
