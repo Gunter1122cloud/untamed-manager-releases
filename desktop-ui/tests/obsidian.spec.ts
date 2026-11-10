@@ -1890,6 +1890,7 @@ test.beforeEach(async ({ page }) => {
             overlaps:[],steamCmdFound:true,steamCmdConfigured:true,
             availableBytes:53687091200,requiredBytes:10737418240,
             journalBlocked:steamInterrupted,historicalBlocked:Boolean((entry as any).storeProtected),
+            safeInstallation:!entry.running&&!(entry as any).storeProtected,
             canPreview:!entry.running&&!steamInterrupted&&!(entry as any).storeProtected,
             noProcessAutoStop:true,remoteWrites:false,
             evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"};
@@ -3654,6 +3655,8 @@ test("stopped SteamCMD update displays exact local process and reserve evidence"
   await expect(diagnostics).toContainText("Leállítás igazolva");
   await expect(diagnostics).toContainText("Szabad tárhely: 50 GiB");
   await expect(diagnostics).toContainText("SteamCMD: Telepítve");
+  await expect(diagnostics).toContainText(
+    "Közös telepítés tulajdonjoga: ellenőrzött, kizárólag leállított nem Store mapok");
 });
 
 test("cluster bulk SteamCMD queues only explicitly approved stopped local map beyond page 1",async({page})=>{
