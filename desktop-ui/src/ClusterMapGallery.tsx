@@ -46,7 +46,10 @@ function MapTile({entry,onSelect}:{entry:LocatedMap;onSelect:(id:string)=>void})
   const body=<>
     <span className="uk-gallery-art"><MapCover name={map.name}/>
       <span className="uk-gallery-art-overlay"/>
-      <span className="uk-gallery-state-wrap"><StateLabel running={map.running} needsSetup={map.gamePort===0}/></span>
+      <span className="uk-gallery-state-wrap">{map.observedReadOnlyImported?
+        <span className="uk-flag maintenance">{map.observedRuntimeState==="observedRunning"?
+          "Megfigyelt · fut":"Megfigyelés: nem igazolt"}</span>:
+        <StateLabel running={map.running} needsSetup={map.gamePort===0}/>}</span>
     </span>
     <span className="uk-gallery-tile-body">
       <b className="uk-gallery-name">{map.name}</b>
