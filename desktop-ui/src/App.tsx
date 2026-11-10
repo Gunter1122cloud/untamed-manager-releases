@@ -1549,6 +1549,11 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     setLifecycle(null);setRestartJournal(null);
     setJournalsVerifiedFor("");setJournalReadError(false);
     const currentMap=snapshot.local.maps.find(m=>m.id===mapId);
+    if(currentMap?.observedReadOnlyImported){
+      // Observation-only map never needs native lifecycle probes.
+      setJournalsVerifiedFor(mapId);
+      return ()=>{active=false;};
+    }
     const originalStore=!!currentMap?.storeProtected&&!currentMap?.freshStoreEnrolled;
     Promise.all([
       managerBridge.asaLifecycleJournal(mapId),
@@ -1569,6 +1574,27 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const historical=!!map?.storeProtected&&!map?.freshStoreEnrolled;
   const fresh=!!map&&(!map.storeProtected||!!map.freshStoreEnrolled);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
+  // WMI registration is a read-only observation, never process ownership.
+  if(map.observedReadOnlyImported)return <div className="map-detail-page" role="region"
+    aria-label="Megfigyelési map adatlapja">
+    <button className="quiet back-to-servers" onClick={onBack}>
+      <ArrowRight size={16}/> Vissza a szerverlistához
+    </button>
+    <div className="map-detail-hero">
+      <MapCover name={map.name}/>
+      <div className="premium-map-detail-copy">
+        <span className="eyebrow">CSAK MEGFIGYELÉS / NINCS ÁTVETT VEZÉRLÉS</span>
+        <h1>{map.name}</h1>
+        <p>{snapshot.local.hostName} · Game port: {map.gamePort||"ismeretlen"}</p>
+      </div>
+    </div>
+    <div className="warning-inline" role="status"><Shield size={17}/>
+      Ez a külső ASA-folyamat kizárólag megfigyelésre került a Managerbe.
+      Start, Stop, Restart, SaveWorld, RCON, INI, mod, plugin, SteamCMD és
+      Store-v1 írási jog nem lett átvéve. A futás állapotát az alábbi friss WMI-felderítés mutatja.
+    </div>
+    <LocalRunningAsaPanel/>
+  </div>;
   const sections: Array<{id:MapSection;name:string}>=[
     {id:"overview",name:"Áttekintés"},{id:"monitor",name:"Üzemeltetés"},
     {id:"scheduler",name:"Ütemező"},{id:"steam",name:"Frissítés"},{id:"mods",name:"Modok"},
