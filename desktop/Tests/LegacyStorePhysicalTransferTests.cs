@@ -361,6 +361,19 @@ internal static class LegacyStorePhysicalTransferTests
                     });
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
                 "all five original GUID/level pairs plus their pinned four-file fingerprints and Kova cluster assignments match actual Manager registrations");
+            var originalDefinition=manager.Config.ClusterRegistry.Clusters.Single(c=>
+                c.ClusterId.Equals(VaultProtocol.ClusterId,StringComparison.OrdinalIgnoreCase));
+            string originalRegisteredTransfer=originalDefinition.TransferDirectory;
+            originalDefinition.TransferDirectory=@"\\synthetic-foreign-peer\wrong-transfer";
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "matching five assignments cannot certify a Kova cluster whose transfer UNC no longer matches the ORIGINAL source");
+            originalDefinition.TransferDirectory=originalRegisteredTransfer;
+            manager.Config.ClusterRegistry.Clusters.Remove(originalDefinition);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "orphan KovaCluster map assignments without a registered cluster definition cannot certify enrollment");
+            manager.Config.ClusterRegistry.Clusters.Add(originalDefinition);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "restored registered cluster definition and original transfer UNC recover exact five-map enrollment");
             var membership=manager.Config.ClusterRegistry.MapAssignments[0];
             membership.ClusterId="unrelated-synthetic-cluster";
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
