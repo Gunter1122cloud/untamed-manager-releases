@@ -161,8 +161,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       const result=await managerBridge.historicalOriginalRegister(token);
       if(epoch!==directEpoch.current)return;
       setDirectNotice(result.mapName+" felvéve az eredeti GUID-dal, Game/Query portokkal "+
-        "és mod-sorrenddel. Csatlakoztasd a meglévő RCON-t, majd használd a map "+
-        "saját előellenőrzött Start/Stop/SaveWorld vezérlőit.");
+        "és mod-sorrenddel. A leállított import kezdetben közvetlen ASA módot jelöl; "+
+        "csatlakoztasd a meglévő RCON-t, majd ASA API-s map esetén válaszd ki az "+
+        "'ASA API Loader mód választása' opciót a map indítási paneljén, "+
+        "mielőtt bármilyen Startot jóváhagynál.");
       setDirectList(prev=>prev?{...prev,maps:prev.maps.map(m=>
         m.mapId===result.mapId?{...m,registered:true}:m)}:prev);
       setDirectMapId("");
@@ -201,7 +203,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       if(epoch!==directEpoch.current)return;
       setDirectNotice(receipt.importedMaps+
         " eredeti map atomikusan felvéve. A korábbi Kova-adatok érintetlenek. "+
-        "RCON-csatlakoztatás és külön natív indítás-jóváhagyás szükséges.");
+        "A leállított import után még nincs ASA API mód igazolva: "+
+        "csatlakoztasd a meglévő RCON-t, és ASA API-s maponként válaszd ki "+
+        "az 'ASA API Loader mód választása' opciót az első Start előtt. "+
+        "Az import önmagában nem indított szervert.");
       setDirectList(prev=>prev?{...prev,
         maps:prev.maps.map(m=>receipt.mapIds.includes(m.mapId)?
           {...m,registered:true}:m)}:prev);
@@ -363,6 +368,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           az aktív és passzív modok pontos sorrendjét. Ha ez a fájl hiányzik,
           a korábbi Manager ZIP alapú importálása használható.
           A leállított mapokra a szokásos kötegelt import használható.
+          A leállított map indítási módja a Kova metaadatából önmagában nem
+          bizonyítható, ezért import után az eredeti RCON csatlakoztatásával,
+          majd maponként az „ASA API Loader mód választása” jóváhagyással
+          kell beállítani a Loaderes indítást a legelső Start előtt.
           Már futó mind az öt eredeti Store-v1 maphoz a külön natív,
           ACTIVE/DONE és PID/ASA API-szülő–gyermek ellenőrzéses átvétel
           elérhető, szerverleállítás és újrakonvertálás nélkül.
@@ -435,7 +444,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <p className="muted small">A natív Manager valamennyi mapot,
             telepítést, eredeti mod-sorrendet és leállított folyamatot ellenőrizte.
             Egyetlen ConfigStore-mentést végez. Az eredeti ASA, Kova és
-            Store-session adatok nem módosulnak, szerver nem indul.</p>
+            Store-session adatok nem módosulnak, szerver nem indul.
+            Az import még nem tudhatja bizonyítottan a leállított ASA eredeti
+            indítómódját: API-s mapoknál előbb az eredeti RCON, utána a
+            „ASA API Loader mód választása” szükséges, még Start előtt.</p>
           <label className="historical-approval">
             <input type="checkbox" checked={batchApproved}
               disabled={directBusy} onChange={e=>setBatchApproved(e.target.checked)}/>
