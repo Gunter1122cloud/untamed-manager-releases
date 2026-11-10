@@ -41,6 +41,27 @@ public static class AsaSteamMapCatalog
             throw new InvalidDataException("Unknown ASA map: choose an official level before automatic installation");
         return level;
     }
+    /// <summary>
+    /// Resolve an explicit level for new SteamCMD installations. Steam app
+    /// 2430930 is shared across official/custom maps. A custom map must have
+    /// a deliberate display name and a separate, strict Unreal level token.
+    /// The installer never guesses a token or accepts a token override for a
+    /// built-in map name; the game's mod files are configured separately.
+    /// </summary>
+    public static string LevelForNewInstallation(string name,string? customLevel)
+    {
+        if(string.IsNullOrWhiteSpace(name))
+            throw new InvalidDataException("UM-FRESH-MAP-NAME-INVALID");
+        if(Official.TryGetValue(name.Trim(),out string? official))
+        {
+            if(!string.IsNullOrWhiteSpace(customLevel))
+                throw new InvalidDataException("UM-FRESH-OFFICIAL-LEVEL-OVERRIDE");
+            return official;
+        }
+        if(string.IsNullOrWhiteSpace(customLevel))
+            throw new InvalidDataException("UM-FRESH-CUSTOM-LEVEL-REQUIRED");
+        return ValidateCustomLevel(customLevel);
+    }
     // A manually imported mod map can expose a level not present in this
     // official-name table. It may be entered ONLY by an operator during the
     // separate first-setup preflight, never inferred from display names or
