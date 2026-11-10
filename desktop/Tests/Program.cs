@@ -893,6 +893,32 @@ try
         Check(scheduled.TickOnce(baseTime.AddMinutes(6)).Length==0 &&
               publicQueries==1,
             "claimed Steam check slots cannot be replayed or launch a second appinfo query");
+
+        // A published appinfo result for another local build is not trusted.
+        // A failed shared-root query is cached as a failed receipt, not
+        // silently repeated once per map or persisted as a newer build.
+        int invalidQueries=0;
+        using(var invalid=new DesktopRecurringReadOnlySupervisor(watched,
+            _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true),
+            (target,_)=>{
+                invalidQueries++;
+                return Task.FromResult(AsaSteamBuildCatalog.Compare(
+                    target.InstallationPath,"public","999999","1000000",
+                    DateTimeOffset.UtcNow));
+            }))
+        {
+            var denied=invalid.TickOnce(baseTime.AddMinutes(12));
+            Check(denied.Count(x=>x.Status=="failed-not-retried")==2 &&
+                  invalidQueries==1 &&
+                  new[]{firstWatched,secondWatched}.All(m=>{
+                      var saved=statuses.Read(m);
+                      return saved.LocalBuild=="123456" &&
+                          saved.AvailableBuild=="123457" &&
+                          saved.State==AsaSteamBuildState.UpdateAvailable;
+                  }) &&
+                  originalManifest.SequenceEqual(File.ReadAllBytes(acf)),
+                "mismatched public Steam metadata fails closed once per installation, preserving last verified build evidence");
+        }
     }
 
     // Explicit new-ASA schedule engine uses durable local claim records and
