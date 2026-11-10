@@ -431,6 +431,13 @@ public sealed class DesktopStoreTravelEvidenceBridge
             }
             finally{serial.Release();}
         }
+        catch(InvalidOperationException ex) when(
+            ex.Message=="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS")
+        {
+            // Explicit registration precondition, not a file integrity failure.
+            // Never expose file paths, account details, or native exception text.
+            return Error(id,"UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS");
+        }
         catch(Exception ex) when(ex is IOException or InvalidDataException or
             UnauthorizedAccessException or ArgumentException or
             InvalidOperationException or JsonException)
