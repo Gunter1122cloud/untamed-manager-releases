@@ -129,6 +129,36 @@ internal static class OriginalStoreLiveBatchEvidenceTests
             apiOnly.Add(child with{
                 ParentPid=31000+i,CommandLine="\""+childExe+"\" -log -NoBattlEye"});
         }
+        // Reproduce the exact UK-HOME-02 WMI discrepancy: the observed
+        // ArkAscendedServer.exe process has a real ASA executable path/name,
+        // but its CommandLine starts with AsaApiLoader.exe and duplicates
+        // that verified parent's original -usestore launch arguments.
+        var aliasCommands=apiOnly.Select(p=>
+        {
+            if(p.Name!="ArkAscendedServer.exe")return p;
+            var parent=apiOnly.Single(x=>x.Pid==p.ParentPid);
+            return p with{CommandLine=parent.CommandLine};
+        }).ToArray();
+        var aliasVerified=OriginalStoreLiveBatchEvidence.Classify(
+            selection,aliasCommands);
+        Check(aliasVerified.ApiLoaderPairs==5&&aliasVerified.DirectProcesses==0&&
+              aliasVerified.Maps.All(m=>m.StartWithAsaApi&&
+                  m.LastProcess?.Pid>0&&m.LastLoader?.Pid>0),
+            "real ASA EXE with copied Loader argv0 verifies all five original API pairs");
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            aliasCommands.Select(x=>x.Pid==23000?x with{
+                CommandLine=x.CommandLine+" -Port=9999"}:x).ToArray())),
+            "copied Loader argv0 with a modified child port is refused");
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            aliasCommands.Select(x=>x.Pid==23003?x with{ParentPid=31002}:x).ToArray())),
+            "copied Loader argv0 with a foreign parent PID cannot claim another map");
+        var alteredRealExe=aliasCommands.Select(x=>x.Pid==23004?x with{
+            ExecutablePath=x.ExecutablePath!.Replace(
+                "ArkAscendedServer.exe","AsaApiLoader.exe",
+                StringComparison.OrdinalIgnoreCase)}:x).ToArray();
+        Check(Denies(()=>OriginalStoreLiveBatchEvidence.Classify(selection,
+            alteredRealExe)),
+            "WMI argv0 never overrides actual ArkAscendedServer.exe identity");
         var paired=OriginalStoreLiveBatchEvidence.Classify(selection,apiOnly);
         Check(paired.Maps.Length==5&&paired.ApiLoaderPairs==5&&
               paired.DirectProcesses==0&&
