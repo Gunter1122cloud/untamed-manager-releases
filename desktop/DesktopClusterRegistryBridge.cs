@@ -182,18 +182,24 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
                 warnings.Add("UM-EXPANSION-FRESH-ASA-SETUP-REQUIRED");
             else
             {
-                // This uses the same strict official/custom map-level
-                // parser as the shipping backup paths, never a guessed name.
-                string level=AsaSaveLayoutResolver.MapToken(map);
-                if(string.IsNullOrWhiteSpace(level)||
-                   !map.Arguments.StartsWith(level+"?listen?SessionName=",
-                       StringComparison.OrdinalIgnoreCase))
-                    warnings.Add("UM-EXPANSION-NATIVE-LAUNCH-SETUP-REQUIRED");
-                else
-                    localSetupVerified=true;
+                // Reuse the EXACT allowlisted native argument grammar
+                // (including custom Unreal level, official-level pinning,
+                // optional Mod Center flags and invalid token rejection).
+                // Merely matching a launch prefix is NOT sufficient.
+                _=AsaSaveLayoutResolver.MapToken(map);
+                _=FreshStoreEnrollmentPolicy.ValidateBaseArguments(
+                    map,map.Arguments);
+                LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
+                localSetupVerified=true;
+                if(map.RconPort is <1024 or >65535 ||
+                   string.IsNullOrWhiteSpace(map.RconPasswordProtected) ||
+                   !AsaRconConfigurationEvidence.Matches(map))
+                {
+                    warnings.Add("UM-EXPANSION-RCON-SETUP-REQUIRED");
+                    localSetupVerified=false;
+                }
             }
-            if(!string.IsNullOrWhiteSpace(map.InstallationPath) &&
-               Path.IsPathFullyQualified(map.InstallationPath))
+            if(FreshAsaInstallationSafety.IsProvenFresh(cluster,map))
             {
                 foreach(var folder in new[]{
                     Path.Combine(map.InstallationPath,"ShooterGame","Saved","SavedArks"),
