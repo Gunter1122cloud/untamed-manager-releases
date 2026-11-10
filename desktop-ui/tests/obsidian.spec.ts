@@ -51,6 +51,9 @@ test.beforeEach(async ({ page }) => {
     let originalLiveMixedFixture=false;
     let originalLiveDispatchDenied=false;
     let updateReleaseChangedAfterCheck=false;
+    let updateMetadataMalformed=false;
+    (window as typeof window & {__UNTAMED_UPDATE_MALFORMED_METADATA__?:()=>void})
+      .__UNTAMED_UPDATE_MALFORMED_METADATA__=()=>{updateMetadataMalformed=true;};
     let updatePreparedCount=0;
     (window as typeof window & {
       __UNTAMED_UPDATE_RELEASE_CHANGED__?:()=>void;
@@ -717,7 +720,7 @@ test.beforeEach(async ({ page }) => {
           channel:m.channel??"stable",found:true,newer:true,
           tag:"v9.0.0-obsidian-preview.1",version:"9.0.0",
           assetName:"Untamed_Obsidian_Desktop_Preview_Setup.exe",
-          sha256:"a".repeat(64),
+          sha256:updateMetadataMalformed?null:"a".repeat(64),
           releaseNotes:"Synthetic signed-release metadata only",
           installationPermitted:false,updaterVerified:false,
           evidence:"GITHUB_RELEASE_METADATA_NOT_AN_INSTALLER"
@@ -3006,6 +3009,20 @@ test("Update Center verifies Obsidian-only installer and requires explicit two-s
   await page.getByRole("checkbox").check();
   await expect(page.getByRole("button",{name:"Ellenőrzött frissítés telepítése"})).toBeEnabled();
   await page.screenshot({path:"test-results/uk-update-center-1600.png",fullPage:false});
+});
+
+test("P0 update UI never shows a no-op Prepare button for missing native release SHA",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_UPDATE_MALFORMED_METADATA__?:()=>void}
+  ).__UNTAMED_UPDATE_MALFORMED_METADATA__?.());
+  await page.getByRole("button",{name:"Frissítések"}).click();
+  await page.getByRole("button",{name:"Frissítések keresése"}).click();
+  await expect(page.getByRole("alert")).toContainText("hiányzik a pontos Obsidian");
+  await expect(page.getByRole("button",{
+    name:/Telepítő letöltése és SHA-256 ellenőrzése/
+  })).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Frissítések keresése"})).toBeEnabled();
 });
 
 test("P0 updater prevents release drift between discovery and staging with pinned SHA-256",async({page})=>{
