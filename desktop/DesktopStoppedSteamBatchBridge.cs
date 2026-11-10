@@ -96,6 +96,10 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     {
         lock(sync)
         {
+            // Progress<T> may post from another synchronization context
+            // after the awaited runner returned. Never let a late event
+            // turn a verified completion back into 'running'.
+            if(item.State is "completed" or "needsOperator")return;
             item.State=state;item.Stage=stage;
             if(position>0)item.Position=position;
             if(mapName.Length>0)item.ActiveMap=mapName;
@@ -137,6 +141,19 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
         var unique=chosen.GroupBy(m=>Path.GetFullPath(m.InstallationPath)
                 .TrimEnd(Path.DirectorySeparatorChar),StringComparer.OrdinalIgnoreCase)
             .Select(g=>g.First()).ToArray();
+        // Reject nested/overlapping installation roots as a single
+        // transaction: Core must never update a root while another selected
+        // installation is a child of it, even if their map GUIDs differ.
+        var roots=unique.Select(m=>Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(m.InstallationPath))).ToArray();
+        for(int left=0;left<roots.Length;left++)
+            for(int right=left+1;right<roots.Length;right++)
+                if(roots[left].StartsWith(roots[right]+Path.DirectorySeparatorChar,
+                       StringComparison.OrdinalIgnoreCase) ||
+                   roots[right].StartsWith(roots[left]+Path.DirectorySeparatorChar,
+                       StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(
+                        "UM-STEAM-BATCH-OVERLAPPING-INSTALLATIONS");
         var evidence=new List<Candidate>();
         var details=new List<object>();
         foreach(var map in unique)
