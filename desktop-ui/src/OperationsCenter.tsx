@@ -57,6 +57,8 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [filter,setFilter]=useState<"all"|"running"|"attention">("all");
+  const [pageIndex,setPageIndex]=useState(0);
+  const pageSize=50;
   const [scheduleMap,setScheduleMap]=useState("");
   useEffect(()=>{if(selectedMapId)setScheduleMap(selectedMapId);},[selectedMapId]);
   const [scheduleKind,setScheduleKind]=useState<ReadOnlyScheduleKind>("Observation");
@@ -71,10 +73,17 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
       // separate read-only inspection timetable. One bulk RPC for N maps.
       const [operations,native]=await Promise.allSettled([
         selectedMapId?managerBridge.operationsMap(selectedMapId):
-          managerBridge.operationsSnapshot(),
+          managerBridge.operationsSnapshotAll(),
         selectedMapId?Promise.resolve(null):managerBridge.nativeScheduleOverview()
       ]);
-      if(operations.status!=="fulfilled")throw new Error("UM-OPS-UNAVAILABLE");
+      if(operations.status!=="fulfilled"){
+        // Display only known native safety error codes, never raw filesystem
+        // paths, exception messages or private RPC contents.
+        const reason=operations.reason;
+        const code=reason instanceof Error?reason.message:"";
+        throw new Error(/^UM-OPS-[A-Z-]+$/.test(code)?
+          code:"UM-OPS-UNAVAILABLE");
+      }
       setSnapshot(operations.value);
       setNativeOverview(native.status==="fulfilled"?native.value:null);
       setNativeUnreadable(!selectedMapId&&native.status!=="fulfilled");
@@ -119,6 +128,10 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
     filter==="all"||(filter==="running"?x.running:
     x.maintenance||x.storeProtected||(!x.running&&!x.confirmedStopped))
   ),[snapshot,filter]);
+  const pageCount=Math.max(1,Math.ceil(visible.length/pageSize));
+  const safePage=Math.min(pageIndex,pageCount-1);
+  const displayed=useMemo(()=>visible.slice(safePage*pageSize,
+    (safePage+1)*pageSize),[visible,safePage]);
   const mapSchedules=useMemo(()=>(snapshot?.schedules??[]).filter(x=>
     !selectedMapId||x.mapId===selectedMapId),[snapshot,selectedMapId]);
   const mapReceipts=useMemo(()=>(snapshot?.scheduleReceipts??[]).filter(x=>
@@ -136,7 +149,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
         {([["all","Összes"],["running","Futók"],["attention","Védelem / vizsgálat"]] as const)
           .map(([key,label])=><button type="button" key={key}
             className={filter===key?"is-active":""} aria-pressed={filter===key}
-            onClick={()=>setFilter(key)}>{label}</button>)}
+            onClick={()=>{setFilter(key);setPageIndex(0);}}>{label}</button>)}
       </div>}
       <button type="button" className="secondary" disabled={busy}
         onClick={()=>{void reload();}}><RefreshCw size={16} className={busy?"spin":""}/>
@@ -163,7 +176,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
           <table className="ops-compact-table" aria-label="Helyi mapok összesített állapota">
             <thead><tr><th>Map</th><th>Állapot</th><th>PID</th><th>ASA RAM</th>
               <th>Következő ASA-feladat</th><th>Részletek</th></tr></thead>
-            <tbody>{visible.map(map=>{
+            <tbody>{displayed.map(map=>{
               const next=nativeOverview?.jobs.filter(s=>s.mapId===map.mapId&&s.enabled)
                 .sort((a,b)=>Date.parse(a.nextDueUtc)-Date.parse(b.nextDueUtc))[0];
               return <tr key={map.mapId}>
@@ -181,6 +194,17 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
               </tr>;
             })}</tbody>
           </table>
+          {pageCount>1&&<div className="ops-page-nav" role="group"
+            aria-label="Helyi mapok lapozása">
+            <button type="button" className="secondary" disabled={safePage===0}
+              onClick={()=>setPageIndex(p=>Math.max(0,p-1))}>Előző mapoldal</button>
+            <span>{safePage*pageSize+1}–{Math.min((safePage+1)*pageSize,visible.length)}
+              / {visible.length} helyi map · {safePage+1}/{pageCount}. oldal</span>
+            <button type="button" className="secondary"
+              disabled={safePage>=pageCount-1}
+              onClick={()=>setPageIndex(p=>Math.min(pageCount-1,p+1))}>
+              Következő mapoldal</button>
+          </div>}
         </div>)}
       {selectedMapId&&showScheduler&&<section className="premium-panel ops-schedules">
         <header className="premium-panel-heading"><h2><CalendarClock size={19}/> Meglévő ütemezések</h2>
