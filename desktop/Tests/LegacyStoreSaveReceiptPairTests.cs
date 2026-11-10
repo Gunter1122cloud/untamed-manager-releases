@@ -55,7 +55,7 @@ internal static class LegacyStoreSaveReceiptPairTests
         {OriginalFourFilesTag=Sha("all-original-four-file-bytes")};
         string hostId=Guid.NewGuid().ToString("D");
         var missing=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps);
+            root,hostId,source,maps,_=>SourceSha);
         Check(missing.RecentCompletedMapReceipts==0&&
               !missing.AllFiveRecentLocalReceipts&&
               !missing.SharedWriterCertified&&!missing.ProductionRestoreAllowed,
@@ -73,7 +73,7 @@ internal static class LegacyStoreSaveReceiptPairTests
                 DateTimeOffset.UtcNow,true,false);
         }
         var incomplete=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps);
+            root,hostId,source,maps,_=>SourceSha);
         Check(incomplete.RecentCompletedMapReceipts==4&&
               !incomplete.AllFiveRecentLocalReceipts,
             "four of five local SaveComplete journals never becomes complete");
@@ -83,30 +83,43 @@ internal static class LegacyStoreSaveReceiptPairTests
         LegacyStoreV1SaveEvidenceJournal.Begin(
             root,fifthOp,fifth.Id,41002,fifthStart,SourceSha);
         Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps)),
+            root,hostId,source,maps,_=>SourceSha)),
             "pending original local SaveWorld receipt fails closed");
         LegacyStoreV1SaveEvidenceJournal.Complete(root,fifthOp,
             fifth.Id,41002,fifthStart,SourceSha,
             DateTimeOffset.UtcNow,true,false);
         var completed=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps);
+            root,hostId,source,maps,_=>SourceSha);
         Check(completed.RecentCompletedMapReceipts==5&&
               completed.AllFiveRecentLocalReceipts&&
               !completed.SharedWriterCertified&&
               !completed.BothHostsSaveCompleteCertified&&
               !completed.ProductionRestoreAllowed,
             "five durable receipts are HISTORICAL local-only evidence, never writer certification");
+        // Regression: all five journals agree with each other but the
+        // current original ACTIVE/DONE source has changed (e.g. only a
+        // shared operation/peer record, not the local four-file tag).
+        Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
+            root,hostId,source,maps,_=>Sha("new-original-shared-epoch"))),
+            "five matching OLD receipts cannot prove the CURRENT source epoch");
+        int reads=0;
+        Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
+            root,hostId,source,maps,_=>++reads<=5?SourceSha:Sha("changed-mid-probe"))),
+            "shared Store source changed between first and final probe is rejected");
+        Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
+            root,hostId,source,maps,_=>throw new IOException("simulated shared source offline"))),
+            "unreadable shared source fails closed, even for completed receipts");
         var expired=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps,DateTimeOffset.UtcNow.AddMinutes(12));
+            root,hostId,source,maps,_=>SourceSha,DateTimeOffset.UtcNow.AddMinutes(12));
         Check(expired.RecentCompletedMapReceipts==0&&
               !expired.AllFiveRecentLocalReceipts,
             "time-expired local receipts fail closed");
         Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps.Take(4).ToArray()))&&
+            root,hostId,source,maps.Take(4).ToArray(),_=>SourceSha))&&
               Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-                  root,hostId,source,maps.Concat(new[]{maps[0]}).ToArray()))&&
+                  root,hostId,source,maps.Concat(new[]{maps[0]}).ToArray(),_=>SourceSha))&&
               Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-                  root,hostId,source with{LocalMetadataValid=false},maps)),
+                  root,hostId,source with{LocalMetadataValid=false},maps,_=>SourceSha)),
             "missing, duplicated or unverifiable original local maps are denied");
 
         var local=source with{
@@ -141,9 +154,11 @@ internal static class LegacyStoreSaveReceiptPairTests
             InstallationPath=x.InstallationPath
         }).ToArray();
         LegacyStoreV1PeerProof current=source;
+        string liveOriginalEpoch=SourceSha;
         await using(var manager=new ClusterService("pair-lab",root,
             _=>new ProcessCheck(false,"Synthetic stopped only",null,true),
-            legacyStoreProof:()=>current))
+            legacyStoreProof:()=>current,
+            historicalSaveSourceProbe:_=>liveOriginalEpoch))
         {
             foreach(var map in mapCopies)manager.AddMap(map);
             // The test Manager's actual journal root is manager.Store.Root,
@@ -172,6 +187,16 @@ internal static class LegacyStoreSaveReceiptPairTests
                 "real native LAN bridge reads only the explicitly requested local receipt summary");
             Check(manager.ReadLegacyStoreV1PeerProof()?.RecentLocalSaveReceipts==5,
                 "explicit receipt witness is cached only in Manager memory");
+            liveOriginalEpoch=Sha("shared-operation-updated-original-four-unchanged");
+            var failedEpochProbe=await Call(bridge,"lan.historicalSaveProbe");
+            Check(!failedEpochProbe.GetProperty("ok").GetBoolean()&&
+                  manager.ReadLegacyStoreV1PeerProof()?.RecentLocalSaveReceipts==0,
+                "native bridge revokes cached five-map success when shared source epoch changes");
+            liveOriginalEpoch=SourceSha;
+            var refreshed=await Call(bridge,"lan.historicalSaveProbe");
+            Check(refreshed.GetProperty("ok").GetBoolean()&&
+                  manager.ReadLegacyStoreV1PeerProof()?.RecentLocalSaveReceipts==5,
+                "valid original source can be independently re-verified by operator");
             current=current with{OriginalFourFilesTag=Sha("original-session-changed")};
             Check(manager.ReadLegacyStoreV1PeerProof()?.RecentLocalSaveReceipts==0,
                 "old local receipt witness cannot survive changed original four-file identity");
@@ -186,7 +211,7 @@ internal static class LegacyStoreSaveReceiptPairTests
             root,changedOperation,maps[0].Id,41004,changedStart,foreignSource,
             DateTimeOffset.UtcNow,true,false);
         Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps)),
+            root,hostId,source,maps,_=>SourceSha)),
             "five receipts from mixed original Store session/lock source epochs never combine into a valid set");
 
         string file=Path.Combine(root,"historical-save-evidence-v1",
@@ -194,7 +219,7 @@ internal static class LegacyStoreSaveReceiptPairTests
         byte[] originalBytes=File.ReadAllBytes(file);
         File.WriteAllText(file,"{}");
         Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps)),
+            root,hostId,source,maps,_=>SourceSha)),
             "damaged SHA-256 local journal blocks even a previously complete receipt set");
         File.WriteAllBytes(file,originalBytes);
     }

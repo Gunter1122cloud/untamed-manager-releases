@@ -71,7 +71,7 @@ internal static class LegacyStoreV1GracefulStop
         return new(map,identity,fingerprint);
     }
 
-    private static string OriginalSource(LocalMap map)
+    internal static string OriginalSource(LocalMap map)
     {
         var proof=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,
             Path.Combine(Environment.GetFolderPath(
