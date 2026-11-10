@@ -139,6 +139,15 @@ internal static class RunningAsaRegistrationTests
                     deniedIni.RootElement.GetProperty("error").GetString()==
                     "UM-OBSERVED-OR-HISTORICAL-READONLY",
                     "observed map is denied before on-disk INI access");
+            bool coreLaunchDenied=false,legacyLaunchDenied=false;
+            try{cluster.LaunchFreshAsa(map.Id,true);}
+            catch(UnauthorizedAccessException e) when(e.Message=="UM-LIVE-OBSERVED-MAP-READONLY")
+            {coreLaunchDenied=true;}
+            try{cluster.LaunchLocal(map.Id);}
+            catch(UnauthorizedAccessException e) when(e.Message=="UM-LIVE-OBSERVED-MAP-READONLY")
+            {legacyLaunchDenied=true;}
+            Check(coreLaunchDenied&&legacyLaunchDenied,
+                "both Core launch entry points deny observed foreign ASA process");
             bool coreReplacementDenied=false;
             try{cluster.ReplaceMap(map,new LocalMap{
                 Id=map.Id,Name=map.Name,InstallationPath=map.InstallationPath,
