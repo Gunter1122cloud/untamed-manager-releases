@@ -156,6 +156,20 @@ export type RunningLocalAsaSnapshot = {
   lifecycleAuthorized:false;storeWriterAuthorized:false;
   evidence:"LOCAL_WMI_SNAPSHOT_PROFILE_CANDIDATES_NOT_OWNER_PROOF";
 };
+export type RunningAsaImportPreview = {
+  token:string;pid:number;startedUtc:string;mapKey:string;mapName:string;
+  gamePort:number;queryPort:number;folderName:string;
+  manuallyEnteredGamePort:boolean;manuallyEnteredQueryPort:boolean;
+  historicalStoreAllowed:false;readOnly:true;
+  lifecycleAuthorized:false;storeWriterAuthorized:false;
+  evidence:"EXACT_LIVE_ASA_PROCESS_IMPORT_PREVIEW_NO_WRITES";
+};
+export type RunningAsaImportReceipt = {
+  mapId:string;mapName:string;mapKey:string;pid:number;
+  readOnly:true;lifecycleAuthorized:false;storeWriterAuthorized:false;
+  reattachOnRefresh:true;needsExplicitLifecycleEnrollment:true;
+  evidence:"EXISTING_MANAGER_CONFIG_PROFILE_ONLY_LIVE_ASA_NOT_ADOPTED";
+};
 
 export type LocalHost = {
   hostName: string;
@@ -1433,6 +1447,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
   "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
+  "servers.runningPreview" | "servers.runningRegister" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
@@ -1884,6 +1899,10 @@ export const managerBridge = {
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
   iniClose: (token: string) => request<{closed:true}>("ini.close", { token }),
   runningLocalAsa: () => request<RunningLocalAsaSnapshot>("servers.runningLocal"),
+  runningAsaPreview: (pid:number,startedUtc:string,name:string,gamePort:number,queryPort:number) =>
+    request<RunningAsaImportPreview>("servers.runningPreview", {pid,startedUtc,name,gamePort,queryPort}),
+  runningAsaRegister: (token:string) =>
+    request<RunningAsaImportReceipt>("servers.runningRegister", {token,confirm:true}),
   inspectLocalAsa: (name: string, root: string) =>
     request<LocalImportPreview>("servers.inspectLocal", { name, root }),
   importLocalAsa: (importToken: string) =>
