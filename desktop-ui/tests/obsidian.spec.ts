@@ -4079,7 +4079,7 @@ test("mod copy supports more than 25 local maps through paged selection without 
   await expect(targetGroup.getByRole("checkbox")).toHaveCount(25);
   await panel.getByRole("button",{name:"Következő célmap-oldal"}).click();
   await expect(targetGroup).toContainText("Local Map 30");
-  await panel.getByRole("textbox",{name:"Modmásolás célmap keresése"}).fill("Local Map 60");
+  await panel.getByRole("searchbox",{name:"Modmásolás célmap keresése"}).fill("Local Map 60");
   await expect(targetGroup.getByRole("checkbox")).toHaveCount(1);
   await targetGroup.getByRole("checkbox").check();
   await panel.getByRole("button",{name:"Változások előnézete"}).click();
@@ -4098,7 +4098,7 @@ test("portable mod profile exposes the full local map roster by filtering and pa
   await expect(targets.getByRole("checkbox")).toHaveCount(25);
   await panel.getByRole("button",{name:"Következő modprofil-oldal"}).click();
   await expect(targets).toContainText("Local Map 30");
-  await panel.getByRole("textbox",{name:"Modprofil célmap keresése"}).fill("Local Map 65");
+  await panel.getByRole("searchbox",{name:"Modprofil célmap keresése"}).fill("Local Map 65");
   await expect(targets.getByRole("checkbox")).toHaveCount(1);
   await targets.getByRole("checkbox").check();
   await expect(panel).toContainText("1 / 65 helyi map");
