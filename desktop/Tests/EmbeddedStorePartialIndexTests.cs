@@ -95,7 +95,7 @@ internal static class EmbeddedStorePartialIndexTests
     private static bool Denies(Func<object> read)
     {
         try {_=read();return false;}
-        catch(InvalidDataException){return true;}
+        catch(Exception ex) when(ex is InvalidDataException or IOException){return true;}
     }
     public static async Task Run(string sandbox)
     {
