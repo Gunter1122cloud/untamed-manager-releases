@@ -33,6 +33,7 @@ public static class FreshAsaInstallationSafety
                     StringComparison.OrdinalIgnoreCase)).ToArray();
             if(group.Length==0)return false;
             return group.All(x=>
+                !x.ObservedReadOnlyImported &&
                 !KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(x) &&
                 string.IsNullOrWhiteSpace(x.HistoricalArchiveSha256) &&
                 !KovaCompatibleWorldBackup.InstallationRecoveryRequired(x));
