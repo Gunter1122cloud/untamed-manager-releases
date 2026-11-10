@@ -23,6 +23,62 @@ public static class SteamStoppedMapUpdater
         string NewBuild,string BackupDirectory,DateTimeOffset VerifiedUtc,
         bool ProtectedFilesIntact);
 
+    /// <summary>
+    /// Shared guard for both the single-map and bulk SteamCMD entry points.
+    /// A stopped non-Store map cannot authorize modification of binaries also
+    /// claimed by a historical/new Store sibling or an overlapping install.
+    /// This checks ALL registered local maps, not only the UI selection.
+    /// </summary>
+    public static void DemandSafeLocalInstallation(ClusterService cluster,LocalMap map)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+        ArgumentNullException.ThrowIfNull(map);
+        if(map.Id==Guid.Empty ||
+           !cluster.Config.LocalMaps.Any(x=>ReferenceEquals(x,map)) ||
+           string.IsNullOrWhiteSpace(map.InstallationPath) ||
+           !Path.IsPathFullyQualified(map.InstallationPath) ||
+           map.InstallationPath.StartsWith(@"\\",StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("UM-STEAM-LOCAL-INSTALL-REQUIRED");
+
+        var root=Path.TrimEndingDirectorySeparator(Path.GetFullPath(map.InstallationPath));
+        int owners=0;
+        foreach(var sibling in cluster.Config.LocalMaps)
+        {
+            if(string.IsNullOrWhiteSpace(sibling.InstallationPath))
+                continue;
+            var other=Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(sibling.InstallationPath));
+            if(!string.Equals(root,other,StringComparison.OrdinalIgnoreCase))
+            {
+                if(root.StartsWith(other+Path.DirectorySeparatorChar,
+                       StringComparison.OrdinalIgnoreCase) ||
+                   other.StartsWith(root+Path.DirectorySeparatorChar,
+                       StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(
+                        "UM-STEAM-NESTED-INSTALL-OWNERSHIP");
+                continue;
+            }
+            owners++;
+            if(sibling.Maintenance || sibling.HistoricalStoreProtected ||
+               !string.IsNullOrWhiteSpace(sibling.HistoricalArchiveSha256) ||
+               !string.IsNullOrWhiteSpace(sibling.HistoricalMapKey) ||
+               !string.IsNullOrWhiteSpace(sibling.StoreTestRoot) ||
+               !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId) ||
+               !string.IsNullOrWhiteSpace(sibling.FreshStoreTransferDirectory) ||
+               KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling) ||
+               KovaCompatibleWorldBackup.InstallationRecoveryRequired(sibling))
+                throw new UnauthorizedAccessException(
+                    "UM-STEAM-SHARED-STORE-OR-RECOVERY-PROTECTED");
+            var current=cluster.Check(sibling);
+            if(current.Running || !current.ConfirmedStopped ||
+               current.Identity!=null || current.LoaderIdentity!=null)
+                throw new InvalidOperationException(
+                    "UM-STEAM-SHARED-INSTALL-NOT-STOPPED");
+        }
+        if(owners==0)
+            throw new InvalidDataException("UM-STEAM-INSTALL-OWNER-MISSING");
+    }
+
     public static Task<Receipt> UpdateAsync(ClusterService cluster,LocalMap map,
         string steamCmdExecutable,long downloadReserveBytes,
         TimeSpan timeout,IProgress<SteamMaintenanceStage>? progress=null,
@@ -115,6 +171,7 @@ public static class SteamStoppedMapUpdater
         if(reserve<1024L*1024*1024 || reserve>500L*1024*1024*1024)
             throw new InvalidDataException("SteamCMD download reserve outside safe bounds");
         string root=Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar);
+        DemandSafeLocalInstallation(cluster,map);
         new AsaManualRestartJournal(root).DemandNoPending();
         if(root.StartsWith(@"\\",StringComparison.Ordinal)||
            !AsaReadyProbe.IsRegisteredServerBinary(map))
