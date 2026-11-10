@@ -49,6 +49,12 @@ public sealed class LocalMap
     // Existing Kova Store-v1 copies are imported as quarantined metadata,
     // not as an executable or writable character profile.
     public bool HistoricalStoreProtected { get; set; } = false;
+    // A stopped Kova import cannot prove whether the old operator used
+    // AsaApiLoader.exe. Neither direct ASA nor Loader may be launched until
+    // the operator explicitly confirms the exact mode in Obsidian. Only the
+    // local Manager profile is changed; Kova/Store data remains untouched.
+    // Older already configured Manager profiles remain backward compatible.
+    public bool HistoricalLaunchModeNeedsApproval { get; set; } = false;
     public string HistoricalArchiveSha256 { get; set; } = "";
     public string HistoricalMapKey { get; set; } = "";
     public List<string> HistoricalEnabledMods { get; set; } = new();
