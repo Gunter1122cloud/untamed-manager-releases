@@ -40,8 +40,10 @@ function ServerRow({map,host,local,onSelect}:{
       <div><b>{map.name}</b><small>ASA · {map.steamBuildId?"Build "+map.steamBuildId:"Build nem ellenőrzött"}</small></div>
     </div>
     <span className="premium-server-host" role="cell">{host}</span>
-    <span role="cell" className={`premium-server-state ${map.running?"is-running":"is-stopped"}`}>
-      <i aria-hidden="true"/>{map.running?"Fut":"Leállítva"}
+    <span role="cell" className={`premium-server-state ${map.running&&!map.observedReadOnlyImported?"is-running":"is-stopped"}`}>
+      <i aria-hidden="true"/>{map.observedReadOnlyImported?
+        (map.observedRuntimeState==="observedRunning"?"Megfigyelt · fut":"Megfigyelés: nem igazolt"):
+        (map.running?"Fut":"Leállítva")}
     </span>
     <span className="premium-server-players" role="cell" title="Játékosszámot csak hitelesített RCON-ból jelenítünk meg">—</span>
     <span className="premium-server-port" role="cell">

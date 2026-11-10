@@ -110,7 +110,9 @@ function MapTable({ maps, host, onPick, filter = "" }: {
     </div>
     {rows.map(map=><div className={"premium-map-line"+(onPick?" is-local":" is-remote")}
         role="row" key={map.id} tabIndex={onPick?0:undefined}
-        aria-label={map.name+" · "+host+" · "+(map.running?"Fut":"Leállítva")}
+        aria-label={map.name+" · "+host+" · "+(map.observedReadOnlyImported?
+          (map.observedRuntimeState==="observedRunning"?"Megfigyelt · fut":"Megfigyelés: nem igazolt"):
+          (map.running?"Fut":"Leállítva"))}
         onClick={onPick?()=>onPick(map.id):undefined}
         onKeyDown={onPick?(e)=>{
           if(e.key==="Enter"||e.key===" "){e.preventDefault();onPick(map.id);}
@@ -124,7 +126,13 @@ function MapTable({ maps, host, onPick, filter = "" }: {
       </span>
       <span className="premium-map-host" role="cell">{host}</span>
       <span className="premium-map-status" role="cell">
-        <State running={map.running} status={map.status}/>
+        {map.observedReadOnlyImported?
+          <span className="state stopped"><Shield size={13}/>{
+            map.observedRuntimeState==="observedRunning"?
+              "Megfigyelt · fut":"Megfigyelés: nem igazolt"
+          }</span>:
+          <State running={map.running} status={map.status}/>}
+
       </span>
       <span className="premium-map-port mono" role="cell">{map.gamePort||"—"}</span>
       <span className="premium-map-actions" role="cell">
@@ -1590,6 +1598,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     </div>
     <div className="warning-inline" role="status"><Shield size={17}/>
       Ez a külső ASA-folyamat kizárólag megfigyelésre került a Managerbe.
+      WMI-jelzés: {map.observedRuntimeState==="observedRunning"?
+        "megfigyelt futó szerver":"nincs egyértelmű aktuális folyamatbizonyíték"}.
       Start, Stop, Restart, SaveWorld, RCON, INI, mod, plugin, SteamCMD és
       Store-v1 írási jog nem lett átvéve. A futás állapotát az alábbi friss WMI-felderítés mutatja.
     </div>
