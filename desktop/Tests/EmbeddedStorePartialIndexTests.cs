@@ -40,6 +40,37 @@ internal static class EmbeddedStorePartialIndexTests
         w.Write(0);
         w.Write(data.Length);
     }
+    private static byte[] MixedClasses(bool includeUnknown)
+    {
+        using var stream=new MemoryStream();
+        using(var writer=new BinaryWriter(stream,Encoding.UTF8,true))
+        {
+            var names=includeUnknown?
+                new[]{"PrimalPlayerData","PrimalTribeData","UnknownRecordClass"}:
+                new[]{"PrimalPlayerData","PrimalTribeData"};
+            writer.Write(1);
+            writer.Write(names.Length*128);
+            writer.Write(names.Length);
+            foreach(var name in names)
+            {
+                byte[] payload=new byte[128];
+                byte[] value=Encoding.ASCII.GetBytes(name);
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(
+                    payload.AsSpan(32,4),value.Length);
+                value.CopyTo(payload.AsSpan(36));
+                writer.Write(payload);
+            }
+            for(int i=0;i<names.Length;i++)
+            {
+                writer.Write((ulong)(501+i));
+                writer.Write(128*i);
+                writer.Write(128);
+            }
+            writer.Write(0);writer.Write(0);
+            writer.Flush();
+        }
+        return stream.ToArray();
+    }
     private static byte[] Blob(string tail)
     {
         using var stream=new MemoryStream();
@@ -122,6 +153,25 @@ internal static class EmbeddedStorePartialIndexTests
             Check(SHA256.HashData(File.ReadAllBytes(world)).SequenceEqual(fingerprint),
                 "offline SQLite inspector never changes the original synthetic world bytes");
         }
+        SetBlob(world,MixedClasses(false));
+        var knownMixed=EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(world);
+        Check(knownMixed.State=="INDEX_SCANNED"&&
+              knownMixed.ProfileCandidates==1&&knownMixed.TribeCandidates==1&&
+              knownMixed.UnclassifiedCandidates==0&&knownMixed.Sections==1&&
+              knownMixed.IndexBoundsVerified&&
+              !knownMixed.GameplayVerified&&!knownMixed.CharacterTravelVerified,
+            "mixed player and tribe records in ONE section are classified per entry without claiming gameplay");
+        SetBlob(world,MixedClasses(true));
+        var unknownMixed=EmbeddedStoreReadOnlyInspector.InspectOfflineCopy(world);
+        Check(unknownMixed.State=="INDEX_SCANNED_WITH_UNCLASSIFIED_OR_DUPLICATES"&&
+              unknownMixed.ProfileCandidates==1&&unknownMixed.TribeCandidates==1&&
+              unknownMixed.UnclassifiedCandidates==1&&
+              unknownMixed.IndexBoundsVerified&&
+              !unknownMixed.GameplayVerified&&!unknownMixed.CharacterTravelVerified,
+            "unknown record in otherwise mixed section remains explicitly UNCLASSIFIED, not fabricated as a player");
+        // Keep the native picker regression targeted to the partial Genesis
+        // trailing-index case rather than the preceding mixed-class fixture.
+        SetBlob(world,Blob("short"));
         using(var bridge=new DesktopEmbeddedStoreBridge(()=>world))
         {
             string response=await bridge.HandleAsync(JsonSerializer.Serialize(
