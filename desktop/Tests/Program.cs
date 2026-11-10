@@ -2073,6 +2073,112 @@ try
         finally { fresh.Arguments=originalLaunch; }
     }
 
+    // Local serial SteamCMD batch: a new UI command must delegate to the
+    // existing Core updater/queue rather than reimplementing file updates.
+    // Synthetic runner blocks so we can prove single-use approval and
+    // read-only reattachment; no actual SteamCMD or ASA process is launched.
+    {
+        var candidate=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
+        var second=new LocalMap {
+            Name="Synthetic shared Steam installation",
+            InstallationPath=candidate.InstallationPath,
+            ExecutablePath=candidate.ExecutablePath
+        };
+        cluster.AddMap(second);
+        int batchRuns=0;
+        var entered=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        byte[] untouched=File.ReadAllBytes(candidate.ExecutablePath);
+        try
+        {
+            using var batch=new DesktopStoppedSteamBatchBridge(cluster,
+                async (maps,progress)=>{
+                    batchRuns++;
+                    Check(maps.Count==1&&maps[0].Id==candidate.Id,
+                        "shared ASA installations are updated only once in first-selected order");
+                    progress.Report(new SteamQueueProgress(1,1,maps[0].Name,"Synthetic running"));
+                    entered.TrySetResult(true);
+                    await release.Task.WaitAsync(TimeSpan.FromSeconds(12));
+                    return new [] { new SteamStoppedMapUpdater.Receipt(
+                        maps[0].Id,maps[0].InstallationPath,
+                        "123456","123457","synthetic-backup",
+                        DateTimeOffset.UtcNow,true) };
+                },
+                map=>new SteamUpdatePreview(
+                    Path.GetFullPath(map.InstallationPath),
+                    new[]{candidate.Name,second.Name},"SYNTHETIC-STEAM",
+                    "123456",10L*1024*1024*1024,20L*1024*1024*1024,
+                    true,"Isolated preview"));
+
+            var unknown=await Call(batch.HandleAsync,"steam.batchPreview",
+                new{mapIds=new[]{Guid.NewGuid()}});
+            Check(!unknown.GetProperty("ok").GetBoolean()&&batchRuns==0,
+                "local Steam batch cannot accept unknown or remote map IDs");
+            var duplicates=await Call(batch.HandleAsync,"steam.batchPreview",
+                new{mapIds=new[]{candidate.Id,candidate.Id}});
+            Check(!duplicates.GetProperty("ok").GetBoolean()&&batchRuns==0,
+                "duplicated map IDs cannot execute multiple SteamCMD jobs");
+            second.HistoricalStoreProtected=true;
+            var quarantined=await Call(batch.HandleAsync,"steam.batchPreview",
+                new{mapIds=new[]{candidate.Id,second.Id}});
+            Check(!quarantined.GetProperty("ok").GetBoolean()&&batchRuns==0,
+                "a historical Store sibling blocks shared-install Steam update");
+            second.HistoricalStoreProtected=false;
+            var planned=await Call(batch.HandleAsync,"steam.batchPreview",
+                new{mapIds=new[]{candidate.Id,second.Id}});
+            IsOk(planned,"native serial SteamCMD preview validates both local map identities");
+            var info=planned.GetProperty("data");
+            Check(info.GetProperty("requestedMaps").GetInt32()==2 &&
+                  info.GetProperty("installations").GetInt32()==1 &&
+                  !info.GetProperty("storeWriterTouched").GetBoolean() &&
+                  !info.GetProperty("serverStopRequested").GetBoolean() &&
+                  batchRuns==0,
+                "two local maps sharing one root have exactly one read-only SteamCMD plan");
+            string approval=info.GetProperty("token").GetString()!;
+            var badConsent=await Call(batch.HandleAsync,"steam.batchApply",
+                new{token=approval,confirm=true,typedApproval="WRONG"});
+            Check(!badConsent.GetProperty("ok").GetBoolean()&&batchRuns==0,
+                "local serial Steam updates require the exact typed approval");
+            var started=await Call(batch.HandleAsync,"steam.batchApply",
+                new{token=approval,confirm=true,
+                    typedApproval="HELYI SOROS STEAMCMD"});
+            IsOk(started,"explicit serial batch approval starts existing native Core operation");
+            string jobId=started.GetProperty("data").GetProperty("jobId").GetString()!;
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(12));
+            var active=await Call(batch.HandleAsync,"steam.batchCurrent");
+            Check(active.GetProperty("data").GetProperty("activeJob")
+                    .GetProperty("jobId").GetString()==jobId && batchRuns==1 &&
+                  !active.GetProperty("data").GetProperty("automaticRetry").GetBoolean(),
+                "React can reattach to active serial Steam job without duplicate download");
+            var replay=await Call(batch.HandleAsync,"steam.batchApply",
+                new{token=approval,confirm=true,
+                    typedApproval="HELYI SOROS STEAMCMD"});
+            Check(!replay.GetProperty("ok").GetBoolean()&&batchRuns==1,
+                "consumed serial Steam approval cannot replay");
+            release.TrySetResult(true);
+            JsonElement progress=default;
+            for(int i=0;i<60;i++)
+            {
+                progress=await Call(batch.HandleAsync,"steam.batchStatus",
+                    new{jobId});
+                if(progress.GetProperty("data").GetProperty("state").GetString()
+                    =="completed")break;
+                await Task.Delay(30);
+            }
+            IsOk(progress,"native serial Steam job reports completion");
+            Check(progress.GetProperty("data").GetProperty("state")
+                    .GetString()=="completed" &&
+                  progress.GetProperty("data").GetProperty("completedInstallations")
+                    .GetInt32()==1 &&
+                  batchRuns==1 &&
+                  untouched.SequenceEqual(File.ReadAllBytes(candidate.ExecutablePath)),
+                "serial Steam batch executes exactly once and leaves real ASA binary unchanged in fixture");
+        }
+        finally{release.TrySetResult(true);cluster.RemoveMap(second.Id);}
+    }
+
     // Actual SteamCMD entry point uses Core's stopped-map update and per-host
     // queue. The adapter is injected only in this isolated Windows fixture.
     {
