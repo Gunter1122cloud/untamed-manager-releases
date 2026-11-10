@@ -73,7 +73,7 @@ internal static class LegacyStoreSaveReceiptPairTests
                 DateTimeOffset.UtcNow,true,false);
         }
         var incomplete=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps);
+            root,hostId,source,maps,_=>SourceSha);
         Check(incomplete.RecentCompletedMapReceipts==4&&
               !incomplete.AllFiveRecentLocalReceipts,
             "four of five local SaveComplete journals never becomes complete");
@@ -89,7 +89,7 @@ internal static class LegacyStoreSaveReceiptPairTests
             fifth.Id,41002,fifthStart,SourceSha,
             DateTimeOffset.UtcNow,true,false);
         var completed=LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps);
+            root,hostId,source,maps,_=>SourceSha);
         Check(completed.RecentCompletedMapReceipts==5&&
               completed.AllFiveRecentLocalReceipts&&
               !completed.SharedWriterCertified&&
@@ -200,7 +200,7 @@ internal static class LegacyStoreSaveReceiptPairTests
             root,changedOperation,maps[0].Id,41004,changedStart,foreignSource,
             DateTimeOffset.UtcNow,true,false);
         Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps)),
+            root,hostId,source,maps,_=>SourceSha)),
             "five receipts from mixed original Store session/lock source epochs never combine into a valid set");
 
         string file=Path.Combine(root,"historical-save-evidence-v1",
@@ -208,7 +208,7 @@ internal static class LegacyStoreSaveReceiptPairTests
         byte[] originalBytes=File.ReadAllBytes(file);
         File.WriteAllText(file,"{}");
         Check(Denies(()=>LegacyStoreV1HistoricalSaveReceiptProbe.Capture(
-            root,hostId,source,maps)),
+            root,hostId,source,maps,_=>SourceSha)),
             "damaged SHA-256 local journal blocks even a previously complete receipt set");
         File.WriteAllBytes(file,originalBytes);
     }
