@@ -198,7 +198,7 @@ internal static class FreshStoreEnrollmentTests
             var customPlan=FreshStoreEnrollmentPolicy.Prepare(
                 manager,customMap,"new-local-cluster");
             Check(customPlan.Arguments.StartsWith(
-                    "Atlantis_WP?listen?SessionName=\\\"Synthetic Store Map\\\"",
+                    "Atlantis_WP?listen?SessionName=\"Synthetic Store Map\"",
                     StringComparison.Ordinal)&&
                   customPlan.Arguments.EndsWith(" -usestore",
                     StringComparison.Ordinal),
