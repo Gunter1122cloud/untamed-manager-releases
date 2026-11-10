@@ -281,6 +281,62 @@ nav{display:flex;flex-direction:column;gap:6px}.nav-link{width:100%;border:1px s
 .historical-approval{display:flex;gap:9px;align-items:flex-start;margin-bottom:14px;
   font-size:12px;line-height:1.5;color:#b9deca}
 .historical-approval input{width:17px;height:17px;accent-color:#83e9b4;flex-shrink:0;margin-top:2px}
+/* Critical native Store-v1 approval inputs must not silently inherit the
+   17px checkbox size or a background-transparent/default text style.
+   Also protects other typed confirmations and numeric fields in Store panels. */
+.historical-preview > label:has(> input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type]))){
+  display:flex;flex-direction:column;align-items:stretch;gap:9px;
+  min-width:0;width:100%;margin:13px 0 16px;
+  color:#dcf8e7;font-size:13px;font-weight:650;line-height:1.5;
+}
+.historical-preview > label:has(> input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type]))) > input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type])){
+  display:block;box-sizing:border-box;flex:none;visibility:visible;
+  width:100%;max-width:720px;min-width:0;min-height:46px;
+  padding:11px 13px;border:1px solid #82cda4;border-radius:9px;
+  background:#0b2629;color:#f3fff7;font:500 14px/1.4 "Segoe UI",system-ui,sans-serif;
+  opacity:1;-webkit-text-fill-color:#f3fff7;
+}
+.historical-preview > label:has(> input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type]))) > input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type]))::placeholder{
+  color:#b5d3c8;opacity:1;
+}
+.historical-preview > label:has(> input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type]))) > input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type])):focus-visible{
+  outline:3px solid #77e3b6;outline-offset:2px;
+}
+.historical-import .historical-live-action-row{
+  align-items:center;justify-content:flex-start;
+}
+.historical-import .historical-approval-reason{
+  display:inline-block;flex:1 1 240px;max-width:590px;min-width:170px;
+  color:#dbf3e6;font-size:12px;line-height:1.55;overflow-wrap:anywhere;
+}
+@media(max-width:800px){
+  .historical-import .historical-live-action-row .primary{width:100%;justify-content:center;}
+  .historical-import .historical-approval-reason{flex-basis:100%;max-width:100%;}
+}
+/* The same inaccessible, unstyled exact-phrase control appeared in other
+   safety-critical native operations. Keep typed confirmations readable at
+   desktop and compact widths, without changing ANY checkbox presentation. */
+.warning-inline label:has(> input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type]))),
+.uk-world-backup-confirm label:has(> input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type]))),
+.uk-lifecycle-approval label:has(> input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type]))){
+  display:flex;flex-direction:column;align-items:stretch;gap:8px;
+  width:100%;min-width:0;margin:11px 0 13px;color:#e8f6eb;
+  font-size:12px;font-weight:650;line-height:1.55;
+}
+.warning-inline input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type])),
+.uk-world-backup-confirm label > input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type])),
+.uk-lifecycle-approval label > input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type])){
+  display:block;box-sizing:border-box;visibility:visible;opacity:1;
+  width:100%;max-width:530px;min-width:0;min-height:43px;
+  padding:10px 12px;border:1px solid #80c1a6;border-radius:8px;
+  background:#0b252b;color:#f1fff9;-webkit-text-fill-color:#f1fff9;
+  font-size:13px;
+}
+.warning-inline input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type])):focus-visible,
+.uk-world-backup-confirm label > input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type])):focus-visible,
+.uk-lifecycle-approval label > input:is([type="text"],[type="number"],[type="search"],[type="password"],[type="time"],:not([type])):focus-visible{
+  outline:2px solid #7be0b8;outline-offset:2px;
+}
 .historical-preview>button{display:inline-flex;align-items:center;gap:8px}
 @media(max-width:970px){.historical-import-form{grid-template-columns:1fr}
 .historical-proof-grid{grid-template-columns:1fr 1fr}}
