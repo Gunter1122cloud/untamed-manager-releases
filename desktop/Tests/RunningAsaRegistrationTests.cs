@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -79,6 +80,12 @@ internal static class RunningAsaRegistrationTests
                 blockedStore.GetProperty("error").GetString()
                     =="UM-LIVE-STORE-REQUIRES-HISTORICAL-IMPORT",
                 "original Store process cannot be imported without historical identity");
+            observations=new[]{sample with{CommandLine=command+" -usestore -usestore"}};
+            var duplicatedStore=await Call(bridge,"servers.runningPreview",
+                new{pid=71221,startedUtc=started.ToString("O"),name="Ragnarok",
+                    gamePort=7817,queryPort=27037});
+            Check(!duplicatedStore.GetProperty("ok").GetBoolean(),
+                "duplicate -usestore cannot bypass a telemetry cardinality check");
             observations=new[]{sample with{CommandLine=command+" -converttostore"}};
             var conversion=await Call(bridge,"servers.runningPreview",
                 new{pid=71221,startedUtc=started.ToString("O"),name="Ragnarok",
