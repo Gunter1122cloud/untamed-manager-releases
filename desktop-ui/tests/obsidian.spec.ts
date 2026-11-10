@@ -4147,8 +4147,9 @@ test("real stopped-map SteamCMD update is opt-in and reports verified outcome",a
 
 test("SteamCMD monitor reattaches to existing native job after WebView2 reload without another Steam update",async({page})=>{
   await page.goto("/?fixture=steamReattach");
-  await page.getByRole("button",{name:"Astraeos részletei"}).click();
-  await page.getByRole("tab",{name:"SteamCMD",exact:true}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
   const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
   await expect(panel).toContainText("Frissítés: completed");
   await expect(panel).toContainText("Build 123456 → 123457");
