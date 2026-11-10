@@ -39,6 +39,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
     private sealed record OriginalBatchPrepared(Guid Token,string FourFilesHash,
         string LaunchProfileHash,Guid[] MapIds,DateTimeOffset ExpiresUtc);
     private OriginalBatchPrepared? pendingOriginalBatch;
+    private sealed record OriginalLiveBatchPrepared(Guid Token,string FourFilesHash,
+        string LaunchHash,string ProcessHash,string SharedStateHash,
+        Guid[] MapIds,DateTimeOffset ExpiresUtc);
+    private OriginalLiveBatchPrepared? pendingOriginalLiveBatch;
     private sealed record OriginalClusterPrepared(Guid Token,string FourFilesSha256,
         string SourceClusterId,string SourcePath,Guid[] OriginalMapIds,
         long RegistryRevision,DateTimeOffset ExpiresUtc);
@@ -76,6 +80,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.originalList" or "historical.originalPreview" or
                 "historical.originalRegister" or "historical.originalBatchPreview" or
                 "historical.originalBatchRegister" or
+                "historical.originalLiveBatchPreview" or
+                "historical.originalLiveBatchApply" or
                 "historical.originalClusterPreview" or
                 "historical.originalClusterApply"))
                 return Fail(id,"UM-METHOD-DENIED");
@@ -88,6 +94,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     .Select(x=>x.Key).ToArray())pendingOriginal.Remove(expired);
                 if(pendingOriginalBatch?.ExpiresUtc<DateTimeOffset.UtcNow)
                     pendingOriginalBatch=null;
+                if(pendingOriginalLiveBatch?.ExpiresUtc<DateTimeOffset.UtcNow)
+                    pendingOriginalLiveBatch=null;
                 if(pendingOriginalCluster?.ExpiresUtc<DateTimeOffset.UtcNow)
                     pendingOriginalCluster=null;
 
@@ -166,6 +174,69 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         originalFilesWritten=false,transferFilesWritten=false,
                         storeWriterTouched=false,serverStarted=false,
                         evidence="ORIGINAL_FIVE_MAP_MANAGER_REGISTRY_METADATA_ONLY"
+                    });
+                }
+
+                if(method=="historical.originalLiveBatchPreview")
+                {
+                    pendingOriginalLiveBatch=null;
+                    var (original,observed,shared)=VerifyLiveOriginalFive();
+                    var token=Guid.NewGuid();
+                    pendingOriginalLiveBatch=new(token,original.FourFilesSha256,
+                        original.LaunchProfileSha256,observed.ProcessSha256,shared,
+                        observed.Maps.Select(m=>m.Id).ToArray(),
+                        DateTimeOffset.UtcNow.AddMinutes(3));
+                    return Ok(id,new {
+                        token,localMaps=observed.Maps.Length,
+                        mapNames=observed.Maps.Select(m=>m.Name).ToArray(),
+                        runningProcesses=observed.Maps.Length,
+                        directProcesses=observed.DirectProcesses,
+                        apiLoaderPairs=observed.ApiLoaderPairs,
+                        sourceIdentityPreserved=true,
+                        existingAsaProcessesUnaffected=true,
+                        originalSessionLockWritten=false,
+                        storeWriterAuthorizedByImport=false,
+                        requiresExternalControllerStopped=true,
+                        requiresTypedApproval=true,
+                        evidence="ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT"
+                    });
+                }
+                if(method=="historical.originalLiveBatchApply")
+                {
+                    if(!GuidField(data,"token",out var token)||
+                       pendingOriginalLiveBatch==null||
+                       pendingOriginalLiveBatch.Token!=token)
+                        return Fail(id,"UM-ORIGINAL-LIVE-APPROVAL-EXPIRED");
+                    var approved=pendingOriginalLiveBatch;
+                    pendingOriginalLiveBatch=null; // single use, including denial
+                    if(approved.ExpiresUtc<DateTimeOffset.UtcNow||
+                       !BoolField(data,"confirm",out var confirm)||!confirm||
+                       !BoolField(data,"externalControllerStopped",out var detached)||!detached||
+                       !TextField(data,"typedApproval",60,out var phrase)||
+                       phrase!="STORE-V1 FUTÓ ÁTVÉTEL")
+                        return Fail(id,"UM-ORIGINAL-LIVE-EXPLICIT-APPROVAL-REQUIRED");
+                    var (original,observed,shared)=VerifyLiveOriginalFive();
+                    if(original.FourFilesSha256!=approved.FourFilesHash||
+                       original.LaunchProfileSha256!=approved.LaunchHash||
+                       observed.ProcessSha256!=approved.ProcessHash||
+                       shared!=approved.SharedStateHash||
+                       !observed.Maps.Select(m=>m.Id).SequenceEqual(approved.MapIds))
+                        return Fail(id,"UM-ORIGINAL-LIVE-SOURCE-OR-PROCESS-CHANGED");
+                    // Only the Manager's own local registry is written here.
+                    // Existing ASA processes, Kova 2-peer session, Store-writer,
+                    // character, tribe and shared transfer files are unchanged.
+                    // Each subsequent RCON/Stop/Restart performs its own live
+                    // original source and exact PID/port preflight.
+                    cluster.AddMapsAtomically(observed.Maps);
+                    return Ok(id,new {
+                        importedMaps=observed.Maps.Length,
+                        mapIds=observed.Maps.Select(m=>m.Id).ToArray(),
+                        apiLoaderPairs=observed.ApiLoaderPairs,
+                        managerProfileOnly=true,
+                        originalStoreFilesWritten=false,serverStarted=false,
+                        serverStopped=false,storeWriterAuthorizedByImport=false,
+                        requiresOriginalRconAttach=true,
+                        evidence="ORIGINAL_ACTIVE_FIVE_RUNNING_MAPS_REGISTERED_NO_ASA_MUTATION"
                     });
                 }
 
@@ -747,6 +818,53 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         "LostColony_WP"=>"Lost Colony",
         _=>LocalMapNameRules.Normalize(key)
     };
+
+    private (LegacyStoreV1OriginalLocalSelection Original,
+        OriginalStoreLiveBatchEvidence.Result Observed,string SharedState)
+        VerifyLiveOriginalFive()
+    {
+        var original=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+        // This is an ATOMIC exact-five import. Previously registered maps
+        // must use the existing historical paths; never register twice.
+        if(original.Maps.Any(m=>cluster.Config.LocalMaps.Any(x=>
+            x.Id==m.MapId)))
+            throw new InvalidDataException("UM-ORIGINAL-LIVE-PROFILE-ALREADY-REGISTERED");
+        var observed=OriginalStoreLiveBatchEvidence.Classify(original,
+            LocalRunningAsaDiscovery.ReadSamples());
+        string? sharedSha=null;
+        foreach(var map in observed.Maps)
+        {
+            CheckDuplicate(map.Id,map.Name,
+                Path.GetFullPath(map.InstallationPath));
+            var proof=LegacyStoreV1LiveReadGate.InspectOriginalActive(
+                map,localLegacyDataDirectory);
+            if(!proof.CompletedOriginalSourceGuard||
+               !proof.BothPeersDone||!proof.LocalActive||
+               proof.ActiveMaps!=10||proof.DonePeers!=2||
+               string.IsNullOrWhiteSpace(proof.SourceStateSha256)||
+               (sharedSha!=null && sharedSha!=proof.SourceStateSha256))
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-PEER-SOURCE-UNVERIFIED");
+            sharedSha=proof.SourceStateSha256;
+            // Physical independent WMI process recheck; a fabricated
+            // renderer PID and even synthetic Classify() result are never
+            // sufficient to register a live original Store owner.
+            var fresh=LegacyStoreV1ProcessObserver.Observe(map,observed.Maps);
+            if(!fresh.Running||fresh.ConfirmedStopped||
+               fresh.Identity?.Pid!=map.LastProcess?.Pid||
+               fresh.Identity.StartedUtc!=map.LastProcess.StartedUtc||
+               (map.StartWithAsaApi &&
+                (fresh.LoaderIdentity?.Pid!=map.LastLoader?.Pid||
+                 fresh.LoaderIdentity.StartedUtc!=map.LastLoader.StartedUtc))||
+               (!map.StartWithAsaApi&&fresh.LoaderIdentity!=null))
+                throw new InvalidDataException("UM-ORIGINAL-LIVE-PHYSICAL-IDENTITY-CHANGED");
+        }
+        var reread=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+        if(reread.FourFilesSha256!=original.FourFilesSha256||
+           reread.LaunchProfileSha256!=original.LaunchProfileSha256)
+            throw new IOException("UM-ORIGINAL-LIVE-SOURCE-CHANGED");
+        return(original,observed,sharedSha??throw new InvalidDataException(
+            "UM-ORIGINAL-LIVE-PEER-SOURCE-UNVERIFIED"));
+    }
 
     private ProcessCheck ObservedOriginal(Guid mapId,string mapKey,
         string root,string executable)
