@@ -514,6 +514,21 @@ export type StoppedSteamBatchCurrent = {
   journalTotal:number|null;needsOperatorReview:boolean;
   automaticRetry:false;remoteWritesAllowed:false;
 };
+export type ScheduledStoppedSteamItem = {
+  mapId:string;mapName:string;intervalMinutes:number;enabled:boolean;
+  nextDueUtc:string;lastAttemptUtc:string|null;lastStatus:string;
+  oldBuild:string|null;newBuild:string|null;
+};
+export type ScheduledStoppedSteamOverview = {
+  hostId:string;runnerState:string;schedules:ScheduledStoppedSteamItem[];
+  runningMapAutoStop:false;runningMapAutoRestart:false;storeWriterTouched:false;
+  remoteHostUpdate:false;evidence:"DURABLE_OPT_IN_STOPPED_ONLY_STEAMCMD";
+};
+export type ScheduledStoppedSteamSaved = {
+  mapId:string;enabled:boolean;intervalMinutes:number;nextDueUtc:string;
+  lastStatus:string;autoStopRunning:false;autoRestartRunning:false;
+  storeWriterTouched:false;evidence:"EXPLICIT_LOCAL_STOPPED_ONLY_SCHEDULE_CHANGE";
+};
 export type RconConfigStatus = {
   mapId:string;mapName:string;rconPort:number;configured:boolean;permitted:boolean;
   evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE";
@@ -1616,6 +1631,16 @@ export const managerBridge = {
       }),
   steamBatchStatus: (jobId:string) =>
     request<StoppedSteamBatchJob>("steam.batchStatus",{jobId}),
+  steamScheduledStatus: () =>
+    request<ScheduledStoppedSteamOverview>("steam.scheduleStatus"),
+  steamScheduledSet: (mapId:string,intervalMinutes:number,typedApproval:string) =>
+    request<ScheduledStoppedSteamSaved>("steam.scheduleSet",{
+      mapId,intervalMinutes,typedApproval,confirm:true
+    }),
+  steamScheduledDisable: (mapId:string,typedApproval:string) =>
+    request<ScheduledStoppedSteamSaved>("steam.scheduleDisable",{
+      mapId,typedApproval,confirm:true
+    }),
   rconConfigStatus: (mapId:string) => request<RconConfigStatus>("rcon.configStatus",{mapId}),
   rconConfigPreview: (mapId:string,rconPort:number,password:string,createIni:boolean) =>
     request<RconConfigPreview>("rcon.configPreview",{mapId,rconPort,password,createIni}),
