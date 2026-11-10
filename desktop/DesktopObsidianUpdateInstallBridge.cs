@@ -48,6 +48,21 @@ public sealed class DesktopObsidianUpdateInstallBridge
         });
     }
 
+    // Bind the human-reviewed GitHub release metadata to the actual
+    // installer prepared later. GitHub can publish a new release or replace
+    // metadata between "Check" and "Prepare"; never silently switch builds.
+    public static bool MatchesCheckedRelease(UpdateRelease? release,
+        string? expectedTag,string? expectedSha256)
+    {
+        return release!=null &&
+            !string.IsNullOrWhiteSpace(expectedTag) &&
+            !string.IsNullOrWhiteSpace(expectedSha256) &&
+            ObsidianReleaseCatalog.IsTrusted(release) &&
+            string.Equals(release.Tag,expectedTag,StringComparison.Ordinal) &&
+            string.Equals(release.Sha256,expectedSha256,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
@@ -85,6 +100,17 @@ public sealed class DesktopObsidianUpdateInstallBridge
                         "preview"=>UpdateChannel.Preview,
                         _=>throw new InvalidDataException("Unknown update channel")
                     };
+                    if(!data.TryGetProperty("expectedTag",out var tagValue)||
+                       tagValue.ValueKind!=JsonValueKind.String||
+                       !data.TryGetProperty("expectedSha256",out var hashValue)||
+                       hashValue.ValueKind!=JsonValueKind.String||
+                       string.IsNullOrWhiteSpace(tagValue.GetString())||
+                       tagValue.GetString()!.Length>90 ||
+                       hashValue.GetString()?.Length!=64 ||
+                       !hashValue.GetString()!.All(Uri.IsHexDigit))
+                        return Error(id,"UM-UPDATE-CHECK-REQUIRED");
+                    string expectedTag=tagValue.GetString()!;
+                    string expectedSha256=hashValue.GetString()!;
                     string exe=Environment.ProcessPath??"";
                     if(!exe.EndsWith("UntamedDesktop.exe",StringComparison.OrdinalIgnoreCase)||
                        !validateExecutable(exe))
@@ -94,8 +120,11 @@ public sealed class DesktopObsidianUpdateInstallBridge
                         return Error(id,"UM-UPDATE-HELPER-NOT-PACKAGED");
                     using var deadline=new CancellationTokenSource(TimeSpan.FromMinutes(9));
                     var release=await fetch(channel,deadline.Token);
-                    if(release==null||!ObsidianReleaseCatalog.IsTrusted(release)||
-                       !ObsidianReleaseCatalog.IsNewer(release,
+                    if(release==null||!ObsidianReleaseCatalog.IsTrusted(release))
+                        return Error(id,"UM-UPDATE-NO-VERIFIED-NEWER-OBSIDIAN");
+                    if(!MatchesCheckedRelease(release,expectedTag,expectedSha256))
+                        return Error(id,"UM-UPDATE-CHECK-STALE");
+                    if(!ObsidianReleaseCatalog.IsNewer(release,
                            UpdateCenter.RunningVersion,ObsidianReleaseCatalog.InstalledTag))
                         return Error(id,"UM-UPDATE-NO-VERIFIED-NEWER-OBSIDIAN");
                     string root=Path.Combine(UpdateCenter.UpdateRoot,"ObsidianStage");
