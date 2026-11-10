@@ -119,7 +119,8 @@ internal static class RunningAsaRegistrationTests
                 "existing-world process registered in local config only, permanently read-only");
             Check(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map) &&
                 LocalRunningAsaDiscovery.Classify(observations,cluster.Config.LocalMaps)
-                    .Single().MatchState=="profileCandidate",
+                    .Single() is {MatchState:"profileCandidate",
+                        ObservedReadOnlyImported:true},
                 "fresh lifecycle remains denied while observation reattaches");
             Check(File.ReadAllBytes(world).SequenceEqual(original) &&
                 File.ReadAllBytes(exe).SequenceEqual(new byte[]{77,90,4,7}),
