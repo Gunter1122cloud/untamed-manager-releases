@@ -84,6 +84,11 @@ public static class LocalRunningAsaDiscovery
 
     private static string? ProfileMap(LocalMap map)
     {
+        if(map.ObservedReadOnlyImported &&
+           Regex.IsMatch(map.ObservedMapKey??"",
+               @"\A[A-Za-z0-9_]{1,100}\z",
+               RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100)))
+            return map.ObservedMapKey;
         if(!string.IsNullOrWhiteSpace(map.HistoricalMapKey))
             return Regex.IsMatch(map.HistoricalMapKey,
                 @"\A[A-Za-z0-9_]{1,100}\z")?map.HistoricalMapKey:null;
@@ -162,7 +167,7 @@ public static class LocalRunningAsaDiscovery
     }
 
     /// <summary>Enumerates Windows WMI processes without altering any process.</summary>
-    public static IReadOnlyList<Observation> Inspect(IEnumerable<LocalMap> maps)
+    internal static IReadOnlyList<Sample> ReadSamples()
     {
         var samples=new List<Sample>();
         using var query=new ManagementObjectSearcher(
@@ -188,6 +193,9 @@ public static class LocalRunningAsaDiscovery
                 started,name,Convert.ToString(item["ExecutablePath"]),
                 Convert.ToString(item["CommandLine"])));
         }
-        return Classify(samples,maps);
+        return samples;
     }
+
+    public static IReadOnlyList<Observation> Inspect(IEnumerable<LocalMap> maps)=>
+        Classify(ReadSamples(),maps);
 }
