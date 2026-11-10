@@ -342,8 +342,12 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                             return Error(id,"UM-FRESH-NOT-VERIFIED");
                         receipt=selected.Receipt;
                     }
+                    string expectedMapLevel=AsaSteamMapCatalog.LevelForNewInstallation(
+                        selected.Request.Name,selected.Request.CustomMapLevel);
                     if(!File.Exists(receipt.ServerExecutable) ||
-                       AsaSteamBuildCatalog.InstalledBuild(receipt.InstallationRoot)!=receipt.BuildId)
+                       AsaSteamBuildCatalog.InstalledBuild(receipt.InstallationRoot)!=receipt.BuildId ||
+                       !string.Equals(receipt.MapLevel,expectedMapLevel,
+                           StringComparison.Ordinal))
                         return Error(id,"UM-FRESH-RECEIPT-INVALID");
                     // Recheck root/map overlap and original binary location.
                     if(cluster.Config.LocalMaps.Any(m=>
@@ -356,7 +360,8 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                         InstallationPath=receipt.InstallationRoot,
                         ExecutablePath=receipt.ServerExecutable,
                         GamePort=0,QueryPort=0,RconPort=0,
-                        Arguments="",AutoStart=false,StartWithAsaApi=false
+                        Arguments="",FreshInstallMapLevel=expectedMapLevel,
+                        AutoStart=false,StartWithAsaApi=false
                     };
                     cluster.AddMap(localMap); // original atomic CAS Manager-only config.
                     lock(stateGate)
