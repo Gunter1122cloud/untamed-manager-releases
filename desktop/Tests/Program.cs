@@ -1518,6 +1518,9 @@ try
     // No custom level text may become a SteamCMD command-line argument.
     {
         string customRoot=Path.Combine(root,"fresh-custom-asa-empty");
+        await using var customCluster=new ClusterService("synthetic-custom-installer",
+            Path.Combine(root,"custom-installer-manager"),
+            _=>new ProcessCheck(false,"Synthetic stopped only",null,true));
         int customDownloads=0;
         const string customName="Synthetic Custom Atlantis";
         const string customLevel="SyntheticAtlantis_WP";
@@ -1557,7 +1560,7 @@ try
             return new(request.MapId,request.InstallRoot,server,"123456",
                 DateTimeOffset.UtcNow,request.SteamCmdExecutable,customLevel);
         }
-        using var customBridge=new DesktopSteamFreshInstallBridge(cluster,
+        using var customBridge=new DesktopSteamFreshInstallBridge(customCluster,
             SyntheticCustomRunner,()=>customRoot,
             availableFreeBytes:_=>100L*1024*1024*1024);
         var missing=await Call(customBridge.HandleAsync,"steam.freshPreflight",
@@ -1603,12 +1606,12 @@ try
         var customRegistered=await Call(customBridge.HandleAsync,"steam.freshRegister",
             new{jobId=customJob,confirm=true});
         IsOk(customRegistered,"custom map registration after verified fresh Steam files");
-        var customMap=cluster.Config.LocalMaps.Single(m=>m.Name==customName);
+        var customMap=customCluster.Config.LocalMaps.Single(m=>m.Name==customName);
         Check(customMap.Arguments==""&&!customMap.AutoStart&&
               !customMap.StartWithAsaApi&&customMap.GamePort==0&&
               !Directory.Exists(Path.Combine(customRoot,"ShooterGame","Saved")),
             "custom map download leaves launch, mods, first setup and Store unconfigured");
-        using var customSetup=new DesktopInitialMapSetupBridge(cluster);
+        using var customSetup=new DesktopInitialMapSetupBridge(customCluster);
         var customStatus=await Call(customSetup.HandleAsync,"servers.initialStatus",
             new{mapId=customMap.Id});
         IsOk(customStatus,"downloaded custom level is eligible for manual native first setup");
