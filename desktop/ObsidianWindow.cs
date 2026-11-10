@@ -441,7 +441,7 @@ public sealed class ObsidianWindow : Form
                         mapMaintenanceRoute = name is "maps.maintenanceStatus" or "maps.maintenanceSet";
                         lanRoute = name is "lan.status" or "lan.preview" or "lan.apply" or "lan.physicalStoreProbe" or "lan.historicalSaveProbe";
                         stoppedSteamRoute = name is "steam.stoppedDiagnostics" or "steam.stoppedPreview" or "steam.stoppedApply" or
-                            "steam.stoppedStatus" or "steam.stoppedCurrent";
+                            "steam.stoppedStatus" or "steam.stoppedCurrent" or "steam.publishedBuild";
                         travelRoute = name is "travel.capture" or "travel.compare" or "travel.compareRoundTrip";
                         embeddedStoreRoute = name is "store.inspectCopy" or "store.inspectArchive" or "store.compareArchives";
                         worldBackupRoute = name is "backup.history" or "backup.preview" or
