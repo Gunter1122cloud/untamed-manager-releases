@@ -76,7 +76,8 @@ public sealed class DesktopPluginStateBridge : IDisposable
                         return Error(id,"UM-PLUGIN-INVALID-REQUEST");
                     var map=Own(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    if(map.HistoricalStoreProtected)return Error(id,"UM-HISTORICAL-STORE-LOCKED");
+                    if(map.HistoricalStoreProtected||map.ObservedReadOnlyImported)
+                        return Error(id,"UM-OBSERVED-OR-HISTORICAL-READONLY");
                     var readiness=PluginStateManager.InspectLocalToggle(
                         cluster,mapId,plugin,enabled);
                     if(!readiness.Allowed)
@@ -113,8 +114,8 @@ public sealed class DesktopPluginStateBridge : IDisposable
                 approvals.Remove(approvalId);
                 var owned=Own(saved.MapId);
                 if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
-                if(owned.HistoricalStoreProtected)
-                    return Error(id,"UM-HISTORICAL-STORE-LOCKED");
+                if(owned.HistoricalStoreProtected||owned.ObservedReadOnlyImported)
+                    return Error(id,"UM-OBSERVED-OR-HISTORICAL-READONLY");
                 if(!string.Equals(CanonicalRoot(owned.InstallationPath),
                     saved.OriginalInstallation,StringComparison.OrdinalIgnoreCase) ||
                    !Members(saved.OriginalInstallation).SequenceEqual(saved.InstallationMembers))
