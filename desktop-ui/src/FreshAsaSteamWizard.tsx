@@ -16,7 +16,12 @@ const mapNames = [
 export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",onImport}:{
   onRegistered:()=>Promise<void>;initialMapName?:string;onImport?:()=>void
 }) {
-  const [mapName,setMapName]=useState(initialMapName);
+  const [mapName,setMapName]=useState(
+    mapNames.includes(initialMapName)?initialMapName:"__custom__");
+  const [customMapName,setCustomMapName]=useState(
+    mapNames.includes(initialMapName)?"":initialMapName);
+  const [customLevel,setCustomLevel]=useState("");
+  const resolvedMapName=mapName==="__custom__"?customMapName.trim():mapName;
   const [installRoot,setInstallRoot]=useState("");
   const [steamExe,setSteamExe]=useState("");
   const [explicitRetry,setExplicitRetry]=useState(false);
@@ -98,17 +103,24 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
       setError("Válassz egy üres, helyi telepítési mappát.");
       return;
     }
+    if(mapName==="__custom__" &&
+       (!customMapName.trim()||customMapName.trim().length>100||
+        !/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(customLevel.trim()))){
+      setError("Egyedi maphoz add meg a megjelenített nevet és a pontos, legfeljebb 80 karakteres Unreal level azonosítót. Nem fogadunk el indítási kapcsolót vagy szóközt.");
+      return;
+    }
     setBusy(true);invalidate();
     try{
       // Missing Valve SteamCMD is downloaded automatically; the clicked
       // Install button itself is explicit consent for the new disk write.
       const checked=await managerBridge.freshPreflight({
-        mapName,installRoot:installRoot.trim(),steamExe:steamExe.trim(),
-        allowSteamCmdDownload:true,explicitRetry
+        mapName:resolvedMapName,installRoot:installRoot.trim(),
+        steamExe:steamExe.trim(),allowSteamCmdDownload:true,explicitRetry,
+        customLevel:mapName==="__custom__"?customLevel.trim():undefined
       });
       const started=await managerBridge.freshStart(checked.token);
       autoRegisterId.current=started.jobId;
-      setJob({jobId:started.jobId,mapName,stage:"prepared",
+      setJob({jobId:started.jobId,mapName:resolvedMapName,stage:"prepared",
         detail:"Hivatalos Valve SteamCMD és ASA 2430930 előkészítése",
         percent:null,verified:false,registered:false,errorCode:null,
         evidence:"NATIVE_STEAMCMD_JOB_STATE"});
@@ -121,6 +133,8 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
         "UM-FRESH-ROOT-OVERLAP":"A mappa ütközik egy már regisztrált ASA- vagy SteamCMD-könyvtárral.",
         "UM-FRESH-RETRY-REVIEW-REQUIRED":"Megszakadt telepítés található. A Speciális beállításokban engedélyezd a tudatos folytatást ugyanazzal a mappával.",
         "UM-FRESH-DUPLICATE-MAP":"Ez a map már szerepel a helyi Managerben.",
+        "UM-FRESH-MAP-LEVEL-INVALID":"Az egyedi level azonosító hiányzik, érvénytelen, vagy egy hivatalos map szintjét próbálná felülírni.",
+        "UM-FRESH-CUSTOM-LEVEL-INVALID":"Az egyedi level kizárólag 1–80 ASCII betűt, számot és aláhúzást tartalmazhat; betűvel kell kezdődnie.",
         "UM-FRESH-INSTALL-IN-PROGRESS":"Egy korábbi letöltés még folyamatban van vagy regisztrációra vár.",
         "UM-FRESH-LOW-DISK-SPACE":"A telepítéshez legalább 35 GiB szabad hely szükséges a célmeghajtón.",
         "UM-FRESH-INVALID-PATH":"A célmappa útvonala hibás. Ellenőrizd, hogy létező helyi meghajtóra mutat-e."
@@ -176,7 +190,12 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
   const running=!!job&&!job.registered&&!job.verified&&!job.errorCode;
   // The map gallery can open the same installer preselected to the clicked map.
   // Do not change the active job or an in-progress download.
-  useEffect(()=>{if(!running&&!busy)setMapName(initialMapName);},[initialMapName]);
+  useEffect(()=>{
+    if(running||busy)return;
+    setMapName(mapNames.includes(initialMapName)?initialMapName:"__custom__");
+    setCustomMapName(mapNames.includes(initialMapName)?"":initialMapName);
+    setCustomLevel("");
+  },[initialMapName]);
   return <section className="glass panel fresh-wizard">
     <div className="panel-head"><h2>Új ASA szerver · SteamCMD telepítés</h2>
       <span className="mod-tag amber">Map → mappa → letöltés</span></div>
@@ -189,8 +208,26 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
           <select aria-label="Új ASA map" value={mapName} disabled={running||busy}
             onChange={e=>{setMapName(e.target.value);invalidate();}}>
             {mapNames.map(map=><option key={map} value={map}>{map}</option>)}
+            <option value="__custom__">Egyedi / modolt ASA map</option>
           </select>
         </label>
+        {mapName==="__custom__"&&<div className="fresh-advanced">
+          <label>Egyedi map neve
+            <input aria-label="Egyedi ASA map neve" value={customMapName}
+              maxLength={100} disabled={running||busy}
+              placeholder="Például: Atlantis"
+              onChange={e=>{setCustomMapName(e.target.value);invalidate();}}/>
+          </label>
+          <label>Pontos Unreal map level
+            <input aria-label="Egyedi ASA level azonosító" value={customLevel}
+              maxLength={80} disabled={running||busy} spellCheck={false}
+              placeholder="A mod készítőjétől kapott tényleges level"
+              onChange={e=>{setCustomLevel(e.target.value);invalidate();}}/>
+          </label>
+          <p className="muted small">A SteamCMD a közös ASA 2430930 szerverfájlokat telepíti.
+            Az egyedi pálya modjait később a Mod Centerben kell megadni.
+            A level nevét nem találjuk ki automatikusan, és a szervert nem indítjuk el.</p>
+        </div>}
         <label>Új, üres helyi telepítési könyvtár
           <span className="fresh-folder-row">
             <input aria-label="Új ASA célmappa" value={installRoot}
