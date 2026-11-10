@@ -2981,7 +2981,7 @@ test("P0 running ASA import previews exact PID and explicitly registers read-onl
   const panel=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
   const importPanel=panel.getByLabel("Futó ASA regisztrálása PID 4443");
   await expect(importPanel).toBeVisible();
-  await expect(importPanel).toContainText("csak megfigyelés");
+  await expect(importPanel).toContainText(/csak megfigyelés/i);
   await expect(panel.getByLabel("Futó ASA regisztrálása PID 4442")).toHaveCount(0);
   await importPanel.getByRole("button",{name:"Regisztráció ellenőrzése"}).click();
   await expect(importPanel.getByLabel("Futó ASA import előnézet")).toContainText("Ragnarok_WP");
