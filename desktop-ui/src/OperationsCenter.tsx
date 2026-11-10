@@ -76,7 +76,14 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
           managerBridge.operationsSnapshotAll(),
         selectedMapId?Promise.resolve(null):managerBridge.nativeScheduleOverview()
       ]);
-      if(operations.status!=="fulfilled")throw new Error("UM-OPS-UNAVAILABLE");
+      if(operations.status!=="fulfilled"){
+        // Display only known native safety error codes, never raw filesystem
+        // paths, exception messages or private RPC contents.
+        const reason=operations.reason;
+        const code=reason instanceof Error?reason.message:"";
+        throw new Error(/^UM-OPS-[A-Z-]+$/.test(code)?
+          code:"UM-OPS-UNAVAILABLE");
+      }
       setSnapshot(operations.value);
       setNativeOverview(native.status==="fulfilled"?native.value:null);
       setNativeUnreadable(!selectedMapId&&native.status!=="fulfilled");
