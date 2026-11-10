@@ -466,7 +466,8 @@ export type StoppedSteamDiagnostics = {
   overlaps:Array<{mapName:string;installRoot:string}>;
   steamCmdFound:boolean;steamCmdConfigured:boolean;
   availableBytes:number;requiredBytes:number;
-  journalBlocked:boolean;historicalBlocked:boolean;canPreview:boolean;
+  journalBlocked:boolean;historicalBlocked:boolean;safeInstallation:boolean;
+  canPreview:boolean;
   noProcessAutoStop:true;remoteWrites:false;
   evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY";
 };
