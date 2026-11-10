@@ -1773,7 +1773,11 @@ export function App() {
       </div>
       <div className="sidebar-label">KÖZPONT</div>
       <nav aria-label="Fő navigáció">
-        {tabs.map(t => <button key={t.page} className={page === t.page ? "nav-link active" : "nav-link"} onClick={() => setPage(t.page)} aria-current={page === t.page ? "page" : undefined}>
+        {tabs.map(t => <button key={t.page} type="button"
+          className={page === t.page ? "nav-link active" : "nav-link"}
+          aria-label={t.label} title={t.label}
+          onClick={() => setPage(t.page)}
+          aria-current={page === t.page ? "page" : undefined}>
           <t.icon size={21}/><span>{t.label}</span>{page === t.page && <ChevronRight size={16}/>}
         </button>)}
       </nav>
