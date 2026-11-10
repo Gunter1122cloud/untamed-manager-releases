@@ -100,6 +100,8 @@ export type OperationsSnapshot = {
   hostName:string; observedUtc:string; maps:OperationsMap[];
   schedules:OperationsSchedule[]; schedulingIsReadOnly:true;
   scheduleReceipts?:OperationsReceipt[];supervisorState?:string;
+  totalMaps:number;pageOffset:number;pageLimit:number;
+  nextOffset:number|null;snapshotKey:string;
   remoteCommandsAllowed:false; evidence:string;
 };
 export type ReadOnlyScheduleSaved = {
@@ -1425,6 +1427,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string;
   peerAction?:"upsert"|"remove";
   mapId?: string; useApi?:boolean; term?: string; page?: number; credential?: string;
+  offset?:number;limit?:number;snapshotKey?:string;
   draftId?: string; modId?: string | number; mode?: ModDraftMode | ModCopyMode;
   position?: number; sourceMapId?:string;targets?:string[]; expectedPeerHostId?:string;
   token?: string; file?: IniFile; content?: string;
@@ -1538,6 +1541,41 @@ export const managerBridge = {
   lanHistoricalSaveProbe: () =>
     request<LanHistoricalSaveProbe>("lan.historicalSaveProbe"),
   operationsSnapshot: () => request<OperationsSnapshot>("operations.snapshot"),
+  operationsSnapshotAll: async ():Promise<OperationsSnapshot> => {
+    // Gather every bounded native page. A registry change between RPCs
+    // invalidates the whole read: never show a falsely complete roster.
+    const first=await request<OperationsSnapshot>("operations.snapshot",{
+      offset:0,limit:50
+    });
+    const good=(x:number)=>Number.isSafeInteger(x)&&x>=0;
+    if(!good(first.totalMaps)||first.maps.length>50||
+       first.pageOffset!==0||first.pageLimit!==50||
+       !/^[0-9A-F]{64}$/.test(first.snapshotKey))
+      throw new Error("UM-OPS-PAGE-INVALID");
+    const maps=[...first.maps];
+    const schedules=[...first.schedules];
+    let next=first.nextOffset;
+    while(next!==null){
+      if(!good(next)||next!==maps.length||next>=first.totalMaps)
+        throw new Error("UM-OPS-PAGE-CURSOR-INVALID");
+      const page=await request<OperationsSnapshot>("operations.snapshot",{
+        offset:next,limit:50,snapshotKey:first.snapshotKey
+      });
+      if(page.snapshotKey!==first.snapshotKey||
+         page.totalMaps!==first.totalMaps||page.pageOffset!==next||
+         page.pageLimit!==50||page.maps.length===0||
+         page.maps.length>50)
+        throw new Error("UM-OPS-REGISTRY-CHANGED");
+      maps.push(...page.maps);
+      schedules.push(...page.schedules);
+      next=page.nextOffset;
+    }
+    if(maps.length!==first.totalMaps||
+       new Set(maps.map(x=>x.mapId)).size!==maps.length||
+       new Set(schedules.map(x=>x.id)).size!==schedules.length)
+      throw new Error("UM-OPS-ROSTER-INCOMPLETE");
+    return {...first,maps,schedules,nextOffset:null};
+  },
   operationsMap: (mapId:string) => request<OperationsSnapshot>("operations.map",{mapId}),
   operationsScheduleCreate: (mapId:string,kind:ReadOnlyScheduleKind,intervalMinutes:number) =>
     request<ReadOnlyScheduleSaved>("operations.scheduleCreate",{
