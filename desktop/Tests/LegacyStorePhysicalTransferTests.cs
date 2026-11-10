@@ -389,6 +389,25 @@ internal static class LegacyStorePhysicalTransferTests
                 Id=futureId,Name="Synthetic Future Atlantis",
                 InstallationPath=Path.Combine(root,"future-map-install")
             });
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "an unrelated sixth fresh map does not erase the original Kova five-map registration");
+            Guid independentId=Guid.NewGuid();
+            manager.AddMap(new LocalMap{
+                Id=independentId,Name="Synthetic Independent Historical Profile",
+                HistoricalMapKey="Independent_WP",
+                HistoricalStoreProtected=true,
+                HistoricalArchiveSha256=Hash("independent historical four-file set"),
+                InstallationPath=Path.Combine(root,"independent-store-root")
+            });
+            var independent=manager.Config.LocalMaps.Single(m=>m.Id==independentId);
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "an unrelated historical Store profile never suppresses a valid original 5-map roster");
+            independent.HistoricalArchiveSha256=report.OriginalFourFilesTag;
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
+                "a sixth historical map claiming the SAME original source fingerprint creates ambiguous ownership and fails closed");
+            independent.HistoricalArchiveSha256=Hash("independent historical four-file set");
+            Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
+                "removing the synthetic original-source impersonation restores original roster parity without mutating Kova");
             var beforeRevision=manager.Registry.Snapshot().Revision;
             using(var expansionBridge=new DesktopClusterRegistryBridge(
                 manager,original,(first,second)=>
