@@ -10,11 +10,11 @@ namespace UntamedDesktop;
 /// A profileCandidate is NOT an adopted PID, confirmed stop, RCON authorization,
 /// or Store-v1 session. Missing/duplicate/unreadable observations stay unverified.
 /// </summary>
-internal static class ObservedAsaDashboardTelemetry
+public static class ObservedAsaDashboardTelemetry
 {
-    internal sealed record State(string Code,int? ObservedPid);
+    public sealed record State(string Code,int? ObservedPid);
 
-    internal static State For(LocalMap map,
+    public static State For(LocalMap map,
         IReadOnlyList<LocalRunningAsaDiscovery.Observation> observations)
     {
         if(!map.ObservedReadOnlyImported)
