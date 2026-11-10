@@ -88,6 +88,7 @@ var map=new LocalMap{
 cluster.AddMap(map);
 await ClusterRegistryTests.Run(root);
 await LegacyStorePhysicalTransferTests.Run(root);
+LegacyStoreOriginalLinkTests.Run(root);
 await OriginalKovaDirectImportTests.Run(root);
 await LegacyStoreSaveEvidenceTests.Run(root);
 await HistoricalStoreWorldBackupTests.Run(root);
