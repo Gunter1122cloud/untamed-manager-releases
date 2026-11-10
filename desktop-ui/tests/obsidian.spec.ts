@@ -1293,8 +1293,33 @@ test.beforeEach(async ({ page }) => {
             {pid:4443,parentPid:3000,startedUtc:"2026-11-10T15:00:00Z",
               processKind:"asaServer",mapKey:"Ragnarok_WP",matchState:"unregistered",
               profileMapId:null,profileMapName:null,loaderParentObserved:false,
+              launchFacts:{gamePort:7827,queryPort:27037,activeModIds:[],passiveModIds:[],
+                activeModsState:"notDeclared",passiveModsState:"notDeclared",
+                storeFlagPresent:false,clusterSwitchPresent:false,transferOverridePresent:false,
+                conversionFlagPresent:false,argumentsValidated:true},
               controllable:false,storeWriteAuthorized:false}
           ]};
+        case "servers.runningPreview": {
+          if(m.pid!==4443 || m.startedUtc!=="2026-11-10T15:00:00Z"||
+             m.gamePort!==7827 || m.queryPort!==27037)
+            throw new Error("UM-LIVE-IDENTITY-OR-PORT-MISMATCH");
+          return {token:"00000000-0000-4000-8000-000000007147",pid:4443,
+            startedUtc:m.startedUtc,mapKey:"Ragnarok_WP",mapName:m.name,
+            gamePort:7827,queryPort:27037,folderName:"ASA-LAB",
+            manuallyEnteredGamePort:false,manuallyEnteredQueryPort:false,
+            historicalStoreAllowed:false,readOnly:true,lifecycleAuthorized:false,
+            storeWriterAuthorized:false,
+            evidence:"EXACT_LIVE_ASA_PROCESS_IMPORT_PREVIEW_NO_WRITES"};
+        }
+        case "servers.runningRegister": {
+          if(m.token!=="00000000-0000-4000-8000-000000007147"||m.confirm!==true)
+            throw new Error("UM-LIVE-APPROVAL-REQUIRED");
+          return {mapId:"00000000-0000-4000-8000-000000007148",
+            mapName:"Ragnarok",mapKey:"Ragnarok_WP",pid:4443,
+            readOnly:true,lifecycleAuthorized:false,storeWriterAuthorized:false,
+            reattachOnRefresh:true,needsExplicitLifecycleEnrollment:true,
+            evidence:"EXISTING_MANAGER_CONFIG_PROFILE_ONLY_LIVE_ASA_NOT_ADOPTED"};
+        }
         case "servers.inspectLocal": return {importToken:"00000000-0000-4000-8000-000000009999",name:m.name||"The Island",folderName:"ASA-LAB",exeFound:true,apiLoaderDetected:false,portsConfigured:false,evidence:"LOCAL_BINARY_LAYOUT_PROBED_NO_MUTATION"};
         case "servers.importLocal":
           state.local.maps.push({id:"00000000-0000-4000-8000-000000009998",name:"Genesis Part 1",running:false,status:"Nincs beállítva",gamePort:0,steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"});
@@ -2943,6 +2968,24 @@ test("P0 read-only native ASA discovery displays server/loader identities withou
   await panel.getByRole("button",{name:"Új ellenőrzés"}).click();
   await expect(panel).toContainText("ARK Ascended Server · PID 4442");
   await expect(panel.getByRole("button",{name:/Átvétel|Leállítás|Mentés|Restart/})).toHaveCount(0);
+});
+
+test("P0 running ASA import previews exact PID and explicitly registers read-only local profile",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
+  const importPanel=panel.getByLabel("Futó ASA regisztrálása PID 4443");
+  await expect(importPanel).toBeVisible();
+  await expect(importPanel).toContainText("csak megfigyelés");
+  await expect(panel.getByLabel("Futó ASA regisztrálása PID 4442")).toHaveCount(0);
+  await importPanel.getByRole("button",{name:"Regisztráció ellenőrzése"}).click();
+  await expect(importPanel.getByLabel("Futó ASA import előnézet")).toContainText("Ragnarok_WP");
+  await expect(importPanel.getByLabel("Futó ASA import előnézet")).toContainText("Game 7827");
+  await importPanel.getByRole("button",{name:"Regisztrálás · csak Manager"}).click();
+  await expect(importPanel.getByRole("button",{name:"Regisztráció ellenőrzése"})).toBeVisible();
+  await expect(importPanel.getByRole("button",{name:"Regisztrálás · csak Manager"})).toHaveCount(0);
+  await expect(panel).toContainText("Store/cluster folyamat:");
+  await expect(panel.getByRole("button",{name:/Leállítás|Újraindítás|SaveWorld|Átvétel/})).toHaveCount(0);
 });
 
 test("P0-2 Servers switches between keyboard-accessible list and premium 2-host map gallery",async({page})=>{
