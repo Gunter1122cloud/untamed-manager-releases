@@ -151,7 +151,10 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         szükséges tartalék: {Math.ceil(diagnostics.requiredBytes/1073741824)} GiB.</p>
       <p>SteamCMD: {diagnostics.steamCmdFound?"Telepítve":"Hiányzik vagy az elérési út érvénytelen"}.
         Napló: {diagnostics.journalBlocked?"kézi ellenőrzés szükséges":"nem blokkol"}.
-        Store-v1/karbantartás: {diagnostics.historicalBlocked?"védett":"nem blokkol"}.</p>
+        Store-v1/karbantartás: {diagnostics.historicalBlocked?"védett":"nem blokkol"}.
+        Közös telepítés tulajdonjoga: {diagnostics.safeInstallation?
+          "ellenőrzött, kizárólag leállított nem Store mapok":
+          "nem igazolható – Store-adat vagy másik telepítés érintett"}.</p>
       {diagnostics.processes.map(p=><p key={p.mapName}>
         {p.mapName}: {p.confirmedStopped&&!p.running?"Leállítás igazolva":"NEM igazoltan leállítva"}
         {p.pid!=null?" · ASA PID "+p.pid:""}
