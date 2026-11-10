@@ -89,6 +89,7 @@ var map=new LocalMap{
 };
 cluster.AddMap(map);
 LocalRunningAsaDiscoveryTests.Run();
+LocalAsaLaunchFactsTests.Run();
 await ClusterRegistryTests.Run(root);
 await LegacyStorePhysicalTransferTests.Run(root);
 LegacyStoreOriginalLinkTests.Run(root);
