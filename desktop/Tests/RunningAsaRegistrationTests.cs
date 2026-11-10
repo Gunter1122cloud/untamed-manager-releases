@@ -148,7 +148,7 @@ internal static class RunningAsaRegistrationTests
                 "generic Core map replacement cannot promote observed ownership");
             bool copyDenied=false;
             try{LocalModCopyPlanner.Preview(cluster,map.Id,
-                new[]{map.Id},LocalModCopyMode.Merge);}
+                new[]{Guid.NewGuid()},LocalModCopyMode.Merge);}
             catch(UnauthorizedAccessException){copyDenied=true;}
             Check(copyDenied,"observed map cannot be a mod copy source or target");
             Check(File.ReadAllBytes(world).SequenceEqual(original) &&
