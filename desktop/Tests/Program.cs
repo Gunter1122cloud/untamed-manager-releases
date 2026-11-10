@@ -2228,6 +2228,59 @@ try
               executions==0&&
               original.SequenceEqual(File.ReadAllBytes(target.ExecutablePath)),
             "published appinfo check never executes the updater or modifies ASA files");
+        // One-click stopped SteamCMD must not bypass the shared-install
+        // historical Store protection already enforced by the batch UI.
+        // Core and the renderer both refuse BEFORE any runner invocation.
+        var storeSibling=new LocalMap {
+            Name="Historical Store shared Steam root",
+            InstallationPath=target.InstallationPath,
+            ExecutablePath=target.ExecutablePath,
+            HistoricalMapKey="OriginalKovaStoreMap"
+        };
+        cluster.AddMap(storeSibling);
+        try
+        {
+            bool coreRefused=false;
+            try { SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,target); }
+            catch(UnauthorizedAccessException) { coreRefused=true; }
+            var denied=await Call(updater.HandleAsync,"steam.stoppedPreview",
+                new{mapId=target.Id});
+            Check(coreRefused && IsError(denied,"UM-STEAM-STOPPED-ONLY") &&
+                executions==0 && original.SequenceEqual(File.ReadAllBytes(target.ExecutablePath)),
+                "single-map and Core Steam update both refuse a stopped original Kova Store sibling");
+
+            storeSibling.HistoricalMapKey="";
+            storeSibling.FreshStoreClusterId="test-enrolled-store-cluster";
+            coreRefused=false;
+            try { SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,target); }
+            catch(UnauthorizedAccessException) { coreRefused=true; }
+            denied=await Call(updater.HandleAsync,"steam.stoppedPreview",
+                new{mapId=target.Id});
+            Check(coreRefused && IsError(denied,"UM-STEAM-STOPPED-ONLY") &&
+                executions==0,
+                "new Store-v1 sibling enrollment also blocks shared-root Steam binary replacement");
+        }
+        finally {cluster.RemoveMap(storeSibling.Id);}
+
+        var nestedOwner=new LocalMap {
+            Name="Nested Steam installation owner",
+            InstallationPath=Path.Combine(target.InstallationPath,"nested-server"),
+            ExecutablePath=Path.Combine(target.InstallationPath,"nested-server",
+                "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
+        };
+        cluster.AddMap(nestedOwner);
+        try
+        {
+            bool coreRefused=false;
+            try { SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,target); }
+            catch(InvalidDataException) {coreRefused=true;}
+            var denied=await Call(updater.HandleAsync,"steam.stoppedPreview",
+                new{mapId=target.Id});
+            Check(coreRefused && IsError(denied,"UM-STEAM-STOPPED-ONLY") &&
+                executions==0,
+                "overlapping nested ASA installation ownership refuses unsafe one-click SteamCMD");
+        }
+        finally {cluster.RemoveMap(nestedOwner.Id);}
         var proposed=await Call(updater.HandleAsync,"steam.stoppedPreview",
             new{mapId=target.Id});
         IsOk(proposed,"stopped-map SteamCMD update preflight is functional");
