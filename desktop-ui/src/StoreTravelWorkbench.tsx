@@ -167,6 +167,7 @@ function EmbeddedStoreCopyInspector(){
 export function StoreTravelWorkbench(){
   const [local,setLocal]=useState<TravelCapture|null>(null);
   const [busy,setBusy]=useState(false);
+  const [captureError,setCaptureError]=useState("");
   const [error,setError]=useState("");
   const [copyMessage,setCopyMessage]=useState("");
   const [evidence,setEvidence]=useState<Record<Slot,string>>(seed);
@@ -189,9 +190,18 @@ export function StoreTravelWorkbench(){
   },[source,candidates]);
   const capture=async()=>{
     if(busy)return;
-    setBusy(true);setError("");setLocal(null);
+    setBusy(true);setCaptureError("");setLocal(null);
     try{setLocal(await managerBridge.travelCapture());}
-    catch{setError("A helyi ötmapos, csak olvasási mentésleltár nem készíthető el. A szerverfájlok változatlanok.");}
+    catch(e){
+      const code=e instanceof Error?e.message:"UM-TRAVEL-EVIDENCE-UNVERIFIED";
+      setCaptureError(code==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"
+        ?"Az Obsidian helyi regiszterében nincs pontosan öt egyedi ASA-map. "+
+         "Előbb a Store-v1 meglévő Kova-map átvételénél ellenőrizd az eredeti öt mapot. "+
+         "A futó szervereket ne állítsd le ehhez."
+        :"A helyi ötmapos, csak olvasási mentésleltár nem készíthető el ("+
+         (code.startsWith("UM-")?code:"UM-TRAVEL-EVIDENCE-UNVERIFIED")+
+         "). Az eredeti szerverfájlok változatlanok.");
+    }
     finally{setBusy(false);}
   };
   const copy=async()=>{
@@ -278,6 +288,9 @@ export function StoreTravelWorkbench(){
             onClick={()=>{void capture();}} disabled={busy}>
             <RefreshCw size={17}/>{busy?"Fájlleltár készül...":"Helyi 5 map ellenőrzése"}
           </button>
+          {captureError&&<div role="alert" className="uk-travel-warning">
+            <AlertTriangle size={17}/>{captureError}
+          </div>}
           {local&&<>
             <div className={local.complete?"uk-travel-pass":"uk-travel-warning"}>
               {local.complete?<CheckCircle2 size={18}/>:<AlertTriangle size={18}/>}
