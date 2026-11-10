@@ -1944,6 +1944,12 @@ try
     {
         var target=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
         int executions=0;
+        // Hold the fake native runner at an observable in-progress boundary;
+        // UI reattachment must never schedule a second update.
+        var runnerEntered=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowRunnerFinish=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         byte[] original=File.ReadAllBytes(target.ExecutablePath);
         using var updater=new DesktopStoppedSteamUpdateBridge(cluster,
             m=>new SteamUpdatePreview(Path.GetFullPath(m.InstallationPath)
@@ -1953,7 +1959,8 @@ try
             async(m,progress)=>{
                 executions++;
                 progress.Report(SteamMaintenanceStage.Backup);
-                await Task.Delay(65);
+                runnerEntered.TrySetResult(true);
+                await allowRunnerFinish.Task.WaitAsync(TimeSpan.FromSeconds(10));
                 return new SteamStoppedMapUpdater.Receipt(m.Id,m.InstallationPath,
                     "123456","123457","fake-backup",
                     DateTimeOffset.UtcNow,true);
@@ -1975,10 +1982,21 @@ try
             new{token,confirm=true});
         IsOk(launched,"approved update dispatches native verified Core operation");
         string job=launched.GetProperty("data").GetProperty("jobId").GetString()!;
+        await runnerEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var observedWhileRunning=await Call(updater.HandleAsync,"steam.stoppedCurrent");
+        IsOk(observedWhileRunning,
+            "UI reattach can read current native SteamCMD update without rerunning it");
+        var resume=observedWhileRunning.GetProperty("data");
+        Check(!resume.GetProperty("exists").GetBoolean() &&
+              resume.GetProperty("activeJob").GetProperty("jobId").GetString()==job &&
+              resume.GetProperty("activeJob").GetProperty("state").GetString()=="running" &&
+              !resume.GetProperty("autoResumeAllowed").GetBoolean() && executions==1,
+            "current-status exposes only the existing active Steam job and never restarts it");
         var replay=await Call(updater.HandleAsync,"steam.stoppedApply",
             new{token,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
             "same SteamCMD approval token cannot replay");
+        allowRunnerFinish.TrySetResult(true);
         JsonElement result=default;
         for(int n=0;n<60;n++){
             result=await Call(updater.HandleAsync,"steam.stoppedStatus",
