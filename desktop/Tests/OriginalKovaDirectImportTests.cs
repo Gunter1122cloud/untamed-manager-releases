@@ -182,8 +182,10 @@ internal static class OriginalKovaDirectImportTests
                 "historical.activeStartStatus",new{mapId=stagedMap.Id});
             Check(modeStatus.GetProperty("ok").GetBoolean()&&
                   modeStatus.GetProperty("data").GetProperty(
-                      "launchModeApprovalRequired").GetBoolean(),
-                "stopped import's native status exposes unresolved Loader mode");
+                      "launchModeApprovalRequired").GetBoolean()&&
+                  modeStatus.GetProperty("data").GetProperty(
+                      "confirmedStopped").GetBoolean(),
+                "stopped import exposes unresolved mode AND physical stopped proof for UI selection");
             var deniedStart=await Call(modeBridge.HandleAsync,
                 "historical.activeStartPreview",new{mapId=stagedMap.Id});
             Check(!deniedStart.GetProperty("ok").GetBoolean()&&
