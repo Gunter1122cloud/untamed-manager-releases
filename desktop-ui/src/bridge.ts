@@ -5,6 +5,7 @@ export type LanStatus = {
     bothOriginalProfilesPresent:boolean;
     sameSharedSession:boolean;sameSharedPath:boolean;distinctDeviceIds:boolean;
     bothHaveFiveActiveMaps:boolean;copiedMetadataPairMatches:boolean;
+    bothOriginalFiveRegisteredInManagers:boolean;
     bothPhysicalWitnessesFresh:boolean;samePhysicalTransferDirectory:boolean;
     bothHistoricalLocalSaveWitnessesFresh:boolean;
     bothHaveFiveRecentHistoricalLocalSaveReceipts:boolean;
