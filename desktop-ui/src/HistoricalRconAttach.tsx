@@ -21,7 +21,7 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
-    setStatus(null);setPreview(null);setPassword("");setError("");setNotice("");
+    setStatus(null);setPort("");setPreview(null);setPassword("");setError("");setNotice("");
     managerBridge.historicalRconStatus(mapId).then(v=>{
       if(active){setStatus(v);setPort(v.suggestedPort>0?String(v.suggestedPort):"");}
     }).catch(()=>{if(active)setError("Az eredeti Store-v1 RCON-beállítás állapota nem olvasható.");});
