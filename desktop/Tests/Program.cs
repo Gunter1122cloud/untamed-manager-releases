@@ -5672,7 +5672,7 @@ try
                   wrong.GetProperty("error").GetString()=="UM-HISTORICAL-RCON-INI-CHANGED",
                 "historical RCON reports existing INI/credential mismatch without claiming malformed legacy password");
             var invalidLine=await Call(bridge.HandleAsync,"historical.rconPreview",
-                new{mapId=protectedMap.Id,rconPort,password="bad\\ncredential"});
+                new{mapId=protectedMap.Id,rconPort,password="bad\ncredential"});
             Check(!invalidLine.GetProperty("ok").GetBoolean() &&
                   invalidLine.GetProperty("error").GetString()=="UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID" &&
                   !invalidLine.ToString().Contains("bad",StringComparison.Ordinal),
