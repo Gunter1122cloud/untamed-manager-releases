@@ -1549,6 +1549,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
 }) {
   const [section,setSection]=useState<MapSection>("overview");
   const [originalRconAction,setOriginalRconAction]=useState<"broadcast"|"wildWipe">("broadcast");
+  const [openOriginalStoreEnrollment,setOpenOriginalStoreEnrollment]=useState(false);
   const [initialSetupSaved,setInitialSetupSaved]=useState(false);
   const [lifecycle,setLifecycle]=useState<AsaLifecycleJournal|null>(null);
   const [restartJournal,setRestartJournal]=useState<AsaRestartJournalStatus|null>(null);
@@ -1556,7 +1557,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const [journalReadError,setJournalReadError]=useState(false);
   useEffect(()=>{
     setSection("overview");setInitialSetupSaved(false);
-    setOriginalRconAction("broadcast");
+    setOriginalRconAction("broadcast");setOpenOriginalStoreEnrollment(false);
   },[mapId]);
   useEffect(()=>{
     let active=true;
@@ -1609,6 +1610,17 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       Start, Stop, Restart, SaveWorld, RCON, INI, mod, plugin, SteamCMD és
       Store-v1 írási jog nem lett átvéve. A futás állapotát az alábbi friss WMI-felderítés mutatja.
     </div>
+    <div className="map-overview-actions">
+      <button className="primary" type="button"
+        aria-expanded={openOriginalStoreEnrollment}
+        onClick={()=>setOpenOriginalStoreEnrollment(v=>!v)}>
+        {openOriginalStoreEnrollment?
+          "Kova Store-v1 átvételi varázsló bezárása":
+          "Kova Store-v1 mapok átvételi varázslója"}
+      </button>
+    </div>
+    {openOriginalStoreEnrollment&&
+      <HistoricalStoreImport onImported={onConfigured}/>}
     <LocalRunningAsaPanel/>
   </div>;
   const sections: Array<{id:MapSection;name:string}>=[
