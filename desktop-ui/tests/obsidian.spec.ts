@@ -167,6 +167,12 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_FIVE_BACKUP_COPIES__?:()=>number})
       .__UNTAMED_FIVE_BACKUP_COPIES__=()=>originalFiveBackupCopies;
     let historicalRconAttached=false;
+    let historicalRconFailStatusAfterApply=false;
+    (window as typeof window & {
+      __UNTAMED_HISTORICAL_RCON_FAIL_REFRESH__?:()=>void;
+    }).__UNTAMED_HISTORICAL_RCON_FAIL_REFRESH__=()=>{
+      historicalRconFailStatusAfterApply=true;
+    };
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
     const historicalStartToken="00000000-0000-4000-8000-000000001698";
     let historicalActiveStarted=false;
@@ -784,13 +790,19 @@ test.beforeEach(async ({ page }) => {
             .map(kind=>({kind,exactlySame:true})),
           evidence:"ORIGINAL_LOCAL_FOUR_FILE_BYTE_PARITY_OFFLINE_NO_LIVE_WRITER"
         };
-        case "historical.rconStatus": return {
+        case "historical.rconStatus": {
+          if(historicalRconAttached&&historicalRconFailStatusAfterApply){
+            historicalRconFailStatusAfterApply=false;
+            throw new Error("UM-SYNTHETIC-HISTORICAL-RCON-STATUS-UNAVAILABLE");
+          }
+          return {
           mapId:two,mapName:"Astraeos",configured:historicalRconAttached,
           port:historicalRconAttached?37145:0,
           suggestedPort:37145,verifiedIni:historicalRconAttached,
           originalStoreTouched:false,
           evidence:"HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY"
-        };
+          };
+        }
         case "historical.rconPreview": {
           if(m.mapId!==two||m.rconPort!==37145||
              m.password!=="HistoricalRconPass!2026")
@@ -3927,6 +3939,30 @@ test("historical Store RCON attaches only existing INI with native approval and 
   await apply.click();
   await expect(attach.getByText(/RCON-port: 37145/)).toBeVisible();
   await expect(attach.getByText(/Store-fájlok nem módosultak/)).toBeVisible();
+  await expect(attach.getByRole("button",{name:"RCON átvétel véglegesítése"})).toHaveCount(0);
+});
+
+test("original Store RCON native commit survives a failing follow-up status refresh without suggesting replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void;
+    __UNTAMED_HISTORICAL_RCON_FAIL_REFRESH__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HISTORICAL_RCON_FAIL_REFRESH__?:()=>void
+  }).__UNTAMED_HISTORICAL_RCON_FAIL_REFRESH__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const attach=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await attach.getByLabel("Eredeti ASA ServerAdminPassword").fill("HistoricalRconPass!2026");
+  await attach.getByRole("button",{name:"Eredeti RCON előellenőrzése"}).click();
+  await attach.getByRole("region",{name:"Store-v1 RCON jóváhagyása"})
+    .getByText(/Jóváhagyom az eredeti RCON-kapcsolat/).click();
+  await attach.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
+  await expect(attach).toContainText("RCON-profil elmentve");
+  await expect(attach).toContainText("felület frissítése sikertelen");
+  await expect(attach).not.toContainText("átvétele nem fejezhető be");
   await expect(attach.getByRole("button",{name:"RCON átvétel véglegesítése"})).toHaveCount(0);
 });
 
