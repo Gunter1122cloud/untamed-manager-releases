@@ -53,6 +53,6 @@ export function PluginZipInstaller({mapId,onInstalled}:{
     </div>}
     {message&&<div className="success-inline" role="status"><CheckCircle2 size={18}/>{message}</div>}
     {error&&<div className="error-inline" role="alert"><AlertTriangle size={18}/>{error}</div>}
-    <p className="muted tiny"><Shield size={14}/> A Store-v1 történeti mapok, futó mapok és idegen gazdagépek módosítása tiltott. A plugin runtime állapota csak egy későbbi valós ASA indítással ellenőrizhető.</p>
+    <p className="muted tiny"><Shield size={14}/> Az eredeti Kova Store-v1 mapok ZIP-pluginfrissítése is végrehajtható, ha a natív Windows-folyamatellenőrzés igazolja minden érintett ASA/Loader leállását. A korábbi DLL és konfiguráció megmarad az ellenőrzött védőmentésben. Futó map és idegen gazdagép nem módosítható; a plugin az új ASA-indításkor töltődik be.</p>
   </section>;
 }
