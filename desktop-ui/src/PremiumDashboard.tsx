@@ -168,6 +168,17 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
     ].filter(x=>x.map.name.toLocaleLowerCase("hu-HU").includes(term));
   },[query,local,remotes,snapshot.local.hostName]);
   const running=[...local,...peer].filter(m=>m.running).length;
+  const runningLocal=local.filter(map=>map.running&&!map.observedReadOnlyImported);
+  const knownLocal=runningLocal.filter(map=>playerCounts[map.id]!==null&&
+    playerCounts[map.id]!==undefined);
+  const localPlayers=knownLocal.reduce((sum,map)=>sum+(playerCounts[map.id]??0),0);
+  // A partial sum is a LOWER BOUND, never an exact cluster-wide total.
+  // Peer RCON cannot be inferred through the read-only LAN snapshot.
+  const playersLabel=knownLocal.length===0?"—":
+    knownLocal.length===runningLocal.length?String(localPlayers):localPlayers+"+";
+  const playersDetail=knownLocal.length===runningLocal.length?
+    `Helyi RCON: ${knownLocal.length}/${runningLocal.length} map; távoli nélkül`:
+    `Részleges helyi adat: ${knownLocal.length}/${runningLocal.length} map; távoli nélkül`;
   return <div className="premium-dashboard">
     <section className="hero premium-dashboard-banner">
       <div className="premium-banner-content">
@@ -183,12 +194,8 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
         detail="Regisztrált, megfigyelt szerverek"/>
       <Metric icon={Activity} value={running} label="Fut"
         detail="Ténylegesen megfigyelt állapot"/>
-      <Metric icon={Users}
-        value={local.filter(map=>map.running&&playerCounts[map.id]!==null&&
-          playerCounts[map.id]!==undefined).length
-          ?local.reduce((sum,map)=>sum+(playerCounts[map.id]??0),0):"—"}
-        label="Játékosok" detail="Igazolt helyi RCON-adatok; távoli mapok nélkül"
-        tone="cyan"/>
+      <Metric icon={Users} value={playersLabel}
+        label="Játékosok" detail={playersDetail} tone="cyan"/>
       <Metric icon={Monitor} value={hosts} label="Gazdagép"
         detail={remotes.length?`Helyi + ${remotes.length} LAN-peer`:"Helyi gép"} tone="cyan"/>
     </div>
