@@ -88,6 +88,7 @@ var map=new LocalMap{
         "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
 };
 cluster.AddMap(map);
+await LocalAsaApiModeTests.Run(root);
 // The travel capture endpoint must explain an incomplete Manager registry,
 // not silently collapse it into a generic evidence error.
 var incompleteFiveCapture=await Call(
