@@ -5668,8 +5668,15 @@ try
                 "historical RCON initially unconfigured without modifying original ASA files");
             var wrong=await Call(bridge.HandleAsync,"historical.rconPreview",
                 new{mapId=protectedMap.Id,rconPort,password="WrongRconSecret!2026"});
-            Check(!wrong.GetProperty("ok").GetBoolean(),
-                "historical RCON refuses credentials that disagree with the original ASA INI");
+            Check(!wrong.GetProperty("ok").GetBoolean() &&
+                  wrong.GetProperty("error").GetString()=="UM-HISTORICAL-RCON-INI-CHANGED",
+                "historical RCON reports existing INI/credential mismatch without claiming malformed legacy password");
+            var invalidLine=await Call(bridge.HandleAsync,"historical.rconPreview",
+                new{mapId=protectedMap.Id,rconPort,password="bad\\ncredential"});
+            Check(!invalidLine.GetProperty("ok").GetBoolean() &&
+                  invalidLine.GetProperty("error").GetString()=="UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID" &&
+                  !invalidLine.ToString().Contains("bad",StringComparison.Ordinal),
+                "only true legacy INI-line incompatibility gets a dedicated sanitized error");
             var preview=await Call(bridge.HandleAsync,"historical.rconPreview",
                 new{mapId=protectedMap.Id,rconPort,password=originalPass});
             IsOk(preview,"original existing INI verifies historical RCON credentials");
