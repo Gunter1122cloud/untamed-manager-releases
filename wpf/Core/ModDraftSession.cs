@@ -9,15 +9,28 @@ namespace UntamedManager.Core;
 // captures only the local Manager launch-mod fields, never Store or ASA data.
 public sealed record ModEditBaseline(string Arguments,string[] DisabledIds,bool Pending)
 {
+    // The historical Kova start planner reads the original Store map's
+    // dedicated mod fields; it must NEVER synthesize or persist Arguments.
+    public bool HistoricalStoreProtected {get;init;}
+    public string[] HistoricalEnabledMods {get;init;}=Array.Empty<string>();
+    public string[] HistoricalPassiveMods {get;init;}=Array.Empty<string>();
     public static ModEditBaseline Capture(LocalMap map)
     {
         ArgumentNullException.ThrowIfNull(map);
-        return new(map.Arguments??"", (map.DisabledModIds??new()).ToArray(),map.ModChangesPending);
+        return new(map.Arguments??"", (map.DisabledModIds??new()).ToArray(),map.ModChangesPending){
+            HistoricalStoreProtected=map.HistoricalStoreProtected,
+            HistoricalEnabledMods=(map.HistoricalEnabledMods??new()).ToArray(),
+            HistoricalPassiveMods=(map.HistoricalPassiveMods??new()).ToArray()
+        };
     }
     public bool Matches(LocalMap map)=>
         map!=null && string.Equals(Arguments,map.Arguments??"",StringComparison.Ordinal) &&
         DisabledIds.SequenceEqual(map.DisabledModIds??new()) &&
-        Pending==map.ModChangesPending;
+        Pending==map.ModChangesPending &&
+        HistoricalStoreProtected==map.HistoricalStoreProtected &&
+        (!HistoricalStoreProtected||
+            (HistoricalEnabledMods.SequenceEqual(map.HistoricalEnabledMods??new())&&
+             HistoricalPassiveMods.SequenceEqual(map.HistoricalPassiveMods??new())));
 }
 
 // Explicit field-level preview of configured mode and order differences.
@@ -35,7 +48,11 @@ public sealed class ModDraftSession
     private readonly List<ModEdit> _history=new();
     private int _cursor;
     public Guid MapId=>_mapId;
-    public ModEditBaseline Baseline=>new(_baseline.Arguments,_baseline.DisabledIds.ToArray(),_baseline.Pending);
+    public ModEditBaseline Baseline=>_baseline with {
+        DisabledIds=_baseline.DisabledIds.ToArray(),
+        HistoricalEnabledMods=_baseline.HistoricalEnabledMods.ToArray(),
+        HistoricalPassiveMods=_baseline.HistoricalPassiveMods.ToArray()
+    };
     public int Steps=>_cursor;
     public bool CanUndo=>_cursor>0;
     public bool CanRedo=>_cursor<_history.Count;
@@ -56,12 +73,22 @@ public sealed class ModDraftSession
         Id=_mapId,
         Arguments=_baseline.Arguments,
         DisabledModIds=_baseline.DisabledIds.ToList(),
-        ModChangesPending=_baseline.Pending
+        ModChangesPending=_baseline.Pending,
+        HistoricalStoreProtected=_baseline.HistoricalStoreProtected,
+        HistoricalEnabledMods=_baseline.HistoricalEnabledMods.ToList(),
+        HistoricalPassiveMods=_baseline.HistoricalPassiveMods.ToList()
     };
     private static void ApplyToCopy(LocalMap map,ModEdit edit)
     {
         var result=ModStateController.Preview(map,edit);
-        map.Arguments=result.NewArguments;
+        if(map.HistoricalStoreProtected)
+        {
+            map.HistoricalEnabledMods=result.Updated.EnabledOrder.ToList();
+            map.HistoricalPassiveMods=result.Updated.Passive.ToList();
+            // The original Store-v1 profile's Arguments stays empty:
+            // the native Start planner generates -usestore/cluster flags.
+        }
+        else map.Arguments=result.NewArguments;
         map.DisabledModIds=result.Updated.Disabled.ToList();
         map.ModChangesPending=result.Updated.Pending;
     }
