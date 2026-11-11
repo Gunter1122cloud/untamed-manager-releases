@@ -6977,6 +6977,18 @@ try
                 return Task.FromResult("ServerAdminPassword="+adminPassword);
             }))
         {
+            // Reproduce UK-HOME-02 Center's reported Obsidian profile:
+            // missing RCON port and absent protected password. Never invoke
+            // the synthetic dispatch function and never issue a wipe.
+            originalAdminMap.RconPort=0;
+            originalAdminMap.RconPasswordProtected="";
+            var noRcon=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="wildWipe",message=""});
+            Check(!noRcon.GetProperty("ok").GetBoolean()&&adminSent==0,
+                "original Center-like RCON port 0 / absent password denies wild wipe before dispatch");
+            originalAdminMap.RconPort=adminPort;
+            originalAdminMap.RconPasswordProtected=SecureStore.Protect(adminPassword);
             var forbidden=await Call(adminBridge.HandleAsync,
                 "historical.adminPreview",
                 new{mapId=originalAdminMap.Id,action="custom",message="SaveWorld"});
