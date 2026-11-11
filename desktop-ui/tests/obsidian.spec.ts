@@ -5607,7 +5607,8 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await expect(page.getByText("ASA készenléti szint: RconAuthenticated")).toBeVisible();
   await expect(page.getByText("RCON hitelesítve", {exact:true})).toBeVisible();
   await expect(page.getByText("Közvetlen ASA mód – Loader nem szükséges", {exact:true})).toBeVisible();
-  await expect(page.getByText("Játékosbelépés még nincs igazolva", {exact:true})).toBeVisible();
+  await expect(page.getByText("Várakozás vagy hiba – a natív bizonyíték nem teljes", {exact:true})).toBeVisible();
+  await expect(page.getByText(/A szerverhirdetés és RCON még nem bizonyítja/)).toBeVisible();
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
 });
 
