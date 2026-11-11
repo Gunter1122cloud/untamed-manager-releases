@@ -774,7 +774,7 @@ test.beforeEach(async ({ page }) => {
         case "historical.rconStatus": return {
           mapId:two,mapName:"Astraeos",configured:historicalRconAttached,
           port:historicalRconAttached?37145:0,
-          verifiedIni:historicalRconAttached,
+          suggestedPort:37145,verifiedIni:historicalRconAttached,
           originalStoreTouched:false,
           evidence:"HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY"
         };
@@ -3809,6 +3809,7 @@ test("historical Store RCON attaches only existing INI with native approval and 
   await expect(page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"})).toHaveCount(0);
   await expect(attach).toBeVisible();
   await expect(attach.getByText(/Eredeti fájlok érintetlenek/)).toBeVisible();
+  await expect(attach.getByLabel("Meglévő ASA RCON-port")).toHaveValue("37145");
   await attach.getByLabel("Meglévő ASA RCON-port").fill("37145");
   await attach.getByLabel("Eredeti ASA ServerAdminPassword").fill("HistoricalRconPass!2026");
   await attach.getByRole("button",{name:"Eredeti RCON előellenőrzése"}).click();
