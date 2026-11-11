@@ -72,10 +72,17 @@ internal static class AsaRuntimeLogEvidence
                         continue;
                     // The timestamp *on the positive load line*, not merely
                     // the file's LastWriteTime, must be from this loader run.
+                    bool loaded=false,hooks=false;
+                    // Both positive native load and hook activation are
+                    // necessary. A failed/partial API injection can print a
+                    // load line without initializing its runtime hooks.
                     foreach(string line in Tail(log,1_048_576))
                     {
-                        if(!line.Contains("API was successfully loaded",
-                            StringComparison.Ordinal))continue;
+                        bool isLoad=line.Contains("API was successfully loaded",
+                            StringComparison.Ordinal);
+                        bool isHooks=line.Contains("Initialized hooks",
+                            StringComparison.Ordinal);
+                        if(!isLoad&&!isHooks)continue;
                         var match=ApiTime.Match(line);
                         if(!match.Success ||
                            !DateTime.TryParseExact(match.Groups["ts"].Value,
@@ -83,13 +90,12 @@ internal static class AsaRuntimeLogEvidence
                             DateTimeStyles.AssumeLocal|DateTimeStyles.AdjustToUniversal,
                             out var when))continue;
                         var at=new DateTimeOffset(when,TimeSpan.Zero);
-                        if(at>=loader.StartedUtc.AddMinutes(-2) &&
-                           at<=DateTimeOffset.UtcNow.AddMinutes(2))
-                        {
-                            apiInitialized=true;break;
-                        }
+                        if(at<loader.StartedUtc.AddMinutes(-2) ||
+                           at>DateTimeOffset.UtcNow.AddMinutes(2))continue;
+                        if(isLoad)loaded=true;
+                        if(isHooks)hooks=true;
                     }
-                    if(apiInitialized)break;
+                    if(loaded&&hooks) {apiInitialized=true;break;}
                 }
                 catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
                     InvalidDataException or ArgumentException or NotSupportedException)
