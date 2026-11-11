@@ -466,7 +466,6 @@ export type FreshAsaRestartStatus = {
   stage:string;oldPid:number;newPid:number;changedUtc:string;
   newProcessRole?:"asaServer"|"loaderParent";
   newAsaServerPid?:number;apiChildAndRconVerified?:boolean;
-  preExitWorldMetadataObserved?:boolean;
   saveCompleteProven:false;readinessCertified:false;
   preExitSaveEvidenceObserved:boolean;preExitWorldMetadataObserved?:boolean;
   finalDoExitSaveCertified:false;
@@ -506,6 +505,7 @@ export type FreshAsaStopStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;confirmedStopped:boolean;
   saveCompleteProven:false;preExitSaveEvidenceObserved:boolean;
+  preExitWorldMetadataObserved?:boolean;
   finalDoExitSaveCertified:false;gameClientRejoinVerified:false;
   killPerformed:false;restartPerformed:false;
   storeTouched:false;
