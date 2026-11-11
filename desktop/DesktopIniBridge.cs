@@ -48,7 +48,6 @@ public sealed class DesktopIniBridge : IDisposable
            !string.IsNullOrWhiteSpace(map.FreshStoreTransferDirectory)||
            (map.Arguments+" "+map.ApiLoaderArguments).Contains("-usestore",
                StringComparison.OrdinalIgnoreCase)||
-           !FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
            !AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new UnauthorizedAccessException("UM-INI-CREATE-FRESH-ONLY");
         var root=Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar);
@@ -74,6 +73,10 @@ public sealed class DesktopIniBridge : IDisposable
                state.Identity!=null||state.LoaderIdentity!=null)
                 throw new InvalidOperationException("UM-INI-CREATE-ALL-MAPS-STOPPED");
         }
+        // Diagnose a specific shared Store sibling first; still enforce
+        // the full fresh-install/restore-journal gate before any mutation.
+        if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map))
+            throw new UnauthorizedAccessException("UM-INI-CREATE-FRESH-ONLY");
         string target=Path.Combine(root,"ShooterGame","Saved","Config",
             "WindowsServer","Game.ini");
         for(var dir=new DirectoryInfo(Path.GetDirectoryName(target)!);
