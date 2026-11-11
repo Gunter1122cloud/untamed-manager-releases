@@ -1522,6 +1522,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
+  "ini.createGamePreview" | "ini.createGameApply" |
   "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
   "servers.runningPreview" | "servers.runningRegister" |
   "servers.runningAdoptPreview" | "servers.runningAdoptApply" |
