@@ -20,10 +20,17 @@ public static class PortableModProfileImporter
 {
     private static void Eligible(LocalMap map)
     {
-        if(map.Id==Guid.Empty||map.Maintenance||map.HistoricalStoreProtected||
-           map.ObservedReadOnlyImported||
-           UntamedWorldBackup.HasLiveOrHistoricalStore(map))
-            throw new UnauthorizedAccessException("Store-v1 or maintenance map is not editable");
+        if(map.Id==Guid.Empty||map.Maintenance||map.ObservedReadOnlyImported||
+           (!map.HistoricalStoreProtected&&UntamedWorldBackup.HasLiveOrHistoricalStore(map))||
+           (map.HistoricalStoreProtected&&(
+               string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+               map.HistoricalArchiveSha256?.Length!=64||
+               !map.HistoricalArchiveSha256.All(Uri.IsHexDigit)||
+               !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+               !string.IsNullOrWhiteSpace(map.Arguments)||
+               !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))))
+            throw new UnauthorizedAccessException(
+                "Mod profile import requires a local owned or imported original Kova map");
         _=ModStateController.Read(map);
     }
     public static PortableModImportPlan Preview(ClusterService cluster,
@@ -49,6 +56,9 @@ public static class PortableModProfileImporter
             baselines.Add(id,ModEditBaseline.Capture(target));
             var working=new LocalMap{
                 Id=target.Id,Name=target.Name,Arguments=target.Arguments,
+                HistoricalStoreProtected=target.HistoricalStoreProtected,
+                HistoricalEnabledMods=(target.HistoricalEnabledMods??new()).ToList(),
+                HistoricalPassiveMods=(target.HistoricalPassiveMods??new()).ToList(),
                 DisabledModIds=(target.DisabledModIds??new()).ToList(),
                 ModChangesPending=target.ModChangesPending
             };
@@ -57,7 +67,14 @@ public static class PortableModProfileImporter
             {
                 var edit=new ModEdit(id,project,value);
                 var staged=ModStateController.Preview(working,edit);
-                working.Arguments=staged.NewArguments;
+                if(working.HistoricalStoreProtected)
+                {
+                    // Preserve historical raw Store launch arguments: imported
+                    // original maps persist only dedicated mod lists.
+                    working.HistoricalEnabledMods=staged.Updated.EnabledOrder.ToList();
+                    working.HistoricalPassiveMods=staged.Updated.Passive.ToList();
+                }
+                else working.Arguments=staged.NewArguments;
                 working.DisabledModIds=staged.Updated.Disabled.ToList();
                 working.ModChangesPending=staged.Updated.Pending;
                 steps.Add(edit);
