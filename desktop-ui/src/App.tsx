@@ -1065,7 +1065,6 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
           <small>{plugin.enabled?"Engedélyezett mappa":"Letiltott mappa"} · ASA futásidőben nem igazolt</small>
         </div>
         <button type="button" className="secondary" disabled={working||
-          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.running)||
           Boolean(snapshot.local.maps.find(m=>m.id===selected)?.observedReadOnlyImported)}
           onClick={()=>{void inspectToggle(plugin.name,!plugin.enabled);}}>
           {plugin.enabled?"Letiltás előnézete":"Engedélyezés előnézete"}
