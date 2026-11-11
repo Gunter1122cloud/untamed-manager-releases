@@ -68,9 +68,9 @@ public sealed class DesktopIniBridge : IDisposable
                         return Fail(id,"UM-INI-INVALID-FILE");
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
-                    if(map.HistoricalStoreProtected)return Fail(id,"UM-HISTORICAL-STORE-LOCKED");
                     if(map.ObservedReadOnlyImported)return Fail(id,"UM-LIVE-OBSERVED-MAP-READONLY");
-                    var check=cluster.Check(map);
+                    var check=map.HistoricalStoreProtected?
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,map):cluster.Check(map);
                     if(!check.ConfirmedStopped || check.Running || map.Maintenance)
                         return Fail(id,"UM-INI-STOP-REQUIRED");
 
@@ -118,7 +118,6 @@ public sealed class DesktopIniBridge : IDisposable
                     return Fail(id,"UM-INI-DOCUMENT-EXPIRED");
                 var owned=Owned(openedFile.MapId);
                 if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
-                if(owned.HistoricalStoreProtected)return Fail(id,"UM-HISTORICAL-STORE-LOCKED");
                 if(owned.ObservedReadOnlyImported)return Fail(id,"UM-LIVE-OBSERVED-MAP-READONLY");
 
                 if(method=="ini.close")
@@ -153,12 +152,14 @@ public sealed class DesktopIniBridge : IDisposable
 
                 // The original file hash is rechecked; process is checked
                 // before and immediately before File.Replace. No live writes.
-                var state=cluster.Check(owned);
+                var state=owned.HistoricalStoreProtected?
+                    HistoricalLocalConfigGuard.DemandStopped(cluster,owned):cluster.Check(owned);
                 if(!state.ConfirmedStopped||state.Running||owned.Maintenance)
                     return Fail(id,"UM-INI-STOP-REQUIRED");
                 string backup=SafeConfigEditor.Save(openedFile.Snapshot,
                     openedFile.PreviewedContent,owned.InstallationPath,
-                    state,owned.Maintenance,()=>cluster.Check(owned));
+                    state,owned.Maintenance,()=>owned.HistoricalStoreProtected?
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,owned):cluster.Check(owned));
                 opened.Remove(tokenId);
                 return Ok(id,new{
                     saved=true,backupCreated=!string.IsNullOrWhiteSpace(backup),
