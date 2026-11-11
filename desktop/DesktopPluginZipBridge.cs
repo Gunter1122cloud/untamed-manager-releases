@@ -18,7 +18,7 @@ namespace UntamedDesktop;
 public sealed class DesktopPluginZipBridge : IDisposable
 {
     private sealed record Pending(Guid Token,Guid MapId,string Installation,
-        string Zip,string ZipSha256,string Plugin,DateTimeOffset Created);
+        string Zip,string ZipSha256,string Plugin,string Profile,DateTimeOffset Created);
     private readonly ClusterService cluster;
     private readonly Func<string?> pick;
     private readonly SemaphoreSlim gate=new(1,1);
@@ -57,11 +57,11 @@ public sealed class DesktopPluginZipBridge : IDisposable
         using var stream=File.OpenRead(path);
         return Convert.ToHexString(SHA256.HashData(stream));
     }
-    private void EnsureStopped(LocalMap map)
+    private ProcessCheck EnsureStopped(LocalMap map)
     {
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
-        if(map.HistoricalStoreProtected||map.ObservedReadOnlyImported||map.Maintenance||
-           KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
+        if(map.ObservedReadOnlyImported||map.Maintenance||
+           (!map.HistoricalStoreProtected&&KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)))
             throw new InvalidOperationException("UM-PLUGIN-STORE-PROTECTED");
         string root=Path.GetFullPath(map.InstallationPath);
         var siblings=cluster.Config.LocalMaps.Where(m=>
@@ -70,14 +70,23 @@ public sealed class DesktopPluginZipBridge : IDisposable
                 StringComparison.OrdinalIgnoreCase)).ToArray();
         if(siblings.Length==0)
             throw new InvalidOperationException("UM-PLUGIN-INSTALLATION-MISSING");
+        ProcessCheck? selected=null;
         foreach(var sibling in siblings)
         {
-            var process=cluster.Check(sibling);
-            if(sibling.HistoricalStoreProtected||sibling.ObservedReadOnlyImported||sibling.Maintenance||
-               process.Running||!process.ConfirmedStopped||
+            var generic=cluster.Check(sibling);
+            if(sibling.ObservedReadOnlyImported||sibling.Maintenance||
+               generic.Running||generic.Identity!=null||generic.LoaderIdentity!=null||
+               (!sibling.HistoricalStoreProtected&&
+                KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling)))
+                throw new InvalidOperationException("UM-PLUGIN-SHARED-INSTALLATION-ACTIVE");
+            var process=sibling.HistoricalStoreProtected?
+                HistoricalLocalConfigGuard.DemandStopped(cluster,sibling):generic;
+            if(process.Running||!process.ConfirmedStopped||
                process.Identity!=null||process.LoaderIdentity!=null)
                 throw new InvalidOperationException("UM-PLUGIN-SHARED-INSTALLATION-ACTIVE");
+            if(ReferenceEquals(sibling,map))selected=process;
         }
+        return selected??throw new UnauthorizedAccessException("UM-PLUGIN-MAP-OWNERSHIP-CHANGED");
     }
     private string BackupRoot=>Path.Combine(cluster.Store.Root,"plugin-zip-backups");
     private static bool TryId(JsonElement root,string field,out Guid id)
@@ -113,7 +122,7 @@ public sealed class DesktopPluginZipBridge : IDisposable
                         return Error(id,"UM-PLUGIN-ZIP-MAP");
                     var map=Get(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    EnsureStopped(map);
+                    var stopped=EnsureStopped(map);
                     string? selected=pick();
                     if(string.IsNullOrWhiteSpace(selected))
                         return Error(id,"UM-PLUGIN-ZIP-NOT-SELECTED");
@@ -122,11 +131,12 @@ public sealed class DesktopPluginZipBridge : IDisposable
                         Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))
                         return Error(id,"UM-PLUGIN-ZIP-WITHIN-INSTALLATION");
                     string digest=Digest(full);
-                    var preview=SafePluginZip.Preview(map,cluster.Check(map),full,BackupRoot);
+                    var preview=SafePluginZip.Preview(map,stopped,full,BackupRoot);
                     if(!preview.Ready)
                         return Error(id,"UM-PLUGIN-ZIP-PREFLIGHT-DENIED");
                     pending=new(Guid.NewGuid(),map.Id,map.InstallationPath,full,
-                        digest,preview.PluginName,DateTimeOffset.UtcNow);
+                        digest,preview.PluginName,
+                        JsonSerializer.Serialize(map),DateTimeOffset.UtcNow);
                     return Ok(id,new{
                         token=pending.Token,mapId=map.Id,mapName=map.Name,
                         archiveName=Path.GetFileName(full),plugin=preview.PluginName,
@@ -143,13 +153,18 @@ public sealed class DesktopPluginZipBridge : IDisposable
                 var approved=pending;pending=null;
                 var target=Get(approved.MapId);
                 if(target==null||!string.Equals(target.InstallationPath,
-                       approved.Installation,StringComparison.OrdinalIgnoreCase))
+                       approved.Installation,StringComparison.OrdinalIgnoreCase)||
+                   JsonSerializer.Serialize(target)!=approved.Profile)
                     return Error(id,"UM-PLUGIN-ZIP-MAP-CHANGED");
                 EnsureStopped(target);
                 if(Digest(approved.Zip)!=approved.ZipSha256)
                     return Error(id,"UM-PLUGIN-ZIP-CHANGED");
                 var updated=SafePluginZip.InstallGuarded(cluster,target.Id,
-                    approved.Zip,BackupRoot);
+                    approved.Zip,BackupRoot,
+                    target.HistoricalStoreProtected?
+                        sibling=>HistoricalLocalConfigGuard.DemandStopped(
+                            cluster,sibling,underOwnOperation:true):
+                        null);
                 if(updated.PluginName!=approved.Plugin)
                     throw new InvalidDataException("UM-PLUGIN-ZIP-IDENTITY-CHANGED");
                 return Ok(id,new{mapId=target.Id,plugin=updated.PluginName,
