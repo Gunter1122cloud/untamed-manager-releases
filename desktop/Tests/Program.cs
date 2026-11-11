@@ -93,6 +93,7 @@ await LocalAsaApiModeTests.Run(root);
  SteamProtectedFileCoverageTests.Run(root);
  await HistoricalLocalConfigGuardTests.Run(root);
  await HistoricalPluginZipTests.Run(root);
+ await HistoricalPluginToggleTests.Run(root);
  await HistoricalModCopyTests.Run(root);
  await HistoricalModProfileTests.Run(root);
 // The travel capture endpoint must explain an incomplete Manager registry,
