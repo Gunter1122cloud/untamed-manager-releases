@@ -409,7 +409,15 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 if(saveStatus.GetProperty("combinedSaveEvidenceObserved").GetBoolean())
                 {
                     lease.Complete();
-                    return "ASA_LOG_AND_WORLD_STABLE_PREEXIT_NO_FSYNC_CERTIFICATION";
+                    return "ASA_LOG_AND_WORLD_STABLE_NO_FSYNC_CERTIFICATION";
+                }
+                // ASA does not always emit the paired save log markers.
+                // Distinguish a stable changed .ark from log-certified success.
+                if(saveStatus.TryGetProperty("worldMetadataObserved",out var metadata)&&
+                   metadata.ValueKind==JsonValueKind.True)
+                {
+                    lease.Complete();
+                    return "ASA_WORLD_METADATA_STABLE_LOG_UNVERIFIED";
                 }
                 var stage=saveStatus.GetProperty("stage").GetString();
                 if(stage is "LOG_ROTATED_OR_TRUNCATED" or "WORLD_LINKED" or
