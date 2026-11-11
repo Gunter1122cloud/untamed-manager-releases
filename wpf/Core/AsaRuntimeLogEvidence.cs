@@ -26,9 +26,19 @@ internal static class AsaRuntimeLogEvidence
         bool advertised=false,apiInitialized=false;
         try
         {
+            // New map registrations do not necessarily populate LogFilePath.
+            // ASA still writes its canonical ShooterGame.log there, exactly
+            // as used by the existing real SaveWorld witness.
+            // Do not change/persist the operator's saved map configuration.
+            var logMap=string.IsNullOrWhiteSpace(map.LogFilePath)?
+                new LocalMap{
+                    Id=map.Id,InstallationPath=map.InstallationPath,
+                    LogFilePath=Path.Combine(map.InstallationPath,
+                        "ShooterGame","Saved","Logs","ShooterGame.log")
+                }:map;
             // LocalLogCenter enforces local-root ownership, rejects symlinks,
             // and reads at most 1 MiB with no ASA process writes.
-            var snapshot=LocalLogCenter.Read(map,1_048_576,4000);
+            var snapshot=LocalLogCenter.Read(logMap,1_048_576,4000);
             var session=AsaHistoricalLogReader.InspectLines(
                 snapshot.Lines.Select(l=>l.Content),null);
             DateTimeOffset started=server.StartedUtc.ToUniversalTime();
