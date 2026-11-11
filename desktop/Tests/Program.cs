@@ -6677,6 +6677,9 @@ try
                   new AsaManualRestartJournal(restartRoot).Observe()?.Phase==
                     AsaRestartPhase.NeedsOperator,
                 "failed Store restart persists NeedsOperator and never fakes a new PID");
+            Check(status.GetProperty("data").GetProperty("step").GetString()!
+                      .Contains("[UM-",StringComparison.Ordinal),
+                "failed Store restart exposes a bounded failure code while retaining NeedsOperator");
         }
         using(var reattached=new DesktopHistoricalRestartBridge(
             restartCluster,RestartProbe,RestartStop,RestartStart))
