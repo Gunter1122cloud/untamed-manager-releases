@@ -127,7 +127,10 @@ public sealed class DesktopScheduledStoppedSteamSupervisor : IDisposable
 
     public ScheduledStoppedSteamUpdate[] Snapshot()=>Locked(()=>
         Read().Schedules.Select(s=>s with {
-            Enabled=false,LastStatus="manual-only-retired"
+            Enabled=false,
+            // Preserve unresolved failure evidence while disabling execution.
+            LastStatus=s.LastStatus=="needs-operator"?
+                "needs-operator":"manual-only-retired"
         }).ToArray());
 
     public ScheduledStoppedSteamUpdate Configure(Guid mapId,int intervalMinutes,
