@@ -952,6 +952,12 @@ export type FreshStoreLoaderModeReceipt = {
   mode:"asaApiLoader"|"directAsa";serverStarted:false;
   originalStoreTouched:false;requiresManualStart:true;evidence:string;
 };
+export type HistoricalLoaderModeStatus = {
+  mapId:string;mapName:string;useApi:boolean;canChangeMode:boolean;
+  confirmedStopped:boolean;approvalRequired:boolean;
+  mode:"asaApiLoader"|"directAsa";requiresStoppedProcess:true;
+  serverStarted:false;originalStoreTouched:false;evidence:string;
+};
 export type HistoricalLoaderModePreview = {
   token:string;mapId:string;mapName:string;useApi:boolean;
   mode:"asaApiLoader"|"directAsa";startsServer:false;
@@ -2072,6 +2078,8 @@ export const managerBridge = {
     request<FreshStoreLoaderModeReceipt>("freshStore.loaderModeApply",{
       token,confirm:true,typedApproval:"FRESH STORE API MODE"
     }),
+  historicalLoaderModeStatus: (mapId:string) =>
+    request<HistoricalLoaderModeStatus>("historical.loaderModeStatus",{mapId}),
   historicalLoaderModePreview: (mapId:string,useApi:boolean) =>
     request<HistoricalLoaderModePreview>("historical.loaderModePreview",{mapId,useApi}),
   historicalLoaderModeApply: (token:string) =>
