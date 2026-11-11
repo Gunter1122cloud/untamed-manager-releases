@@ -70,9 +70,11 @@ public static class AsaReadyProbe
             if(!Path.GetFullPath(map.ExecutablePath).Equals(expected,StringComparison.OrdinalIgnoreCase)||
                !File.Exists(expected)||(File.GetAttributes(expected)&FileAttributes.ReparsePoint)!=0)
                 return false;
-            // The loader is optional for vanilla ASA; when configured it must
-            // exist as a real local executable, never as a junction/UNC alias.
-            if(!string.IsNullOrWhiteSpace(map.ApiLoaderPath))
+            // Only explicit ASA API launch needs an authenticated loader.
+            // An inactive cached LoaderPath never blocks direct ASA mode.
+            if(map.StartWithAsaApi)
+            {
+                if(string.IsNullOrWhiteSpace(map.ApiLoaderPath))return false;
             {
                 string loader=Path.GetFullPath(map.ApiLoaderPath);
                 if(!loader.StartsWith(Path.GetFullPath(map.InstallationPath).TrimEnd(
@@ -166,7 +168,7 @@ public static class AsaReadyProbe
            before.Identity.Pid<=0||
            !Matches(before.Identity.ExecutablePath,map.ExecutablePath)||
            !string.Equals(before.Identity.Arguments,map.Arguments,StringComparison.Ordinal)||
-           (string.IsNullOrWhiteSpace(map.ApiLoaderPath)!=(before.LoaderIdentity is null))||
+           (map.StartWithAsaApi!=(before.LoaderIdentity is not null))||
            (before.LoaderIdentity!=null &&
             (before.LoaderIdentity.Pid<=0 ||
              !Matches(before.LoaderIdentity.ExecutablePath,map.ApiLoaderPath)||
