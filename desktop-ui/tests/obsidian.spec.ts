@@ -3932,6 +3932,30 @@ test("original Store-v1 RCON console actually queries local player, game and cha
   await expect(panel.getByText(/közös Store-restore biztonságát/)).toBeVisible();
 });
 
+test("historical map wild dino wipe shortcut opens native RCON with one-shot typed approval still required",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("button",{name:"Vad dinók törlése (RCON)"}).click();
+  await expect(page.getByRole("tab",{name:"RCON / Konzol"})).toHaveAttribute("aria-selected","true");
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"});
+  await expect(panel.getByLabel("Admin RCON parancstípus")).toHaveValue("wildWipe");
+  await panel.getByRole("button",{name:"Eredeti adminparancs ellenőrzése"}).click();
+  const confirm=panel.getByRole("region",{name:"Store-v1 adminparancs végső jóváhagyása"});
+  await expect(confirm.getByText("DestroyWildDinos")).toBeVisible();
+  const send=confirm.getByRole("button",{name:"Adminparancs egyszeri elküldése"});
+  await expect(send).toBeDisabled();
+  await confirm.getByLabel("Jóváhagyom a helyi Store-v1 RCON műveletet.").check();
+  await expect(send).toBeDisabled();
+  await confirm.getByLabel(/Írd be pontosan: STORE-V1 DINÓTÖRLÉS/).fill("NEM JÓ");
+  await expect(send).toBeDisabled();
+  // Never dispatch in this regression; the native one-time dangerous
+  // action requires the actual operator's explicit final approval.
+});
+
 test("original Store-v1 admin RCON requires exact one-time native approval and excludes lifecycle commands",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
