@@ -1536,6 +1536,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
         </section>):<div className="warning-inline"><WifiOff size={19}/>{snapshot.peerMessage||"Nincs párosított távoli adat"}</div>}
       </Panel>
     </div>
+    <LanSettingsPanel/>
     <ClusterRegistryPanel protectedMapIds={protectedMapIds}/>
     <StoppedSteamBatchPanel maps={snapshot.local.maps}/>
     <MultiHostBackupPanel/>
