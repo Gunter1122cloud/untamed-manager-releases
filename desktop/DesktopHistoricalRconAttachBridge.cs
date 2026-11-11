@@ -330,6 +330,16 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
             }
             finally{gate.Release();}
         }
+        catch(InvalidDataException ex) when(ex.Message is
+            "UM-HISTORICAL-RCON-INI-CHANGED" or
+            "UM-HISTORICAL-RCON-ORIGINAL-STORE-INVALID" or
+            "UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED")
+        {
+            // Only these static, credential-free native reasons are exposed.
+            // In particular, INI mismatch does not imply the disk file
+            // changed: a wrong supplied password gives the same result.
+            return Fail(id,ex.Message);
+        }
         catch(Exception)
         {
             // No credentials, original UNC path or Kova IDs are sent to UI.
