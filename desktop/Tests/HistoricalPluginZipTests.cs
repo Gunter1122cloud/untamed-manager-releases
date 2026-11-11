@@ -82,6 +82,14 @@ internal static class HistoricalPluginZipTests
         cluster.Config.LocalMaps.Add(new LocalMap{
             Id=Guid.NewGuid(),Name="Not yet installed"
         });
+        // Isolate the real native Core ZIP preflight from the WebView2 RPC.
+        // This proves whether invalid archives or bridge validation caused
+        // a failure, without touching live ASA/Store binaries.
+        var nativeStopped=HistoricalLocalConfigGuard.DemandStopped(cluster,map);
+        var nativePreview=SafePluginZip.Preview(map,nativeStopped,archive,
+            Path.Combine(cluster.Store.Root,"plugin-zip-backups"));
+        Check(nativePreview.Ready&&nativePreview.PreviousPluginExists,
+            "Core validates stopped original Store-v1 plugin ZIP preview");
         using var bridge=new DesktopPluginZipBridge(cluster,()=>archive);
         var preview=await Call(bridge,"plugins.zipSelect",new{mapId=map.Id});
         Check(preview.GetProperty("ok").GetBoolean()&&
