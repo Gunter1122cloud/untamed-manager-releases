@@ -185,6 +185,7 @@ public static class AsaReadyProbeTests
             "missing API log never reuses a previous positive runtime proof");
 
         map.StartWithAsaApi=false;
+        map.LogFilePath=""; // Fresh map registry has no explicitly selected log.
         var directReady=await AsaReadyProbe.ObserveAsync(map,
             ()=>steady with {LoaderIdentity=null},
             _=>Task.FromResult("No Players Connected."));
