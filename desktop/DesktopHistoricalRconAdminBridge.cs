@@ -90,6 +90,11 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
         if(!original.HistoricalStoreProtected||original.Maintenance||
            !string.IsNullOrWhiteSpace(original.Arguments))
             throw new InvalidOperationException("UM-ORIGINAL-ADMIN-HISTORICAL-ONLY");
+        // Fail before any approval or operation-journal acquisition. A green
+        // ASA/Loader status is NOT a configured Obsidian RCON connection.
+        if(original.RconPort is <1024 or >65535||
+           string.IsNullOrWhiteSpace(original.RconPasswordProtected))
+            throw new InvalidOperationException("UM-ORIGINAL-ADMIN-RCON-PROFILE-MISSING");
         var journal=cluster.Operations.Observe(original.InstallationPath);
         if(journal?.Phase is UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
