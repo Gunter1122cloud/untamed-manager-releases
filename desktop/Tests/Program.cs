@@ -5139,6 +5139,26 @@ try
         Check(!newState.GetProperty("data").GetProperty("plugins")[0]
                 .GetProperty("enabled").GetBoolean(),
             "native plugin inventory can see explicitly disabled plugin folder");
+
+        // Independent stop proof must run INSIDE the actual Core directory
+        // transaction, not merely at the React preview/approval boundary.
+        bool blockedUnderLease=false,underLeaseInvoked=false;
+        try
+        {
+            PluginStateManager.ToggleLocalChecked(pluginCluster,a.Id,
+                "ExamplePlugin",true,()=>{
+                    underLeaseInvoked=true;
+                    throw new InvalidOperationException("SYNTHETIC-HISTORICAL-LOADER-START");
+                });
+        }
+        catch(InvalidOperationException ex)
+        {
+            blockedUnderLease=ex.Message=="SYNTHETIC-HISTORICAL-LOADER-START";
+        }
+        Check(underLeaseInvoked&&blockedUnderLease&&
+              !Directory.Exists(active)&&Directory.Exists(disabled)&&
+              File.ReadAllText(Path.Combine(disabled,"license.key"))=="KEEP-LICENSE-PRIVATE",
+            "late historical ASA/Loader start refuses plugin move before writing or losing files");
     }
 
     // Native plugin ZIP picker and guarded installation. The WinForms file
