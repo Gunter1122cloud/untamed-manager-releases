@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows-preview:
@@ -87,6 +87,22 @@ jobs:
           path: desktop-ui/package-lock.json
           if-no-files-found: error
           retention-days: 3
+      - name: One-time pin of exact npm lockfile on same-repository PR branch
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/issue12-manual-steam-api-readiness-20261111' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $lock = "desktop-ui/package-lock.json"
+          if (!(Test-Path $lock)) { throw "Lockfile missing after npm install" }
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $lock))
+          $payload = @{
+            message = "ci(issue12): pin Windows npm dependency resolution"
+            branch = "$env:GITHUB_HEAD_REF"
+            content = [Convert]::ToBase64String($bytes)
+          } | ConvertTo-Json -Compress
+          $payload | gh api -X PUT "repos/$env:GITHUB_REPOSITORY/contents/desktop-ui/package-lock.json" --input -
+          if ($LASTEXITCODE -ne 0) { throw "NPM lockfile commit denied" }
       - name: Install Playwright Chromium for isolated browser UI tests
         shell: pwsh
         working-directory: desktop-ui
