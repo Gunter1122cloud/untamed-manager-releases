@@ -465,8 +465,11 @@ export type FreshAsaRestartStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   stage:string;oldPid:number;newPid:number;changedUtc:string;
   newProcessRole?:"asaServer"|"loaderParent";
+  newAsaServerPid?:number;apiChildAndRconVerified?:boolean;
+  preExitWorldMetadataObserved?:boolean;
   saveCompleteProven:false;readinessCertified:false;
-  preExitSaveEvidenceObserved:boolean;finalDoExitSaveCertified:false;
+  preExitSaveEvidenceObserved:boolean;preExitWorldMetadataObserved?:boolean;
+  finalDoExitSaveCertified:false;
   gameClientRejoinVerified:false;
   killPerformed:false;storeTouched:false;autoRetry:false;
 };
@@ -641,7 +644,8 @@ export type RconSaveStatus = {
   mapId:string;watchId:string;rconCommandDispatched:true;
   logSavingStarted:boolean;logSaveCompleteObserved:boolean;
   worldFileUpdated:boolean;worldFileStable:boolean;
-  combinedSaveEvidenceObserved:boolean;diskFsyncCertified:false;
+  combinedSaveEvidenceObserved:boolean;worldMetadataObserved?:boolean;
+  diskFsyncCertified:false;
   gameClientRejoinVerified:false;sourceIsLocalAsaLog:true;
   stage:string;evidence:"LOCAL_ASA_POST_DISPATCH_LOG_AND_WORLD_METADATA";
 };
