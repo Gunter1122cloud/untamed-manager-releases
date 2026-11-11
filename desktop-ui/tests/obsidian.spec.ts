@@ -363,6 +363,7 @@ test.beforeEach(async ({ page }) => {
     let portableProfileApplied=false;
     const modCopyToken="00000000-0000-4000-8000-000000001258";
     let modCopyApproved=false;
+    let modCopySource=one,modCopyTarget=two;
     const draftToken = "00000000-0000-4000-8000-000000001234";
     const draftState = () => ({
       draftId:draftToken,mapId:one,active:stagedId?["123456",stagedId]:["123456"],
@@ -2028,11 +2029,16 @@ test.beforeEach(async ({ page }) => {
               remoteWritesAllowed:false,storeWriterTouched:false,
               evidence:"LOCAL_MOD_COPY_PREVIEW_NO_WRITES"};
           }
-          if(!m.sourceMapId || !Array.isArray(m.targets)||m.targets.length!==1 ||
-             m.targets[0]!==two)throw new Error("UM-MOD-COPY-INVALID-TARGET");
+          if(!Array.isArray(m.targets)||m.targets.length!==1 ||
+             !((m.sourceMapId===one&&m.targets[0]===two)||
+               (m.sourceMapId===two&&m.targets[0]===one)))
+            throw new Error("UM-MOD-COPY-INVALID-TARGET");
+          modCopySource=m.sourceMapId;
+          modCopyTarget=m.targets[0];
           modCopyApproved=false;
-          return {token:modCopyToken,sourceMapId:one,mode:m.mode,
-            targets:[{mapId:two,mapName:"Astraeos",changed:true,
+          return {token:modCopyToken,sourceMapId:modCopySource,mode:m.mode,
+            targets:[{mapId:modCopyTarget,
+              mapName:modCopyTarget===two?"Astraeos":"The Island",changed:true,
               before:{active:["928548"],passive:[],disabled:[]},
               after:{active:["928548","123456"],passive:["789012"],disabled:[]}}],
             operationCount:2,changed:true,requiresRestart:true,
@@ -2042,7 +2048,8 @@ test.beforeEach(async ({ page }) => {
           if(m.token!==modCopyToken || m.confirm!==true || modCopyApproved)
             throw new Error("UM-MOD-COPY-APPROVAL-REQUIRED");
           modCopyApproved=true;
-          return {saved:true,sourceMapId:one,mode:"merge",changedMaps:[two],
+          return {saved:true,sourceMapId:modCopySource,mode:"merge",
+            changedMaps:[modCopyTarget],
             operationsApplied:2,requiresRestart:true,modsLoadedVerified:false,
             remoteWritesAllowed:false,storeWriterTouched:false,
             evidence:"LOCAL_MANAGER_CONFIG_ATOMIC_BATCH_PENDING_RESTART"};
@@ -5335,6 +5342,40 @@ test("Mod Center Copy To merges selected local maps only after native diff appro
   await preview.getByRole("checkbox").check();
   await preview.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
   await expect(panel).toContainText("helyi map modkonfigurációja mentve");
+});
+
+test("P0 original Kova Store-v1 maps can be mod-copy sources and destinations",async({page})=>{
+  await page.addInitScript(()=>{
+    (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
+      .__UNTAMED_PROTECT_TEST_MAP__?.();
+  });
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("tab",{name:"Másolás több mapra"}).click();
+  const panel=page.getByRole("region",{name:"Modlista másolása több mapra"});
+  await expect(panel).toContainText("Astraeos");
+  await expect(panel).toContainText("Eredeti Store-v1");
+  await panel.getByRole("group",{name:"Célmapok kiválasztása"})
+    .getByRole("checkbox").check();
+  await panel.getByRole("button",{name:"Változások előnézete"}).click();
+  await expect(panel.getByRole("region",{name:"Többmapos modmásolás előnézete"}))
+    .toContainText("Astraeos");
+  await panel.getByRole("region",{name:"Többmapos modmásolás előnézete"})
+    .getByRole("checkbox").check();
+  await panel.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
+  await expect(panel).toContainText("helyi map modkonfigurációja mentve");
+  await page.getByRole("combobox",{name:"Helyi map"}).selectOption(second);
+  const sourcePanel=page.getByRole("region",{name:"Modlista másolása több mapra"});
+  await expect(sourcePanel).toContainText("The Island");
+  await sourcePanel.getByRole("group",{name:"Célmapok kiválasztása"})
+    .getByRole("checkbox").check();
+  await sourcePanel.getByRole("button",{name:"Változások előnézete"}).click();
+  await expect(sourcePanel.getByRole("region",{name:"Többmapos modmásolás előnézete"}))
+    .toContainText("The Island");
+  await sourcePanel.getByRole("region",{name:"Többmapos modmásolás előnézete"})
+    .getByRole("checkbox").check();
+  await sourcePanel.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
+  await expect(sourcePanel).toContainText("helyi map modkonfigurációja mentve");
 });
 
 test("mod copy supports more than 25 local maps through paged selection without bypassing the native batch cap",async({page})=>{
