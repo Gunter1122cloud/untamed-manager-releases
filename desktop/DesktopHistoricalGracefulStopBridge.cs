@@ -27,7 +27,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         public string Kind;
         public Job(Guid mapId,string kind){MapId=mapId;Kind=kind;}
         public string State="queued",Step="preflight";
-        public bool ConfirmedStopped,PreExitSaveObserved;
+        public bool ConfirmedStopped,PreExitSaveObserved,PreExitWorldMetadataObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
@@ -83,6 +83,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             {
                 job.ConfirmedStopped=receipt.ConfirmedStopped;
                 job.PreExitSaveObserved=receipt.PreExitSaveLogAndWorldObserved;
+                job.PreExitWorldMetadataObserved=receipt.PreExitWorldMetadataObserved;
             }
         }
     }
@@ -104,6 +105,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             changedUtc=job.ChangedUtc,
             confirmedStopped=job.ConfirmedStopped,
             preExitSaveLogAndWorldObserved=job.PreExitSaveObserved,
+            preExitWorldMetadataObserved=job.PreExitWorldMetadataObserved,
             finalDoExitSaveCertified=false,
             gameClientRejoinVerified=false,
             automaticRetry=false,forceKill=false,storeTouched=false,
