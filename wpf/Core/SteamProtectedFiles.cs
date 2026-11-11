@@ -24,7 +24,11 @@ public static class SteamProtectedFiles
         Path.Combine("ShooterGame","Binaries","Win64","UntamedDisabledPlugins")
     };
     private static readonly string[] ExplicitFiles={
-        Path.Combine("ShooterGame","Binaries","Win64","AsaApiLoader.exe")
+        Path.Combine("ShooterGame","Binaries","Win64","AsaApiLoader.exe"),
+        // Optional third-party proxy injection binaries must survive SteamCMD.
+        // Some installations keep Version.dll in Win64, others in the root.
+        Path.Combine("ShooterGame","Binaries","Win64","Version.dll"),
+        "Version.dll"
     };
     public static IReadOnlyDictionary<string,string> Snapshot(string installRoot)
     {
