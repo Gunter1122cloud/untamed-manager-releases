@@ -120,6 +120,8 @@ internal static class NativeWebViewDispatchContractTests
             "historical.originalLiveBatchApply")&&
               ObsidianWindow.IsHistoricalStoreMethod(
             "historical.originalReadiness")&&
+              ObsidianWindow.IsHistoricalStoreMethod(
+            "historical.kovaControllerInventory")&&
               !ObsidianWindow.IsHistoricalStoreMethod(
             "historical.unsafeOperation"),
             "real dispatcher includes the read-only five-map readiness and live methods, denies unknown methods");
