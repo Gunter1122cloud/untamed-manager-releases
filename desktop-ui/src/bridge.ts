@@ -1134,7 +1134,7 @@ export type OriginalKovaBatchReceipt = {
   evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED";
 };
 export type OriginalKovaLiveBatchPreview = {
-  token:string;localMaps:number;mapNames:string[];runningProcesses:number;
+  token:string;expiresUtc:string;localMaps:number;mapNames:string[];runningProcesses:number;
   directProcesses:number;apiLoaderPairs:number;
   alreadyRegistered:number;newlyDiscovered:number;
   sourceIdentityPreserved:true;existingAsaProcessesUnaffected:true;
