@@ -102,6 +102,7 @@ await ClusterRegistryTests.Run(root);
 await LegacyStorePhysicalTransferTests.Run(root);
 LegacyStoreOriginalLinkTests.Run(root);
 OriginalStoreLiveBatchEvidenceTests.Run(root);
+OriginalStoreHandoffReadinessTests.Run();
 await OriginalStoreLiveReconcileTests.Run(root);
 await OriginalStoreApiRconAttachTests.Run(root);
 await OriginalKovaDirectImportTests.Run(root);
