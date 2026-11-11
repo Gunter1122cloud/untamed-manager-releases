@@ -1133,6 +1133,24 @@ export type OriginalKovaBatchReceipt = {
   requiresOriginalRconAttach:true;
   evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED";
 };
+export type OriginalStoreHandoffReadiness = {
+  readOnly:true;originalSourceMapCount:number;exactlyFiveOriginal:boolean;
+  exactLocalRegistrations:number;hostRegistryRegistrations:number;
+  clusterAssignments:number;clusterIdMatches:boolean;
+  configuredTransferRootMatches:boolean;verifiedSourceRootMatches:boolean;
+  nativeFiveProcessProof:boolean;directAsaProcesses:number;
+  verifiedLoaderAsaPairs:number;clusterConfigurationCompliant:boolean;
+  exclusiveControllerHandoffVerified:false;kovaWatchdogDisabledVerified:false;
+  scheduledTasksReviewed:false;embeddedCharacterIntegrityVerified:false;
+  gameClientRejoinVerified:false;roundTripGameplayVerified:false;
+  originalStoreSteamUpdateAuthorized:false;
+  blockers:string[];
+  maps:Array<{mapId:string;mapName:string;originalMapKey:string;
+    exactLocalRegistration:boolean;hostRegistryRegistration:boolean;
+    clusterAssignment:boolean;processIdentityVerified:boolean;
+    originalPortModRootMatches:boolean}>;
+  evidence:"ORIGINAL_FIVE_KOVA_SOURCE_AND_OBSIDIAN_REGISTRY_READ_ONLY_NOT_CONTROL";
+};
 export type OriginalKovaLiveBatchPreview = {
   token:string;localMaps:number;mapNames:string[];runningProcesses:number;
   directProcesses:number;apiLoaderPairs:number;
@@ -1494,7 +1512,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
-  "historical.originalLiveBatchPreview" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
+  "historical.originalLiveBatchPreview" | "historical.originalLiveBatchApply" | "historical.originalReadiness" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
    "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
@@ -2076,6 +2094,8 @@ export const managerBridge = {
     request<OriginalKovaBatchPreview>("historical.originalBatchPreview"),
   historicalOriginalBatchRegister: (token:string) =>
     request<OriginalKovaBatchReceipt>("historical.originalBatchRegister",{token,confirm:true}),
+  historicalOriginalReadiness: () =>
+    request<OriginalStoreHandoffReadiness>("historical.originalReadiness"),
   historicalOriginalLiveBatchPreview: () =>
     request<OriginalKovaLiveBatchPreview>("historical.originalLiveBatchPreview"),
   historicalOriginalLiveBatchApply: (token:string,externalControllerStopped:boolean,typedApproval:string) =>
