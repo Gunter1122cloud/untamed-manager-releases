@@ -119,13 +119,15 @@ public static class SteamStoppedMapUpdater
         ClusterService cluster,LocalMap map,string steamCmdExecutable,
         long downloadReserveBytes,TimeSpan timeout,
         Func<LocalMap,ProcessCheck> originalStoppedObserver,
-        IProgress<SteamMaintenanceStage>? progress=null,CancellationToken ct=default)
+        IProgress<SteamMaintenanceStage>? progress=null,CancellationToken ct=default,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null)
     {
         if(map==null||!map.HistoricalStoreProtected||originalStoppedObserver==null)
             throw new UnauthorizedAccessException(
                 "UM-STEAM-ORIGINAL-STORE-NATIVE-OBSERVER-REQUIRED");
         return RunCore(cluster,map,steamCmdExecutable,downloadReserveBytes,
-            timeout,null,progress,false,ct,originalStoppedObserver);
+            timeout,null,progress,false,ct,originalStoppedObserver,
+            originalStoppedObserverUnderLease);
     }
 
     internal static Task<Receipt> RunFakeFixtureAsync(
@@ -206,7 +208,8 @@ public static class SteamStoppedMapUpdater
     private static async Task<Receipt> RunCore(ClusterService cluster,LocalMap map,
         string steamExecutable,long reserve,TimeSpan timeout,string? fakeExecutable,
         IProgress<SteamMaintenanceStage>? progress,bool insideQueue,CancellationToken ct,
-        Func<LocalMap,ProcessCheck>? originalStoppedObserver=null)
+        Func<LocalMap,ProcessCheck>? originalStoppedObserver=null,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(map);
@@ -218,13 +221,19 @@ public static class SteamStoppedMapUpdater
         if(reserve<1024L*1024*1024 || reserve>500L*1024*1024*1024)
             throw new InvalidDataException("SteamCMD download reserve outside safe bounds");
         string root=Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar);
+        // Only a real operation lease acquired by this Core pipeline can
+        // select the native observer that ignores its OWN pending journal.
+        // Preview, initial guard and the pre-lease backup use the strict gate.
+        bool ownsUpdateLease=false;
+        Func<LocalMap,ProcessCheck>? CurrentObserver() =>
+            ownsUpdateLease?originalStoppedObserverUnderLease:originalStoppedObserver;
         ProcessCheck ObserveStopped(LocalMap participant)=>
             participant.HistoricalStoreProtected?
-                originalStoppedObserver?.Invoke(participant)??
+                CurrentObserver()?.Invoke(participant)??
                     throw new UnauthorizedAccessException(
                         "UM-STEAM-ORIGINAL-STORE-NATIVE-OBSERVER-REQUIRED"):
                 cluster.Check(participant);
-        DemandSafeLocalInstallation(cluster,map,originalStoppedObserver);
+        DemandSafeLocalInstallation(cluster,map,CurrentObserver());
         new AsaManualRestartJournal(root).DemandNoPending();
         if(root.StartsWith(@"\\",StringComparison.Ordinal)||
            !AsaReadyProbe.IsRegisteredServerBinary(map))
@@ -243,7 +252,7 @@ public static class SteamStoppedMapUpdater
             // Recheck the entire live local registry at every irreversible
             // boundary; a newly registered Store sibling cannot be hidden
             // behind the initial preflight snapshot.
-            DemandSafeLocalInstallation(cluster,map,originalStoppedObserver);
+            DemandSafeLocalInstallation(cluster,map,CurrentObserver());
             foreach(var participant in group)
             {
                 var state=ObserveStopped(participant);
@@ -301,6 +310,7 @@ public static class SteamStoppedMapUpdater
                 // shared operation ID. Hold it across SteamCMD and file checks.
                 using var operation=new UntamedOperationCoordinator().Acquire(root,
                     UntamedOperationKind.Update);
+                ownsUpdateLease=true;
                 VerifyStopped();
                 var before=SteamProtectedFiles.Snapshot(root);
                 string oldBuild=AsaSteamBuildCatalog.InstalledBuild(root) ??
