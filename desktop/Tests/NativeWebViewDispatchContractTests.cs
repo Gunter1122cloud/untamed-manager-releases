@@ -118,9 +118,11 @@ internal static class NativeWebViewDispatchContractTests
             "historical.originalLiveBatchPreview")&&
               ObsidianWindow.IsHistoricalStoreMethod(
             "historical.originalLiveBatchApply")&&
+              ObsidianWindow.IsHistoricalStoreMethod(
+            "historical.originalReadiness")&&
               !ObsidianWindow.IsHistoricalStoreMethod(
             "historical.unsafeOperation"),
-            "real dispatcher includes both live 5-map methods and denies unknown methods");
+            "real dispatcher includes the read-only five-map readiness and live methods, denies unknown methods");
 
         // Ensure each named routing group points to an actual compiled
         // handler AND that the target handler contains its requested method.
