@@ -144,7 +144,7 @@ internal static class LegacyStoreV1GracefulStop
                 ??throw new InvalidOperationException("UM-ORIGINAL-STOP-SAVE-WITNESS-MISSING"):
             null;
         lease.MarkMutationStarted();
-        bool preExitObserved=false;
+        bool preExitObserved=false,worldMetadataObserved=false;
         if(execute!=null)
             preExitObserved=await execute(locked.Map,locked.Process,Verify,ct).WaitAsync(ct);
         else
@@ -158,11 +158,15 @@ internal static class LegacyStoreV1GracefulStop
             var observed=await AsaWorldSaveEvidence.WaitAsync(
                 evidence,()=>{
                     try{Verify();return true;}catch{return false;}
-                },TimeSpan.FromSeconds(90),ct);
-            if(!observed.CompletionObserved)
-                throw new InvalidOperationException("UM-ORIGINAL-STOP-SAVE-NOT-OBSERVED");
-            preExitObserved=true;
-            stage?.Invoke("Új ASA SaveComplete log + stabil világfájl igazolva");
+                },TimeSpan.FromSeconds(90),ct,allowWorldMetadata:true);
+            if(!observed.CompletionObserved&&!observed.WorldMetadataObserved)
+                throw new InvalidOperationException(
+                    "UM-ORIGINAL-STOP-SAVE-NOT-OBSERVED:"+observed.Stage);
+            preExitObserved=observed.CompletionObserved;
+            worldMetadataObserved=observed.WorldMetadataObserved;
+            stage?.Invoke(preExitObserved
+                ?"Új ASA SaveComplete napló és stabil világfájl igazolva"
+                :"Új stabil világfájl megfigyelve; ASA SaveComplete napló nem igazolt");
             Verify();
             await RconProtocol.DispatchDoExitAsync(locked.Map.RconPort,
                 password,Verify,ct);
@@ -186,9 +190,12 @@ internal static class LegacyStoreV1GracefulStop
         stage?.Invoke("Eredeti ASA-folyamat kilépése Windowsból igazolt");
         lease.Complete();
         return new(mapId,approvedPid,true,false,true,DateTimeOffset.UtcNow,
-            "ORIGINAL_ACTIVE_STORE_PREEXIT_SAVE_EVIDENCE_AND_DOEXIT_PID_STOPPED")
+            preExitObserved?
+              "ORIGINAL_ACTIVE_STORE_PREEXIT_SAVE_EVIDENCE_AND_DOEXIT_PID_STOPPED":
+              "ORIGINAL_ACTIVE_STORE_PREEXIT_WORLD_METADATA_LOG_UNVERIFIED_DOEXIT_PID_STOPPED")
         {
-            PreExitSaveLogAndWorldObserved=preExitObserved
+            PreExitSaveLogAndWorldObserved=preExitObserved,
+            PreExitWorldMetadataObserved=worldMetadataObserved
         };
     }
 
