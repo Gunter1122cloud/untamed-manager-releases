@@ -19,18 +19,22 @@ public enum AsaRuntimeStage
 public sealed record AsaReadinessSnapshot(
     Guid MapId, DateTimeOffset ObservedUtc, AsaRuntimeStage Stage,
     bool LoaderObserved, bool ApiInitialized, bool JoinAdvertised,
-    string Explanation)
+    string Explanation,bool ApiRequired=false)
 {
-    // A successful ListPlayers response does not prove that an ASA client can join.
+    // Runtime-ready means current PID + authenticated RCON + this launch's
+    // join-advertising log. API is required ONLY for opt-in Loader launches.
+    // This does NOT prove that a real player joined or travelled between maps.
     public bool ProductionReady =>
-        Stage == AsaRuntimeStage.RconAuthenticated && ApiInitialized && JoinAdvertised;
+        Stage==AsaRuntimeStage.RconAuthenticated && JoinAdvertised &&
+        (!ApiRequired || ApiInitialized);
 }
 
 public static class AsaReadyProbe
 {
     private static AsaReadinessSnapshot Result(LocalMap map,AsaRuntimeStage stage,
-        string explanation,bool loader=false) =>
-        new(map.Id,DateTimeOffset.UtcNow,stage,loader,false,false,explanation);
+        string explanation,bool loader=false,bool api=false,bool join=false) =>
+        new(map.Id,DateTimeOffset.UtcNow,stage,loader,api,join,explanation,
+            map.StartWithAsaApi);
 
     private static bool Identical(ProcessIdentity? a,ProcessIdentity? b)
     {
@@ -191,9 +195,15 @@ public static class AsaReadyProbe
             if(string.IsNullOrWhiteSpace(response))
                 return Result(map,AsaRuntimeStage.ProcessVerified,
                     "RCON reply was empty; readiness cannot be confirmed",hasLoader);
+            var log=AsaRuntimeLogEvidence.Inspect(map,before.Identity,
+                before.LoaderIdentity);
+            bool ready=log.JoinAdvertised &&
+                (!map.StartWithAsaApi||log.ApiInitialized);
             return Result(map,AsaRuntimeStage.RconAuthenticated,
-                "ASA process and local RCON ListPlayers verified; API initialization and client join remain unverified",
-                hasLoader);
+                ready?
+                "ASA PID, RCON and current startup join-advertising log confirmed; live client join/travel remains unverified":
+                "ASA PID and RCON confirmed; current startup join-advertising or required API load still unverified",
+                hasLoader,log.ApiInitialized,log.JoinAdvertised);
         }
         catch(OperationCanceledException) when(cancellationToken.IsCancellationRequested){throw;}
         catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidDataException
