@@ -3,7 +3,8 @@ import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucid
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
   type OriginalKovaLocalMapList, type OriginalKovaImportPreview,
   type OriginalKovaBatchPreview, type OriginalKovaLiveBatchPreview,
-  type OriginalStoreHandoffReadiness, type OriginalKovaClusterPreview } from "./bridge";
+  type OriginalStoreHandoffReadiness, type KovaLegacyControllerInventory,
+  type OriginalKovaClusterPreview } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -30,6 +31,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [handoffReadiness,setHandoffReadiness]=useState<OriginalStoreHandoffReadiness|null>(null);
   const [handoffBusy,setHandoffBusy]=useState(false);
   const [handoffError,setHandoffError]=useState("");
+  const [kovaInventory,setKovaInventory]=useState<KovaLegacyControllerInventory|null>(null);
+  const [kovaInventoryBusy,setKovaInventoryBusy]=useState(false);
+  const [kovaInventoryError,setKovaInventoryError]=useState("");
   const directEpoch=useRef(0);
   const [known,setKnown]=useState<HistoricalStoreList | null>(null);
   const [mapId,setMapId]=useState("");
@@ -234,6 +238,16 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       "). Ez nem jogosít fel átvételre vagy frissítésre.");}
     finally{setHandoffBusy(false);}
   };
+  const inspectKovaController=async()=>{
+    if(kovaInventoryBusy)return;
+    setKovaInventoryBusy(true);setKovaInventoryError("");setKovaInventory(null);
+    try{setKovaInventory(await managerBridge.historicalKovaControllerInventory());}
+    catch(e){setKovaInventoryError(
+      "A helyi Kova watchdog/ütemezésleltár csak részben vagy egyáltalán nem "+
+      "olvasható ("+(e instanceof Error?e.message:"UM-KOVA-READONLY-UNAVAILABLE")+
+      "). Semmilyen vezérlésátadás nem engedélyezett.");}
+    finally{setKovaInventoryBusy(false);}
+  };
   const previewLiveFive=async()=>{
     if(directBusy||registering||!directList||
        directList.maps.length!==5)return;
@@ -406,7 +420,34 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               "Ötmapos bizonyítékok ellenőrzése...":
               "Eredeti öt map – csak olvasási megfelelőségi vizsgálat"}
           </button>
+          <button className="secondary" type="button" disabled={kovaInventoryBusy}
+            onClick={()=>{void inspectKovaController();}}>
+            <Shield size={16}/>{kovaInventoryBusy?
+              "Kova watchdog/ütemezések felmérése...":
+              "Kova vezérlő / watchdog / ütemezések – csak olvasás"}
+          </button>
         </div>
+        {kovaInventoryError&&<p role="alert" className="warning-inline">
+          {kovaInventoryError}</p>}
+        {kovaInventory&&<section role="region" className="historical-preview"
+          aria-label="Kova felügyeleti leltár – nem vezérlésátadás">
+          <h4>Kova automatikus felügyelet – olvasási leltár</h4>
+          <p>Windows-folyamatleltár: {kovaInventory.processInventoryComplete?
+            "lekérdezve":"nem teljes"}; feltételezett Kova-folyamatok:{" "}
+            {kovaInventory.suspectedProcessCount}.</p>
+          <p>Windows-szolgáltatásleltár: {kovaInventory.serviceInventoryComplete?
+            "lekérdezve":"nem teljes"}; Kova-gyanús szolgáltatások:{" "}
+            {kovaInventory.suspectedServiceCount}.</p>
+          <p>Feladatütemező: {kovaInventory.scheduledTaskInventoryComplete?
+            "lekérdezve":"nem teljes"}; Kova-gyanús feladatok:{" "}
+            {kovaInventory.suspectedScheduledTaskCount}.</p>
+          <p role="status">A Kova saját belső watchdog/AutoStart állapota
+            NEM tanúsított. A nulla találat NEM bizonyítja, hogy másik
+            Manager nem indíthat újra mapot. Ez a lekérdezés nem ad
+            kizárólagos vezérlés- vagy RCON-jogot.</p>
+          <p className="muted small">Hiányzó bizonyítékok:{" "}
+            {kovaInventory.evidenceGaps.join(", ")}.</p>
+        </section>}
         {handoffError&&<p role="alert" className="warning-inline">{handoffError}</p>}
         {handoffReadiness&&<section className="historical-preview" role="region"
           aria-label="Store-v1 három külön bizonyítottsági szintje">
