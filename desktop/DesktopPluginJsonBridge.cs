@@ -167,8 +167,13 @@ public sealed class DesktopPluginJsonBridge : IDisposable
                 if(!current.Preview.Changed)
                     return Ok(id,new{saved=false,reason="UNCHANGED",backupCreated=false});
                 string backup=SafeConfigEditor.Save(current.Baseline,current.Edited,
-                    owning.InstallationPath,cluster.Check(owning),false,
-                    ()=>cluster.Check(owning));
+                    owning.InstallationPath,
+                    owning.HistoricalStoreProtected?
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,owning):
+                        cluster.Check(owning),false,
+                    ()=>owning.HistoricalStoreProtected?
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,owning,
+                            underOwnOperation:true):cluster.Check(owning));
                 return Ok(id,new{
                     saved=true,backupCreated=File.Exists(backup),
                     newSha256=current.Preview.NewSha256,
