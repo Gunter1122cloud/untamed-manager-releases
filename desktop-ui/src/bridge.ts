@@ -1133,6 +1133,14 @@ export type OriginalKovaBatchReceipt = {
   requiresOriginalRconAttach:true;
   evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED";
 };
+export type KovaLegacyControllerInventory = {
+  readOnly:true;processInventoryComplete:boolean;serviceInventoryComplete:boolean;
+  scheduledTaskInventoryComplete:boolean;suspectedProcessCount:number;
+  suspectedServiceCount:number;suspectedScheduledTaskCount:number;
+  kovaWatchdogDisabledVerified:false;exclusiveHandoffVerified:false;
+  evidenceGaps:string[];
+  evidence:"LOCAL_WINDOWS_PROCESS_SERVICE_TASKS_READ_ONLY_NOT_HANDOFF_PROOF";
+};
 export type OriginalStoreHandoffReadiness = {
   readOnly:true;originalSourceMapCount:number;exactlyFiveOriginal:boolean;
   exactLocalRegistrations:number;hostRegistryRegistrations:number;
@@ -1513,7 +1521,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
-  "historical.originalLiveBatchPreview" | "historical.originalLiveBatchApply" | "historical.originalReadiness" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
+  "historical.originalLiveBatchPreview" | "historical.originalLiveBatchApply" | "historical.originalReadiness" | "historical.kovaControllerInventory" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
    "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
@@ -2097,6 +2105,8 @@ export const managerBridge = {
     request<OriginalKovaBatchReceipt>("historical.originalBatchRegister",{token,confirm:true}),
   historicalOriginalReadiness: () =>
     request<OriginalStoreHandoffReadiness>("historical.originalReadiness"),
+  historicalKovaControllerInventory: () =>
+    request<KovaLegacyControllerInventory>("historical.kovaControllerInventory"),
   historicalOriginalLiveBatchPreview: () =>
     request<OriginalKovaLiveBatchPreview>("historical.originalLiveBatchPreview"),
   historicalOriginalLiveBatchApply: (token:string,externalControllerStopped:boolean,typedApproval:string) =>
