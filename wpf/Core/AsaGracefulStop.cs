@@ -32,6 +32,8 @@ public static class AsaGracefulStop
         string.Equals(a.ExecutablePath,b.ExecutablePath,
             StringComparison.OrdinalIgnoreCase) &&
         a.Arguments==b.Arguments;
+    private static bool SameOptional(ProcessIdentity? a,ProcessIdentity? b)=>
+        a==null?b==null:Same(a,b);
 
     public static async Task<AsaGracefulStopReceipt> StopAsync(
         ClusterService cluster,Guid mapId,ProcessIdentity expected,
@@ -66,12 +68,19 @@ public static class AsaGracefulStop
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
         var ct=deadline.Token;
+        var initial=cluster.Check(map);
+        // A Loader-parent is part of the *same* process family; it must not
+        // disappear or get replaced while RCON SaveWorld/DoExit is in flight.
+        if(map.StartWithAsaApi!=(initial.LoaderIdentity!=null))
+            throw new InvalidOperationException("UM-ASA-STOP-LOADER-FAMILY-MISMATCH");
+        var expectedLoader=initial.LoaderIdentity;
         void Verify()
         {
             ct.ThrowIfCancellationRequested();
             var check=cluster.Check(map);
             if(!check.Running||check.ConfirmedStopped||
                !Same(check.Identity,expected)||
+               !SameOptional(check.LoaderIdentity,expectedLoader)||
                !owns(map.RconPort,expected.Pid))
                 throw new InvalidOperationException("ASA PID or RCON listener identity changed");
         }
@@ -130,9 +139,11 @@ public static class AsaGracefulStop
             if(check.ConfirmedStopped && !check.Running &&
                check.Identity==null&&check.LoaderIdentity==null)
                 break;
-            if(check.Running && !Same(check.Identity,expected))
+            if(check.Running &&
+               (!Same(check.Identity,expected)||
+                !SameOptional(check.LoaderIdentity,expectedLoader)))
                 throw new InvalidOperationException(
-                    "Unexpected replacement ASA process during shutdown");
+                    "Unexpected replacement ASA/Loader process during shutdown");
             await Task.Delay(300,ct);
         }
         evidenceStage?.Invoke("Régi ASA Windows-folyamat kilépése igazolva");
