@@ -257,9 +257,10 @@ public static class SafePluginZip
     }
 
     public static PluginRollbackResult RollbackGuarded(ClusterService cluster,Guid mapId,
-        string pluginName,string previousBackup,string backupRoot)
+        string pluginName,string previousBackup,string backupRoot,
+        Func<LocalMap,ProcessCheck>? historicalStoppedObserver=null)
     {
-        var (map,observe)=GuardedObserver(cluster,mapId);
+        var (map,observe)=GuardedObserver(cluster,mapId,historicalStoppedObserver);
         return RollbackCore(map,observe(),pluginName,previousBackup,backupRoot,observe);
     }
 
