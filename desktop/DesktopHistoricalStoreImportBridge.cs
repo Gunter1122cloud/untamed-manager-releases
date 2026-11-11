@@ -184,12 +184,13 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     var preview=cluster.PreviewOriginalStoreLiveFive(observed.Maps);
                     var registryHash=OriginalLiveRegistryHash(original);
                     var token=Guid.NewGuid();
+                    var expiresUtc=DateTimeOffset.UtcNow.AddMinutes(3);
                     pendingOriginalLiveBatch=new(token,original.FourFilesSha256,
                         original.LaunchProfileSha256,observed.ProcessSha256,shared,
                         registryHash,observed.Maps.Select(m=>m.Id).ToArray(),
-                        DateTimeOffset.UtcNow.AddMinutes(3));
+                        expiresUtc);
                     return Ok(id,new {
-                        token,localMaps=observed.Maps.Length,
+                        token,expiresUtc,localMaps=observed.Maps.Length,
                         mapNames=observed.Maps.Select(m=>m.Name).ToArray(),
                         runningProcesses=observed.Maps.Length,
                         directProcesses=observed.DirectProcesses,
@@ -207,14 +208,17 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 }
                 if(method=="historical.originalLiveBatchApply")
                 {
-                    if(!GuidField(data,"token",out var token)||
-                       pendingOriginalLiveBatch==null||
-                       pendingOriginalLiveBatch.Token!=token)
+                    if(!GuidField(data,"token",out var token))
+                        return Fail(id,"UM-ORIGINAL-LIVE-APPROVAL-INVALID");
+                    if(pendingOriginalLiveBatch==null)
                         return Fail(id,"UM-ORIGINAL-LIVE-APPROVAL-EXPIRED");
+                    if(pendingOriginalLiveBatch.Token!=token)
+                        return Fail(id,"UM-ORIGINAL-LIVE-APPROVAL-STALE");
                     var approved=pendingOriginalLiveBatch;
                     pendingOriginalLiveBatch=null; // single use, including denial
-                    if(approved.ExpiresUtc<DateTimeOffset.UtcNow||
-                       !BoolField(data,"confirm",out var confirm)||!confirm||
+                    if(approved.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-ORIGINAL-LIVE-APPROVAL-EXPIRED");
+                    if(!BoolField(data,"confirm",out var confirm)||!confirm||
                        !BoolField(data,"externalControllerStopped",out var detached)||!detached||
                        !TextField(data,"typedApproval",60,out var phrase)||
                        phrase!="STORE-V1 FUTÓ ÁTVÉTEL")
