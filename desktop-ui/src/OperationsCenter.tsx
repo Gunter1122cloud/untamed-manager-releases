@@ -209,7 +209,7 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
       {selectedMapId&&showScheduler&&<section className="premium-panel ops-schedules">
         <header className="premium-panel-heading"><h2><CalendarClock size={19}/> Meglévő ütemezések</h2>
           <span className="premium-small-muted">Core / Budapest időzóna</span></header>
-        <p>Itt kizárólag a kiválasztott map automatikus, csak olvasó ellenőrzéseit állíthatod. A SaveWorld és az automatikus újraindítás külön natív végrehajtást igényel, ezért ezeket ez a panel még nem kínálja. A kimaradt ellenőrzések nem futnak újra.</p>
+        <p>SteamCMD verzióellenőrzés és frissítés csak a külön, kézi gomb megnyomására indulhat. A korábbi SteamCheck ütemezések inaktívak. Itt kizárólag a kiválasztott map automatikus, csak olvasó ellenőrzéseit állíthatod. A SaveWorld és az automatikus újraindítás külön natív végrehajtást igényel, ezért ezeket ez a panel még nem kínálja. A kimaradt ellenőrzések nem futnak újra.</p>
         <p className="premium-small-muted" role="status">
           Helyi ellenőrző motor: {snapshot.supervisorState==="active"?
             "AKTÍV":snapshot.supervisorState==="journal-unavailable"?
@@ -227,7 +227,6 @@ export function OperationsCenter({onOpenMap,selectedMapId,showScheduler=false}:{
               <option value="Observation">Folyamat / PID megfigyelése</option>
               <option value="ModCheck">Konfigurált modok ellenőrzése</option>
               <option value="ApiCheck">ASA API helyi fájlellenőrzés</option>
-              <option value="SteamCheck">ASA Steam-verzió (telepített + publikus)</option>
             </select>
           </label>
           <label>Ismétlés (perc)
