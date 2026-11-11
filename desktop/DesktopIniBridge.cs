@@ -41,6 +41,13 @@ public sealed class DesktopIniBridge : IDisposable
         var map=Owned(mapId)??throw new UnauthorizedAccessException("UM-INI-MAP-NOT-OWNED");
         if(map.ObservedReadOnlyImported||map.HistoricalStoreProtected||
            map.Maintenance||FreshStoreEnrollmentPolicy.IsEnrolled(map)||
+           !string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+           !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+           !string.IsNullOrWhiteSpace(map.FreshStoreClusterId)||
+           !string.IsNullOrWhiteSpace(map.FreshStoreTransferDirectory)||
+           (map.Arguments+" "+map.ApiLoaderArguments).Contains("-usestore",
+               StringComparison.OrdinalIgnoreCase)||
            !FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
            !AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new UnauthorizedAccessException("UM-INI-CREATE-FRESH-ONLY");
@@ -54,6 +61,14 @@ public sealed class DesktopIniBridge : IDisposable
                 .Equals(root,StringComparison.OrdinalIgnoreCase));
         foreach(var member in members)
         {
+            if(member.HistoricalStoreProtected||member.ObservedReadOnlyImported||
+               FreshStoreEnrollmentPolicy.IsEnrolled(member)||
+               !string.IsNullOrWhiteSpace(member.HistoricalMapKey)||
+               !string.IsNullOrWhiteSpace(member.HistoricalArchiveSha256)||
+               !string.IsNullOrWhiteSpace(member.StoreTestRoot)||
+               !string.IsNullOrWhiteSpace(member.FreshStoreClusterId)||
+               !string.IsNullOrWhiteSpace(member.FreshStoreTransferDirectory))
+                throw new UnauthorizedAccessException("UM-INI-CREATE-SHARED-STORE");
             var state=cluster.Check(member);
             if(!state.ConfirmedStopped||state.Running||
                state.Identity!=null||state.LoaderIdentity!=null)
