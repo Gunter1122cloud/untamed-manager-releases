@@ -8,7 +8,8 @@ namespace UntamedManager.Core;
 /// <summary>
 /// Local-only, database-free Copy To / Merge / Replace planning for ASA mods.
 /// This operates on Manager-owned launch configuration, NEVER live ASA files,
-/// the shared Store-v1, remote profiles or the protected historical import.
+/// the shared Store-v1 writer or remote profiles. Imported original maps may
+/// copy only the original dedicated -mods/-passivemods launch fields.
 /// Applying does NOT download mods, restart ASA or certify mod loading.
 /// </summary>
 public enum LocalModCopyMode { Merge, Replace }
@@ -29,11 +30,17 @@ public static class LocalModCopyPlanner
 {
     private static void RequireEligible(LocalMap map)
     {
-        if(map.Id==Guid.Empty || map.Maintenance ||
-           map.HistoricalStoreProtected || map.ObservedReadOnlyImported ||
-           UntamedWorldBackup.HasLiveOrHistoricalStore(map))
+        if(map.Id==Guid.Empty || map.Maintenance || map.ObservedReadOnlyImported ||
+           (!map.HistoricalStoreProtected&&UntamedWorldBackup.HasLiveOrHistoricalStore(map)) ||
+           (map.HistoricalStoreProtected&&(
+               string.IsNullOrWhiteSpace(map.HistoricalMapKey) ||
+               map.HistoricalArchiveSha256?.Length!=64 ||
+               !map.HistoricalArchiveSha256.All(Uri.IsHexDigit) ||
+               !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
+               !string.IsNullOrWhiteSpace(map.Arguments) ||
+               !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))))
             throw new UnauthorizedAccessException(
-                "Historical, Store-v1 or maintenance map cannot be modified by mod copy");
+                "Mod copy requires an owned local map or imported original Kova profile");
         // The shared Store writer belongs to ASA and the existing legacy coordinator.
         // This module never touches files outside Manager config.
         _=ModStateController.Read(map);
@@ -70,7 +77,10 @@ public static class LocalModCopyPlanner
             baselines.Add(id,ModEditBaseline.Capture(target));
             var working=new LocalMap {
                 Id=target.Id,Name=target.Name,Arguments=target.Arguments,
-                DisabledModIds=target.DisabledModIds.ToList(),
+                HistoricalStoreProtected=target.HistoricalStoreProtected,
+                HistoricalEnabledMods=(target.HistoricalEnabledMods??new()).ToList(),
+                HistoricalPassiveMods=(target.HistoricalPassiveMods??new()).ToList(),
+                DisabledModIds=(target.DisabledModIds??new()).ToList(),
                 ModChangesPending=target.ModChangesPending
             };
             var candidateEdits=new List<ModEdit>();
@@ -78,7 +88,14 @@ public static class LocalModCopyPlanner
             {
                 var edit=new ModEdit(id,projectId,targetMode);
                 var result=ModStateController.Preview(working,edit);
-                working.Arguments=result.NewArguments;
+                if(working.HistoricalStoreProtected)
+                {
+                    // These lists, NOT raw Arguments, feed the original
+                    // native Store-v1 ASA launch plan.
+                    working.HistoricalEnabledMods=result.Updated.EnabledOrder.ToList();
+                    working.HistoricalPassiveMods=result.Updated.Passive.ToList();
+                }
+                else working.Arguments=result.NewArguments;
                 working.DisabledModIds=result.Updated.Disabled.ToList();
                 working.ModChangesPending=result.Updated.Pending;
                 candidateEdits.Add(edit);
