@@ -890,7 +890,7 @@ export type HistoricalLiveGuard = {
 
 export type HistoricalRconStatus = {
   mapId:string;mapName:string;configured:boolean;port:number;
-  verifiedIni:boolean;originalStoreTouched:false;
+  suggestedPort:number;verifiedIni:boolean;originalStoreTouched:false;
   evidence:"HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY";
 };
 export type HistoricalRconPreview = {
