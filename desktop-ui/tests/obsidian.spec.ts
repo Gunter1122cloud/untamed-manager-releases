@@ -112,9 +112,6 @@ test.beforeEach(async ({ page }) => {
     let steamUpdateStarted = false;
     let steamBatchApplyCount=0;
     let steamBatchStarted=false;
-    let steamScheduledMap="";
-    let steamScheduledEnabled=false;
-    let steamScheduledMinutes=180;
 
     (window as typeof window & {__UNTAMED_STEAM_BATCH_APPLIES__?:()=>number})
       .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
@@ -2292,43 +2289,16 @@ test.beforeEach(async ({ page }) => {
             serverStopRequested:false,remoteHostTouched:false,
             storeWriterTouched:false,automaticRetry:false};
         case "steam.scheduleStatus": return {
-          hostId:state.local.hostId,runnerState:"active",
-          schedules:steamScheduledMap?[{
-            mapId:steamScheduledMap,
-            mapName:state.local.maps.find(x=>x.id===steamScheduledMap)?.name??"Unknown",
-            intervalMinutes:steamScheduledMinutes,enabled:steamScheduledEnabled,
-            nextDueUtc:"2026-11-11T19:00:00Z",lastAttemptUtc:null,
-            lastStatus:steamScheduledEnabled?"scheduled":"disabled-by-operator",
-            oldBuild:null,newBuild:null
-          }]:[],
+          hostId:state.local.hostId,runnerState:"manual-only",
+          schedules:[],
           runningMapAutoStop:false,runningMapAutoRestart:false,
           storeWriterTouched:false,remoteHostUpdate:false,
-          evidence:"DURABLE_OPT_IN_STOPPED_ONLY_STEAMCMD"
+          evidence:"MANUAL_ONLY_STEAMCMD_NO_SCHEDULED_EXECUTION"
         };
         case "steam.scheduleSet":
-        case "steam.scheduleDisable": {
-          const map=state.local.maps.find(x=>x.id===m.mapId);
-          if(!map||map.running||map.storeProtected)
-            throw new Error("UM-STEAM-SCHEDULE-NOT-ELIGIBLE");
-          if(m.confirm!==true ||
-             m.typedApproval!=="AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS")
-            throw new Error("UM-STEAM-SCHEDULE-APPROVAL");
-          if(m.method==="steam.scheduleSet") {
-            if(!Number.isInteger(m.intervalMinutes)||
-               m.intervalMinutes<60||m.intervalMinutes>10080)
-              throw new Error("UM-STEAM-SCHEDULE-INTERVAL");
-            steamScheduledMinutes=m.intervalMinutes;
-            steamScheduledEnabled=true;
-          } else steamScheduledEnabled=false;
-          steamScheduledMap=m.mapId;
-          return {mapId:m.mapId,enabled:steamScheduledEnabled,
-            intervalMinutes:steamScheduledMinutes,
-            nextDueUtc:"2026-11-11T19:00:00Z",
-            lastStatus:steamScheduledEnabled?"scheduled":"disabled-by-operator",
-            autoStopRunning:false,autoRestartRunning:false,
-            storeWriterTouched:false,
-            evidence:"EXPLICIT_LOCAL_STOPPED_ONLY_SCHEDULE_CHANGE"};
-        }
+          throw new Error("UM-STEAM-SCHEDULE-MANUAL-ONLY");
+        case "steam.scheduleDisable":
+          throw new Error("UM-SCHEDULED-STEAM-MISSING");
         case "steam.publishedBuild": return {
           mapId:m.mapId,mapName:"Astraeos",
           installedBuild:"123456",availableBuild:"123457",
@@ -2582,7 +2552,7 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await restart.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/}).check();
   await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
   await expect(restart.getByText("Bekapcsolva")).toBeVisible();
-  await expect(panel.getByText(/Automatikus SteamCMD-frissítés még nem engedélyezett/)).toBeVisible();
+  await expect(panel.getByText(/Automatikus SteamCMD-frissítés nem engedélyezett/)).toBeVisible();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.getByLabel("Fő navigáció").getByRole("button",{name:"Üzemeltetés",exact:true}).click();
   const row=page.locator(".ops-compact-table tbody tr").nth(1);
@@ -5574,38 +5544,20 @@ test("real stopped-map SteamCMD update is opt-in and reports verified outcome",a
   await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
 });
 
-test("stopped-only Steam auto-update needs typed opt-in and can be durably disabled",async({page})=>{
+test("SteamCMD schedule is permanently disabled; only separately approved manual update remains",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
-  const schedule=page.getByRole("region",{
-    name:"Leállított ASA Steam automatikus frissítése"
+  const policy=page.getByRole("region",{
+    name:"Kizárólag kézi ASA SteamCMD frissítés"
   });
-  await expect(schedule).toBeVisible();
-  await expect(schedule).toContainText("Nincs beállítva");
-  await expect(schedule).toContainText("Futó ASA-t nem állít le");
-  const start=schedule.getByRole("button",{
-    name:"Leállított map automatikus frissítése: BE"
-  });
-  await expect(start).toBeDisabled();
-  await schedule.getByRole("spinbutton",{
-    name:"Automatikus SteamCMD ütemezés perc"
-  }).fill("90");
-  const approve=schedule.getByRole("textbox",{
-    name:"Automatikus SteamCMD jóváhagyó szöveg"
-  });
-  await approve.fill("AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS");
-  await expect(start).toBeEnabled();
-  await start.click();
-  await expect(schedule).toContainText("Aktív – következő ellenőrzés");
-  await expect(schedule).toContainText("scheduled");
-  const disable=schedule.getByRole("button",{name:"Kikapcsolás"});
-  await expect(disable).toBeDisabled();
-  await approve.fill("AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS");
-  await disable.click();
-  await expect(schedule).toContainText("Letiltva");
-  await expect(schedule).toContainText("disabled-by-operator");
+  await expect(policy).toBeVisible();
+  await expect(policy).toContainText("Automatikus frissítés: kikapcsolva");
+  await expect(policy).toContainText("kizárólag");
+  await expect(policy.getByRole("textbox")).toHaveCount(0);
+  await expect(policy.getByRole("spinbutton")).toHaveCount(0);
+  await expect(policy.getByRole("button")).toHaveCount(0);
 });
 
 test("SteamCMD monitor reattaches to existing native job after WebView2 reload without another Steam update",async({page})=>{
