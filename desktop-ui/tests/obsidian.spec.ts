@@ -350,6 +350,14 @@ test.beforeEach(async ({ page }) => {
     }
     let rconAllowed=false;
     let dashboardPlayerListFixture=false;
+    let dashboardSecondPlayerListUnavailable=false;
+    (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?:()=>void})
+      .__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__=()=>{
+        dashboardPlayerListFixture=true;
+        dashboardSecondPlayerListUnavailable=true;
+        Object.assign(state.local.maps[0],{rconConfigured:true,running:true});
+        Object.assign(state.local.maps[1],{rconConfigured:true,running:true});
+      };
     (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS__?:()=>void})
       .__UNTAMED_DASHBOARD_PLAYERS__=()=>{
         dashboardPlayerListFixture=true;
@@ -672,11 +680,15 @@ test.beforeEach(async ({ page }) => {
             observedUtc:"2026-11-11T18:00:00Z",readOnly:true,
             saveCompleteProven:false,evidence:"LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS"
           };
-          if(m.mapId===two)return {
+          if(m.mapId===two){
+            if(dashboardSecondPlayerListUnavailable)
+              throw new Error("Synthetic RCON not available on second map");
+            return {
             mapId:two,mapName:"Astraeos",response:"No Players Connected",
             observedUtc:"2026-11-11T18:00:00Z",readOnly:true,
             saveCompleteProven:false,evidence:"LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS"
           };
+          }
           throw new Error("Unknown player-list map");
         case "backup.history": return {
           mapId:m.mapId,
@@ -2627,6 +2639,21 @@ test("dashboard shows authenticated per-map ASA players and zero without inventi
   await expect(rows.filter({hasText:"Astraeos"}).locator(".premium-server-players")).toHaveText("0");
   await expect(rows.filter({hasText:"Ragnarok"}).locator(".premium-server-players")).toHaveText("—");
   await expect(page.locator(".premium-metric").filter({hasText:"Játékosok"}).locator("strong")).toHaveText("2");
+});
+
+
+test("dashboard marks incomplete local player data as a lower bound",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.evaluate(()=>
+    (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?:()=>void})
+      .__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  const rows=page.locator(".premium-server-row");
+  await expect(rows.filter({hasText:"The Island"}).locator(".premium-server-players")).toHaveText("2");
+  await expect(rows.filter({hasText:"Astraeos"}).locator(".premium-server-players")).toHaveText("—");
+  await expect(page.locator(".premium-metric").filter({hasText:"Játékosok"})).toContainText("2+");
+  await expect(page.locator(".premium-metric").filter({hasText:"Játékosok"})).toContainText("Részleges helyi adat: 1/2 map");
 });
 
 test("original Store physical UNC probe is explicit and never grants transfer or restore rights",async({page})=>{
