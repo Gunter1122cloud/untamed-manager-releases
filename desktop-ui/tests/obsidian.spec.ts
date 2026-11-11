@@ -3191,6 +3191,22 @@ test("P0 observed-only map detail never exposes lifecycle, RCON, or disk writer 
     name:/Indítás|Leállítás|Újraindítás|Modok kezelése|INI szerkesztése|RCON beállítása/
   })).toHaveCount(0);
   await expect(detail.getByRole("region",{name:"Futó helyi ASA-folyamatok"})).toBeVisible();
+  const enrollment=detail.getByRole("button",{
+    name:"Kova Store-v1 mapok átvételi varázslója"
+  });
+  await expect(enrollment).toBeVisible();
+  await enrollment.click();
+  await expect(detail.getByRole("region",{
+    name:"Közvetlen Kova Store-v1 mapimport"
+  })).toBeVisible();
+  await expect(detail.getByRole("button",{
+    name:"Öt eredeti Kova-map felismerése"
+  })).toBeEnabled();
+  // A discovered WMI PID alone does NOT authorize write operations:
+  // the real native five-map enrollment still requires its approval.
+  await expect(detail.getByRole("button",{
+    name:"Eredeti öt futó Store-v1 map átvétele"
+  })).toHaveCount(0);
 });
 
 test("Server import actions render BEFORE the potentially long running-ASA process list",async({page})=>{
