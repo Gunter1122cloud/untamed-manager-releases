@@ -1144,11 +1144,12 @@ export type OriginalStoreHandoffReadiness = {
   scheduledTasksReviewed:false;embeddedCharacterIntegrityVerified:false;
   gameClientRejoinVerified:false;roundTripGameplayVerified:false;
   originalStoreSteamUpdateAuthorized:false;
-  blockers:string[];
+  rconProfileConfiguredCount:number;blockers:string[];
   maps:Array<{mapId:string;mapName:string;originalMapKey:string;
     exactLocalRegistration:boolean;hostRegistryRegistration:boolean;
     clusterAssignment:boolean;processIdentityVerified:boolean;
-    originalPortModRootMatches:boolean}>;
+    originalPortModRootMatches:boolean;rconPort:number;
+    rconProfileConfigured:boolean}>;
   evidence:"ORIGINAL_FIVE_KOVA_SOURCE_AND_OBSIDIAN_REGISTRY_READ_ONLY_NOT_CONTROL";
 };
 export type OriginalKovaLiveBatchPreview = {
