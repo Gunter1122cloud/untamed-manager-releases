@@ -29,7 +29,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         public int OldPid,NewPid;
         public bool UseApi;
         public string State="queued",Step="preflight";
-        public bool OldProcessStopped,PreExitSaveObserved;
+        public bool OldProcessStopped,PreExitSaveObserved,PreExitWorldMetadataObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
 
@@ -101,7 +101,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         observed.SourceSha==approved.SourceSha;
 
     private void Update(Job job,string state,string step,
-        bool? oldStopped=null,bool? saved=null,int newPid=0)
+        bool? oldStopped=null,bool? saved=null,int newPid=0,
+        bool? worldMetadata=null)
     {
         lock(sync)
         {
@@ -109,6 +110,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             job.ChangedUtc=DateTimeOffset.UtcNow;
             if(oldStopped.HasValue)job.OldProcessStopped=oldStopped.Value;
             if(saved.HasValue)job.PreExitSaveObserved=saved.Value;
+            if(worldMetadata.HasValue)job.PreExitWorldMetadataObserved=worldMetadata.Value;
             if(newPid>0)job.NewPid=newPid;
         }
     }
@@ -121,6 +123,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
             oldPid=job.OldPid,newPid=job.NewPid,
             oldProcessStopped=job.OldProcessStopped,
             preExitSaveLogAndWorldObserved=job.PreExitSaveObserved,
+            preExitWorldMetadataObserved=job.PreExitWorldMetadataObserved,
             readyCertified=false,gameClientRejoinVerified=false,
             finalDoExitSaveCertified=false,automaticRetry=false,
             forceKill=false,storeTouched=false,
@@ -285,11 +288,12 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             stage=>Update(job,"running",stage));
                         if(stopped.MapId!=original.Id||stopped.Pid!=approved.Pid||
                            !stopped.ConfirmedStopped||!stopped.UsedDoExit||
-                           !stopped.PreExitSaveLogAndWorldObserved)
+                           !(stopped.PreExitSaveLogAndWorldObserved||stopped.PreExitWorldMetadataObserved))
                             throw new InvalidDataException(
                                 "UM-ORIGINAL-RESTART-OLD-STOP-NOT-PROVEN");
                         Update(job,"running","Régi eredeti PID kilépett; új indítás előellenőrzése",
-                            oldStopped:true,saved:true);
+                            oldStopped:true,saved:stopped.PreExitSaveLogAndWorldObserved,
+                            worldMetadata:stopped.PreExitWorldMetadataObserved);
                         restart.Change(record.Id,AsaRestartPhase.Starting);
                         // Start uses the SAME selected original mode. For
                         // API mode Process.Start yields ONLY a Loader parent,
