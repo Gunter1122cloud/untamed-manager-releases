@@ -91,6 +91,7 @@ cluster.AddMap(map);
 await LocalAsaApiModeTests.Run(root);
  await HistoricalAsaApiModeTests.Run(root);
  SteamProtectedFileCoverageTests.Run(root);
+ await HistoricalLocalConfigGuardTests.Run(root);
 // The travel capture endpoint must explain an incomplete Manager registry,
 // not silently collapse it into a generic evidence error.
 var incompleteFiveCapture=await Call(
