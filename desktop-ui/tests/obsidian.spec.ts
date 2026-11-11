@@ -1421,6 +1421,16 @@ test.beforeEach(async ({ page }) => {
             processStarted:false,processStopped:false,
             evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE"};
         }
+        case "historical.kovaControllerInventory":
+          return {readOnly:true,processInventoryComplete:true,
+            serviceInventoryComplete:true,scheduledTaskInventoryComplete:true,
+            suspectedProcessCount:1,suspectedServiceCount:0,
+            suspectedScheduledTaskCount:2,
+            kovaWatchdogDisabledVerified:false,exclusiveHandoffVerified:false,
+            evidenceGaps:["LEGACY_KOVA_CONTROLLER_OR_AUTORUN_CANDIDATE",
+              "IN_APP_KOVA_WATCHDOG_AND_SCHEDULE_STATE_UNCERTIFIED",
+              "NO_EXCLUSIVE_STORE_WRITER_LEASE_OR_TAKEOVER_CERTIFICATE"],
+            evidence:"LOCAL_WINDOWS_PROCESS_SERVICE_TASKS_READ_ONLY_NOT_HANDOFF_PROOF"};
         case "historical.originalReadiness": {
           const names=["The Island","Extinction","Valguero","Astraeos","Genesis Part 1"];
           return {readOnly:true,originalSourceMapCount:5,exactlyFiveOriginal:true,
@@ -3418,6 +3428,22 @@ test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeEnabled();
   // Do NOT click: this test asserts the exact two-factor gate only.
+});
+
+test("P0 Kova watchdog and scheduled task inventory is read-only and never grants wipe or exclusive ownership",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{name:/Kova vezérlő \/ watchdog \/ ütemezések/}).click();
+  const inventory=panel.getByRole("region",{
+    name:"Kova felügyeleti leltár – nem vezérlésátadás"
+  });
+  await expect(inventory).toContainText("feltételezett Kova-folyamatok: 1");
+  await expect(inventory).toContainText("Kova-gyanús feladatok: 2");
+  await expect(inventory).toContainText("NEM tanúsított");
+  await expect(inventory).toContainText("RCON-jogot");
+  await expect(inventory.getByRole("button")).toHaveCount(0);
 });
 
 test("P0 five-map Store evidence is read-only and never implies exclusive Kova takeover or real A-B-A travel",async({page})=>{
