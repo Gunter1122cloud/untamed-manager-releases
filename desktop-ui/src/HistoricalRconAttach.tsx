@@ -66,7 +66,7 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       <p className="muted small">A kétgépes, már aktív Store-v1 szerver meglévő RCON-portját kapcsolja
         az új Managerhez, <b>új INI, új session, Store-konverzió és szerverindítás nélkül</b>.
         A jelszót a natív Windows DPAPI védi.</p>
-      {!status?.configured&&status?.suggestedPort>0&&
+      {status&&!status.configured&&status.suggestedPort>0&&
         <p className="muted small" role="status">
           Az eredeti ASA INI alapján felismert TCP RCON-port: {status.suggestedPort}.
           A jelszót biztonsági okból külön kell megadni; az ASA INI-hez nem nyúlunk.
