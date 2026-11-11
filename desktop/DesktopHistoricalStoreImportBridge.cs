@@ -83,6 +83,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.originalLiveBatchPreview" or
                 "historical.originalLiveBatchApply" or
                 "historical.originalReadiness" or
+                "historical.kovaControllerInventory" or
                 "historical.originalClusterPreview" or
                 "historical.originalClusterApply"))
                 return Fail(id,"UM-METHOD-DENIED");
@@ -178,6 +179,14 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     });
                 }
 
+                if(method=="historical.kovaControllerInventory")
+                {
+                    // No Kova/ASA control operations, no configurable path,
+                    // and no task/service writes: only redacted candidate counts.
+                    var report=await Task.Run(
+                        KovaLegacySupervisorReadOnlyInventory.InspectLocal);
+                    return Ok(id,report);
+                }
                 if(method=="historical.originalReadiness")
                 {
                     // Explicit user-requested, locally bound, READ-ONLY evidence.
