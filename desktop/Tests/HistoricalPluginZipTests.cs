@@ -90,7 +90,9 @@ internal static class HistoricalPluginZipTests
             Path.Combine(cluster.Store.Root,"plugin-zip-backups"));
         Check(nativePreview.Ready&&nativePreview.PreviousPluginExists,
             "Core validates stopped original Store-v1 plugin ZIP preview");
-        using var bridge=new DesktopPluginZipBridge(cluster,()=>archive);
+        using var bridge=new DesktopPluginZipBridge(cluster,()=>archive,
+            ()=>Directory.GetDirectories(Path.Combine(cluster.Store.Root,
+                "plugin-zip-backups",map.Id.ToString("N"),"ExampleKovaPlugin")).Single());
         var preview=await Call(bridge,"plugins.zipSelect",new{mapId=map.Id});
         Check(preview.GetProperty("ok").GetBoolean()&&
               preview.GetProperty("data").GetProperty("previousExists").GetBoolean(),
@@ -121,5 +123,28 @@ internal static class HistoricalPluginZipTests
         var replay=await Call(bridge,"plugins.zipApply",new{token,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
             "one-shot original Store plugin ZIP approval cannot be replayed");
+
+        var rollback=await Call(bridge,"plugins.zipRollbackSelect",new{mapId=map.Id});
+        Check(rollback.GetProperty("ok").GetBoolean()&&
+              rollback.GetProperty("data").GetProperty("binaryCount").GetInt32()==1,
+            "original Kova native rollback selects the verified previous plugin ZIP backup: "+
+            rollback.GetRawText());
+        string restoreToken=rollback.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var undone=await Call(bridge,"plugins.zipRollbackApply",
+            new{token=restoreToken,confirm=true});
+        Check(undone.GetProperty("ok").GetBoolean()&&
+              undone.GetProperty("data").GetProperty("protectiveBackupCreated").GetBoolean(),
+            "actual stopped original Kova plugin DLL rollback creates another protection snapshot: "+
+            undone.GetRawText());
+        Check(File.ReadAllBytes(dll).SequenceEqual(new byte[]{0x4d,0x5a,1,1})&&
+              File.ReadAllText(config)=="{\"storeSetting\":true}"&&
+              File.ReadAllText(license)=="EXAMPLE-KEEP"&&
+              File.ReadAllText(externalStore)=="STORE-DO-NOT-WRITE",
+            "older plugin DLL restored; original config, license and Store remain unchanged");
+        var replayRollback=await Call(bridge,"plugins.zipRollbackApply",
+            new{token=restoreToken,confirm=true});
+        Check(!replayRollback.GetProperty("ok").GetBoolean(),
+            "historical rollback approval token cannot be replayed");
     }
 }
