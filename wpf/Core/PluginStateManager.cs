@@ -42,7 +42,8 @@ public static class PluginStateManager
     }
 
     public static PluginToggleReadiness InspectLocalToggle(
-        ClusterService cluster,Guid mapId,string plugin,bool enabled)
+        ClusterService cluster,Guid mapId,string plugin,bool enabled,
+        Func<LocalMap,ProcessCheck>? historicalStoppedObserver=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId);
@@ -70,8 +71,24 @@ public static class PluginStateManager
             return new(mapId,match.Name,enabled,false,"Nincs helyi telepítési hozzárendelés.",0);
         foreach(var member in shared)
         {
-            var process=cluster.Check(member); // observation only, no identity capture or writes
-            if(member.Maintenance || process.Running || !process.ConfirmedStopped)
+            var generic=cluster.Check(member); // no mutations or process capture
+            if(member.Maintenance||member.ObservedReadOnlyImported||
+               generic.Running||generic.Identity!=null||generic.LoaderIdentity!=null||
+               (!member.HistoricalStoreProtected&&
+                UntamedWorldBackup.HasLiveOrHistoricalStore(member)))
+                return new(mapId,match.Name,enabled,false,
+                    member.Name+" · nem szerkeszthető vagy aktív ASA/Loader.",shared.Length);
+            if(member.HistoricalStoreProtected&&historicalStoppedObserver==null)
+                return new(mapId,match.Name,enabled,false,
+                    member.Name+" · történeti Kova map: natív leállítási igazolás szükséges.",shared.Length);
+            // Generic ClusterService.Check intentionally reports historical
+            // Store as uncertain because the original launch argv is empty.
+            // Use only the Windows native process-family observer provided
+            // by the trusted desktop host, including the under-lock recheck.
+            var process=member.HistoricalStoreProtected?
+                historicalStoppedObserver!(member):generic;
+            if(process.Running||!process.ConfirmedStopped||
+               process.Identity!=null||process.LoaderIdentity!=null)
                 return new(mapId,match.Name,enabled,false,
                     member.Name+" · nem igazoltan leállított szerver (vagy karbantartás).",shared.Length);
         }
@@ -81,11 +98,13 @@ public static class PluginStateManager
 
     public static PluginToggleResult ToggleLocalChecked(
         ClusterService cluster,Guid mapId,string plugin,bool enabled,
-        Action? verifyUnderOperationLock=null)
+        Action? verifyUnderOperationLock=null,
+        Func<LocalMap,ProcessCheck>? historicalStoppedObserver=null)
     {
         // Called after the operator's confirmation, on the UI thread. This
         // READ/VERIFY phase never claims a real ASA-loaded plugin state.
-        var permit=InspectLocalToggle(cluster,mapId,plugin,enabled);
+        var permit=InspectLocalToggle(cluster,mapId,plugin,enabled,
+            historicalStoppedObserver);
         if(!permit.Allowed)throw new InvalidOperationException(permit.Reason);
         var map=cluster.Config.LocalMaps.Single(x=>x.Id==mapId);
         // Final check belongs to the actual file operation too; the underlying
@@ -94,7 +113,8 @@ public static class PluginStateManager
             () => {
                 // Re-evaluate every registered map under the same installation
                 // operation lease, immediately before creating backups/moving files.
-                var latest=InspectLocalToggle(cluster,mapId,permit.Plugin,enabled);
+                var latest=InspectLocalToggle(cluster,mapId,permit.Plugin,enabled,
+                    historicalStoppedObserver);
                 if(!latest.Allowed)throw new InvalidOperationException(latest.Reason);
                 // Historical Kova profiles need an independent exact OS/Loader
                 // stopped-family check UNDER the native plugin mutation lock.
