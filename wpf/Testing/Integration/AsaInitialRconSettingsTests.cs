@@ -57,7 +57,7 @@ public static class AsaInitialRconSettingsTests
         Check(newCreationRejectsLegacy,
             "legacy password allowed only for exact existing ASA INI, not fresh creation");
         foreach(string unsafeLegacy in new[]{
-            "", "line1\\nline2", "line1\\rline2", "a\\0b",
+            "", "line1\nline2", "line1\rline2", "a\0b",
             new string('x',257)
         })
         {
