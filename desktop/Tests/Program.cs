@@ -5631,7 +5631,9 @@ try
             "WindowsServer");
         Directory.CreateDirectory(cfg);
         string ini=Path.Combine(cfg,"GameUserSettings.ini");
-        const string originalPass="HistoricalRconPass!2026";
+        // Real historical credentials need not obey new-server creation
+        // policy: this existing ASA secret is short and has INI symbols.
+        const string originalPass="K0va=;[!]";
         const int rconPort=37145;
         File.WriteAllText(ini,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
             "RCONPort="+rconPort+"\r\nServerAdminPassword="+originalPass+"\r\n");
