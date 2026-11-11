@@ -109,7 +109,9 @@ public static class PluginStateManager
         var map=cluster.Config.LocalMaps.Single(x=>x.Id==mapId);
         // Final check belongs to the actual file operation too; the underlying
         // Toggle reacquires a configuration lock and protects the whole folder.
-        return Toggle(map,cluster.Check(map),permit.Plugin,enabled,cluster.Store.Root,
+        var selectedState=map.HistoricalStoreProtected?
+            historicalStoppedObserver!(map):cluster.Check(map);
+        return Toggle(map,selectedState,permit.Plugin,enabled,cluster.Store.Root,
             () => {
                 // Re-evaluate every registered map under the same installation
                 // operation lease, immediately before creating backups/moving files.
