@@ -179,28 +179,28 @@ public sealed class DesktopPluginZipBridge : IDisposable
                     if(!args.TryGetProperty("confirm",out var permission)||
                        permission.ValueKind!=JsonValueKind.True)
                         return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-APPROVAL");
-                    var approved=pendingRollback;
+                    var rollbackApproved=pendingRollback;
                     pendingRollback=null;
-                    var target=Get(approved.MapId);
-                    if(target==null||
-                       !string.Equals(target.InstallationPath,
-                           approved.Installation,StringComparison.OrdinalIgnoreCase)||
-                       JsonSerializer.Serialize(target)!=approved.Profile)
+                    var rollbackTarget=Get(rollbackApproved.MapId);
+                    if(rollbackTarget==null||
+                       !string.Equals(rollbackTarget.InstallationPath,
+                           rollbackApproved.Installation,StringComparison.OrdinalIgnoreCase)||
+                       JsonSerializer.Serialize(rollbackTarget)!=rollbackApproved.Profile)
                         return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-MAP-CHANGED");
-                    var stopped=EnsureStopped(target);
+                    var stopped=EnsureStopped(rollbackTarget);
                     var validated=SafePluginZip.PreviewRollback(
-                        target,stopped,approved.Plugin,approved.Backup,BackupRoot);
+                        rollbackTarget,stopped,rollbackApproved.Plugin,rollbackApproved.Backup,BackupRoot);
                     if(!validated.Allowed||
-                       validated.PreviousBinaryCount!=approved.Binaries)
+                       validated.PreviousBinaryCount!=rollbackApproved.Binaries)
                         return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-CHANGED");
                     var receipt=SafePluginZip.RollbackGuarded(
-                        cluster,target.Id,approved.Plugin,approved.Backup,BackupRoot,
-                        target.HistoricalStoreProtected?
+                        cluster,rollbackTarget.Id,rollbackApproved.Plugin,rollbackApproved.Backup,BackupRoot,
+                        rollbackTarget.HistoricalStoreProtected?
                             member=>HistoricalLocalConfigGuard.DemandStopped(
                                 cluster,member,underOwnOperation:true):
                             null);
                     return Ok(id,new{
-                        mapId=target.Id,plugin=receipt.PluginName,
+                        mapId=rollbackTarget.Id,plugin=receipt.PluginName,
                         restoredBinaries=receipt.RestoredBinaryCount,
                         protectiveBackupCreated=true,
                         requiresRestart=true,runtimeLoadedVerified=false,
