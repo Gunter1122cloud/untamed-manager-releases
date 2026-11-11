@@ -3820,18 +3820,18 @@ test("P0 every local map has a real per-map ASA API checkbox in Plugin Center",a
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
   await expect(option).not.toBeChecked();
-  await option.check();
+  await option.click();
   const review=group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"});
   await expect(option).not.toBeChecked();
   await expect(review).toContainText("Astraeos");
   await review.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
   await expect(group).toContainText("AsaApiLoader.exe");
-  await option.uncheck();
+  await option.click();
   await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
     .getByRole("button",{name:"Mégse"}).click();
   await expect(option).toBeChecked();
-  await option.uncheck();
+  await option.click();
   await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
     .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).not.toBeChecked();
@@ -3848,7 +3848,7 @@ test("P0 historical and new Store maps use existing native Loader selection, nev
   const group=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
-  await option.check();
+  await option.click();
   await expect(option).not.toBeChecked();
   await group.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
@@ -3866,7 +3866,7 @@ test("P0 new Store ASA API checkbox uses original native Store loader approval",
   const group=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
-  await option.check();
+  await option.click();
   await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
     .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
