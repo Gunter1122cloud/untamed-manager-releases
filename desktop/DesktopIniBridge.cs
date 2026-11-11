@@ -45,7 +45,7 @@ public sealed class DesktopIniBridge : IDisposable
            !AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new UnauthorizedAccessException("UM-INI-CREATE-FRESH-ONLY");
         var root=Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar);
-        if(root.StartsWith(@"\\\\",StringComparison.Ordinal)||
+        if(root.StartsWith(@"\\",StringComparison.Ordinal)||
            new DriveInfo(Path.GetPathRoot(root)!).DriveType!=DriveType.Fixed)
             throw new InvalidDataException("UM-INI-CREATE-FIXED-DISK");
         var members=cluster.Config.LocalMaps.Where(m=>
@@ -132,7 +132,7 @@ public sealed class DesktopIniBridge : IDisposable
                        rechecked.Path!=candidate.Path||
                        JsonSerializer.Serialize(rechecked.Map)!=approved.Profile)
                         return Fail(id,"UM-INI-CREATE-LEASE-CHANGED");
-                    const string template="[/Script/ShooterGame.ShooterGameMode]\\r\\n";
+                    const string template="[/Script/ShooterGame.ShooterGameMode]\r\n";
                     byte[] bytes=Encoding.UTF8.GetBytes(template);
                     lease.MarkMutationStarted();
                     Directory.CreateDirectory(Path.GetDirectoryName(rechecked.Path)!);
