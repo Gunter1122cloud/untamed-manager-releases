@@ -18,6 +18,7 @@ import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
 import { FreshStoreEnrollmentPanel } from "./FreshStoreEnrollmentPanel";
 import { FreshStoreLoaderModePanel } from "./FreshStoreLoaderModePanel";
+import { AsaApiLaunchModeSwitch } from "./AsaApiLaunchModeSwitch";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { HistoricalRconAttach } from "./HistoricalRconAttach";
 import { HistoricalActiveStartPanel } from "./HistoricalActiveStartPanel";
@@ -948,9 +949,10 @@ function Mods({ snapshot, selected, setSelected, mapLocked=false }: {
     </div>
   </div>;
 }
-function PluginCenter({ snapshot, selected, setSelected, mapLocked=false }: {
+function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
+  onLaunchModeSaved }: {
   snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void;
-  mapLocked?:boolean
+  mapLocked?:boolean;onLaunchModeSaved?:()=>Promise<void>
 }) {
   const [info, setInfo] = useState<PluginInventory | null>(null);
   const [error, setError] = useState("");
@@ -1019,6 +1021,10 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false }: {
           {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>}
     </div>
+    {snapshot.local.maps.find(m=>m.id===selected)&&
+      <AsaApiLaunchModeSwitch key={selected}
+        map={snapshot.local.maps.find(m=>m.id===selected)!}
+        onSaved={onLaunchModeSaved}/>}
     <div className="premium-plugin-grid">
     <Panel className="premium-plugin-inventory" title={info ? `Helyi pluginok · ${info.mapName}` : "Pluginok"}>
       {error && <div className="error-inline"><AlertTriangle size={17}/>{error}</div>}
@@ -1735,7 +1741,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       ?<div className="warning-inline" role="alert"><Shield size={17}/> Történeti Store-v1 map: automatikus vagy kézi SteamCMD-frissítést ezen az útvonalon nem engedélyezünk.</div>
       :<StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>)}
     {section==="mods" && <Mods key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>} 
-    {section==="plugins" && <PluginCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
+    {section==="plugins" && <PluginCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked onLaunchModeSaved={onConfigured}/>} 
     {section==="ini" && <IniCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="backups" && <BackupCenter mapId={mapId} snapshot={snapshot}/>}
     {section==="logs" && <LogsCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
