@@ -127,11 +127,11 @@ public static class AsaReadyProbe
                 value is <1 or >65535 || value!=configured;
         }
         return Mismatched(map.Arguments,
-                   @"(?:^|[\s?])(?:-)?RCONPort\s*=\s*(?<port>\d+)(?=$|[\s?])",map.RconPort) ||
+                   @"(?:^|[\s?])(?:-)?RCONPort\s*=\s*(?<port>[^\s?]*)(?=$|[\s?])",map.RconPort) ||
                Mismatched(map.Arguments,
-                   @"(?:^|[\s?])(?:-)?Port\s*=\s*(?<port>\d+)(?=$|[\s?])",map.GamePort) ||
+                   @"(?:^|[\s?])(?:-)?Port\s*=\s*(?<port>[^\s?]*)(?=$|[\s?])",map.GamePort) ||
                Mismatched(map.Arguments,
-                   @"(?:^|[\s?])(?:-)?QueryPort\s*=\s*(?<port>\d+)(?=$|[\s?])",map.QueryPort);
+                   @"(?:^|[\s?])(?:-)?QueryPort\s*=\s*(?<port>[^\s?]*)(?=$|[\s?])",map.QueryPort);
     }
 
     public static async Task<AsaReadinessSnapshot> ProbeAsync(ClusterService cluster,
