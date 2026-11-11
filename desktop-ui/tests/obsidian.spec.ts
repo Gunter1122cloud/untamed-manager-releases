@@ -176,6 +176,15 @@ test.beforeEach(async ({ page }) => {
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
     const historicalStartToken="00000000-0000-4000-8000-000000001698";
     let historicalActiveStarted=false;
+    let historicalApiEnabled=false;
+    let historicalApiPreviewRequested:boolean|null=null;
+    const historicalApiToken="00000000-0000-4000-8000-000000009914";
+    (window as typeof window & {__UNTAMED_ORIGINAL_API_MODE_READY__?:()=>void})
+      .__UNTAMED_ORIGINAL_API_MODE_READY__=()=>{
+        Object.assign(state.local.maps[1],{storeProtected:true,rconConfigured:true,
+          running:false,status:"Leállítva",storeLifecycleState:"preflightRequired"});
+        historicalRconAttached=true;historicalActiveStarted=false;
+      };
     (window as typeof window & {__UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void})
       .__UNTAMED_ORIGINAL_RCON_TEST_READY__=()=>{
         Object.assign(state.local.maps[1],{storeProtected:true,rconConfigured:true,
@@ -269,6 +278,15 @@ test.beforeEach(async ({ page }) => {
     let freshStoreApprovalIssued=false;
     let freshStoreLoaderEnabled=false;
     let freshStoreLoaderApprovalIssued=false;
+    let localApiEnabled=false;
+    let localApiPending:boolean|null=null;
+    const localApiToken="00000000-0000-4000-8000-000000009913";
+    (window as typeof window & {__UNTAMED_FRESH_STORE_API_MODE_READY__?:()=>void})
+      .__UNTAMED_FRESH_STORE_API_MODE_READY__=()=>{
+        freshStoreEnrolled=true;
+        Object.assign(state.local.maps[1],{storeProtected:true,freshStoreEnrolled:true,
+          running:false,status:"Leállítva"});
+      };
     const freshStoreLoaderToken="00000000-0000-4000-8000-000000009911";
     const freshStoreToken="00000000-0000-4000-8000-000000009891";
     let clusterApproval="";
@@ -827,12 +845,35 @@ test.beforeEach(async ({ page }) => {
         case "historical.activeStartStatus": return {
           mapId:two,mapName:"Astraeos",running:historicalActiveStarted,
           confirmedStopped:!historicalActiveStarted,
+          requestedMode:historicalApiEnabled?"asaApiLoader":"directAsa",
+          launchModeApprovalRequired:false,
           pid:historicalActiveStarted?42101:null,
           rconConfigured:historicalRconAttached,
           originalStartAutomatic:false,saveCompleteProven:false,
           gameplayTravelVerified:false,
           evidence:"HISTORICAL_ORIGINAL_PROCESS_READ_ONLY_STATUS"
         };
+        case "historical.loaderModePreview": {
+          if(m.mapId!==two||historicalActiveStarted||
+             !historicalRconAttached||m.useApi===historicalApiEnabled)
+            throw new Error("UM-STORE-LOADER-MODE-PROCESS-OR-API-UNVERIFIED");
+          historicalApiPreviewRequested=!!m.useApi;
+          return {token:historicalApiToken,mapId:two,mapName:"Astraeos",
+            useApi:m.useApi,mode:m.useApi?"asaApiLoader":"directAsa",
+            startsServer:false,changesStore:false,requiresStoppedProcess:true,
+            evidence:"LOCAL_HISTORICAL_API_LAUNCH_PREFERENCE_ONLY"};
+        }
+        case "historical.loaderModeApply": {
+          if(m.token!==historicalApiToken||m.confirm!==true||
+             historicalApiPreviewRequested===null)
+            throw new Error("UM-STORE-LOADER-MODE-APPROVAL");
+          historicalApiEnabled=historicalApiPreviewRequested;
+          historicalApiPreviewRequested=null;
+          return {mapId:two,mapName:"Astraeos",useApi:historicalApiEnabled,
+            mode:historicalApiEnabled?"asaApiLoader":"directAsa",
+            serverStarted:false,originalStoreTouched:false,
+            evidence:"LOCAL_HISTORICAL_API_LAUNCH_PREFERENCE_SAVED"};
+        }
         case "historical.activeStartPreview": {
           if(!historicalRconAttached||historicalActiveStarted||m.mapId!==two)
             throw new Error("Original Store ACTIVE/DONE source proof required");
@@ -1718,6 +1759,38 @@ test.beforeEach(async ({ page }) => {
             clusterId:"fixture-beta",conversionPerformed:false,serverStarted:false,
             originalStoreTouched:false,requiresManualStart:true,
             evidence:"NEW_EMPTY_STORE_ATOMIC_LOCAL_MANAGER_PROFILE_ONLY"};
+        }
+        case "servers.apiModeStatus": {
+          if(m.mapId!==one&&m.mapId!==two)
+            throw new Error("UM-LOCAL-API-OWNERSHIP");
+          const local=state.local.maps.find(x=>x.id===m.mapId)!;
+          if(local.storeProtected||local.observedReadOnlyImported)
+            throw new Error("UM-LOCAL-API-OWNERSHIP");
+          return {mapId:m.mapId,mapName:local.name,useApi:localApiEnabled,
+            mode:localApiEnabled?"asaApiLoader":"directAsa",
+            canChangeMode:!local.running,requiresStoppedProcess:true,
+            serverStarted:false,originalStoreTouched:false,
+            evidence:"LOCAL_ASA_API_MANAGER_LAUNCH_MODE"};
+        }
+        case "servers.apiModePreview": {
+          const local=state.local.maps.find(x=>x.id===m.mapId);
+          if(!local||local.storeProtected||local.running||
+             local.observedReadOnlyImported||m.useApi===localApiEnabled)
+            throw new Error("UM-LOCAL-API-PREFLIGHT-DENIED");
+          localApiPending=!!m.useApi;
+          return {token:localApiToken,mapId:m.mapId,mapName:local.name,
+            useApi:m.useApi,mode:m.useApi?"asaApiLoader":"directAsa",
+            startsServer:false,changesStore:false,requiresStoppedProcess:true,
+            evidence:"LOCAL_ASA_API_MODE_PREVIEW_NO_WRITE"};
+        }
+        case "servers.apiModeApply": {
+          if(m.token!==localApiToken||m.confirm!==true||
+             localApiPending===null)throw new Error("UM-LOCAL-API-APPROVAL");
+          localApiEnabled=localApiPending;localApiPending=null;
+          return {mapId:two,mapName:"Astraeos",useApi:localApiEnabled,
+            mode:localApiEnabled?"asaApiLoader":"directAsa",
+            serverStarted:false,originalStoreTouched:false,
+            requiresManualStart:true,evidence:"LOCAL_ASA_API_MODE_SAVED"};
         }
         case "freshStore.loaderModeStatus": {
           if(m.mapId!==two||!freshStoreEnrolled)
@@ -3734,6 +3807,70 @@ test("configured mods enrich official provider titles only when API credential i
   await page.getByRole("button",{name:"Modok",exact:true}).click();
   await expect(page.locator(".premium-mod-list-panel").getByText("Featured Mod")).toBeVisible();
   await expect(page.locator(".premium-mod-list-panel")).not.toContainText("synthetic-mod-metadata-key");
+});
+
+test("P0 every local map has a real per-map ASA API checkbox in Plugin Center",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
+  const picker=page.getByRole("combobox",{name:"Pluginok mapja"});
+  const group=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
+  await expect(group.getByRole("checkbox",{name:"Indítás ASA API-val"})).toBeVisible();
+  await expect(group.getByRole("checkbox",{name:"Indítás ASA API-val"})).toBeDisabled();
+  await picker.selectOption(second);
+  const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
+  await expect(option).toBeEnabled();
+  await expect(option).not.toBeChecked();
+  await option.check();
+  const review=group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"});
+  await expect(option).not.toBeChecked();
+  await expect(review).toContainText("Astraeos");
+  await review.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
+  await expect(option).toBeChecked();
+  await expect(group).toContainText("AsaApiLoader.exe");
+  await option.uncheck();
+  await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
+    .getByRole("button",{name:"Mégse"}).click();
+  await expect(option).toBeChecked();
+  await option.uncheck();
+  await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
+    .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
+  await expect(option).not.toBeChecked();
+});
+
+test("P0 historical and new Store maps use existing native Loader selection, never launch on checkbox",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_API_MODE_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_API_MODE_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
+  await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
+  const group=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
+  const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
+  await expect(option).toBeEnabled();
+  await option.check();
+  await expect(option).not.toBeChecked();
+  await group.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
+  await expect(option).toBeChecked();
+  await expect(group).toContainText("Nem indult szerver");
+});
+
+test("P0 new Store ASA API checkbox uses original native Store loader approval",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_STORE_API_MODE_READY__?:()=>void
+  }).__UNTAMED_FRESH_STORE_API_MODE_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
+  await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
+  const group=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
+  const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
+  await expect(option).toBeEnabled();
+  await option.check();
+  await group.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
+    .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
+  await expect(option).toBeChecked();
+  await expect(group).toContainText("AsaApiLoader.exe");
 });
 
 test("native mod draft contract stages in memory and saves only on explicit click",async ({page})=>{
