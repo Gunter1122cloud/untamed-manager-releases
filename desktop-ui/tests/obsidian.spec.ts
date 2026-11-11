@@ -5217,6 +5217,23 @@ test("Store-v1 original ASA launch text stays read-only and redacted",async ({pa
   await expect(report).toHaveCount(0);
 });
 
+test("P0 original Store-v1 map exposes a real native stopped SteamCMD update button",async({page})=>{
+  await page.addInitScript(()=>{
+    (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
+      .__UNTAMED_PROTECT_TEST_MAP__?.();
+  });
+  await page.goto("/");
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"Frissítés",exact:true}).click();
+  const steam=page.getByRole("region",{name:"Valódi SteamCMD frissítés"});
+  await expect(steam).toBeVisible();
+  await expect(steam).toContainText("Astraeos");
+  await expect(steam.getByRole("button",{name:"Frissítés előellenőrzése"}))
+    .toBeVisible();
+  await expect(page.getByText("Történeti Store-v1 map: automatikus vagy kézi SteamCMD-frissítést ezen az útvonalon nem engedélyezünk."))
+    .toHaveCount(0);
+});
+
 test("map detail keeps Plugin Center and ASA API controls bound to its own local map",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"The Island részletei"}).click();
