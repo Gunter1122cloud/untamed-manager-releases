@@ -206,6 +206,17 @@ public static class ModStateController
             },changed);
     }
 
+    // Compare the exact non-mod launch tokens (including -usestore,
+    // -clusterid and -ClusterDirOverride) before permitting a Kova mod edit.
+    // We ignore only whitespace created where mod switches were removed.
+    private static string NonModArguments(string args)
+    {
+        string cleaned=args??"";
+        foreach(var token in Switches(cleaned).OrderByDescending(x=>x.Start))
+            cleaned=cleaned.Remove(token.Start,token.Length);
+        return Regex.Replace(cleaned.Trim(),@"\s+"," ");
+    }
+
     public static IReadOnlyList<ModPreview> ApplyLocalBatch(ClusterService cluster,
         IEnumerable<ModEdit> edits,
         IReadOnlyDictionary<Guid,ModEditBaseline>? expectedBaselines=null)
@@ -216,7 +227,7 @@ public static class ModStateController
         // atomically. Never accept an unbounded batch from the UI.
         if(requests.Length==0 || requests.Length>2500)
             throw new InvalidDataException("Invalid batch size");
-        var originals=new Dictionary<Guid,(string Args,List<string> Disabled,bool Pending)>();
+        var originals=new Dictionary<Guid,(string Args,string LoaderArgs,List<string> Disabled,bool Pending)>();
         var previews=new List<ModPreview>();
         using var operation=cluster.Operations.AcquireMany(new[]{cluster.Store.Root}.Concat(
             requests.Select(e=>cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==e.Map))
@@ -238,9 +249,30 @@ public static class ModStateController
             {
                 var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==edit.Map);
                 if(map==null)throw new UnauthorizedAccessException("Cannot edit a peer map");
-                if(map.HistoricalStoreProtected ||
-                   UntamedWorldBackup.HasLiveOrHistoricalStore(map) || map.Maintenance)
-                    throw new UnauthorizedAccessException("Store-v1 or maintenance mods are protected");
+                if(map.ObservedReadOnlyImported||map.Maintenance||
+                   (!map.HistoricalStoreProtected&&UntamedWorldBackup.HasLiveOrHistoricalStore(map)))
+                    throw new UnauthorizedAccessException("Store/mod ownership is not locally editable");
+                if(map.HistoricalStoreProtected)
+                {
+                    if(string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+                       string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
+                       map.HistoricalArchiveSha256.Length!=64)
+                        throw new UnauthorizedAccessException("Original Kova map identity missing");
+                    new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    var folder=Path.GetFullPath(map.InstallationPath);
+                    foreach(var sibling in cluster.Config.LocalMaps.Where(m=>
+                        !string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                        string.Equals(Path.GetFullPath(m.InstallationPath),folder,
+                            StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var state=cluster.Check(sibling);
+                        if(sibling.Maintenance||sibling.ObservedReadOnlyImported||
+                           state.Running||!state.ConfirmedStopped||
+                           state.Identity!=null||state.LoaderIdentity!=null)
+                            throw new InvalidOperationException(
+                                "Original Kova mod edit requires all local ASA/Loader processes stopped");
+                    }
+                }
                 if(!originals.ContainsKey(map.Id))
                 {
                     // Verify the editor snapshot while the configuration lease is
@@ -251,12 +283,21 @@ public static class ModStateController
                         !expected.Matches(map)))
                         throw new InvalidOperationException(
                             "Mod configuration changed outside this draft; reload is required");
-                    originals.Add(map.Id,(map.Arguments,
+                    originals.Add(map.Id,(map.Arguments,map.ApiLoaderArguments,
                         (map.DisabledModIds??new()).ToList(),map.ModChangesPending));
                 }
                 // Staged in-memory edits; no server restart and no file writes yet.
                 var preview=Preview(map,edit);
+                // No mod editor may rewrite the Store, cluster ID/path, port
+                // or any other launch parameter; own only -mods/-passivemods.
+                if(map.HistoricalStoreProtected&&
+                   !string.Equals(NonModArguments(map.Arguments),
+                       NonModArguments(preview.NewArguments),StringComparison.Ordinal))
+                    throw new InvalidDataException("Kova Store-v1 launch flags changed outside mod switches");
+                string oldArgs=map.Arguments;
                 map.Arguments=preview.NewArguments;
+                if(map.StartWithAsaApi&&map.ApiLoaderArguments==oldArgs)
+                    map.ApiLoaderArguments=preview.NewArguments;
                 map.DisabledModIds=preview.Updated.Disabled.ToList();
                 map.ModChangesPending=preview.Updated.Pending;
                 previews.Add(preview);
@@ -272,6 +313,7 @@ public static class ModStateController
             {
                 var map=cluster.Config.LocalMaps.Single(x=>x.Id==id);
                 map.Arguments=original.Args;
+                map.ApiLoaderArguments=original.LoaderArgs;
                 map.DisabledModIds=original.Disabled;
                 map.ModChangesPending=original.Pending;
             }
