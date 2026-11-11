@@ -473,7 +473,7 @@ export type FreshAsaRestartStatus = {
 export type FreshAsaReadiness = {
   mapId:string;mapName:string;
   stage:"Unconfigured"|"ExecutableVerified"|"ProcessVerified"|"RconAuthenticated";
-  observedUtc:string;loaderObserved:boolean;apiInitialized:boolean;
+  observedUtc:string;loaderObserved:boolean;apiRequired:boolean;apiInitialized:boolean;
   joinAdvertised:boolean;rconAuthenticated:boolean;productionReady:boolean;
   description:string;storeTouched:false;
   evidence:"READ_ONLY_LOCAL_ASA_PROCESS_AND_RCON_READINESS";
