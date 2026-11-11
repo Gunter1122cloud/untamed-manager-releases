@@ -11,7 +11,9 @@ namespace UntamedDesktop;
 /// <summary>
 /// Multi-map Copy To / Merge / Replace. Only Manager launch configuration on
 /// explicitly owned local maps can change, via one atomic Core operation.
-/// Historical Store-v1 maps and remote host profiles are never writable.
+/// Imported historical Store-v1 maps can edit their dedicated Manager mod
+/// lists only while exact native Windows process-family checks prove stopped;
+/// remote host profiles and the shared Store writer are never writable.
 /// </summary>
 public sealed class DesktopModCopyBridge : IDisposable
 {
@@ -22,6 +24,18 @@ public sealed class DesktopModCopyBridge : IDisposable
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     public DesktopModCopyBridge(ClusterService source)=>
         cluster=source??throw new ArgumentNullException(nameof(source));
+
+    private void DemandHistoricalTargetsStopped(LocalModCopyPlan plan)
+    {
+        foreach(var target in plan.Targets)
+        {
+            var local=cluster.Config.LocalMaps.SingleOrDefault(
+                m=>m.Id==target.MapId)??throw new UnauthorizedAccessException(
+                    "UM-MOD-COPY-LOCAL-MAP-CHANGED");
+            if(local.HistoricalStoreProtected)
+                HistoricalLocalConfigGuard.DemandStopped(cluster,local);
+        }
+    }
 
     public async Task<string> HandleAsync(string raw)
     {
@@ -74,6 +88,7 @@ public sealed class DesktopModCopyBridge : IDisposable
                         ids.Add(target);
                     }
                     var plan=LocalModCopyPlanner.Preview(cluster,sourceId,ids,mode);
+                    DemandHistoricalTargetsStopped(plan);
                     var token=Guid.NewGuid();
                     pending=new(token,plan,DateTimeOffset.UtcNow.AddMinutes(5));
                     return Ok(id,new {
@@ -108,6 +123,7 @@ public sealed class DesktopModCopyBridge : IDisposable
                     return Fail(id,"UM-MOD-COPY-PREVIEW-EXPIRED");
                 if(!approved.Plan.Changed)
                     return Fail(id,"UM-MOD-COPY-NOTHING-TO-APPLY");
+                DemandHistoricalTargetsStopped(approved.Plan);
                 var applied=await Task.Run(()=>
                     LocalModCopyPlanner.Apply(cluster,approved.Plan));
                 return Ok(id,new {
