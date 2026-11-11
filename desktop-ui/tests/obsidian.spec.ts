@@ -3769,6 +3769,33 @@ test("map detail maintenance setting persists with approval and blocks running m
   await expect(running.getByRole("button",{name:"Karbantartási mód bekapcsolása"})).toBeDisabled();
 });
 
+test("historical Store Center-style missing RCON opens a functional attach form in its own RCON tab",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const go=page.getByRole("button",{name:"Meglévő RCON csatlakoztatása"});
+  await expect(go).toBeVisible();
+  await go.click();
+  await expect(page.getByRole("tab",{name:"RCON / Konzol"})).toHaveAttribute("aria-selected","true");
+  const attach=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await expect(attach.getByLabel("Meglévő ASA RCON-port")).toBeVisible();
+  await expect(attach.getByLabel("Eredeti ASA ServerAdminPassword")).toBeVisible();
+  await expect(page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"})).toHaveCount(0);
+  await attach.getByLabel("Meglévő ASA RCON-port").fill("37145");
+  await attach.getByLabel("Eredeti ASA ServerAdminPassword").fill("HistoricalRconPass!2026");
+  await attach.getByRole("button",{name:"Eredeti RCON előellenőrzése"}).click();
+  const approve=attach.getByRole("region",{name:"Store-v1 RCON jóváhagyása"});
+  await approve.getByText(/Jóváhagyom az eredeti RCON-kapcsolat/).click();
+  await attach.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
+  await expect(attach).toContainText("RCON-port: 37145");
+  await expect(page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"})).toBeVisible();
+  await page.getByRole("tab",{name:"Áttekintés"}).click();
+  await expect(page.getByRole("button",{name:"Meglévő RCON csatlakoztatása"})).toHaveCount(0);
+});
+
 test("historical Store RCON attaches only existing INI with native approval and without any Store write",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
@@ -3776,7 +3803,10 @@ test("historical Store RCON attaches only existing INI with native approval and 
   }).__UNTAMED_PROTECT_TEST_MAP__?.());
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await expect(page.getByRole("button",{name:"Meglévő RCON csatlakoztatása"})).toBeVisible();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
   const attach=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await expect(page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"})).toHaveCount(0);
   await expect(attach).toBeVisible();
   await expect(attach.getByText(/Eredeti fájlok érintetlenek/)).toBeVisible();
   await attach.getByLabel("Meglévő ASA RCON-port").fill("37145");
@@ -3807,6 +3837,7 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await expect(historic).toBeVisible();
   await expect(historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"})).toBeDisabled();
   await expect(page.getByRole("button",{name:"Friss ASA indítása"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Meglévő RCON csatlakoztatása"}).click();
   const rcon=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
   await rcon.getByLabel("Meglévő ASA RCON-port").fill("37145");
   await rcon.getByLabel("Eredeti ASA ServerAdminPassword").fill("HistoricalRconPass!2026");
@@ -3815,6 +3846,7 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
     .getByText(/Jóváhagyom az eredeti RCON-kapcsolat/).click();
   await rcon.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
   await expect(rcon.getByText(/RCON-port: 37145/)).toBeVisible();
+  await page.getByRole("tab",{name:"Áttekintés"}).click();
   // Profile change refreshes map detail; the native Start probe re-queries
   // original manager profile, two peers and exact ASA process state.
   const preflight=historic.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
