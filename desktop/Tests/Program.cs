@@ -3967,6 +3967,12 @@ try
               Guid.TryParse(rconWatch.GetProperty("watchId").GetString(),out watchId) &&
               watchId!=Guid.Empty,
             "owned SaveWorld dispatch establishes a private new-log witness boundary");
+        var duplicateWhilePending=await Call(rcon.HandleAsync,"rcon.saveWorld",
+            new{mapId=fakeMap.Id,confirm=true});
+        Check(IsError(duplicateWhilePending,"UM-RCON-SAVE-ALREADY-PENDING") &&
+              dispatched==2,
+            "second SaveWorld on same map cannot invalidate an active witness");
+
         var pendingLog=await Call(rcon.HandleAsync,"rcon.saveStatus",new{
             mapId=fakeMap.Id,watchId
         });
