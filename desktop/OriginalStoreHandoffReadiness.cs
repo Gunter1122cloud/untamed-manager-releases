@@ -21,7 +21,8 @@ public static class OriginalStoreHandoffReadiness
         Guid MapId, string MapName, string OriginalMapKey,
         bool ExactLocalRegistration, bool HostRegistryRegistration,
         bool ClusterAssignment, bool ProcessIdentityVerified,
-        bool OriginalPortModRootMatches);
+        bool OriginalPortModRootMatches, int RconPort,
+        bool RconProfileConfigured);
 
     public sealed record Report(
         bool ReadOnly, int OriginalSourceMapCount, bool ExactlyFiveOriginal,
@@ -34,6 +35,7 @@ public static class OriginalStoreHandoffReadiness
         bool ScheduledTasksReviewed, bool EmbeddedCharacterIntegrityVerified,
         bool GameClientRejoinVerified, bool RoundTripGameplayVerified,
         bool OriginalStoreSteamUpdateAuthorized,
+        int RconProfileConfiguredCount,
         string[] Blockers, MapEvidence[] Maps, string Evidence);
 
     private static bool SameRoot(string? a, string? b)
@@ -101,7 +103,10 @@ public static class OriginalStoreHandoffReadiness
                         a.ClusterId,RequiredClusterId,StringComparison.Ordinal))==1;
             return new MapEvidence(sourceMap.MapId,
                 local?.Name??sourceMap.MapKey,sourceMap.MapKey,
-                parity,hostRegistered,assigned,nativeFiveProcessProof&&parity,parity);
+                parity,hostRegistered,assigned,nativeFiveProcessProof&&parity,parity,
+                local?.RconPort??0,
+                parity&&local!.RconPort is >=1024 and <=65535&&
+                !string.IsNullOrWhiteSpace(local.RconPasswordProtected));
         }).ToArray();
         int registered=rows.Count(m=>m.ExactLocalRegistration);
         int inHost=rows.Count(m=>m.HostRegistryRegistration);
@@ -121,6 +126,10 @@ public static class OriginalStoreHandoffReadiness
             blockers.Add("KOVA_CLUSTER_ID_OR_TRANSFER_ROOT_MISMATCH");
         if(!sourcePathMatches)blockers.Add("ORIGINAL_SOURCE_TRANSFER_ROOT_NOT_PROVEN");
         if(!nativeValid)blockers.Add("FIVE_NATIVE_ASA_LOADER_PROCESS_IDENTITIES_NOT_PROVEN");
+        // Saved RCON metadata is distinct from authenticated RCON.
+        // No command (including DestroyWildDinos) is sent during this audit.
+        int rconProfiles=rows.Count(m=>m.RconProfileConfigured);
+        if(rconProfiles!=5)blockers.Add("OBSIDIAN_RCON_PROFILE_MISSING_OR_INCOMPLETE");
         // There is currently no authoritative independent proof that Kova's
         // watchdog, Windows services, scheduled tasks and autostart are inactive.
         // Never infer an exclusive handoff from green RUNNING badges or RCON.
@@ -141,7 +150,7 @@ public static class OriginalStoreHandoffReadiness
             GameClientRejoinVerified:false,
             RoundTripGameplayVerified:false,
             OriginalStoreSteamUpdateAuthorized:false,
-            blockers.ToArray(),rows,
+            rconProfiles,blockers.ToArray(),rows,
             "ORIGINAL_FIVE_KOVA_SOURCE_AND_OBSIDIAN_REGISTRY_READ_ONLY_NOT_CONTROL");
     }
 }
