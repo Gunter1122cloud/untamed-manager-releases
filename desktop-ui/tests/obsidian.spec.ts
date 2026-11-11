@@ -2116,6 +2116,19 @@ test.beforeEach(async ({ page }) => {
           return {mapId:one,plugin:"SampleZip",installedBinaries:1,
             backupCreated:false,requiresRestart:true,runtimeLoadedVerified:false,
             evidence:"VERIFIED_GUARDED_PLUGIN_ZIP_INSTALL"};
+        case "plugins.zipRollbackSelect":
+          return {token:"00000000-0000-4000-8000-000000005556",
+            mapId:m.mapId,mapName:"The Island",plugin:"SampleZip",
+            binaryCount:1,backupName:"20261111-original",
+            evidence:"VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK_PREVIEW_NO_WRITE"};
+        case "plugins.zipRollbackApply":
+          if(m.token!=="00000000-0000-4000-8000-000000005556"||!m.confirm)
+            throw new Error("Rollback approval required");
+          pluginZipInstalled=false;
+          return {mapId:one,plugin:"SampleZip",restoredBinaries:1,
+            protectiveBackupCreated:true,requiresRestart:true,
+            runtimeLoadedVerified:false,
+            evidence:"VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK"};
         case "servers.lifecycleJournal": return {
           mapId:m.mapId,mapName:m.mapId===two?"Astraeos":"The Island",
           journalExists:lifecycleInterrupted,
@@ -5457,6 +5470,22 @@ test("cross-map mod inventory uses actual native contract, filtering and map sel
   await expect(page.getByText("Projekt #940975")).toHaveCount(0);
   await page.getByRole("button",{name:"Astraeos · Passzív #1"}).click();
   await expect(page.getByRole("combobox",{name:"Helyi map"})).toHaveValue("00000000-0000-4000-8000-000000000002");
+});
+
+test("Plugin Center ZIP rollback uses native picker, verified preview and approval",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Helyi ASA API plugin ZIP telepítése"});
+  await expect(panel.getByRole("button",{name:"Korábbi pluginmentés kiválasztása"}))
+    .toBeEnabled();
+  await panel.getByRole("button",{name:"Korábbi pluginmentés kiválasztása"}).click();
+  const approval=panel.getByRole("region",{name:"Plugin ZIP rollback jóváhagyása"});
+  await expect(approval).toContainText("SampleZip");
+  await expect(approval.getByRole("button",{name:"Ellenőrzött plugin rollback végrehajtása"}))
+    .toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"Ellenőrzött plugin rollback végrehajtása"}).click();
+  await expect(panel).toContainText("eredeti DLL/PDB visszaállítva");
 });
 
 test("plugin center requires native preview and explicit operator approval before toggle",async ({page})=>{
