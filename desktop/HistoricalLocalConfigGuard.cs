@@ -65,7 +65,17 @@ public static class HistoricalLocalConfigGuard
             ++sameRoot;
             if(other.Maintenance||other.ObservedReadOnlyImported)
                 throw new UnauthorizedAccessException("UM-HISTORICAL-CONFIG-OTHER-MANAGER");
-            var state=cluster.Check(other);
+            var generic=cluster.Check(other);
+            // Never discard a known running/reattached PID just because
+            // a second observer returned "stopped". The legacy Kova profile
+            // intentionally has EMPTY argv, so the generic observer may also
+            // be uncertain even when the exact native process-family check
+            // proves that the registered historical map is stopped.
+            if(generic.Running||generic.Identity!=null||generic.LoaderIdentity!=null)
+                throw new InvalidOperationException("UM-HISTORICAL-CONFIG-ASA-OR-LOADER-RUNNING");
+            var state=other.HistoricalStoreProtected?
+                LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+                    other,cluster.Config.LocalMaps):generic;
             if(!state.ConfirmedStopped||state.Running||
                state.Identity!=null||state.LoaderIdentity!=null)
                 throw new InvalidOperationException("UM-HISTORICAL-CONFIG-ASA-OR-LOADER-RUNNING");
