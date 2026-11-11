@@ -20,7 +20,10 @@ public static class HistoricalLocalConfigGuard
         ArgumentNullException.ThrowIfNull(map);
         if(!cluster.Config.LocalMaps.Any(m=>ReferenceEquals(m,map))||
            !map.HistoricalStoreProtected||map.ObservedReadOnlyImported||
-           map.Maintenance||
+           // A ZIP-only registration is not an accepted native control
+           // profile. The map-specific ASA API/direct launch preference
+           // must be approved before INI, mod or plugin file mutations.
+           map.HistoricalLaunchModeNeedsApproval||map.Maintenance||
            string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
            string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
            map.HistoricalArchiveSha256.Length!=64||
