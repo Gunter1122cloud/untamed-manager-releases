@@ -853,9 +853,21 @@ test.beforeEach(async ({ page }) => {
           gameplayTravelVerified:false,
           evidence:"HISTORICAL_ORIGINAL_PROCESS_READ_ONLY_STATUS"
         };
+        case "historical.loaderModeStatus": {
+          if(m.mapId!==two||!state.local.maps[1].storeProtected)
+            throw new Error("UM-STORE-LOADER-MODE-NOT-OWNED");
+          return {mapId:two,mapName:"Astraeos",
+            useApi:historicalApiEnabled,
+            mode:historicalApiEnabled?"asaApiLoader":"directAsa",
+            canChangeMode:!historicalActiveStarted,
+            confirmedStopped:!historicalActiveStarted,
+            approvalRequired:false,requiresStoppedProcess:true,
+            serverStarted:false,originalStoreTouched:false,
+            evidence:"HISTORICAL_LOCAL_API_LAUNCH_PREFERENCE_STATUS"};
+        }
         case "historical.loaderModePreview": {
           if(m.mapId!==two||historicalActiveStarted||
-             !historicalRconAttached||m.useApi===historicalApiEnabled)
+             m.useApi===historicalApiEnabled)
             throw new Error("UM-STORE-LOADER-MODE-PROCESS-OR-API-UNVERIFIED");
           historicalApiPreviewRequested=!!m.useApi;
           return {token:historicalApiToken,mapId:two,mapName:"Astraeos",
@@ -3853,6 +3865,26 @@ test("P0 historical and new Store maps use existing native Loader selection, nev
   await group.getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
   await expect(option).toBeChecked();
   await expect(group).toContainText("Nem indult szerver");
+});
+
+test("P0 original Store-v1 ASA API switch is usable before RCON attachment",async({page})=>{
+  await page.addInitScript(()=>{
+    (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
+      .__UNTAMED_PROTECT_TEST_MAP__?.();
+  });
+  await page.goto("/");
+  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
+  await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
+  const panel=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
+  const checkbox=panel.getByRole("checkbox",{name:"Indítás ASA API-val"});
+  await expect(checkbox).toBeVisible();
+  await expect(checkbox).toBeEnabled();
+  await checkbox.click();
+  await expect(checkbox).not.toBeChecked();
+  await panel.getByRole("region",{name:"ASA API indítási mód jóváhagyása"})
+    .getByRole("button",{name:"Indítási mód jóváhagyása"}).click();
+  await expect(checkbox).toBeChecked();
+  await expect(panel).toContainText("AsaApiLoader.exe");
 });
 
 test("P0 new Store ASA API checkbox uses original native Store loader approval",async({page})=>{
