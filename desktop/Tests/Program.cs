@@ -1488,6 +1488,15 @@ try
         Check(File.ReadAllText(iniFile).Contains("EXTERNAL=1"),
             "external change preserved on failed staged save");
 
+        // This test's older INI read fixture intentionally had no server EXE.
+        // A genuinely FRESH install must have its registered ASA binary before
+        // the new create endpoint can be approved. Materialize only synthetic
+        // path bytes; no executable is ever launched by this fixture.
+        bool hadServerExe=File.Exists(map.ExecutablePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(map.ExecutablePath)!);
+        if(!hadServerExe)
+            File.WriteAllText(map.ExecutablePath,
+                "Isolated ASA executable path fixture; NEVER executed");
         // Missing Game.ini on a new stopped ASA installation is a supported
         // explicit operation, never an implicit file write on open.
         File.Delete(iniFile);
@@ -1539,6 +1548,7 @@ try
         var reopened=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
         IsOk(reopened,"newly created Game.ini opens in the original ETag editor");
+        if(!hadServerExe)File.Delete(map.ExecutablePath);
     }
 
     // A real existing ASA install may be registered without constructing
