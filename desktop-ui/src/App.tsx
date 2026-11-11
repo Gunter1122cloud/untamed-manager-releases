@@ -833,7 +833,12 @@ function Mods({ snapshot, selected, setSelected, mapLocked=false }: {
     snapshot.local.maps.find(m=>m.id===selected)?.name||"Helyi map";
   useEffect(()=>{
     setCatalogPicked("");setDraftChanges(0);setPrefillMode("active");
-    setWorkspaceTab("installed");setSavedNotice("");
+    // Changing the SOURCE map in Copy To / Portable Profile must not
+    // silently close the active workflow and hide its next action.
+    // Drafts, catalog and per-map editors still reset on map change.
+    setWorkspaceTab(previous=>
+      previous==="copy"||previous==="profile"?previous:"installed");
+    setSavedNotice("");
   },[selected]);
   useEffect(() => {
     let active = true;
