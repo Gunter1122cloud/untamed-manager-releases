@@ -242,7 +242,15 @@ public static class AsaReadyProbeTests
         otherMap.RconPort=27998;otherMap.GamePort=7777;map.GamePort=7777;
         Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
             "duplicate local game port is detected across owned maps");
-        map.GamePort=0;otherMap.RconPort=map.RconPort;
+        map.GamePort=0;otherMap.GamePort=0;
+        map.QueryPort=27019;otherMap.QueryPort=27019;
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "duplicate local ASA query UDP port cannot certify server advertisement");
+        otherMap.QueryPort=27020;
+        Check(!AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "distinct owned game/query/RCON ports do not invent a collision");
+        map.QueryPort=0;otherMap.QueryPort=0;
+        otherMap.RconPort=map.RconPort;
         string originalArguments=map.Arguments;
         map.Arguments+=" ?RCONPort=27998";
         Check(AsaReadyProbe.DeclaredPortMismatch(map),
