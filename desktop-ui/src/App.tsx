@@ -8,7 +8,7 @@ import {
 import {
   managerBridge, dashboardRemotes, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
   type LogTail, type ModDraftState, type ModDraftSave, type ModDraftMode,
-  type IniFile, type IniDocument, type IniPreview, type LocalImportPreview,
+  type IniFile, type IniDocument, type IniPreview, type IniGameCreatePreview, type LocalImportPreview,
   type SteamInstallations, type SuggestedPorts,
   type CurseForgeCategory, type CurseForgeFeatured, type CurseForgeProject, type CurseForgeFile,
   type PluginInventory, type PluginState, type PluginTogglePreview, type SharedModInventory, type DashboardSnapshot,
@@ -1350,21 +1350,28 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   const [opened, setOpened] = useState<IniDocument | null>(null);
   const [content, setContent] = useState("");
   const [preview, setPreview] = useState<IniPreview | null>(null);
+  const [createPreview,setCreatePreview]=useState<IniGameCreatePreview|null>(null);
+  const [createApproved,setCreateApproved]=useState(false);
+  const [missingGame,setMissingGame]=useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     setOpened(null); setContent(""); setPreview(null);
+    setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
     setNotice(""); setError("");
   }, [selected, file]);
   const load = async () => {
     if (!selected) return;
     setBusy(true); setError(""); setNotice(""); setPreview(null);
+    setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
     try {
       const fresh = await managerBridge.iniOpen(selected, file);
       setOpened(fresh); setContent(fresh.content);
     } catch(e) {
       const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
+      setMissingGame(file==="Game.ini"&&
+        ["UM-INI-GAME-MISSING","UM-INI-CONFIG-DIRECTORY-MISSING"].includes(code));
       const message:Record<string,string>={
         "UM-INI-STOP-REQUIRED":"A map nincs igazoltan leállítva, vagy karbantartás folyik. Az INI-szerkesztés tiltva.",
         "UM-INI-INSTALLATION-MISSING":"A regisztrált ASA telepítési gyökér hiányzik vagy nem helyi útvonal. Ellenőrizd a map regisztrációját.",
@@ -1380,6 +1387,32 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
       };
       setError(message[code]??"A natív INI-ellenőrzés megtagadta a megnyitást ("+code+").");
     } finally { setBusy(false); }
+  };
+  const prepareMissingGame=async()=>{
+    if(!selected||file!=="Game.ini"||busy)return;
+    setBusy(true);setError("");setCreatePreview(null);setCreateApproved(false);
+    try{setCreatePreview(await managerBridge.iniCreateGamePreview(selected));}
+    catch(e){
+      const code=e instanceof Error?e.message:"UM-INI-CREATE-DENIED";
+      setError("A natív Game.ini létrehozás előellenőrzése sikertelen ("+code+"). Egy másik map, Store-v1 védelem, elindult szerver vagy már meglévő fájl esetén nem írunk semmit.");
+    }finally{setBusy(false);}
+  };
+  const applyMissingGame=async()=>{
+    if(!createPreview||!createApproved||createPreview.mapId!==selected||
+       file!=="Game.ini"||busy)return;
+    const token=createPreview.token;
+    setBusy(true);setError("");setCreatePreview(null);setCreateApproved(false);
+    try{
+      const receipt=await managerBridge.iniCreateGameApply(token);
+      if(!receipt.created||receipt.originalStoreTouched)
+        throw new Error("UM-INI-CREATE-RECEIPT-INVALID");
+      const fresh=await managerBridge.iniOpen(selected,"Game.ini");
+      setOpened(fresh);setContent(fresh.content);setMissingGame(false);
+      setNotice("A hiányzó Game.ini kizárólag ezen az igazoltan leállított új mapon jött létre. A fájlt az ETag-védett szerkesztő már megnyitotta.");
+    }catch(e){
+      const code=e instanceof Error?e.message:"UM-INI-CREATE-FAILED";
+      setError("A Game.ini létrehozása vagy visszaolvasása nem igazolt ("+code+"). Kézzel ellenőrizd a helyi fájlt; automatikus ismétlés nem történt.");
+    }finally{setBusy(false);}
   };
   const showPreview = async () => {
     if (!opened) return;
@@ -1431,6 +1464,23 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
     <Panel title={opened ? `Szerkesztés · ${opened.file}` : "Helyi konfiguráció"}
       action={opened && <span className="muted tiny">Kódolás: {opened.encoding} · {opened.bytes.toLocaleString("hu-HU")} byte</span>}>
       {!opened && <div className="empty">Válaszd ki a regisztrált helyi mapot és az INI-fájlt. Megnyitás csak igazolt leállítás esetén lehetséges.</div>}
+      {missingGame && file==="Game.ini"&&!opened&&<section className="historical-preview"
+        role="region" aria-label="Hiányzó Game.ini létrehozása">
+        <h3>Új, még nem létező Game.ini biztonságos létrehozása</h3>
+        <p>Csak új, nem Store-v1-es, helyi és igazoltan leállított szervernél.
+          A már létező Game.ini soha nem írható felül ezzel a művelettel.</p>
+        <button type="button" className="secondary" disabled={busy}
+          onClick={()=>{void prepareMissingGame();}}>Game.ini létrehozásának előnézete</button>
+        {createPreview&&<>
+          <label className="historical-approval">
+            <input type="checkbox" checked={createApproved} disabled={busy}
+              onChange={e=>setCreateApproved(e.target.checked)}/>
+            Jóváhagyom a hiányzó Game.ini létrehozását ezen az új, leállított mapon.
+          </label>
+          <button type="button" className="primary" disabled={!createApproved||busy}
+            onClick={()=>{void applyMissingGame();}}>Game.ini létrehozása és megnyitása</button>
+        </>}
+      </section>}
       {opened && <>
         <label className="ini-editor-label" htmlFor="ini-contents">Az eredeti fájl szerkeszthető tartalma</label>
         <textarea id="ini-contents" className="ini-editor" spellCheck={false} value={content}
