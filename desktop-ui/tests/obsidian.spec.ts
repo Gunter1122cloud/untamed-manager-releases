@@ -68,6 +68,9 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_UPDATE_MALFORMED_METADATA__?:()=>void})
       .__UNTAMED_UPDATE_MALFORMED_METADATA__=()=>{updateMetadataMalformed=true;};
     let updatePreparedCount=0;
+    let updateCheckCount=0;
+    (window as typeof window & {__UNTAMED_UPDATE_CHECK_COUNT__?:()=>number})
+      .__UNTAMED_UPDATE_CHECK_COUNT__=()=>updateCheckCount;
     (window as typeof window & {
       __UNTAMED_UPDATE_RELEASE_CHANGED__?:()=>void;
       __UNTAMED_UPDATE_PREPARED_COUNT__?:()=>number;
@@ -751,7 +754,9 @@ test.beforeEach(async ({ page }) => {
           installationPermitted:false,updaterVerified:false,
           evidence:"LOCAL_RELEASE_IDENTITY_NO_NETWORK"
         };
-        case "updates.check": return {
+        case "updates.check":
+          updateCheckCount++;
+          return {
           repository:"Gunter1122cloud/untamed-manager-releases",
           runningVersion:"2.0.0.0",installedTag:"v2.0.0-obsidian-preview.1478",
           channel:m.channel??"stable",found:true,newer:true,
@@ -3139,7 +3144,12 @@ test("Update Center verifies Obsidian-only installer and requires explicit two-s
   await expect(page.getByText("Build #1478")).toBeVisible();
   await expect(page.getByText(/egyetlen támogatott kiadási ág/)).toBeVisible();
   await expect(page.getByRole("combobox",{name:"Frissítési csatorna"})).toHaveCount(0);
+  const checkCount=async()=>page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_UPDATE_CHECK_COUNT__?:()=>number}
+  ).__UNTAMED_UPDATE_CHECK_COUNT__?.()??-1);
+  expect(await checkCount()).toBe(0); // startup + opening page are read-only local status
   await page.getByRole("button",{name:"Frissítések keresése"}).click();
+  expect(await checkCount()).toBe(1); // only explicit operator click hits GitHub release check
   await expect(page.getByText("Új kiadás érhető el")).toBeVisible();
   await expect(page.getByText("9.0.0 Preview")).toBeVisible();
   await expect(page.getByText("Untamed_Obsidian_Desktop_Preview_Setup.exe")).toBeVisible();
