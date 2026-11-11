@@ -820,6 +820,16 @@ export type IniSaveReceipt = {
   saved: true; backupCreated: boolean; sha256: string;
   evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
 };
+export type IniGameCreatePreview = {
+  token:string; mapId:string; file:"Game.ini"; createsFile:false;
+  requiresStoppedProcess:true; originalStoreTouched:false;
+  evidence:"FRESH_GAME_INI_CREATE_PREVIEW_NO_WRITE";
+};
+export type IniGameCreateReceipt = {
+  mapId:string; file:"Game.ini";created:true;bytes:number;
+  originalStoreTouched:false;
+  evidence:"FRESH_GAME_INI_DURABLE_CREATE_NEW_VERIFIED";
+};
 
 export type HistoricalLaunchEvidence = {
   mapStatus: "MENTIONED"|"UNKNOWN";
@@ -1973,6 +1983,10 @@ export const managerBridge = {
   offlineRestoreLabStatus: (jobId:string) =>
     request<OfflineAsaRestoreStatus>("cluster.restoreLabStatus",{jobId}),
   iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
+  iniCreateGamePreview: (mapId:string) =>
+    request<IniGameCreatePreview>("ini.createGamePreview",{mapId}),
+  iniCreateGameApply: (token:string) =>
+    request<IniGameCreateReceipt>("ini.createGameApply",{token,confirm:true}),
   iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
   iniClose: (token: string) => request<{closed:true}>("ini.close", { token }),
