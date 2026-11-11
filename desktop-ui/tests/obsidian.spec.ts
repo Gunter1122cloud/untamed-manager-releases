@@ -1421,6 +1421,32 @@ test.beforeEach(async ({ page }) => {
             processStarted:false,processStopped:false,
             evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE"};
         }
+        case "historical.originalReadiness": {
+          const names=["The Island","Extinction","Valguero","Astraeos","Genesis Part 1"];
+          return {readOnly:true,originalSourceMapCount:5,exactlyFiveOriginal:true,
+            exactLocalRegistrations:5,hostRegistryRegistrations:5,clusterAssignments:5,
+            clusterIdMatches:true,configuredTransferRootMatches:true,
+            verifiedSourceRootMatches:true,nativeFiveProcessProof:true,
+            directAsaProcesses:4,verifiedLoaderAsaPairs:1,
+            clusterConfigurationCompliant:true,
+            exclusiveControllerHandoffVerified:false,
+            kovaWatchdogDisabledVerified:false,scheduledTasksReviewed:false,
+            embeddedCharacterIntegrityVerified:false,
+            gameClientRejoinVerified:false,roundTripGameplayVerified:false,
+            originalStoreSteamUpdateAuthorized:false,
+            blockers:["EXCLUSIVE_KOVA_CONTROL_HANDOFF_NOT_PROVEN",
+              "KOVA_WATCHDOG_AUTOSTART_SCHEDULE_NOT_AUDITED",
+              "EMBEDDED_SURVIVOR_AND_GAMEPLAY_ROUNDTRIP_NOT_PROVEN",
+              "HISTORICAL_STEAM_RECOVERY_PIPELINE_NOT_CERTIFIED"],
+            maps:names.map((name,i)=>({
+              mapId:"00000000-0000-4000-8000-"+String(7101+i).padStart(12,"0"),
+              mapName:name,originalMapKey:name.replace(/ /g,"")+"_WP",
+              exactLocalRegistration:true,hostRegistryRegistration:true,
+              clusterAssignment:true,processIdentityVerified:true,
+              originalPortModRootMatches:true
+            })),
+            evidence:"ORIGINAL_FIVE_KOVA_SOURCE_AND_OBSIDIAN_REGISTRY_READ_ONLY_NOT_CONTROL"};
+        }
         case "historical.originalLiveBatchPreview":
           if(originalLiveDispatchDenied)throw new Error("UM-METHOD-DENIED");
           return {token:"00000000-0000-4000-8000-000000007151",localMaps:5,
@@ -3390,6 +3416,31 @@ test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeEnabled();
   // Do NOT click: this test asserts the exact two-factor gate only.
+});
+
+test("P0 five-map Store evidence is read-only and never implies exclusive Kova takeover or real A-B-A travel",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{
+    name:"Eredeti öt map – csak olvasási megfelelőségi vizsgálat"
+  }).click();
+  const proof=panel.getByRole("region",{
+    name:"Store-v1 három külön bizonyítottsági szintje"
+  });
+  await expect(proof).toContainText("pontosan öt");
+  await expect(proof).toContainText("5/5");
+  await expect(proof).toContainText("KovaCluster");
+  await expect(proof).toContainText("192.168.1.200");
+  await expect(proof).toContainText("Vezérlésátadás:");
+  await expect(proof).toContainText("nincs igazolva");
+  await expect(proof).toContainText("A→B→A karakterutazás:");
+  await expect(proof).toContainText("nem igazolt");
+  await expect(proof).toContainText("Store-v1 SteamCMD:");
+  await expect(proof).toContainText("továbbra is tiltva");
+  await expect(proof.locator("tbody tr")).toHaveCount(5);
+  await expect(proof.getByRole("button",{name:/átvétel/i})).toHaveCount(0);
 });
 
 test("P0 original Kova five-map live takeover reattaches partially registered originals without duplicates",async({page})=>{
