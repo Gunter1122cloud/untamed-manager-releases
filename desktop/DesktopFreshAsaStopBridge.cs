@@ -190,9 +190,11 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                             throw new InvalidDataException("ASA graceful stop receipt invalid");
                         Change(item,"completed","Windows process verified stopped",receipt);
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
-                        Change(item,"needsOperator","Stop interrupted; inspect process and save journal");
+                        Change(item,"needsOperator",
+                            "Stop interrupted ["+NativeLifecycleFailureCode.From(ex)+
+                            "]; inspect process and save journal");
                     }
                 });
                 return Ok(id,new{jobId=item.JobId,started=true,
