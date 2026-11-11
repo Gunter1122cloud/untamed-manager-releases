@@ -3201,7 +3201,7 @@ test("P0 empty second host has an actionable LAN pairing workflow, not a dead st
   await expect(pair).toBeVisible();
   await pair.click();
   await expect(page.getByRole("heading",{name:"Cluster",exact:true})).toBeVisible();
-  await expect(page.getByRole("region",{name:/LAN/i}).first()).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Többgépes LAN-párosítás"})).toBeVisible();
 });
 
 test("P0 observed-only map detail never exposes lifecycle, RCON, or disk writer controls",async({page})=>{
