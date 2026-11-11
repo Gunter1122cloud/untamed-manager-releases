@@ -83,18 +83,24 @@ internal static class AsaRuntimeLogEvidence
                     // The timestamp *on the positive load line*, not merely
                     // the file's LastWriteTime, must be from this loader run.
                     bool loaded=false,hooks=false;
-                    // Do not combine hook activation from an earlier partial
-                    // loader session with a newer API load. Positive markers
-                    // must occur in the causal order: loaded, then hooks.
-                    // The native log has minute-granularity timestamps; the
-                    // PID/start identity is reverified by AsaReadyProbe.
+                    // Real ArkApi logs can initialize hooks BEFORE printing
+                    // "API was successfully loaded"; other versions may emit
+                    // the reverse order. Do not require one particular order.
+                    // Pair only positive markers within the current startup
+                    // window. A new "Loading..." or repeated positive marker
+                    // invalidates the earlier pair, so stale initialization
+                    // from an earlier attempt cannot certify a new attempt.
+                    // The log has minute timestamps; native ASA/Loader PID
+                    // identity is independently rechecked after this scan.
                     foreach(string line in Tail(log,1_048_576))
                     {
                         bool isLoad=line.Contains("API was successfully loaded",
                             StringComparison.Ordinal);
                         bool isHooks=line.Contains("Initialized hooks",
                             StringComparison.Ordinal);
-                        if(!isLoad&&!isHooks)continue;
+                        bool sessionStart=line.TrimEnd().EndsWith("Loading...",
+                            StringComparison.Ordinal);
+                        if(!isLoad&&!isHooks&&!sessionStart)continue;
                         var match=ApiTime.Match(line);
                         if(!match.Success ||
                            !DateTime.TryParseExact(match.Groups["ts"].Value,
@@ -104,8 +110,21 @@ internal static class AsaRuntimeLogEvidence
                         var at=new DateTimeOffset(when,TimeSpan.Zero);
                         if(at<loader.StartedUtc.AddMinutes(-2) ||
                            at>DateTimeOffset.UtcNow.AddMinutes(2))continue;
-                        if(isLoad){loaded=true;hooks=false;}
-                        else if(isHooks&&loaded)hooks=true;
+                        if(sessionStart){loaded=false;hooks=false;}
+                        else if(isLoad)
+                        {
+                            // Repeated load means a NEW attempt without a
+                            // corresponding fresh hook marker yet.
+                            if(loaded)hooks=false;
+                            loaded=true;
+                        }
+                        else if(isHooks)
+                        {
+                            // A second hook marker after a completed pair
+                            // starts a new initialization attempt.
+                            if(hooks)loaded=false;
+                            hooks=true;
+                        }
                     }
                     if(loaded&&hooks) {apiInitialized=true;break;}
                 }
