@@ -171,6 +171,13 @@ public static class AsaReadyProbeTests
         Check(!loadWithoutHooks.ApiInitialized &&
               !loadWithoutHooks.ProductionReady,
             "API load log without Initialized hooks never certifies runtime");
+        File.WriteAllText(apiLog,apiTimestamp+
+            " [API] Initialized hooks"+Environment.NewLine+
+            apiTimestamp+" [API] API was successfully loaded"+Environment.NewLine);
+        var reversed=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!reversed.ApiInitialized&&!reversed.ProductionReady,
+            "hooks before the load marker cannot certify ASA API runtime");
         File.AppendAllText(apiLog,apiTimestamp+
             " [API] Initialized hooks"+Environment.NewLine);
         var apiReady=await AsaReadyProbe.ObserveAsync(map,()=>steady,
@@ -178,6 +185,14 @@ public static class AsaReadyProbeTests
         Check(apiReady.ProductionReady && apiReady.JoinAdvertised &&
               apiReady.ApiInitialized && apiReady.LoaderObserved,
             "opted-in API runtime readiness requires matching loader-run log");
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API] API was successfully loaded"+Environment.NewLine);
+        var secondLoad=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!secondLoad.ApiInitialized&&!secondLoad.ProductionReady,
+            "fresh API load invalidates old hooks within the same timestamp minute");
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API] Initialized hooks"+Environment.NewLine);
 
         int thirdPoll=0;
         var switchedAfterLogs=await AsaReadyProbe.ObserveAsync(map,()=>{
