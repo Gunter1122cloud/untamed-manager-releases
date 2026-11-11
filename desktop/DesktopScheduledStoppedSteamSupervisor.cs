@@ -163,28 +163,17 @@ public sealed class DesktopScheduledStoppedSteamSupervisor : IDisposable
     }
 
     public ScheduledStoppedSteamUpdate[] Snapshot()=>Locked(()=>
-        Read().Schedules.ToArray());
+        Read().Schedules.Select(s=>s with {
+            Enabled=false,LastStatus="manual-only-retired"
+        }).ToArray());
 
     public ScheduledStoppedSteamUpdate Configure(Guid mapId,int intervalMinutes,
         DateTimeOffset? now=null)
     {
-        if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
-        if(intervalMinutes is <60 or >10080)
-            throw new InvalidDataException("UM-SCHEDULED-STEAM-INTERVAL");
-        var map=Owned(mapId);
-        DemandEligible(map);
-        var fingerprint=Fingerprint(map,cluster.Config.SteamCmdExecutable);
-        DateTimeOffset next=(now??DateTimeOffset.UtcNow).ToUniversalTime()
-            .AddMinutes(intervalMinutes);
-        return Locked(()=>{
-            var state=Read();
-            var item=new ScheduledStoppedSteamUpdate(mapId,intervalMinutes,
-                fingerprint,true,next,null,"scheduled",null,null);
-            int index=state.Schedules.FindIndex(x=>x.MapId==mapId);
-            if(index>=0)state.Schedules[index]=item;
-            else state.Schedules.Add(item);
-            Write(state);return item;
-        });
+        // Explicit user policy: never create a new scheduled update.
+        // Existing JSON records are left intact for recoverability, but
+        // Snapshot/Tick/Start ignore their historical Enabled flag.
+        throw new InvalidOperationException("UM-STEAM-SCHEDULE-MANUAL-ONLY");
     }
 
     public ScheduledStoppedSteamUpdate Disable(Guid mapId)
@@ -206,134 +195,22 @@ public sealed class DesktopScheduledStoppedSteamSupervisor : IDisposable
             s.Fingerprint==expected.Fingerprint&&s.LastAttemptUtc==at&&
             s.LastStatus=="claimed-no-auto-retry"));
 
-    public async Task<ScheduledStoppedSteamUpdate[]> TickOnceAsync(
+    public Task<ScheduledStoppedSteamUpdate[]> TickOnceAsync(
         DateTimeOffset now,CancellationToken token=default)
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
-        if(!await tickGate.WaitAsync(0,token))return Snapshot();
-        try
-        {
-            now=now.ToUniversalTime();
-            var due=Locked(()=>Read().Schedules
-                .Where(s=>s.Enabled&&s.NextDueUtc<=now&&
-                    s.LastStatus!="claimed-no-auto-retry"&&
-                    s.LastStatus!="needs-operator")
-                .OrderBy(s=>s.NextDueUtc).ToArray());
-            foreach(var observed in due)
-            {
-                token.ThrowIfCancellationRequested();
-                bool missed=now-observed.NextDueUtc>TimeSpan.FromMinutes(5);
-                bool claimed=Locked(()=>{
-                    var state=Read();
-                    int index=state.Schedules.FindIndex(s=>s.MapId==observed.MapId);
-                    if(index<0)return false;
-                    var item=state.Schedules[index];
-                    if(!item.Enabled||item.NextDueUtc!=observed.NextDueUtc||
-                        item.Fingerprint!=observed.Fingerprint||
-                        item.LastStatus is "claimed-no-auto-retry" or "needs-operator")
-                        return false;
-                    state.Schedules[index]=item with {
-                        NextDueUtc=now.AddMinutes(item.IntervalMinutes),
-                        LastAttemptUtc=now,
-                        LastStatus=missed?"missed-no-catchup":"claimed-no-auto-retry",
-                        OldBuild=null,NewBuild=null
-                    };
-                    Write(state);return !missed;
-                });
-                if(!claimed)continue;
-                string result="no-verified-new-build";
-                string? oldBuild=null,newBuild=null;
-                bool mutationEntered=false;
-                try
-                {
-                    var map=Owned(observed.MapId);
-                    if(Fingerprint(map,cluster.Config.SteamCmdExecutable)!=observed.Fingerprint)
-                        throw new InvalidDataException("UM-SCHEDULED-STEAM-PROFILE-CHANGED");
-                    DemandEligible(map);
-                    if(!Claimed(observed,now))
-                        throw new UnauthorizedAccessException("UM-SCHEDULED-STEAM-CLAIM-REVOKED");
-                    var state=new SteamBuildStatusStore(cluster.Store.Root).Read(map);
-                    var installed=AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath);
-                    bool fresh=state.LastCheckedUtc.HasValue&&
-                        state.LastCheckedUtc.Value<=DateTimeOffset.UtcNow.AddMinutes(1)&&
-                        DateTimeOffset.UtcNow-state.LastCheckedUtc.Value<=TimeSpan.FromHours(2);
-                    if(!fresh || state.Branch!="public" ||
-                       state.State!=AsaSteamBuildState.UpdateAvailable||
-                       string.IsNullOrWhiteSpace(installed)||
-                       installed!=state.LocalBuild||
-                       string.IsNullOrWhiteSpace(state.AvailableBuild)||
-                       !state.AvailableBuild.All(char.IsAsciiDigit))
-                    {
-                        result="no-fresh-authoritative-update";
-                    }
-                    else
-                    {
-                        oldBuild=installed;
-                        // Core rechecks ALL sibling processes, Store metadata,
-                        // disk protection, backup and machine-wide update lock.
-                        mutationEntered=true;
-                        var receipt=await update(map,token);
-                        if(receipt.MapId!=map.Id||receipt.OldBuild!=oldBuild||
-                           !receipt.ProtectedFilesIntact||
-                           receipt.NewBuild!=AsaSteamBuildCatalog.InstalledBuild(
-                               map.InstallationPath)||
-                           !Directory.Exists(receipt.BackupDirectory))
-                            throw new InvalidDataException(
-                                "UM-SCHEDULED-STEAM-RECEIPT-INVALID");
-                        newBuild=receipt.NewBuild;
-                        result="verified-stopped-install-updated";
-                    }
-                }
-                catch(OperationCanceledException) when(!mutationEntered)
-                {
-                    result="cancelled-before-mutation";
-                }
-                catch(Exception)
-                {
-                    // Unknown failure after update dispatch requires operator
-                    // review, never another autonomous attempt.
-                    result="needs-operator";
-                }
-                Locked(()=>{
-                    var state=Read();
-                    int index=state.Schedules.FindIndex(s=>s.MapId==observed.MapId);
-                    if(index>=0 && state.Schedules[index].LastAttemptUtc==now &&
-                       state.Schedules[index].LastStatus=="claimed-no-auto-retry")
-                    {
-                        var item=state.Schedules[index];
-                        state.Schedules[index]=item with {
-                            Enabled=result!="needs-operator",
-                            LastStatus=result,OldBuild=oldBuild,NewBuild=newBuild
-                        };
-                        Write(state);
-                    }
-                    return true;
-                });
-            }
-            return Snapshot();
-        }
-        finally{tickGate.Release();}
+        token.ThrowIfCancellationRequested();
+        // Historical due claims MUST NOT execute, even if a caller explicitly
+        // invokes TickOnceAsync or a saved schedule still says Enabled=true.
+        return Task.FromResult(Snapshot());
     }
 
     public void Start()
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
-        if(Interlocked.Exchange(ref started,1)!=0)return;
-        Volatile.Write(ref runtimeState,"active");
-        loop=Task.Run(async()=>{
-            using var timer=new PeriodicTimer(TimeSpan.FromMinutes(1));
-            try
-            {
-                do
-                {
-                    try{await TickOnceAsync(DateTimeOffset.UtcNow,closing.Token);
-                        Volatile.Write(ref runtimeState,"active");}
-                    catch(Exception){Volatile.Write(ref runtimeState,"journal-or-update-error");}
-                }while(await timer.WaitForNextTickAsync(closing.Token));
-            }
-            catch(OperationCanceledException){ }
-            finally{Volatile.Write(ref runtimeState,"stopped");}
-        });
+        // Deliberately NO timer and NO scheduled SteamCMD work.
+        // Only a separately approved manual native update may mutate ASA.
+        Volatile.Write(ref runtimeState,"manual-only");
     }
 
     public void Dispose()
