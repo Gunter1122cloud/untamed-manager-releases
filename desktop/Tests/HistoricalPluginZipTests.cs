@@ -86,7 +86,8 @@ internal static class HistoricalPluginZipTests
         var preview=await Call(bridge,"plugins.zipSelect",new{mapId=map.Id});
         Check(preview.GetProperty("ok").GetBoolean()&&
               preview.GetProperty("data").GetProperty("previousExists").GetBoolean(),
-            "historical stopped map opens real native ZIP preview without RCON");
+            "historical stopped map opens real native ZIP preview without RCON; native result="+
+            preview.GetRawText());
         string one=preview.GetProperty("data").GetProperty("token").GetString()!;
         // A synthetic ProcessCheck cannot impersonate the separate native
         // WMI observer for a protected Kova map. Change a real Manager
