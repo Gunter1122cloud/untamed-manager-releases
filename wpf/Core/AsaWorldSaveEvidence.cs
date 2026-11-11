@@ -25,6 +25,11 @@ public static class AsaWorldSaveEvidence
         bool CompletionObserved,string Stage)
     {
         public bool RestoreOrClientJoinVerified=>false;
+        // A changed, stable world file is useful lifecycle evidence even when
+        // ASA omits its optional save log markers. It is NOT SaveComplete proof.
+        public bool WorldMetadataObserved=>WorldUpdated&&WorldStable&&
+            (CompletionObserved||Stage is "WORLD_UPDATED_STABLE_LOG_UNCONFIRMED"
+                or "WORLD_UPDATED_STABLE_LOG_MISSING");
     }
 
     private static bool Under(string root,string child)=>
@@ -72,12 +77,12 @@ public static class AsaWorldSaveEvidence
             throw new InvalidDataException("UM-ASA-SAVE-PROCESS-IDENTITY");
         log=LocalFilePath(root,log);
         world=LocalFilePath(root,world);
-        if(!File.Exists(log))return null;
-        var file=new FileInfo(log);
-        if(file.Length<0)return null;
+        // A local .ark boundary is still observable when an ASA instance
+        // writes no ShooterGame.log. Never manufacture a log completion.
+        var file=File.Exists(log)?new FileInfo(log):null;
         var original=File.Exists(world)?new FileInfo(world):null;
-        return new(mapId,pid,startedUtc,log,world,file.Length,
-            file.CreationTimeUtc,original?.Length??-1,
+        return new(mapId,pid,startedUtc,log,world,file?.Length??-1,
+            file?.CreationTimeUtc??DateTime.MinValue,original?.Length??-1,
             original?.LastWriteTimeUtc??DateTime.MinValue);
     }
 
@@ -88,44 +93,50 @@ public static class AsaWorldSaveEvidence
         ArgumentNullException.ThrowIfNull(sameOwnedProcess);
         if(!sameOwnedProcess())throw new InvalidOperationException(
             "UM-ASA-SAVE-OWNED-PROCESS-CHANGED");
-        if(!File.Exists(bookmark.Log))
-            return new(false,false,false,false,false,false,"LOG_MISSING");
-        if((File.GetAttributes(bookmark.Log)&FileAttributes.ReparsePoint)!=0)
-            return new(false,false,false,false,false,false,"LOG_FILE_LINKED");
-        var file=new FileInfo(bookmark.Log);
-        if(file.CreationTimeUtc!=bookmark.LogCreatedUtc ||
-           file.Length<bookmark.LogOffset)
-            return new(false,false,false,false,false,false,"LOG_ROTATED_OR_TRUNCATED");
-        // Strictly post-boundary data; old SaveComplete lines never qualify.
-        long count=file.Length-bookmark.LogOffset;
-        if(count>512*1024)
-            return new(false,false,false,false,false,false,"LOG_WINDOW_TOO_LARGE");
+        string logIssue="";
         string lines="";
-        if(count>0)
+        if(bookmark.LogOffset<0||!File.Exists(bookmark.Log))
+            logIssue="LOG_MISSING";
+        else if((File.GetAttributes(bookmark.Log)&FileAttributes.ReparsePoint)!=0)
+            logIssue="LOG_FILE_LINKED";
+        else
         {
-            byte[] bytes=new byte[checked((int)count)];
-            using(var input=new FileStream(bookmark.Log,FileMode.Open,FileAccess.Read,
-                FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.SequentialScan))
+            var file=new FileInfo(bookmark.Log);
+            if(file.CreationTimeUtc!=bookmark.LogCreatedUtc||
+               file.Length<bookmark.LogOffset)
+                logIssue="LOG_ROTATED_OR_TRUNCATED";
+            else
             {
-                if(input.Length<bookmark.LogOffset+count)
-                    return new(false,false,false,false,false,false,"LOG_CHANGED");
-                input.Position=bookmark.LogOffset;
-                await input.ReadExactlyAsync(bytes,ct);
+                long count=file.Length-bookmark.LogOffset;
+                if(count>512*1024)logIssue="LOG_WINDOW_TOO_LARGE";
+                else if(count>0)
+                {
+                    byte[] bytes=new byte[checked((int)count)];
+                    using(var input=new FileStream(bookmark.Log,FileMode.Open,
+                        FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,
+                        65536,FileOptions.SequentialScan))
+                    {
+                        if(input.Length<bookmark.LogOffset+count)
+                            logIssue="LOG_CHANGED";
+                        else
+                        {
+                            input.Position=bookmark.LogOffset;
+                            await input.ReadExactlyAsync(bytes,ct);
+                            lines=Encoding.UTF8.GetString(bytes);
+                        }
+                    }
+                }
             }
-            lines=Encoding.UTF8.GetString(bytes);
         }
+        bool logValid=logIssue.Length==0;
         bool started=lines.Contains("Saving world",StringComparison.OrdinalIgnoreCase);
         bool complete=lines.Contains("World Save Complete",StringComparison.OrdinalIgnoreCase);
-        // Require BOTH ordered lines to reject unrelated/stale completion
-        // reports (including old auto-save entries before our bookmark).
+        // Old autosave records precede LogOffset. A completion before a new
+        // "Saving world" line in the post-dispatch window is not accepted.
         int first=lines.IndexOf("Saving world",StringComparison.OrdinalIgnoreCase);
-        // The post-dispatch window may first contain another completed
-        // autosave without its start (the original log boundary split it).
-        // Pair the FIRST full new Saving world with a completion AFTER it;
-        // never pair an earlier unrelated completion with a later start.
-        int last=first<0 ? -1 : lines.IndexOf("World Save Complete",
+        int last=first<0?-1:lines.IndexOf("World Save Complete",
             first+"Saving world".Length,StringComparison.OrdinalIgnoreCase);
-        bool ordered=first>=0&&last>first;
+        bool ordered=logValid&&first>=0&&last>first;
         bool updated=false,stable=false;
         if(File.Exists(bookmark.World))
         {
@@ -133,15 +144,15 @@ public static class AsaWorldSaveEvidence
             if((firstWorld.Attributes&FileAttributes.ReparsePoint)!=0)
                 return new(started,complete,false,false,false,false,"WORLD_LINKED");
             updated=firstWorld.Length>0&&
-                (firstWorld.Length!=bookmark.PriorWorldBytes ||
+                (firstWorld.Length!=bookmark.PriorWorldBytes||
                  firstWorld.LastWriteTimeUtc>bookmark.PriorWorldWriteUtc);
-            if(updated&&ordered)
+            if(updated)
             {
-                // Observing stable size/mtime on two separate reads is a
-                // bounded stability check, NOT durable fsync proof.
-                await Task.Delay(250,ct);
+                // Stabilized metadata is a weaker witness than ASA's own
+                // paired log markers; it is never fsync/restore certification.
+                await Task.Delay(1500,ct);
                 var secondWorld=new FileInfo(bookmark.World);
-                stable=secondWorld.Exists&&
+                stable=secondWorld.Exists&&secondWorld.Length>0&&
                     secondWorld.Length==firstWorld.Length&&
                     secondWorld.LastWriteTimeUtc==firstWorld.LastWriteTimeUtc;
             }
@@ -149,14 +160,18 @@ public static class AsaWorldSaveEvidence
         if(!sameOwnedProcess())throw new InvalidOperationException(
             "UM-ASA-SAVE-OWNED-PROCESS-CHANGED");
         bool observed=ordered&&updated&&stable;
-        return new(started,complete,updated,stable,true,observed,
-            observed?"ASA_LOG_AND_STABLE_WORLD_OBSERVED":
+        string stage=observed?"ASA_LOG_AND_STABLE_WORLD_OBSERVED":
+            updated&&stable&&logValid?"WORLD_UPDATED_STABLE_LOG_UNCONFIRMED":
+            updated&&stable&&logIssue=="LOG_MISSING"?"WORLD_UPDATED_STABLE_LOG_MISSING":
+            !logValid?logIssue:
             !ordered?"SAVE_LOG_COMPLETION_NOT_OBSERVED":
-            !updated?"WORLD_FILE_NOT_UPDATED":"WORLD_FILE_NOT_STABLE");
+            !updated?"WORLD_FILE_NOT_UPDATED":"WORLD_FILE_NOT_STABLE";
+        return new(started,complete,updated,stable,logValid,observed,stage);
     }
 
     public static async Task<Observation> WaitAsync(Boundary bookmark,
-        Func<bool> sameOwnedProcess,TimeSpan maximum,CancellationToken ct=default)
+        Func<bool> sameOwnedProcess,TimeSpan maximum,CancellationToken ct=default,
+        bool allowWorldMetadata=false)
     {
         if(maximum<=TimeSpan.Zero||maximum>TimeSpan.FromMinutes(3))
             throw new ArgumentOutOfRangeException(nameof(maximum));
@@ -170,7 +185,9 @@ public static class AsaWorldSaveEvidence
                 deadline.Token.ThrowIfCancellationRequested();
                 last=await ObserveAsync(bookmark,sameOwnedProcess,deadline.Token);
                 if(last.CompletionObserved||
-                   !last.LogIdentityValid&&last.Stage is not "LOG_MISSING")
+                   (allowWorldMetadata&&last.WorldMetadataObserved)||
+                   (!last.LogIdentityValid&&last.Stage is not ("LOG_MISSING"
+                       or "WORLD_UPDATED_STABLE_LOG_MISSING")))
                     return last;
                 await Task.Delay(450,deadline.Token);
             }
