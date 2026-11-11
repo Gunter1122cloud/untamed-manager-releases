@@ -278,7 +278,14 @@ public static class ModStateController
                         string.Equals(Path.GetFullPath(m.InstallationPath),folder,
                             StringComparison.OrdinalIgnoreCase)))
                     {
-                        var state=cluster.Check(sibling);
+                        var generic=cluster.Check(sibling);
+                        if(generic.Running||generic.Identity!=null||
+                           generic.LoaderIdentity!=null)
+                            throw new InvalidOperationException(
+                                "Original Kova mod edit cannot modify a running ASA/Loader process");
+                        var state=sibling.HistoricalStoreProtected?
+                            LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+                                sibling,cluster.Config.LocalMaps):generic;
                         if(sibling.Maintenance||sibling.ObservedReadOnlyImported||
                            state.Running||!state.ConfirmedStopped||
                            state.Identity!=null||state.LoaderIdentity!=null)
