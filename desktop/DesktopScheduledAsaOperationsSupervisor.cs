@@ -457,6 +457,9 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         CancellationToken token=default)
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
+        if(RuntimeState=="journal-write-needs-operator")
+            throw new InvalidOperationException(
+                "UM-ASA-SCHEDULE-OPERATOR-REVIEW-REQUIRED");
         if(!await tickGate.WaitAsync(0,token))return Snapshot();
         try
         {
