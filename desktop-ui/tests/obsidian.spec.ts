@@ -1916,13 +1916,16 @@ test.beforeEach(async ({ page }) => {
         }
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
         case "ini.open":
-          if(new URLSearchParams(window.location.search).get("fixture")==="missingGameIni" &&
+          if(["missingGameIni","missingGameIniStore"].includes(
+              new URLSearchParams(window.location.search).get("fixture")??"") &&
              m.file==="Game.ini"&&!missingGameCreated)
             throw new Error("UM-INI-GAME-MISSING");
           return {token:iniToken,mapId:one,file:m.file||"Game.ini",
             content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",
             sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
         case "ini.createGamePreview":
+          if(new URLSearchParams(window.location.search).get("fixture")==="missingGameIniStore")
+            throw new Error("UM-INI-CREATE-SHARED-STORE");
           if(missingGameCreated)throw new Error("UM-INI-GAME-ALREADY-EXISTS");
           return {token:missingGameToken,mapId:m.mapId,file:"Game.ini",createsFile:false,
             requiresStoppedProcess:true,originalStoreTouched:false,
@@ -2454,6 +2457,7 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-UPDATE-CHECK-REQUIRED"||
                   e.message==="UM-UPDATE-CHECK-STALE"||
                   e.message==="UM-INI-GAME-MISSING"||
+                  e.message==="UM-INI-CREATE-SHARED-STORE"||
                   e.message==="UM-INI-CONFIG-DIRECTORY-MISSING"||
                   e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-"))
                 ?e.message:"UM-METHOD-DENIED";
@@ -3975,6 +3979,19 @@ test("missing Game.ini requires two explicit user actions before opening the nat
     .toBeVisible();
   await expect(page.getByText(/hiányzó Game.ini kizárólag ezen/)).toBeVisible();
   await expect(create).toHaveCount(0);
+});
+
+test("historical Store sibling prevents missing Game.ini creation with useful visible error",async({page})=>{
+  await page.setViewportSize({width:940,height:620});
+  await page.goto("/?fixture=missingGameIniStore");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  const region=page.getByRole("region",{name:"Hiányzó Game.ini létrehozása"});
+  await expect(region).toBeVisible();
+  await region.getByRole("button",{name:"Game.ini létrehozásának előnézete"}).click();
+  await expect(page.getByRole("alert")).toContainText("történeti Kova/Store-v1 map");
+  await expect(region.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.getByRole("textbox",{name:"Az eredeti fájl szerkeszthető tartalma"})).toHaveCount(0);
 });
 
 test("720px desktop sidebar scroll reaches Settings and INI without clipping", async ({page})=>{
