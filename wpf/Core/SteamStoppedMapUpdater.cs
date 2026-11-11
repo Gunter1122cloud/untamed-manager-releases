@@ -29,7 +29,8 @@ public static class SteamStoppedMapUpdater
     /// claimed by a historical/new Store sibling or an overlapping install.
     /// This checks ALL registered local maps, not only the UI selection.
     /// </summary>
-    public static void DemandSafeLocalInstallation(ClusterService cluster,LocalMap map)
+    public static void DemandSafeLocalInstallation(ClusterService cluster,LocalMap map,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserver=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(map);
@@ -59,17 +60,41 @@ public static class SteamStoppedMapUpdater
                 continue;
             }
             owners++;
-            if(sibling.Maintenance || sibling.HistoricalStoreProtected ||
-               !string.IsNullOrWhiteSpace(sibling.HistoricalArchiveSha256) ||
-               !string.IsNullOrWhiteSpace(sibling.HistoricalMapKey) ||
-               !string.IsNullOrWhiteSpace(sibling.StoreTestRoot) ||
-               !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId) ||
-               !string.IsNullOrWhiteSpace(sibling.FreshStoreTransferDirectory) ||
-               KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling) ||
-               KovaCompatibleWorldBackup.InstallationRecoveryRequired(sibling))
+            bool original=sibling.HistoricalStoreProtected;
+            // Only the registered original Kova import may opt into native
+            // offline Steam maintenance. No other Store profile or synthetic
+            // observer can acquire this capability from a React request.
+            if(original)
+            {
+                if(originalStoppedObserver==null||
+                   !map.HistoricalStoreProtected||
+                   sibling.ObservedReadOnlyImported||sibling.Maintenance||
+                   string.IsNullOrWhiteSpace(sibling.HistoricalMapKey)||
+                   sibling.HistoricalArchiveSha256?.Length!=64||
+                   !sibling.HistoricalArchiveSha256.All(Uri.IsHexDigit)||
+                   !string.IsNullOrWhiteSpace(sibling.StoreTestRoot)||
+                   !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId)||
+                   !string.IsNullOrWhiteSpace(sibling.FreshStoreTransferDirectory)||
+                   !string.IsNullOrWhiteSpace(sibling.Arguments)||
+                   !string.IsNullOrWhiteSpace(sibling.ApiLoaderArguments))
+                    throw new UnauthorizedAccessException(
+                        "UM-STEAM-ORIGINAL-STORE-IDENTITY-INVALID");
+            }
+            else if(map.HistoricalStoreProtected||
+               sibling.ObservedReadOnlyImported||sibling.Maintenance||
+               !string.IsNullOrWhiteSpace(sibling.HistoricalArchiveSha256)||
+               !string.IsNullOrWhiteSpace(sibling.HistoricalMapKey)||
+               !string.IsNullOrWhiteSpace(sibling.StoreTestRoot)||
+               !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId)||
+               !string.IsNullOrWhiteSpace(sibling.FreshStoreTransferDirectory)||
+               KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling))
                 throw new UnauthorizedAccessException(
                     "UM-STEAM-SHARED-STORE-OR-RECOVERY-PROTECTED");
-            var current=cluster.Check(sibling);
+            if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(sibling))
+                throw new UnauthorizedAccessException(
+                    "UM-STEAM-RECOVERY-MUST-COMPLETE-FIRST");
+            var current=original?
+                originalStoppedObserver!(sibling):cluster.Check(sibling);
             if(current.Running || !current.ConfirmedStopped ||
                current.Identity!=null || current.LoaderIdentity!=null)
                 throw new InvalidOperationException(
@@ -85,6 +110,23 @@ public static class SteamStoppedMapUpdater
         CancellationToken ct=default) =>
         RunCore(cluster,map,steamCmdExecutable,downloadReserveBytes,
             timeout,null,progress,false,ct);
+
+    // The trusted native Windows host supplies this independently observed
+    // original Kova stopped-family check; no renderer/RCON flag can impersonate
+    // it. The existing backup, SteamCMD execution, queue, file hashes and
+    // recovery journal remain the same as normal ASA maintenance.
+    public static Task<Receipt> UpdateOriginalStoppedAsync(
+        ClusterService cluster,LocalMap map,string steamCmdExecutable,
+        long downloadReserveBytes,TimeSpan timeout,
+        Func<LocalMap,ProcessCheck> originalStoppedObserver,
+        IProgress<SteamMaintenanceStage>? progress=null,CancellationToken ct=default)
+    {
+        if(map==null||!map.HistoricalStoreProtected||originalStoppedObserver==null)
+            throw new UnauthorizedAccessException(
+                "UM-STEAM-ORIGINAL-STORE-NATIVE-OBSERVER-REQUIRED");
+        return RunCore(cluster,map,steamCmdExecutable,downloadReserveBytes,
+            timeout,null,progress,false,ct,originalStoppedObserver);
+    }
 
     internal static Task<Receipt> RunFakeFixtureAsync(
         ClusterService cluster,LocalMap map,string placeholderSteam,
@@ -163,7 +205,8 @@ public static class SteamStoppedMapUpdater
 
     private static async Task<Receipt> RunCore(ClusterService cluster,LocalMap map,
         string steamExecutable,long reserve,TimeSpan timeout,string? fakeExecutable,
-        IProgress<SteamMaintenanceStage>? progress,bool insideQueue,CancellationToken ct)
+        IProgress<SteamMaintenanceStage>? progress,bool insideQueue,CancellationToken ct,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserver=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(map);
@@ -175,7 +218,13 @@ public static class SteamStoppedMapUpdater
         if(reserve<1024L*1024*1024 || reserve>500L*1024*1024*1024)
             throw new InvalidDataException("SteamCMD download reserve outside safe bounds");
         string root=Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar);
-        DemandSafeLocalInstallation(cluster,map);
+        ProcessCheck ObserveStopped(LocalMap participant)=>
+            participant.HistoricalStoreProtected?
+                originalStoppedObserver?.Invoke(participant)??
+                    throw new UnauthorizedAccessException(
+                        "UM-STEAM-ORIGINAL-STORE-NATIVE-OBSERVER-REQUIRED"):
+                cluster.Check(participant);
+        DemandSafeLocalInstallation(cluster,map,originalStoppedObserver);
         new AsaManualRestartJournal(root).DemandNoPending();
         if(root.StartsWith(@"\\",StringComparison.Ordinal)||
            !AsaReadyProbe.IsRegisteredServerBinary(map))
@@ -194,10 +243,10 @@ public static class SteamStoppedMapUpdater
             // Recheck the entire live local registry at every irreversible
             // boundary; a newly registered Store sibling cannot be hidden
             // behind the initial preflight snapshot.
-            DemandSafeLocalInstallation(cluster,map);
+            DemandSafeLocalInstallation(cluster,map,originalStoppedObserver);
             foreach(var participant in group)
             {
-                var state=cluster.Check(participant);
+                var state=ObserveStopped(participant);
                 if(state.Running || !state.ConfirmedStopped ||
                    state.Identity!=null || state.LoaderIdentity!=null)
                     throw new InvalidOperationException(
@@ -207,7 +256,7 @@ public static class SteamStoppedMapUpdater
         progress?.Report(SteamMaintenanceStage.Preflight);
         VerifyStopped();
         var plan=SteamUpdateDryRun.Plan(steamExecutable,root,
-            cluster.Config.LocalMaps.ToArray(),cluster.Check,reserve);
+            cluster.Config.LocalMaps.ToArray(),ObserveStopped,reserve);
         if(!plan.DryRunAllowed || string.IsNullOrWhiteSpace(plan.InstalledBuild))
             throw new InvalidOperationException("Steam update preflight did not verify stopped ASA and its local build");
 
@@ -238,7 +287,7 @@ public static class SteamStoppedMapUpdater
                 // The verified backup is created OUTSIDE the install root.
                 // LocalBackupWorkflow hashes source AND destination and fails
                 // on changed memberships. Missing world saves reject update.
-                var backup=LocalBackupWorkflow.Create(map,cluster.Check(map),
+                var backup=LocalBackupWorkflow.Create(map,ObserveStopped(map),
                     destination,scope);
                 var manifestFile=Path.Combine(backup.PackageDirectory,"manifest.json");
                 if(!File.Exists(manifestFile))
@@ -290,7 +339,7 @@ public static class SteamStoppedMapUpdater
         else
         {
             var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
-            await queue.ExecuteAsync(new[]{map},cluster.Config.LocalMaps,cluster.Check,
+            await queue.ExecuteAsync(new[]{map},cluster.Config.LocalMaps,ObserveStopped,
                 work,ct:ct);
         }
         return result ?? throw new InvalidOperationException("No verified Steam update receipt was committed");

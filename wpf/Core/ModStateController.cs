@@ -78,10 +78,22 @@ public static class ModStateController
         return result;
     }
 
+    private static string EffectiveModArguments(LocalMap map)
+    {
+        if(!map.HistoricalStoreProtected)return map.Arguments??"";
+        // Imported original Kova profiles keep raw launch arguments blank.
+        // The native Start planner consumes these original lists instead.
+        string[] enabled=CheckList(map.HistoricalEnabledMods??new());
+        string[] passive=CheckList(map.HistoricalPassiveMods??new());
+        return (enabled.Length>0?"-mods="+string.Join(",",enabled):"")+
+            (passive.Length>0?(enabled.Length>0?" ":"")+
+                "-passivemods="+string.Join(",",passive):"");
+    }
+
     public static ModSet Read(LocalMap map)
     {
         if(map==null || map.Id==Guid.Empty)throw new InvalidDataException("Local map identity missing");
-        var args=map.Arguments??"";
+        var args=EffectiveModArguments(map);
         var matches=Switches(args).Select(x=>x.Value).ToArray();
         if(matches.GroupBy(m=>m.Groups["kind"].Value,StringComparer.OrdinalIgnoreCase)
                .Any(g=>g.Count()!=1))
@@ -163,7 +175,7 @@ public static class ModStateController
             selectedMode=selected;
         }
         CheckList(active);CheckList(passive);CheckList(disabled);
-        var arg=(map.Arguments??"").Trim();
+        var arg=EffectiveModArguments(map).Trim();
         // Remove only the two canonical switches, keep cluster, port, loader
         // and every other unknown argument in original order and form.
         string remaining=arg;
@@ -206,6 +218,17 @@ public static class ModStateController
             },changed);
     }
 
+    // Compare the exact non-mod launch tokens (including -usestore,
+    // -clusterid and -ClusterDirOverride) before permitting a Kova mod edit.
+    // We ignore only whitespace created where mod switches were removed.
+    private static string NonModArguments(string args)
+    {
+        string cleaned=args??"";
+        foreach(var token in Switches(cleaned).OrderByDescending(x=>x.Start))
+            cleaned=cleaned.Remove(token.Start,token.Length);
+        return Regex.Replace(cleaned.Trim(),@"\s+"," ");
+    }
+
     public static IReadOnlyList<ModPreview> ApplyLocalBatch(ClusterService cluster,
         IEnumerable<ModEdit> edits,
         IReadOnlyDictionary<Guid,ModEditBaseline>? expectedBaselines=null)
@@ -216,7 +239,8 @@ public static class ModStateController
         // atomically. Never accept an unbounded batch from the UI.
         if(requests.Length==0 || requests.Length>2500)
             throw new InvalidDataException("Invalid batch size");
-        var originals=new Dictionary<Guid,(string Args,List<string> Disabled,bool Pending)>();
+        var originals=new Dictionary<Guid,(string Args,string LoaderArgs,
+            List<string> Enabled,List<string> Passive,List<string> Disabled,bool Pending)>();
         var previews=new List<ModPreview>();
         using var operation=cluster.Operations.AcquireMany(new[]{cluster.Store.Root}.Concat(
             requests.Select(e=>cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==e.Map))
@@ -238,9 +262,37 @@ public static class ModStateController
             {
                 var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==edit.Map);
                 if(map==null)throw new UnauthorizedAccessException("Cannot edit a peer map");
-                if(map.HistoricalStoreProtected ||
-                   UntamedWorldBackup.HasLiveOrHistoricalStore(map) || map.Maintenance)
-                    throw new UnauthorizedAccessException("Store-v1 or maintenance mods are protected");
+                if(map.ObservedReadOnlyImported||map.Maintenance||
+                   (!map.HistoricalStoreProtected&&UntamedWorldBackup.HasLiveOrHistoricalStore(map)))
+                    throw new UnauthorizedAccessException("Store/mod ownership is not locally editable");
+                if(map.HistoricalStoreProtected)
+                {
+                    if(string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+                       string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
+                       map.HistoricalArchiveSha256.Length!=64)
+                        throw new UnauthorizedAccessException("Original Kova map identity missing");
+                    new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    var folder=Path.GetFullPath(map.InstallationPath);
+                    foreach(var sibling in cluster.Config.LocalMaps.Where(m=>
+                        !string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                        string.Equals(Path.GetFullPath(m.InstallationPath),folder,
+                            StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var generic=cluster.Check(sibling);
+                        if(generic.Running||generic.Identity!=null||
+                           generic.LoaderIdentity!=null)
+                            throw new InvalidOperationException(
+                                "Original Kova mod edit cannot modify a running ASA/Loader process");
+                        var state=sibling.HistoricalStoreProtected?
+                            LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
+                                sibling,cluster.Config.LocalMaps):generic;
+                        if(sibling.Maintenance||sibling.ObservedReadOnlyImported||
+                           state.Running||!state.ConfirmedStopped||
+                           state.Identity!=null||state.LoaderIdentity!=null)
+                            throw new InvalidOperationException(
+                                "Original Kova mod edit requires all local ASA/Loader processes stopped");
+                    }
+                }
                 if(!originals.ContainsKey(map.Id))
                 {
                     // Verify the editor snapshot while the configuration lease is
@@ -251,12 +303,33 @@ public static class ModStateController
                         !expected.Matches(map)))
                         throw new InvalidOperationException(
                             "Mod configuration changed outside this draft; reload is required");
-                    originals.Add(map.Id,(map.Arguments,
+                    originals.Add(map.Id,(map.Arguments,map.ApiLoaderArguments,
+                        (map.HistoricalEnabledMods??new()).ToList(),
+                        (map.HistoricalPassiveMods??new()).ToList(),
                         (map.DisabledModIds??new()).ToList(),map.ModChangesPending));
                 }
                 // Staged in-memory edits; no server restart and no file writes yet.
                 var preview=Preview(map,edit);
-                map.Arguments=preview.NewArguments;
+                // No mod editor may rewrite the Store, cluster ID/path, port
+                // or any other launch parameter; own only -mods/-passivemods.
+                if(map.HistoricalStoreProtected&&
+                   !string.Equals(NonModArguments(map.Arguments),
+                       NonModArguments(preview.NewArguments),StringComparison.Ordinal))
+                    throw new InvalidDataException("Kova Store-v1 launch flags changed outside mod switches");
+                if(map.HistoricalStoreProtected)
+                {
+                    // Update the EXACT fields consumed by the real Kova native
+                    // Start planner. Never add -mods to raw Store args at rest.
+                    map.HistoricalEnabledMods=preview.Updated.EnabledOrder.ToList();
+                    map.HistoricalPassiveMods=preview.Updated.Passive.ToList();
+                }
+                else
+                {
+                    string oldArgs=map.Arguments;
+                    map.Arguments=preview.NewArguments;
+                    if(map.StartWithAsaApi&&map.ApiLoaderArguments==oldArgs)
+                        map.ApiLoaderArguments=preview.NewArguments;
+                }
                 map.DisabledModIds=preview.Updated.Disabled.ToList();
                 map.ModChangesPending=preview.Updated.Pending;
                 previews.Add(preview);
@@ -272,6 +345,9 @@ public static class ModStateController
             {
                 var map=cluster.Config.LocalMaps.Single(x=>x.Id==id);
                 map.Arguments=original.Args;
+                map.ApiLoaderArguments=original.LoaderArgs;
+                map.HistoricalEnabledMods=original.Enabled;
+                map.HistoricalPassiveMods=original.Passive;
                 map.DisabledModIds=original.Disabled;
                 map.ModChangesPending=original.Pending;
             }

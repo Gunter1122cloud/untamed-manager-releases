@@ -91,6 +91,12 @@ internal static class OriginalStoreApiRconAttachTests
             apiObserver:_=>seen,
             listenerOwner:(p,pid)=>portOwned&&p==port&&pid==serverPid);
 
+        var status=await Call(bridge,"historical.rconStatus",
+            new{mapId=map.Id});
+        Check(status.GetProperty("ok").GetBoolean()&&
+              status.GetProperty("data").GetProperty("port").GetInt32()==0&&
+              status.GetProperty("data").GetProperty("suggestedPort").GetInt32()==port,
+            "original INI RCON port appears as setup suggestion without writing ASA or exposing password");
         var preview=await Call(bridge,"historical.rconPreview",
             new{mapId=map.Id,rconPort=port,password});
         Check(preview.GetProperty("ok").GetBoolean(),

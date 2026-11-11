@@ -58,7 +58,7 @@ function ServerRow({map,host,local,onSelect}:{
   </div>;
 }
 
-function HostPanel({snapshot}:{snapshot:DashboardSnapshot}){
+function HostPanel({snapshot,onCluster}:{snapshot:DashboardSnapshot;onCluster:()=>void}){
   const local=snapshot.local;
   const remotes=dashboardRemotes(snapshot);
   const ram=local.memoryTotalKiB&&local.memoryUsedKiB!=null
@@ -93,7 +93,11 @@ function HostPanel({snapshot}:{snapshot:DashboardSnapshot}){
           {remote.lastSuccessUtc?` · utolsó sikeres mérés ${new Date(remote.lastSuccessUtc).toLocaleTimeString("hu-HU")}`:""}
           {remote.stateCode?` · ${remote.stateCode}`:""}</p>
       </div>):<div className="premium-host-offline"><WifiOff size={15}/>
-        {snapshot.peerMessage||"Távoli peer még nincs csatlakoztatva"}</div>}
+        <div>{snapshot.peerMessage||"Távoli peer még nincs csatlakoztatva"}
+          <button className="primary" type="button" onClick={onCluster}>
+            Másik szervergép párosítása
+          </button>
+        </div></div>}
     </div>
   </section>;
 }
@@ -185,7 +189,7 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
         <div className="premium-panel-footnote"><Shield size={14}/> A távoli szerverek csak megfigyelhetők; nem jelenítünk meg kitalált játékosadatokat.</div>
       </section>
       <div className="premium-dashboard-aside">
-        <HostPanel snapshot={snapshot}/>
+        <HostPanel snapshot={snapshot} onCluster={onCluster}/>
         <section className="premium-panel premium-events">
           <header className="premium-panel-heading"><h2><Activity size={19}/> Állapotfigyelés</h2>
             <button className="quiet" type="button" onClick={onCluster}>Cluster <ArrowRight size={15}/></button>

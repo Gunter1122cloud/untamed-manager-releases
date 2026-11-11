@@ -21,9 +21,9 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
-    setStatus(null);setPreview(null);setPassword("");setError("");setNotice("");
+    setStatus(null);setPort("");setPreview(null);setPassword("");setError("");setNotice("");
     managerBridge.historicalRconStatus(mapId).then(v=>{
-      if(active)setStatus(v);
+      if(active){setStatus(v);setPort(v.suggestedPort>0?String(v.suggestedPort):"");}
     }).catch(()=>{if(active)setError("Az eredeti Store-v1 RCON-beállítás állapota nem olvasható.");});
     return ()=>{active=false;};
   },[mapId]);
@@ -48,14 +48,25 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
     if(!preview||!confirm||busy)return;
     setBusy(true);setError("");setNotice("");
     const token=preview.token;setPreview(null);setConfirm(false);
+    let committed=false;
     try{
       const receipt=await managerBridge.historicalRconApply(token);
-      setStatus(await managerBridge.historicalRconStatus(mapId));
-      setNotice("Az eredeti RCON-kapcsolat DPAPI-védelemmel a helyi Managerhez kapcsolva (TCP "+
+      committed=true;
+      // The native DPAPI profile is already committed. A failed subsequent
+      // status/refresh MUST NOT disguise that commit as a failed attach and
+      // tempt the operator to repeat a single-use mutation.
+      setNotice("Az eredeti RCON-profil a helyi Managerbe elmentve (TCP "+
         receipt.rconPort+"). Az ASA és a Store-fájlok nem módosultak.");
-      await onConfigured();
+      try{
+        setStatus(await managerBridge.historicalRconStatus(mapId));
+        await onConfigured();
+      }catch{
+        setNotice("Az eredeti RCON-profil elmentve (TCP "+receipt.rconPort+
+          "), de a felület frissítése sikertelen. Újraküldés helyett "+
+          "frissítsd a maplistát. Az ASA és a Store-fájlok nem módosultak.");
+      }
     }catch{
-      setError("Az eredeti RCON-kapcsolat átvétele nem fejezhető be, vagy a profil közben megváltozott. Ellenőrizd az aktuális állapotot.");
+      if(!committed)setError("Az eredeti RCON-kapcsolat átvétele nem fejezhető be, vagy a profil közben megváltozott. Ellenőrizd az aktuális állapotot.");
     }finally{setBusy(false);}
   };
   return <section className="glass panel historical-rcon-attach"
@@ -66,6 +77,11 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       <p className="muted small">A kétgépes, már aktív Store-v1 szerver meglévő RCON-portját kapcsolja
         az új Managerhez, <b>új INI, új session, Store-konverzió és szerverindítás nélkül</b>.
         A jelszót a natív Windows DPAPI védi.</p>
+      {status&&!status.configured&&status.suggestedPort>0&&
+        <p className="muted small" role="status">
+          Az eredeti ASA INI alapján felismert TCP RCON-port: {status.suggestedPort}.
+          A jelszót biztonsági okból külön kell megadni; az ASA INI-hez nem nyúlunk.
+        </p>}
       {status?.configured?<div className="success-inline" role="status">
         <CheckCircle2 size={17}/> RCON-port: {status.port} ·
         {status.verifiedIni?" Eredeti INI egyezik":" INI egyezése jelenleg nem igazolt"}

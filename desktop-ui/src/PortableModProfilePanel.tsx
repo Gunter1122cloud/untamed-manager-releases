@@ -15,7 +15,8 @@ export function PortableModProfilePanel({maps,sourceMapId,onApplied}:{
   const [working,setWorking]=useState(false);
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
-  const eligible=useMemo(()=>maps.filter(m=>!m.storeProtected&&!m.maintenance),[maps]);
+  const eligible=useMemo(()=>maps.filter(m=>!m.maintenance&&
+    !m.observedReadOnlyImported&&(!m.storeProtected||!m.freshStoreEnrolled)),[maps]);
   const filtered=useMemo(()=>eligible.filter(m=>{
     const needle=query.trim().toLocaleLowerCase("hu-HU");
     return !needle||m.name.toLocaleLowerCase("hu-HU").includes(needle)||
@@ -25,7 +26,9 @@ export function PortableModProfilePanel({maps,sourceMapId,onApplied}:{
   const safePage=Math.min(page,pageCount-1);
   const visible=filtered.slice(safePage*pageSize,(safePage+1)*pageSize);
   const source=maps.find(m=>m.id===sourceMapId);
-  const canExport=Boolean(source&&!source.storeProtected&&!source.maintenance);
+  const canExport=Boolean(source&&!source.maintenance&&
+    !source.observedReadOnlyImported&&
+    (!source.storeProtected||!source.freshStoreEnrolled));
   useEffect(()=>{setPreview(null);setTargets([]);setQuery("");setPage(0);
     setApproved(false);setNotice("");setError("");},
     [sourceMapId]);
@@ -72,9 +75,10 @@ export function PortableModProfilePanel({maps,sourceMapId,onApplied}:{
         onClick={()=>{void exportFile();}}><FileDown size={16}/> Kijelölt map profiljának exportja</button>
     </div>
     <div className="warning-inline"><Shield size={16}/>
-      Védett Store-v1 mapokra nem alkalmazható a profil.
-      Másoláskor a szerverek futása nem változik; a modok a későbbi
-      ellenőrzött indítás során töltődhetnek le.
+      Az eredeti Kova Store-v1 mapok modlistája is exportálható és
+      importálható, de importáláskor a helyi ASA/Loader folyamatoknak
+      igazoltan leállított állapotban kell lenniük. A közös Store,
+      karakterek és nyers indítási kapcsolók nem módosulnak.
     </div>
     <label>Import mód
       <select aria-label="Modprofil import módja" disabled={working} value={mode}
@@ -119,8 +123,13 @@ export function PortableModProfilePanel({maps,sourceMapId,onApplied}:{
               setTargets(old=>old.includes(map.id)?
                 old.filter(x=>x!==map.id):old.length>=25?old:[...old,map.id]);invalidate();
             }}/>
-          <span><strong>{map.name}</strong><small>{map.running?
-            "Futó map – csak a következő indítás modlistája változik":"Helyi célmap"}</small></span>
+          <span><strong>{map.name}</strong><small>{
+            map.storeProtected?
+              (map.running?"Eredeti Store-v1 – import előtt leállítás kötelező":
+                "Eredeti Store-v1 – helyi modlista importálható"):
+              (map.running?"Futó map – csak a következő indítás modlistája változik":
+                "Helyi célmap")
+          }</small></span>
         </label>)}
     </div>
     <button className="secondary" type="button" disabled={working||targets.length===0}

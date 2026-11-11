@@ -154,6 +154,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopInitialMapSetupBridge _initialMapSetup;
     private readonly DesktopFreshStoreEnrollmentBridge _freshStoreEnrollment;
     private readonly DesktopFreshStoreLoaderModeBridge _freshStoreLoaderMode;
+    private readonly DesktopLocalAsaApiModeBridge _localAsaApiMode;
     private readonly DesktopHistoricalStoreImportBridge _historicalStore;
     private readonly DesktopHistoricalRconAttachBridge _historicalRcon;
     private readonly DesktopHistoricalActiveStartBridge _historicalStart;
@@ -225,6 +226,7 @@ public sealed class ObsidianWindow : Form
         _initialMapSetup = new DesktopInitialMapSetupBridge(_bridge.LocalCluster);
         _freshStoreEnrollment = new DesktopFreshStoreEnrollmentBridge(_bridge.LocalCluster);
         _freshStoreLoaderMode = new DesktopFreshStoreLoaderModeBridge(_bridge.LocalCluster);
+        _localAsaApiMode = new DesktopLocalAsaApiModeBridge(_bridge.LocalCluster);
         _historicalStore = new DesktopHistoricalStoreImportBridge(_bridge.LocalCluster);
         _historicalRcon = new DesktopHistoricalRconAttachBridge(_bridge.LocalCluster);
         _historicalStart = new DesktopHistoricalActiveStartBridge(_bridge.LocalCluster);
@@ -315,6 +317,7 @@ public sealed class ObsidianWindow : Form
             _tray.Visible = false;
             _tray.Dispose();
             _browser.Dispose();
+            _localAsaApiMode.Dispose();
             _historicalStore.Dispose();
             _historicalRcon.Dispose();
             _historicalStart.Dispose();
@@ -440,6 +443,7 @@ public sealed class ObsidianWindow : Form
                 bool initialRoute = false;
                 bool freshStoreEnrollmentRoute = false;
                 bool freshStoreLoaderModeRoute = false;
+                bool localAsaApiModeRoute = false;
                 bool historicalRconRoute = false;
                 bool historicalStartRoute = false;
                 bool historicalReadOnlyRconRoute = false;
@@ -520,7 +524,8 @@ public sealed class ObsidianWindow : Form
                             "backup.originalBatchJournalRepairApply";
                         pluginStateRoute = name is
                             "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
-                        pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply";
+                        pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply" or
+                            "plugins.zipRollbackSelect" or "plugins.zipRollbackApply";
                         pluginJsonRoute = name is "plugins.jsonOpen" or "plugins.jsonPreview" or
                             "plugins.jsonSave" or "plugins.jsonClose";
                         apiCoreRoute = name is "api.coreRelease" or "api.corePreview" or "api.coreApply" or
@@ -576,6 +581,8 @@ public sealed class ObsidianWindow : Form
                             "freshStore.enrollmentPreview" or "freshStore.enrollmentApply";
                         freshStoreLoaderModeRoute = name is "freshStore.loaderModeStatus" or
                             "freshStore.loaderModePreview" or "freshStore.loaderModeApply";
+                        localAsaApiModeRoute = name is "servers.apiModeStatus" or
+                            "servers.apiModePreview" or "servers.apiModeApply";
                         historicalRestartRoute = name is "historical.restartPreview" or
                             "historical.restartApply" or "historical.restartStatus" or
                             "historical.restartRecovery";
@@ -592,7 +599,8 @@ public sealed class ObsidianWindow : Form
                             "historical.rconChatLog";
                         historicalStartRoute = name is "historical.activeStartStatus" or
                             "historical.activeStartPreview" or "historical.activeStartApply" or
-                            "historical.loaderModePreview" or "historical.loaderModeApply";
+                            "historical.loaderModeStatus" or "historical.loaderModePreview" or
+                            "historical.loaderModeApply";
                         historicalRconRoute = name is "historical.rconStatus" or
                             "historical.rconPreview" or "historical.rconApply";
                     }
@@ -641,7 +649,8 @@ public sealed class ObsidianWindow : Form
                                     : discoveryRoute ? await _modCatalog.HandleAsync(incoming)
                                         : freshRoute ? await _freshInstall.HandleAsync(incoming)
                                             : freshStoreEnrollmentRoute ? await _freshStoreEnrollment.HandleAsync(incoming)
-                                            : freshStoreLoaderModeRoute ? await _freshStoreLoaderMode.HandleAsync(incoming)
+                                            : localAsaApiModeRoute ? await _localAsaApiMode.HandleAsync(incoming)
+                        : freshStoreLoaderModeRoute ? await _freshStoreLoaderMode.HandleAsync(incoming)
                                             : initialRoute ? await _initialMapSetup.HandleAsync(incoming)
                                                 : historicalRestartRoute ? await _historicalRestart.HandleAsync(incoming)
                                                 : historicalStopRoute ? await _historicalStop.HandleAsync(incoming)

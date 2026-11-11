@@ -29,9 +29,15 @@ public static class SteamUpdateDryRun
         string full=Path.GetFullPath(installRoot).TrimEnd(Path.DirectorySeparatorChar);
         if(!Path.IsPathFullyQualified(installRoot)||installRoot.StartsWith(@"\\"))
             throw new InvalidDataException("Explicit local shared installation required");
-        var selected=ownedMaps.Where(x=>string.Equals(
-            Path.GetFullPath(x.InstallationPath).TrimEnd(Path.DirectorySeparatorChar),
-            full,StringComparison.OrdinalIgnoreCase)).ToArray();
+        // A newly registered map may not have completed the Steam install
+        // wizard yet. Its empty installation path is not a sibling of this
+        // complete ASA installation, and must not disable its update button.
+        var selected=ownedMaps.Where(x=>
+            !string.IsNullOrWhiteSpace(x.InstallationPath)&&
+            Path.IsPathFullyQualified(x.InstallationPath)&&
+            string.Equals(Path.GetFullPath(x.InstallationPath)
+                .TrimEnd(Path.DirectorySeparatorChar),
+                full,StringComparison.OrdinalIgnoreCase)).ToArray();
         if(selected.Length==0)throw new UnauthorizedAccessException("Installation has no registered local maps");
         var groups=AsaInstallationInventory.Inspect(selected,check);
         if(groups.Count!=1)throw new InvalidDataException("Cannot plan cross-installation update");

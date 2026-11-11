@@ -54,12 +54,13 @@ public sealed class DesktopModDraftBridge : IDisposable
                         return Error(id,"UM-INVALID-MAP");
                     var local=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
                     if(local==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    if(local.HistoricalStoreProtected)return Error(id,"UM-HISTORICAL-STORE-LOCKED");
                     if(local.ObservedReadOnlyImported)return Error(id,"UM-LIVE-OBSERVED-MAP-READONLY");
                     foreach(var old in drafts.Where(x=>x.Value.MapId==mapId)
                         .Select(x=>x.Key).ToArray())drafts.Remove(old);
                     if(drafts.Count>=8)return Error(id,"UM-TOO-MANY-DRAFTS");
                     var token=Guid.NewGuid();
+                    if(local.HistoricalStoreProtected)
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,local);
                     var draft=new Draft(token,mapId,new ModDraftSession(local),DateTimeOffset.UtcNow);
                     drafts.Add(token,draft);
                     return Ok(id,Describe(draft));
@@ -69,7 +70,6 @@ public sealed class DesktopModDraftBridge : IDisposable
                     return Error(id,"UM-DRAFT-NOT-FOUND");
                 var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==current.MapId);
                 if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
-                if(map.HistoricalStoreProtected)return Error(id,"UM-HISTORICAL-STORE-LOCKED");
                 if(map.ObservedReadOnlyImported)return Error(id,"UM-LIVE-OBSERVED-MAP-READONLY");
                 if(!current.Session.MatchesLive(map))return Error(id,"UM-DRAFT-CONFLICT");
 
@@ -106,7 +106,11 @@ public sealed class DesktopModDraftBridge : IDisposable
                 else if(method=="mods.draftSave")
                 {
                     if(!current.Session.IsDirty)return Error(id,"UM-NO-CHANGES");
-                    // Existing operation coordinator + CAS save; does NOT restart servers.
+                    // Historical Kova profiles are editable only offline and
+                    // only for local -mods/-passivemods; the Core preserves
+                    // the original Store and Loader launch arguments.
+                    if(map.HistoricalStoreProtected)
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,map);
                     current.Session.Save(cluster);
                     var applied=ModStateController.Read(map);
                     drafts.Remove(draftId);

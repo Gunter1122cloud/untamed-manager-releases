@@ -11,10 +11,10 @@ type Action="broadcast"|"serverChat"|"wildWipe"|"custom";
  * but never acquire, release or rewrite original Store writer/session locks.
  * SaveWorld/DoExit must be handled by the independent protected lifecycle.
  */
-export function HistoricalAdminRconPanel({mapId,running}:{
-  mapId:string;running:boolean
+export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast"}:{
+  mapId:string;running:boolean;initialAction?:Action
 }){
-  const [action,setAction]=useState<Action>("broadcast");
+  const [action,setAction]=useState<Action>(initialAction);
   const [message,setMessage]=useState("");
   const [preview,setPreview]=useState<HistoricalAdminRconPreview|null>(null);
   const [approved,setApproved]=useState("");
@@ -23,9 +23,9 @@ export function HistoricalAdminRconPanel({mapId,running}:{
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   useEffect(()=>{
-    setAction("broadcast");setMessage("");setPreview(null);
+    setAction(initialAction);setMessage("");setPreview(null);
     setApproved("");setConfirmed(false);setReply(null);setError("");
-  },[mapId]);
+  },[mapId,initialAction]);
   const change=()=>{setPreview(null);setApproved("");setConfirmed(false);setReply(null);setError("");};
   const inspect=async(e:FormEvent)=>{
     e.preventDefault();

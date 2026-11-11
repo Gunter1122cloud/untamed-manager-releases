@@ -84,6 +84,17 @@ public sealed class DesktopModProfileBridge : IDisposable
             StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("Portable profile cannot reside in Manager config");
     }
+    private void DemandHistoricalTargetsStopped(PortableModImportPlan plan)
+    {
+        foreach(var target in plan.Targets)
+        {
+            var map=cluster.Config.LocalMaps.SingleOrDefault(
+                m=>m.Id==target.MapId)??throw new UnauthorizedAccessException(
+                    "UM-MODPROFILE-LOCAL-MAP-CHANGED");
+            if(map.HistoricalStoreProtected)
+                HistoricalLocalConfigGuard.DemandStopped(cluster,map);
+        }
+    }
     private static bool GuidField(JsonElement element,string key,out Guid value)
     {
         value=Guid.Empty;
@@ -118,9 +129,17 @@ public sealed class DesktopModProfileBridge : IDisposable
                         return Fail(id,"UM-MODPROFILE-INVALID-MAP");
                     var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId)
                         ??throw new UnauthorizedAccessException("Unowned map");
-                    if(map.HistoricalStoreProtected||
-                       UntamedWorldBackup.HasLiveOrHistoricalStore(map))
-                        return Fail(id,"UM-MODPROFILE-HISTORICAL-SOURCE");
+                    if(map.Maintenance||map.ObservedReadOnlyImported||
+                       (!map.HistoricalStoreProtected&&
+                        UntamedWorldBackup.HasLiveOrHistoricalStore(map))||
+                       (map.HistoricalStoreProtected&&(
+                           string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+                           map.HistoricalArchiveSha256?.Length!=64||
+                           !map.HistoricalArchiveSha256.All(Uri.IsHexDigit)||
+                           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+                           !string.IsNullOrWhiteSpace(map.Arguments)||
+                           !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))))
+                        return Fail(id,"UM-MODPROFILE-SOURCE-NOT-OWNED");
                     var profile=PortableModProfileCodec.FromMap(map,map.Name);
                     var path=savePicker(map.Name);
                     if(string.IsNullOrWhiteSpace(path))
@@ -170,6 +189,7 @@ public sealed class DesktopModProfileBridge : IDisposable
                     string content=File.ReadAllText(path,Encoding.UTF8);
                     var profile=PortableModProfileCodec.Parse(content);
                     var plan=PortableModProfileImporter.Preview(cluster,profile,ids,mode);
+                    DemandHistoricalTargetsStopped(plan);
                     pending=new(Guid.NewGuid(),plan,DateTimeOffset.UtcNow);
                     return Ok(id,new{token=pending.Token,label=profile.Label,
                         sha256=profile.Sha256,mode=modeField.GetString(),
@@ -198,6 +218,7 @@ public sealed class DesktopModProfileBridge : IDisposable
                     return Fail(id,"UM-MODPROFILE-PREVIEW-EXPIRED");
                 if(!approved.Plan.Changed)
                     return Fail(id,"UM-MODPROFILE-NOTHING-TO-APPLY");
+                DemandHistoricalTargetsStopped(approved.Plan);
                 var applied=PortableModProfileImporter.Apply(cluster,approved.Plan);
                 return Ok(id,new{saved=true,
                     changedMaps=approved.Plan.Targets.Where(t=>t.Changed)

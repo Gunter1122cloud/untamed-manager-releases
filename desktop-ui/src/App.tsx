@@ -18,6 +18,7 @@ import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
 import { InitialMapSetup } from "./InitialMapSetup";
 import { FreshStoreEnrollmentPanel } from "./FreshStoreEnrollmentPanel";
 import { FreshStoreLoaderModePanel } from "./FreshStoreLoaderModePanel";
+import { AsaApiLaunchModeSwitch } from "./AsaApiLaunchModeSwitch";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { HistoricalRconAttach } from "./HistoricalRconAttach";
 import { HistoricalActiveStartPanel } from "./HistoricalActiveStartPanel";
@@ -832,7 +833,12 @@ function Mods({ snapshot, selected, setSelected, mapLocked=false }: {
     snapshot.local.maps.find(m=>m.id===selected)?.name||"Helyi map";
   useEffect(()=>{
     setCatalogPicked("");setDraftChanges(0);setPrefillMode("active");
-    setWorkspaceTab("installed");setSavedNotice("");
+    // Changing the SOURCE map in Copy To / Portable Profile must not
+    // silently close the active workflow and hide its next action.
+    // Drafts, catalog and per-map editors still reset on map change.
+    setWorkspaceTab(previous=>
+      previous==="copy"||previous==="profile"?previous:"installed");
+    setSavedNotice("");
   },[selected]);
   useEffect(() => {
     let active = true;
@@ -948,9 +954,10 @@ function Mods({ snapshot, selected, setSelected, mapLocked=false }: {
     </div>
   </div>;
 }
-function PluginCenter({ snapshot, selected, setSelected, mapLocked=false }: {
+function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
+  onLaunchModeSaved }: {
   snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void;
-  mapLocked?:boolean
+  mapLocked?:boolean;onLaunchModeSaved?:()=>Promise<void>
 }) {
   const [info, setInfo] = useState<PluginInventory | null>(null);
   const [error, setError] = useState("");
@@ -1019,6 +1026,10 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false }: {
           {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>}
     </div>
+    {snapshot.local.maps.find(m=>m.id===selected)&&
+      <AsaApiLaunchModeSwitch key={selected}
+        map={snapshot.local.maps.find(m=>m.id===selected)!}
+        onSaved={onLaunchModeSaved}/>}
     <div className="premium-plugin-grid">
     <Panel className="premium-plugin-inventory" title={info ? `Helyi pluginok · ${info.mapName}` : "Pluginok"}>
       {error && <div className="error-inline"><AlertTriangle size={17}/>{error}</div>}
@@ -1031,7 +1042,7 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false }: {
         <span className={plugin.protectedData ? "mod-tag amber" : "mod-tag green"}>{plugin.protectedData ? "Védett" : "Helyi leltár"}</span>
         <button type="button" className="secondary" disabled={working||
           Boolean(snapshot.local.maps.find(m=>m.id===selected)?.running)||
-          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.storeProtected)}
+          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.observedReadOnlyImported)}
           onClick={()=>setJsonPlugin(plugin.name)}>
           config.json szerkesztése
         </button>
@@ -1045,7 +1056,9 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false }: {
       }}><RefreshCw size={15}/> Mappák frissítése</button>}>
       <p className="muted small">Az eredeti C# PluginStateManager az egész pluginmappát mozgatja; beállítások, licencfájlok és helyi adatállományok ellenőrzött mentésben megmaradnak. Az API futás közbeni betöltöttsége nem következtethető ki a lemezállapotból.</p>
       {pluginStates?.historicalProtected && <div className="warning-inline">
-        <Shield size={17}/> Ez a Store-v1 map védett. Pluginművelet tiltva.
+        <Shield size={17}/> Eredeti Store-v1 pluginművelet: csak igazoltan
+        leállított ASA/Loader mellett, az eredeti fájlok mentése és
+        natív jóváhagyás után hajtható végre.
       </div>}
       {!pluginStates && selected && <div className="empty">Pluginmappák állapotának olvasása...</div>}
       {pluginStates && pluginStates.plugins.length===0 && <div className="empty">
@@ -1056,7 +1069,8 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false }: {
         <div className="plugin-copy"><b>{plugin.name}</b>
           <small>{plugin.enabled?"Engedélyezett mappa":"Letiltott mappa"} · ASA futásidőben nem igazolt</small>
         </div>
-        <button type="button" className="secondary" disabled={working||Boolean(pluginStates?.historicalProtected)}
+        <button type="button" className="secondary" disabled={working||
+          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.observedReadOnlyImported)}
           onClick={()=>{void inspectToggle(plugin.name,!plugin.enabled);}}>
           {plugin.enabled?"Letiltás előnézete":"Engedélyezés előnézete"}
         </button>
@@ -1536,6 +1550,7 @@ function Cluster({ snapshot }: { snapshot: DashboardSnapshot }) {
         </section>):<div className="warning-inline"><WifiOff size={19}/>{snapshot.peerMessage||"Nincs párosított távoli adat"}</div>}
       </Panel>
     </div>
+    <LanSettingsPanel/>
     <ClusterRegistryPanel protectedMapIds={protectedMapIds}/>
     <StoppedSteamBatchPanel maps={snapshot.local.maps}/>
     <MultiHostBackupPanel/>
@@ -1548,12 +1563,17 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   setSelected:(value:string)=>void;onConfigured:()=>Promise<void>
 }) {
   const [section,setSection]=useState<MapSection>("overview");
+  const [originalRconAction,setOriginalRconAction]=useState<"broadcast"|"wildWipe">("broadcast");
+  const [openOriginalStoreEnrollment,setOpenOriginalStoreEnrollment]=useState(false);
   const [initialSetupSaved,setInitialSetupSaved]=useState(false);
   const [lifecycle,setLifecycle]=useState<AsaLifecycleJournal|null>(null);
   const [restartJournal,setRestartJournal]=useState<AsaRestartJournalStatus|null>(null);
   const [journalsVerifiedFor,setJournalsVerifiedFor]=useState("");
   const [journalReadError,setJournalReadError]=useState(false);
-  useEffect(()=>{setSection("overview");setInitialSetupSaved(false);},[mapId]);
+  useEffect(()=>{
+    setSection("overview");setInitialSetupSaved(false);
+    setOriginalRconAction("broadcast");setOpenOriginalStoreEnrollment(false);
+  },[mapId]);
   useEffect(()=>{
     let active=true;
     setLifecycle(null);setRestartJournal(null);
@@ -1605,6 +1625,17 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       Start, Stop, Restart, SaveWorld, RCON, INI, mod, plugin, SteamCMD és
       Store-v1 írási jog nem lett átvéve. A futás állapotát az alábbi friss WMI-felderítés mutatja.
     </div>
+    <div className="map-overview-actions">
+      <button className="primary" type="button"
+        aria-expanded={openOriginalStoreEnrollment}
+        onClick={()=>setOpenOriginalStoreEnrollment(v=>!v)}>
+        {openOriginalStoreEnrollment?
+          "Kova Store-v1 átvételi varázsló bezárása":
+          "Kova Store-v1 mapok átvételi varázslója"}
+      </button>
+    </div>
+    {openOriginalStoreEnrollment&&
+      <HistoricalStoreImport onImported={onConfigured}/>}
     <LocalRunningAsaPanel/>
   </div>;
   const sections: Array<{id:MapSection;name:string}>=[
@@ -1629,7 +1660,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     </div>
     <LocalMapLifecycleBar key={mapId} mapId={mapId} mapName={map.name}
       running={map.running} historical={historical} journalBlocked={lifecycleBlocked}
-      onRefresh={onConfigured} onConfigure={()=>setSection("overview")}/>
+      onRefresh={onConfigured} onConfigure={()=>setSection(historical?"rcon":"overview")}/>
     {journalReadError&&<div className="warning-inline" role="alert">
       <Shield size={17}/> A helyi ASA-műveleti naplók nem olvashatók.
       A Start, Stop és Restart gombok tiltva maradnak, amíg a naplók ellenőrzése nem sikerül.
@@ -1671,7 +1702,21 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         </Panel>
       </div>
       <MapMaintenancePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>
-      {historical&&<HistoricalRconAttach mapId={mapId} onConfigured={onConfigured}/>}
+      {historical&&!map.rconConfigured&&<div className="warning-inline" role="status">
+        <Shield size={17}/> Az eredeti Store-v1 map RCON-kapcsolata még nincs
+        az Obsidianhoz rendelve. A natív adminparancsokhoz és a külön jóváhagyott
+        szervervezérléshez a meglévő RCON-t csatlakoztatni kell.
+        <button type="button" className="primary" onClick={()=>setSection("rcon")}>
+          Meglévő RCON csatlakoztatása
+        </button>
+      </div>}
+      {historical&&<div className="map-overview-actions">
+        <button type="button" className="secondary" onClick={()=>{
+          setOriginalRconAction("wildWipe");setSection("rcon");
+        }}>
+          Vad dinók törlése (RCON)
+        </button>
+      </div>}
       {historical&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
       {historical&&<HistoricalStoreSaveWorldPanel key={mapId} mapId={mapId} running={map.running} onSaved={onConfigured}/>}
       {historical&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
@@ -1700,17 +1745,31 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       <NativeMapScheduler mapId={mapId}/>
       <OperationsCenter selectedMapId={mapId} showScheduler onOpenMap={()=>setSection("overview")}/>
     </>}
-    {section==="steam" && (map.storeProtected
-      ?<div className="warning-inline" role="alert"><Shield size={17}/> Történeti Store-v1 map: automatikus vagy kézi SteamCMD-frissítést ezen az útvonalon nem engedélyezünk.</div>
-      :<StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>)}
+    {section==="steam" && (map.storeProtected&&map.freshStoreEnrolled
+      ?<div className="warning-inline" role="alert"><Shield size={17}/> Új Store-map: a SteamCMD-frissítés ehhez a telepítési típushoz még nem engedélyezett.</div>
+      :<div>
+        {map.storeProtected&&!map.freshStoreEnrolled&&
+          <div className="warning-inline"><Shield size={17}/> Eredeti Kova Store-v1: a natív SteamCMD-frissítés csak teljesen leállított helyi ASA/Loader folyamatokkal, előzetes védőmentéssel és jóváhagyással hajtható végre. A közös Store és a másik gép nem módosul.</div>}
+        <StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>
+      </div>)}
     {section==="mods" && <Mods key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>} 
-    {section==="plugins" && <PluginCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
+    {section==="plugins" && <PluginCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked onLaunchModeSaved={onConfigured}/>} 
     {section==="ini" && <IniCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="backups" && <BackupCenter mapId={mapId} snapshot={snapshot}/>}
     {section==="logs" && <LogsCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="rcon" && (historical
-      ?<><HistoricalRconLivePanel mapId={mapId} running={map.running}/>
-        <HistoricalAdminRconPanel mapId={mapId} running={map.running}/></>
+      ?<>
+        <HistoricalRconAttach key={mapId} mapId={mapId} onConfigured={onConfigured}/>
+        {map.rconConfigured
+          ?<><HistoricalRconLivePanel key={mapId} mapId={mapId} running={map.running}/>
+            <HistoricalAdminRconPanel key={mapId} mapId={mapId}
+              initialAction={originalRconAction} running={map.running}/></>
+          :<div className="warning-inline" role="status">
+            <Shield size={17}/> A meglévő RCON-csatlakoztatás befejezéséig
+            az adminparancsok és a konzol zároltak. A portot és jelszót
+            a fenti űrlapon, natív jóváhagyással állíthatod be.
+          </div>}
+      </>
       :<RconReadOnlyPanel key={mapId} mapId={mapId} onConfigured={onConfigured} onOpenStart={()=>setSection("overview")}/>)}
   </div>;
 }

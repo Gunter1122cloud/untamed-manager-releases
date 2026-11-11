@@ -88,6 +88,14 @@ var map=new LocalMap{
         "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
 };
 cluster.AddMap(map);
+await LocalAsaApiModeTests.Run(root);
+ await HistoricalAsaApiModeTests.Run(root);
+ SteamProtectedFileCoverageTests.Run(root);
+ await HistoricalLocalConfigGuardTests.Run(root);
+ await HistoricalPluginZipTests.Run(root);
+ await HistoricalPluginToggleTests.Run(root);
+ await HistoricalModCopyTests.Run(root);
+ await HistoricalModProfileTests.Run(root);
 // The travel capture endpoint must explain an incomplete Manager registry,
 // not silently collapse it into a generic evidence error.
 var incompleteFiveCapture=await Call(
@@ -5069,8 +5077,8 @@ try
         a.HistoricalStoreProtected=true;
         var locked=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
             new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
-        Check(IsError(locked,"UM-HISTORICAL-STORE-LOCKED") && Directory.Exists(active),
-            "historical Store-v1 map cannot authorize plugin folder mutation");
+        Check(!locked.GetProperty("ok").GetBoolean() && Directory.Exists(active),
+            "unregistered original map has no right to toggle plugins; source retained");
         a.HistoricalStoreProtected=false;
         peerRunning=true;
         var denied=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
@@ -5137,6 +5145,26 @@ try
         Check(!newState.GetProperty("data").GetProperty("plugins")[0]
                 .GetProperty("enabled").GetBoolean(),
             "native plugin inventory can see explicitly disabled plugin folder");
+
+        // Independent stop proof must run INSIDE the actual Core directory
+        // transaction, not merely at the React preview/approval boundary.
+        bool blockedUnderLease=false,underLeaseInvoked=false;
+        try
+        {
+            PluginStateManager.ToggleLocalChecked(pluginCluster,a.Id,
+                "ExamplePlugin",true,()=>{
+                    underLeaseInvoked=true;
+                    throw new InvalidOperationException("SYNTHETIC-HISTORICAL-LOADER-START");
+                });
+        }
+        catch(InvalidOperationException ex)
+        {
+            blockedUnderLease=ex.Message=="SYNTHETIC-HISTORICAL-LOADER-START";
+        }
+        Check(underLeaseInvoked&&blockedUnderLease&&
+              !Directory.Exists(active)&&Directory.Exists(disabled)&&
+              File.ReadAllText(Path.Combine(disabled,"license.key"))=="KEEP-LICENSE-PRIVATE",
+            "late historical ASA/Loader start refuses plugin move before writing or losing files");
     }
 
     // Native plugin ZIP picker and guarded installation. The WinForms file
@@ -5476,15 +5504,15 @@ try
         {
             var blocked=await Call(blockedMods.HandleAsync,"mods.draftStart",
                 new{mapId=imported.Id});
-            Check(IsError(blocked,"UM-HISTORICAL-STORE-LOCKED"),
-                "mod draft cannot change historical protected profile");
+            Check(!blocked.GetProperty("ok").GetBoolean(),
+            "quarantined original Kova map without completed takeover cannot edit mods");
         }
         using(var blockedIni=new DesktopIniBridge(cluster))
         {
             var blocked=await Call(blockedIni.HandleAsync,"ini.open",
                 new{mapId=imported.Id,file="Game.ini"});
-            Check(IsError(blocked,"UM-HISTORICAL-STORE-LOCKED"),
-                "INI writes forbidden before full historical map acceptance");
+            Check(!blocked.GetProperty("ok").GetBoolean(),
+            "quarantined original Kova map cannot edit INI without authenticated stopped owner");
         }
         var replay=await Call(archiveImport.HandleAsync,"historical.register",
             new{token=approval,confirm=true});

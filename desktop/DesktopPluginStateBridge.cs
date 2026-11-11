@@ -13,7 +13,7 @@ namespace UntamedDesktop;
 /// Explicit two-stage local plugin enable/disable workflow. The original Core
 /// PluginStateManager moves the complete directory with a verified backup;
 /// this bridge never accepts filesystem paths and never grants remote control.
-/// Historical Store-v1 maps cannot authorize plugin mutations.
+/// Imported historical Store-v1 map plugin edits require both offline preflight\n/// and the final native stopped-family guard inside the mutation lock.
 /// </summary>
 public sealed class DesktopPluginStateBridge : IDisposable
 {
@@ -76,10 +76,15 @@ public sealed class DesktopPluginStateBridge : IDisposable
                         return Error(id,"UM-PLUGIN-INVALID-REQUEST");
                     var map=Own(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    if(map.HistoricalStoreProtected)return Error(id,"UM-HISTORICAL-STORE-LOCKED");
                     if(map.ObservedReadOnlyImported)return Error(id,"UM-LIVE-OBSERVED-MAP-READONLY");
+                    if(map.HistoricalStoreProtected)
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,map);
                     var readiness=PluginStateManager.InspectLocalToggle(
-                        cluster,mapId,plugin,enabled);
+                        cluster,mapId,plugin,enabled,
+                        map.HistoricalStoreProtected?
+                            member=>HistoricalLocalConfigGuard.DemandStopped(
+                                cluster,member):
+                            null);
                     if(!readiness.Allowed)
                         return Success(id,new{
                             allowed=false,token=(string?)null,plugin=readiness.Plugin,
@@ -114,7 +119,6 @@ public sealed class DesktopPluginStateBridge : IDisposable
                 approvals.Remove(approvalId);
                 var owned=Own(saved.MapId);
                 if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
-                if(owned.HistoricalStoreProtected)return Error(id,"UM-HISTORICAL-STORE-LOCKED");
                 if(owned.ObservedReadOnlyImported)return Error(id,"UM-LIVE-OBSERVED-MAP-READONLY");
                 if(!string.Equals(CanonicalRoot(owned.InstallationPath),
                     saved.OriginalInstallation,StringComparison.OrdinalIgnoreCase) ||
@@ -122,13 +126,31 @@ public sealed class DesktopPluginStateBridge : IDisposable
                     return Error(id,"UM-PLUGIN-STATE-CHANGED");
                 if(DateTimeOffset.UtcNow>=saved.ExpiresUtc)
                     return Error(id,"UM-PLUGIN-PREVIEW-EXPIRED");
+                if(owned.HistoricalStoreProtected)
+                    HistoricalLocalConfigGuard.DemandStopped(cluster,owned);
                 var latest=PluginStateManager.InspectLocalToggle(
-                    cluster,saved.MapId,saved.Plugin,saved.TargetEnabled);
+                    cluster,saved.MapId,saved.Plugin,saved.TargetEnabled,
+                    owned.HistoricalStoreProtected?
+                        member=>HistoricalLocalConfigGuard.DemandStopped(
+                            cluster,member):
+                        null);
                 if(!latest.Allowed ||
                    !string.Equals(latest.Plugin,saved.Plugin,StringComparison.Ordinal))
                     return Error(id,"UM-PLUGIN-STATE-CHANGED");
                 var result=PluginStateManager.ToggleLocalChecked(cluster,
-                    saved.MapId,saved.Plugin,saved.TargetEnabled);
+                    saved.MapId,saved.Plugin,saved.TargetEnabled,
+                    owned.HistoricalStoreProtected?
+                        ()=>HistoricalLocalConfigGuard.DemandStopped(
+                            cluster,owned,underOwnOperation:true):
+                        null,
+                    owned.HistoricalStoreProtected?
+                        member=>HistoricalLocalConfigGuard.DemandStopped(
+                            cluster,member):
+                        null,
+                    owned.HistoricalStoreProtected?
+                        member=>HistoricalLocalConfigGuard.DemandStopped(
+                            cluster,member,underOwnOperation:true):
+                        null);
                 return Success(id,new{
                     mapId=result.Map,plugin=result.Plugin,enabled=result.Enabled,
                     backupCreated=true,requiresRestart=result.RequiresRestart,

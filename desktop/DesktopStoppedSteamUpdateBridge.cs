@@ -44,21 +44,35 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         cluster=owner??throw new ArgumentNullException(nameof(owner));
         planner=plan??(map=>SteamUpdateDryRun.Plan(
             cluster.Config.SteamCmdExecutable,map.InstallationPath,
-            cluster.Config.LocalMaps.ToArray(),cluster.Check,Reserve));
-        runner=execute??((map,progress)=>SteamStoppedMapUpdater.UpdateAsync(
-            cluster,map,cluster.Config.SteamCmdExecutable,Reserve,
-            TimeSpan.FromHours(2),progress));
+            cluster.Config.LocalMaps.ToArray(),
+            member=>ObserveForSteam(member,true),Reserve));
+        runner=execute??((map,progress)=>map.HistoricalStoreProtected?
+            SteamStoppedMapUpdater.UpdateOriginalStoppedAsync(
+                cluster,map,cluster.Config.SteamCmdExecutable,Reserve,
+                TimeSpan.FromHours(2),
+                member=>ObserveForSteam(member,true),progress):
+            SteamStoppedMapUpdater.UpdateAsync(
+                cluster,map,cluster.Config.SteamCmdExecutable,Reserve,
+                TimeSpan.FromHours(2),progress));
         publishedBuild=inspectPublished??((map,token)=>
             AsaSteamBuildCatalog.CheckAsync(cluster.Config.SteamCmdExecutable,
                 map.InstallationPath,"public",TimeSpan.FromSeconds(90),token));
     }
+    private ProcessCheck ObserveForSteam(LocalMap map,bool underOwnOperation=false)=>
+        map.HistoricalStoreProtected?
+            HistoricalLocalConfigGuard.DemandStopped(cluster,map,underOwnOperation):
+            cluster.Check(map);
+
     private bool Stopped(LocalMap map)
     {
-        // Exactly the same ownership guard as the Core updater. A single map
-        // button must never skip Store siblings or overlapping local roots.
+        // An imported original Kova map uses the exact independent Windows
+        // ASA/Loader stopped-family observer; normal maps retain the same
+        // existing Core updater. No Store session or writer is touched.
         try
         {
-            SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,map);
+            if(map.HistoricalStoreProtected)ObserveForSteam(map);
+            SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                cluster,map,member=>ObserveForSteam(member,true));
             return true;
         }
         catch(Exception ex) when(ex is InvalidDataException or
@@ -138,7 +152,10 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                         string.Equals(Path.GetFullPath(m.InstallationPath),root,
                             StringComparison.OrdinalIgnoreCase)).ToArray();
                     var processes=related.Select(m=>{
-                        var process=cluster.Check(m);
+                        ProcessCheck process;
+                        try{process=ObserveForSteam(m);}
+                        catch(Exception){process=new(false,
+                            "Native ASA/Loader stopped proof unavailable",null,false);}
                         return new{mapName=m.Name,confirmedStopped=process.ConfirmedStopped,
                             running=process.Running,
                             pid=process.Identity?.Pid,
@@ -163,14 +180,15 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     bool stopped=processes.All(p=>p.confirmedStopped&&!p.running&&
                         p.pid==null&&p.loaderPid==null);
                     bool journalBlocked=HasBlockedJournal();
-                    bool historical=related.Any(m=>m.HistoricalStoreProtected||
-                        m.Maintenance ||
-                        !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256) ||
-                        !string.IsNullOrWhiteSpace(m.HistoricalMapKey) ||
-                        !string.IsNullOrWhiteSpace(m.FreshStoreClusterId) ||
-                        !string.IsNullOrWhiteSpace(m.FreshStoreTransferDirectory) ||
-                        !string.IsNullOrWhiteSpace(m.StoreTestRoot) ||
-                        KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(m) ||
+                    bool historical=related.Any(m=>m.Maintenance||
+                        m.ObservedReadOnlyImported||
+                        (!m.HistoricalStoreProtected&&(
+                            !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256)||
+                            !string.IsNullOrWhiteSpace(m.HistoricalMapKey)||
+                            !string.IsNullOrWhiteSpace(m.FreshStoreClusterId)||
+                            !string.IsNullOrWhiteSpace(m.FreshStoreTransferDirectory)||
+                            !string.IsNullOrWhiteSpace(m.StoreTestRoot)||
+                            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(m)))||
                         KovaCompatibleWorldBackup.InstallationRecoveryRequired(m));
                     bool safeInstallation=Stopped(owned);
                     return Ok(id,new{

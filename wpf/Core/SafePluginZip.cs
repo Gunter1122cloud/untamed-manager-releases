@@ -67,13 +67,17 @@ public static class SafePluginZip
     internal static PluginInstallResult Install(LocalMap map,ProcessCheck check,string zipPath,string backupRoot)
         =>InstallCore(map,check,zipPath,backupRoot,null);
 
-    public static PluginInstallResult InstallGuarded(ClusterService cluster,Guid mapId,string zipPath,string backupRoot)
+    public static PluginInstallResult InstallGuarded(ClusterService cluster,Guid mapId,
+        string zipPath,string backupRoot,
+        Func<LocalMap,ProcessCheck>? historicalStoppedObserver=null)
     {
-        var (map,observe)=GuardedObserver(cluster,mapId);
+        var (map,observe)=GuardedObserver(cluster,mapId,historicalStoppedObserver);
         return InstallCore(map,observe(),zipPath,backupRoot,observe);
     }
 
-    private static (LocalMap Map,Func<ProcessCheck> Observe) GuardedObserver(ClusterService cluster,Guid mapId)
+    private static (LocalMap Map,Func<ProcessCheck> Observe) GuardedObserver(
+        ClusterService cluster,Guid mapId,
+        Func<LocalMap,ProcessCheck>? historicalStoppedObserver=null)
     {
         var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==mapId&&mapId!=Guid.Empty)??
             throw new UnauthorizedAccessException("Only a registered local plugin target is allowed");
@@ -83,11 +87,30 @@ public static class SafePluginZip
             if(!cluster.Config.LocalMaps.Contains(map)||FixedLocal(map.InstallationPath)!=install)
                 throw new UnauthorizedAccessException("Plugin map ownership changed");
             ProcessCheck? selected=null;
-            foreach(var local in cluster.Config.LocalMaps.Where(x=>string.Equals(
+            // Unconfigured local maps do not share this installation.
+            // Their empty path must not disable ZIP installation for a valid
+            // unrelated Kova/ASA map.
+            foreach(var local in cluster.Config.LocalMaps.Where(x=>
+                !string.IsNullOrWhiteSpace(x.InstallationPath)&&string.Equals(
                 FixedLocal(x.InstallationPath),install,StringComparison.OrdinalIgnoreCase)))
             {
-                var state=cluster.Check(local);
-                if(local.Maintenance||state.Running||!state.ConfirmedStopped||
+                var generic=cluster.Check(local);
+                if(local.Maintenance||local.ObservedReadOnlyImported||
+                   generic.Running||generic.Identity!=null||generic.LoaderIdentity!=null)
+                    throw new InvalidOperationException("All maps sharing this plugin installation must remain stopped");
+                // Only the native Windows host can supply historical
+                // independently observed stopped-family authority. The
+                // ordinary map probe cannot match Kova's empty launch argv.
+                if(local.HistoricalStoreProtected&&historicalStoppedObserver==null)
+                    throw new UnauthorizedAccessException(
+                        "Historical Kova plugin ZIP requires native stopped-family observer");
+                if(!local.HistoricalStoreProtected&&
+                   UntamedWorldBackup.HasLiveOrHistoricalStore(local))
+                    throw new UnauthorizedAccessException(
+                        "Unregistered Store plugin ZIP mutation denied");
+                var state=local.HistoricalStoreProtected?
+                    historicalStoppedObserver!(local):generic;
+                if(state.Running||!state.ConfirmedStopped||
                    state.Identity!=null||state.LoaderIdentity!=null)
                     throw new InvalidOperationException("All maps sharing this plugin installation must remain stopped");
                 if(local.Id==mapId)selected=state;
@@ -234,9 +257,10 @@ public static class SafePluginZip
     }
 
     public static PluginRollbackResult RollbackGuarded(ClusterService cluster,Guid mapId,
-        string pluginName,string previousBackup,string backupRoot)
+        string pluginName,string previousBackup,string backupRoot,
+        Func<LocalMap,ProcessCheck>? historicalStoppedObserver=null)
     {
-        var (map,observe)=GuardedObserver(cluster,mapId);
+        var (map,observe)=GuardedObserver(cluster,mapId,historicalStoppedObserver);
         return RollbackCore(map,observe(),pluginName,previousBackup,backupRoot,observe);
     }
 

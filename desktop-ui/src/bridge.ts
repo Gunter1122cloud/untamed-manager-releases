@@ -422,6 +422,16 @@ export type PluginZipInstalled = {
   requiresRestart:true;runtimeLoadedVerified:false;
   evidence:"VERIFIED_GUARDED_PLUGIN_ZIP_INSTALL";
 };
+export type PluginZipRollbackPreview = {
+  token:string;mapId:string;mapName:string;plugin:string;
+  binaryCount:number;backupName:string;
+  evidence:"VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK_PREVIEW_NO_WRITE";
+};
+export type PluginZipRollbackReceipt = {
+  mapId:string;plugin:string;restoredBinaries:number;
+  protectiveBackupCreated:true;requiresRestart:true;runtimeLoadedVerified:false;
+  evidence:"VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK";
+};
 export type DurableSteamQueue = {
   exists:boolean;queueId?:string;phase?:string;activeMapName?:string|null;
   nextIndex?:number;total?:number;changedUtc?:string;summary?:string;
@@ -890,7 +900,7 @@ export type HistoricalLiveGuard = {
 
 export type HistoricalRconStatus = {
   mapId:string;mapName:string;configured:boolean;port:number;
-  verifiedIni:boolean;originalStoreTouched:false;
+  suggestedPort:number;verifiedIni:boolean;originalStoreTouched:false;
   evidence:"HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY";
 };
 export type HistoricalRconPreview = {
@@ -920,6 +930,21 @@ export type FreshStoreEnrollmentReceipt = {
   conversionPerformed:false;serverStarted:false;originalStoreTouched:false;
   requiresManualStart:true;evidence:string;
 };
+export type LocalAsaApiModeStatus = {
+  mapId:string;mapName:string;useApi:boolean;canChangeMode:boolean;
+  mode:"asaApiLoader"|"directAsa";requiresStoppedProcess:true;
+  serverStarted:false;originalStoreTouched:false;evidence:string;
+};
+export type LocalAsaApiModePreview = {
+  token:string;mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";startsServer:false;
+  changesStore:false;requiresStoppedProcess:true;evidence:string;
+};
+export type LocalAsaApiModeReceipt = {
+  mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";serverStarted:false;
+  originalStoreTouched:false;requiresManualStart:true;evidence:string;
+};
 export type FreshStoreLoaderModeStatus = {
   mapId:string;mapName:string;useApi:boolean;
   mode:"asaApiLoader"|"directAsa";confirmedStopped:boolean;
@@ -936,6 +961,12 @@ export type FreshStoreLoaderModeReceipt = {
   mapId:string;mapName:string;useApi:boolean;
   mode:"asaApiLoader"|"directAsa";serverStarted:false;
   originalStoreTouched:false;requiresManualStart:true;evidence:string;
+};
+export type HistoricalLoaderModeStatus = {
+  mapId:string;mapName:string;useApi:boolean;canChangeMode:boolean;
+  confirmedStopped:boolean;approvalRequired:boolean;
+  mode:"asaApiLoader"|"directAsa";requiresStoppedProcess:true;
+  serverStarted:false;originalStoreTouched:false;evidence:string;
 };
 export type HistoricalLoaderModePreview = {
   token:string;mapId:string;mapName:string;useApi:boolean;
@@ -1134,7 +1165,7 @@ export type OriginalKovaBatchReceipt = {
   evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED";
 };
 export type OriginalKovaLiveBatchPreview = {
-  token:string;localMaps:number;mapNames:string[];runningProcesses:number;
+  token:string;expiresUtc:string;localMaps:number;mapNames:string[];runningProcesses:number;
   directProcesses:number;apiLoaderPairs:number;
   alreadyRegistered:number;newlyDiscovered:number;
   sourceIdentityPreserved:true;existingAsaProcessesUnaffected:true;
@@ -1488,16 +1519,17 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
+  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
   "servers.initialStatus" | "servers.initialPreview" |
-  "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
+  "servers.initialApply" | "servers.apiModeStatus" |
+  "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
   "historical.originalLiveBatchPreview" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
-   "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
+   "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModeStatus" | "historical.loaderModePreview" | "historical.loaderModeApply" |
    "historical.rconLiveStatus" | "historical.rconPlayers" |
    "historical.rconGameLog" | "historical.rconChatLog" |
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
@@ -1799,6 +1831,10 @@ export const managerBridge = {
     request<PluginZipPreview>("plugins.zipSelect",{mapId}),
   pluginZipApply: (token:string) =>
     request<PluginZipInstalled>("plugins.zipApply",{token,confirm:true}),
+  pluginZipRollbackSelect: (mapId:string) =>
+    request<PluginZipRollbackPreview>("plugins.zipRollbackSelect",{mapId}),
+  pluginZipRollbackApply: (token:string) =>
+    request<PluginZipRollbackReceipt>("plugins.zipRollbackApply",{token,confirm:true}),
   pluginStates: (mapId:string) => request<PluginState>("plugins.state",{mapId}),
   pluginTogglePreview: (mapId:string,plugin:string,enabled:boolean) =>
     request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
@@ -2042,6 +2078,12 @@ export const managerBridge = {
     request<FreshStoreEnrollmentReceipt>("freshStore.enrollmentApply",{
       token,confirm:true,typedApproval:"NEW EMPTY STORE"
     }),
+  localAsaApiModeStatus: (mapId:string) =>
+    request<LocalAsaApiModeStatus>("servers.apiModeStatus",{mapId}),
+  localAsaApiModePreview: (mapId:string,useApi:boolean) =>
+    request<LocalAsaApiModePreview>("servers.apiModePreview",{mapId,useApi}),
+  localAsaApiModeApply: (token:string) =>
+    request<LocalAsaApiModeReceipt>("servers.apiModeApply",{token,confirm:true}),
   freshStoreLoaderModeStatus: (mapId:string) =>
     request<FreshStoreLoaderModeStatus>("freshStore.loaderModeStatus",{mapId}),
   freshStoreLoaderModePreview: (mapId:string,useApi:boolean) =>
@@ -2050,6 +2092,8 @@ export const managerBridge = {
     request<FreshStoreLoaderModeReceipt>("freshStore.loaderModeApply",{
       token,confirm:true,typedApproval:"FRESH STORE API MODE"
     }),
+  historicalLoaderModeStatus: (mapId:string) =>
+    request<HistoricalLoaderModeStatus>("historical.loaderModeStatus",{mapId}),
   historicalLoaderModePreview: (mapId:string,useApi:boolean) =>
     request<HistoricalLoaderModePreview>("historical.loaderModePreview",{mapId,useApi}),
   historicalLoaderModeApply: (token:string) =>

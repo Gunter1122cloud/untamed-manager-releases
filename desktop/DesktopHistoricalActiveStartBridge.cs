@@ -67,10 +67,21 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         string.IsNullOrWhiteSpace(map.ApiLoaderArguments)&&
         (!map.StartWithAsaApi||!string.IsNullOrWhiteSpace(map.ApiLoaderPath));
 
+    // Choosing the NEXT launch mode is independent of RCON attachment.
+    // Start still retains all original RCON and Store/session preconditions.
+    private static bool ModeOwned(LocalMap? map)=>
+        map!=null&&map.Id!=Guid.Empty&&map.HistoricalStoreProtected&&
+        !map.ObservedReadOnlyImported&&!map.Maintenance&&
+        !string.IsNullOrWhiteSpace(map.HistoricalMapKey)&&
+        map.HistoricalArchiveSha256?.Length==64&&
+        map.HistoricalArchiveSha256.All(Uri.IsHexDigit)&&
+        string.IsNullOrWhiteSpace(map.StoreTestRoot)&&
+        string.IsNullOrWhiteSpace(map.Arguments)&&
+        string.IsNullOrWhiteSpace(map.ApiLoaderArguments);
+
     private bool PhysicalModePreflight(LocalMap map,bool useApi)
     {
         if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
-           !AsaRconConfigurationEvidence.Matches(map)||
            KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             return false;
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
@@ -110,11 +121,42 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
             string? method=route.GetString();
             if(method is not ("historical.activeStartStatus" or
                 "historical.activeStartPreview" or "historical.activeStartApply" or
-                "historical.loaderModePreview" or "historical.loaderModeApply"))
+                "historical.loaderModeStatus" or "historical.loaderModePreview" or
+                "historical.loaderModeApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
             {
+                if(method=="historical.loaderModeStatus")
+                {
+                    if(!ReadId(request,"mapId",out var mapId))
+                        return Fail(id,"UM-STORE-LOADER-MODE-MAP");
+                    var map=Owned(mapId);
+                    if(!ModeOwned(map))
+                        return Fail(id,"UM-STORE-LOADER-MODE-NOT-OWNED");
+                    bool directReady=false,apiReady=false;
+                    try
+                    {
+                        directReady=modePreflight(map!,false);
+                        apiReady=modePreflight(map!,true);
+                    }
+                    catch(Exception ex) when(ex is IOException or
+                        InvalidOperationException or UnauthorizedAccessException or
+                        ArgumentException){}
+                    bool canChange=map!.StartWithAsaApi?directReady:apiReady;
+                    if(map.HistoricalLaunchModeNeedsApproval)
+                        canChange|=directReady;
+                    return Ok(id,new{
+                        mapId,mapName=map.Name,useApi=map.StartWithAsaApi,
+                        canChangeMode=canChange,
+                        confirmedStopped=directReady||apiReady,
+                        approvalRequired=map.HistoricalLaunchModeNeedsApproval,
+                        mode=map.StartWithAsaApi?"asaApiLoader":"directAsa",
+                        requiresStoppedProcess=true,
+                        serverStarted=false,originalStoreTouched=false,
+                        evidence="HISTORICAL_LOCAL_API_LAUNCH_PREFERENCE_STATUS"
+                    });
+                }
                 if(method=="historical.loaderModePreview")
                 {
                     pendingMode=null;pending=null;
@@ -124,7 +166,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-LOADER-MODE-SELECTION");
                     bool useApi=setting.GetBoolean();
                     var map=Owned(mapId);
-                    if(!Imported(map)||
+                    if(!ModeOwned(map)||
                        (map!.StartWithAsaApi==useApi&&
                         !map.HistoricalLaunchModeNeedsApproval))
                         return Fail(id,"UM-STORE-LOADER-MODE-UNCHANGED-OR-NOT-OWNED");
@@ -156,7 +198,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-LOADER-MODE-APPROVAL");
                     var requested=pendingMode;pendingMode=null;pending=null;
                     var map=Owned(requested.MapId);
-                    if(!Imported(map)||
+                    if(!ModeOwned(map)||
                        (map!.StartWithAsaApi==requested.UseApi&&
                         !map.HistoricalLaunchModeNeedsApproval)||
                        JsonSerializer.Serialize(map)!=requested.Profile)

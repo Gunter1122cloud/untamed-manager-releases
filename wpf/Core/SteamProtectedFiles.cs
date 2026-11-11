@@ -17,7 +17,14 @@ public static class SteamProtectedFiles
 {
     private static readonly string[] Subtrees={
         Path.Combine("ShooterGame","Saved"),
-        Path.Combine("ShooterGame","Binaries","Win64","ArkApi","Plugins")
+        // Plugins alone do not cover the ASA API runtime DLL, loader
+        // configuration, or disabled plugin directories. SteamCMD must not
+        // silently remove or alter any of those third-party local files.
+        Path.Combine("ShooterGame","Binaries","Win64","ArkApi"),
+        Path.Combine("ShooterGame","Binaries","Win64","UntamedDisabledPlugins")
+    };
+    private static readonly string[] ExplicitFiles={
+        Path.Combine("ShooterGame","Binaries","Win64","AsaApiLoader.exe")
     };
     public static IReadOnlyDictionary<string,string> Snapshot(string installRoot)
     {
@@ -59,6 +66,21 @@ public static class SteamProtectedFiles
                     files.Add(relative,info.Length+":"+hash);
                 }
             }
+        }
+        foreach(var relative in ExplicitFiles)
+        {
+            string file=Path.Combine(full,relative);
+            if(!File.Exists(file))continue;
+            if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("A protected ASA API loader is a reparse point");
+            var info=new FileInfo(file);
+            using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.Read);
+            if(info.Length!=stream.Length)
+                throw new InvalidDataException("ASA API loader changed while opening");
+            string hash=Convert.ToHexString(SHA256.HashData(stream));
+            if(info.Length!=new FileInfo(file).Length)
+                throw new InvalidDataException("ASA API loader changed while hashing");
+            files.Add(relative,info.Length+":"+hash);
         }
         return files;
     }
