@@ -138,6 +138,59 @@ public static class AsaReadyProbeTests
             "missing local RCON credentials never invoke transport");
         map.RconPasswordProtected="TEST_ONLY_ENCRYPTED_PLACEHOLDER";
 
+        // Current-session join advertising is independent of ListPlayers.
+        // These are synthetic local logs, not a spawned or contacted ASA.
+        string gameLog=Path.Combine(installation,"ShooterGame","Saved","Logs",
+            "ShooterGame.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(gameLog)!);
+        map.LogFilePath=gameLog;
+        static string GameStamp(DateTimeOffset utc)=>
+            utc.UtcDateTime.ToString("yyyy.MM.dd-HH.mm.ss:fff",
+                System.Globalization.CultureInfo.InvariantCulture);
+        File.WriteAllLines(gameLog,new[]{
+            "["+GameStamp(started.AddMinutes(2))+"]Log file open",
+            "["+GameStamp(started.AddMinutes(3))+"]Server has successfully started!",
+            "["+GameStamp(started.AddMinutes(4))+"]Server has completed startup and is now advertising for join."
+        });
+        var joinOnly=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(joinOnly.Stage==AsaRuntimeStage.RconAuthenticated &&
+              joinOnly.JoinAdvertised && !joinOnly.ApiInitialized &&
+              !joinOnly.ProductionReady && joinOnly.ApiRequired,
+            "current ASA join-advertising log alone cannot certify opted-in API");
+
+        string apiLog=Path.Combine(installation,"ShooterGame","Win64","logs",
+            "ArkApi.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(apiLog)!);
+        File.WriteAllText(apiLog,DateTime.Now.ToString("MM/dd/yy HH:mm",
+            System.Globalization.CultureInfo.InvariantCulture)+
+            " [API] API was successfully loaded"+Environment.NewLine);
+        var apiReady=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(apiReady.ProductionReady && apiReady.JoinAdvertised &&
+              apiReady.ApiInitialized && apiReady.LoaderObserved,
+            "opted-in API runtime readiness requires matching loader-run log");
+        File.Delete(apiLog);
+        var missingApi=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!missingApi.ProductionReady && !missingApi.ApiInitialized,
+            "missing API log never reuses a previous positive runtime proof");
+
+        map.StartWithAsaApi=false;
+        var directReady=await AsaReadyProbe.ObserveAsync(map,
+            ()=>steady with {LoaderIdentity=null},
+            _=>Task.FromResult("No Players Connected."));
+        Check(directReady.ProductionReady && directReady.JoinAdvertised &&
+              !directReady.ApiRequired && !directReady.ApiInitialized,
+            "direct ASA + RCON + current join-advertising log is runtime-ready without API");
+        map.StartWithAsaApi=true;
+        File.AppendAllText(gameLog,
+            "["+GameStamp(DateTimeOffset.UtcNow)+"]Log file closed"+Environment.NewLine);
+        var shutdown=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!shutdown.JoinAdvertised && !shutdown.ProductionReady,
+            "closed ASA log session cannot claim an accepting server");
+
         using var cancelled=new CancellationTokenSource();
         cancelled.Cancel();
         bool cancelledBeforeInspect=false;
