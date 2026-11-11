@@ -1590,7 +1590,7 @@ test.beforeEach(async ({ page }) => {
         }
         case "operations.scheduleCreate": {
           if(!m.confirm || !state.local.maps.some(x=>x.id===m.mapId)||
-             !["Observation","ModCheck","ApiCheck","SteamCheck"].includes(m.kind??"")||
+             !["Observation","ModCheck","ApiCheck"].includes(m.kind??"")||
              !m.intervalMinutes || m.intervalMinutes<5 || m.intervalMinutes>10080 ||
              opsJobEnabled)throw new Error("UM-OPS-SCHEDULE-DENIED");
           opsJobCreated=true;opsJobEnabled=true;
@@ -2505,6 +2505,7 @@ test("read-only operations scheduler requires approval, shows durable receipt an
   await expect(page.getByRole("combobox",{name:"Ütemezett ellenőrzés mapja"})).toHaveCount(0);
   await expect(page.locator(".ops-scheduler-map")).toContainText("The Island");
   await expect(add).toBeDisabled();
+  await expect(page.getByRole("combobox",{name:"Csak olvasó ellenőrzés típusa"}).getByRole("option",{name:/Steam/i})).toHaveCount(0);
   await page.getByRole("combobox",{name:"Csak olvasó ellenőrzés típusa"}).selectOption("Observation");
   await page.getByRole("spinbutton",{name:"Ellenőrzési időköz percben"}).fill("5");
   await expect(add).toBeDisabled();
