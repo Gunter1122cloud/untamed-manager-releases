@@ -347,11 +347,13 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             "Új eredeti ASA PID létrejött; játékbeli készenlét nem igazolt",
                             newPid:verifiedNewServerPid);
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
                         try{restart.Change(record.Id,AsaRestartPhase.NeedsOperator);}
                         catch{/* Durable previous state remains; never clear a journal. */}
-                        Update(job,"needsOperator","Store-v1 Restart megszakadt: helyi PID és tartós napló kézi ellenőrzése szükséges");
+                        Update(job,"needsOperator",
+                            "Store-v1 Restart megszakadt ["+NativeLifecycleFailureCode.From(ex)+
+                            "]: helyi PID és tartós napló kézi ellenőrzése szükséges");
                     }
                 });
                 return Ok(id,new{
