@@ -77,6 +77,11 @@ internal static class HistoricalPluginZipTests
             GamePort=7777,QueryPort=27015
         };
         cluster.AddMap(map);
+        // Another local map may be registered before its Steam installation
+        // wizard has selected a destination. It does not own this root.
+        cluster.Config.LocalMaps.Add(new LocalMap{
+            Id=Guid.NewGuid(),Name="Not yet installed"
+        });
         using var bridge=new DesktopPluginZipBridge(cluster,()=>archive);
         var preview=await Call(bridge,"plugins.zipSelect",new{mapId=map.Id});
         Check(preview.GetProperty("ok").GetBoolean()&&
