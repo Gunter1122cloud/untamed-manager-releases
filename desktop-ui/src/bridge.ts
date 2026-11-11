@@ -1519,7 +1519,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.originalLiveBatchPreview" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
-   "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModePreview" | "historical.loaderModeApply" |
+   "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModeStatus" | "historical.loaderModePreview" | "historical.loaderModeApply" |
    "historical.rconLiveStatus" | "historical.rconPlayers" |
    "historical.rconGameLog" | "historical.rconChatLog" |
    "historical.gracefulStopPreview" | "historical.gracefulStopApply" |
