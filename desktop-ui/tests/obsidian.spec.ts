@@ -349,6 +349,13 @@ test.beforeEach(async ({ page }) => {
         } as typeof state.local.maps[number]);
     }
     let rconAllowed=false;
+    let dashboardPlayerListFixture=false;
+    (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS__?:()=>void})
+      .__UNTAMED_DASHBOARD_PLAYERS__=()=>{
+        dashboardPlayerListFixture=true;
+        Object.assign(state.local.maps[0],{rconConfigured:true,running:true});
+        Object.assign(state.local.maps[1],{rconConfigured:true,running:true});
+      };
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
     const pluginJsonToken="00000000-0000-4000-8000-000000001262";
@@ -656,7 +663,21 @@ test.beforeEach(async ({ page }) => {
             evidence:"LOCAL_VERIFIED_READ_ONLY_RCON"
           };
         case "rcon.listPlayers":
-          throw new Error("Only verified local process/port can query players");
+          if(!dashboardPlayerListFixture)
+            throw new Error("Only verified local process/port can query players");
+          if(m.mapId===one)return {
+            mapId:one,mapName:"The Island",response:
+              "1. Alpha, 01139694fbcc481b8a11f4d6ea667bd2\n"+
+              "2. Beta, 01139694fbcc481b8a11f4d6ea667bd3",
+            observedUtc:"2026-11-11T18:00:00Z",readOnly:true,
+            saveCompleteProven:false,evidence:"LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS"
+          };
+          if(m.mapId===two)return {
+            mapId:two,mapName:"Astraeos",response:"No Players Connected",
+            observedUtc:"2026-11-11T18:00:00Z",readOnly:true,
+            saveCompleteProven:false,evidence:"LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS"
+          };
+          throw new Error("Unknown player-list map");
         case "backup.history": return {
           mapId:m.mapId,
           mapName:m.mapId===two?"Astraeos":"The Island",
@@ -2591,6 +2612,21 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await expect(row).toContainText("Astraeos");
   await expect(row).toContainText(/SaveWorld|Újraindítás/);
   await expect(page.locator(".ops-summary")).toContainText("Natív ASA feladat");
+});
+
+
+test("dashboard shows authenticated per-map ASA players and zero without inventing peer counts",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.evaluate(()=>
+    (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS__?:()=>void})
+      .__UNTAMED_DASHBOARD_PLAYERS__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  const rows=page.locator(".premium-server-row");
+  await expect(rows.filter({hasText:"The Island"}).locator(".premium-server-players")).toHaveText("2");
+  await expect(rows.filter({hasText:"Astraeos"}).locator(".premium-server-players")).toHaveText("0");
+  await expect(rows.filter({hasText:"Ragnarok"}).locator(".premium-server-players")).toHaveText("—");
+  await expect(page.locator(".premium-metric").filter({hasText:"Játékosok"}).locator("strong")).toHaveText("2");
 });
 
 test("original Store physical UNC probe is explicit and never grants transfer or restore rights",async({page})=>{
