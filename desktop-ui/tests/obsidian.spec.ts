@@ -3132,6 +3132,9 @@ test("Update Center verifies Obsidian-only installer and requires explicit two-s
   await page.goto("/");
   await page.getByRole("button",{name:"Frissítések"}).click();
   await expect(page.getByRole("heading",{name:"Frissítési központ"})).toBeVisible();
+  await expect(page.getByText("Frissítési mód")).toBeVisible();
+  await expect(page.getByText(/Kizárólag kézi indítás/)).toBeVisible();
+  await expect(page.getByText("Automatikus telepítés")).toHaveCount(0);
   await expect(page.getByText("2.0.0 Preview")).toBeVisible();
   await expect(page.getByText("Build #1478")).toBeVisible();
   await expect(page.getByText(/egyetlen támogatott kiadási ág/)).toBeVisible();
