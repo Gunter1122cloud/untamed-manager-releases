@@ -1037,7 +1037,7 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
         <span className={plugin.protectedData ? "mod-tag amber" : "mod-tag green"}>{plugin.protectedData ? "Védett" : "Helyi leltár"}</span>
         <button type="button" className="secondary" disabled={working||
           Boolean(snapshot.local.maps.find(m=>m.id===selected)?.running)||
-          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.storeProtected)}
+          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.observedReadOnlyImported)}
           onClick={()=>setJsonPlugin(plugin.name)}>
           config.json szerkesztése
         </button>
@@ -1051,7 +1051,9 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
       }}><RefreshCw size={15}/> Mappák frissítése</button>}>
       <p className="muted small">Az eredeti C# PluginStateManager az egész pluginmappát mozgatja; beállítások, licencfájlok és helyi adatállományok ellenőrzött mentésben megmaradnak. Az API futás közbeni betöltöttsége nem következtethető ki a lemezállapotból.</p>
       {pluginStates?.historicalProtected && <div className="warning-inline">
-        <Shield size={17}/> Ez a Store-v1 map védett. Pluginművelet tiltva.
+        <Shield size={17}/> Eredeti Store-v1 pluginművelet: csak igazoltan
+        leállított ASA/Loader mellett, az eredeti fájlok mentése és
+        natív jóváhagyás után hajtható végre.
       </div>}
       {!pluginStates && selected && <div className="empty">Pluginmappák állapotának olvasása...</div>}
       {pluginStates && pluginStates.plugins.length===0 && <div className="empty">
@@ -1062,7 +1064,9 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
         <div className="plugin-copy"><b>{plugin.name}</b>
           <small>{plugin.enabled?"Engedélyezett mappa":"Letiltott mappa"} · ASA futásidőben nem igazolt</small>
         </div>
-        <button type="button" className="secondary" disabled={working||Boolean(pluginStates?.historicalProtected)}
+        <button type="button" className="secondary" disabled={working||
+          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.running)||
+          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.observedReadOnlyImported)}
           onClick={()=>{void inspectToggle(plugin.name,!plugin.enabled);}}>
           {plugin.enabled?"Letiltás előnézete":"Engedélyezés előnézete"}
         </button>
