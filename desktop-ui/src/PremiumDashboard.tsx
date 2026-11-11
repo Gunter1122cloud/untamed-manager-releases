@@ -1,9 +1,9 @@
-import {useMemo,useState} from "react";
+import {useEffect,useMemo,useState} from "react";
 import {
   Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, Cpu, Plus,
   HardDrive, Map as MapIcon, Monitor, Search, Server, Shield, Users, WifiOff, Grid2X2, List
 } from "lucide-react";
-import {dashboardRemotes,type DashboardSnapshot,type PublicMap} from "./bridge";
+import {dashboardRemotes,managerBridge,type DashboardSnapshot,type PublicMap} from "./bridge";
 import {MapCover} from "./MapArtwork";
 import {ClusterMapGallery} from "./ClusterMapGallery";
 
@@ -26,8 +26,21 @@ function Metric({icon:Icon,value,label,detail,tone="mint"}:{
   </div>;
 }
 
-function ServerRow({map,host,local,onSelect}:{
-  map:PublicMap;host:string;local:boolean;onSelect:(id:string)=>void
+/** ASA ListPlayers: never guess zero on errors, unsupported output or stale peers. */
+export function parseAsaPlayerCount(raw:string):number|null {
+  const response=raw.trim();
+  if(/^No Players Connected\\.?$/i.test(response))return 0;
+  const lines=response.split(/\\r?\\n/).map(line=>line.trim()).filter(Boolean);
+  if(!lines.length||lines.length>100)return null;
+  // Names may contain punctuation/commas. The server-provided player ID
+  // follows the final comma; no identifiers are stored or rendered here.
+  if(!lines.every(line=>/^\\d+\\.\\s+.+,\\s*[A-Za-z0-9]{16,64}$/.test(line)))return null;
+  return lines.length;
+}
+
+function ServerRow({map,host,local,onSelect,playerCount}:{
+  map:PublicMap;host:string;local:boolean;onSelect:(id:string)=>void;
+  playerCount:number|null;
 }){
   return <div className="premium-server-row" role="row"
     tabIndex={local?0:-1}
@@ -45,7 +58,10 @@ function ServerRow({map,host,local,onSelect}:{
         (map.observedRuntimeState==="observedRunning"?"Megfigyelt · fut":"Megfigyelés: nem igazolt"):
         (map.running?"Fut":"Leállítva")}
     </span>
-    <span className="premium-server-players" role="cell" title="Játékosszámot csak hitelesített RCON-ból jelenítünk meg">—</span>
+    <span className="premium-server-players" role="cell"
+      title={playerCount===null?"Nincs hitelesített, aktuális RCON játékoslista":"Hitelesített helyi RCON ListPlayers"}>
+      {playerCount===null?"—":playerCount}
+    </span>
     <span className="premium-server-port" role="cell">
       {map.gamePort?map.gamePort:"—"}
     </span>
@@ -111,6 +127,39 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
   const hosts=1+remotes.length;
   const local=snapshot.local.maps;
   const peer=useMemo(()=>remotes.flatMap(remote=>remote.maps),[remotes]);
+  const [playerCounts,setPlayerCounts]=useState<Record<string,number|null>>({});
+  const eligiblePlayers=local.filter(map=>map.running&&!map.observedReadOnlyImported&&
+    map.rconConfigured&&!map.maintenance)
+    .map(map=>map.id+":"+(map.storeProtected?"historical":"local"))
+    .sort().join("|");
+  useEffect(()=>{
+    // Only explicitly registered running local maps. Remote peers are not
+    // queried through this Manager, and failures must never display zero.
+    let closed=false,busy=false;
+    const maps=eligiblePlayers?eligiblePlayers.split("|").map(item=>{
+      const colon=item.lastIndexOf(":");
+      return {id:item.slice(0,colon),historical:item.slice(colon+1)==="historical"};
+    }):[];
+    setPlayerCounts({});
+    const refresh=async()=>{
+      if(closed||busy||!maps.length)return;
+      busy=true;
+      try {
+        const counts=await Promise.all(maps.map(async map=>{
+          try{
+            const answer=map.historical
+              ?await managerBridge.historicalRconPlayers(map.id)
+              :await managerBridge.rconListPlayers(map.id);
+            return [map.id,parseAsaPlayerCount(answer.response)] as const;
+          }catch{return [map.id,null] as const;}
+        }));
+        if(!closed)setPlayerCounts(Object.fromEntries(counts));
+      }finally{busy=false;}
+    };
+    void refresh();
+    const poll=window.setInterval(()=>{void refresh();},45000);
+    return ()=>{closed=true;window.clearInterval(poll);};
+  },[eligiblePlayers]);
   const maps=useMemo(()=>{
     const term=query.trim().toLocaleLowerCase("hu-HU");
     return [
@@ -134,8 +183,12 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
         detail="Regisztrált, megfigyelt szerverek"/>
       <Metric icon={Activity} value={running} label="Fut"
         detail="Ténylegesen megfigyelt állapot"/>
-      <Metric icon={Users} value="—" label="Játékosok"
-        detail="Még nincs igazolt RCON-adat" tone="cyan"/>
+      <Metric icon={Users}
+        value={local.filter(map=>map.running&&playerCounts[map.id]!==null&&
+          playerCounts[map.id]!==undefined).length
+          ?local.reduce((sum,map)=>sum+(playerCounts[map.id]??0),0):"—"}
+        label="Játékosok" detail="Igazolt helyi RCON-adatok; távoli mapok nélkül"
+        tone="cyan"/>
       <Metric icon={Monitor} value={hosts} label="Gazdagép"
         detail={remotes.length?`Helyi + ${remotes.length} LAN-peer`:"Helyi gép"} tone="cyan"/>
     </div>
@@ -168,7 +221,8 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
             <span>ÁLLAPOT</span><span>JÁTÉKOSOK</span><span>GAME UDP</span><span>RÉSZLETEK</span>
           </div>
           {maps.map(({map,host,isLocal})=><ServerRow key={host+map.id}
-            map={map} host={host} local={isLocal} onSelect={onSelect}/>)}
+            map={map} host={host} local={isLocal} onSelect={onSelect}
+            playerCount={isLocal?(playerCounts[map.id]??null):null}/>)}
           {maps.length===0 && <div className="premium-dashboard-empty">
             <Boxes size={30}/><b>{query?"Nincs találat":"A helyi Manager még nem tartalmaz mapot"}</b>
             <p>{query?"Próbálj másik keresést.":"A már telepített ASA-mapokat az eredeti konfigurációjuk megőrzésével veheted fel. Az alábbiak elérhető mapválasztékok, nem futó vagy regisztrált szerverek."}</p>
