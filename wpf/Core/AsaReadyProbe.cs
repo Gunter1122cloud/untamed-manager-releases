@@ -102,7 +102,8 @@ public static class AsaReadyProbe
         if(map==null||localMaps==null)throw new ArgumentNullException(nameof(map));
         return localMaps.Any(other=>other.Id!=map.Id &&
             ((map.RconPort>0 && other.RconPort==map.RconPort) ||
-             (map.GamePort>0 && other.GamePort==map.GamePort)));
+             (map.GamePort>0 && other.GamePort==map.GamePort) ||
+              (map.QueryPort>0 && other.QueryPort==map.QueryPort)));
     }
 
     // A declared command-line port cannot silently disagree with the GUI
