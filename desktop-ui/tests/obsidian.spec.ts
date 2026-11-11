@@ -5326,6 +5326,32 @@ test("HP/Ryzen portable mod profiles require native selection and per-host local
   await expect(panel).toContainText("tényleges betöltését");
 });
 
+test("P0 original Kova Store-v1 mod profiles export and import from native local UI",async({page})=>{
+  await page.addInitScript(()=>{
+    (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
+      .__UNTAMED_PROTECT_TEST_MAP__?.();
+  });
+  await page.goto("/");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("combobox",{name:"Helyi map"}).selectOption(second);
+  await page.getByRole("tab",{name:"Modprofilok – N host"}).click();
+  const panel=page.getByRole("region",{name:"Többhostos modprofil átadás"});
+  await expect(panel.getByRole("button",{name:"Kijelölt map profiljának exportja"}))
+    .toBeEnabled();
+  await panel.getByRole("button",{name:"Kijelölt map profiljának exportja"}).click();
+  await expect(panel).toContainText("Exportálva:");
+  await expect(panel.getByRole("group",{name:"Modprofil célmapok"}))
+    .toContainText("The Island");
+  await panel.getByRole("group",{name:"Modprofil célmapok"})
+    .getByRole("checkbox").first().check();
+  await panel.getByRole("button",{name:"JSON-profil kiválasztása és előnézete"}).click();
+  const approval=panel.getByRole("region",{name:"Modprofil import előnézete"});
+  await expect(approval).toBeVisible();
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"Jóváhagyás és mentés"}).click();
+  await expect(panel).toContainText("map módosítva");
+});
+
 test("Mod Center Copy To merges selected local maps only after native diff approval",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
