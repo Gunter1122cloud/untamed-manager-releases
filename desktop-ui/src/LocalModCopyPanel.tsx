@@ -16,7 +16,8 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const eligible=useMemo(()=>maps.filter(m=>
-    m.id!==sourceMapId && !m.storeProtected && !m.maintenance),[maps,sourceMapId]);
+    m.id!==sourceMapId && !m.maintenance && !m.observedReadOnlyImported &&
+    (!m.storeProtected || !m.freshStoreEnrolled)),[maps,sourceMapId]);
   const filtered=useMemo(()=>eligible.filter(m=>{
     const needle=query.trim().toLocaleLowerCase("hu-HU");
     return !needle||m.name.toLocaleLowerCase("hu-HU").includes(needle)||
@@ -26,7 +27,9 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
   const safePage=Math.min(page,pageCount-1);
   const visible=filtered.slice(safePage*pageSize,(safePage+1)*pageSize);
   const source=maps.find(m=>m.id===sourceMapId);
-  const sourceAllowed=Boolean(source && !source.storeProtected && !source.maintenance);
+  const sourceAllowed=Boolean(source && !source.maintenance &&
+    !source.observedReadOnlyImported &&
+    (!source.storeProtected || !source.freshStoreEnrolled));
   useEffect(()=>{
     setTargets([]);setQuery("");setPage(0);setPreview(null);setApproved(false);
     setError("");setNotice("");
@@ -61,10 +64,12 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
   return <section className="premium-panel" aria-label="Modlista másolása több mapra">
     <div className="panel-head"><h3><Layers3 size={18}/> Copy to – többmapos modlista</h3>
       <span className="mod-tag amber">Csak helyi Manager</span></div>
-    <p className="muted small">A kijelölt mapok indítási modkonfigurációja módosul.
-      A másik gép, az eredeti Store-v1, az ASA-szerverek és a játékosmentések érintetlenek maradnak.</p>
+    <p className="muted small">A kijelölt mapok következő indításához használt
+      modlistája módosul. Az eredeti Kova Store-v1 mapoknál kizárólag a
+      Manager dedikált modlistája változik, igazoltan leállított ASA/Loader mellett.
+      A másik gép, a közös Store és a játékosmentések érintetlenek maradnak.</p>
     {!sourceAllowed&&<div className="warning-inline"><Shield size={16}/>
-      Védett Store-v1 vagy karbantartás alatt álló forrásmapból nem módosíthatók az indítási beállítások.</div>}
+      Nem helyi, még át nem vett Store vagy karbantartás alatt álló forrásmap nem szerkeszthető.</div>}
     <label>Másolási mód
       <select aria-label="Modmásolási mód" value={mode} disabled={busy}
         onChange={e=>{setMode(e.target.value as ModCopyMode);invalidate();}}>
@@ -105,9 +110,13 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
         visible.map(map=><label key={map.id} className="plugin-row">
           <input type="checkbox" checked={targets.includes(map.id)} disabled={busy||(!targets.includes(map.id)&&targets.length>=25)}
             onChange={()=>toggle(map.id)}/>
-          <span><strong>{map.name}</strong><small>{map.running?
-            "Futó ASA – csak a következő indítási konfiguráció módosul":
-            "Helyi map"}</small></span>
+          <span><strong>{map.name}</strong><small>{
+            map.storeProtected?
+              (map.running?"Eredeti Store-v1 – előbb állítsd le az ASA/Loadert":
+                "Eredeti Store-v1 – leállított helyi map"):
+              (map.running?"Futó ASA – csak a következő indítási konfiguráció módosul":
+                "Helyi map")
+          }</small></span>
         </label>)}
     </div>
     <div className="draft-actions">
