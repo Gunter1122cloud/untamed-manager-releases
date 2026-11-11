@@ -79,6 +79,9 @@ internal static class OriginalStoreHandoffReadinessTests
         Check(good.NativeFiveProcessProof&&good.DirectAsaProcesses==4&&
               good.VerifiedLoaderAsaPairs==1&&good.ClusterConfigurationCompliant,
             "synthetic native WMI and KovaCluster UNC evidence separated");
+        Check(good.RconProfileConfiguredCount==0&&
+              good.Blockers.Contains("OBSIDIAN_RCON_PROFILE_MISSING_OR_INCOMPLETE"),
+            "five running and registered maps with port zero have no authorized Obsidian RCON");
         Check(!good.ExclusiveControllerHandoffVerified&&
               !good.KovaWatchdogDisabledVerified&&
               !good.ScheduledTasksReviewed&&
@@ -89,6 +92,13 @@ internal static class OriginalStoreHandoffReadinessTests
               !good.RoundTripGameplayVerified,
             "synthetic A-to-B-to-A cannot certify real gameplay or embedded survivor");
 
+        var configuredRcon=maps[0];
+        configuredRcon.RconPort=37055;
+        configuredRcon.RconPasswordProtected="SYNTHETIC-CREDENTIAL-PLACEHOLDER";
+        Check(Inspect().RconProfileConfiguredCount==1,
+            "a saved RCON port and credential may be counted, never confused with authentication");
+        configuredRcon.RconPort=0;
+        configuredRcon.RconPasswordProtected="";
         var missing=Inspect(maps.Take(4).ToArray());
         Check(missing.ExactLocalRegistrations==4&&
               !missing.ClusterConfigurationCompliant&&
