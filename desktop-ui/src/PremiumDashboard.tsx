@@ -29,12 +29,12 @@ function Metric({icon:Icon,value,label,detail,tone="mint"}:{
 /** ASA ListPlayers: never guess zero on errors, unsupported output or stale peers. */
 export function parseAsaPlayerCount(raw:string):number|null {
   const response=raw.trim();
-  if(/^No Players Connected\\.?$/i.test(response))return 0;
-  const lines=response.split(/\\r?\\n/).map(line=>line.trim()).filter(Boolean);
+  if(/^No Players Connected\.?$/i.test(response))return 0;
+  const lines=response.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
   if(!lines.length||lines.length>100)return null;
   // Names may contain punctuation/commas. The server-provided player ID
   // follows the final comma; no identifiers are stored or rendered here.
-  if(!lines.every(line=>/^\\d+\\.\\s+.+,\\s*[A-Za-z0-9]{16,64}$/.test(line)))return null;
+  if(!lines.every(line=>/^\d+\.\s+.+,\s*[A-Za-z0-9]{16,64}$/.test(line)))return null;
   return lines.length;
 }
 
