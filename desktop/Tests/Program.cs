@@ -88,6 +88,16 @@ var map=new LocalMap{
         "ShooterGame","Binaries","Win64","ArkAscendedServer.exe")
 };
 cluster.AddMap(map);
+// The existing production SteamCMD path MUST NOT update historical Store data,
+// even when an isolated synthetic process inspector reports "stopped".
+var originalUpdateTarget=cluster.Config.LocalMaps.Single(m=>m.Id==map.Id);
+originalUpdateTarget.HistoricalStoreProtected=true;
+bool historicalSteamDenied=false;
+try { SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,originalUpdateTarget); }
+catch(UnauthorizedAccessException) { historicalSteamDenied=true; }
+finally { originalUpdateTarget.HistoricalStoreProtected=false; }
+Check(historicalSteamDenied,
+    "historical Store-v1 SteamCMD remains blocked with synthetic stopped process");
 // The travel capture endpoint must explain an incomplete Manager registry,
 // not silently collapse it into a generic evidence error.
 var incompleteFiveCapture=await Call(
