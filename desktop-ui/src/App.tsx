@@ -1548,12 +1548,16 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   setSelected:(value:string)=>void;onConfigured:()=>Promise<void>
 }) {
   const [section,setSection]=useState<MapSection>("overview");
+  const [originalRconAction,setOriginalRconAction]=useState<"broadcast"|"wildWipe">("broadcast");
   const [initialSetupSaved,setInitialSetupSaved]=useState(false);
   const [lifecycle,setLifecycle]=useState<AsaLifecycleJournal|null>(null);
   const [restartJournal,setRestartJournal]=useState<AsaRestartJournalStatus|null>(null);
   const [journalsVerifiedFor,setJournalsVerifiedFor]=useState("");
   const [journalReadError,setJournalReadError]=useState(false);
-  useEffect(()=>{setSection("overview");setInitialSetupSaved(false);},[mapId]);
+  useEffect(()=>{
+    setSection("overview");setInitialSetupSaved(false);
+    setOriginalRconAction("broadcast");
+  },[mapId]);
   useEffect(()=>{
     let active=true;
     setLifecycle(null);setRestartJournal(null);
@@ -1679,6 +1683,13 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
           Meglévő RCON csatlakoztatása
         </button>
       </div>}
+      {historical&&<div className="map-overview-actions">
+        <button type="button" className="secondary" onClick={()=>{
+          setOriginalRconAction("wildWipe");setSection("rcon");
+        }}>
+          Vad dinók törlése (RCON)
+        </button>
+      </div>}
       {historical&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
       {historical&&<HistoricalStoreSaveWorldPanel key={mapId} mapId={mapId} running={map.running} onSaved={onConfigured}/>}
       {historical&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
@@ -1720,7 +1731,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         <HistoricalRconAttach key={mapId} mapId={mapId} onConfigured={onConfigured}/>
         {map.rconConfigured
           ?<><HistoricalRconLivePanel key={mapId} mapId={mapId} running={map.running}/>
-            <HistoricalAdminRconPanel key={mapId} mapId={mapId} running={map.running}/></>
+            <HistoricalAdminRconPanel key={mapId} mapId={mapId}
+              initialAction={originalRconAction} running={map.running}/></>
           :<div className="warning-inline" role="status">
             <Shield size={17}/> A meglévő RCON-csatlakoztatás befejezéséig
             az adminparancsok és a konzol zároltak. A portot és jelszót
