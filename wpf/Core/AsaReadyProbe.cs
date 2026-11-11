@@ -100,10 +100,15 @@ public static class AsaReadyProbe
         System.Collections.Generic.IEnumerable<LocalMap> localMaps)
     {
         if(map==null||localMaps==null)throw new ArgumentNullException(nameof(map));
+        // Game and query endpoints are UDP, even across different port
+        // roles. RCON is TCP and only conflicts with another RCON listener.
+        if(map.GamePort>0 && map.GamePort==map.QueryPort)return true;
         return localMaps.Any(other=>other.Id!=map.Id &&
             ((map.RconPort>0 && other.RconPort==map.RconPort) ||
-             (map.GamePort>0 && other.GamePort==map.GamePort) ||
-              (map.QueryPort>0 && other.QueryPort==map.QueryPort)));
+             (map.GamePort>0 &&
+                (other.GamePort==map.GamePort || other.QueryPort==map.GamePort)) ||
+             (map.QueryPort>0 &&
+                (other.QueryPort==map.QueryPort || other.GamePort==map.QueryPort))));
     }
 
     // A declared command-line port cannot silently disagree with the GUI
@@ -124,7 +129,9 @@ public static class AsaReadyProbe
         return Mismatched(map.Arguments,
                    @"(?:^|[\s?])(?:-)?RCONPort\s*=\s*(?<port>\d+)(?=$|[\s?])",map.RconPort) ||
                Mismatched(map.Arguments,
-                   @"(?:^|\s)-Port\s*=\s*(?<port>\d+)(?=$|\s)",map.GamePort);
+                   @"(?:^|[\s?])(?:-)?Port\s*=\s*(?<port>\d+)(?=$|[\s?])",map.GamePort) ||
+               Mismatched(map.Arguments,
+                   @"(?:^|[\s?])(?:-)?QueryPort\s*=\s*(?<port>\d+)(?=$|[\s?])",map.QueryPort);
     }
 
     public static async Task<AsaReadinessSnapshot> ProbeAsync(ClusterService cluster,
@@ -135,10 +142,10 @@ public static class AsaReadyProbe
             throw new UnauthorizedAccessException("Only a registered local map can be probed");
         if(HasPortConflict(map,cluster.Config.LocalMaps))
             return Result(map,AsaRuntimeStage.Unconfigured,
-                "Conflicting local map/RCON port ownership; readiness probe refused");
+                "Conflicting local UDP game/query or TCP RCON port ownership; readiness probe refused");
         if(DeclaredPortMismatch(map))
             return Result(map,AsaRuntimeStage.Unconfigured,
-                "Launch arguments disagree with configured game or RCON port");
+                "Launch arguments disagree with configured game, query or RCON port");
         return await ObserveAsync(map,()=>cluster.Check(map),
             async ct=>await RconProtocol.Execute(map.RconHost,map.RconPort,
                 SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",ct),
