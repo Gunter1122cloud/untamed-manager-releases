@@ -42,9 +42,12 @@ public sealed class DesktopPluginJsonBridge : IDisposable
     {
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId)
             ??throw new UnauthorizedAccessException("UM-PLUGIN-JSON-NOT-LOCAL");
-        if(map.HistoricalStoreProtected || map.ObservedReadOnlyImported ||
-           UntamedWorldBackup.HasLiveOrHistoricalStore(map)||map.Maintenance)
+        if(map.ObservedReadOnlyImported||
+           (!map.HistoricalStoreProtected&&UntamedWorldBackup.HasLiveOrHistoricalStore(map))||
+           map.Maintenance)
             throw new UnauthorizedAccessException("UM-PLUGIN-JSON-STORE-PROTECTED");
+        if(map.HistoricalStoreProtected)
+            HistoricalLocalConfigGuard.DemandStopped(cluster,map);
         var journal=new AsaManualRestartJournal(map.InstallationPath);
         journal.DemandNoPending();
         foreach(var sibling in cluster.Config.LocalMaps.Where(m=>
