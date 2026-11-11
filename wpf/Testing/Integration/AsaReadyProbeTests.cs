@@ -264,7 +264,17 @@ public static class AsaReadyProbeTests
         otherMap.QueryPort=27020;
         Check(!AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
             "distinct owned game/query/RCON ports do not invent a collision");
-        map.QueryPort=0;otherMap.QueryPort=0;
+        otherMap.GamePort=27019;
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "ASA query UDP cannot reuse another map's game UDP port");
+        otherMap.GamePort=0;
+        map.GamePort=27020;
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "ASA game UDP cannot reuse another map's query UDP port");
+        map.GamePort=27019;
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map}),
+            "one ASA map cannot use the same UDP port for game and query");
+        map.GamePort=0;map.QueryPort=0;otherMap.QueryPort=0;
         otherMap.RconPort=map.RconPort;
         string originalArguments=map.Arguments;
         map.Arguments+=" ?RCONPort=27998";
@@ -273,6 +283,17 @@ public static class AsaReadyProbeTests
         map.Arguments=originalArguments+" ?RCONPort="+map.RconPort;
         Check(!AsaReadyProbe.DeclaredPortMismatch(map),
             "correctly matching explicit RCON port is accepted");
+        map.QueryPort=27015;
+        map.Arguments=originalArguments+" -QueryPort=27016";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "ASA -QueryPort mismatching local port refuses RCON-ready state");
+        map.Arguments=originalArguments+" ?QueryPort=27015";
+        Check(!AsaReadyProbe.DeclaredPortMismatch(map),
+            "matching Unreal URL-style ?QueryPort is accepted");
+        map.Arguments=originalArguments+" -QueryPort=27015 -QueryPort=27015";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "duplicate QueryPort switches reject ambiguous query listener");
+        map.QueryPort=0;
         map.Arguments=originalArguments;
 
         await using(var owner=new ClusterService("ready-fixture",
