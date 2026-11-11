@@ -5225,7 +5225,7 @@ test("P0 original Store-v1 map exposes a real native stopped SteamCMD update but
   await page.goto("/");
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   await page.getByRole("tab",{name:"Frissítés",exact:true}).click();
-  const steam=page.getByRole("region",{name:"Valódi SteamCMD frissítés"});
+  const steam=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
   await expect(steam).toBeVisible();
   await expect(steam).toContainText("Astraeos");
   await expect(steam.getByRole("button",{name:"Frissítés előellenőrzése"}))
