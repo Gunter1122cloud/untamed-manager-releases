@@ -92,7 +92,8 @@ internal static class HistoricalPluginZipTests
             "Core validates stopped original Store-v1 plugin ZIP preview");
         using var bridge=new DesktopPluginZipBridge(cluster,()=>archive,
             ()=>Directory.GetDirectories(Path.Combine(cluster.Store.Root,
-                "plugin-zip-backups",map.Id.ToString("N"),"ExampleSamplePlugin")).Single());
+                "plugin-zip-backups",map.Id.ToString("N"),"ExampleSamplePlugin"))
+                .Single(folder=>File.Exists(folder+".untamed-manifest.json")));
         var preview=await Call(bridge,"plugins.zipSelect",new{mapId=map.Id});
         Check(preview.GetProperty("ok").GetBoolean()&&
               preview.GetProperty("data").GetProperty("previousExists").GetBoolean(),
