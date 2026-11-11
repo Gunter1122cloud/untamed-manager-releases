@@ -22,7 +22,7 @@ public static class AsaReadyProbeTests
         File.WriteAllText(serverExe,"Isolated binary-path fixture; never executed");
         File.WriteAllText(loaderExe,"Isolated loader-path fixture; never executed");
         var map=new LocalMap {
-            Name="Isolated ASA readiness",InstallationPath=installation,
+            Id=Guid.NewGuid(),Name="Isolated ASA readiness",InstallationPath=installation,
             ExecutablePath=serverExe,Arguments="TheIsland?SessionName=Fixture -log",
             ApiLoaderPath=loaderExe,ApiLoaderArguments="--fixture-loader",
             StartWithAsaApi=true,
