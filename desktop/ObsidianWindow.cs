@@ -44,6 +44,7 @@ public sealed class ObsidianWindow : Form
         "historical.originalBatchPreview" or "historical.originalBatchRegister" or
         "historical.originalLiveBatchPreview" or "historical.originalLiveBatchApply" or
         "historical.originalReadiness" or
+        "historical.kovaControllerInventory" or
         "historical.originalClusterPreview" or "historical.originalClusterApply" or
         "historical.pairedEvidence" or "historical.launchEvidence" or
         "historical.liveGuard";
