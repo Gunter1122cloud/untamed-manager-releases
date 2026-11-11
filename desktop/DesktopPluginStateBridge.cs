@@ -13,7 +13,7 @@ namespace UntamedDesktop;
 /// Explicit two-stage local plugin enable/disable workflow. The original Core
 /// PluginStateManager moves the complete directory with a verified backup;
 /// this bridge never accepts filesystem paths and never grants remote control.
-/// Historical Store-v1 maps cannot authorize plugin mutations.
+/// Imported historical Store-v1 map plugin edits require both offline preflight\n/// and the final native stopped-family guard inside the mutation lock.
 /// </summary>
 public sealed class DesktopPluginStateBridge : IDisposable
 {
@@ -130,7 +130,11 @@ public sealed class DesktopPluginStateBridge : IDisposable
                    !string.Equals(latest.Plugin,saved.Plugin,StringComparison.Ordinal))
                     return Error(id,"UM-PLUGIN-STATE-CHANGED");
                 var result=PluginStateManager.ToggleLocalChecked(cluster,
-                    saved.MapId,saved.Plugin,saved.TargetEnabled);
+                    saved.MapId,saved.Plugin,saved.TargetEnabled,
+                    owned.HistoricalStoreProtected?
+                        ()=>HistoricalLocalConfigGuard.DemandStopped(
+                            cluster,owned,underOwnOperation:true):
+                        null);
                 return Success(id,new{
                     mapId=result.Map,plugin=result.Plugin,enabled=result.Enabled,
                     backupCreated=true,requiresRestart=result.RequiresRestart,
