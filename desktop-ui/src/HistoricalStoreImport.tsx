@@ -3,7 +3,7 @@ import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucid
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
   type OriginalKovaLocalMapList, type OriginalKovaImportPreview,
   type OriginalKovaBatchPreview, type OriginalKovaLiveBatchPreview,
-  type OriginalKovaClusterPreview } from "./bridge";
+  type OriginalStoreHandoffReadiness, type OriginalKovaClusterPreview } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
@@ -27,6 +27,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [directBusy,setDirectBusy]=useState(false);
   const [directError,setDirectError]=useState("");
   const [directNotice,setDirectNotice]=useState("");
+  const [handoffReadiness,setHandoffReadiness]=useState<OriginalStoreHandoffReadiness|null>(null);
+  const [handoffBusy,setHandoffBusy]=useState(false);
+  const [handoffError,setHandoffError]=useState("");
   const directEpoch=useRef(0);
   const [known,setKnown]=useState<HistoricalStoreList | null>(null);
   const [mapId,setMapId]=useState("");
@@ -221,6 +224,16 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
 
+  const inspectHandoffReadiness=async()=>{
+    if(handoffBusy)return;
+    setHandoffBusy(true);setHandoffError("");setHandoffReadiness(null);
+    try{setHandoffReadiness(await managerBridge.historicalOriginalReadiness());}
+    catch(e){setHandoffError(
+      "Az eredeti ötmapos forrás / helyi regiszter nem igazolható ("+
+      (e instanceof Error?e.message:"UM-ORIGINAL-READINESS-UNAVAILABLE")+
+      "). Ez nem jogosít fel átvételre vagy frissítésre.");}
+    finally{setHandoffBusy(false);}
+  };
   const previewLiveFive=async()=>{
     if(directBusy||registering||!directList||
        directList.maps.length!==5)return;
@@ -386,6 +399,64 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       </p>
       <section className="historical-peer-check" aria-label="Közvetlen Kova Store-v1 mapimport">
         <h3>Közvetlen átvétel a korábbi Kova-profilból</h3>
+        <div className="settings-actions">
+          <button className="secondary" type="button" disabled={handoffBusy}
+            onClick={()=>{void inspectHandoffReadiness();}}>
+            <Shield size={16}/>{handoffBusy?
+              "Ötmapos bizonyítékok ellenőrzése...":
+              "Eredeti öt map – csak olvasási megfelelőségi vizsgálat"}
+          </button>
+        </div>
+        {handoffError&&<p role="alert" className="warning-inline">{handoffError}</p>}
+        {handoffReadiness&&<section className="historical-preview" role="region"
+          aria-label="Store-v1 három külön bizonyítottsági szintje">
+          <h4>Store-v1 megfelelőség ≠ regisztráció ≠ kizárólagos kezelés</h4>
+          <p><strong>Eredeti Kova-forrás:</strong>{" "}
+            {handoffReadiness.originalSourceMapCount} map;{" "}
+            {handoffReadiness.exactlyFiveOriginal?"pontosan öt":"NEM pontosan öt"}.
+            {" "}Ellenőrzött helyi mapregisztráció:{" "}
+            {handoffReadiness.exactLocalRegistrations}/5; hostregiszter:{" "}
+            {handoffReadiness.hostRegistryRegistrations}/5;
+            cluster-hozzárendelés: {handoffReadiness.clusterAssignments}/5.</p>
+          <p><strong>Cluster-konfiguráció:</strong>{" "}
+            {handoffReadiness.clusterIdMatches&&
+             handoffReadiness.configuredTransferRootMatches&&
+             handoffReadiness.verifiedSourceRootMatches?"megfelel":"nem teljesen igazolt"}.
+            {" "}Elvárt azonosító: <code>KovaCluster</code>; eredeti UNC:
+            {" "}<code>{"\\\\192.168.1.200\\UKClusterRoot"}</code>.
+            {" "}Az eredeti UNC-forrás egyezése:{" "}
+            {handoffReadiness.verifiedSourceRootMatches?"igazolt":"nem igazolt"}.</p>
+          <p><strong>Futó ASA/Loader folyamatpárok:</strong>{" "}
+            {handoffReadiness.nativeFiveProcessProof?
+              "az öt natív azonosság ellenőrizve":"az öt natív azonosság nem teljesen igazolt"}.
+            {" "}Közvetlen ASA: {handoffReadiness.directAsaProcesses};
+            {" "}Loader + ASA: {handoffReadiness.verifiedLoaderAsaPairs}.</p>
+          <p><strong>Vezérlésátadás:</strong> nincs igazolva. A régi Kova
+            watchdogja, automatikus indítása és Windows-ütemezései nincsenek
+            hitelesen kizárva. Az online státusz csak megfigyelés.</p>
+          <p><strong>A→B→A karakterutazás:</strong> nem igazolt.
+            Beágyazott karakterépség és játékbeli visszacsatlakozás külön
+            ellenőrzést igényel; a szintetikus és fájlhash-tesztek nem elegendők.</p>
+          <p><strong>Store-v1 SteamCMD:</strong> továbbra is tiltva.
+            Igazolt ASA/Loader leállítás, teljes védőmentés, telepítési zárolás
+            és kipróbált helyreállítás nélkül nem engedélyezhető.</p>
+          <div className="uk-store-archive-scroller">
+            <table className="uk-store-archive-table">
+              <thead><tr><th>Eredeti map</th><th>Obsidian</th>
+                <th>Cluster</th><th>Folyamatazonosság</th></tr></thead>
+              <tbody>{handoffReadiness.maps.map(map=><tr key={map.mapId}>
+                <td>{map.mapName}</td>
+                <td>{map.exactLocalRegistration&&map.hostRegistryRegistration?
+                  "Egyezik":"Nem teljes"}</td>
+                <td>{map.clusterAssignment?"Hozzárendelve":"Nem igazolt"}</td>
+                <td>{map.processIdentityVerified?"Igazolt":"Nem igazolt"}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <p className="muted small">A vizsgálat kizárólag olvasási adatot közöl;
+            az eredeti ötmapos Store-v1 kezelés jogosultságait nem változtatja meg.
+            Blokkolók: {handoffReadiness.blockers.join(", ")}.</p>
+        </section>}
         <p className="muted small">
           Az eredeti Windows-fiók Kova Store-v1 profiljából felismeri az öt helyi mapot,
           a mapazonosítókat és a telepítési mappákat. Nem kell hozzá ZIP vagy kézi mappaútvonal.
