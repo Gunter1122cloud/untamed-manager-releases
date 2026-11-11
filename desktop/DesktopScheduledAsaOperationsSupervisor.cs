@@ -538,7 +538,16 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                             return true;
                         });
                     }
-                    catch {Volatile.Write(ref runtimeState,"journal-write-needs-operator");}
+                    catch
+                    {
+                        // A previously dispatched SaveWorld/Restart may have
+                        // completed while the durable receipt could not be
+                        // persisted. Never schedule another slot or report
+                        // "active" until an operator inspects the journal.
+                        Volatile.Write(ref runtimeState,"journal-write-needs-operator");
+                        throw new InvalidOperationException(
+                            "UM-ASA-SCHEDULE-JOURNAL-WRITE-NEEDS-OPERATOR");
+                    }
                 }
             }
             return Snapshot();
@@ -588,14 +597,23 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     try
                     {
                         await TickOnceAsync(DateTimeOffset.UtcNow,cancel.Token);
+                        if(RuntimeState=="journal-write-needs-operator")break;
                         Volatile.Write(ref runtimeState,"active");
                     }
                     catch(OperationCanceledException) when(cancel.IsCancellationRequested){break;}
-                    catch(Exception){Volatile.Write(ref runtimeState,"journal-or-operation-error");}
+                    catch(Exception)
+                    {
+                        if(RuntimeState=="journal-write-needs-operator")break;
+                        Volatile.Write(ref runtimeState,"journal-or-operation-error");
+                    }
                 } while(await timer.WaitForNextTickAsync(cancel.Token));
             }
             catch(OperationCanceledException){/* Manager closing, never replay. */}
-            finally{Volatile.Write(ref runtimeState,"stopped");}
+            finally
+            {
+                if(RuntimeState!="journal-write-needs-operator")
+                    Volatile.Write(ref runtimeState,"stopped");
+            }
         });
     }
     public void Dispose()
