@@ -2178,6 +2178,33 @@ try
         finally { File.WriteAllBytes(rconIni,rconOriginal); }
         Check(AsaRconConfigurationEvidence.Matches(fresh),
             "RCON settings remain byte-identical after isolated negative test");
+        // Legacy Kova credentials may include '=' and meaningful whitespace.
+        // A new password generator must never silently trim or replace them.
+        string savedCredential=fresh.RconPasswordProtected;
+        string unusual="  =legacy+secret= with trailing space ";
+        try
+        {
+            string prior=SecureStore.Unprotect(savedCredential);
+            string raw=File.ReadAllText(rconIni);
+            Check(raw.Contains("ServerAdminPassword="+prior,
+                    StringComparison.Ordinal),"legacy password fixture found");
+            File.WriteAllText(rconIni,raw.Replace(
+                "ServerAdminPassword="+prior,
+                "ServerAdminPassword="+unusual,StringComparison.Ordinal));
+            fresh.RconPasswordProtected=SecureStore.Protect(unusual);
+            Check(AsaRconConfigurationEvidence.Matches(fresh),
+                "exact preexisting RCON credential with spaces and equals is preserved");
+            fresh.RconPasswordProtected=SecureStore.Protect(unusual.Trim());
+            Check(!AsaRconConfigurationEvidence.Matches(fresh),
+                "trimming preexisting password cannot silently pass INI parity");
+        }
+        finally
+        {
+            fresh.RconPasswordProtected=savedCredential;
+            File.WriteAllBytes(rconIni,rconOriginal);
+        }
+        Check(AsaRconConfigurationEvidence.Matches(fresh),
+            "historical password parity regression leaves INI and DPAPI state intact");
         int calls=0;
         var localGameBind=new[]{
             new System.Net.IPEndPoint(System.Net.IPAddress.Any,fresh.GamePort)};
