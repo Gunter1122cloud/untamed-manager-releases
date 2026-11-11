@@ -259,6 +259,12 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const applyLiveFive=async()=>{
     if(directBusy||registering||!liveBatchPreview||
        liveApprovalDisabledReason!==null)return;
+    // Recheck the native deadline at the actual click: background WebView2
+    // timers may be throttled, so a displayed countdown is not an authority.
+    const expiry=Date.parse(liveBatchPreview.expiresUtc);
+    if(!Number.isFinite(expiry)||Date.now()>=expiry){
+      setLiveClockMs(Date.now());return;
+    }
     const token=liveBatchPreview.token,epoch=++directEpoch.current;
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setLiveBatchPreview(null);setLiveTypedApproval("");setLiveControllerStopped(false);
