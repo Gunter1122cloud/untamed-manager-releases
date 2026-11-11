@@ -37,11 +37,11 @@ export function AsaApiLaunchModeSwitch({map,onSaved}:{
       return ()=>{active=false;};
     }
     const request=historical
-      ?managerBridge.historicalActiveStartStatus(map.id).then(x=>({
-          useApi:x.requestedMode==="asaApiLoader",
-          canChange:x.confirmedStopped&&x.rconConfigured,
+      ?managerBridge.historicalLoaderModeStatus(map.id).then(x=>({
+          useApi:x.useApi,
+          canChange:x.canChangeMode,
           confirmedStopped:x.confirmedStopped,
-          approvalRequired:x.launchModeApprovalRequired
+          approvalRequired:x.approvalRequired
         }))
       :freshStore
         ?managerBridge.freshStoreLoaderModeStatus(map.id).then(x=>({
