@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
   type OriginalKovaLocalMapList, type OriginalKovaImportPreview,
@@ -17,7 +17,15 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [liveBatchPreview,setLiveBatchPreview]=useState<OriginalKovaLiveBatchPreview|null>(null);
   const [liveControllerStopped,setLiveControllerStopped]=useState(false);
   const [liveTypedApproval,setLiveTypedApproval]=useState("");
+  const [liveClockMs,setLiveClockMs]=useState(()=>Date.now());
   const liveApprovalPhrase="STORE-V1 FUTÓ ÁTVÉTEL";
+  // The approval is native, single use and expires after three minutes.
+  // A stale preview must never remain actionable just because the phrase matches.
+  useEffect(()=>{
+    if(!liveBatchPreview)return;
+    const ticker=window.setInterval(()=>setLiveClockMs(Date.now()),1000);
+    return ()=>window.clearInterval(ticker);
+  },[liveBatchPreview]);
   const [clusterPreview,setClusterPreview]=useState<OriginalKovaClusterPreview|null>(null);
   const [clusterApproval,setClusterApproval]=useState("");
   const [clusterBusy,setClusterBusy]=useState(false);
@@ -230,7 +238,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     setLiveControllerStopped(false);setLiveTypedApproval("");
     try{
       const proof=await managerBridge.historicalOriginalLiveBatchPreview();
-      if(epoch===directEpoch.current)setLiveBatchPreview(proof);
+      if(epoch===directEpoch.current){
+        setLiveClockMs(Date.now());setLiveBatchPreview(proof);
+      }
     }catch(e){
       if(epoch===directEpoch.current){
         const code=e instanceof Error?e.message:"UM-ORIGINAL-LIVE-UNVERIFIED";
@@ -277,6 +287,16 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           "Ez alkalmazáskomponens-/kiadáseltérés, nem Store-migrációs "+
           "bizonyíték. Ellenőrizd a helyi mapregisztert, majd frissíts "+
           "azonos React + Windows host buildre. Ne ismételd vakon az átvételt.":
+          ["UM-ORIGINAL-LIVE-APPROVAL-EXPIRED",
+           "UM-ORIGINAL-LIVE-APPROVAL-STALE",
+           "UM-ORIGINAL-LIVE-APPROVAL-INVALID"].includes(code)?
+          "A futó Store-v1 átvétel háromperces jóváhagyása lejárt, "+
+          "vagy az előellenőrzés időközben megváltozott ("+code+"). "+
+          "Ellenőrizd előbb a helyi mapregisztert: lehet, hogy egy "+
+          "korábbi kérés már sikerült. Ha nincs átvéve az öt map, "+
+          "kérj új teljes natív felismerést, és csak az új "+
+          "bizonyítékok alapján hagyd jóvá. Nem indítunk újra "+
+          "automatikusan átvételt.":
           "Az eredeti futó Store-v1 mapok átvétele nem igazolható ("+
           code+"). Ellenőrizd a Manager helyi mapregiszterét, ne futtasd újra vakon.");
       }
@@ -353,8 +373,15 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   };
   // The exact typed phrase is intentionally required for native Store-v1
   // ownership handoff. The UI must explain EVERY disabled action gate.
+  const liveExpiryMs=liveBatchPreview?Date.parse(liveBatchPreview.expiresUtc):NaN;
+  const liveApprovalExpired=liveBatchPreview!==null&&
+    (!Number.isFinite(liveExpiryMs)||liveClockMs>=liveExpiryMs);
+  const liveSecondsRemaining=Number.isFinite(liveExpiryMs)?
+    Math.max(0,Math.ceil((liveExpiryMs-liveClockMs)/1000)):0;
   const liveApprovalDisabledReason=directBusy||registering?
     "A natív ellenőrzés vagy egy korábbi művelet még folyamatban van.":
+    liveApprovalExpired?
+      "A háromperces natív előellenőrzés lejárt vagy nem ellenőrizhető. Kérj újat.":
     !liveControllerStopped?
       "Hiányzik a Kova-felügyelet leállításának jelölése.":
       liveTypedApproval!==liveApprovalPhrase?
@@ -438,6 +465,18 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             de a futó ASA-folyamatokat nem kell leállítani. Két Manager
             egyszerre nem vezérelheti ugyanazokat a mapokat.
           </p>
+          <p className="muted small" role="status"
+            data-testid="store-live-approval-expiry">
+            {liveApprovalExpired?
+              "A háromperces natív előellenőrzés lejárt vagy hiányos. Az átvétel tiltva; kérj új felismerést.":
+              "A natív jóváhagyás még "+liveSecondsRemaining+
+              " másodpercig érvényes. Lejárat után új előellenőrzés szükséges."}
+          </p>
+          {liveApprovalExpired&&<button type="button" className="secondary"
+            disabled={directBusy||registering}
+            onClick={()=>{void previewLiveFive();}}>
+            Új natív felismerés kérése
+          </button>}
           <label className="historical-approval">
             <input type="checkbox" checked={liveControllerStopped}
               disabled={directBusy}
