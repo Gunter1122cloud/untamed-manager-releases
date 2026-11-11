@@ -90,9 +90,10 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       <div className="details-line"><span>Windows folyamat / RCON</span>
         <b>{readiness.rconAuthenticated?"RCON hitelesítve":"RCON nem igazolt"}</b></div>
       <div className="details-line"><span>ASA API Loader</span>
-        <b>{readiness.loaderObserved?
-          (readiness.apiInitialized?"Inicializálás igazolva":"Loader látható; API inicializálás nem igazolt"):
-          "Közvetlen ASA mód – Loader nem szükséges"}</b></div>
+        <b>{!readiness.apiRequired?"Közvetlen ASA mód – Loader nem szükséges":
+          !readiness.loaderObserved?"ASA API mód – Loader PID nem igazolt":
+          readiness.apiInitialized?"Inicializálás igazolva":
+            "Loader látható; API inicializálás nem igazolt"}</b></div>
       <div className="details-line"><span>Játékosbelépés / szerverhirdetés</span>
         <b>{readiness.joinAdvertised?"Szerverhirdetés igazolt":"Játékosbelépés még nincs igazolva"}</b></div>
       <p className="muted small">{readiness.description}</p>
