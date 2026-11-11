@@ -83,12 +83,15 @@ internal static class HistoricalPluginZipTests
               preview.GetProperty("data").GetProperty("previousExists").GetBoolean(),
             "historical stopped map opens real native ZIP preview without RCON");
         string one=preview.GetProperty("data").GetProperty("token").GetString()!;
-        running=true;
+        // A synthetic ProcessCheck cannot impersonate the separate native
+        // WMI observer for a protected Kova map. Change a real Manager
+        // maintenance gate after preview to exercise fail-closed apply.
+        map.Maintenance=true;
         var stopped=await Call(bridge,"plugins.zipApply",new{token=one,confirm=true});
         Check(!stopped.GetProperty("ok").GetBoolean()&&
               File.ReadAllBytes(dll).SequenceEqual(new byte[]{0x4d,0x5a,1,1}),
-            "late synthetic running ASA refuses plugin ZIP mutation");
-        running=false;
+            "late historical maintenance blocks plugin ZIP mutation");
+        map.Maintenance=false;
         preview=await Call(bridge,"plugins.zipSelect",new{mapId=map.Id});
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
         var applied=await Call(bridge,"plugins.zipApply",new{token,confirm=true});
