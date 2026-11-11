@@ -23,7 +23,7 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
     let active=true;
     setStatus(null);setPreview(null);setPassword("");setError("");setNotice("");
     managerBridge.historicalRconStatus(mapId).then(v=>{
-      if(active)setStatus(v);
+      if(active){setStatus(v);setPort(v.suggestedPort>0?String(v.suggestedPort):"");}
     }).catch(()=>{if(active)setError("Az eredeti Store-v1 RCON-beállítás állapota nem olvasható.");});
     return ()=>{active=false;};
   },[mapId]);
@@ -66,6 +66,11 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       <p className="muted small">A kétgépes, már aktív Store-v1 szerver meglévő RCON-portját kapcsolja
         az új Managerhez, <b>új INI, új session, Store-konverzió és szerverindítás nélkül</b>.
         A jelszót a natív Windows DPAPI védi.</p>
+      {!status?.configured&&status?.suggestedPort>0&&
+        <p className="muted small" role="status">
+          Az eredeti ASA INI alapján felismert TCP RCON-port: {status.suggestedPort}.
+          A jelszót biztonsági okból külön kell megadni; az ASA INI-hez nem nyúlunk.
+        </p>}
       {status?.configured?<div className="success-inline" role="status">
         <CheckCircle2 size={17}/> RCON-port: {status.port} ·
         {status.verifiedIni?" Eredeti INI egyezik":" INI egyezése jelenleg nem igazolt"}
