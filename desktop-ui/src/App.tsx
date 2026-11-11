@@ -1671,7 +1671,14 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         </Panel>
       </div>
       <MapMaintenancePanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>
-      {historical&&<HistoricalRconAttach mapId={mapId} onConfigured={onConfigured}/>}
+      {historical&&!map.rconConfigured&&<div className="warning-inline" role="status">
+        <Shield size={17}/> Az eredeti Store-v1 map RCON-kapcsolata még nincs
+        az Obsidianhoz rendelve. A natív adminparancsokhoz és a külön jóváhagyott
+        szervervezérléshez a meglévő RCON-t csatlakoztatni kell.
+        <button type="button" className="primary" onClick={()=>setSection("rcon")}>
+          Meglévő RCON csatlakoztatása
+        </button>
+      </div>}
       {historical&&<HistoricalActiveStartPanel mapId={mapId} rconAttached={!!map.rconConfigured} onStarted={onConfigured}/>}
       {historical&&<HistoricalStoreSaveWorldPanel key={mapId} mapId={mapId} running={map.running} onSaved={onConfigured}/>}
       {historical&&<HistoricalGracefulStopPanel mapId={mapId} running={map.running} onStopped={onConfigured}/>}
@@ -1709,8 +1716,17 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     {section==="backups" && <BackupCenter mapId={mapId} snapshot={snapshot}/>}
     {section==="logs" && <LogsCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
     {section==="rcon" && (historical
-      ?<><HistoricalRconLivePanel mapId={mapId} running={map.running}/>
-        <HistoricalAdminRconPanel mapId={mapId} running={map.running}/></>
+      ?<>
+        <HistoricalRconAttach key={mapId} mapId={mapId} onConfigured={onConfigured}/>
+        {map.rconConfigured
+          ?<><HistoricalRconLivePanel key={mapId} mapId={mapId} running={map.running}/>
+            <HistoricalAdminRconPanel key={mapId} mapId={mapId} running={map.running}/></>
+          :<div className="warning-inline" role="status">
+            <Shield size={17}/> A meglévő RCON-csatlakoztatás befejezéséig
+            az adminparancsok és a konzol zároltak. A portot és jelszót
+            a fenti űrlapon, natív jóváhagyással állíthatod be.
+          </div>}
+      </>
       :<RconReadOnlyPanel key={mapId} mapId={mapId} onConfigured={onConfigured} onOpenStart={()=>setSection("overview")}/>)}
   </div>;
 }
