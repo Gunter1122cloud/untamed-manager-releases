@@ -1342,6 +1342,28 @@ function LogsCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   </div>;
 }
 
+const iniCreateErrorMessages:Record<string,string>={
+  "UM-INI-CREATE-FRESH-ONLY":"A kiválasztott map nem igazoltan új, helyi és Store-v1-től független ASA-telepítés. A történeti adatokhoz nem nyúltunk.",
+  "UM-INI-CREATE-SHARED-STORE":"A telepítést egy történeti Kova/Store-v1 map is használja. Új Game.ini nem hozható létre itt.",
+  "UM-INI-CREATE-ALL-MAPS-STOPPED":"A közös telepítés valamelyik mapja fut vagy leállítása nem igazolt. Előbb ellenőrizd az összes helyi folyamatot.",
+  "UM-INI-GAME-ALREADY-EXISTS":"A Game.ini már létezik. Nyisd meg a meglévő fájlt; a létrehozás nem írta felül.",
+  "UM-INI-CREATE-LINKED-PATH":"A célmappa junction/link útvonalon található. A művelet tiltott.",
+  "UM-INI-CREATE-LINK-CHANGED":"A célmappa linkállapota az előellenőrzés óta megváltozott. A létrehozás leállt.",
+  "UM-INI-CREATE-CONCURRENT-TARGET":"Egy másik művelet létrehozta a Game.ini-t. Nyisd meg újra; nem történt felülírás.",
+  "UM-INI-CREATE-PROFILE-CHANGED":"A map beállításai megváltoztak az előnézet óta. Ellenőrizd újra.",
+  "UM-INI-CREATE-LEASE-CHANGED":"A telepítés vagy a map módosult a zárolás alatt. Indíts új előellenőrzést.",
+  "UM-INI-CREATE-EXPIRED":"Az előnézet jóváhagyása lejárt. Indíts új előellenőrzést.",
+  "UM-INI-CREATE-EXPLICIT-APPROVAL":"A létrehozáshoz új, kifejezett jóváhagyás kell.",
+  "UM-INI-CREATE-SHA-MISMATCH":"A frissen létrehozott fájl tartalma nem egyezik a visszaellenőrzéskor. Kézi fájlellenőrzés szükséges.",
+  "UM-INI-CREATE-FIXED-DISK":"A telepítésnek helyi Windows-lemezen kell lennie.",
+  "UM-INI-MAP-NOT-OWNED":"Ezt a mapot nem a helyi Manager kezeli."
+};
+function describeIniCreateFailure(code:string){
+  return Object.hasOwn(iniCreateErrorMessages,code)?
+    iniCreateErrorMessages[code]:
+    "A natív ellenőrzés nem engedélyezte a létrehozást. Ellenőrizd a map állapotát; nem történt automatikus újrapróbálkozás.";
+}
+
 function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void;
   mapLocked?:boolean
@@ -1394,7 +1416,7 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
     try{setCreatePreview(await managerBridge.iniCreateGamePreview(selected));}
     catch(e){
       const code=e instanceof Error?e.message:"UM-INI-CREATE-DENIED";
-      setError("A natív Game.ini létrehozás előellenőrzése sikertelen ("+code+"). Egy másik map, Store-v1 védelem, elindult szerver vagy már meglévő fájl esetén nem írunk semmit.");
+      setError(describeIniCreateFailure(code));
     }finally{setBusy(false);}
   };
   const applyMissingGame=async()=>{
@@ -1411,7 +1433,7 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
       setNotice("A hiányzó Game.ini kizárólag ezen az igazoltan leállított új mapon jött létre. A fájlt az ETag-védett szerkesztő már megnyitotta.");
     }catch(e){
       const code=e instanceof Error?e.message:"UM-INI-CREATE-FAILED";
-      setError("A Game.ini létrehozása vagy visszaolvasása nem igazolt ("+code+"). Kézzel ellenőrizd a helyi fájlt; automatikus ismétlés nem történt.");
+      setError(describeIniCreateFailure(code));
     }finally{setBusy(false);}
   };
   const showPreview = async () => {
