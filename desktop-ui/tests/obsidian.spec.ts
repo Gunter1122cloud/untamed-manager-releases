@@ -2152,7 +2152,7 @@ test.beforeEach(async ({ page }) => {
         case "servers.freshReadiness": return {
           mapId:m.mapId,mapName:"Astraeos",stage:"RconAuthenticated",
           observedUtc:"2026-11-06T11:00:00Z",loaderObserved:false,
-          apiInitialized:false,joinAdvertised:false,
+          apiRequired:false,apiInitialized:false,joinAdvertised:false,
           rconAuthenticated:true,productionReady:false,
           description:"Synthetic test only: RCON authenticated; game join unverified",
           storeTouched:false,
