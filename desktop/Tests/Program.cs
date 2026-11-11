@@ -1508,9 +1508,9 @@ try
         cluster.AddMap(historicalIniSibling);
         var sharedDenied=await Call(ini.HandleAsync,"ini.createGamePreview",
             new{mapId=map.Id});
-        Check(!sharedDenied.GetProperty("ok").GetBoolean() &&
+        Check(IsError(sharedDenied,"UM-INI-CREATE-SHARED-STORE") &&
               !File.Exists(iniFile),
-            "historical provenance on another map sharing ASA root denies Game.ini creation");
+            "historical Store sibling returns precise denied code without creating Game.ini");
         cluster.RemoveMap(historicalIniSibling.Id);
         var missing=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
@@ -1542,9 +1542,9 @@ try
             "consumed create token cannot overwrite the newly created Game.ini");
         var alreadyExists=await Call(ini.HandleAsync,"ini.createGamePreview",
             new{mapId=map.Id});
-        Check(!alreadyExists.GetProperty("ok").GetBoolean() &&
+        Check(IsError(alreadyExists,"UM-INI-GAME-ALREADY-EXISTS") &&
               createdOriginal.SequenceEqual(File.ReadAllBytes(iniFile)),
-            "existing Game.ini cannot be recreated or overwritten");
+            "existing Game.ini returns precise conflict code and cannot be overwritten");
         var reopened=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
         IsOk(reopened,"newly created Game.ini opens in the original ETag editor");
