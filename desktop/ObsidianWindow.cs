@@ -598,7 +598,8 @@ public sealed class ObsidianWindow : Form
                             "historical.rconChatLog";
                         historicalStartRoute = name is "historical.activeStartStatus" or
                             "historical.activeStartPreview" or "historical.activeStartApply" or
-                            "historical.loaderModePreview" or "historical.loaderModeApply";
+                            "historical.loaderModeStatus" or "historical.loaderModePreview" or
+                            "historical.loaderModeApply";
                         historicalRconRoute = name is "historical.rconStatus" or
                             "historical.rconPreview" or "historical.rconApply";
                     }
