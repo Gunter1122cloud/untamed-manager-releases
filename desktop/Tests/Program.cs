@@ -930,99 +930,70 @@ try
             "disabled recurring task never runs even after its prior due time");
     }
 
-    // P0 scheduled public Steam build comparison: the original SteamCheck
-    // only opened appmanifest, so it could NEVER detect a public update.
-    // This isolated fixture injects a deterministic appinfo result and
-    // proves that no actual steamcmd.exe, ASA process, RCON or Store runs.
+    // Historical SteamCheck jobs must NEVER query SteamCMD automatically.
+    // Synthetic TEMP-only test retains the exact saved legacy configuration.
     {
         string watchRoot=Path.Combine(root,"p0-scheduled-public-steam-check");
-        string watchInstall=Path.Combine(watchRoot,"single-install");
-        string steamApps=Path.Combine(watchInstall,"steamapps");
+        string install=Path.Combine(watchRoot,"single-install");
+        string steamApps=Path.Combine(install,"steamapps");
         Directory.CreateDirectory(steamApps);
         string acf=Path.Combine(steamApps,"appmanifest_2430930.acf");
         File.WriteAllText(acf,
             "\"AppState\"\n{\n  \"appid\" \"2430930\"\n  \"buildid\" \"123456\"\n}\n");
         byte[] originalManifest=File.ReadAllBytes(acf);
-        await using var watched=new ClusterService("scheduled-public-check",
+        await using var watched=new ClusterService("manual-only-public-check",
             Path.Combine(watchRoot,"manager-profile"),
             _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true));
-        var firstWatched=new LocalMap {
-            Id=Guid.NewGuid(),Name="Public version check A",
-            InstallationPath=watchInstall,
-            ExecutablePath=Path.Combine(watchInstall,"ShooterGame","Binaries",
+        var first=new LocalMap {
+            Id=Guid.NewGuid(),Name="Retired SteamCheck A",
+            InstallationPath=install,
+            ExecutablePath=Path.Combine(install,"ShooterGame","Binaries",
                 "Win64","ArkAscendedServer.exe")
         };
-        var secondWatched=new LocalMap {
-            Id=Guid.NewGuid(),Name="Public version check B",
-            InstallationPath=watchInstall,
-            ExecutablePath=firstWatched.ExecutablePath
+        var second=new LocalMap {
+            Id=Guid.NewGuid(),Name="Retired SteamCheck B",
+            InstallationPath=install,ExecutablePath=first.ExecutablePath
         };
-        watched.AddMap(firstWatched);
-        watched.AddMap(secondWatched);
-        foreach(var target in new[]{firstWatched,secondWatched})
+        watched.AddMap(first);watched.AddMap(second);
+        foreach(var target in new[]{first,second})
             watched.Config.RecurringSchedules.Add(new RecurringSchedule{
                 Id=Guid.NewGuid(),Map=target.Id,Kind=OperationalTaskKind.SteamCheck,
                 Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=5,
                 Enabled=true
             });
         watched.Save();
-        byte[] managerBefore=File.ReadAllBytes(watched.Store.FilePath);
-        int publicQueries=0;
-        using var scheduled=new DesktopRecurringReadOnlySupervisor(watched,
-            _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true),
-            (target,_)=>{
-                publicQueries++;
-                return Task.FromResult(AsaSteamBuildCatalog.Compare(
-                    target.InstallationPath,"public","123456","123457",
-                    DateTimeOffset.UtcNow));
+        byte[] before=File.ReadAllBytes(watched.Store.FilePath);
+        int queries=0;
+        using var recurring=new DesktopRecurringReadOnlySupervisor(watched,
+            _=>new ProcessCheck(false,"synthetic stopped",null,true),
+            (_,_)=>{
+                queries++;
+                throw new InvalidOperationException("Steam appinfo must not run");
             });
-        var baseTime=DateTimeOffset.UtcNow;
-        Check(scheduled.TickOnce(baseTime).Length==0 &&
-              publicQueries==0,
-            "first scheduled Steam check only persists future due time");
-        var verified=scheduled.TickOnce(baseTime.AddMinutes(6));
-        Check(verified.Count(x=>x.Status=="succeeded")==2 &&
-              publicQueries==1,
-            "two map schedules sharing one installation use a single published Steam appinfo comparison");
-        var statuses=new SteamBuildStatusStore(watched.Store.Root);
-        Check(new[]{firstWatched,secondWatched}.All(m=>{
-                var s=statuses.Read(m);
-                return s.State==AsaSteamBuildState.UpdateAvailable &&
-                    s.LocalBuild=="123456" && s.AvailableBuild=="123457" &&
-                    s.LastCheckedUtc.HasValue && !s.LastUpdatedUtc.HasValue;
-            }) &&
-            originalManifest.SequenceEqual(File.ReadAllBytes(acf)) &&
-            managerBefore.SequenceEqual(File.ReadAllBytes(watched.Store.FilePath)),
-            "scheduled public build checks persist true update availability only in Manager profile without touching ASA files/config");
-        Check(scheduled.TickOnce(baseTime.AddMinutes(6)).Length==0 &&
-              publicQueries==1,
-            "claimed Steam check slots cannot be replayed or launch a second appinfo query");
-
-        // A published appinfo result for another local build is not trusted.
-        // A failed shared-root query is cached as a failed receipt, not
-        // silently repeated once per map or persisted as a newer build.
-        int invalidQueries=0;
-        using(var invalid=new DesktopRecurringReadOnlySupervisor(watched,
-            _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true),
-            (target,_)=>{
-                invalidQueries++;
-                return Task.FromResult(AsaSteamBuildCatalog.Compare(
-                    target.InstallationPath,"public","999999","1000000",
-                    DateTimeOffset.UtcNow));
-            }))
-        {
-            var denied=invalid.TickOnce(baseTime.AddMinutes(12));
-            Check(denied.Count(x=>x.Status=="failed-not-retried")==2 &&
-                  invalidQueries==1 &&
-                  new[]{firstWatched,secondWatched}.All(m=>{
-                      var saved=statuses.Read(m);
-                      return saved.LocalBuild=="123456" &&
-                          saved.AvailableBuild=="123457" &&
-                          saved.State==AsaSteamBuildState.UpdateAvailable;
-                  }) &&
-                  originalManifest.SequenceEqual(File.ReadAllBytes(acf)),
-                "mismatched public Steam metadata fails closed once per installation, preserving last verified build evidence");
+        Check(watched.SnapshotRecurringSchedules().Count(x=>
+                 x.Kind==OperationalTaskKind.SteamCheck&&!x.Enabled)==2,
+            "historical SteamCheck records project as inactive without deleting user data");
+        var operations=new DesktopOperationsCenterBridge(watched,recurring);
+        var denied=await Call(operations.HandleAsync,"operations.scheduleCreate",
+            new{mapId=first.Id,kind="SteamCheck",intervalMinutes=60,confirm=true});
+        Check(IsError(denied,"UM-STEAM-CHECK-MANUAL-ONLY"),
+            "native RPC cannot create a scheduled Steam version check");
+        bool coreDenied=false;
+        try{watched.CreateReadOnlySchedule(first.Id,OperationalTaskKind.SteamCheck,60);}
+        catch(InvalidOperationException ex){
+            coreDenied=ex.Message=="UM-STEAM-CHECK-MANUAL-ONLY";
         }
+        Check(coreDenied,"direct Core schedule API also rejects SteamCheck");
+        recurring.Start();
+        Check(recurring.TickOnce(DateTimeOffset.UtcNow.AddDays(30)).Length==0 &&
+              queries==0 && recurring.DueDates().Count==0,
+            "expired SteamCheck cannot launch Steam appinfo from the background worker");
+        var status=await Call(operations.HandleAsync,"operations.snapshot");
+        IsOk(status,"operations status remains accessible without Steam polling");
+        Check(File.ReadAllBytes(acf).SequenceEqual(originalManifest) &&
+              File.ReadAllBytes(watched.Store.FilePath).SequenceEqual(before) &&
+              watched.Config.RecurringSchedules.All(x=>x.Enabled),
+            "manual-only policy preserves original Manager and ASA bytes");
     }
 
     // P0 manual-only SteamCMD: legacy schedules are inert even when due.
