@@ -50,6 +50,19 @@ test.beforeEach(async ({ page }) => {
     let originalLiveFiveFixture=false;
     let originalLiveMixedFixture=false;
     let originalLiveDispatchDenied=false;
+    let originalLiveExpiredPreviewOnce=false;
+    let originalLiveApprovalLostOnce=false;
+    (window as typeof window & {
+      __UNTAMED_ORIGINAL_LIVE_EXPIRED_ONCE__?:()=>void;
+      __UNTAMED_ORIGINAL_LIVE_TOKEN_LOST_ONCE__?:()=>void;
+    }).__UNTAMED_ORIGINAL_LIVE_EXPIRED_ONCE__=()=>{
+      originalLiveFiveFixture=true;originalLiveExpiredPreviewOnce=true;
+    };
+    (window as typeof window & {
+      __UNTAMED_ORIGINAL_LIVE_TOKEN_LOST_ONCE__?:()=>void;
+    }).__UNTAMED_ORIGINAL_LIVE_TOKEN_LOST_ONCE__=()=>{
+      originalLiveFiveFixture=true;originalLiveApprovalLostOnce=true;
+    };
     let updateReleaseChangedAfterCheck=false;
     let updateMetadataMalformed=false;
     (window as typeof window & {__UNTAMED_UPDATE_MALFORMED_METADATA__?:()=>void})
@@ -1421,9 +1434,13 @@ test.beforeEach(async ({ page }) => {
             processStarted:false,processStopped:false,
             evidence:"NATIVE_WMI_EXACT_PROCESS_ADOPTED_LOCAL_MANAGER_PROFILE"};
         }
-        case "historical.originalLiveBatchPreview":
+        case "historical.originalLiveBatchPreview": {
           if(originalLiveDispatchDenied)throw new Error("UM-METHOD-DENIED");
-          return {token:"00000000-0000-4000-8000-000000007151",localMaps:5,
+          const expiredPreview=originalLiveExpiredPreviewOnce;
+          originalLiveExpiredPreviewOnce=false;
+          return {token:"00000000-0000-4000-8000-000000007151",
+            expiresUtc:new Date(Date.now()+(expiredPreview?-1000:180000)).toISOString(),
+            localMaps:5,
             mapNames:["The Island","Extinction","Valguero","Astraeos","Genesis Part 1"],
             runningProcesses:5,directProcesses:4,apiLoaderPairs:1,
             alreadyRegistered:originalLiveMixedFixture?3:0,
@@ -1432,7 +1449,12 @@ test.beforeEach(async ({ page }) => {
             originalSessionLockWritten:false,storeWriterAuthorizedByImport:false,
             requiresExternalControllerStopped:true,requiresTypedApproval:true,
             evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT"};
+        }
         case "historical.originalLiveBatchApply":
+          if(originalLiveApprovalLostOnce){
+            originalLiveApprovalLostOnce=false;
+            throw new Error("UM-ORIGINAL-LIVE-APPROVAL-EXPIRED");
+          }
           if(m.token!=="00000000-0000-4000-8000-000000007151"||
              m.confirm!==true||m.externalControllerStopped!==true||
              m.typedApproval!=="STORE-V1 FUTÓ ÁTVÉTEL")
@@ -3357,6 +3379,58 @@ test("P0 live original five-map Store takeover is explicit, single-use and prese
   await apply.click();
   await expect(proof).toHaveCount(0);
   await expect(panel).toContainText("nem módosult");
+});
+
+test("P0 Store-v1 expired approval disables apply and demands new native preflight",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_LIVE_EXPIRED_ONCE__?:()=>void
+  }).__UNTAMED_ORIGINAL_LIVE_EXPIRED_ONCE__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  await panel.getByRole("button",{name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"}).click();
+  const proof=panel.getByRole("region",{
+    name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
+  });
+  const apply=proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"});
+  await expect(proof.getByTestId("store-live-approval-expiry")).toContainText("lejárt");
+  await proof.getByRole("checkbox").check();
+  await proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await expect(apply).toBeDisabled();
+  await proof.getByRole("button",{name:"Új natív felismerés kérése"}).click();
+  await expect(proof.getByTestId("store-live-approval-expiry")).toContainText("másodpercig");
+  await expect(apply).toBeDisabled();
+  await expect(proof.getByRole("checkbox")).not.toBeChecked();
+  await expect(proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  })).toHaveValue("");
+});
+
+test("P0 Store-v1 lost native approval shows safe recheck, no automatic retry",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_LIVE_TOKEN_LOST_ONCE__?:()=>void
+  }).__UNTAMED_ORIGINAL_LIVE_TOKEN_LOST_ONCE__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  await panel.getByRole("button",{name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"}).click();
+  const proof=panel.getByRole("region",{
+    name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
+  });
+  await proof.getByRole("checkbox").check();
+  await proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await proof.getByRole("button",{name:"Eredeti öt futó Store-v1 map átvétele"}).click();
+  await expect(panel).toContainText("UM-ORIGINAL-LIVE-APPROVAL-EXPIRED");
+  await expect(panel).toContainText("Ellenőrizd előbb a helyi mapregisztert");
+  await expect(proof).toHaveCount(0);
 });
 
 test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",async({page})=>{
