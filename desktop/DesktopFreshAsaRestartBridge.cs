@@ -23,9 +23,10 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     {
         public Guid Id=Guid.NewGuid();
         public string State="queued",Stage="preflight";
-        public int OldPid,NewPid;
+        public int OldPid,NewPid,NewAsaServerPid;
         public string NewProcessRole="asaServer";
-        public bool PreExitSaveEvidenceObserved;
+        public bool PreExitSaveEvidenceObserved,PreExitWorldMetadataObserved;
+        public bool ApiChildAndRconVerified;
         public DateTimeOffset Changed=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
@@ -109,6 +110,9 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
         lock(sync)return new{
             jobId=item.Id,state=item.State,stage=item.Stage,
             oldPid=item.OldPid,newPid=item.NewPid,
+            newAsaServerPid=item.NewAsaServerPid,
+            apiChildAndRconVerified=item.ApiChildAndRconVerified,
+            preExitWorldMetadataObserved=item.PreExitWorldMetadataObserved,
             newProcessRole=item.NewProcessRole,
             changedUtc=item.Changed,
             saveCompleteProven=false,readinessCertified=false,
@@ -244,12 +248,51 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             throw new InvalidDataException("UM-ASA-RESTART-RECEIPT-INVALID");
                         job.PreExitSaveEvidenceObserved=
                             receipt.Stop.PreExitSaveLogAndWorldObserved;
+                        job.PreExitWorldMetadataObserved=
+                            receipt.Stop.PreExitWorldMetadataObserved;
+                        int verifiedAsaPid=receipt.Started.Pid;
+                        if(nativeRunner&&currentMap.StartWithAsaApi)
+                        {
+                            // A loader parent alone is NOT a successful ASA
+                            // restart. Observe its exact child owning RCON.
+                            Change(job,"running",
+                                "ASA API Loader indult; gyermek PID és RCON ellenőrzése",
+                                receipt.Started.Pid);
+                            bool childVerified=false;
+                            var limit=DateTimeOffset.UtcNow.AddMinutes(2);
+                            while(DateTimeOffset.UtcNow<limit)
+                            {
+                                closingToken.ThrowIfCancellationRequested();
+                                var family=cluster.Check(currentMap);
+                                if(family.Running&&!family.ConfirmedStopped&&
+                                   family.LoaderIdentity is {Pid:>0} loader&&
+                                   loader.Pid==receipt.Started.Pid&&
+                                   loader.StartedUtc==receipt.Started.StartedUtc&&
+                                   family.Identity is {Pid:>0} child&&
+                                   child.Pid!=approved.Pid&&child.Pid!=loader.Pid&&
+                                   string.Equals(Path.GetFullPath(child.ExecutablePath),
+                                       Path.GetFullPath(currentMap.ExecutablePath),
+                                       StringComparison.OrdinalIgnoreCase)&&
+                                   portOwner(currentMap.RconPort,child.Pid))
+                                {
+                                    verifiedAsaPid=child.Pid;
+                                    childVerified=true;
+                                    break;
+                                }
+                                await Task.Delay(850,closingToken);
+                            }
+                            if(!childVerified)
+                                throw new InvalidOperationException(
+                                    "UM-ASA-RESTART-API-CHILD-RCON-NOT-VERIFIED");
+                            job.ApiChildAndRconVerified=true;
+                        }
+                        job.NewAsaServerPid=verifiedAsaPid;
                         restartJournal.Change(persisted.Id,AsaRestartPhase.Completed,
-                            receipt.Started.Pid);
+                            verifiedAsaPid);
                         Change(job,"completed",
                             job.NewProcessRole=="loaderParent"?
-                                "New Loader parent spawned; ASA child and RCON readiness unverified":
-                                "New Windows ASA process started; readiness unverified",
+                                "Új ASA gyermek PID és RCON ellenőrizve; játékbeli készenlét még nem":
+                                "Új ASA Windows-folyamat indult; játékbeli készenlét még nem",
                             receipt.Started.Pid);
                         if(nativeRunner&&currentMap.StartWithAsaApi&&
                            FreshStoreEnrollmentPolicy.IsEnrolled(currentMap))
