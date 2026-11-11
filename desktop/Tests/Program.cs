@@ -1176,6 +1176,40 @@ try
             Check(IsError(protectedAttempt,"UM-ASA-SCHEDULE-NATIVE-DENIED"),
                 "Store-v1 protection cannot be bypassed by an isolated runner hook");
         }
+        // Force a durable receipt write failure AFTER a synthetic dispatch:
+        // no live ASA binary, port, RCON or protected Store is touched.
+        m1.HistoricalStoreProtected=false;
+        FileStream? journalLock=null;
+        int journalDispatches=0;
+        using(var faulted=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,(id,kind,token)=>{
+                journalDispatches++;
+                journalLock=new FileStream(
+                    Path.Combine(isolated,"native-asa-schedules-v1.json"),
+                    FileMode.Open,FileAccess.Read,FileShare.None);
+                return Task.FromResult("SYNTHETIC_DISPATCH_THEN_JOURNAL_LOCK");
+            },_=>true))
+        {
+            faulted.Disable(m1.Id,"Restart");
+            var next=faulted.Configure(m1.Id,"SaveWorld","Interval",
+                15,180,127).NextDueUtc;
+            bool interrupted=false;
+            try{await faulted.TickOnceAsync(next.AddMinutes(1));}
+            catch(InvalidOperationException ex) when(
+                ex.Message=="UM-ASA-SCHEDULE-JOURNAL-WRITE-NEEDS-OPERATOR")
+            {interrupted=true;}
+            finally{journalLock?.Dispose();}
+            Check(interrupted&&journalDispatches==1&&
+                faulted.RuntimeState=="journal-write-needs-operator",
+                "native scheduler stops on failed durable receipt and exposes operator fault");
+            bool replayDenied=false;
+            try{await faulted.TickOnceAsync(next.AddMinutes(20));}
+            catch(InvalidOperationException ex) when(
+                ex.Message=="UM-ASA-SCHEDULE-OPERATOR-REVIEW-REQUIRED")
+            {replayDenied=true;}
+            Check(replayDenied&&journalDispatches==1,
+                "receipt failure permanently denies further automatic scheduler ticks");
+        }
     }
 
     // P0 map settings use the original ClusterService.ReplaceMap CAS and
