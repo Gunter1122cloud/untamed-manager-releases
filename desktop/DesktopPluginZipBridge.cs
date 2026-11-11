@@ -19,15 +19,29 @@ public sealed class DesktopPluginZipBridge : IDisposable
 {
     private sealed record Pending(Guid Token,Guid MapId,string Installation,
         string Zip,string ZipSha256,string Plugin,string Profile,DateTimeOffset Created);
+    private sealed record RollbackPending(Guid Token,Guid MapId,string Installation,
+        string Backup,string Plugin,string Profile,int Binaries,DateTimeOffset Created);
     private readonly ClusterService cluster;
     private readonly Func<string?> pick;
+    private readonly Func<string?> pickRollback;
     private readonly SemaphoreSlim gate=new(1,1);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private Pending? pending;
-    public DesktopPluginZipBridge(ClusterService service,Func<string?>? picker=null)
+    private RollbackPending? pendingRollback;
+    public DesktopPluginZipBridge(ClusterService service,Func<string?>? picker=null,
+        Func<string?>? rollbackPicker=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         pick=picker??PickNativeZip;
+        pickRollback=rollbackPicker??PickNativeRollback;
+    }
+    private static string? PickNativeRollback()
+    {
+        using var dialog=new FolderBrowserDialog{
+            Description="Korábbi SHA-256 védett plugin ZIP mentés kiválasztása",
+            ShowNewFolderButton=false
+        };
+        return dialog.ShowDialog()==DialogResult.OK?dialog.SelectedPath:null;
     }
     private static string? PickNativeZip()
     {
@@ -110,11 +124,89 @@ public sealed class DesktopPluginZipBridge : IDisposable
                 return Error(null,"UM-PLUGIN-ZIP-REQUEST");
             id=requestId.ToString("D");
             string? method=field.GetString();
-            if(method is not ("plugins.zipSelect" or "plugins.zipApply"))
+            if(method is not ("plugins.zipSelect" or "plugins.zipApply" or
+                "plugins.zipRollbackSelect" or "plugins.zipRollbackApply"))
                 return Error(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
             {
+                if(method=="plugins.zipRollbackSelect")
+                {
+                    pendingRollback=null;
+                    if(!TryId(args,"mapId",out var requestedMap))
+                        return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-MAP");
+                    var owned=Get(requestedMap);
+                    if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
+                    var stopped=EnsureStopped(owned);
+                    string? chosen=pickRollback();
+                    if(string.IsNullOrWhiteSpace(chosen))
+                        return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-NOT-SELECTED");
+                    string full=Path.GetFullPath(chosen);
+                    string mapRoot=Path.GetFullPath(Path.Combine(
+                        BackupRoot,owned.Id.ToString("N")));
+                    if(!full.StartsWith(mapRoot+Path.DirectorySeparatorChar,
+                        StringComparison.OrdinalIgnoreCase))
+                        return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-FOREIGN-BACKUP");
+                    string[] parts=Path.GetRelativePath(mapRoot,full).Split(
+                        Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar);
+                    if(parts.Length!=2||string.IsNullOrWhiteSpace(parts[0])||
+                       string.IsNullOrWhiteSpace(parts[1]))
+                        return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-BACKUP-IDENTITY");
+                    string plugin=parts[0];
+                    var preview=SafePluginZip.PreviewRollback(
+                        owned,stopped,plugin,full,BackupRoot);
+                    if(!preview.Allowed)
+                        return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-PREFLIGHT");
+                    pendingRollback=new(Guid.NewGuid(),owned.Id,
+                        owned.InstallationPath,full,plugin,
+                        JsonSerializer.Serialize(owned),
+                        preview.PreviousBinaryCount,DateTimeOffset.UtcNow);
+                    return Ok(id,new{
+                        token=pendingRollback.Token,mapId=owned.Id,
+                        mapName=owned.Name,plugin,
+                        binaryCount=preview.PreviousBinaryCount,
+                        backupName=parts[1],
+                        evidence="VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK_PREVIEW_NO_WRITE"
+                    });
+                }
+                if(method=="plugins.zipRollbackApply")
+                {
+                    if(!TryId(args,"token",out var requestedToken)||
+                       pendingRollback==null||
+                       requestedToken!=pendingRollback.Token||
+                       DateTimeOffset.UtcNow-pendingRollback.Created>TimeSpan.FromMinutes(5))
+                        return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-TOKEN-EXPIRED");
+                    if(!args.TryGetProperty("confirm",out var permission)||
+                       permission.ValueKind!=JsonValueKind.True)
+                        return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-APPROVAL");
+                    var approved=pendingRollback;
+                    pendingRollback=null;
+                    var target=Get(approved.MapId);
+                    if(target==null||
+                       !string.Equals(target.InstallationPath,
+                           approved.Installation,StringComparison.OrdinalIgnoreCase)||
+                       JsonSerializer.Serialize(target)!=approved.Profile)
+                        return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-MAP-CHANGED");
+                    var stopped=EnsureStopped(target);
+                    var validated=SafePluginZip.PreviewRollback(
+                        target,stopped,approved.Plugin,approved.Backup,BackupRoot);
+                    if(!validated.Allowed||
+                       validated.PreviousBinaryCount!=approved.Binaries)
+                        return Error(id,"UM-PLUGIN-ZIP-ROLLBACK-CHANGED");
+                    var receipt=SafePluginZip.RollbackGuarded(
+                        cluster,target.Id,approved.Plugin,approved.Backup,BackupRoot,
+                        target.HistoricalStoreProtected?
+                            member=>HistoricalLocalConfigGuard.DemandStopped(
+                                cluster,member,underOwnOperation:true):
+                            null);
+                    return Ok(id,new{
+                        mapId=target.Id,plugin=receipt.PluginName,
+                        restoredBinaries=receipt.RestoredBinaryCount,
+                        protectiveBackupCreated=true,
+                        requiresRestart=true,runtimeLoadedVerified=false,
+                        evidence="VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK"
+                    });
+                }
                 if(method=="plugins.zipSelect")
                 {
                     pending=null;
