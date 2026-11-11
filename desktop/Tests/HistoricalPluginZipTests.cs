@@ -39,10 +39,10 @@ internal static class HistoricalPluginZipTests
         string install=Path.Combine(root,"original-kova-offline-plugin-zip-install");
         string bin=Path.Combine(install,"ShooterGame","Binaries","Win64");
         string server=Path.Combine(bin,"ArkAscendedServer.exe");
-        string plugin=Path.Combine(bin,"ArkApi","Plugins","ExampleKovaPlugin");
+        string plugin=Path.Combine(bin,"ArkApi","Plugins","ExampleSamplePlugin");
         Directory.CreateDirectory(plugin);
         File.WriteAllBytes(server,new byte[]{0x4d,0x5a,0x01,0x02});
-        string dll=Path.Combine(plugin,"ExampleKovaPlugin.dll");
+        string dll=Path.Combine(plugin,"ExampleSamplePlugin.dll");
         string config=Path.Combine(plugin,"config.json");
         string license=Path.Combine(plugin,"license.key");
         File.WriteAllBytes(dll,new byte[]{0x4d,0x5a,1,1});
@@ -56,7 +56,7 @@ internal static class HistoricalPluginZipTests
         using(var zip=new ZipArchive(stream,ZipArchiveMode.Create))
         {
             using var item=zip.CreateEntry(
-                "ExampleKovaPlugin/ExampleKovaPlugin.dll").Open();
+                "ExampleSamplePlugin/ExampleSamplePlugin.dll").Open();
             byte[] newBytes={0x4d,0x5a,0x02,0x03,0x04};
             item.Write(newBytes);
         }
@@ -92,7 +92,7 @@ internal static class HistoricalPluginZipTests
             "Core validates stopped original Store-v1 plugin ZIP preview");
         using var bridge=new DesktopPluginZipBridge(cluster,()=>archive,
             ()=>Directory.GetDirectories(Path.Combine(cluster.Store.Root,
-                "plugin-zip-backups",map.Id.ToString("N"),"ExampleKovaPlugin")).Single());
+                "plugin-zip-backups",map.Id.ToString("N"),"ExampleSamplePlugin")).Single());
         var preview=await Call(bridge,"plugins.zipSelect",new{mapId=map.Id});
         Check(preview.GetProperty("ok").GetBoolean()&&
               preview.GetProperty("data").GetProperty("previousExists").GetBoolean(),
