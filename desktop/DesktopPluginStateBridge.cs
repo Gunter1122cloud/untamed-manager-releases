@@ -83,7 +83,7 @@ public sealed class DesktopPluginStateBridge : IDisposable
                         cluster,mapId,plugin,enabled,
                         map.HistoricalStoreProtected?
                             member=>HistoricalLocalConfigGuard.DemandStopped(
-                                cluster,member,underOwnOperation:true):
+                                cluster,member):
                             null);
                     if(!readiness.Allowed)
                         return Success(id,new{
@@ -132,7 +132,7 @@ public sealed class DesktopPluginStateBridge : IDisposable
                     cluster,saved.MapId,saved.Plugin,saved.TargetEnabled,
                     owned.HistoricalStoreProtected?
                         member=>HistoricalLocalConfigGuard.DemandStopped(
-                            cluster,member,underOwnOperation:true):
+                            cluster,member):
                         null);
                 if(!latest.Allowed ||
                    !string.Equals(latest.Plugin,saved.Plugin,StringComparison.Ordinal))
@@ -142,6 +142,10 @@ public sealed class DesktopPluginStateBridge : IDisposable
                     owned.HistoricalStoreProtected?
                         ()=>HistoricalLocalConfigGuard.DemandStopped(
                             cluster,owned,underOwnOperation:true):
+                        null,
+                    owned.HistoricalStoreProtected?
+                        member=>HistoricalLocalConfigGuard.DemandStopped(
+                            cluster,member):
                         null,
                     owned.HistoricalStoreProtected?
                         member=>HistoricalLocalConfigGuard.DemandStopped(
