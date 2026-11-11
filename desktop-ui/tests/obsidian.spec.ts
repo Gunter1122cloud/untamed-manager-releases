@@ -2624,7 +2624,7 @@ test("multi-cluster membership filters 100+ maps, protects Store-v1 and applies 
   const preview=page.getByRole("region",{name:"Map-tagság előnézete"});
   await expect(preview).toContainText("1 áthelyezés");
   await page.getByRole("button",{name:"Előnézet jóváhagyása és mentése"}).click();
-  await expect(page.getByRole("status")).toContainText("1 áthelyezés");
+  await expect(page.getByRole("status").filter({hasText:"1 áthelyezés"})).toBeVisible();
   await page.getByRole("combobox",{name:"Kiválasztott cluster"}).selectOption("fixture-alpha");
   await expect(membershipCheckboxes.getByRole("checkbox",{name:/Local Map 4/})).not.toBeChecked();
 });
