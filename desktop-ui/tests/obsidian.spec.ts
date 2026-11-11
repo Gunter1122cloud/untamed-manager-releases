@@ -2453,6 +2453,8 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"||
                   e.message==="UM-UPDATE-CHECK-REQUIRED"||
                   e.message==="UM-UPDATE-CHECK-STALE"||
+                  e.message==="UM-INI-GAME-MISSING"||
+                  e.message==="UM-INI-CONFIG-DIRECTORY-MISSING"||
                   e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-"))
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
