@@ -87,7 +87,11 @@ public static class SafePluginZip
             if(!cluster.Config.LocalMaps.Contains(map)||FixedLocal(map.InstallationPath)!=install)
                 throw new UnauthorizedAccessException("Plugin map ownership changed");
             ProcessCheck? selected=null;
-            foreach(var local in cluster.Config.LocalMaps.Where(x=>string.Equals(
+            // Unconfigured local maps do not share this installation.
+            // Their empty path must not disable ZIP installation for a valid
+            // unrelated Kova/ASA map.
+            foreach(var local in cluster.Config.LocalMaps.Where(x=>
+                !string.IsNullOrWhiteSpace(x.InstallationPath)&&string.Equals(
                 FixedLocal(x.InstallationPath),install,StringComparison.OrdinalIgnoreCase)))
             {
                 var generic=cluster.Check(local);
