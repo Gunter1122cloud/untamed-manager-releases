@@ -83,9 +83,11 @@ internal static class AsaRuntimeLogEvidence
                     // The timestamp *on the positive load line*, not merely
                     // the file's LastWriteTime, must be from this loader run.
                     bool loaded=false,hooks=false;
-                    // Both positive native load and hook activation are
-                    // necessary. A failed/partial API injection can print a
-                    // load line without initializing its runtime hooks.
+                    // Do not combine hook activation from an earlier partial
+                    // loader session with a newer API load. Positive markers
+                    // must occur in the causal order: loaded, then hooks.
+                    // The native log has minute-granularity timestamps; the
+                    // PID/start identity is reverified by AsaReadyProbe.
                     foreach(string line in Tail(log,1_048_576))
                     {
                         bool isLoad=line.Contains("API was successfully loaded",
@@ -102,8 +104,8 @@ internal static class AsaRuntimeLogEvidence
                         var at=new DateTimeOffset(when,TimeSpan.Zero);
                         if(at<loader.StartedUtc.AddMinutes(-2) ||
                            at>DateTimeOffset.UtcNow.AddMinutes(2))continue;
-                        if(isLoad)loaded=true;
-                        if(isHooks)hooks=true;
+                        if(isLoad){loaded=true;hooks=false;}
+                        else if(isHooks&&loaded)hooks=true;
                     }
                     if(loaded&&hooks) {apiInitialized=true;break;}
                 }
@@ -127,13 +129,15 @@ internal static class AsaRuntimeLogEvidence
         using var reader=new StreamReader(file,new UTF8Encoding(false,false),
             detectEncodingFromByteOrderMarks:true);
         if(offset>0)reader.ReadLine();
-        var lines=new System.Collections.Generic.List<string>();
+        // Keep only the final 4,000 lines without O(n²) List.RemoveAt(0)
+        // shifts on a densely written 1 MiB API log.
+        var lines=new System.Collections.Generic.Queue<string>(4000);
         while(reader.ReadLine() is { } line)
         {
             if(line.Length>8192 || line.Contains('\0'))
                 throw new InvalidDataException("Invalid API log line");
-            if(lines.Count>=4000)lines.RemoveAt(0);
-            lines.Add(line);
+            if(lines.Count==4000)lines.Dequeue();
+            lines.Enqueue(line);
         }
         return lines.ToArray();
     }
