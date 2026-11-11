@@ -42,11 +42,20 @@ internal static class HistoricalLocalConfigGuardTests
         var confirmed=HistoricalLocalConfigGuard.DemandStopped(cluster,map);
         Check(confirmed.ConfirmedStopped&&!confirmed.Running,
             "native historical WMI proof authorizes offline edit despite generic argv uncertainty");
-        simulatedRunning=true;
+        // ClusterService.Check intentionally reports historical Store as
+        // uncertain regardless of a synthetic inspector. Do not pretend a
+        // fixture PID is a genuine WMI ArkAscendedServer process. Test the
+        // independent fail-closed native identity/maintenance gates instead.
+        map.Maintenance=true;
         bool denied=false;
         try{HistoricalLocalConfigGuard.DemandStopped(cluster,map);}
-        catch(InvalidOperationException){denied=true;}
-        Check(denied,
-            "known running ASA PID overrides a stale native stopped observation");
+        catch(UnauthorizedAccessException){denied=true;}
+        Check(denied,"historical maintenance blocks offline file mutation");
+        map.Maintenance=false;
+        map.HistoricalArchiveSha256="INVALID";
+        denied=false;
+        try{HistoricalLocalConfigGuard.DemandStopped(cluster,map);}
+        catch(UnauthorizedAccessException){denied=true;}
+        Check(denied,"changed original Store archive identity blocks native edit");
     }
 }
