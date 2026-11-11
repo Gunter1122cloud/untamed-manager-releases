@@ -197,6 +197,16 @@ public static class AsaReadyProbe
                     "RCON reply was empty; readiness cannot be confirmed",hasLoader);
             var log=AsaRuntimeLogEvidence.Inspect(map,before.Identity,
                 before.LoaderIdentity);
+            cancellationToken.ThrowIfCancellationRequested();
+            // Reading a large rolling game/API log takes time. The ASA child
+            // or Loader may exit and a PID may be reused AFTER RCON succeeds.
+            // A third independent local OS inspection closes this race.
+            var final=inspect();
+            if(!final.Running||final.ConfirmedStopped||
+               !Identical(before.Identity,final.Identity)||
+               !Identical(before.LoaderIdentity,final.LoaderIdentity))
+                return Result(map,AsaRuntimeStage.ProcessVerified,
+                    "ASA/Loader process changed while confirming runtime logs; readiness refused");
             bool ready=log.JoinAdvertised &&
                 (!map.StartWithAsaApi||log.ApiInitialized);
             return Result(map,AsaRuntimeStage.RconAuthenticated,
