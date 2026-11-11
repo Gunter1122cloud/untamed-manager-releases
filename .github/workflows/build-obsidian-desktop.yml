@@ -80,6 +80,13 @@ jobs:
           npm install --no-audit --no-fund
           npm run build
           if (!(Test-Path dist/index.html)) { throw "Missing offline UI" }
+      - name: Capture exact React dependency resolution for npm ci migration
+        uses: actions/upload-artifact@v4
+        with:
+          name: Obsidian-NPM-Resolved-Lock
+          path: desktop-ui/package-lock.json
+          if-no-files-found: error
+          retention-days: 3
       - name: Install Playwright Chromium for isolated browser UI tests
         shell: pwsh
         working-directory: desktop-ui
