@@ -299,12 +299,13 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             FreshStoreApiPairObserver.Begin(
                                 cluster,currentMap.Id,receipt.Started,closingToken);
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
                         try{restartJournal.Change(persisted.Id,AsaRestartPhase.NeedsOperator);}
                         catch{/* Keep the original pending journal; never clear it. */}
                         Change(job,"needsOperator",
-                            "Interrupted restart: inspect local process and operation journal");
+                            "Restart interrupted ["+NativeLifecycleFailureCode.From(ex)+
+                            "]: inspect local process and operation journal");
                     }
                 });
                 return Ok(id,new{
