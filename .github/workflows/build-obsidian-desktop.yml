@@ -26,6 +26,12 @@ on:
       - ".github/workflows/build-obsidian-desktop.yml"
   workflow_dispatch:
 
+# Keep only the newest validation for a single PR. Main/release builds
+# each receive their own run-id group and are NEVER cancelled by a PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
