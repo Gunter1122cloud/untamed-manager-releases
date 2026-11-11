@@ -23,7 +23,7 @@ public sealed class DesktopRconReadOnlyBridge
     private readonly SemaphoreSlim serial=new(1,1);
     private sealed record SaveCheck(Guid Token,Guid MapId,int Pid,
         DateTimeOffset StartedUtc,AsaWorldSaveEvidence.Boundary Bookmark,
-        DateTimeOffset Expires);
+        DateTimeOffset Expires,bool Completed=false);
     // One map cannot invalidate another map's SaveWorld evidence.
     private readonly Dictionary<Guid,SaveCheck> pendingSaves=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -136,6 +136,10 @@ public sealed class DesktopRconReadOnlyBridge
                         TimeSpan.FromSeconds(3));
                     var witness=await AsaWorldSaveEvidence.ObserveAsync(
                         requested.Bookmark,Same,proofDeadline.Token);
+                    // Keep the receipt readable, but permit a new explicitly
+                    // approved SaveWorld after this one has real file evidence.
+                    if(witness.CompletionObserved||witness.WorldMetadataObserved)
+                        pendingSaves[map.Id]=requested with {Completed=true};
                     return Ok(id,new{
                         mapId=map.Id,watchId=requested.Token,
                         rconCommandDispatched=true,
@@ -163,7 +167,7 @@ public sealed class DesktopRconReadOnlyBridge
                     // Read-only log/chat/players remain available for diagnosis.
                     new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
                     if(pendingSaves.TryGetValue(map.Id,out var previous)&&
-                       previous.Expires>DateTimeOffset.UtcNow)
+                       !previous.Completed&&previous.Expires>DateTimeOffset.UtcNow)
                         return Deny(id,"UM-RCON-SAVE-ALREADY-PENDING");
                     pendingSaves.Remove(map.Id);
                     if(!root.TryGetProperty("confirm",out var approve) ||
