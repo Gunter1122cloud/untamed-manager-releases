@@ -772,6 +772,11 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     HistoricalMapKey=staged.MapKey,
                     HistoricalEnabledMods=staged.Enabled.ToList(),
                     HistoricalPassiveMods=staged.Passive.ToList(),
+                    // Archive-only registration is quarantined until the
+                    // original direct-vs-ASA-API launch mode is approved.
+                    // Never grant native offline edits simply because a
+                    // Store metadata ZIP and empty WMI process list exist.
+                    HistoricalLaunchModeNeedsApproval=true,
                     StartWithAsaApi=false,AutoStart=false,MonitorRcon=false,
                     RconPort=0,ApiLoaderArguments=""
                 };
