@@ -369,6 +369,8 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
+    const missingGameToken="00000000-0000-4000-8000-000000003334";
+    let missingGameCreated=false;
     const nativeSchedules:Record<string,any[]>={};
     const opsJobId="00000000-0000-4000-8000-000000009988";
     let opsJobCreated=false;
@@ -1913,7 +1915,25 @@ test.beforeEach(async ({ page }) => {
             movedCount:pending.preview.moves.length,appliedUtc:"2026-11-08T00:00:02Z"};
         }
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
-        case "ini.open": return {token:iniToken,mapId:one,file:m.file||"Game.ini",content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
+        case "ini.open":
+          if(new URLSearchParams(window.location.search).get("fixture")==="missingGameIni" &&
+             m.file==="Game.ini"&&!missingGameCreated)
+            throw new Error("UM-INI-GAME-MISSING");
+          return {token:iniToken,mapId:one,file:m.file||"Game.ini",
+            content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",
+            sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
+        case "ini.createGamePreview":
+          if(missingGameCreated)throw new Error("UM-INI-GAME-ALREADY-EXISTS");
+          return {token:missingGameToken,mapId:m.mapId,file:"Game.ini",createsFile:false,
+            requiresStoppedProcess:true,originalStoreTouched:false,
+            evidence:"FRESH_GAME_INI_CREATE_PREVIEW_NO_WRITE"};
+        case "ini.createGameApply":
+          if(m.token!==missingGameToken||m.confirm!==true||missingGameCreated)
+            throw new Error("UM-INI-CREATE-EXPLICIT-APPROVAL");
+          missingGameCreated=true;
+          return {mapId:one,file:"Game.ini",created:true,bytes:38,
+            originalStoreTouched:false,
+            evidence:"FRESH_GAME_INI_DURABLE_CREATE_NEW_VERIFIED"};
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
         case "ini.save": return {saved:true,backupCreated:true,sha256:"FFEE11",evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
         case "ini.close": return {closed:true};
@@ -3932,6 +3952,27 @@ test("INI editor requires explicit open, preview and save in test contract",asyn
   await page.screenshot({path:"test-results/ini-preview-1366.png",fullPage:true});
   await page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}).click();
   await expect(page.getByText(/visszaállítási \.bak másolattal/)).toBeVisible();
+});
+
+test("missing Game.ini requires two explicit user actions before opening the native ETag editor",async({page})=>{
+  await page.setViewportSize({width:940,height:620});
+  await page.goto("/?fixture=missingGameIni");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  const create=page.getByRole("region",{name:"Hiányzó Game.ini létrehozása"});
+  await expect(create).toBeVisible();
+  await expect(create.getByRole("button",{name:"Game.ini létrehozása és megnyitása"}))
+    .toHaveCount(0);
+  await create.getByRole("button",{name:"Game.ini létrehozásának előnézete"}).click();
+  const apply=create.getByRole("button",{name:"Game.ini létrehozása és megnyitása"});
+  await expect(apply).toBeDisabled();
+  await create.getByRole("checkbox").check();
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(page.getByRole("textbox",{name:"Az eredeti fájl szerkeszthető tartalma"}))
+    .toBeVisible();
+  await expect(page.getByText(/hiányzó Game.ini kizárólag ezen/)).toBeVisible();
+  await expect(create).toHaveCount(0);
 });
 
 test("720px desktop sidebar scroll reaches Settings and INI without clipping", async ({page})=>{
