@@ -1487,6 +1487,46 @@ try
             "external INI modification is a distinct ETag conflict and preserves newer bytes");
         Check(File.ReadAllText(iniFile).Contains("EXTERNAL=1"),
             "external change preserved on failed staged save");
+
+        // Missing Game.ini on a new stopped ASA installation is a supported
+        // explicit operation, never an implicit file write on open.
+        File.Delete(iniFile);
+        var missing=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        Check(IsError(missing,"UM-INI-GAME-MISSING")&&!File.Exists(iniFile),
+            "opening a missing Game.ini never silently creates a file");
+        var creation=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        IsOk(creation,"fresh local Game.ini creation is read-only preflighted");
+        Check(!File.Exists(iniFile) &&
+              !creation.GetProperty("data").GetProperty("createsFile").GetBoolean(),
+            "creation preview leaves installation untouched");
+        string creationToken=creation.GetProperty("data").GetProperty("token").GetString()!;
+        var declinedCreate=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=creationToken,confirm=false});
+        Check(IsError(declinedCreate,"UM-INI-CREATE-EXPLICIT-APPROVAL") &&
+              !File.Exists(iniFile),
+            "missing Game.ini cannot be created without final approval");
+        var createdGame=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=creationToken,confirm=true});
+        IsOk(createdGame,"approved fresh Game.ini created using atomic CreateNew");
+        Check(createdGame.GetProperty("data").GetProperty("created").GetBoolean() &&
+              File.ReadAllText(iniFile).Contains("ShooterGameMode",StringComparison.Ordinal),
+            "native Game.ini creation really writes a valid UTF-8 starter section");
+        byte[] createdOriginal=File.ReadAllBytes(iniFile);
+        var replayCreate=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=creationToken,confirm=true});
+        Check(!replayCreate.GetProperty("ok").GetBoolean() &&
+              createdOriginal.SequenceEqual(File.ReadAllBytes(iniFile)),
+            "consumed create token cannot overwrite the newly created Game.ini");
+        var alreadyExists=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        Check(!alreadyExists.GetProperty("ok").GetBoolean() &&
+              createdOriginal.SequenceEqual(File.ReadAllBytes(iniFile)),
+            "existing Game.ini cannot be recreated or overwritten");
+        var reopened=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        IsOk(reopened,"newly created Game.ini opens in the original ETag editor");
     }
 
     // A real existing ASA install may be registered without constructing
