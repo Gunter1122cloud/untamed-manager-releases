@@ -16,6 +16,23 @@ public sealed class ObsidianWindow : Form
 {
     private const string AppOrigin = "https://untamed-app.example";
 
+    // The WebView2 profile is intentionally retained across upgrades.
+    // Pin the index.html navigation URL to the installed native release
+    // marker so an earlier WebView cached HTML shell cannot keep serving
+    // the old React bundle after a verified Setup/Portable upgrade.
+    // Never use remote content or arbitrary URL parts from a profile file.
+    internal static string ReleaseScopedUiUrl(string? installedTag)
+    {
+        string tag=installedTag??"";
+        if(tag.Length is <1 or >100 ||
+           !System.Text.RegularExpressions.Regex.IsMatch(tag,
+               @"\Av\d{1,4}\.\d{1,4}\.\d{1,4}-obsidian(?:-preview\.\d{1,12})?\z",
+               System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+               TimeSpan.FromMilliseconds(100)))
+            tag="unversioned";
+        return AppOrigin+"/index.html?release="+Uri.EscapeDataString(tag);
+    }
+
     // Production WebView2 dispatcher AND isolated native integration tests
     // share this exact allowlist. Never route by prefix: an unapproved
     // historical.* method must continue to fail closed in the fallback.
@@ -669,7 +686,7 @@ public sealed class ObsidianWindow : Form
             if (_smokeTest)
                 core.NavigationCompleted += async (_, args) =>
                     await CompleteNativeSmokeAsync(args.IsSuccess);
-            core.Navigate(AppOrigin + "/index.html");
+            core.Navigate(ReleaseScopedUiUrl(ObsidianReleaseCatalog.InstalledTag));
         }
         catch (Exception)
         {

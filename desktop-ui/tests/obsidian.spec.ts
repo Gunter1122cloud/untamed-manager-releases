@@ -50,6 +50,20 @@ test.beforeEach(async ({ page }) => {
     let originalLiveFiveFixture=false;
     let originalLiveMixedFixture=false;
     let originalLiveDispatchDenied=false;
+    let updateReleaseChangedAfterCheck=false;
+    let updateMetadataMalformed=false;
+    (window as typeof window & {__UNTAMED_UPDATE_MALFORMED_METADATA__?:()=>void})
+      .__UNTAMED_UPDATE_MALFORMED_METADATA__=()=>{updateMetadataMalformed=true;};
+    let updatePreparedCount=0;
+    (window as typeof window & {
+      __UNTAMED_UPDATE_RELEASE_CHANGED__?:()=>void;
+      __UNTAMED_UPDATE_PREPARED_COUNT__?:()=>number;
+    }).__UNTAMED_UPDATE_RELEASE_CHANGED__=()=>{
+      updateReleaseChangedAfterCheck=true;
+    };
+    (window as typeof window & {
+      __UNTAMED_UPDATE_PREPARED_COUNT__?:()=>number;
+    }).__UNTAMED_UPDATE_PREPARED_COUNT__=()=>updatePreparedCount;
     (window as typeof window & {__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__?:()=>void})
       .__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__=()=>{
         originalLiveFiveFixture=true;originalLiveDispatchDenied=true;
@@ -706,12 +720,19 @@ test.beforeEach(async ({ page }) => {
           channel:m.channel??"stable",found:true,newer:true,
           tag:"v9.0.0-obsidian-preview.1",version:"9.0.0",
           assetName:"Untamed_Obsidian_Desktop_Preview_Setup.exe",
-          sha256:"a".repeat(64),
+          sha256:updateMetadataMalformed?null:"a".repeat(64),
           releaseNotes:"Synthetic signed-release metadata only",
           installationPermitted:false,updaterVerified:false,
           evidence:"GITHUB_RELEASE_METADATA_NOT_AN_INSTALLER"
         };
-        case "updates.prepare": return {
+        case "updates.prepare":
+          if(m.expectedTag!=="v9.0.0-obsidian-preview.1"||
+             m.expectedSha256!=="a".repeat(64))
+            throw new Error("UM-UPDATE-CHECK-REQUIRED");
+          if(updateReleaseChangedAfterCheck)
+            throw new Error("UM-UPDATE-CHECK-STALE");
+          updatePreparedCount++;
+          return {
           token:"00000000-0000-4000-8000-00000000b005",
           tag:"v9.0.0-obsidian-preview.1",version:"9.0.0",
           assetName:"Untamed_Obsidian_Desktop_Preview_Setup.exe",
@@ -2300,7 +2321,9 @@ test.beforeEach(async ({ page }) => {
               // the native C# reply does; other mocked denials remain generic.
               const error=e instanceof Error&&
                 (e.message.startsWith("UM-FRESH-ROOT-OVERLAP|")||
-                  e.message==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS")
+                  e.message==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"||
+                  e.message==="UM-UPDATE-CHECK-REQUIRED"||
+                  e.message==="UM-UPDATE-CHECK-STALE")
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
             }
@@ -2986,6 +3009,45 @@ test("Update Center verifies Obsidian-only installer and requires explicit two-s
   await page.getByRole("checkbox").check();
   await expect(page.getByRole("button",{name:"Ellenőrzött frissítés telepítése"})).toBeEnabled();
   await page.screenshot({path:"test-results/uk-update-center-1600.png",fullPage:false});
+});
+
+test("P0 update UI never shows a no-op Prepare button for missing native release SHA",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_UPDATE_MALFORMED_METADATA__?:()=>void}
+  ).__UNTAMED_UPDATE_MALFORMED_METADATA__?.());
+  await page.getByRole("button",{name:"Frissítések"}).click();
+  await page.getByRole("button",{name:"Frissítések keresése"}).click();
+  await expect(page.getByRole("alert")).toContainText("hiányzik a pontos Obsidian");
+  await expect(page.getByRole("button",{
+    name:/Telepítő letöltése és SHA-256 ellenőrzése/
+  })).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Frissítések keresése"})).toBeEnabled();
+});
+
+test("P0 updater prevents release drift between discovery and staging with pinned SHA-256",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Frissítések"}).click();
+  await page.getByRole("button",{name:"Frissítések keresése"}).click();
+  await expect(page.getByText("Új kiadás érhető el")).toBeVisible();
+  await page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_UPDATE_RELEASE_CHANGED__?:()=>void}
+  ).__UNTAMED_UPDATE_RELEASE_CHANGED__?.());
+  await page.getByRole("button",{
+    name:/Telepítő letöltése és SHA-256 ellenőrzése/
+  }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "GitHub kiadás az ellenőrzés óta megváltozott");
+  await expect(page.getByText("Telepítő SHA-256 ellenőrizve")).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Ellenőrzött frissítés telepítése"}))
+    .toHaveCount(0);
+  const prepared=await page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_UPDATE_PREPARED_COUNT__?:()=>number}
+  ).__UNTAMED_UPDATE_PREPARED_COUNT__?.());
+  expect(prepared).toBe(0);
+  // A stale release always requires another explicit Check, not a retry
+  // of the earlier consent token.
+  await expect(page.getByRole("button",{name:"Frissítések keresése"})).toBeEnabled();
 });
 
 test("full-HD premium cluster dashboard fits without horizontal clipping",async({page})=>{

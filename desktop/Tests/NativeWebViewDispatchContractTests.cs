@@ -63,6 +63,20 @@ internal static class NativeWebViewDispatchContractTests
         string fallback=Read("desktop/DesktopReadOnlyBridge.cs");
         string historical=Read("desktop/DesktopHistoricalStoreImportBridge.cs");
 
+        // Obsidian ships a separately built WPF/Core-compatible rollback
+        // updater and compiles legacy test projects. CI must also run when
+        // those dependencies change, not just when desktop/ changes.
+        string workflow=Read(".github/workflows/build-obsidian-desktop.yml");
+        foreach(var watched in new[]{
+            "desktop/**","desktop-ui/**","wpf/Core/**",
+            "wpf/Updater/**","wpf/Testing/**","wpf/Assets/**"})
+        {
+            int occurrences=Regex.Matches(workflow,
+                Regex.Escape("\""+watched+"\"")).Count;
+            Check(occurrences==2,
+                "both main push and PR triggers watch dependency: "+watched);
+        }
+
         var declared=Methods(Between(react,"type WireRequest =","type WireResponse ="));
         var requested=Methods(react[react.IndexOf(
             "export const managerBridge =",StringComparison.Ordinal)..]);
