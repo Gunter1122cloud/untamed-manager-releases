@@ -162,9 +162,17 @@ public static class AsaReadyProbeTests
         string apiLog=Path.Combine(installation,"ShooterGame","Win64","logs",
             "ArkApi.log");
         Directory.CreateDirectory(Path.GetDirectoryName(apiLog)!);
-        File.WriteAllText(apiLog,DateTime.Now.ToString("MM/dd/yy HH:mm",
-            System.Globalization.CultureInfo.InvariantCulture)+
+        string apiTimestamp=DateTime.Now.ToString("MM/dd/yy HH:mm",
+            System.Globalization.CultureInfo.InvariantCulture);
+        File.WriteAllText(apiLog,apiTimestamp+
             " [API] API was successfully loaded"+Environment.NewLine);
+        var loadWithoutHooks=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!loadWithoutHooks.ApiInitialized &&
+              !loadWithoutHooks.ProductionReady,
+            "API load log without Initialized hooks never certifies runtime");
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API] Initialized hooks"+Environment.NewLine);
         var apiReady=await AsaReadyProbe.ObserveAsync(map,()=>steady,
             _=>Task.FromResult("No Players Connected."));
         Check(apiReady.ProductionReady && apiReady.JoinAdvertised &&
