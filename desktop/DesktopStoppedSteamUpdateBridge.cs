@@ -45,12 +45,14 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         planner=plan??(map=>SteamUpdateDryRun.Plan(
             cluster.Config.SteamCmdExecutable,map.InstallationPath,
             cluster.Config.LocalMaps.ToArray(),
-            member=>ObserveForSteam(member,true),Reserve));
+            member=>ObserveForSteam(member),Reserve));
         runner=execute??((map,progress)=>map.HistoricalStoreProtected?
             SteamStoppedMapUpdater.UpdateOriginalStoppedAsync(
                 cluster,map,cluster.Config.SteamCmdExecutable,Reserve,
                 TimeSpan.FromHours(2),
-                member=>ObserveForSteam(member,true),progress):
+                member=>ObserveForSteam(member),progress,
+                originalStoppedObserverUnderLease:
+                    member=>ObserveForSteam(member,true)):
             SteamStoppedMapUpdater.UpdateAsync(
                 cluster,map,cluster.Config.SteamCmdExecutable,Reserve,
                 TimeSpan.FromHours(2),progress));
@@ -72,7 +74,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
         {
             if(map.HistoricalStoreProtected)ObserveForSteam(map);
             SteamStoppedMapUpdater.DemandSafeLocalInstallation(
-                cluster,map,member=>ObserveForSteam(member,true));
+                cluster,map,member=>ObserveForSteam(member));
             return true;
         }
         catch(Exception ex) when(ex is InvalidDataException or
