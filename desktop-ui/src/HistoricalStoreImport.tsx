@@ -431,6 +431,12 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               "az öt natív azonosság ellenőrizve":"az öt natív azonosság nem teljesen igazolt"}.
             {" "}Közvetlen ASA: {handoffReadiness.directAsaProcesses};
             {" "}Loader + ASA: {handoffReadiness.verifiedLoaderAsaPairs}.</p>
+          <p><strong>Obsidian RCON-profil:</strong>{" "}
+            {handoffReadiness.rconProfileConfiguredCount}/5 rendelkezik
+            érvényes tartományú porttal és mentett hitelesítési adattal.
+            Ez NEM bizonyít RCON-kapcsolatot vagy vezérlési jogosultságot;
+            a wild dino wipe kizárólag külön engedélyezett natív
+            RCON-művelet lehet, és ezen a képernyőn nincs végrehajtás.</p>
           <p><strong>Vezérlésátadás:</strong> nincs igazolva. A régi Kova
             watchdogja, automatikus indítása és Windows-ütemezései nincsenek
             hitelesen kizárva. Az online státusz csak megfigyelés.</p>
@@ -443,13 +449,16 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <div className="uk-store-archive-scroller">
             <table className="uk-store-archive-table">
               <thead><tr><th>Eredeti map</th><th>Obsidian</th>
-                <th>Cluster</th><th>Folyamatazonosság</th></tr></thead>
+                <th>Cluster</th><th>Folyamatazonosság</th>
+                <th>RCON-profil</th></tr></thead>
               <tbody>{handoffReadiness.maps.map(map=><tr key={map.mapId}>
                 <td>{map.mapName}</td>
                 <td>{map.exactLocalRegistration&&map.hostRegistryRegistration?
                   "Egyezik":"Nem teljes"}</td>
                 <td>{map.clusterAssignment?"Hozzárendelve":"Nem igazolt"}</td>
                 <td>{map.processIdentityVerified?"Igazolt":"Nem igazolt"}</td>
+                <td>{map.rconProfileConfigured?"Mentett profil":
+                  "Hiányzik / RCON-port "+map.rconPort}</td>
               </tr>)}</tbody>
             </table>
           </div>
