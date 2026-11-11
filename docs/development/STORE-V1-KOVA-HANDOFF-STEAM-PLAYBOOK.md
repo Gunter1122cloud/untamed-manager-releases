@@ -100,8 +100,8 @@ tervezhető, és először kizárólag izolált FakeASA/FakeSteamCMD környezetb
 7. Steam után az összes védett fájl és Store-azonosító hash-e egyezik,
    install/build/ASA exe érvényes, külön boot/Loader/ASA API ellenőrzés
    kész. Automatikus újraindítás vagy karakter-restore NINCS.
-8. Hiba: \`NEEDS_OPERATOR\`, napló és ellenőrzött rollback-terv, a
-   posledő ép mentés érintetlen. Nem szabad a másik host aktív Store
+8. Hiba: \`NEEDS_OPERATOR\`, napló és ellenőrzött rollback-terv, az
+   utolsó ép mentés érintetlen. Nem szabad a másik host aktív Store
    sessionjét régi másolatra visszaírni.
 
 Ez **tervezett kapusor**, nem kész történeti Store-v1 frissítés;
@@ -118,6 +118,11 @@ majd vissza ugyanarra az A-ra. A bizonyítékhoz szükséges:
 - sikeres játékbeli *rejoin mindhárom szakaszban* és visszatéréskor
   ténylegesen használható karakter;
 - az érintetlen mapok és az utolsó ép restore-pont változatlansága.
+
+**Elkülönítés:** az izolált `OriginalStoreHandoffReadinessTests`,
+`OriginalStoreLiveReconcileTests` és a meglévő FakeSteam/Travel
+regressziók nem futnak az UK-HOME hostokon. A meglévő, nem Store
+SteamCMD-végrehajtási út továbbra sem fogad történeti Store-mapot.
 
 **Jelenlegi szintetikus tesztek:** forrás/azonosság/host/cluster
 egyezőség és hibás út/mod/tételszám elutasítása. A StoreTravel
