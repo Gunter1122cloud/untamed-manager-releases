@@ -82,6 +82,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.originalBatchRegister" or
                 "historical.originalLiveBatchPreview" or
                 "historical.originalLiveBatchApply" or
+                "historical.originalReadiness" or
                 "historical.originalClusterPreview" or
                 "historical.originalClusterApply"))
                 return Fail(id,"UM-METHOD-DENIED");
@@ -177,6 +178,49 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     });
                 }
 
+                if(method=="historical.originalReadiness")
+                {
+                    // Explicit user-requested, locally bound, READ-ONLY evidence.
+                    // No native takeover token, launch, RCON, Store write or
+                    // automatic ownership transfer is issued by this route.
+                    try
+                    {
+                        var original=LegacyStoreV1OriginalImport.Inspect(
+                            localLegacyDataDirectory);
+                        bool fiveProcessesProven=false;
+                        string? originalRoot=null;
+                        int direct=0,loaderPairs=0;
+                        try
+                        {
+                            var (_,observed,_)=VerifyLiveOriginalFive();
+                            var source=LegacyStoreV1LiveReadGate.InspectOriginalActive(
+                                observed.Maps[0],localLegacyDataDirectory);
+                            fiveProcessesProven=source.CompletedOriginalSourceGuard&&
+                                source.BothPeersDone&&source.ActiveMaps==10&&
+                                source.DonePeers==2;
+                            if(fiveProcessesProven)
+                            {
+                                originalRoot=source.VerifiedOriginalSharedPath;
+                                direct=observed.DirectProcesses;
+                                loaderPairs=observed.ApiLoaderPairs;
+                            }
+                        }
+                        catch(Exception)
+                        {
+                            // A missing/changed live process or Kova peer proof
+                            // is UNKNOWN, never a positive controller handoff.
+                        }
+                        var report=OriginalStoreHandoffReadiness.Evaluate(
+                            original,cluster.Config.LocalMaps.ToArray(),
+                            cluster.Registry.Snapshot(),fiveProcessesProven,
+                            originalRoot,direct,loaderPairs);
+                        return Ok(id,report);
+                    }
+                    catch(Exception)
+                    {
+                        return Fail(id,"UM-ORIGINAL-READINESS-SOURCE-UNAVAILABLE");
+                    }
+                }
                 if(method=="historical.originalLiveBatchPreview")
                 {
                     pendingOriginalLiveBatch=null;
