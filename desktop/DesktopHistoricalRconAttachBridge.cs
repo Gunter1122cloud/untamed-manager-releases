@@ -84,6 +84,55 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
             throw new InvalidDataException("UM-HISTORICAL-RCON-INI-BOUNDS");
         return Convert.ToHexString(SHA256.HashData(source));
     }
+    // Read only the existing local ASA INI's unambiguous RCON port. Never
+    // return ServerAdminPassword or turn an INI hint into authority to send.
+    private static int SuggestedOriginalRconPort(LocalMap map)
+    {
+        try
+        {
+            string path=AsaInitialRconSettings.NewIniPath(map.InstallationPath);
+            var dir=Path.GetDirectoryName(path)!;
+            for(DirectoryInfo? cursor=new(dir);cursor!=null;cursor=cursor.Parent)
+                if(cursor.Exists&&(cursor.Attributes&FileAttributes.ReparsePoint)!=0)
+                    return 0;
+            var file=new FileInfo(path);
+            if(!file.Exists||file.Length is <8 or >131072||
+               (file.Attributes&FileAttributes.ReparsePoint)!=0)
+                return 0;
+            int sections=0,enabled=0,ports=0,port=0;
+            bool inside=false,isEnabled=false;
+            foreach(string line in File.ReadLines(path))
+            {
+                string value=line.Trim();
+                if(value.StartsWith("[",StringComparison.Ordinal))
+                {
+                    inside=value.Equals("[ServerSettings]",StringComparison.OrdinalIgnoreCase);
+                    if(inside)sections++;
+                    continue;
+                }
+                if(!inside||value.Length==0||value[0] is ';' or '#')continue;
+                int equal=value.IndexOf('=');
+                if(equal<1)continue;
+                string key=value[..equal].Trim();
+                string field=value[(equal+1)..].Trim();
+                if(key.Equals("RCONEnabled",StringComparison.OrdinalIgnoreCase))
+                {
+                    enabled++;isEnabled=field.Equals("True",StringComparison.OrdinalIgnoreCase);
+                }
+                else if(key.Equals("RCONPort",StringComparison.OrdinalIgnoreCase))
+                {
+                    ports++;
+                    if(!int.TryParse(field,out port))return 0;
+                }
+            }
+            return sections==1&&enabled==1&&isEnabled&&ports==1&&
+                port is >=1024 and <=65535?port:0;
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
+            InvalidDataException or ArgumentException or NotSupportedException)
+        {return 0;}
+    }
+
     private static LocalMap WithRcon(LocalMap original,int port,string protectedPassword)
     {
         var copy=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(original))
@@ -201,6 +250,7 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                     return Ok(id,new{
                         mapId,mapName=map.Name,configured=attached,
                         port=attached?map.RconPort:0,
+                        suggestedPort=attached?map.RconPort:SuggestedOriginalRconPort(map),
                         verifiedIni=attached&&rconProof(map),
                         originalStoreTouched=false,
                         evidence="HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY"
