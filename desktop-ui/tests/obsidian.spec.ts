@@ -3191,6 +3191,19 @@ test("P0 read-only native ASA discovery displays server/loader identities withou
   await expect(panel.getByRole("button",{name:/Átvétel|Leállítás|Mentés|Restart/})).toHaveCount(0);
 });
 
+test("P0 empty second host has an actionable LAN pairing workflow, not a dead status label",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_EMPTY_FIXTURE__?:()=>void
+  }).__UNTAMED_EMPTY_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  const pair=page.getByRole("button",{name:"Másik szervergép párosítása"});
+  await expect(pair).toBeVisible();
+  await pair.click();
+  await expect(page.getByRole("heading",{name:"Cluster",exact:true})).toBeVisible();
+  await expect(page.getByRole("region",{name:/LAN/i}).first()).toBeVisible();
+});
+
 test("P0 observed-only map detail never exposes lifecycle, RCON, or disk writer controls",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>{
