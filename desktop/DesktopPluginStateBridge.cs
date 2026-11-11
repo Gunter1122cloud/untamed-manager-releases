@@ -80,7 +80,11 @@ public sealed class DesktopPluginStateBridge : IDisposable
                     if(map.HistoricalStoreProtected)
                         HistoricalLocalConfigGuard.DemandStopped(cluster,map);
                     var readiness=PluginStateManager.InspectLocalToggle(
-                        cluster,mapId,plugin,enabled);
+                        cluster,mapId,plugin,enabled,
+                        map.HistoricalStoreProtected?
+                            member=>HistoricalLocalConfigGuard.DemandStopped(
+                                cluster,member,underOwnOperation:true):
+                            null);
                     if(!readiness.Allowed)
                         return Success(id,new{
                             allowed=false,token=(string?)null,plugin=readiness.Plugin,
@@ -125,7 +129,11 @@ public sealed class DesktopPluginStateBridge : IDisposable
                 if(owned.HistoricalStoreProtected)
                     HistoricalLocalConfigGuard.DemandStopped(cluster,owned);
                 var latest=PluginStateManager.InspectLocalToggle(
-                    cluster,saved.MapId,saved.Plugin,saved.TargetEnabled);
+                    cluster,saved.MapId,saved.Plugin,saved.TargetEnabled,
+                    owned.HistoricalStoreProtected?
+                        member=>HistoricalLocalConfigGuard.DemandStopped(
+                            cluster,member,underOwnOperation:true):
+                        null);
                 if(!latest.Allowed ||
                    !string.Equals(latest.Plugin,saved.Plugin,StringComparison.Ordinal))
                     return Error(id,"UM-PLUGIN-STATE-CHANGED");
@@ -134,6 +142,10 @@ public sealed class DesktopPluginStateBridge : IDisposable
                     owned.HistoricalStoreProtected?
                         ()=>HistoricalLocalConfigGuard.DemandStopped(
                             cluster,owned,underOwnOperation:true):
+                        null,
+                    owned.HistoricalStoreProtected?
+                        member=>HistoricalLocalConfigGuard.DemandStopped(
+                            cluster,member,underOwnOperation:true):
                         null);
                 return Success(id,new{
                     mapId=result.Map,plugin=result.Plugin,enabled=result.Enabled,
