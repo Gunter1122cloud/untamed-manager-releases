@@ -434,7 +434,11 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         var started=Decode(await restart.HandleAsync(
             Message("servers.restartApply",new {token,confirm=true})));
         var jobId=started.GetProperty("jobId").GetGuid();
-        for(int n=0;n<105;n++)
+        // Native graceful stop may consume two minutes and an ASA API
+        // loader-child/RCON handshake may consume another two. Do not mark
+        // the scheduled restart failed while its native one-shot job is still
+        // within those guarded limits. The operation remains serialized.
+        for(int n=0;n<180;n++)
         {
             ct.ThrowIfCancellationRequested();
             await Task.Delay(TimeSpan.FromSeconds(2),ct);
