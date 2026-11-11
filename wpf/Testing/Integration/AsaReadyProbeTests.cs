@@ -52,7 +52,7 @@ public static class AsaReadyProbeTests
             return Task.FromResult("No Players Connected.");
         });
         Check(healthy.Stage==AsaRuntimeStage.RconAuthenticated &&
-            healthy.LoaderObserved && processPolls==2 && rconCalls==1,
+            healthy.LoaderObserved && processPolls==3 && rconCalls==1,
             "process and loader identity rechecked across authenticated RCON fixture");
         Check(!healthy.ApiInitialized&&!healthy.JoinAdvertised&&!healthy.ProductionReady,
             "ListPlayers is not mistaken for API initialized or join advertised");
@@ -178,6 +178,21 @@ public static class AsaReadyProbeTests
         Check(apiReady.ProductionReady && apiReady.JoinAdvertised &&
               apiReady.ApiInitialized && apiReady.LoaderObserved,
             "opted-in API runtime readiness requires matching loader-run log");
+
+        int thirdPoll=0;
+        var switchedAfterLogs=await AsaReadyProbe.ObserveAsync(map,()=>{
+            thirdPoll++;
+            return thirdPoll<3?steady:steady with {
+                Identity=new ProcessIdentity{
+                    Pid=server.Pid,StartedUtc=server.StartedUtc.AddSeconds(1),
+                    ExecutablePath=serverExe,Arguments=map.Arguments
+                }
+            };
+        },_=>Task.FromResult("No Players Connected."));
+        Check(thirdPoll==3 &&
+              switchedAfterLogs.Stage==AsaRuntimeStage.ProcessVerified &&
+              !switchedAfterLogs.ProductionReady,
+            "PID reuse after log scan cannot certify a superseded ASA process");
         File.Delete(apiLog);
         var missingApi=await AsaReadyProbe.ObserveAsync(map,()=>steady,
             _=>Task.FromResult("No Players Connected."));
