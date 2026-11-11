@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -23,7 +24,8 @@ public sealed class DesktopRconReadOnlyBridge
     private sealed record SaveCheck(Guid Token,Guid MapId,int Pid,
         DateTimeOffset StartedUtc,AsaWorldSaveEvidence.Boundary Bookmark,
         DateTimeOffset Expires);
-    private SaveCheck? pendingSave;
+    // One map cannot invalidate another map's SaveWorld evidence.
+    private readonly Dictionary<Guid,SaveCheck> pendingSaves=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopRconReadOnlyBridge(ClusterService cluster,
@@ -115,12 +117,13 @@ public sealed class DesktopRconReadOnlyBridge
                     if(!root.TryGetProperty("watchId",out var identifier) ||
                        identifier.ValueKind!=JsonValueKind.String ||
                        !Guid.TryParse(identifier.GetString(),out var watchId) ||
-                       pendingSave==null||pendingSave.Token!=watchId ||
-                       pendingSave.MapId!=map.Id||pendingSave.Pid!=check.Identity!.Pid||
-                       pendingSave.StartedUtc!=check.Identity.StartedUtc ||
-                       pendingSave.Expires<DateTimeOffset.UtcNow)
+                       !pendingSaves.TryGetValue(map.Id,out var savedCheck)||
+                       savedCheck.Token!=watchId ||
+                       savedCheck.Pid!=check.Identity!.Pid||
+                       savedCheck.StartedUtc!=check.Identity.StartedUtc ||
+                       savedCheck.Expires<DateTimeOffset.UtcNow)
                         return Deny(id,"UM-RCON-SAVE-WITNESS-NOT-FOUND");
-                    var requested=pendingSave;
+                    var requested=savedCheck;
                     bool Same() {
                         var current=cluster.Check(map);
                         return current.Running&&!current.ConfirmedStopped &&
@@ -141,6 +144,7 @@ public sealed class DesktopRconReadOnlyBridge
                         worldFileUpdated=witness.WorldUpdated,
                         worldFileStable=witness.WorldStable,
                         combinedSaveEvidenceObserved=witness.CompletionObserved,
+                        worldMetadataObserved=witness.WorldMetadataObserved,
                         diskFsyncCertified=false,
                         gameClientRejoinVerified=false,
                         sourceIsLocalAsaLog=true,
@@ -158,6 +162,10 @@ public sealed class DesktopRconReadOnlyBridge
                     // underway can race the server's final world save.
                     // Read-only log/chat/players remain available for diagnosis.
                     new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    if(pendingSaves.TryGetValue(map.Id,out var previous)&&
+                       previous.Expires>DateTimeOffset.UtcNow)
+                        return Deny(id,"UM-RCON-SAVE-ALREADY-PENDING");
+                    pendingSaves.Remove(map.Id);
                     if(!root.TryGetProperty("confirm",out var approve) ||
                        approve.ValueKind!=JsonValueKind.True)
                         return Deny(id,"UM-RCON-SAVE-EXPLICIT-CONFIRMATION-REQUIRED");
@@ -193,7 +201,6 @@ public sealed class DesktopRconReadOnlyBridge
                 AsaWorldSaveEvidence.Boundary? bookmark=null;
                 if(method=="rcon.saveWorld")
                 {
-                    pendingSave=null;
                     bookmark=AsaWorldSaveEvidence.Begin(map,identity);
                 }
                 string answer=await send("127.0.0.1",map.RconPort,password,command,
@@ -209,11 +216,12 @@ public sealed class DesktopRconReadOnlyBridge
                 if(method=="rcon.saveWorld")
                 {
                     if(bookmark!=null)
-                        pendingSave=new SaveCheck(Guid.NewGuid(),map.Id,
+                        pendingSaves[map.Id]=new SaveCheck(Guid.NewGuid(),map.Id,
                             identity.Pid,identity.StartedUtc,bookmark,
                             DateTimeOffset.UtcNow.AddMinutes(5));
                     return Ok(id,new {
-                        watchId=pendingSave?.Token,
+                        watchId=pendingSaves.TryGetValue(map.Id,out var checkSaved)
+                            ?checkSaved.Token:(Guid?)null,
                         nativeWitnessAvailable=bookmark!=null,
                         mapId=map.Id,mapName=map.Name,
                         rconAcknowledged=false,rconCommandDispatched=true,
