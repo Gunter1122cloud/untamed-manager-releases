@@ -34,7 +34,10 @@ public static class AsaRconConfigurationEvidence
                (ini.Attributes&FileAttributes.ReparsePoint)!=0)
                 return false;
             string password=SecureStore.Unprotect(map.RconPasswordProtected);
-            AsaInitialRconSettings.ValidateAdminPassword(password);
+            // Existing Kova/ASA credentials can predate the stricter
+            // fresh-server password policy. They are accepted ONLY when
+            // the existing INI matches exactly (constant-time below).
+            AsaInitialRconSettings.ValidateExistingAdminPassword(password);
             int sections=0,enabled=0,ports=0,secrets=0;
             bool inside=false,matched=true;
             foreach(var source in File.ReadLines(path))

@@ -268,7 +268,15 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                     var map=Owned(mapId);
                     if(!Historical(map))return Fail(id,"UM-HISTORICAL-RCON-ALREADY-CONFIGURED");
                     string password=passField.GetString()??"";
-                    AsaInitialRconSettings.ValidateAdminPassword(password);
+                    // The existing ASA secret is never regenerated or
+                    // written into the original INI. Unlike fresh-server
+                    // creation, short/legacy-symbol values are valid here if
+                    // the read-only original INI and DPAPI evidence match.
+                    try {AsaInitialRconSettings.ValidateExistingAdminPassword(password);}
+                    catch(InvalidDataException)
+                    {
+                        return Fail(id,"UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID");
+                    }
                     string protectedPassword=SecureStore.Protect(password);
                     string hash=IniHash(map!);
                     Demand(map!,port,protectedPassword,hash);
@@ -321,6 +329,16 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                 });
             }
             finally{gate.Release();}
+        }
+        catch(InvalidDataException ex) when(ex.Message is
+            "UM-HISTORICAL-RCON-INI-CHANGED" or
+            "UM-HISTORICAL-RCON-ORIGINAL-STORE-INVALID" or
+            "UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED")
+        {
+            // Only these static, credential-free native reasons are exposed.
+            // In particular, INI mismatch does not imply the disk file
+            // changed: a wrong supplied password gives the same result.
+            return Fail(id,ex.Message);
         }
         catch(Exception)
         {

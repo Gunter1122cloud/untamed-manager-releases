@@ -39,9 +39,18 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
     try{
       const result=await managerBridge.historicalRconPreview(mapId,parsed,password);
       setPassword("");setPreview(result);
-    }catch{
+    }catch(cause){
       setPassword("");
-      setError("Az eredeti kétgépes ACTIVE/DONE állapot, a helyi EXE, az INI vagy a RCON-jelszó nem egyezik. Az eredeti fájlok érintetlenek.");
+      const code=cause instanceof Error?cause.message:"";
+      setError(code==="UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID"
+        ?"A meglévő ASA-jelszó nem adható át egyetlen INI-sorként (üres, 256 karakternél hosszabb vagy vezérlőkaraktert tartalmaz). A régi, rövid vagy speciális karakteres jelszót nem kell megváltoztatni."
+        :code==="UM-HISTORICAL-RCON-INI-CHANGED"
+        ?"A megadott RCON-port vagy jelszó nem egyezik a meglévő ASA GameUserSettings.ini beállításával, vagy az RCON nincs engedélyezve. A jelszót nem módosítottuk."
+        :code==="UM-HISTORICAL-RCON-ORIGINAL-STORE-INVALID"
+        ?"Az eredeti Kova ACTIVE/DONE vagy Store-v1 azonosítás nem egyezik. A szerverhez és a jelszóhoz nem nyúltunk."
+        :code==="UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED"
+        ?"Az ASA API Loader mögötti eredeti szerverfolyamat vagy a TCP-port tulajdonosa nem igazolható. Nem történt RCON-csatolás."
+        :"A natív RCON-ellenőrzés nem sikerült. Az eredeti ASA/Kova-fájlok érintetlenek; ellenőrizd a maphoz tartozó futó ASA-folyamatot és RCON-beállítást.");
     }finally{setBusy(false);}
   };
   const attach=async()=>{

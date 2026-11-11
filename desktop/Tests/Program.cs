@@ -5631,7 +5631,9 @@ try
             "WindowsServer");
         Directory.CreateDirectory(cfg);
         string ini=Path.Combine(cfg,"GameUserSettings.ini");
-        const string originalPass="HistoricalRconPass!2026";
+        // Real historical credentials need not obey new-server creation
+        // policy: this existing ASA secret is short and has INI symbols.
+        const string originalPass="K0va=;[!]";
         const int rconPort=37145;
         File.WriteAllText(ini,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
             "RCONPort="+rconPort+"\r\nServerAdminPassword="+originalPass+"\r\n");
@@ -5666,8 +5668,15 @@ try
                 "historical RCON initially unconfigured without modifying original ASA files");
             var wrong=await Call(bridge.HandleAsync,"historical.rconPreview",
                 new{mapId=protectedMap.Id,rconPort,password="WrongRconSecret!2026"});
-            Check(!wrong.GetProperty("ok").GetBoolean(),
-                "historical RCON refuses credentials that disagree with the original ASA INI");
+            Check(!wrong.GetProperty("ok").GetBoolean() &&
+                  wrong.GetProperty("error").GetString()=="UM-HISTORICAL-RCON-INI-CHANGED",
+                "historical RCON reports existing INI/credential mismatch without claiming malformed legacy password");
+            var invalidLine=await Call(bridge.HandleAsync,"historical.rconPreview",
+                new{mapId=protectedMap.Id,rconPort,password="bad\ncredential"});
+            Check(!invalidLine.GetProperty("ok").GetBoolean() &&
+                  invalidLine.GetProperty("error").GetString()=="UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID" &&
+                  !invalidLine.ToString().Contains("bad",StringComparison.Ordinal),
+                "only true legacy INI-line incompatibility gets a dedicated sanitized error");
             var preview=await Call(bridge.HandleAsync,"historical.rconPreview",
                 new{mapId=protectedMap.Id,rconPort,password=originalPass});
             IsOk(preview,"original existing INI verifies historical RCON credentials");

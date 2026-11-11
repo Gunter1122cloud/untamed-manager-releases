@@ -42,6 +42,23 @@ public static class AsaInitialRconSettings
     }
 
     /// <summary>
+    /// Existing ASA ServerAdminPassword values are NOT newly generated
+    /// credentials. A historical Kova/ASA server may already use a short
+    /// password or INI metacharacters that are valid after the first '='.
+    /// Only reject values that cannot represent a single INI line; the
+    /// read-only original-INI evidence must then match the exact credential
+    /// before the Manager stores anything using DPAPI.
+    /// </summary>
+    public static void ValidateExistingAdminPassword(string password)
+    {
+        ArgumentNullException.ThrowIfNull(password);
+        if(password.Length is <1 or >256 ||
+           password.Any(char.IsControl))
+            throw new InvalidDataException(
+                "Existing ASA RCON password must be one nonempty INI line (max 256 characters)");
+    }
+
+    /// <summary>
     /// The official ASA GameUserSettings.ini requires an admin password in
     /// plaintext for RCON authentication. Never include it in logs, launch
     /// arguments, status JSON or a shared config. The Manager separately

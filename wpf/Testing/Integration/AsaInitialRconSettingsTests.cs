@@ -49,6 +49,24 @@ public static class AsaInitialRconSettingsTests
         catch(InvalidDataException){shortRejected=true;}
         Check(shortRejected,"weak/short initial RCON password rejected before SteamCMD launch");
 
+        const string legacyPassword="K0va=;[!]";
+        AsaInitialRconSettings.ValidateExistingAdminPassword(legacyPassword);
+        bool newCreationRejectsLegacy=false;
+        try{AsaInitialRconSettings.ValidateAdminPassword(legacyPassword);}
+        catch(InvalidDataException){newCreationRejectsLegacy=true;}
+        Check(newCreationRejectsLegacy,
+            "legacy password allowed only for exact existing ASA INI, not fresh creation");
+        foreach(string unsafeLegacy in new[]{
+            "", "line1\nline2", "line1\rline2", "a\0b",
+            new string('x',257)
+        })
+        {
+            bool denied=false;
+            try{AsaInitialRconSettings.ValidateExistingAdminPassword(unsafeLegacy);}
+            catch(InvalidDataException){denied=true;}
+            Check(denied,"existing credential rejects empty, control or oversized input");
+        }
+
         string imported=Path.Combine(sandbox,"existing-asa-import-"+Guid.NewGuid().ToString("N"));
         string dir=Path.Combine(imported,"ShooterGame","Saved","Config","WindowsServer");
         Directory.CreateDirectory(Path.Combine(imported,"ShooterGame","Binaries","Win64"));
