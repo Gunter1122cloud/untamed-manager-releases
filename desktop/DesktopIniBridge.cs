@@ -290,6 +290,18 @@ public sealed class DesktopIniBridge : IDisposable
         }
         catch(FileNotFoundException){return Fail(id,"UM-INI-NOT-FOUND");}
         catch(DirectoryNotFoundException){return Fail(id,"UM-INI-CONFIG-DIRECTORY-MISSING");}
+        // Only return fixed, explicitly allowlisted native error codes.
+        // Never propagate arbitrary exception text, paths or INI passwords.
+        catch(Exception ex) when(ex.Message is
+            "UM-INI-MAP-NOT-OWNED" or "UM-INI-CREATE-FRESH-ONLY" or
+            "UM-INI-CREATE-SHARED-STORE" or "UM-INI-CREATE-FIXED-DISK" or
+            "UM-INI-CREATE-ALL-MAPS-STOPPED" or
+            "UM-INI-GAME-ALREADY-EXISTS" or
+            "UM-INI-CREATE-LINKED-PATH" or "UM-INI-CREATE-LINK-CHANGED" or
+            "UM-INI-CREATE-CONCURRENT-TARGET" or "UM-INI-CREATE-SHA-MISMATCH")
+        {
+            return Fail(id,ex.Message);
+        }
         catch(UnauthorizedAccessException){return Fail(id,"UM-INI-ACCESS-DENIED");}
         catch(InvalidDataException){return Fail(id,"UM-INI-PATH-OR-CONTENT-UNSAFE");}
         catch(ConfigEtagConflictException){return Fail(id,"UM-INI-ETAG-MISMATCH");}
