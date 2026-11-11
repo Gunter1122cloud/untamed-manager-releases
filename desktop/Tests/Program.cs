@@ -5070,8 +5070,8 @@ try
         a.HistoricalStoreProtected=true;
         var locked=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
             new{mapId=a.Id,plugin="ExamplePlugin",enabled=false});
-        Check(IsError(locked,"UM-HISTORICAL-STORE-LOCKED") && Directory.Exists(active),
-            "historical Store-v1 map cannot authorize plugin folder mutation");
+        Check(!locked.GetProperty("ok").GetBoolean() && Directory.Exists(active),
+            "unregistered original map has no right to toggle plugins; source retained");
         a.HistoricalStoreProtected=false;
         peerRunning=true;
         var denied=await Call(pluginBridge.HandleAsync,"plugins.togglePreview",
@@ -5477,15 +5477,15 @@ try
         {
             var blocked=await Call(blockedMods.HandleAsync,"mods.draftStart",
                 new{mapId=imported.Id});
-            Check(IsError(blocked,"UM-HISTORICAL-STORE-LOCKED"),
-                "mod draft cannot change historical protected profile");
+            Check(!blocked.GetProperty("ok").GetBoolean(),
+            "quarantined original Kova map without completed takeover cannot edit mods");
         }
         using(var blockedIni=new DesktopIniBridge(cluster))
         {
             var blocked=await Call(blockedIni.HandleAsync,"ini.open",
                 new{mapId=imported.Id,file="Game.ini"});
-            Check(IsError(blocked,"UM-HISTORICAL-STORE-LOCKED"),
-                "INI writes forbidden before full historical map acceptance");
+            Check(!blocked.GetProperty("ok").GetBoolean(),
+            "quarantined original Kova map cannot edit INI without authenticated stopped owner");
         }
         var replay=await Call(archiveImport.HandleAsync,"historical.register",
             new{token=approval,confirm=true});
