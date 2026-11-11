@@ -171,28 +171,43 @@ public static class AsaReadyProbeTests
         Check(!loadWithoutHooks.ApiInitialized &&
               !loadWithoutHooks.ProductionReady,
             "API load log without Initialized hooks never certifies runtime");
+        // A real ArkApi log uses hooks -> success on initial load.
         File.WriteAllText(apiLog,apiTimestamp+
-            " [API] Initialized hooks"+Environment.NewLine+
-            apiTimestamp+" [API] API was successfully loaded"+Environment.NewLine);
-        var reversed=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            " [API][info] Loading..."+Environment.NewLine+
+            apiTimestamp+" [API][info] Initialized hooks"+Environment.NewLine+
+            apiTimestamp+" [API][info] API was successfully loaded"+Environment.NewLine);
+        var hooksFirst=await AsaReadyProbe.ObserveAsync(map,()=>steady,
             _=>Task.FromResult("No Players Connected."));
-        Check(!reversed.ApiInitialized&&!reversed.ProductionReady,
-            "hooks before the load marker cannot certify ASA API runtime");
+        Check(hooksFirst.ProductionReady && hooksFirst.JoinAdvertised &&
+              hooksFirst.ApiInitialized && hooksFirst.LoaderObserved,
+            "real ArkApi hooks-before-success order certifies opted-in runtime");
+        // Never reuse success from a prior load after another Loading marker.
         File.AppendAllText(apiLog,apiTimestamp+
-            " [API] Initialized hooks"+Environment.NewLine);
-        var apiReady=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            " [API][info] Loading..."+Environment.NewLine);
+        var reloadStarted=await AsaReadyProbe.ObserveAsync(map,()=>steady,
             _=>Task.FromResult("No Players Connected."));
-        Check(apiReady.ProductionReady && apiReady.JoinAdvertised &&
-              apiReady.ApiInitialized && apiReady.LoaderObserved,
-            "opted-in API runtime readiness requires matching loader-run log");
+        Check(!reloadStarted.ApiInitialized&&!reloadStarted.ProductionReady,
+            "new API Loading marker invalidates the previous complete startup");
         File.AppendAllText(apiLog,apiTimestamp+
-            " [API] API was successfully loaded"+Environment.NewLine);
+            " [API][info] API was successfully loaded"+Environment.NewLine);
+        var missingNewHooks=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!missingNewHooks.ApiInitialized&&!missingNewHooks.ProductionReady,
+            "load marker after a new session cannot reuse its old hooks");
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API][info] Initialized hooks"+Environment.NewLine);
+        var loadFirst=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(loadFirst.ProductionReady&&loadFirst.ApiInitialized,
+            "loader versions with load-before-hooks order are also supported");
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API][info] API was successfully loaded"+Environment.NewLine);
         var secondLoad=await AsaReadyProbe.ObserveAsync(map,()=>steady,
             _=>Task.FromResult("No Players Connected."));
         Check(!secondLoad.ApiInitialized&&!secondLoad.ProductionReady,
-            "fresh API load invalidates old hooks within the same timestamp minute");
+            "repeated successful load invalidates the previous hook pair");
         File.AppendAllText(apiLog,apiTimestamp+
-            " [API] Initialized hooks"+Environment.NewLine);
+            " [API][info] Initialized hooks"+Environment.NewLine);
 
         int thirdPoll=0;
         var switchedAfterLogs=await AsaReadyProbe.ObserveAsync(map,()=>{
