@@ -12,11 +12,9 @@ using UntamedManager.Core;
 namespace UntamedDesktop;
 
 /// <summary>
-/// Explicit opt-in SteamCMD maintenance for independently confirmed STOPPED local
-/// non-Store ASA installs. Public SteamCheck evidence is required before any
-/// update. The existing Core updater owns the backup, queue, locks and SteamCMD
-/// mutation; this supervisor only owns durable no-replay schedule claims.
-/// Running servers are NEVER stopped/restarted from this scheduler.
+/// Read-only compatibility view for retired automatic SteamCMD schedules.
+/// No background timer, SteamCMD update callback, or automatic mutation path
+/// exists. Old journal data is preserved for rollback/audit purposes.
 /// </summary>
 public sealed record ScheduledStoppedSteamUpdate(
     Guid MapId,int IntervalMinutes,string Fingerprint,bool Enabled,
@@ -31,14 +29,9 @@ public sealed class DesktopScheduledStoppedSteamSupervisor : IDisposable
     }
 
     private const int MaxJournalBytes=4_000_000;
-    private const long Reserve=10L*1024*1024*1024;
-    private readonly ClusterService cluster;
+     private readonly ClusterService cluster;
     private readonly string path,mutexName;
-    private readonly Func<LocalMap,CancellationToken,Task<SteamStoppedMapUpdater.Receipt>> update;
-    private readonly SemaphoreSlim tickGate=new(1,1);
-    private readonly CancellationTokenSource closing=new();
-    private Task? loop;
-    private int started,disposed;
+    private int disposed;
     private string runtimeState="not-started";
     public string RuntimeState=>Volatile.Read(ref runtimeState);
 
@@ -46,9 +39,9 @@ public sealed class DesktopScheduledStoppedSteamSupervisor : IDisposable
         Func<LocalMap,CancellationToken,Task<SteamStoppedMapUpdater.Receipt>>? isolatedUpdater=null)
     {
         cluster=source??throw new ArgumentNullException(nameof(source));
-        update=isolatedUpdater??((map,ct)=>SteamStoppedMapUpdater.UpdateAsync(
-            cluster,map,cluster.Config.SteamCmdExecutable,Reserve,
-            TimeSpan.FromHours(2),ct:ct));
+        // The optional callback is accepted for compatibility with existing
+        // isolated test callers, but is intentionally never retained/invoked.
+        _=isolatedUpdater;
         string root=cluster.Store.Root;
         if(string.IsNullOrWhiteSpace(root)||!Path.IsPathFullyQualified(root)||
            root.StartsWith(@"\\",StringComparison.Ordinal))
@@ -132,36 +125,6 @@ public sealed class DesktopScheduledStoppedSteamSupervisor : IDisposable
         x=>x.Id==id)??throw new UnauthorizedAccessException(
             "UM-SCHEDULED-STEAM-MAP-NOT-LOCAL");
 
-    private static string Fingerprint(LocalMap map,string steam)
-    {
-        string source=map.Id.ToString("D")+"\n"+
-            Path.GetFullPath(map.InstallationPath).ToUpperInvariant()+"\n"+
-            Path.GetFullPath(map.ExecutablePath).ToUpperInvariant()+"\n"+
-            (map.Arguments??"")+"\n"+(map.ApiLoaderArguments??"")+"\n"+
-            (map.FreshStoreClusterId??"")+"\n"+(map.HistoricalMapKey??"")+"\n"+
-            steam.ToUpperInvariant();
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
-    }
-
-    private bool PendingQueue()
-    {
-        var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,
-            cluster.Config.LocalHostId).Observe();
-        return queue!=null&&queue.Phase is
-            (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress or
-             SteamQueuePhase.NeedsOperator);
-    }
-
-    private void DemandEligible(LocalMap map)
-    {
-        SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,map);
-        if(PendingQueue())throw new InvalidOperationException(
-            "UM-SCHEDULED-STEAM-QUEUE-PENDING");
-        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
-        if(!AsaReadyProbe.IsRegisteredServerBinary(map))
-            throw new InvalidDataException("UM-SCHEDULED-STEAM-ASA-BINARY");
-    }
-
     public ScheduledStoppedSteamUpdate[] Snapshot()=>Locked(()=>
         Read().Schedules.Select(s=>s with {
             Enabled=false,LastStatus="manual-only-retired"
@@ -190,11 +153,6 @@ public sealed class DesktopScheduledStoppedSteamSupervisor : IDisposable
         });
     }
 
-    private bool Claimed(ScheduledStoppedSteamUpdate expected,DateTimeOffset at)
-        =>Locked(()=>Read().Schedules.Any(s=>s.Enabled&&s.MapId==expected.MapId&&
-            s.Fingerprint==expected.Fingerprint&&s.LastAttemptUtc==at&&
-            s.LastStatus=="claimed-no-auto-retry"));
-
     public Task<ScheduledStoppedSteamUpdate[]> TickOnceAsync(
         DateTimeOffset now,CancellationToken token=default)
     {
@@ -216,9 +174,6 @@ public sealed class DesktopScheduledStoppedSteamSupervisor : IDisposable
     public void Dispose()
     {
         if(Interlocked.Exchange(ref disposed,1)!=0)return;
-        closing.Cancel();
-        // Do not kill SteamCMD or ASA. The Core/journal requires operator
-        // recovery if the Manager exits during the actual update.
-        _=loop;
+        // No scheduled task or update process exists to cancel.
     }
 }
