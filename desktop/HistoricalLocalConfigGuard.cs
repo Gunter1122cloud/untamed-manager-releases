@@ -13,7 +13,8 @@ namespace UntamedDesktop;
 /// </summary>
 public static class HistoricalLocalConfigGuard
 {
-    public static ProcessCheck DemandStopped(ClusterService cluster,LocalMap map)
+    public static ProcessCheck DemandStopped(ClusterService cluster,LocalMap map,
+        bool underOwnOperation=false)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(map);
@@ -40,7 +41,7 @@ public static class HistoricalLocalConfigGuard
            map.Arguments.Contains("-convertfromstore",StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("UM-HISTORICAL-CONFIG-CONVERSION-PROTECTED");
         new AsaManualRestartJournal(root).DemandNoPending();
-        var journal=cluster.Operations.Observe(root);
+        var journal=underOwnOperation?null:cluster.Operations.Observe(root);
         if(journal?.Phase is (UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
             throw new InvalidOperationException("UM-HISTORICAL-CONFIG-OPERATION-PENDING");
