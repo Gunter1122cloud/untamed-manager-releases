@@ -76,8 +76,9 @@ public sealed class DesktopPluginStateBridge : IDisposable
                         return Error(id,"UM-PLUGIN-INVALID-REQUEST");
                     var map=Own(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
-                    if(map.HistoricalStoreProtected)return Error(id,"UM-HISTORICAL-STORE-LOCKED");
                     if(map.ObservedReadOnlyImported)return Error(id,"UM-LIVE-OBSERVED-MAP-READONLY");
+                    if(map.HistoricalStoreProtected)
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,map);
                     var readiness=PluginStateManager.InspectLocalToggle(
                         cluster,mapId,plugin,enabled);
                     if(!readiness.Allowed)
@@ -114,7 +115,6 @@ public sealed class DesktopPluginStateBridge : IDisposable
                 approvals.Remove(approvalId);
                 var owned=Own(saved.MapId);
                 if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
-                if(owned.HistoricalStoreProtected)return Error(id,"UM-HISTORICAL-STORE-LOCKED");
                 if(owned.ObservedReadOnlyImported)return Error(id,"UM-LIVE-OBSERVED-MAP-READONLY");
                 if(!string.Equals(CanonicalRoot(owned.InstallationPath),
                     saved.OriginalInstallation,StringComparison.OrdinalIgnoreCase) ||
@@ -122,6 +122,8 @@ public sealed class DesktopPluginStateBridge : IDisposable
                     return Error(id,"UM-PLUGIN-STATE-CHANGED");
                 if(DateTimeOffset.UtcNow>=saved.ExpiresUtc)
                     return Error(id,"UM-PLUGIN-PREVIEW-EXPIRED");
+                if(owned.HistoricalStoreProtected)
+                    HistoricalLocalConfigGuard.DemandStopped(cluster,owned);
                 var latest=PluginStateManager.InspectLocalToggle(
                     cluster,saved.MapId,saved.Plugin,saved.TargetEnabled);
                 if(!latest.Allowed ||
