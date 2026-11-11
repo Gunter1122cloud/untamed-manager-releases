@@ -3854,6 +3854,38 @@ try
         Check(!rotatedWitness.CompletionObserved &&
               !rotatedWitness.LogIdentityValid,
             "log truncation or rotation cannot reuse SaveComplete evidence");
+        // Some real ASA builds write the .ark but omit both save log markers.
+        // This may release an operator-approved lifecycle stop, but it NEVER
+        // yields the stricter paired-log SaveComplete certification.
+        string silentLog=Path.Combine(witnessRoot,"absent-log","ShooterGame.log");
+        string silentWorld=Path.Combine(witnessRoot,"silent-world.ark");
+        File.WriteAllText(silentWorld,"SYNTHETIC SILENT WORLD BEFORE");
+        File.SetLastWriteTimeUtc(silentWorld,DateTime.UtcNow.AddSeconds(-30));
+        var silentBoundary=AsaWorldSaveEvidence.BeginFromPaths(Guid.NewGuid(),
+            32655,DateTimeOffset.UtcNow,witnessRoot,silentLog,silentWorld)!;
+        var initiallySilent=await AsaWorldSaveEvidence.ObserveAsync(silentBoundary,()=>true);
+        Check(!initiallySilent.WorldMetadataObserved &&
+              !initiallySilent.CompletionObserved,
+            "missing ASA log alone cannot certify SaveWorld or world metadata");
+        File.AppendAllText(silentWorld," + NEW SAVE");
+        File.SetLastWriteTimeUtc(silentWorld,DateTime.UtcNow.AddSeconds(2));
+        var stableWithoutLog=await AsaWorldSaveEvidence.ObserveAsync(
+            silentBoundary,()=>true);
+        Check(stableWithoutLog.WorldMetadataObserved &&
+              stableWithoutLog.WorldUpdated&&stableWithoutLog.WorldStable &&
+              !stableWithoutLog.CompletionObserved &&
+              !stableWithoutLog.LogIdentityValid &&
+              stableWithoutLog.Stage=="WORLD_UPDATED_STABLE_LOG_MISSING",
+            "changed stable ASA world without log is explicitly weaker lifecycle evidence");
+        var weakWait=await AsaWorldSaveEvidence.WaitAsync(silentBoundary,()=>true,
+            TimeSpan.FromSeconds(5),allowWorldMetadata:true);
+        Check(weakWait.WorldMetadataObserved&&!weakWait.CompletionObserved,
+            "metadata-tolerant SaveWorld wait never fabricates SaveComplete log");
+        var rearmed=AsaWorldSaveEvidence.BeginFromPaths(Guid.NewGuid(),
+            32655,DateTimeOffset.UtcNow,witnessRoot,silentLog,silentWorld)!;
+        var unchanged=await AsaWorldSaveEvidence.ObserveAsync(rearmed,()=>true);
+        Check(!unchanged.WorldMetadataObserved&&!unchanged.CompletionObserved,
+            "previous stable .ark cannot authorize a second SaveWorld without new change");
     }
 
     // Read-only RCON uses an isolated synthetic process identity and injected
