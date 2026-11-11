@@ -159,7 +159,7 @@ public sealed class DesktopIniBridge : IDisposable
                 string backup=SafeConfigEditor.Save(openedFile.Snapshot,
                     openedFile.PreviewedContent,owned.InstallationPath,
                     state,owned.Maintenance,()=>owned.HistoricalStoreProtected?
-                        HistoricalLocalConfigGuard.DemandStopped(cluster,owned):cluster.Check(owned));
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,owned,underOwnOperation:true):cluster.Check(owned));
                 opened.Remove(tokenId);
                 return Ok(id,new{
                     saved=true,backupCreated=!string.IsNullOrWhiteSpace(backup),
