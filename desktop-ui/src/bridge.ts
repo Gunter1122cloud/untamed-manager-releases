@@ -592,12 +592,12 @@ export type ScheduledStoppedSteamItem = {
 export type ScheduledStoppedSteamOverview = {
   hostId:string;runnerState:string;schedules:ScheduledStoppedSteamItem[];
   runningMapAutoStop:false;runningMapAutoRestart:false;storeWriterTouched:false;
-  remoteHostUpdate:false;evidence:"DURABLE_OPT_IN_STOPPED_ONLY_STEAMCMD";
+  remoteHostUpdate:false;evidence:"MANUAL_ONLY_STEAMCMD_NO_SCHEDULED_EXECUTION";
 };
 export type ScheduledStoppedSteamSaved = {
   mapId:string;enabled:boolean;intervalMinutes:number;nextDueUtc:string;
   lastStatus:string;autoStopRunning:false;autoRestartRunning:false;
-  storeWriterTouched:false;evidence:"EXPLICIT_LOCAL_STOPPED_ONLY_SCHEDULE_CHANGE";
+  storeWriterTouched:false;evidence:"RETIRED_SCHEDULE_DISABLED_WITH_MANUAL_ONLY_POLICY";
 };
 export type RconConfigStatus = {
   mapId:string;mapName:string;rconPort:number;configured:boolean;permitted:boolean;
