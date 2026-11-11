@@ -1745,9 +1745,13 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       <NativeMapScheduler mapId={mapId}/>
       <OperationsCenter selectedMapId={mapId} showScheduler onOpenMap={()=>setSection("overview")}/>
     </>}
-    {section==="steam" && (map.storeProtected
-      ?<div className="warning-inline" role="alert"><Shield size={17}/> Történeti Store-v1 map: automatikus vagy kézi SteamCMD-frissítést ezen az útvonalon nem engedélyezünk.</div>
-      :<StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>)}
+    {section==="steam" && (map.storeProtected&&map.freshStoreEnrolled
+      ?<div className="warning-inline" role="alert"><Shield size={17}/> Új Store-map: a SteamCMD-frissítés ehhez a telepítési típushoz még nem engedélyezett.</div>
+      :<div>
+        {map.storeProtected&&!map.freshStoreEnrolled&&
+          <div className="warning-inline"><Shield size={17}/> Eredeti Kova Store-v1: a natív SteamCMD-frissítés csak teljesen leállított helyi ASA/Loader folyamatokkal, előzetes védőmentéssel és jóváhagyással hajtható végre. A közös Store és a másik gép nem módosul.</div>}
+        <StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>
+      </div>)}
     {section==="mods" && <Mods key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>} 
     {section==="plugins" && <PluginCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked onLaunchModeSaved={onConfigured}/>} 
     {section==="ini" && <IniCenter key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>}
