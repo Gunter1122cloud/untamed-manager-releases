@@ -25,6 +25,7 @@ public static class AsaReadyProbeTests
             Name="Isolated ASA readiness",InstallationPath=installation,
             ExecutablePath=serverExe,Arguments="TheIsland?SessionName=Fixture -log",
             ApiLoaderPath=loaderExe,ApiLoaderArguments="--fixture-loader",
+            StartWithAsaApi=true,
             RconHost="127.0.0.1",RconPort=27999,
             RconPasswordProtected="TEST_ONLY_ENCRYPTED_PLACEHOLDER"
         };
@@ -105,6 +106,22 @@ public static class AsaReadyProbeTests
             _=>Task.FromResult(""));
         Check(empty.Stage==AsaRuntimeStage.ProcessVerified,
             "empty RCON response cannot establish authenticated readiness");
+
+        // API ON -> OFF must not retain the Loader PID requirement.
+        map.StartWithAsaApi=false;
+        var directProcess=steady with {LoaderIdentity=null};
+        var direct=await AsaReadyProbe.ObserveAsync(map,()=>directProcess,
+            _=>Task.FromResult("No Players Connected."));
+        Check(direct.Stage==AsaRuntimeStage.RconAuthenticated &&
+            !direct.LoaderObserved && !direct.ProductionReady,
+            "direct mode verifies ASA/RCON without requiring cached Loader PID");
+        File.Delete(loaderExe);
+        Check(AsaReadyProbe.IsRegisteredServerBinary(map),
+            "direct mode remains valid with missing inactive cached Loader");
+        map.StartWithAsaApi=true;
+        Check(!AsaReadyProbe.IsRegisteredServerBinary(map),
+            "API opt-in refuses a missing required Loader executable");
+        File.WriteAllText(loaderExe,"Isolated loader-path fixture; never executed");
 
         map.Maintenance=true;
         rconCalls=0;
