@@ -19,7 +19,7 @@ internal static class NativeLifecycleFailureCode
             var value=item.Message;
             if(value.Length is >=5 and <=160 &&
                value.StartsWith("UM-",StringComparison.Ordinal) &&
-               value.All(ch=>char.IsAsciiUpper(ch)||char.IsAsciiDigit(ch)||
+               value.All(ch=>char.IsAsciiLetterUpper(ch)||char.IsAsciiDigit(ch)||
                    ch is '-' or '_' or ':'))
                 return value;
         }
