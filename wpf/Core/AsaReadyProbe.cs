@@ -75,7 +75,6 @@ public static class AsaReadyProbe
             if(map.StartWithAsaApi)
             {
                 if(string.IsNullOrWhiteSpace(map.ApiLoaderPath))return false;
-            {
                 string loader=Path.GetFullPath(map.ApiLoaderPath);
                 if(!loader.StartsWith(Path.GetFullPath(map.InstallationPath).TrimEnd(
                     Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,
