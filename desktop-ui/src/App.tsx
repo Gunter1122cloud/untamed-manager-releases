@@ -1633,7 +1633,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     </div>
     <LocalMapLifecycleBar key={mapId} mapId={mapId} mapName={map.name}
       running={map.running} historical={historical} journalBlocked={lifecycleBlocked}
-      onRefresh={onConfigured} onConfigure={()=>setSection("overview")}/>
+      onRefresh={onConfigured} onConfigure={()=>setSection(historical?"rcon":"overview")}/>
     {journalReadError&&<div className="warning-inline" role="alert">
       <Shield size={17}/> A helyi ASA-műveleti naplók nem olvashatók.
       A Start, Stop és Restart gombok tiltva maradnak, amíg a naplók ellenőrzése nem sikerül.
