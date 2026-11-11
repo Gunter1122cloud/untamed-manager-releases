@@ -1491,6 +1491,18 @@ try
         // Missing Game.ini on a new stopped ASA installation is a supported
         // explicit operation, never an implicit file write on open.
         File.Delete(iniFile);
+        var historicalIniSibling=new LocalMap{
+            Id=Guid.NewGuid(),Name="Synthetic historical sibling",
+            InstallationPath=installation,
+            HistoricalMapKey="ImportedOldMap_WP"
+        };
+        cluster.AddMap(historicalIniSibling);
+        var sharedDenied=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        Check(!sharedDenied.GetProperty("ok").GetBoolean() &&
+              !File.Exists(iniFile),
+            "historical provenance on another map sharing ASA root denies Game.ini creation");
+        cluster.RemoveMap(historicalIniSibling.Id);
         var missing=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
         Check(IsError(missing,"UM-INI-GAME-MISSING")&&!File.Exists(iniFile),
