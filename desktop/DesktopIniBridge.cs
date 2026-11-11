@@ -151,6 +151,15 @@ public sealed class DesktopIniBridge : IDisposable
                     byte[] bytes=Encoding.UTF8.GetBytes(template);
                     lease.MarkMutationStarted();
                     Directory.CreateDirectory(Path.GetDirectoryName(rechecked.Path)!);
+                    // A race can replace a newly created directory with a
+                    // reparse-point alias after the first preflight. Recheck
+                    // every ancestor immediately before CreateNew.
+                    for(var d=new DirectoryInfo(Path.GetDirectoryName(rechecked.Path)!);
+                        d!=null;d=d.Parent)
+                        if(d.Exists&&(d.Attributes&FileAttributes.ReparsePoint)!=0)
+                            throw new InvalidDataException("UM-INI-CREATE-LINK-CHANGED");
+                    if(File.Exists(rechecked.Path)||Directory.Exists(rechecked.Path))
+                        throw new IOException("UM-INI-CREATE-CONCURRENT-TARGET");
                     // Creating a file is opt-in and must NEVER overwrite a
                     // historical or previously edited Game.ini, even on race.
                     using(var output=new FileStream(rechecked.Path,FileMode.CreateNew,
