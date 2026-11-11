@@ -293,6 +293,20 @@ public static class AsaReadyProbeTests
         map.Arguments=originalArguments+" -QueryPort=27015 -QueryPort=27015";
         Check(AsaReadyProbe.DeclaredPortMismatch(map),
             "duplicate QueryPort switches reject ambiguous query listener");
+        map.Arguments=originalArguments+" -QueryPort=invalid";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "nonnumeric QueryPort switch fails closed instead of being ignored");
+        map.Arguments=originalArguments+" -QueryPort=";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "empty QueryPort value is never mistaken for absent configuration");
+        map.GamePort=7777;
+        map.Arguments=originalArguments+" -Port=not-a-port";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "invalid Game port switch cannot certify an owned UDP listener");
+        map.GamePort=0;
+        map.Arguments=originalArguments+" ?RCONPort=wrong";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "invalid RCON port switch cannot certify the TCP listener");
         map.QueryPort=0;
         map.Arguments=originalArguments;
 
