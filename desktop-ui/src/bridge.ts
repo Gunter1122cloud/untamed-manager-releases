@@ -1071,6 +1071,7 @@ export type HistoricalRestartStatus = {
   step:string;changedUtc:string;oldPid:number;newPid:number;
   launchMode:"asaApiLoader"|"directAsa";
   oldProcessStopped:boolean;preExitSaveLogAndWorldObserved:boolean;
+  preExitWorldMetadataObserved?:boolean;
   readyCertified:false;gameClientRejoinVerified:false;
   finalDoExitSaveCertified:false;automaticRetry:false;
   forceKill:false;storeTouched:false;
@@ -1137,6 +1138,7 @@ export type HistoricalGracefulStopStatus = {
   jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;confirmedStopped:boolean;
   preExitSaveLogAndWorldObserved:boolean;
+  preExitWorldMetadataObserved?:boolean;
   finalDoExitSaveCertified:false;gameClientRejoinVerified:false;
   automaticRetry:false;forceKill:false;storeTouched:false;
   evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_DOEXIT_STATE"|
