@@ -1434,7 +1434,8 @@ test.beforeEach(async ({ page }) => {
             embeddedCharacterIntegrityVerified:false,
             gameClientRejoinVerified:false,roundTripGameplayVerified:false,
             originalStoreSteamUpdateAuthorized:false,
-            blockers:["EXCLUSIVE_KOVA_CONTROL_HANDOFF_NOT_PROVEN",
+            rconProfileConfiguredCount:0,
+            blockers:["OBSIDIAN_RCON_PROFILE_MISSING_OR_INCOMPLETE","EXCLUSIVE_KOVA_CONTROL_HANDOFF_NOT_PROVEN",
               "KOVA_WATCHDOG_AUTOSTART_SCHEDULE_NOT_AUDITED",
               "EMBEDDED_SURVIVOR_AND_GAMEPLAY_ROUNDTRIP_NOT_PROVEN",
               "HISTORICAL_STEAM_RECOVERY_PIPELINE_NOT_CERTIFIED"],
@@ -1443,7 +1444,8 @@ test.beforeEach(async ({ page }) => {
               mapName:name,originalMapKey:name.replace(/ /g,"")+"_WP",
               exactLocalRegistration:true,hostRegistryRegistration:true,
               clusterAssignment:true,processIdentityVerified:true,
-              originalPortModRootMatches:true
+              originalPortModRootMatches:true,
+              rconPort:0,rconProfileConfigured:false
             })),
             evidence:"ORIGINAL_FIVE_KOVA_SOURCE_AND_OBSIDIAN_REGISTRY_READ_ONLY_NOT_CONTROL"};
         }
@@ -3437,6 +3439,9 @@ test("P0 five-map Store evidence is read-only and never implies exclusive Kova t
   await expect(proof).toContainText("nincs igazolva");
   await expect(proof).toContainText("A→B→A karakterutazás:");
   await expect(proof).toContainText("nem igazolt");
+  await expect(proof).toContainText("Obsidian RCON-profil:");
+  await expect(proof).toContainText("0/5");
+  await expect(proof).toContainText("RCON-port 0");
   await expect(proof).toContainText("Store-v1 SteamCMD:");
   await expect(proof).toContainText("továbbra is tiltva");
   await expect(proof.locator("tbody tr")).toHaveCount(5);
