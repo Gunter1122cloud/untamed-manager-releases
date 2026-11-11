@@ -920,6 +920,21 @@ export type FreshStoreEnrollmentReceipt = {
   conversionPerformed:false;serverStarted:false;originalStoreTouched:false;
   requiresManualStart:true;evidence:string;
 };
+export type LocalAsaApiModeStatus = {
+  mapId:string;mapName:string;useApi:boolean;canChangeMode:boolean;
+  mode:"asaApiLoader"|"directAsa";requiresStoppedProcess:true;
+  serverStarted:false;originalStoreTouched:false;evidence:string;
+};
+export type LocalAsaApiModePreview = {
+  token:string;mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";startsServer:false;
+  changesStore:false;requiresStoppedProcess:true;evidence:string;
+};
+export type LocalAsaApiModeReceipt = {
+  mapId:string;mapName:string;useApi:boolean;
+  mode:"asaApiLoader"|"directAsa";serverStarted:false;
+  originalStoreTouched:false;requiresManualStart:true;evidence:string;
+};
 export type FreshStoreLoaderModeStatus = {
   mapId:string;mapName:string;useApi:boolean;
   mode:"asaApiLoader"|"directAsa";confirmedStopped:boolean;
@@ -1490,7 +1505,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
   "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
   "servers.initialStatus" | "servers.initialPreview" |
-  "servers.initialApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
+  "servers.initialApply" | "servers.apiModeStatus" |
+  "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
@@ -2042,6 +2058,12 @@ export const managerBridge = {
     request<FreshStoreEnrollmentReceipt>("freshStore.enrollmentApply",{
       token,confirm:true,typedApproval:"NEW EMPTY STORE"
     }),
+  localAsaApiModeStatus: (mapId:string) =>
+    request<LocalAsaApiModeStatus>("servers.apiModeStatus",{mapId}),
+  localAsaApiModePreview: (mapId:string,useApi:boolean) =>
+    request<LocalAsaApiModePreview>("servers.apiModePreview",{mapId,useApi}),
+  localAsaApiModeApply: (token:string) =>
+    request<LocalAsaApiModeReceipt>("servers.apiModeApply",{token,confirm:true}),
   freshStoreLoaderModeStatus: (mapId:string) =>
     request<FreshStoreLoaderModeStatus>("freshStore.loaderModeStatus",{mapId}),
   freshStoreLoaderModePreview: (mapId:string,useApi:boolean) =>
