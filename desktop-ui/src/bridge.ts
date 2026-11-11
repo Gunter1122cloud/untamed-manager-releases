@@ -422,6 +422,16 @@ export type PluginZipInstalled = {
   requiresRestart:true;runtimeLoadedVerified:false;
   evidence:"VERIFIED_GUARDED_PLUGIN_ZIP_INSTALL";
 };
+export type PluginZipRollbackPreview = {
+  token:string;mapId:string;mapName:string;plugin:string;
+  binaryCount:number;backupName:string;
+  evidence:"VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK_PREVIEW_NO_WRITE";
+};
+export type PluginZipRollbackReceipt = {
+  mapId:string;plugin:string;restoredBinaries:number;
+  protectiveBackupCreated:true;requiresRestart:true;runtimeLoadedVerified:false;
+  evidence:"VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK";
+};
 export type DurableSteamQueue = {
   exists:boolean;queueId?:string;phase?:string;activeMapName?:string|null;
   nextIndex?:number;total?:number;changedUtc?:string;summary?:string;
@@ -1509,7 +1519,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
+  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
@@ -1821,6 +1831,10 @@ export const managerBridge = {
     request<PluginZipPreview>("plugins.zipSelect",{mapId}),
   pluginZipApply: (token:string) =>
     request<PluginZipInstalled>("plugins.zipApply",{token,confirm:true}),
+  pluginZipRollbackSelect: (mapId:string) =>
+    request<PluginZipRollbackPreview>("plugins.zipRollbackSelect",{mapId}),
+  pluginZipRollbackApply: (token:string) =>
+    request<PluginZipRollbackReceipt>("plugins.zipRollbackApply",{token,confirm:true}),
   pluginStates: (mapId:string) => request<PluginState>("plugins.state",{mapId}),
   pluginTogglePreview: (mapId:string,plugin:string,enabled:boolean) =>
     request<PluginTogglePreview>("plugins.togglePreview",{mapId,plugin,enabled}),
