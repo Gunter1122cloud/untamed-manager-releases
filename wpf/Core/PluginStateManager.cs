@@ -99,7 +99,8 @@ public static class PluginStateManager
     public static PluginToggleResult ToggleLocalChecked(
         ClusterService cluster,Guid mapId,string plugin,bool enabled,
         Action? verifyUnderOperationLock=null,
-        Func<LocalMap,ProcessCheck>? historicalStoppedObserver=null)
+        Func<LocalMap,ProcessCheck>? historicalStoppedObserver=null,
+        Func<LocalMap,ProcessCheck>? historicalStoppedUnderLockObserver=null)
     {
         // Called after the operator's confirmation, on the UI thread. This
         // READ/VERIFY phase never claims a real ASA-loaded plugin state.
@@ -116,7 +117,7 @@ public static class PluginStateManager
                 // Re-evaluate every registered map under the same installation
                 // operation lease, immediately before creating backups/moving files.
                 var latest=InspectLocalToggle(cluster,mapId,permit.Plugin,enabled,
-                    historicalStoppedObserver);
+                    historicalStoppedUnderLockObserver??historicalStoppedObserver);
                 if(!latest.Allowed)throw new InvalidOperationException(latest.Reason);
                 // Historical Kova profiles need an independent exact OS/Loader
                 // stopped-family check UNDER the native plugin mutation lock.
