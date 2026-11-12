@@ -59,6 +59,17 @@ test.beforeEach(async ({ page }) => {
         });
       };
     let freshId = "";
+    let nativeFreshRegisteredResume=false;
+    const resumeMapId="00000000-0000-4000-8000-000000008881";
+    (window as typeof window & {__UNTAMED_FRESH_CONFIGURED_RESUME__?:()=>void})
+      .__UNTAMED_FRESH_CONFIGURED_RESUME__=()=>{
+        nativeFreshRegisteredResume=true;
+        state.local.maps.push({
+          id:resumeMapId,name:"Valguero",running:false,
+          status:"Leállítva",gamePort:7847,queryPort:27087,
+          steamBuildId:"123456",steamUpdateState:"Nem ellenőrizhető"
+        } as any);
+      };
     let importedObserved=false;
     let adoptedObserved=false;
     let missingBackupPolicyFixture=false;
@@ -1428,7 +1439,13 @@ test.beforeEach(async ({ page }) => {
             mapName:"Scorched Earth",registered:true,storeProtected:true,
             requiresOriginalLaunchVerification:true,serverStarted:false,
             worldFilesChanged:false,evidence:"HISTORICAL_STORE_V1_REGISTERED_QUARANTINED"};
-        case "steam.freshCurrent": return {current:null};
+        case "steam.freshCurrent": return {current:nativeFreshRegisteredResume?{
+          jobId:"00000000-0000-4000-8000-000000008889",
+          mapId:resumeMapId,mapName:"Valguero",
+          stage:"registered",detail:"Fájlok ellenőrizve és regisztrálva",
+          percent:100,verified:true,registered:true,errorCode:null,
+          evidence:"NATIVE_STEAMCMD_JOB_STATE"
+        }:null};
         case "steam.freshBrowse": return {selected:true,installRoot:"D:\\ASA-NEW"};
         case "steam.freshPreflight":
           if(m.customLevel && !/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(m.customLevel))
@@ -1515,7 +1532,8 @@ test.beforeEach(async ({ page }) => {
             blocker:initialBlocked?"PROCESS_STOP_NOT_VERIFIED":
               map.gamePort>0?"PROFILE_ALREADY_CONFIGURED_OR_PROTECTED":"NONE",
             processStatus:initialBlocked?"Synthetic uncertain WMI process observation":"Synthetic stopped",
-            hasServerExecutable:true,gamePort:map.gamePort,queryPort:0,
+            hasServerExecutable:true,gamePort:map.gamePort,
+            queryPort:(map as any).queryPort??0,
             suggestion:{game:7797,query:27035},
             evidence:"LOCAL_MANAGER_PROFILE_FIRST_SETUP_STATUS"};
         }
@@ -5396,6 +5414,28 @@ test("SteamCMD simple path entry starts installation without advanced options or
   await expect(page.getByText(/letöltve és hozzáadva a Managerhez/))
     .toBeVisible({timeout:12000});
   await expect(page.getByRole("checkbox",{name:/Korábban megszakadt telepítés/})).toHaveCount(0);
+});
+
+test("registered SteamCMD wizard reopens at native configured step without replaying setup",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_CONFIGURED_RESUME__?:()=>void
+  }).__UNTAMED_FRESH_CONFIGURED_RESUME__?.());
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  const next=page.getByRole("region",{name:"Telepítés utáni ASA konfiguráció"});
+  await expect(next).toBeVisible();
+  await expect(next).toContainText("Az első indítási profil mentve.");
+  await expect(next.getByRole("button",{
+    name:"Mapadatlap megnyitása – további konfiguráció"
+  })).toBeVisible();
+  await expect(next.getByRole("button",{
+    name:"Jóváhagyás és első konfiguráció mentése"
+  })).toHaveCount(0);
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await expect(page.getByRole("region",{
+    name:"Telepítés utáni ASA konfiguráció"
+  })).toContainText("Az első indítási profil mentve.");
 });
 
 test("Newly imported local map first setup saves session and UDP ports only after preview and confirmation",async ({page})=>{
