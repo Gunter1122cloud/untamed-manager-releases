@@ -1212,6 +1212,18 @@ export type OriginalKovaLiveBatchPreview = {
   requiresExternalControllerStopped:true;requiresTypedApproval:true;
   evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT";
 };
+export type OriginalKovaLiveOperationBlocker = {
+  mapId:string;mapName:string;kind:string;phase:string;
+  operationId:string;blockingCode:string;existingManagerProfile:boolean;
+  supportedReviewInMapDetails:boolean;
+};
+export type OriginalKovaLiveOperationBlockers = {
+  mapCount:number;blockedCount:number;
+  blockedMaps:OriginalKovaLiveOperationBlocker[];
+  allRecoveriesRequireFreshOwnerProof:true;
+  noAutomaticCommandRetry:true;processStarted:false;processStopped:false;
+  evidence:"ORIGINAL_FIVE_RUNNING_MAP_DURABLE_JOURNAL_BLOCKERS_READ_ONLY";
+};
 export type OriginalKovaLiveBatchReceipt = {
   importedMaps:number;addedMaps:number;reconnectedMaps:number;
   unchangedMaps:number;mapIds:string[];apiLoaderPairs:number;
@@ -1567,7 +1579,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
-  "historical.originalLiveBatchPreview" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
+  "historical.originalLiveBatchPreview" | "historical.originalLiveOperationBlockers" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
    "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModeStatus" | "historical.loaderModePreview" | "historical.loaderModeApply" |
@@ -2173,6 +2185,8 @@ export const managerBridge = {
     request<OriginalKovaBatchReceipt>("historical.originalBatchRegister",{token,confirm:true}),
   historicalOriginalLiveBatchPreview: () =>
     request<OriginalKovaLiveBatchPreview>("historical.originalLiveBatchPreview"),
+  historicalOriginalLiveOperationBlockers: () =>
+    request<OriginalKovaLiveOperationBlockers>("historical.originalLiveOperationBlockers"),
   historicalOriginalLiveBatchApply: (token:string,externalControllerStopped:boolean,typedApproval:string) =>
     request<OriginalKovaLiveBatchReceipt>("historical.originalLiveBatchApply",{
       token,externalControllerStopped,typedApproval,confirm:true
