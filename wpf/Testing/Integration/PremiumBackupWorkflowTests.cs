@@ -92,6 +92,22 @@ public static class PremiumBackupWorkflowTests
         Check(worldRejected&&!Directory.Exists(target),
             "0-byte ASA world is always rejected, including historical Store mode");
 
+        // A directory containing only leftover loose files/logs is not a
+        // world backup, even when those files have valid nonzero bytes.
+        string originalWorld=File.ReadAllText(game);
+        File.Delete(game);
+        string unrelated=Path.Combine(Path.GetDirectoryName(game)!,"Unrelated.txt");
+        File.WriteAllText(unrelated,"not a world");
+        bool missingWorldRejected=false;
+        try{LocalBackupWorkflow.Preview(map,stopped,target,scope);}
+        catch(InvalidDataException e) when(
+            e.Message.Contains("UM-BACKUP-VALID-WORLD-MISSING"))
+        {missingWorldRejected=true;}
+        File.Delete(unrelated);
+        File.WriteAllText(game,originalWorld);
+        Check(missingWorldRejected&&!Directory.Exists(target),
+            "world-scope backup rejects nonempty directories that contain no ASA .ark file");
+
         var backup=LocalBackupWorkflow.Create(map,stopped,target,scope);
         var verified=TestBackupPackage.Verify(target,map.Id);
         Check(backup.PackageDirectory==target&&backup.Manifest.Files.Count==3 &&

@@ -42,8 +42,8 @@ public static class LocalBackupWorkflow
            File.Exists(target)||File.Exists(staging))
             throw new IOException("Backup target or interrupted backup already exists");
         var paths=SelectFiles(root,scope);
-        ValidateCriticalSaveLengths(paths,scope.HasFlag(LocalBackupScope.WorldAndProfiles) &&
-            UntamedWorldBackup.HasLiveOrHistoricalStore(map));
+        ValidateCriticalSaveLengths(paths,UntamedWorldBackup.HasLiveOrHistoricalStore(map),
+            scope.HasFlag(LocalBackupScope.WorldAndProfiles));
         long bytes=0;
         foreach(var entry in paths)
             bytes=checked(bytes+new FileInfo(entry.Value).Length);
@@ -89,7 +89,8 @@ public static class LocalBackupWorkflow
         if(Directory.Exists(target)||Directory.Exists(staging)||File.Exists(target)||File.Exists(staging))
             throw new IOException("Target or interrupted backup already exists");
         var paths=SelectFiles(root,scope);
-        ValidateCriticalSaveLengths(paths,UntamedWorldBackup.HasLiveOrHistoricalStore(map));
+        ValidateCriticalSaveLengths(paths,UntamedWorldBackup.HasLiveOrHistoricalStore(map),
+            scope.HasFlag(LocalBackupScope.WorldAndProfiles));
         // Fail before staging if this fixed local disk cannot hold the selected files.
         // A reserve is intentional: File hashes and the manifest do not prove ASA consistency.
         long totalBytes=0;
@@ -148,8 +149,9 @@ public static class LocalBackupWorkflow
     // non-Store backup. Original Store-v1 conversions can legitimately
     // retain empty loose profiles: copy their exact bytes, never repair them.
     private static void ValidateCriticalSaveLengths(
-        IReadOnlyDictionary<string,string> files,bool historicalStore)
+        IReadOnlyDictionary<string,string> files,bool historicalStore,bool requireWorld)
     {
+        bool foundWorld=false;
         foreach(var (relative,full) in files)
         {
             var parts=relative.Split(new[]{
@@ -167,7 +169,12 @@ public static class LocalBackupWorkflow
                        name.EndsWith(".arktribe",StringComparison.OrdinalIgnoreCase);
             if((world||loose&&!historicalStore)&&new FileInfo(full).Length==0)
                 throw new InvalidDataException("UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE");
+            if(world)foundWorld=true;
         }
+        // SaveGames/SaveArks may contain only logs or stale loose profiles.
+        // Never approve a pre-update "world" backup with no .ark anywhere.
+        if(requireWorld&&!foundWorld)
+            throw new InvalidDataException("UM-BACKUP-VALID-WORLD-MISSING");
     }
 
     private static SortedDictionary<string,string> SelectFiles(string root,LocalBackupScope scope)
