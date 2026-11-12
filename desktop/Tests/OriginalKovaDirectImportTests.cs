@@ -205,6 +205,10 @@ internal static class OriginalKovaDirectImportTests
                   frozen.FourFilesSha256==discovered.FourFilesSha256&&
                   frozen.LaunchProfileSha256==discovered.LaunchProfileSha256,
                 "approved standalone Store source preserves five IDs and mod/port order without original local Kova directory");
+            string oldEpoch=LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                pinnedManager,local,parityMap);
+            Check(oldEpoch.Length==64&&oldEpoch.All(Uri.IsHexDigit),
+                "original local Store source has a valid Obsidian epoch with Kova absent");
             var edited=JsonSerializer.Deserialize<LocalMap>(
                 JsonSerializer.Serialize(parityMap))!;
             edited.GamePort=7781;edited.QueryPort=27019;
@@ -214,6 +218,10 @@ internal static class OriginalKovaDirectImportTests
             edited.HistoricalRuntimeTransferDirectory=
                 @"\\synthetic-nonexistent\obsidian-transfer";
             LegacyStoreV1PinnedSource.RequireImmutableIdentity(edited,frozen);
+            string nextEpoch=LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                pinnedManager,local,edited);
+            Check(nextEpoch.Length==64&&nextEpoch!=oldEpoch,
+                "approved runtime configuration changes advance the local RCON/SaveWorld epoch");
             var editableMods=ModStateController.Read(edited);
             var editedLaunch=LegacyStoreV1ActiveLaunch.Build(new(
                 edited.HistoricalMapKey,edited.GamePort,edited.QueryPort,
