@@ -646,6 +646,14 @@ public sealed class DesktopWorldBackupBridge
             UnauthorizedAccessException or InvalidDataException or
             InvalidOperationException or ArgumentException or OverflowException)
         {
+            // Only whitelisted, path-free resource codes cross into WebView.
+            // Never forward raw IO/Store exceptions, paths or secrets.
+            if(e is InvalidDataException && e.Message is
+                ("UM-BACKUP-RESOURCE-FILE-LIMIT" or
+                 "UM-BACKUP-RESOURCE-BYTE-LIMIT" or
+                 "UM-BACKUP-RESOURCE-POLICY-INVALID" or
+                 "UM-BACKUP-RESOURCE-POLICY-NOT-FILE"))
+                return Fail(id,e.Message);
             return Fail(id,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED");
         }
     }
