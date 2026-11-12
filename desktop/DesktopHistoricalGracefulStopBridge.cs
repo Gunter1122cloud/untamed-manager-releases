@@ -132,14 +132,12 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         lock(sync)
             if(currentJob!=null&&currentJob.MapId==reviewedMapId&&
                currentJob.State is "queued" or "running")return false;
-        var sourceProfile=LegacyStoreV1PinnedSource.Resolve(cluster.Store.Root,
-            Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.ApplicationData),"Kova"),reviewedMap);
-        var sourceWitness=LegacyStoreV1LiveReadGate.InspectOriginalActive(
-            reviewedMap,sourceProfile);
-        return sourceWitness.CompletedOriginalSourceGuard&&
-            string.Equals(sourceWitness.SourceStateSha256,reviewedSourceSha,
-                StringComparison.Ordinal);
+        // Paired local Stop/Restart journal review needs the exact same
+        // owned-map source fingerprint, NOT a fresh Kova peer DONE marker.
+        // No SaveWorld/DoExit command is replayed in this read-only review.
+        string source=LegacyStoreV1GracefulStop.OriginalSource(
+            cluster,reviewedMap);
+        return string.Equals(source,reviewedSourceSha,StringComparison.Ordinal);
     }
 
     private object Recover(Guid mapId)
