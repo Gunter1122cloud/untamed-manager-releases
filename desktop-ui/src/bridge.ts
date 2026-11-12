@@ -1589,7 +1589,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "cluster.multiHostHostStageStatus" |
   "cluster.multiHostBackupRecoveryPreview" | "cluster.multiHostBackupRecoveryApply" |
   "cluster.multiHostCatalogPreview" | "cluster.multiHostCatalogApply" |
-  "cluster.multiHostBackupPreview" | "cluster.multiHostBackupApply" | "cluster.multiHostBackupStatus" |
+  "cluster.multiHostBackupPreview" | "cluster.multiHostBackupApply" | "cluster.multiHostBackupStatus" | "cluster.multiHostCancel" |
   "cluster.multiHostRestorePreview" | "cluster.multiHostRestoreApply" | "cluster.multiHostRestoreStatus" |
   "cluster.multiHostRestoreReplacePreview" | "cluster.multiHostRestoreReplaceApply" |
   "cluster.multiHostRestoreRecoveryList" | "cluster.multiHostRestoreRecoveryPreview" |
@@ -2043,6 +2043,10 @@ export const managerBridge = {
     request<MultiHostClusterBackupStarted>("cluster.multiHostBackupApply",{token,confirm:true}),
   multiHostBackupStatus: (jobId:string) =>
     request<MultiHostClusterBackupStatus>("cluster.multiHostBackupStatus",{jobId}),
+  multiHostCancel: (jobId:string) =>
+    request<{jobId:string;cancelRequested:true;completed:false;
+      requiresStatusRecheck:true;automaticRollback:false;journalDeleted:false}>(
+      "cluster.multiHostCancel",{jobId,confirm:true}),
   multiHostRestorePreview: () =>
     request<MultiHostClusterRestorePreview>("cluster.multiHostRestorePreview"),
   multiHostRestoreApply: (token:string) =>
