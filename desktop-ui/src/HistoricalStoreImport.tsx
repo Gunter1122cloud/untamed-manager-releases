@@ -484,7 +484,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <p className="muted small">
             {journalInventory.pendingRecords} felülvizsgálandó rekord,
             {" "}{journalInventory.corruptRecords} sérült rekord.
-            {journalInventory.truncated?" A leltár elérte a 256 rekordos korlátot; nem teljes.":""}
+            {journalInventory.truncated?" A leltár elérte a feldolgozási korlátot; nem teljes.":""}
             {" "}Az ismeretlen kulcs eredete hash alapján nem bizonyítható,
             nem jelent automatikusan éles ASA-hibát. Sem törlés, sem
             automatikus helyreállítás nem történik.

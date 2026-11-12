@@ -28,6 +28,9 @@ public sealed record OperationJournalInventorySnapshot(
 public static class OperationJournalInventory
 {
     private const int MaxRecords=256;
+    // Directory.EnumerateFiles is lazy, and no global sort is permitted.
+    // Audit sidecars can outnumber journal records by orders of magnitude.
+    private const int MaxCandidateFiles=4096;
     private static readonly JsonSerializerOptions RestartJson=
         new(JsonSerializerDefaults.Web);
 
@@ -61,16 +64,24 @@ public static class OperationJournalInventory
             }
         }
         var entries=new List<OperationJournalInventoryEntry>();
+        // The UI displays a short fingerprint, never a full installation hash.
+        // Counts must nonetheless use the FULL 64-digit resource identity:
+        // two different hashes can deliberately share a displayed prefix.
+        var unknownKeys=new HashSet<string>(StringComparer.Ordinal);
+        var unknownPendingKeys=new HashSet<string>(StringComparer.Ordinal);
         bool truncated=false;
+        int candidates=0;
         foreach(var journal in new[]{"Operations-v1","Restart-v1"})
         {
             string folder=journal=="Operations-v1"?root:Path.Combine(root,"Restart-v1");
             CheckDirectory(folder);
             if(!Directory.Exists(folder))continue;
+            // Eager OrderBy here scanned and materialized the entire folder
+            // before MaxRecords could be enforced; stream and cap candidates.
             foreach(string file in Directory.EnumerateFiles(folder,"*.json",
-                         SearchOption.TopDirectoryOnly)
-                     .OrderBy(x=>x,StringComparer.OrdinalIgnoreCase))
+                         SearchOption.TopDirectoryOnly))
             {
+                if(++candidates>MaxCandidateFiles){truncated=true;break;}
                 string key=Path.GetFileNameWithoutExtension(file);
                 if(key.Length!=64||!key.All(Uri.IsHexDigit))continue;
                 if(entries.Count>=MaxRecords){truncated=true;break;}
@@ -128,14 +139,16 @@ public static class OperationJournalInventory
                         null,registeredMap,registeredMap?string.Join(", ",names!):null,
                         true,true));
                 }
+                if(!registeredMap)
+                {
+                    unknownKeys.Add(key);
+                    if(entries[^1].NeedsReview)unknownPendingKeys.Add(key);
+                }
             }
             if(truncated)break;
         }
         return new(entries.Count,entries.Count(e=>e.Registered),
-            entries.Where(e=>!e.Registered)
-                .Select(e=>e.ResourceFingerprint).Distinct(StringComparer.Ordinal).Count(),
-            entries.Where(e=>!e.Registered&&e.NeedsReview)
-                .Select(e=>e.ResourceFingerprint).Distinct(StringComparer.Ordinal).Count(),
+            unknownKeys.Count,unknownPendingKeys.Count,
             entries.Count(e=>e.NeedsReview),entries.Count(e=>e.Corrupt),
             truncated,entries.ToArray());
     }

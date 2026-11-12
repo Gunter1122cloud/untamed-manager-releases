@@ -56,5 +56,32 @@ internal static class OperationJournalInventoryTests
         Check(File.ReadAllText(invalid)=="{corrupt"&&
               before.SequenceEqual(File.ReadAllBytes(localJournal)),
             "corrupt and valid original bytes are preserved after diagnostics");
+
+        // Different real resource keys may share the 16-character displayed
+        // fingerprint. Never undercount genuinely separate unregistered keys.
+        string samePrefix=new string('B',16);
+        string collision1=Path.Combine(journalRoot,
+            samePrefix+new string('C',48)+".json");
+        string collision2=Path.Combine(journalRoot,
+            samePrefix+new string('D',48)+".json");
+        File.WriteAllText(collision1,"{}");
+        File.WriteAllText(collision2,"{}");
+        var collisions=OperationJournalInventory.Inspect(new[]{localMap});
+        Check(collisions.RecordCount==5&&
+              collisions.UnattributedResources==4&&
+              collisions.UnattributedPendingResources==4,
+            "different full resource hashes are counted independently despite equal displayed fingerprints");
+
+        // A directory full of corrupt historical artifacts must not trigger
+        // an unbounded eager sort or unbounded WebView response.
+        for(int i=0;i<260;i++)
+            File.WriteAllText(Path.Combine(journalRoot,i.ToString("X64")+".json"),"{}");
+        var capped=OperationJournalInventory.Inspect(new[]{localMap});
+        Check(capped.RecordCount==256&&capped.Truncated&&
+              capped.Entries.Length==256,
+            "more than 256 records are capped and explicitly declared incomplete");
+        Check(before.SequenceEqual(File.ReadAllBytes(localJournal))&&
+              File.ReadAllText(invalid)=="{corrupt",
+            "bounded inventory does not alter pre-existing journal bytes");
     }
 }
