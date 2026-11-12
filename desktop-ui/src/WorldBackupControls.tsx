@@ -17,12 +17,28 @@ function backupResourceError(error:unknown,fallback:string):string {
     case "UM-BACKUP-RESOURCE-BYTE-LIMIT":
       return "A mentési adatméret meghaladja a beállított maponkénti korlátot. "+
         "Módosítsd a helyi Manager mentési szabályzatát, vagy csökkentsd a mentési hatókört.";
+    case "UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING":
+      return "A natív Manager mentési előnézete nem tartalmaz ellenőrzött erőforráskorlátot. "+
+        "A mentés jóváhagyása tiltva marad; frissítsd együtt a felületet és a Windows Managert.";
     case "UM-BACKUP-RESOURCE-POLICY-INVALID":
     case "UM-BACKUP-RESOURCE-POLICY-NOT-FILE":
       return "Hibás Obsidian backup-resource-limits-v1.json szabályzat; "+
         "érvénytelen fájl esetén a mentés biztonsági okból tiltva marad.";
     default:return fallback+(code.startsWith("UM-")?" ("+code+")":"");
   }
+}
+
+// A stale renderer/native pairing must never display an approval button
+// using guessed backup limits. In particular, omitted JSON fields must not
+// crash React's render or result in unbounded copy approval.
+function verifiedBackupBudget(value:{
+  maxFilesPerMap:number;maxBytesPerMap:number;
+  resourcePolicyCustomized:boolean;actualCopySizeRecheckedAtCreate:true
+}):boolean {
+  return Number.isSafeInteger(value.maxFilesPerMap)&&value.maxFilesPerMap>0&&
+    Number.isSafeInteger(value.maxBytesPerMap)&&value.maxBytesPerMap>=1048576&&
+    typeof value.resourcePolicyCustomized==="boolean"&&
+    value.actualCopySizeRecheckedAtCreate===true;
 }
 
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
@@ -137,6 +153,8 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     setBusy(true);setError("");
     try{
       const ticket=await managerBridge.backupPreview(requestedMap);
+      if(!verifiedBackupBudget(ticket))
+        throw new Error("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
       if(selectedRef.current===requestedMap && ticket.mapId===requestedMap)setPending(ticket);
     }catch(e){if(selectedRef.current===requestedMap)
       setError(backupResourceError(e,
@@ -166,6 +184,8 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     const requestedMap=chosen;
     try{
       const ticket=await managerBridge.backupRestorePreview(requestedMap,point.id);
+      if(!verifiedBackupBudget(ticket))
+        throw new Error("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
       if(selectedRef.current===requestedMap && ticket.mapId===requestedMap){
         setPending(ticket);setRestoreTarget(point);
       }
@@ -232,6 +252,8 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     setOriginalFiveError("");
     try{
       const candidate=await managerBridge.backupOriginalFivePreview();
+      if(!verifiedBackupBudget(candidate))
+        throw new Error("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
       if(candidate.localMaps!==5||!candidate.originalSourcePinned||
          !candidate.allMapsConfirmedStopped||candidate.originalKovaFilesWritten||
          candidate.serverStarted||candidate.sharedTransferIncluded||
