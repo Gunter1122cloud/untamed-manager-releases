@@ -184,10 +184,12 @@ public sealed class UntamedOperationCoordinator
     /// installation semaphore used by Start/Stop/Admin/SteamCMD.
     /// </summary>
     internal void ReviewRunningOriginalLaunch(string installation,
-        Guid expectedOperation,Func<bool> verifyOriginalRunning)
+        Guid expectedOperation,Func<bool> verifyOriginalRunning,
+        Guid expectedMapId,Guid? expectedRestartId,int verifiedRunningPid)
     {
         ArgumentNullException.ThrowIfNull(verifyOriginalRunning);
-        if(expectedOperation==Guid.Empty)
+        if(expectedOperation==Guid.Empty||expectedMapId==Guid.Empty||
+           verifiedRunningPid<=0)
             throw new InvalidDataException("UM-RECOVERY-OPERATION-ID");
         string key=ResourceKey(installation);
         using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
@@ -215,6 +217,28 @@ public sealed class UntamedOperationCoordinator
             // No time-based auto-clear: age merely qualifies a MANUAL review.
             if(DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
                 throw new InvalidOperationException("UM-RECOVERY-OPERATION-TOO-RECENT");
+            // Paired Restart-v1 and the common installation journal MUST
+            // be reviewed under the same installation semaphore. The
+            // restart is NOT marked successful; it gets a distinct reviewed
+            // phase and an immutable original audit file.
+            var restart=new AsaManualRestartJournal(installation);
+            var restartState=restart.Observe();
+            if(restartState!=null&&restartState.Phase is not
+                (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed)&&
+               expectedRestartId==null)
+                throw new InvalidOperationException("UM-RECOVERY-PAIRED-RESTART-REQUIRES-REVIEW");
+            if(restartState?.Phase==AsaRestartPhase.OperatorReviewed&&
+               expectedRestartId==null)
+                throw new InvalidOperationException("UM-RECOVERY-PAIRED-RESTART-ID-REQUIRED");
+            if(expectedRestartId is Guid restartId &&
+               (restartState==null||restartState.Id!=restartId||
+                restartState.MapId!=expectedMapId||
+                restartState.OldPid!=verifiedRunningPid||restartState.NewPid!=0||
+                restartState.Phase is not (AsaRestartPhase.Stopping or
+                    AsaRestartPhase.NeedsOperator or
+                    AsaRestartPhase.OperatorReviewed)))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-PAIRED-RESTART-OLD-PID-OR-PHASE-CHANGED");
             if(!verifyOriginalRunning())
                 throw new UnauthorizedAccessException("UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
             string audit=Path.Combine(stateRoot,key+"-"+old.Operation.ToString("N")+
@@ -234,8 +258,14 @@ public sealed class UntamedOperationCoordinator
                 stream.Write(bytes);
                 stream.Flush(flushToDisk:true);
             }
-            // Do not change the record if the physical source changed between
-            // the two independent fresh observations under the same lease.
+            // Recheck the physical source before touching either journal.
+            // Restart first: if the process dies between the two durable
+            // writes, the COMMON Launch journal is still pending, so every
+            // new mutation stays blocked. A new approved preview can resume.
+            if(!verifyOriginalRunning())
+                throw new UnauthorizedAccessException("UM-RECOVERY-SOURCE-CHANGED");
+            if(expectedRestartId is Guid pairedId)
+                restart.ReviewOriginalOldPid(expectedMapId,pairedId,verifiedRunningPid);
             if(!verifyOriginalRunning())
                 throw new UnauthorizedAccessException("UM-RECOVERY-SOURCE-CHANGED");
             Write(journal,old with {
