@@ -3381,6 +3381,66 @@ try
             "servers.restartPreview",new{mapId=stopLabMap.Id});
         Check(IsError(blockedRestart,"UM-ASA-RESTART-FAILED"),
             "unresolved historical Restart prevents another approved job");
+
+        // The OS still owns the ORIGINAL PID (44117). An interrupted
+        // restart does not need a typed operator phrase or a new ASA/RCON
+        // dispatch: independently verify the old process and audit the
+        // exact Restart-v1 record once, leaving its prior result UNKNOWN.
+        string reviewKey=UntamedOperationCoordinator.ResourceKey(stopRoot);
+        string reviewFolder=Path.Combine(
+            UntamedOperationCoordinator.DefaultRoot,"Restart-v1");
+        string reviewFile=Path.Combine(reviewFolder,reviewKey+".json");
+        var delayedRestart=manualJournal.Observe()! with {
+            ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-6)
+        };
+        File.WriteAllText(reviewFile,JsonSerializer.Serialize(delayedRestart,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var recoveryPreview=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewPreview",new{mapId=stopLabMap.Id});
+        IsOk(recoveryPreview,"stale local fresh Restart can verify exact old running ASA owner");
+        var reviewData=recoveryPreview.GetProperty("data");
+        Check(reviewData.GetProperty("oldPid").GetInt32()==44117&&
+              reviewData.GetProperty("exactOldProcessVerified").GetBoolean()&&
+              !reviewData.GetProperty("serverStarted").GetBoolean()&&
+              restartCalls==1,
+            "fresh restart recovery preview checks old PID and cannot trigger new ASA");
+        string reviewToken=reviewData.GetProperty("token").GetString()!;
+        var rejectedReview=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewApply",new{token=reviewToken,confirm=false});
+        Check(IsError(rejectedReview,"UM-ASA-RESTART-REVIEW-APPROVAL")&&
+              manualJournal.Observe()?.Phase==AsaRestartPhase.NeedsOperator,
+            "a missing explicit repair click cannot mutate a pending Restart journal");
+        var freshReviewPreview=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewPreview",new{mapId=stopLabMap.Id});
+        IsOk(freshReviewPreview,"restart audit requires new one-shot preview after denial");
+        string reviewedToken=freshReviewPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var auditedRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewApply",new{token=reviewedToken,confirm=true});
+        IsOk(auditedRestart,"verified old running ASA allows auditable fresh Restart recovery");
+        Check(manualJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+              !auditedRestart.GetProperty("data")
+                .GetProperty("newRestartSucceeded").GetBoolean()&&
+              !auditedRestart.GetProperty("data").GetProperty("rconSent").GetBoolean()&&
+              !auditedRestart.GetProperty("data").GetProperty("serverStarted").GetBoolean()&&
+              restartCalls==1,
+            "audit never claims old Restart succeeded and sends no extra RCON/Start");
+        string reviewedAudit=Path.Combine(reviewFolder,reviewKey+"-"+
+            crash.Id.ToString("N")+".operator-reviewed.json");
+        Check(File.Exists(reviewedAudit),
+            "original interrupted Restart evidence is durably preserved");
+        var reviewReplay=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewApply",new{token=reviewedToken,confirm=true});
+        Check(IsError(reviewReplay,"UM-ASA-RESTART-REVIEW-APPROVAL-EXPIRED")&&
+              restartCalls==1,
+            "audited recovery token is one-shot and cannot retry old command");
+        var freshAgain=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(freshAgain,"new independent Restart can be previewed after verified audit");
+        // Restore a DIFFERENT isolated interruption for the legacy journal
+        // read-only observation below; never delete or reuse the old audit.
+        var secondCrash=manualJournal.Begin(stopLabMap.Id,44117);
+        manualJournal.Change(secondCrash.Id,AsaRestartPhase.NeedsOperator);
         var foreignRestartJournal=await Call(restartBridge.HandleAsync,
             "servers.restartCurrent",new{mapId=Guid.NewGuid()});
         Check(IsError(foreignRestartJournal,"UM-MAP-NOT-OWNED"),

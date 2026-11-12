@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using UntamedManager.Core;
@@ -19,6 +20,9 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     private sealed record Approval(Guid Token,Guid MapId,int Pid,
         DateTimeOffset StartedUtc,string Root,string Args,int RconPort,
         DateTimeOffset Created);
+    private sealed record ReviewApproval(Guid Token,Guid MapId,Guid JournalId,
+        int OldPid,DateTimeOffset OldStartedUtc,string ProfileSnapshot,
+        string RestartSnapshot,DateTimeOffset ExpiresUtc);
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
@@ -39,6 +43,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly object sync=new();
     private Approval? pending;
+    private ReviewApproval? reviewPending;
     private Job? current;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
@@ -68,7 +73,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     }
     private LocalMap? Owned(Guid mapId)=>
         cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
-    private ProcessIdentity Eligible(LocalMap map)
+    private ProcessIdentity Eligible(LocalMap map,bool allowPendingRestart=false)
     {
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if(newStore)FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
@@ -79,7 +84,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
            !AsaRconConfigurationEvidence.Matches(map) ||
            string.IsNullOrWhiteSpace(AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)))
             throw new InvalidOperationException("Restart requires a new local non-Store ASA installation");
-        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+        if(!allowPendingRestart)
+            new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
         var state=cluster.Check(map);
         if(!ReleaseCapabilityGate.Check(ManagerOperation.RealAsaRestart,true,
             map.Maintenance,state.ConfirmedStopped,state.Running,
@@ -89,6 +95,28 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             throw new InvalidOperationException("Restart requires verified local running process and RCON listener");
         return identity;
     }
+    // Read-only exact running-owner verification for an interrupted Restart.
+    // It NEVER dispatches RCON, invents SaveComplete or resumes old Start.
+    private bool ReviewOwner(LocalMap map,AsaRestartRecord record,
+        DateTimeOffset? expectedStart=null,string? expectedProfile=null)
+    {
+        if(record.MapId!=map.Id||record.OldPid<=0||record.NewPid!=0||
+           record.Phase is not (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator)||
+           (expectedProfile!=null&&JsonSerializer.Serialize(map)!=expectedProfile))
+            return false;
+        var general=cluster.Operations.Observe(map.InstallationPath);
+        if(general?.Phase is UntamedOperationPhase.Prepared or
+            UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+            return false;
+        try
+        {
+            var existing=Eligible(map,allowPendingRestart:true);
+            return existing.Pid==record.OldPid&&
+                (expectedStart==null||existing.StartedUtc==expectedStart);
+        }
+        catch(Exception){return false;}
+    }
+
     private static bool ReadGuid(JsonElement data,string name,out Guid value)
     {
         value=Guid.Empty;
@@ -125,6 +153,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
+        string? calledMethod=null;
         try
         {
             if(raw.Length is <2 or >3000)return Fail(null,"UM-ASA-RESTART-MESSAGE");
@@ -137,9 +166,12 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                 return Fail(null,"UM-ASA-RESTART-MESSAGE");
             id=request.ToString("D");
             var method=methodField.GetString();
+            calledMethod=method;
             if(method is not ("servers.restartPreview" or
                 "servers.restartApply" or "servers.restartStatus" or
-                "servers.restartCurrent"))
+                "servers.restartCurrent" or
+                "servers.restartReviewPreview" or
+                "servers.restartReviewApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
@@ -174,6 +206,83 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     lock(sync)
                         if(current.State is "queued" or "running")
                             return Fail(id,"UM-ASA-RESTART-BUSY");
+                }
+                // A crashed fresh Restart with the ORIGINAL ASA still
+                // running is not a permanent block. The same durable
+                // installation coordinator audits the old Restart-v1 ID,
+                // ONLY after fresh original PID/time, INI and local RCON
+                // listener proof. A new Restart still needs fresh approval.
+                if(method=="servers.restartReviewPreview")
+                {
+                    reviewPending=null;
+                    if(!ReadGuid(args,"mapId",out var mapId))
+                        return Fail(id,"UM-ASA-RESTART-REVIEW-MAP");
+                    var map=Owned(mapId);
+                    if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    var saved=new AsaManualRestartJournal(map.InstallationPath).Observe();
+                    if(saved==null||saved.MapId!=mapId||saved.NewPid!=0||
+                       saved.Phase is not
+                           (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator))
+                        return Fail(id,"UM-ASA-RESTART-REVIEW-NOT-ELIGIBLE");
+                    if(DateTimeOffset.UtcNow-saved.ChangedUtc<TimeSpan.FromMinutes(3))
+                        return Fail(id,"UM-RESTART-REVIEW-TOO-RECENT");
+                    if(!ReviewOwner(map,saved))
+                        return Fail(id,"UM-ASA-RESTART-REVIEW-OLD-PID-NOT-RUNNING");
+                    var oldProcess=Eligible(map,allowPendingRestart:true);
+                    reviewPending=new(Guid.NewGuid(),map.Id,saved.Id,
+                        oldProcess.Pid,oldProcess.StartedUtc,
+                        JsonSerializer.Serialize(map),JsonSerializer.Serialize(saved),
+                        DateTimeOffset.UtcNow.AddMinutes(3));
+                    return Ok(id,new {
+                        token=reviewPending.Token,mapId=map.Id,mapName=map.Name,
+                        oldPid=oldProcess.Pid,
+                        oldStartedUtc=oldProcess.StartedUtc,
+                        journalId=saved.Id,phase=saved.Phase.ToString(),
+                        exactOldProcessVerified=true,rconOwnerVerified=true,
+                        previousOutcomeUnknown=true,restartWillNotReplay=true,
+                        serverStarted=false,serverStopped=false,rconSent=false,
+                        evidence="FRESH_ASA_OLD_RUNNING_PID_LOCAL_RESTART_REVIEW_PREVIEW"
+                    });
+                }
+                if(method=="servers.restartReviewApply")
+                {
+                    if(!ReadGuid(args,"token",out var reviewToken)||
+                       reviewPending==null||reviewPending.Token!=reviewToken)
+                        return Fail(id,"UM-ASA-RESTART-REVIEW-APPROVAL-EXPIRED");
+                    var approved=reviewPending;
+                    reviewPending=null; // one shot even when verification fails
+                    if(approved.ExpiresUtc<DateTimeOffset.UtcNow||
+                       !args.TryGetProperty("confirm",out var confirmReview)||
+                       confirmReview.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-ASA-RESTART-REVIEW-APPROVAL");
+                    var owned=Owned(approved.MapId);
+                    if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    var journal=new AsaManualRestartJournal(owned.InstallationPath);
+                    var observed=journal.Observe();
+                    if(observed==null||observed.Id!=approved.JournalId||
+                       JsonSerializer.Serialize(observed)!=approved.RestartSnapshot||
+                       !ReviewOwner(owned,observed,approved.OldStartedUtc,
+                           approved.ProfileSnapshot)||
+                       observed.OldPid!=approved.OldPid)
+                        return Fail(id,"UM-ASA-RESTART-REVIEW-SOURCE-CHANGED");
+                    cluster.Operations.ReviewRunningOriginalRestartOnly(
+                        owned.InstallationPath,owned.Id,approved.JournalId,
+                        approved.OldPid,()=>{
+                            var fresh=journal.Observe();
+                            return fresh!=null&&fresh.Id==approved.JournalId&&
+                                fresh.MapId==owned.Id&&fresh.OldPid==approved.OldPid&&
+                                fresh.NewPid==0&&ReviewOwner(owned,fresh,
+                                    approved.OldStartedUtc,approved.ProfileSnapshot);
+                        });
+                    return Ok(id,new{
+                        mapId=owned.Id,oldPid=approved.OldPid,
+                        state="operatorReviewed",previousOutcomeUnknown=true,
+                        newRestartSucceeded=false,serverStarted=false,
+                        serverStopped=false,rconSent=false,
+                        originalJournalAudited=true,
+                        nextActionRequiresNewApproval=true,
+                        evidence="FRESH_ASA_OLD_RUNNING_PID_RESTART_JOURNAL_AUDITED"
+                    });
                 }
                 if(method=="servers.restartPreview")
                 {
@@ -319,7 +428,17 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             }
             finally{gate.Release();}
         }
-        catch(Exception){return Fail(id,"UM-ASA-RESTART-FAILED");}
+        catch(Exception ex)
+        {
+            // Do not leak paths, credentials or arbitrary exception strings.
+            // Only native-owned stable validation codes reach the renderer.
+            if(calledMethod is ("servers.restartReviewPreview" or
+                "servers.restartReviewApply")&&
+               Regex.IsMatch(ex.Message,@"\A(?:UM|UNTAMED)[-_][A-Z0-9_-]{3,110}\z",
+                   RegexOptions.CultureInvariant,TimeSpan.FromMilliseconds(100)))
+                return Fail(id,ex.Message);
+            return Fail(id,"UM-ASA-RESTART-FAILED");
+        }
     }
     private static string Ok(string id,object data)=>
         JsonSerializer.Serialize(new{id,ok=true,data},Json);
