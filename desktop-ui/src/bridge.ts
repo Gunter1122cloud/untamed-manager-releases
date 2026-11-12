@@ -1332,7 +1332,7 @@ export type FreshInstallPreflight = {
   evidence:"FRESH_INSTALL_PREFLIGHT_NO_FILE_MUTATION";
 };
 export type FreshInstallJob = {
-  jobId:string; mapName:string; stage:string; detail:string;
+  jobId:string; mapId?:string; mapName:string; stage:string; detail:string;
   percent:number | null; verified:boolean; registered:boolean;
   errorCode:string | null; evidence:"NATIVE_STEAMCMD_JOB_STATE";
 };

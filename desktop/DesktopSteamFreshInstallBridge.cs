@@ -436,7 +436,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
     }
 
     private static object Describe(InstallJob job) => new {
-        jobId=job.Id,mapName=job.Request.Name,
+        jobId=job.Id,mapId=job.Request.MapId,mapName=job.Request.Name,
         stage=job.Stage,detail=job.Detail,percent=job.Percent,
         verified=job.Completed && job.Receipt!=null &&
             job.ErrorCode==null,

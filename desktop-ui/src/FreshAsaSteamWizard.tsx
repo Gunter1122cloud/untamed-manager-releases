@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, FolderOpen, HardDrive, Shield } from "lucide-react";
 import { managerBridge, type FreshInstallJob } from "./bridge";
+import { InitialMapSetup } from "./InitialMapSetup";
 
 const mapNames = [
   "The Island","The Center","Scorched Earth","Aberration","Extinction",
@@ -13,8 +14,11 @@ const mapNames = [
  * job. No permission gate is removed; Core still checks root, Store,
  * journals and disk, then uses official Valve SteamCMD.
  */
-export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",onImport}:{
-  onRegistered:()=>Promise<void>;initialMapName?:string;onImport?:()=>void
+export function FreshAsaSteamWizard({
+  onRegistered,initialMapName="The Island",onImport,onOpenMap
+}:{
+  onRegistered:()=>Promise<void>;initialMapName?:string;
+  onImport?:()=>void;onOpenMap?:(mapId:string)=>void
 }) {
   const [mapName,setMapName]=useState(
     mapNames.includes(initialMapName)?initialMapName:"__custom__");
@@ -29,12 +33,20 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
+  const [registeredMapId,setRegisteredMapId]=useState<string|null>(null);
+  const [firstConfigurationSaved,setFirstConfigurationSaved]=useState(false);
   const autoRegisterId=useRef<string|null>(null);
 
   useEffect(()=>{
     let active=true;
     managerBridge.freshCurrent().then(data=>{
-      if(active && data.current)setJob(data.current);
+      if(active && data.current){
+        setJob(data.current);
+        // Native source ID survives reopening the wizard during this
+        // Manager session. Never guess the map ID from its display name.
+        if(data.current.registered && data.current.mapId)
+          setRegisteredMapId(data.current.mapId);
+      }
     }).catch(()=>{});
     return ()=>{active=false;};
   },[]);
@@ -58,8 +70,10 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
           try{
             const receipt=await managerBridge.freshRegister(state.jobId);
             if(!active)return;
-            setJob({...state,registered:true,stage:"registered"});
-            setMessage(receipt.mapName+" letöltve és hozzáadva a Managerhez. A portok, RCON és modok később állíthatók be.");
+            setJob({...state,registered:true,mapId:receipt.mapId,stage:"registered"});
+            setRegisteredMapId(receipt.mapId);
+            setFirstConfigurationSaved(false);
+            setMessage(receipt.mapName+" letöltve és hozzáadva a Managerhez. Következő lépés: első konfiguráció, majd RCON/mod/API/cluster és külön jóváhagyott Start.");
             await onRegistered();
           }catch{
             if(active){
@@ -120,6 +134,7 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
       });
       const started=await managerBridge.freshStart(checked.token);
       autoRegisterId.current=started.jobId;
+      setRegisteredMapId(null);setFirstConfigurationSaved(false);
       setJob({jobId:started.jobId,mapName:resolvedMapName,stage:"prepared",
         detail:"Hivatalos Valve SteamCMD és ASA 2430930 előkészítése",
         percent:null,verified:false,registered:false,errorCode:null,
@@ -168,8 +183,10 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
     setBusy(true);setError("");
     try{
       const receipt=await managerBridge.freshRegister(job.jobId);
-      setJob(current=>current?{...current,registered:true,stage:"registered"}:null);
-      setMessage(receipt.mapName+" regisztrálva. Az indítás, portok, RCON és modok külön konfigurálhatók.");
+      setJob(current=>current?{...current,registered:true,mapId:receipt.mapId,stage:"registered"}:null);
+      setRegisteredMapId(receipt.mapId);
+      setFirstConfigurationSaved(false);
+      setMessage(receipt.mapName+" regisztrálva. Folytasd az alábbi első mapbeállítással, utána a mapadatlap RCON/mod/API/cluster lépéseivel.");
       await onRegistered();
     }catch(e){
       setError("A Manager nem regisztrálta az ellenőrzött fájlokat ("+
@@ -181,7 +198,7 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
     setBusy(true);setError("");
     try{
       await managerBridge.freshDiscard(job.jobId);
-      setJob(null);
+      setJob(null);setRegisteredMapId(null);setFirstConfigurationSaved(false);
       setMessage("A feladatkövetés lezárult. A fájlok a lemezen maradtak.");
     }catch{setError("A feladatot nem lehet lezárni, amíg SteamCMD írhat a lemezre.");}
     finally{setBusy(false);}
@@ -278,6 +295,29 @@ export function FreshAsaSteamWizard({onRegistered,initialMapName="The Island",on
           {!running&&!job.registered&&<button className="secondary" disabled={busy}
             onClick={()=>{void discard();}}>Feladatkövetés lezárása (fájlok megmaradnak)</button>}
         </div>
+      </div>}
+      {job?.registered && (registeredMapId||job.mapId) && <div
+        className="fresh-registered-next" aria-label="Telepítés utáni ASA konfiguráció">
+        <h3>2. Első konfiguráció – natív jóváhagyással</h3>
+        <p className="muted small">A szervernév, Game/Query UDP-portok és az egyedi map
+          azonosítója itt állítható be. Ez nem indít ASA-folyamatot, és nem
+          nyúl a Kova Store-v1 karakteradatokhoz.</p>
+        {!firstConfigurationSaved&&<InitialMapSetup
+          mapId={registeredMapId||job.mapId!}
+          onConfigured={async()=>{setFirstConfigurationSaved(true);
+            await onRegistered();}}/>}
+        {firstConfigurationSaved&&<div role="status" className="success-inline">
+          <CheckCircle2 size={16}/> Az első indítási profil mentve.
+          A további lépések a mapadatlap meglévő, natív funkciói.
+        </div>}
+        <h3>3. RCON, modok, opcionális ASA API, cluster és indítás</h3>
+        <p className="muted small">A mapadatlapról folytathatod az INI,
+          mod- és pluginbeállítást, az RCON-t és a cluster-tagságot.
+          Az ASA Start külön előnézetet és jóváhagyást igényel.</p>
+        {onOpenMap&&<button type="button" className="primary"
+          onClick={()=>onOpenMap(registeredMapId||job.mapId!)}>
+          Mapadatlap megnyitása – további konfiguráció
+        </button>}
       </div>}
       {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
       {message&&<div role="status" className="success-inline"><CheckCircle2 size={17}/>{message}</div>}

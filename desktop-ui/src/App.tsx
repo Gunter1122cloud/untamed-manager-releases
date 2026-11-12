@@ -608,7 +608,8 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
     </div>
     {/* Show the requested import action immediately below its toolbar.
         The process observation list can be many screens tall on API Loader hosts. */}
-    {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap} onImport={()=>setImportMode("existing")}/>}
+    {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap}
+      onImport={()=>setImportMode("existing")} onOpenMap={onSelect}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
     {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}
     <LocalRunningAsaPanel onRegistered={onImported}/>
@@ -1209,9 +1210,9 @@ function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot
     </div>
   </div>;
 }
-function SteamCenter({ snapshot, onRegistered, initialMapName }: {
+function SteamCenter({ snapshot, onRegistered, initialMapName, onOpenMap }: {
   snapshot: DashboardSnapshot; onRegistered:()=>Promise<void>;
-  initialMapName:string
+  initialMapName:string; onOpenMap:(mapId:string)=>void
 }) {
   const [inventory, setInventory] = useState<SteamInstallations | null>(null);
   const [ports, setPorts] = useState<SuggestedPorts | null>(null);
@@ -1252,7 +1253,8 @@ function SteamCenter({ snapshot, onRegistered, initialMapName }: {
         <span className="mod-tag amber">Kézi előellenőrzés</span>
       </div>)}
     </Panel>
-    <FreshAsaSteamWizard onRegistered={onRegistered} initialMapName={initialMapName}/>
+    <FreshAsaSteamWizard onRegistered={onRegistered} initialMapName={initialMapName}
+      onOpenMap={onOpenMap}/>
     <Panel title="Új map · konfigurációs előkészítés">
       <p className="muted small">Az új telepítés után a szerver nevének és portjainak ellenőrzött beállítása a map Áttekintés oldalán érhető el. A javaslat önmagában nem indít SteamCMD-műveletet.</p>
       {ports && <div className="port-strip">
@@ -1953,7 +1955,8 @@ export function App() {
           {page === "backups" && <BackupCenter snapshot={snapshot}/>}
           {page === "operations" && <OperationsCenter onOpenMap={selectMap}/>}
           {page === "updates" && <UpdateCenterPage/>}
-          {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh} initialMapName={steamMap}/>}
+          {page === "steam" && <SteamCenter snapshot={snapshot} onRegistered={refresh}
+            initialMapName={steamMap} onOpenMap={selectMap}/>}
           {page === "logs" && <LogsCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>}
           {page === "settings" && <SettingsCenter/>}
           {page === "ini" && <IniCenter snapshot={snapshot} selected={selected} setSelected={setSelected}/>} 

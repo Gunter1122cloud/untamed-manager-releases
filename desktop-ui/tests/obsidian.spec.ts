@@ -5267,6 +5267,11 @@ test("SteamCMD new ASA: choose map and Windows folder, one click starts download
     .toBeVisible({timeout:10000});
   await expect(page.getByText(/letöltve és hozzáadva a Managerhez/))
     .toBeVisible({timeout:10000});
+  await expect(page.getByRole("region",{name:"Telepítés utáni ASA konfiguráció"}))
+    .toBeVisible();
+  await expect(page.getByRole("button",{
+    name:"Mapadatlap megnyitása – további konfiguráció"
+  })).toBeVisible();
   await expect(page.getByText("Valguero").first()).toBeVisible();
   await expect(page.getByRole("textbox",{name:"SteamCMD EXE"})).toHaveCount(0);
   await page.screenshot({path:"test-results/steam-fresh-install-1600.png",fullPage:true});
