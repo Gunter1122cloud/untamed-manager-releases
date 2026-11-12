@@ -233,25 +233,50 @@ public static class AsaSteamBuildCatalog
         foreach(var arg in new[]{"+login","anonymous","+app_info_update","1",
             "+app_info_print","2430930","+quit"})
             psi.ArgumentList.Add(arg);
-        using var process=Process.Start(psi)??throw new IOException("SteamCMD could not start");
-        var stdout=process.StandardOutput.ReadToEndAsync(deadline.Token);
-        var stderr=process.StandardError.ReadToEndAsync(deadline.Token);
+        Process? process;
         try
         {
-            await process.WaitForExitAsync(deadline.Token);
-            var output=await stdout;
-            _=await stderr;
-            if(output.Length>2_000_000)throw new InvalidDataException("Steam appinfo exceeds bounded output");
-            string? remote=process.ExitCode==0?ParseSteamAppInfo(output,branch):null;
-            return Compare(install,branch,local,remote,DateTimeOffset.UtcNow);
+            process=Process.Start(psi);
         }
-        catch
+        catch(System.ComponentModel.Win32Exception)
         {
-            if(!process.HasExited)
+            // A launch failure cannot prove a public build is available.
+            // Keep the observed local manifest, but classify remote as unknown.
+            ct.ThrowIfCancellationRequested();
+            return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+        }
+        if(process==null)
+            return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+        using(process)
+        {
+            try
             {
-                try{process.Kill(entireProcessTree:true);}catch{}
+                var stdout=process.StandardOutput.ReadToEndAsync(deadline.Token);
+                var stderr=process.StandardError.ReadToEndAsync(deadline.Token);
+                await process.WaitForExitAsync(deadline.Token);
+                var output=await stdout;
+                _=await stderr;
+                // Bounded but malformed/truncated output is never treated as a build.
+                if(output.Length>2_000_000)
+                    return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+                string? remote=process.ExitCode==0?ParseSteamAppInfo(output,branch):null;
+                return Compare(install,branch,local,remote,DateTimeOffset.UtcNow);
             }
-            throw;
+            catch(Exception ex) when(!ct.IsCancellationRequested&&
+                ex is OperationCanceledException or IOException or InvalidDataException)
+            {
+                // SteamCMD timeout, redirected pipe or malformed output:
+                // unknown is not up-to-date, and not update-available.
+                if(!process.HasExited)
+                    try{process.Kill(entireProcessTree:true);}catch{}
+                return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+            }
+            catch
+            {
+                if(!process.HasExited)
+                    try{process.Kill(entireProcessTree:true);}catch{}
+                throw;
+            }
         }
     }
 }

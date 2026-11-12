@@ -12,6 +12,27 @@ internal static class SteamPublicBuildParsingTests
         Console.WriteLine("PASS Steam public build: "+label);
     }
 
+    public static async System.Threading.Tasks.Task RunAsync(string testsRoot)
+    {
+        Run();
+        string install=System.IO.Path.Combine(testsRoot,"steam-appinfo-unknown");
+        string apps=System.IO.Path.Combine(install,"steamapps");
+        System.IO.Directory.CreateDirectory(apps);
+        System.IO.File.WriteAllText(
+            System.IO.Path.Combine(apps,"appmanifest_2430930.acf"),
+            "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
+        string bin=System.IO.Path.Combine(testsRoot,"fake-steamcmd-executable");
+        System.IO.Directory.CreateDirectory(bin);
+        string steam=System.IO.Path.Combine(bin,"steamcmd.exe");
+        System.IO.File.WriteAllText(steam,"NOT A WINDOWS EXECUTABLE");
+        var report=await AsaSteamBuildCatalog.CheckAsync(
+            steam,install,"public",TimeSpan.FromSeconds(5));
+        Check(report.InstalledBuild=="123456"&&
+              report.AvailableBuild==null&&
+              report.State==AsaSteamBuildState.Unknown,
+            "SteamCMD cannot launch: existing local build retained, public build unknown");
+    }
+
     public static void Run()
     {
         const string primary=
