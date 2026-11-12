@@ -2895,10 +2895,16 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
 test("dashboard shows authenticated per-map ASA players and zero without inventing peer counts",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
+  // The synthetic bridge is installed by addInitScript, while React mounts
+  // asynchronously. Wait for the real dashboard and refresh control before
+  // mutating fixture state; otherwise this test can race initial hydration.
+  const refresh=page.getByRole("button",{name:"Állapot frissítése"});
+  await expect(refresh).toBeVisible();
+  await expect(page.locator(".premium-server-row").first()).toBeVisible();
   await page.evaluate(()=>
     (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS__?:()=>void})
       .__UNTAMED_DASHBOARD_PLAYERS__?.());
-  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await refresh.click();
   const rows=page.locator(".premium-server-row");
   await expect(rows.filter({hasText:"The Island"}).locator(".premium-server-players")).toHaveText("2");
   await expect(rows.filter({hasText:"Astraeos"}).locator(".premium-server-players")).toHaveText("0");
@@ -2910,10 +2916,13 @@ test("dashboard shows authenticated per-map ASA players and zero without inventi
 test("dashboard marks incomplete local player data as a lower bound",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
+  const refresh=page.getByRole("button",{name:"Állapot frissítése"});
+  await expect(refresh).toBeVisible();
+  await expect(page.locator(".premium-server-row").first()).toBeVisible();
   await page.evaluate(()=>
     (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?:()=>void})
       .__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?.());
-  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await refresh.click();
   const rows=page.locator(".premium-server-row");
   await expect(rows.filter({hasText:"The Island"}).locator(".premium-server-players")).toHaveText("2");
   await expect(rows.filter({hasText:"Astraeos"}).locator(".premium-server-players")).toHaveText("—");
