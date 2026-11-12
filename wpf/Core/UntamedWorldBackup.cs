@@ -300,6 +300,11 @@ public static class UntamedWorldBackup
         Stopped(process);PendingRestore(world);
         var manifestFiles=Scan(world,key,HasLiveOrHistoricalStore(map));
         long size=Total(manifestFiles);
+        // Manager-owned optional limits are enforced before creating any
+        // staging/archive directory. A malformed policy is an explicit error;
+        // it must not cause a silent fallback to an unbounded backup.
+        BackupResourcePolicy.ForManagerProfile(profile)
+            .DemandFits(manifestFiles.Length,size);
         Directory.CreateDirectory(archive);
         if(new DriveInfo(Path.GetPathRoot(archive)!).AvailableFreeSpace<size+64L*1024*1024)
             throw new IOException("UM-BACKUP-NOT-ENOUGH-SPACE");
