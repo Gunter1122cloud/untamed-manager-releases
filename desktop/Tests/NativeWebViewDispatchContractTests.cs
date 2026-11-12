@@ -144,8 +144,9 @@ internal static class NativeWebViewDispatchContractTests
         var pluginRequestId=Guid.NewGuid();
         using(var refused=System.Text.Json.JsonDocument.Parse(
             ObsidianWindow.NativeErrorResponse(
-                "{\\\"id\\\":\\\""+pluginRequestId.ToString("D")+
-                "\\\"}","UM-PLUGIN-MANUAL-FOLDER-ONLY")))
+                System.Text.Json.JsonSerializer.Serialize(
+                    new{id=pluginRequestId.ToString("D")}),
+                "UM-PLUGIN-MANUAL-FOLDER-ONLY")))
         {
             Check(refused.RootElement.GetProperty("id").GetString()==
                     pluginRequestId.ToString("D")&&
