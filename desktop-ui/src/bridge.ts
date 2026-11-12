@@ -1603,7 +1603,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
-   confirm?: boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; watchId?: string; sessionName?: string;
+   confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
