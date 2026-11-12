@@ -1605,7 +1605,9 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" |
+  "steam.freshRegister" | "steam.freshBrowse" |
+  "steam.freshRecoverPreview" | "steam.freshRecoverRegister" |
+  "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" |
   "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "servers.apiModeStatus" |
@@ -2113,6 +2115,14 @@ export const managerBridge = {
   freshCancel: (jobId:string) => request<{cancelRequested:true}>("steam.freshCancel", {jobId}),
   freshDiscard: (jobId:string) => request<{discarded:true}>("steam.freshDiscard", {jobId, confirm:true}),
   freshRegister: (jobId:string) => request<FreshInstallReceipt>("steam.freshRegister", {jobId, confirm:true}),
+  freshRecoverPreview: (mapName:string,installRoot:string,customLevel?:string) =>
+    request<{token:string;mapId:string;mapName:string;mapLevel:string;
+      buildId:string;verified:true;filesDownloadedAgain:false;serverStarted:false}>(
+      "steam.freshRecoverPreview",{mapName,installRoot,customLevel}),
+  freshRecoverRegister: (token:string,typedApproval:string) =>
+    request<FreshInstallReceipt & {jobId:string;filesDownloadedAgain:false;
+      kovaFilesWritten:false}>(
+      "steam.freshRecoverRegister",{token,typedApproval,confirm:true}),
   initialStatus: (mapId:string) =>
     request<InitialMapStatus>("servers.initialStatus", {mapId}),
   initialPreview: (mapId:string, sessionName:string, gamePort:number, queryPort:number,
