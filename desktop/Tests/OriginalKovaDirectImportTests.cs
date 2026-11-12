@@ -160,6 +160,17 @@ internal static class OriginalKovaDirectImportTests
                 var afterKova=await Call(originalBridge,"historical.originalList");
                 Check(afterKova.GetProperty("ok").GetBoolean(),
                     "migrated original map list remains readable with missing Kova");
+                using var registry=new DesktopClusterRegistryBridge(
+                    existingManager,originalLegacyProfile:local);
+                var expansion=await Call(registry.HandleAsync,
+                    "cluster.historicalExpansionInspect",
+                    new{mapId=firstSource.MapId,clusterId=VaultProtocol.ClusterId});
+                Check(expansion.GetProperty("ok").GetBoolean()&&
+                      expansion.GetProperty("data")
+                        .GetProperty("originalSourceVerified").GetBoolean()&&
+                      !expansion.GetProperty("data")
+                        .GetProperty("newMapStoreEnrollmentAllowed").GetBoolean(),
+                    "read-only historical expansion can verify the approved Obsidian-owned source while Kova is absent, without granting Store writer permissions");
             }
             finally{Directory.Move(hidden,local);}
         }

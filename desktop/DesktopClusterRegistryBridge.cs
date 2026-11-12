@@ -221,7 +221,13 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
         }
         try
         {
-            var before=LegacyStoreV1LocalReader.Inspect(originalLegacyProfile);
+            // Once the Kova source has been explicitly captured into
+            // Obsidian, never require the retired Kova install merely to
+            // preview a future map. A corrupt pinned source fails closed
+            // instead of silently falling back to stale legacy data.
+            string authoritativeSource=LegacyStoreV1PinnedSource.PreferredProfile(
+                cluster.Store.Root,originalLegacyProfile);
+            var before=LegacyStoreV1LocalReader.Inspect(authoritativeSource);
             if(!before.LocalSnapshotReady)
                 warnings.Add("UM-EXPANSION-ORIGINAL-FIVE-NOT-READY");
             else
@@ -230,7 +236,7 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
                 // source-provided ID/path must be preserved byte-identically;
                 // the renderer never supplies or receives the UNC.
                 using var held=new VaultReadSnapshot();
-                byte[] sourceBytes=held.Read(Path.Combine(originalLegacyProfile,
+                byte[] sourceBytes=held.Read(Path.Combine(authoritativeSource,
                     "cluster-v1.json"),1_048_576);
                 using var doc=JsonDocument.Parse(sourceBytes);
                 var source=doc.RootElement;
@@ -278,7 +284,7 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
                         warnings.Add("UM-EXPANSION-TRANSFER-FILE-ID-UNAVAILABLE");
                     }
                 }
-                var after=LegacyStoreV1LocalReader.Inspect(originalLegacyProfile);
+                var after=LegacyStoreV1LocalReader.Inspect(authoritativeSource);
                 originalSourceVerified=after.LocalSnapshotReady&&
                     string.Equals(before.OriginalFourFilesTag,
                         after.OriginalFourFilesTag,StringComparison.Ordinal);
