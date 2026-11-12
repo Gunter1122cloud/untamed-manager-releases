@@ -36,11 +36,15 @@ export function FreshAsaSteamWizard({
   const [registeredMapId,setRegisteredMapId]=useState<string|null>(null);
   const [firstConfigurationSaved,setFirstConfigurationSaved]=useState(false);
   const autoRegisterId=useRef<string|null>(null);
+  // A late initial current-job response must not replace a job started
+  // or registered during this WebView session.
+  const jobMutationGeneration=useRef(0);
 
   useEffect(()=>{
     let active=true;
+    const generation=jobMutationGeneration.current;
     managerBridge.freshCurrent().then(data=>{
-      if(active && data.current){
+      if(active && generation===jobMutationGeneration.current && data.current){
         setJob(data.current);
         // Native source ID survives reopening the wizard during this
         // Manager session. Never guess the map ID from its display name.
@@ -69,6 +73,7 @@ export function FreshAsaSteamWizard({
           setBusy(true);
           try{
             const receipt=await managerBridge.freshRegister(state.jobId);
+            jobMutationGeneration.current++;
             if(!active)return;
             setJob({...state,registered:true,mapId:receipt.mapId,stage:"registered"});
             setRegisteredMapId(receipt.mapId);
@@ -127,6 +132,7 @@ export function FreshAsaSteamWizard({
       setError("Egyedi maphoz add meg a megjelenített nevet és a pontos, legfeljebb 80 karakteres Unreal level azonosítót. Nem fogadunk el indítási kapcsolót vagy szóközt.");
       return;
     }
+    jobMutationGeneration.current++;
     setBusy(true);invalidate();
     try{
       // Missing Valve SteamCMD is downloaded automatically; the clicked
@@ -187,6 +193,7 @@ export function FreshAsaSteamWizard({
     setBusy(true);setError("");
     try{
       const receipt=await managerBridge.freshRegister(job.jobId);
+      jobMutationGeneration.current++;
       setJob(current=>current?{...current,registered:true,mapId:receipt.mapId,stage:"registered"}:null);
       setRegisteredMapId(receipt.mapId);
       setFirstConfigurationSaved(false);
