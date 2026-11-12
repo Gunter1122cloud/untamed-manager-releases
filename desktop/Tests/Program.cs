@@ -3163,6 +3163,53 @@ try
         Check(originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
             UntamedOperationPhase.Completed,
             "reviewed operation unlocks only fresh, separately authorized actions");
+
+        // A historic restart may be the ONLY unresolved journal, when a
+        // different operation already ended. The UI must still offer an
+        // original-running-PID audit instead of an infinite dead end.
+        var restartOnly=restartJournal.Begin(protectedMap.Id,23456);
+        restartJournal.Change(restartOnly.Id,AsaRestartPhase.NeedsOperator);
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(
+            restartJournal.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+            }));
+        string originalRestartOnly=File.ReadAllText(restartFile);
+        var standaloneStatus=await Call(review.HandleAsync,
+            "servers.lifecycleJournal",new{mapId=protectedMap.Id});
+        IsOk(standaloneStatus,"standalone old Restart-v1 has readable native diagnostic");
+        Check(standaloneStatus.GetProperty("data")
+                .GetProperty("recoverySupported").GetBoolean()&&
+              standaloneStatus.GetProperty("data")
+                .GetProperty("blockingCode").GetString()==
+                "UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE",
+            "a closed general operation does not strand an unrelated old restart");
+        var standalonePreview=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        IsOk(standalonePreview,
+            "old running ASA and Store proof authorize single-restart review");
+        var standaloneToken=standalonePreview.GetProperty("data")
+            .GetProperty("token").GetString();
+        var standaloneApplied=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=standaloneToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        IsOk(standaloneApplied,
+            "restart-only NeedsOperator can be audited without replay");
+        var standaloneReceipt=standaloneApplied.GetProperty("data");
+        string standaloneAudit=Path.Combine(root,"operation-journals","Restart-v1",
+            key+"-"+restartOnly.Id.ToString("N")+".operator-reviewed.json");
+        Check(standaloneReceipt.GetProperty("restartJournalAudited").GetBoolean()&&
+            !standaloneReceipt.GetProperty("originalJournalAudited").GetBoolean()&&
+            standaloneReceipt.GetProperty("pairedJournalsReviewed").GetInt32()==1&&
+            !standaloneReceipt.GetProperty("restartMarkedSuccessful").GetBoolean()&&
+            restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+            File.Exists(standaloneAudit)&&
+            File.ReadAllText(standaloneAudit)==originalRestartOnly&&
+            originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
+                UntamedOperationPhase.Completed,
+            "standalone restart audit preserves original bytes and never falsifies a successful restart");
     }
 
     // Automatic watcher: all ASA and API Loader processes are detected even
