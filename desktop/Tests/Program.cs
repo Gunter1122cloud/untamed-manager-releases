@@ -6738,7 +6738,8 @@ try
             var preview=await Call(bridge.HandleAsync,"historical.activeStartPreview",
                 new{mapId=storeMap.Id});
             IsOk(preview,"real native original Store-v1 Start is available after source preflight");
-            Check(preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+            Check(!preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                  !preview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalStart").GetBoolean()&&
                   !preview.GetProperty("data").GetProperty("conversionAllowed").GetBoolean()&&
                   !preview.ToString().Contains(historicalRoot,StringComparison.OrdinalIgnoreCase)&&
                   !preview.ToString().Contains("Ragnarok_WP?listen",StringComparison.Ordinal),

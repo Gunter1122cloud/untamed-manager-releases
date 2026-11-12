@@ -297,7 +297,11 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         rconPort=permit.Rcon,launchMode=permit.UseApi?"asaApiLoader":"directAsa",
                         apiCacheState=plan.ApiCacheState,
                         apiCacheRuntimeCertified=false,
-                        originalTwoPeersVerified=true,
+                        // Local pinned starts must work with the other host
+                        // offline. Never claim its obsolete DONE marker was
+                        // inspected when the native plan skipped that check.
+                        originalTwoPeersVerified=plan.OriginalTwoPeersVerified,
+                        originalPeerCheckRequiredForLocalStart=false,
                         conversionAllowed=false,automaticRetryAllowed=false,
                         serverStarted=false,readyCertified=false,
                         gameplayTravelVerified=false,

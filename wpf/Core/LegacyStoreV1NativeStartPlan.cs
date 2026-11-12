@@ -17,7 +17,8 @@ namespace UntamedManager.Core;
 internal sealed record LegacyStoreV1NativeStartPlan(string Arguments,
     string Fingerprint,int GamePort,int QueryPort,int RconPort,
     string SourceEvidence,bool UseApi=false,
-    string ApiCacheState="UM-API-CACHE-NOT-APPLICABLE");
+    string ApiCacheState="UM-API-CACHE-NOT-APPLICABLE",
+    bool OriginalTwoPeersVerified=false);
 
 internal static class LegacyStoreV1NativeStartPlanner
 {
@@ -73,8 +74,8 @@ internal static class LegacyStoreV1NativeStartPlanner
             throw new InvalidOperationException("UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED");
         // Once the owner explicitly approved importing the verified source,
         // a Manager-owned immutable copy replaces the *local* Kova profile
-        // dependency. The REAL shared two-peer ACTIVE/DONE files are still
-        // inspected afresh before every native ASA start.
+        // dependency. The obsolete Kova ACTIVE/DONE markers are checked only
+        // in the fallback legacy handoff, NOT for a pinned independent start.
         var sourceProfile=LegacyStoreV1PinnedSource.Resolve(
             cluster.Store.Root,LocalOriginal,map);
         if(!string.Equals(sourceProfile,LocalOriginal,
@@ -183,7 +184,7 @@ internal static class LegacyStoreV1NativeStartPlanner
             map.StartWithAsaApi?
                 "ORIGINAL_STORE_V1_API_LOADER_NATIVE_PREFLIGHT_NOT_RUNTIME_CERTIFIED":
                 "ORIGINAL_TWO_PEER_ACTIVE_DONE_AND_EXACT_ASA_RCON_NATIVE_START_PREPARED",
-            map.StartWithAsaApi,cacheState);
+            map.StartWithAsaApi,cacheState,OriginalTwoPeersVerified:true);
     }
 
     // Manager-owned, original-source-pinned Store-v1 startup. This does NOT
