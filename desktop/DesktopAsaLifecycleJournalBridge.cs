@@ -114,13 +114,11 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         classification=Classification(old),
                         blockingCode=PendingPhase(old)?
                             old?.Kind==UntamedOperationKind.Launch&&
-                            old?.Phase==UntamedOperationPhase.NeedsOperator&&
-                            map.HistoricalStoreProtected?
+                            PendingPhase(old)&&map.HistoricalStoreProtected?
                             "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
                             "UM-RECOVERY-OTHER-OPERATION-REQUIRES-REVIEW":null,
                         recoverySupported=map.HistoricalStoreProtected&&
-                            old?.Kind==UntamedOperationKind.Launch&&
-                            old.Phase==UntamedOperationPhase.NeedsOperator,
+                            old?.Kind==UntamedOperationKind.Launch&&PendingPhase(old),
                         needsOperatorReview=PendingPhase(old),
                         autoResumeAllowed=false,storeTouched=false,
                         evidence="DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
@@ -131,8 +129,8 @@ public sealed class DesktopAsaLifecycleJournalBridge
                 {
                     pending=null;
                     if(old==null||old.Kind!=UntamedOperationKind.Launch||
-                       old.Phase!=UntamedOperationPhase.NeedsOperator)
-                        return Error(id,"UM-RECOVERY-LAUNCH-NEEDS-OPERATOR-ONLY");
+                       !PendingPhase(old))
+                        return Error(id,"UM-RECOVERY-LAUNCH-PENDING-ONLY");
                     if(DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
                         return Error(id,"UM-RECOVERY-OPERATION-TOO-RECENT");
                     var witness=await Task.Run(()=>Proof(mapId));
