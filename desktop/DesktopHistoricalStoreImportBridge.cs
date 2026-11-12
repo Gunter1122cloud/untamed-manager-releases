@@ -47,6 +47,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         string SourceClusterId,string SourcePath,Guid[] OriginalMapIds,
         long RegistryRevision,DateTimeOffset ExpiresUtc);
     private OriginalClusterPrepared? pendingOriginalCluster;
+    private sealed record SourcePinPrepared(Guid Token,string FourHash,
+        string LaunchHash,Guid[] ApprovedLocalMapIds,DateTimeOffset ExpiresUtc);
+    private SourcePinPrepared? pendingSourcePin;
 
     public DesktopHistoricalStoreImportBridge(ClusterService service,
         Func<LocalMap,ProcessCheck>? processInspector=null,
@@ -93,7 +96,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.operationJournalInventory" or
                 "historical.originalLiveBatchApply" or
                 "historical.originalClusterPreview" or
-                "historical.originalClusterApply"))
+                "historical.originalClusterApply" or
+                "historical.sourcePinPreview" or "historical.sourcePinApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
@@ -108,6 +112,73 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     pendingOriginalLiveBatch=null;
                 if(pendingOriginalCluster?.ExpiresUtc<DateTimeOffset.UtcNow)
                     pendingOriginalCluster=null;
+                if(pendingSourcePin?.ExpiresUtc<DateTimeOffset.UtcNow)
+                    pendingSourcePin=null;
+
+                if(method=="historical.sourcePinPreview")
+                {
+                    // Existing imported maps may predate Obsidian-owned source
+                    // snapshots. Pin once, explicitly, without touching ASA,
+                    // Kova or the shared transfer directory.
+                    var current=LegacyStoreV1PinnedSource.PreferredProfile(
+                        cluster.Store.Root,localLegacyDataDirectory);
+                    if(!string.Equals(current,localLegacyDataDirectory,
+                        StringComparison.OrdinalIgnoreCase))
+                        return Fail(id,"UM-STORE-SOURCE-ALREADY-PINNED");
+                    var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+                    var owned=cluster.Config.LocalMaps.Where(m=>
+                        m.HistoricalStoreProtected && source.Maps.Any(o=>o.MapId==m.Id))
+                        .ToArray();
+                    if(owned.Length==0)
+                        return Fail(id,"UM-STORE-SOURCE-NO-IMPORTED-LOCAL-MAPS");
+                    foreach(var local in owned)
+                        LegacyStoreV1PinnedSource.RequireImmutableIdentity(local,source);
+                    var token=Guid.NewGuid();
+                    pendingSourcePin=new(token,source.FourFilesSha256,
+                        source.LaunchProfileSha256,owned.Select(m=>m.Id).ToArray(),
+                        DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new{
+                        token,verifiedLocalMaps=owned.Length,
+                        requiresExplicitApproval=true,
+                        originalMapIdentitiesPreserved=true,
+                        sourceFilesWritten=false,serverStarted=false,
+                        peerStatusRequired=false,
+                        evidence="READ_ONLY_OBSIDIAN_SOURCE_PIN_PREVIEW"
+                    });
+                }
+                if(method=="historical.sourcePinApply")
+                {
+                    if(!GuidField(data,"token",out var pinToken)||
+                       !BoolField(data,"confirm",out var approved)||!approved||
+                       !TextField(data,"typedApproval",80,out var phrase)||
+                       phrase!="OBSIDIAN FORRÁS ÁTVÉTEL"||
+                       pendingSourcePin?.Token!=pinToken)
+                        return Fail(id,"UM-STORE-SOURCE-PIN-APPROVAL-REQUIRED");
+                    var stage=pendingSourcePin!;
+                    pendingSourcePin=null;
+                    if(stage.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-STORE-SOURCE-PIN-EXPIRED");
+                    var source=LegacyStoreV1OriginalImport.Inspect(localLegacyDataDirectory);
+                    if(source.FourFilesSha256!=stage.FourHash||
+                       source.LaunchProfileSha256!=stage.LaunchHash)
+                        return Fail(id,"UM-STORE-SOURCE-PIN-CHANGED");
+                    var current=cluster.Config.LocalMaps.Where(m=>
+                        stage.ApprovedLocalMapIds.Contains(m.Id)).ToArray();
+                    if(current.Length!=stage.ApprovedLocalMapIds.Length)
+                        return Fail(id,"UM-STORE-SOURCE-PIN-MAP-REMOVED");
+                    foreach(var map in current)
+                        LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
+                    LegacyStoreV1PinnedSource.Capture(localLegacyDataDirectory,
+                        cluster.Store.Root,stage.FourHash,stage.LaunchHash);
+                    return Ok(id,new{
+                        pinned=true,localMaps=current.Length,
+                        originalKovaRequiredAfterPin=false,
+                        kovaFilesWritten=false,asaFilesWritten=false,
+                        rconUsed=false,serverStarted=false,
+                        sharedMarkersModified=false,
+                        evidence="IMMUTABLE_SOURCE_PINNED_IN_OBSIDIAN_MANAGER_PROFILE"
+                    });
+                }
 
                 if(method=="historical.originalClusterPreview")
                 {
