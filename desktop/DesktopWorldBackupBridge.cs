@@ -105,10 +105,16 @@ public sealed class DesktopWorldBackupBridge
             cluster.ObserveLocalProcessesReadOnly(map):
             new WindowsProcessInspector().InspectFamily(map));
         scheduled=scheduledBackups;
-        originalSelection=originalSelectionProvider??(()=>
-            LegacyStoreV1OriginalImport.Inspect(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Kova")));
+        originalSelection=originalSelectionProvider??(()=>{
+            // After an explicitly approved import the independent Obsidian
+            // source is authoritative. The old Kova profile is used only for
+            // migration of pre-pin installations.
+            string legacy=Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.ApplicationData),"Kova");
+            string profile=LegacyStoreV1PinnedSource.PreferredProfile(
+                cluster.Store.Root,legacy);
+            return LegacyStoreV1OriginalImport.Inspect(profile);
+        });
         // Read only Manager-owned orchestration metadata; never original Kova
         // world, shared session, lock or transfer files at bridge creation.
         LoadOriginalBatch();
@@ -155,18 +161,21 @@ public sealed class DesktopWorldBackupBridge
         {
             LocalMap map=historical.SingleOrDefault(m=>m.Id==original.MapId)
                 ??throw new InvalidDataException("UM-BACKUP-ORIGINAL-MAP-NOT-IMPORTED");
-            if(!string.Equals(map.HistoricalMapKey,original.MapKey,
-                    StringComparison.Ordinal)||
-               !string.Equals(map.HistoricalArchiveSha256,source.FourFilesSha256,
-                    StringComparison.Ordinal)||
-               !string.Equals(Path.GetFullPath(map.InstallationPath),
-                    Path.GetFullPath(original.OriginalInstallationRoot),
-                    StringComparison.OrdinalIgnoreCase)||
-               map.GamePort!=original.GamePort||map.QueryPort!=original.QueryPort||
-               map.HistoricalEnabledMods?.SequenceEqual(original.EnabledMods,
+            // Immutable imported GUID/map/install/source proof still matches,
+            // while approved runtime port/mod edits live in Obsidian's own
+            // map profile. Backups never rewrite either set of metadata.
+            LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
+            // On older unpinned installs, retain strict legacy launch parity.
+            string legacy=Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.ApplicationData),"Kova");
+            if(string.Equals(LegacyStoreV1PinnedSource.PreferredProfile(
+                    cluster.Store.Root,legacy),legacy,
+                    StringComparison.OrdinalIgnoreCase) &&
+               (map.GamePort!=original.GamePort||map.QueryPort!=original.QueryPort||
+                map.HistoricalEnabledMods?.SequenceEqual(original.EnabledMods,
                     StringComparer.Ordinal)!=true||
-               map.HistoricalPassiveMods?.SequenceEqual(original.PassiveMods,
-                    StringComparer.Ordinal)!=true)
+                map.HistoricalPassiveMods?.SequenceEqual(original.PassiveMods,
+                    StringComparer.Ordinal)!=true))
                 throw new InvalidDataException("UM-BACKUP-ORIGINAL-SOURCE-OR-PORTS-CHANGED");
             if(!roots.Add(Path.GetFullPath(map.InstallationPath)))
                 throw new InvalidDataException("UM-BACKUP-ORIGINAL-DUPLICATE-ROOT");
