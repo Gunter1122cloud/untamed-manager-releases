@@ -155,6 +155,36 @@ internal static class OriginalKovaDirectImportTests
                   frozen.FourFilesSha256==discovered.FourFilesSha256&&
                   frozen.LaunchProfileSha256==discovered.LaunchProfileSha256,
                 "approved standalone Store source preserves five IDs and mod/port order without original local Kova directory");
+            var edited=JsonSerializer.Deserialize<LocalMap>(
+                JsonSerializer.Serialize(parityMap))!;
+            edited.GamePort=7781;edited.QueryPort=27019;
+            edited.HistoricalEnabledMods=new(){"987654321","123456789"};
+            edited.HistoricalPassiveMods=new(){"123456789"};
+            edited.HistoricalRuntimeClusterId="ObsidianCluster";
+            edited.HistoricalRuntimeTransferDirectory=
+                @"\\synthetic-nonexistent\obsidian-transfer";
+            LegacyStoreV1PinnedSource.RequireImmutableIdentity(edited,frozen);
+            var editableMods=ModStateController.Read(edited);
+            var editedLaunch=LegacyStoreV1ActiveLaunch.Build(new(
+                edited.HistoricalMapKey,edited.GamePort,edited.QueryPort,
+                editableMods.EnabledOrder.ToArray(),editableMods.Passive.ToArray(),
+                edited.HistoricalRuntimeClusterId,
+                edited.HistoricalRuntimeTransferDirectory,"active","",
+                SourcePinnedClusterOnly:false));
+            string exe=Path.Combine(edited.InstallationPath,
+                "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+            string observedCommand="\""+exe+"\" "+string.Join(" ",editedLaunch.Arguments);
+            Check(editedLaunch.ModOrder.SequenceEqual(
+                    new[]{"987654321","123456789"})&&
+                  editedLaunch.Arguments.Contains("-clusterid=ObsidianCluster")&&
+                  LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+                    observedCommand,exe,edited),
+                "confirmed runtime port/mod/cluster edits retain original GUID but reattach against Obsidian settings without Kova");
+            edited.HistoricalRuntimeTransferDirectory=
+                @"\\synthetic-nonexistent\other-transfer";
+            Check(!LegacyStoreV1ProcessObserver.MatchesOriginalActiveCommand(
+                    observedCommand,exe,edited),
+                "a changed approved transfer directory rejects stale ASA process attribution");
         }
         finally{Directory.Move(hiddenLocal,local);}
         string pinnedLaunch=Path.Combine(pinnedManager,"original-store-v1-source",
