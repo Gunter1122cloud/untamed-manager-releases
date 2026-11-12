@@ -3100,7 +3100,7 @@ test("Cluster page owns character travel evidence without unlocking Store",async
   await expect(page.getByText("Az öt helyi map fájlleltára nyugalomban készült; ez nem karakterigazolás.")).toBeVisible();
   await expect(page.locator(".uk-travel-map-results>div")).toHaveCount(5);
   await expect(page.getByRole("textbox",{name:"Helyi mentéslenyomat JSON"})).not.toBeEmpty();
-  await expect(page.getByText(/nem oldja fel a védett mapok indítási zárolását/)).toBeVisible();
+  await expect(page.getByText(/A mentéslenyomatok nem adnak indítási jogot és nem végeznek restore-t/)).toBeVisible();
   await page.screenshot({path:"test-results/untamed-store-travel-workbench-1600.png",fullPage:false});
 });
 
