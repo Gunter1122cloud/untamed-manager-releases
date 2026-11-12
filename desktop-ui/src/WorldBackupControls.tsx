@@ -293,6 +293,13 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             <p className="muted small">A világfájlok összes mérete legalább
               {" "}{(originalFivePreview.worldBytes/1024/1024/1024).toFixed(2)} GiB.
               A teljes mentés tartalmazhat további profil- és törzsfájlokat.</p>
+            <p className="muted small">Erőforráskorlát maponként:
+              {" "}{originalFivePreview.maxFilesPerMap.toLocaleString("hu-HU")} fájl,
+              {" "}{(originalFivePreview.maxBytesPerMap/1024/1024/1024).toFixed(0)} GiB.
+              {originalFivePreview.resourcePolicyCustomized?
+                " Egyedi, ellenőrzött Obsidian-szabály.":" Alapértelmezett Obsidian-szabály."}
+              {" "}A pontos fájlszámot és méretet a Core másolás előtt újból ellenőrzi;
+              a kétgépes csomag korlátai külön értendők.</p>
             <label><input type="checkbox" checked={originalFiveConsent}
               disabled={originalFiveBusy}
               onChange={e=>setOriginalFiveConsent(e.target.checked)}/>
@@ -413,6 +420,13 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         <div><b>{pending.mapName}</b> · {pending.mapKey}
           <p>Az eredeti fájlok változatlanok maradnak. Külön, SHA-256-tal
             ellenőrzött mentéscsomag készül a helyi Manager profilban.</p>
+          <p className="muted small">Mentési felső korlát:
+            {" "}{pending.maxFilesPerMap.toLocaleString("hu-HU")} fájl,
+            {" "}{(pending.maxBytesPerMap/1024/1024/1024).toFixed(0)} GiB.
+            {" "}{pending.resourcePolicyCustomized?"Egyedi":"Alapértelmezett"} beállítás.
+            A Core a teljes karakter-/tribe-adatmennyiséget újra ellenőrzi.
+            A korlát az Obsidian helyi profiljának
+            {" "}<code>backup-resource-limits-v1.json</code> fájljával csökkenthető.</p>
         </div>
         <button type="button" className="primary" disabled={busy}
           onClick={()=>{void create();}}><CheckCircle2 size={15}/> Mentés indítása</button>
