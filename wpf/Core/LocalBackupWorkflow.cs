@@ -197,9 +197,22 @@ public static class LocalBackupWorkflow
         if(scope.HasFlag(LocalBackupScope.Plugins))
         {
             int before=paths.Count;
-            string plugin=Path.Combine(root,"ShooterGame","Binaries","Win64","ArkApi","Plugins");
-            if(Directory.Exists(plugin))CollectDirectory(root,plugin,paths);
-            if(before==paths.Count)throw new InvalidDataException("Selected plugin data not found");
+            // Full ASA API/plugin stack must be recoverable after SteamCMD,
+            // not merely ArkApi/Plugins: the loader, API Core DLL, disabled
+            // plugin directory and both Version.dll injection locations matter.
+            string bin=Path.Combine(root,"ShooterGame","Binaries","Win64");
+            string api=Path.Combine(bin,"ArkApi");
+            if(Directory.Exists(api))CollectDirectory(root,api,paths);
+            string disabled=Path.Combine(bin,"UntamedDisabledPlugins");
+            if(Directory.Exists(disabled))CollectDirectory(root,disabled,paths);
+            foreach(string file in new[]{
+                Path.Combine(bin,"AsaApiLoader.exe"),
+                Path.Combine(bin,"Version.dll"),
+                Path.Combine(root,"Version.dll")
+            })
+                if(File.Exists(file))AddFile(root,file,paths);
+            if(before==paths.Count)
+                throw new InvalidDataException("Selected plugin/API runtime data not found");
         }
         if(paths.Count==0)throw new InvalidDataException("No supported files selected");
         return paths;

@@ -286,10 +286,15 @@ public static class SteamStoppedMapUpdater
                 if(File.Exists(Path.Combine(ini,"Game.ini"))||
                    File.Exists(Path.Combine(ini,"GameUserSettings.ini")))
                     scope|=LocalBackupScope.Ini;
-                string plugin=Path.Combine(root,"ShooterGame","Binaries","Win64",
-                    "ArkApi","Plugins");
-                if(Directory.Exists(plugin)&&
-                   Directory.EnumerateFiles(plugin,"*",SearchOption.AllDirectories).Any())
+                string binaryRoot=Path.Combine(root,"ShooterGame","Binaries","Win64");
+                string apiDir=Path.Combine(binaryRoot,"ArkApi");
+                string disabledDir=Path.Combine(binaryRoot,"UntamedDisabledPlugins");
+                bool hasFiles(string directory)=>Directory.Exists(directory)&&
+                    Directory.EnumerateFiles(directory,"*",SearchOption.AllDirectories).Any();
+                if(hasFiles(apiDir)||hasFiles(disabledDir)||
+                   File.Exists(Path.Combine(binaryRoot,"AsaApiLoader.exe"))||
+                   File.Exists(Path.Combine(binaryRoot,"Version.dll"))||
+                   File.Exists(Path.Combine(root,"Version.dll")))
                     scope|=LocalBackupScope.Plugins;
                 VerifyStopped();
                 progress?.Report(SteamMaintenanceStage.Backup);

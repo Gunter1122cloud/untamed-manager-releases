@@ -142,6 +142,41 @@ public static class PremiumBackupWorkflowTests
         Check(TestBackupPackage.Verify(target,map.Id).Files.Count==3 &&
               File.ReadAllText(game).EndsWith("changed-after-backup"),
             "backup verification reads only the package and does not rewrite source world saves");
+
+        // SteamCMD must be reversible for the complete local ASA API stack,
+        // not just files under ArkApi/Plugins. All data is synthetic TEMP.
+        string win64=Path.Combine(install,"ShooterGame","Binaries","Win64");
+        string coreDll=Path.Combine(win64,"ArkApi","AsaApi.dll");
+        string disabledPlugin=Path.Combine(win64,"UntamedDisabledPlugins",
+            "SyntheticPlugin","state.json");
+        string loader=Path.Combine(win64,"AsaApiLoader.exe");
+        string versionBin=Path.Combine(win64,"Version.dll");
+        string versionRoot=Path.Combine(install,"Version.dll");
+        foreach(var (file,bytes) in new[]{
+            (coreDll,"API-CORE"),(disabledPlugin,"disabled-data"),
+            (loader,"loader"),(versionBin,"proxy"),(versionRoot,"root-proxy")
+        })
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file,bytes);
+        }
+        string apiTarget=Path.Combine(catalog,"api-runtime-all");
+        var apiPreview=LocalBackupWorkflow.Preview(map,stopped,
+            apiTarget,LocalBackupScope.Plugins);
+        Check(apiPreview.Files==6,
+            "plugin scope includes API CORE, disabled plugins, loader and both proxy locations");
+        var apiPoint=LocalBackupWorkflow.Create(map,stopped,
+            apiTarget,LocalBackupScope.Plugins,checkCurrent:()=>stopped);
+        var apiProof=TestBackupPackage.Verify(apiPoint.PackageDirectory,map.Id);
+        Check(apiProof.Files.Count==6&&
+              apiProof.Files.Any(x=>x.Path.EndsWith("AsaApi.dll",
+                  StringComparison.OrdinalIgnoreCase))&&
+              apiProof.Files.Any(x=>x.Path.EndsWith("AsaApiLoader.exe",
+                  StringComparison.OrdinalIgnoreCase)),
+            "complete synthetic ASA API runtime is copied and SHA-256 verified before maintenance");
+        Check(File.ReadAllText(coreDll)=="API-CORE"&&
+              File.ReadAllText(disabledPlugin)=="disabled-data",
+            "expanded runtime backup makes no changes to the source installation");
         return Task.CompletedTask;
     }
 }
