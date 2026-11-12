@@ -120,6 +120,15 @@ test.beforeEach(async ({ page }) => {
         originalLiveFiveFixture=true;originalLiveMixedFixture=true;
       };
     let initialBlocked=false;
+    let initialPreviewPortBusy=false;
+    let initialApplyPortBusy=false;
+    (window as typeof window & {
+      __UNTAMED_INITIAL_PORT_PREVIEW_BUSY__?:()=>void;
+      __UNTAMED_INITIAL_PORT_APPLY_BUSY__?:()=>void;
+    }).__UNTAMED_INITIAL_PORT_PREVIEW_BUSY__=()=>{initialPreviewPortBusy=true;};
+    (window as typeof window & {
+      __UNTAMED_INITIAL_PORT_APPLY_BUSY__?:()=>void;
+    }).__UNTAMED_INITIAL_PORT_APPLY_BUSY__=()=>{initialApplyPortBusy=true;};
     let customInitialLevel=false;
     (window as typeof window & {__UNTAMED_CUSTOM_INITIAL_LEVEL__?:(value:boolean)=>void})
       .__UNTAMED_CUSTOM_INITIAL_LEVEL__=(value:boolean)=>{customInitialLevel=value;};
@@ -1493,7 +1502,12 @@ test.beforeEach(async ({ page }) => {
             suggestion:{game:7797,query:27035},
             evidence:"LOCAL_MANAGER_PROFILE_FIRST_SETUP_STATUS"};
         }
-        case "servers.initialPreview": return {
+        case "servers.initialPreview": {
+          if(initialPreviewPortBusy){
+            initialPreviewPortBusy=false;
+            throw new Error("UM-INITIAL-PORT-IN-USE");
+          }
+          return {
           token:"00000000-0000-4000-8000-000000008877",mapId:m.mapId,
           mapName:"Genesis Part 1",sessionName:m.sessionName||"Untamed Kingdom",
           mapLevel:customInitialLevel?m.customLevel:"Genesis_WP",
@@ -1501,8 +1515,13 @@ test.beforeEach(async ({ page }) => {
           gamePort:m.gamePort||7797,queryPort:m.queryPort||27035,
           rconEnabled:false,serverStartRequested:false,configuredArgumentsLength:93,
           evidence:"INITIAL_MAP_PROFILE_PREVIEW_NO_WRITES"
-        };
+          };
+        }
         case "servers.initialApply": {
+          if(initialApplyPortBusy){
+            initialApplyPortBusy=false;
+            throw new Error("UM-INITIAL-PORT-IN-USE");
+          }
           const map=state.local.maps.find(x=>x.name==="Genesis Part 1");
           if(map)map.gamePort=7797;
           return {mapId:map?.id||"",mapName:"Genesis Part 1",
@@ -6141,6 +6160,41 @@ test("first ASA setup can retry an uncertain native process state without skippi
   await page.getByRole("button",{name:"Első beállítások állapotának újraellenőrzése"}).click();
   await expect(page.getByRole("button",{name:"Beállítások ellenőrzése"})).toBeEnabled();
   await expect(page.getByText(/Igazolt leállítás: igen/)).toBeVisible();
+});
+
+test("initial ASA map setup reports actual OS port conflicts at preview and approval",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await expect(page.getByRole("button",{name:"Beállítások ellenőrzése"})).toBeEnabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INITIAL_PORT_PREVIEW_BUSY__?:()=>void;
+  }).__UNTAMED_INITIAL_PORT_PREVIEW_BUSY__?.());
+  await page.getByRole("button",{name:"Beállítások ellenőrzése"}).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "már egy Windows-folyamat használja");
+  await expect(page.getByRole("heading",{name:"Konfigurációs előnézet"}))
+    .toHaveCount(0);
+  await page.getByRole("button",{name:"Beállítások ellenőrzése"}).click();
+  await expect(page.getByRole("heading",{name:"Konfigurációs előnézet"}))
+    .toBeVisible();
+  await page.getByText(
+    "Jóváhagyom a regisztrált helyi map Manager-profiljának mentését."
+  ).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INITIAL_PORT_APPLY_BUSY__?:()=>void;
+  }).__UNTAMED_INITIAL_PORT_APPLY_BUSY__?.());
+  await page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"})
+    .click();
+  await expect(page.getByRole("alert")).toContainText(
+    "az előnézet után foglalttá vált");
+  await expect(page.getByRole("heading",{name:"Konfigurációs előnézet"}))
+    .toHaveCount(0);
 });
 
 test("N-host profile and local copy select-all are limited to local eligible maps",async({page})=>{

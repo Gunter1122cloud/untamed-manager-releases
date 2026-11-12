@@ -71,8 +71,10 @@ export function InitialMapSetup({mapId,onConfigured}: {
       const code=e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED";
       setError(code==="UM-INITIAL-EXECUTABLE-INVALID"
         ? "A regisztrált ASA EXE nem igazolható a map saját telepítési gyökerében. Az első konfiguráció nem lett mentve."
-        : "A Manager nem fogadta el az indítási paramétereket ("+code+
-          "). Lehetséges helyi portütközés, futó map vagy módosult konfiguráció.");
+        : code==="UM-INITIAL-PORT-IN-USE"
+          ? "A kiválasztott Game vagy Query UDP-portot már egy Windows-folyamat használja. Válassz szabad portokat, majd ellenőrizd újra; a Manager-profil nem módosult."
+          : "A Manager nem fogadta el az indítási paramétereket ("+code+
+            "). Lehetséges helyi portütközés, futó map vagy módosult konfiguráció.");
     }finally{setBusy(false);}
   };
   const apply=async()=>{
@@ -93,9 +95,11 @@ export function InitialMapSetup({mapId,onConfigured}: {
       }
     }catch(e){
       setPreview(null);setApproved(false);
-      setError("Az első konfigurálás elutasítva ("+
-        (e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED")+
-        "). A megfigyelt mapot és a fájlokat nem indítottuk el.");
+      const code=e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED";
+      setError(code==="UM-INITIAL-PORT-IN-USE"
+        ? "A Game vagy Query UDP-port az előnézet után foglalttá vált. A jóváhagyott profil nem lett mentve; válassz új portokat és kérj új előnézetet."
+        : "Az első konfigurálás elutasítva ("+code+
+          "). A megfigyelt mapot és a fájlokat nem indítottuk el.");
     }finally{setBusy(false);}
   };
 
@@ -171,7 +175,9 @@ export function InitialMapSetup({mapId,onConfigured}: {
       {notice && <div role="status" className="success-inline"><CheckCircle2 size={17}/>{notice}</div>}
       {error && <div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
       <div className="warning-inline"><Shield size={17}/>
-        A javasolt portok csak a saját helyi Managerben ütközésmentesek. A Windows tűzfalat, a routert vagy a másik gépet nem módosítjuk, RCON-jelszót nem kérünk.</div>
+        A javasolt portok csak a Manager helyi profiljai alapján készülnek.
+        A Windows UDP-foglalásokat az előnézetnél és a végső mentés előtt újra ellenőrizzük.
+        A router/NAT és a külső elérhetőség ettől még nincs igazolva.</div>
     </div>
   </section>;
 }
