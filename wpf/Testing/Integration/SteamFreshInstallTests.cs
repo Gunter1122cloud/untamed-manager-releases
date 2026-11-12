@@ -42,6 +42,17 @@ public static class SteamFreshInstallTests
         Check(File.ReadAllText(receipt.ServerExecutable).Contains("synthetic",StringComparison.OrdinalIgnoreCase) &&
               completed!=null,
             "read-only completed recovery leaves original verified installation bytes intact");
+        byte[] untouchedExe=File.ReadAllBytes(receipt.ServerExecutable);
+        File.AppendAllText(receipt.ServerExecutable,"TAMPER");
+        bool modifiedDenied=false;
+        try{_=SteamFreshInstall.InspectCompleted(destination);}
+        catch(InvalidDataException e) when(
+            e.Message=="UM-FRESH-RECOVERY-COMPLETED-FILES-CHANGED")
+        {modifiedDenied=true;}
+        Check(modifiedDenied,"modified ASA executable cannot be recovered using a prior completed SHA-256 journal");
+        File.WriteAllBytes(receipt.ServerExecutable,untouchedExe);
+        Check(SteamFreshInstall.InspectCompleted(destination)?.MapId==mapId,
+            "restored synthetic EXE bytes revalidate with original immutable Steam completion journal");
 
         Check(!File.Exists(Path.Combine(destination,"ShooterGame","Saved","SavedArks","TheIsland_WP.ark")) &&
             !Directory.Exists(Path.Combine(destination,"ShooterGame","Saved")),
