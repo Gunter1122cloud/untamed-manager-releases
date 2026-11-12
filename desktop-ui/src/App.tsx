@@ -11,7 +11,7 @@ import {
   type IniFile, type IniDocument, type IniPreview, type IniGameCreatePreview, type LocalImportPreview,
   type SteamInstallations, type SuggestedPorts,
   type CurseForgeCategory, type CurseForgeFeatured, type CurseForgeProject, type CurseForgeFile,
-  type PluginInventory, type PluginState, type PluginTogglePreview, type SharedModInventory, type DashboardSnapshot,
+  type PluginInventory, type SharedModInventory, type DashboardSnapshot,
   type PublicMap
 } from "./bridge";
 import { FreshAsaSteamWizard } from "./FreshAsaSteamWizard";
@@ -41,14 +41,11 @@ import { FreshAsaRestartPanel } from "./FreshAsaRestartPanel";
 import { LocalMapLifecycleBar } from "./LocalMapLifecycleBar";
 import { OriginalStoreJournalRecoveryPanel } from "./OriginalStoreJournalRecoveryPanel";
 import type { AsaLifecycleJournal, AsaRestartJournalStatus } from "./bridge";
-import { PluginZipInstaller } from "./PluginZipInstaller";
-import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { RconReadOnlyPanel } from "./RconReadOnlyPanel";
 import { LocalModCopyPanel } from "./LocalModCopyPanel";
 import { PortableModProfilePanel } from "./PortableModProfilePanel";
 import { OfflineAsaArchivePanel } from "./OfflineAsaArchivePanel";
 import { OfflineAsaRestorePanel } from "./OfflineAsaRestorePanel";
-import { PluginJsonEditor } from "./PluginJsonEditor";
 import { StoreTravelWorkbench } from "./StoreTravelWorkbench";
 import { WorldBackupControls } from "./WorldBackupControls";
 import { OperationsCenter } from "./OperationsCenter";
@@ -961,147 +958,96 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
   snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void;
   mapLocked?:boolean;onLaunchModeSaved?:()=>Promise<void>
 }) {
-  const [info, setInfo] = useState<PluginInventory | null>(null);
-  const [error, setError] = useState("");
-  const [pluginStates,setPluginStates]=useState<PluginState|null>(null);
-  const [preview,setPreview]=useState<PluginTogglePreview|null>(null);
-  const [approved,setApproved]=useState(false);
-  const [working,setWorking]=useState(false);
+  const [info,setInfo]=useState<PluginInventory|null>(null);
+  const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const [opening,setOpening]=useState(false);
   const [revision,setRevision]=useState(0);
-  const [jsonPlugin,setJsonPlugin]=useState("");
-  const actionEpoch=useRef(0);
-  useEffect(()=>{setJsonPlugin("");},[selected]);
-  useEffect(() => {
-    let active = true;
-    setInfo(null); setError("");
-    if (!selected) return;
-    managerBridge.pluginInventory(selected).then(data => { if (active) setInfo(data); })
-      .catch(e => { if (active) setError(e instanceof Error ? e.message : "UM-READ-UNAVAILABLE"); });
-    return () => { active = false; };
-  }, [selected,revision]);
   useEffect(()=>{
     let active=true;
-    setPluginStates(null);
-    if(!selected)return;
-    managerBridge.pluginStates(selected)
-      .then(data=>{if(active)setPluginStates(data);})
-      .catch(()=>{if(active)setNotice("A pluginmappák állapota nem ellenőrizhető.");});
+    setInfo(null);setError("");setNotice("");
+    if(selected)managerBridge.pluginInventory(selected)
+      .then(result=>{if(active)setInfo(result);})
+      .catch(e=>{if(active)setError(e instanceof Error?e.message:"UM-READ-UNAVAILABLE");});
     return ()=>{active=false;};
   },[selected,revision]);
-  const inspectToggle=async(plugin:string,enabled:boolean)=>{
-    if(!selected || working)return;
-    const epoch=++actionEpoch.current;
-    setWorking(true);setPreview(null);setApproved(false);setNotice("");
+  const openFolder=async()=>{
+    if(!selected||opening)return;
+    setOpening(true);setNotice("");setError("");
     try{
-      const result=await managerBridge.pluginTogglePreview(selected,plugin,enabled);
-      if(epoch===actionEpoch.current)setPreview(result);
-    }catch{
-      if(epoch===actionEpoch.current)setNotice("A plugin előellenőrzése sikertelen. Nem történt módosítás.");
-    }finally{if(epoch===actionEpoch.current)setWorking(false);}
+      const result=await managerBridge.pluginOpenFolder(selected);
+      if(result.opened)
+        setNotice("A map saját ASA API Plugins mappája megnyílt a Windows Intézőben. A fájlok jelenléte nem igazolja az ASA-beli betöltést.");
+    }catch(e){
+      const code=e instanceof Error?e.message:"UM-PLUGIN-FOLDER-EXPLORER-FAILED";
+      setError(code==="UM-PLUGIN-FOLDER-MISSING"
+        ?"Az ASA API Plugins mappája még nem található. Ellenőrizd a map saját ASA API telepítését; a Manager nem hoz létre üres helyettesítő mappát."
+        :code==="UM-PLUGIN-FOLDER-ASA-MISSING"
+        ?"A map tényleges ASA szerverfájljai hiányoznak a regisztrált helyről."
+        :"A helyi pluginmappa nem nyitható meg biztonságosan ("+code+").");
+    }finally{setOpening(false);}
   };
-  const applyToggle=async()=>{
-    if(!preview?.allowed || !preview.token || !approved || working)return;
-    setWorking(true);setNotice("");
-    try{
-      const result=await managerBridge.pluginToggleApply(preview.token);
-      setPreview(null);setApproved(false);
-      setNotice(result.plugin+" · "+(result.enabled?"engedélyezve":"letiltva")+
-        ". A teljes könyvtár mentése elkészült; a változás a következő ASA-indításkor lép érvénybe.");
-      setRevision(n=>n+1);
-    }catch{
-      setPreview(null);setApproved(false);
-      setNotice("A pluginművelet nem igazolható. Ellenőrizd a fájlokat és a helyi mapok állapotát, majd készíts új előnézetet.");
-    }finally{setWorking(false);}
-  };
+  const owned=snapshot.local.maps.find(m=>m.id===selected);
   return <div className="premium-plugin-page">
-    <div className="page-intro"><span className="eyebrow">ASA API / LOCAL INSTALLATION</span><h1>Plugin Center</h1>
-      <p>Helyi pluginleltár és ellenőrzött engedélyezés/tiltás. A módosítás csak leállított szervereken, előnézet és jóváhagyás után történik.</p></div>
+    <div className="page-intro"><span className="eyebrow">ASA API / LOCAL FILES</span>
+      <h1>Plugin Center</h1>
+      <p>A pluginok másolása és konfigurálása kézzel történik a Windows Intézőben.
+        Az Obsidian csak a tényleges helyi mappát nyitja meg, és leltározza
+        az ott található fájlokat. Nem telepít, nem tölt újra plugint,
+        és nem indít vagy vezérel ASA-szervert.</p>
+    </div>
     <div className="premium-mod-map-picker"><Plug size={19}/>
       {mapLocked
-        ?<strong aria-label="Pluginok forrásmapja">{snapshot.local.maps.find(m=>m.id===selected)?.name??"Nem található"}</strong>
+        ?<strong aria-label="Pluginok forrásmapja">{owned?.name??"Nem található"}</strong>
         :<select aria-label="Pluginok mapja" value={selected}
-          disabled={working} onChange={e=>{
-            actionEpoch.current++;setPreview(null);setApproved(false);
-            setNotice("");setSelected(e.target.value);
-          }}>
-          {snapshot.local.maps.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          onChange={e=>setSelected(e.target.value)}>
+          {snapshot.local.maps.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
         </select>}
     </div>
-    {snapshot.local.maps.find(m=>m.id===selected)&&
-      <AsaApiLaunchModeSwitch key={selected}
-        map={snapshot.local.maps.find(m=>m.id===selected)!}
+    {owned&&<AsaApiLaunchModeSwitch key={selected} map={owned}
         onSaved={onLaunchModeSaved}/>}
-    <div className="premium-plugin-grid">
-    <Panel className="premium-plugin-inventory" title={info ? `Helyi pluginok · ${info.mapName}` : "Pluginok"}>
-      {error && <div className="error-inline"><AlertTriangle size={17}/>{error}</div>}
-      {!error && !selected && <div className="empty">Nincs kiválasztható helyi map.</div>}
-      {!error && selected && !info && <div className="empty">Helyi telepítés vizsgálata...</div>}
-      {info?.plugins.length === 0 && <div className="empty">Nem található plugin a regisztrált map telepítési helyén.</div>}
-      {info?.plugins.map((plugin,i) => <div className="plugin-row" key={plugin.name + i}>
-        <span className="plugin-symbol"><Plug size={21}/></span>
-        <div className="plugin-copy"><b>{plugin.name}</b><small>{plugin.binaries.map(b => b.name + " · " + (b.version || "verzió nélkül")).join(", ") || "Nincs DLL-adat"}</small></div>
-        <span className={plugin.protectedData ? "mod-tag amber" : "mod-tag green"}>{plugin.protectedData ? "Védett" : "Helyi leltár"}</span>
-        <button type="button" className="secondary" disabled={working||
-          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.running)||
-          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.observedReadOnlyImported)}
-          onClick={()=>setJsonPlugin(plugin.name)}>
-          config.json szerkesztése
+    <Panel className="premium-plugin-inventory"
+      title={info?"Helyi pluginfájlok · "+info.mapName:"Helyi pluginfájlok"}>
+      <div className="ini-actions">
+        <button type="button" className="primary" disabled={!owned||opening}
+          onClick={()=>{void openFolder();}}>
+          <Plug size={17}/> Pluginmappa megnyitása
         </button>
-      </div>)}
-      <div className="warning-inline"><Shield size={17}/> Csak fájlleltár. Nem bizonyítja, hogy a futó ASA betöltötte a plugint.</div>
-    </Panel>
-    <Panel className="premium-plugin-actions" title="Pluginállapot · biztonságos műveletek" action={<button type="button"
-      className="quiet" disabled={working} onClick={()=>{
-        actionEpoch.current++;setPreview(null);setApproved(false);
-        setNotice("");setRevision(n=>n+1);
-      }}><RefreshCw size={15}/> Mappák frissítése</button>}>
-      <p className="muted small">Az eredeti C# PluginStateManager az egész pluginmappát mozgatja; beállítások, licencfájlok és helyi adatállományok ellenőrzött mentésben megmaradnak. Az API futás közbeni betöltöttsége nem következtethető ki a lemezállapotból.</p>
-      {pluginStates?.historicalProtected && <div className="warning-inline">
-        <Shield size={17}/> Eredeti Store-v1 pluginművelet: csak igazoltan
-        leállított ASA/Loader mellett, az eredeti fájlok mentése és
-        natív jóváhagyás után hajtható végre.
-      </div>}
-      {!pluginStates && selected && <div className="empty">Pluginmappák állapotának olvasása...</div>}
-      {pluginStates && pluginStates.plugins.length===0 && <div className="empty">
-        Nincs engedélyezett vagy letiltott pluginmappa.
-      </div>}
-      {pluginStates?.plugins.map(plugin=><div className="plugin-row" key={plugin.name}>
+        <button type="button" className="secondary" disabled={opening}
+          onClick={()=>setRevision(n=>n+1)}>
+          <RefreshCw size={16}/> Fájlleltár frissítése
+        </button>
+      </div>
+      <p className="muted small">Az adott map tényleges
+        ShooterGame/Binaries/Win64/ArkApi/Plugins mappája nyílik meg.
+        Működő szervernél sem indít, állít le, indít újra vagy küld RCON-parancsot.</p>
+      {info?.plugins.map(plugin=><div className="plugin-row" key={plugin.name}>
         <span className="plugin-symbol"><Plug size={19}/></span>
-        <div className="plugin-copy"><b>{plugin.name}</b>
-          <small>{plugin.enabled?"Engedélyezett mappa":"Letiltott mappa"} · ASA futásidőben nem igazolt</small>
+        <div className="plugin-copy">
+          <b>{plugin.name}</b>
+          <small>{plugin.binaries.map(b=>b.name+
+            (b.version?" · "+b.version:"")).join(", ")||"Nincs DLL-adat"}</small>
         </div>
-        <button type="button" className="secondary" disabled={working||
-          Boolean(snapshot.local.maps.find(m=>m.id===selected)?.observedReadOnlyImported)}
-          onClick={()=>{void inspectToggle(plugin.name,!plugin.enabled);}}>
-          {plugin.enabled?"Letiltás előnézete":"Engedélyezés előnézete"}
-        </button>
+        <span className="mod-tag amber">Fájl jelen van · betöltés nem igazolt</span>
       </div>)}
-      {preview && <div className="historical-preview" role="status">
-        <h3>{preview.plugin} · {preview.targetEnabled?"Engedélyezés":"Letiltás"}</h3>
-        <p className="muted small">{preview.reason}</p>
-        <div className="details-line"><span>Megvizsgált helyi mapok</span>
-          <b>{preview.checkedLocalMaps}</b></div>
-        <div className="details-line"><span>Éles API-runtime betöltés</span><b>Nem igazolt</b></div>
-        {preview.allowed && preview.token ? <>
-          <label className="historical-approval"><input type="checkbox" checked={approved}
-            disabled={working} onChange={e=>setApproved(e.target.checked)}/>
-            Jóváhagyom a helyi pluginmappa áthelyezését, teljes ellenőrzött biztonsági mentéssel.
-          </label>
-          <button type="button" className="primary" disabled={!approved||working}
-            onClick={()=>{void applyToggle();}}>Pluginállapot módosításának jóváhagyása</button>
-        </> : <div className="warning-inline"><Shield size={17}/> A módosítás zárolva marad.</div>}
+      {info&&info.plugins.length===0&&<div className="empty">
+        Nem található plugin a map helyi ASA API mappájában.
       </div>}
-      {notice && <div role="status" className="warning-inline"><AlertTriangle size={17}/>{notice}</div>}
+      {!info&&!error&&selected&&<div className="empty">A helyi fájlleltár olvasása...</div>}
+      {notice&&<div className="success-inline" role="status">
+        <CheckCircle2 size={16}/>{notice}
+      </div>}
+      {error&&<div className="error-inline" role="alert">
+        <AlertTriangle size={16}/>{error}
+      </div>}
+      <div className="warning-inline"><Shield size={17}/>
+        A plugin DLL-ek jelenléte nem bizonyítja az ASA API futásidejű betöltést.
+        A Manager nem másol, nem konfigurál és nem reloadol pluginokat.
+      </div>
     </Panel>
-    </div>
-    <AsaApiCoreInstaller mapId={selected} onInstalled={()=>setRevision(n=>n+1)}/>
-    <PluginZipInstaller mapId={selected} onInstalled={()=>setRevision(n=>n+1)}/>
-    {jsonPlugin&&<PluginJsonEditor key={selected+"-"+jsonPlugin} mapId={selected}
-      plugin={jsonPlugin} onClose={()=>setJsonPlugin("")}
-      onSaved={()=>setRevision(n=>n+1)}/>} 
   </div>;
 }
+
 function BackupCenter({mapId,snapshot}:{mapId?:string;snapshot:DashboardSnapshot}) {
   const [info,setInfo]=useState<BackupOverview|null>(null);
   const [error,setError]=useState("");

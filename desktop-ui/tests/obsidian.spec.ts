@@ -2624,6 +2624,11 @@ test.beforeEach(async ({ page }) => {
           return {mapId:one,plugin:"ExamplePlugin",enabled:pluginEnabled,
             backupCreated:true,requiresRestart:true,runtimeLoadedVerified:false,
             evidence:"VERIFIED_LOCAL_PLUGIN_DIRECTORY_TOGGLE"};
+        case "plugins.openFolder":
+          return {mapId:m.mapId,opened:true,
+            runtimeLoadedVerified:false,filesChanged:false,
+            serverOperation:false,rconSent:false,
+            evidence:"LOCAL_ARKAPI_PLUGIN_FOLDER_OPENED_IN_EXPLORER"};
         case "plugins.inventory": return {mapId:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
         case "steam.installations": return {evidence:"READ_ONLY_STEAM_INSTALLATION_PREFLIGHT",installations:[{id:0,maps:["The Island","Astraeos"],executablePresent:true,installedSteamBuild:"123456",updateBlocked:true,reason:"Read-only test fixture: upgrade blocked"}]};
@@ -5739,6 +5744,26 @@ test("P0 original Store-v1 map exposes a real native stopped SteamCMD update but
     .toHaveCount(0);
 });
 
+test("each map Plugin Center opens only its owned local plugin folder with manual files inventory",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("The Island");
+  await expect(page.getByRole("button",{name:"Pluginmappa megnyitása"})).toBeEnabled();
+  await expect(page.getByText("Fájl jelen van · betöltés nem igazolt")).toBeVisible();
+  await page.getByRole("button",{name:"Pluginmappa megnyitása"}).click();
+  await expect(page.getByText(/Windows Intézőben/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"Plugin ZIP kiválasztása és ellenőrzése"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Letiltás előnézete"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"config.json szerkesztése"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Plugin reload"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("Astraeos");
+  await expect(page.getByRole("button",{name:"Pluginmappa megnyitása"})).toBeVisible();
+});
+
 test("map detail keeps Plugin Center and ASA API controls bound to its own local map",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"The Island részletei"}).click();
@@ -5753,23 +5778,6 @@ test("map detail keeps Plugin Center and ASA API controls bound to its own local
   await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
   await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("Astraeos");
   await expect(page.getByRole("combobox",{name:"Pluginok mapja"})).toHaveCount(0);
-});
-
-test("Plugin Center uses native stopped-map JSON editing with preview and protective save",async ({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
-  await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
-  await page.getByRole("button",{name:"config.json szerkesztése"}).click();
-  const editor=page.getByRole("region",{name:"Plugin JSON szerkesztő"});
-  await expect(editor).toBeVisible();
-  await editor.getByRole("textbox",{name:"Plugin JSON tartalma"}).fill('{"enabled":false,"slot":2}');
-  await editor.getByRole("button",{name:"JSON és változások ellenőrzése"}).click();
-  const approval=editor.getByRole("region",{name:"Plugin JSON módosítás jóváhagyása"});
-  await expect(approval).toContainText("Változott: igen");
-  await expect(approval.getByRole("button",{name:"Mentés véglegesítése"})).toBeDisabled();
-  await approval.getByRole("checkbox").check();
-  await approval.getByRole("button",{name:"Mentés véglegesítése"}).click();
-  await expect(editor).toContainText("védőmásolattal");
 });
 
 test("SQL-free restore always targets isolated TEMP lab and requires explicit consent",async ({page})=>{
@@ -5992,72 +6000,6 @@ test("cross-map mod inventory uses actual native contract, filtering and map sel
   await expect(page.getByText("Projekt #940975")).toHaveCount(0);
   await page.getByRole("button",{name:"Astraeos · Passzív #1"}).click();
   await expect(page.getByRole("combobox",{name:"Helyi map"})).toHaveValue("00000000-0000-4000-8000-000000000002");
-});
-
-test("Plugin Center ZIP rollback uses native picker, verified preview and approval",async({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
-  const panel=page.getByRole("region",{name:"Helyi ASA API plugin ZIP telepítése"});
-  await expect(panel.getByRole("button",{name:"Korábbi pluginmentés kiválasztása"}))
-    .toBeEnabled();
-  await panel.getByRole("button",{name:"Korábbi pluginmentés kiválasztása"}).click();
-  const approval=panel.getByRole("region",{name:"Plugin ZIP rollback jóváhagyása"});
-  await expect(approval).toContainText("SampleZip");
-  await expect(approval.getByRole("button",{name:"Ellenőrzött plugin rollback végrehajtása"}))
-    .toBeDisabled();
-  await approval.getByRole("checkbox").check();
-  await approval.getByRole("button",{name:"Ellenőrzött plugin rollback végrehajtása"}).click();
-  await expect(panel).toContainText("eredeti DLL/PDB visszaállítva");
-});
-
-test("plugin center requires native preview and explicit operator approval before toggle",async ({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok"}).click();
-  await expect(page.getByRole("heading",{name:"Plugin Center"})).toBeVisible();
-  await expect(page.getByText("Engedélyezett mappa")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Pluginállapot módosításának jóváhagyása"})).toHaveCount(0);
-  await page.getByRole("button",{name:"Letiltás előnézete"}).click();
-  await expect(page.getByText("Megvizsgált helyi mapok")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Pluginállapot módosításának jóváhagyása"})).toBeDisabled();
-  await page.getByText(/Jóváhagyom a helyi pluginmappa áthelyezését/).click();
-  await page.getByRole("button",{name:"Pluginállapot módosításának jóváhagyása"}).click();
-  await expect(page.getByText("Letiltott mappa")).toBeVisible();
-  await expect(page.getByText(/teljes könyvtár mentése elkészült/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Engedélyezés előnézete"})).toBeVisible();
-});
-
-test("API CORE rollback is a native opt-in two-stage workflow, never an automatic retry",async({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok"}).click();
-  await page.getByRole("button",{name:"Korábbi API CORE telepítések lekérdezése"}).click();
-  await expect(page.getByRole("combobox",{name:"Korábbi API CORE tranzakció"})).toBeVisible();
-  await page.getByRole("button",{name:"Visszaállítási jóváhagyás előkészítése"}).click();
-  const rollback=page.getByRole("region",{name:"API CORE visszaállítás jóváhagyása"});
-  await expect(rollback).toBeVisible();
-  const apply=page.getByRole("button",{name:"Eredeti API CORE binárisok visszaállítása"});
-  await expect(apply).toBeDisabled();
-  await rollback.getByText(/Kifejezetten jóváhagyom a visszaállítást/).click();
-  await expect(apply).toBeEnabled();
-  await apply.click();
-  await expect(page.getByText(/API CORE visszaállítva: 1 eredeti bináris/)).toBeVisible();
-  await expect(rollback).toHaveCount(0);
-});
-
-test("native plugin ZIP install has explicit preview, approval, and verified result",async({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok"}).click();
-  const choose=page.getByRole("button",{name:"Plugin ZIP kiválasztása és ellenőrzése"});
-  await expect(choose).toBeVisible();
-  await choose.click();
-  await expect(page.getByRole("region",{name:"Plugin ZIP telepítés jóváhagyása"})).toBeVisible();
-  await expect(page.getByText("SampleZip-package.zip")).toBeVisible();
-  const apply=page.getByRole("button",{name:"Plugin telepítésének véglegesítése"});
-  await expect(apply).toBeDisabled();
-  await page.getByText(/Jóváhagyom a kiválasztott helyi plugin/).click();
-  await expect(apply).toBeEnabled();
-  await apply.click();
-  await expect(page.getByText(/SampleZip – 1 DLL telepítve/)).toBeVisible();
-  await expect(page.getByRole("region",{name:"Plugin ZIP telepítés jóváhagyása"})).toHaveCount(0);
 });
 
 test("real stopped-map SteamCMD update is opt-in and reports verified outcome",async({page})=>{
