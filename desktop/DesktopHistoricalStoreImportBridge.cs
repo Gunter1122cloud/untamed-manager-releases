@@ -103,6 +103,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.originalClusterPreview" or
                 "historical.originalClusterApply" or
                 "historical.sourcePinPreview" or "historical.sourcePinApply" or
+                "historical.runtimeSettingsStatus" or
                 "historical.runtimeSettingsPreview" or "historical.runtimeSettingsApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
@@ -123,6 +124,35 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 if(pendingRuntimeSettings?.ExpiresUtc<DateTimeOffset.UtcNow)
                     pendingRuntimeSettings=null;
 
+                if(method=="historical.runtimeSettingsStatus")
+                {
+                    if(!GuidField(data,"mapId",out var mapId))
+                        return Fail(id,"UM-STORE-RUNTIME-MAP-INVALID");
+                    var localMap=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
+                    if(localMap==null||!localMap.HistoricalStoreProtected||
+                       localMap.ObservedReadOnlyImported)
+                        return Fail(id,"UM-STORE-RUNTIME-LOCAL-MAP-REQUIRED");
+                    string legacy=Path.Combine(Environment.GetFolderPath(
+                        Environment.SpecialFolder.ApplicationData),"Kova");
+                    string current=LegacyStoreV1PinnedSource.Resolve(
+                        cluster.Store.Root,legacy,localMap);
+                    if(string.Equals(current,legacy,StringComparison.OrdinalIgnoreCase))
+                        return Fail(id,"UM-STORE-RUNTIME-SOURCE-PIN-REQUIRED");
+                    var source=LegacyStoreV1PinnedSource.ReadOriginalCluster(current);
+                    return Ok(id,new{
+                        mapId=localMap.Id,mapName=localMap.Name,
+                        gamePort=localMap.GamePort,queryPort=localMap.QueryPort,
+                        clusterId=string.IsNullOrWhiteSpace(
+                            localMap.HistoricalRuntimeClusterId)?
+                            source.RuntimeClusterId:localMap.HistoricalRuntimeClusterId,
+                        transferRoot=string.IsNullOrWhiteSpace(
+                            localMap.HistoricalRuntimeTransferDirectory)?
+                            source.TransferRoot:localMap.HistoricalRuntimeTransferDirectory,
+                        originalSourcePinned=true,requiresStoppedForEdit=true,
+                        peerRequiredForLocalStart=false,sharedTransferAccessVerified=false,
+                        evidence="OBSIDIAN_LOCAL_RUNTIME_SETTINGS_READ_ONLY"
+                    });
+                }
                 if(method is "historical.runtimeSettingsPreview" or
                     "historical.runtimeSettingsApply")
                 {
