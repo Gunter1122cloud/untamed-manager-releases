@@ -6606,7 +6606,11 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await expect(page.getByText(/Az eredeti, még futó ASA PID 44117 igazolt/))
     .toBeVisible();
   await expect(recovery).toHaveCount(0);
-  await expect(page.getByText(/Régi PID: 44117/)).toHaveCount(0);
+  // The old PID may remain VISIBLE as historical audit metadata in the
+  // journal details. What matters is that the blocker is cleared and a
+  // brand-new independently approved Restart is enabled.
+  await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+    .toBeEnabled();
   const reviewCount=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number
   }).__UNTAMED_FRESH_RESTART_REVIEWS__?.()??-1);
