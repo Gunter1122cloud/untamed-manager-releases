@@ -43,7 +43,7 @@ public static class LocalBackupWorkflow
            File.Exists(target)||File.Exists(staging))
             throw new IOException("Backup target or interrupted backup already exists");
         var paths=SelectFiles(root,scope);
-        ValidateCriticalSaveLengths(paths,LocalBackupScope.WorldAndProfiles.HasFlag(scope) &&
+        ValidateCriticalSaveLengths(paths,scope.HasFlag(LocalBackupScope.WorldAndProfiles) &&
             UntamedWorldBackup.HasLiveOrHistoricalStore(map));
         long bytes=0;
         foreach(var entry in paths)
