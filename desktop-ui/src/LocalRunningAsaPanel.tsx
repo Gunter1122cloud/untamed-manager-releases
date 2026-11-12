@@ -127,29 +127,38 @@ export function LocalRunningAsaPanel({onRegistered}:{
   const [snapshot,setSnapshot]=useState<RunningLocalAsaSnapshot|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
-  const refreshing=useRef(false);
+  // React StrictMode mounts/cleans/remounts effects. A single in-flight
+  // boolean may strand the second mount behind an abandoned first request:
+  // the process list then stays on "Ellenőrzés..." indefinitely.
+  // Each request gets a monotonically increasing identity instead. The
+  // newest live response wins, and old responses can never re-authorize PID
+  // adoption or overwrite a newer Windows process observation.
+  const requestVersion=useRef(0);
   const inspect=useCallback(async (isCurrent:()=>boolean=()=>true)=>{
-    if(refreshing.current)return;
-    refreshing.current=true;
+    const version=++requestVersion.current;
     if(isCurrent()){setLoading(true);setError("");}
+    const active=()=>isCurrent()&&version===requestVersion.current;
     try {
       const next=await managerBridge.runningLocalAsa();
-      if(isCurrent())setSnapshot(next);
+      if(active())setSnapshot(next);
     } catch(e) {
-      if(isCurrent()){
+      if(active()){
         setSnapshot(null);
         setError(e instanceof Error?e.message:"UM-READ-UNAVAILABLE");
       }
     } finally {
-      refreshing.current=false;
-      if(isCurrent())setLoading(false);
+      if(active())setLoading(false);
     }
   },[]);
   useEffect(()=>{
     let current=true;
     void inspect(()=>current);
     const timer=window.setInterval(()=>{void inspect(()=>current);},15000);
-    return ()=>{current=false;window.clearInterval(timer);};
+    return ()=>{
+      current=false;
+      ++requestVersion.current;
+      window.clearInterval(timer);
+    };
   },[inspect]);
 
   return <section className="glass panel" aria-label="Futó helyi ASA-folyamatok">
