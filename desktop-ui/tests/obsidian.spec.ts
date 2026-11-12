@@ -4,6 +4,11 @@ const first = "00000000-0000-4000-8000-000000000001";
 const second = "00000000-0000-4000-8000-000000000002";
 
 test.beforeEach(async ({ page }) => {
+  // In the rare event of a blank boot, preserve the real browser error in CI
+  // rather than reporting only a missing navigation button after 30 seconds.
+  page.on("pageerror",error=>console.error("[Obsidian UI browser]",error.message));
+  page.on("requestfailed",request=>console.error("[Obsidian UI request]",
+    request.method(),request.url(),request.failure()?.errorText??"unknown"));
   await page.addInitScript(({ one, two }) => {
     type Handler = (e: { data: { id: string; ok: boolean; data?: unknown; error?: string } }) => void;
     const handlers: Handler[] = [];
