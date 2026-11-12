@@ -2695,6 +2695,8 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-INI-GAME-MISSING"||
                   e.message==="UM-INI-CREATE-SHARED-STORE"||
                   e.message==="UM-INI-CONFIG-DIRECTORY-MISSING"||
+                  e.message==="UM-INI-ETAG-MISMATCH"||
+                  e.message==="UM-INI-MERGE-CONFLICT"||
                   e.message.startsWith("UM-INITIAL-PORT-")||
                   e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-")||
                   e.message==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"||
@@ -4417,7 +4419,7 @@ test("INI ETag conflict offers an explicit three-way rebase and requires fresh a
   await page.getByRole("button",{
     name:"Háromutas INI-egyeztetés előnézete (nem ment)"
   }).click();
-  await expect(edit).toContainText("Foreign=remote");
+  await expect(edit).toHaveValue(/Foreign=remote/);
   await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}))
     .toBeDisabled();
   await expect(page.getByRole("button",{name:"Hash és változások előnézete"}))

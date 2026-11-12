@@ -297,7 +297,7 @@ export function FreshAsaSteamWizard({
         </div>
       </div>}
       {job?.registered && (registeredMapId||job.mapId) && <div
-        className="fresh-registered-next" aria-label="Telepítés utáni ASA konfiguráció">
+        className="fresh-registered-next" role="region" aria-label="Telepítés utáni ASA konfiguráció">
         <h3>2. Első konfiguráció – natív jóváhagyással</h3>
         <p className="muted small">A szervernév, Game/Query UDP-portok és az egyedi map
           azonosítója itt állítható be. Ez nem indít ASA-folyamatot, és nem
