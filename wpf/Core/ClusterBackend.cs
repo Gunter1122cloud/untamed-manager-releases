@@ -667,7 +667,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         // source guard. Isolated test profiles must explicitly inject a
         // synthetic epoch provider and can never probe current-user Kova.
         _historicalSaveSourceProbe=historicalSaveSourceProbe??(rootOverride==null
-            ?LegacyStoreV1GracefulStop.OriginalSource
+            ?map=>LegacyStoreV1GracefulStop.OriginalSource(this,map)
             :_=>throw new UnauthorizedAccessException(
                 "UM-STORE-SAVE-PAIR-SYNTHETIC-SOURCE-NOT-PROVIDED"));
         _legacyStoreProof=legacyStoreProof??(rootOverride==null
