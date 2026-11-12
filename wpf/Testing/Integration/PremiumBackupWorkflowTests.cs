@@ -206,7 +206,7 @@ public static class PremiumBackupWorkflowTests
             linkCreated=true;
         }
         catch(Exception e) when(e is UnauthorizedAccessException or IOException or
-            PlatformNotSupportedException or NotSupportedException)
+            NotSupportedException)
         {
             Console.WriteLine("SKIP backup-center symlink fixture: OS link privilege unavailable");
         }
