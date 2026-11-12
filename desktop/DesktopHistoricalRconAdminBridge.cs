@@ -212,10 +212,22 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
             }
             finally{gate.Release();}
         }
-        catch(Exception)
+        catch(Exception ex)
         {
-            // The cross-process journal stays NEEDS_OPERATOR if anything
-            // goes wrong after authenticated command dispatch may have begun.
+            // A failure AFTER a command may have been dispatched remains
+            // unknown: never repeat it or report gameplay success. Surface
+            // only bounded safe preflight codes; never raw RCON/password/path.
+            if(ex.Message=="UM-ORIGINAL-ADMIN-DURABLE-RECOVERY-REQUIRED"||
+               ex.Message=="UNTAMED_OPERATION_NEEDS_OPERATOR")
+                return Fail(id,"UM-ORIGINAL-ADMIN-LIFECYCLE-JOURNAL-REVIEW-REQUIRED");
+            if(ex.Message=="UNTAMED_OPERATION_BUSY")
+                return Fail(id,"UM-ORIGINAL-ADMIN-INSTALLATION-BUSY");
+            if(ex.Message.Length is >=7 and <=110 &&
+               System.Text.RegularExpressions.Regex.IsMatch(ex.Message,
+                   @"\AUM-[A-Z0-9_-]+\z",
+                   System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                   TimeSpan.FromMilliseconds(100)))
+                return Fail(id,ex.Message);
             return Fail(id,"UM-ORIGINAL-ADMIN-SAFETY-CHECK-FAILED_NO_RETRY");
         }
     }
