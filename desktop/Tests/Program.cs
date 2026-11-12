@@ -6709,7 +6709,8 @@ try
                 "native original Store Start checks locally registered historical map");
             return new("Ragnarok_WP?listen -Port=7787 -usestore -log",
                 new string(changedPlan?'C':'B',64),7787,27017,37025,
-                "SYNTHETIC_TWO_HOST_SOURCE_TEST_ONLY");
+                "SYNTHETIC_TWO_HOST_SOURCE_TEST_ONLY",
+                OriginalTwoPeersVerified:true);
         }
         ProcessIdentity Start(Guid mapId,string fingerprint,bool confirmed)
         {
@@ -6738,8 +6739,8 @@ try
             var preview=await Call(bridge.HandleAsync,"historical.activeStartPreview",
                 new{mapId=storeMap.Id});
             IsOk(preview,"real native original Store-v1 Start is available after source preflight");
-            Check(!preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
-                  !preview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalStart").GetBoolean()&&
+            Check(preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                  preview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalStart").GetBoolean()&&
                   !preview.GetProperty("data").GetProperty("conversionAllowed").GetBoolean()&&
                   !preview.ToString().Contains(historicalRoot,StringComparison.OrdinalIgnoreCase)&&
                   !preview.ToString().Contains("Ragnarok_WP?listen",StringComparison.Ordinal),
@@ -6813,7 +6814,9 @@ try
                 "historical.activeStartPreview",new{mapId=storeMap.Id});
             IsOk(apiPreview,"original Store API Loader opt-in native preview");
             Check(apiPreview.GetProperty("data").GetProperty("launchMode").GetString()
-                    =="asaApiLoader"&&apiLaunches==0,
+                    =="asaApiLoader"&&apiLaunches==0&&
+                  !apiPreview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                  !apiPreview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalStart").GetBoolean(),
                 "API Loader preview is explicit and does not start an ASA process");
             string approval=apiPreview.GetProperty("data")
                 .GetProperty("token").GetString()!;

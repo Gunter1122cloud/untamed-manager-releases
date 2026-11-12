@@ -301,7 +301,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         // offline. Never claim its obsolete DONE marker was
                         // inspected when the native plan skipped that check.
                         originalTwoPeersVerified=plan.OriginalTwoPeersVerified,
-                        originalPeerCheckRequiredForLocalStart=false,
+                        originalPeerCheckRequiredForLocalStart=plan.OriginalTwoPeersVerified,
                         conversionAllowed=false,automaticRetryAllowed=false,
                         serverStarted=false,readyCertified=false,
                         gameplayTravelVerified=false,
