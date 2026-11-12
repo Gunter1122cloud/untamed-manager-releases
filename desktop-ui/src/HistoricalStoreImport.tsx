@@ -479,6 +479,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <h4>{journalInventory.recordCount} rekord ·
             {" "}{journalInventory.registeredRecords} regisztrált maphoz köthető ·
             {" "}{journalInventory.unattributedResources} nem azonosított erőforrás</h4>
+          <p><b>{journalInventory.unattributedPendingResources}</b> olyan
+            ismeretlen erőforrás, amelynek naplója felülvizsgálatot igényel.</p>
           <p className="muted small">
             {journalInventory.pendingRecords} felülvizsgálandó rekord,
             {" "}{journalInventory.corruptRecords} sérült rekord.

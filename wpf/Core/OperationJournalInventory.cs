@@ -12,7 +12,7 @@ public sealed record OperationJournalInventoryEntry(
     bool NeedsReview,bool Corrupt);
 public sealed record OperationJournalInventorySnapshot(
     int RecordCount,int RegisteredRecords,int UnattributedResources,
-    int PendingRecords,int CorruptRecords,bool Truncated,
+    int UnattributedPendingResources,int PendingRecords,int CorruptRecords,bool Truncated,
     OperationJournalInventoryEntry[] Entries)
 {
     public string Evidence=>"BOUNDED_READ_ONLY_LOCAL_OPERATION_JOURNAL_INVENTORY";
@@ -133,6 +133,8 @@ public static class OperationJournalInventory
         }
         return new(entries.Count,entries.Count(e=>e.Registered),
             entries.Where(e=>!e.Registered)
+                .Select(e=>e.ResourceFingerprint).Distinct(StringComparer.Ordinal).Count(),
+            entries.Where(e=>!e.Registered&&e.NeedsReview)
                 .Select(e=>e.ResourceFingerprint).Distinct(StringComparer.Ordinal).Count(),
             entries.Count(e=>e.NeedsReview),entries.Count(e=>e.Corrupt),
             truncated,entries.ToArray());

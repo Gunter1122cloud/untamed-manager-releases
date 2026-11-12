@@ -34,7 +34,8 @@ internal static class OperationJournalInventoryTests
         byte[] before=File.ReadAllBytes(localJournal);
         var report=OperationJournalInventory.Inspect(new[]{localMap});
         Check(report.RecordCount==2&&report.RegisteredRecords==1&&
-              report.UnattributedResources==1&&report.PendingRecords==2&&
+              report.UnattributedResources==1&&
+              report.UnattributedPendingResources==1&&report.PendingRecords==2&&
               report.CorruptRecords==0&&!report.Truncated,
             "paired journal formats are counted without treating an unknown key as a live-map failure");
         Check(report.Entries.Any(e=>e.Registered&&
@@ -49,7 +50,8 @@ internal static class OperationJournalInventoryTests
         File.WriteAllText(invalid,"{corrupt");
         var damaged=OperationJournalInventory.Inspect(new[]{localMap});
         Check(damaged.RecordCount==3&&damaged.CorruptRecords==1&&
-              damaged.PendingRecords==3&&damaged.UnattributedResources==2,
+              damaged.PendingRecords==3&&damaged.UnattributedResources==2&&
+              damaged.UnattributedPendingResources==2,
             "corrupt unknown journal remains visible without any repair or deletion");
         Check(File.ReadAllText(invalid)=="{corrupt"&&
               before.SequenceEqual(File.ReadAllBytes(localJournal)),

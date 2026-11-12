@@ -1226,7 +1226,8 @@ export type OriginalKovaLiveOperationBlocker = {
 };
 export type OperationJournalInventorySnapshot = {
   recordCount:number;registeredRecords:number;unattributedResources:number;
-  pendingRecords:number;corruptRecords:number;truncated:boolean;
+  unattributedPendingResources:number;pendingRecords:number;
+  corruptRecords:number;truncated:boolean;
   entries:Array<{
     resourceFingerprint:string;journal:string;kind:string;phase:string;
     changedUtc:string|null;registered:boolean;registeredMapNames:string|null;

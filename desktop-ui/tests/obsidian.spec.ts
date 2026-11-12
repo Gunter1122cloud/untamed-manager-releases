@@ -1633,6 +1633,7 @@ test.beforeEach(async ({ page }) => {
         }
         case "historical.operationJournalInventory":
           return {recordCount:3,registeredRecords:1,unattributedResources:2,
+            unattributedPendingResources:2,
             pendingRecords:3,corruptRecords:1,truncated:false,
             entries:[{
               resourceFingerprint:"AAAABBBBCCCCDDDD",journal:"Operations-v1",
@@ -4023,6 +4024,7 @@ test("original Store local journal inventory separates map-owned and unattribute
   });
   await expect(inventory).toContainText("3 rekord");
   await expect(inventory).toContainText("2 nem azonosított erőforrás");
+  await expect(inventory).toContainText("2 olyan");
   await expect(inventory).toContainText("Aberration");
   await expect(inventory).toContainText("Restart-v1");
   await expect(inventory).toContainText("sérült rekord");
