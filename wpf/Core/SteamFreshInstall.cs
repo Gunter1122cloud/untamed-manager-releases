@@ -97,7 +97,8 @@ public static class SteamFreshInstall
     }
     private sealed record Journal(Guid MapId,string InstallRoot,string SteamExe,
         string Phase,DateTimeOffset ChangedUtc,string? MapName=null,
-        string? MapLevel=null);
+        string? MapLevel=null,string? BinarySha256=null,
+        string? ManifestSha256=null);
 
     /// <summary>
     /// Read an interrupted SteamCMD transaction without mutating files.
@@ -132,6 +133,13 @@ public static class SteamFreshInstall
     /// Registration must still be explicitly approved in the native bridge.
     /// A prepared/mutating journal is NOT a completed install.
     /// </summary>
+    private static string FileSha256(string path)
+    {
+        using var bytes=new FileStream(path,FileMode.Open,FileAccess.Read,
+            FileShare.Read,1024*1024,FileOptions.SequentialScan);
+        return Convert.ToHexString(SHA256.HashData(bytes));
+    }
+
     public static CompletedSteamInstall? InspectCompleted(string chosenRoot)
     {
         string root=Canonical(chosenRoot);
@@ -172,6 +180,20 @@ public static class SteamFreshInstall
            string.IsNullOrWhiteSpace(build))
             throw new InvalidDataException("UM-FRESH-RECOVERY-FILES-UNVERIFIED");
         string binary=Canonical(probe.ServerExecutable);
+        string manifest=Path.Combine(root,"steamapps","appmanifest_2430930.acf");
+        // A completion journal from older builds without hashes is NOT
+        // sufficient evidence to adopt an executable after a crash. The
+        // operator may instead use the existing manual ASA import workflow.
+        if(entry.BinarySha256 is not {Length:64} ||
+           entry.ManifestSha256 is not {Length:64} ||
+           !entry.BinarySha256.All(Uri.IsHexDigit) ||
+           !entry.ManifestSha256.All(Uri.IsHexDigit))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-UNPINNED-COMPLETION");
+        if(!string.Equals(FileSha256(binary),entry.BinarySha256,
+                StringComparison.OrdinalIgnoreCase) ||
+           !string.Equals(FileSha256(manifest),entry.ManifestSha256,
+                StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-COMPLETED-FILES-CHANGED");
         if(!binary.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar)+
             Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase) ||
            !File.Exists(binary) ||
@@ -410,7 +432,8 @@ public static class SteamFreshInstall
             if(!probeInstall.HasServerExecutable || build==null)
                 throw new InvalidDataException("SteamCMD exited but ASA EXE / appmanifest is not verified");
             SaveJournal(journal,new(request.MapId,root,steam,"complete",DateTimeOffset.UtcNow,
-                request.MapName,level));
+                request.MapName,level,FileSha256(probeInstall.ServerExecutable!),
+                FileSha256(Path.Combine(root,"steamapps","appmanifest_2430930.acf"))));
             progress?.Report(new("complete","ASA szerverfájlok ellenőrizve; szerver nincs elindítva",100));
             return new(request.MapId,root,probeInstall.ServerExecutable!,build,
                 DateTimeOffset.UtcNow,steam,level);
