@@ -24,10 +24,12 @@ public sealed class DesktopWorldBackupBridge
     private readonly SemaphoreSlim serial=new(1,1);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private sealed record Ticket(Guid Token,Guid MapId,string Point,string Root,
-        string Arguments,DateTimeOffset Until,bool Restore);
+        string Arguments,DateTimeOffset Until,bool Restore,
+        int BudgetFiles,long BudgetBytes,bool BudgetCustomized);
     private Ticket? pending;
     private sealed record OriginalBatchTicket(Guid Token,string FourFilesSha,
-        string LaunchProfileSha,Guid[] MapIds,DateTimeOffset ExpiresUtc);
+        string LaunchProfileSha,Guid[] MapIds,DateTimeOffset ExpiresUtc,
+        int BudgetFiles,long BudgetBytes,bool BudgetCustomized);
     private OriginalBatchTicket? originalBatchPending;
     // A completed point is published only after the existing Core backup
     // engine has copied and SHA-256 verified it. No new backup format.
@@ -205,6 +207,11 @@ public sealed class DesktopWorldBackupBridge
             for(int index=0;index<ticket.MapIds.Length;index++)
             {
                 var (source,maps)=RequireOriginalStoppedFive();
+                var currentBudget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
+                if(currentBudget.MaxFiles!=ticket.BudgetFiles||
+                   currentBudget.MaxTotalBytes!=ticket.BudgetBytes||
+                   currentBudget.Customized!=ticket.BudgetCustomized)
+                    throw new InvalidDataException("UM-BACKUP-RESOURCE-POLICY-CHANGED");
                 if(source.FourFilesSha256!=ticket.FourFilesSha||
                    source.LaunchProfileSha256!=ticket.LaunchProfileSha||
                    !maps.Select(x=>x.Id).SequenceEqual(ticket.MapIds))
@@ -385,7 +392,8 @@ public sealed class DesktopWorldBackupBridge
                     }
                     var originalBatchTicket=new OriginalBatchTicket(Guid.NewGuid(),
                         original.FourFilesSha256,original.LaunchProfileSha256,
-                        maps.Select(x=>x.Id).ToArray(),DateTimeOffset.UtcNow.AddMinutes(5));
+                        maps.Select(x=>x.Id).ToArray(),DateTimeOffset.UtcNow.AddMinutes(5),
+                        budget.MaxFiles,budget.MaxTotalBytes,budget.Customized);
                     originalBatchPending=originalBatchTicket;
                     return Ok(id,new{
                         token=originalBatchTicket.Token,localMaps=5,worldBytes,
@@ -414,6 +422,11 @@ public sealed class DesktopWorldBackupBridge
                     originalBatchPending=null; // consume on every attempt
                     if(approved.ExpiresUtc<DateTimeOffset.UtcNow)
                         return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-APPROVAL-EXPIRED");
+                    var actualBudget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
+                    if(actualBudget.MaxFiles!=approved.BudgetFiles||
+                       actualBudget.MaxTotalBytes!=approved.BudgetBytes||
+                       actualBudget.Customized!=approved.BudgetCustomized)
+                        return Fail(id,"UM-BACKUP-RESOURCE-POLICY-CHANGED");
                     var (currentOriginal,maps)=RequireOriginalStoppedFive();
                     if(approved.FourFilesSha!=currentOriginal.FourFilesSha256||
                        approved.LaunchProfileSha!=currentOriginal.LaunchProfileSha256||
@@ -565,7 +578,8 @@ public sealed class DesktopWorldBackupBridge
                     }
                     pending=new(Guid.NewGuid(),map.Id,point,map.InstallationPath,
                         map.Arguments,DateTimeOffset.UtcNow.AddMinutes(5),
-                        method=="backup.restorePreview");
+                        method=="backup.restorePreview",
+                        budget.MaxFiles,budget.MaxTotalBytes,budget.Customized);
                     return Ok(id,new{
                         token=pending.Token,mapId=map.Id,mapName=map.Name,
                         mapKey=key,point=string.IsNullOrEmpty(point)?null:point,
@@ -594,6 +608,11 @@ public sealed class DesktopWorldBackupBridge
                 if(ticket.Until<DateTimeOffset.UtcNow ||
                    ticket.Restore!=(method=="backup.restore"))
                     return Fail(id,"UM-BACKUP-PREVIEW-EXPIRED");
+                var currentBudget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
+                if(currentBudget.MaxFiles!=ticket.BudgetFiles||
+                   currentBudget.MaxTotalBytes!=ticket.BudgetBytes||
+                   currentBudget.Customized!=ticket.BudgetCustomized)
+                    return Fail(id,"UM-BACKUP-RESOURCE-POLICY-CHANGED");
                 var current=Owned(ticket.MapId);
                 if(current.InstallationPath!=ticket.Root||
                    current.Arguments!=ticket.Arguments)
