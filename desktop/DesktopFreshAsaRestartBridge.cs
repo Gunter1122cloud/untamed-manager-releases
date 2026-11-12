@@ -98,10 +98,15 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     // Read-only exact running-owner verification for an interrupted Restart.
     // It NEVER dispatches RCON, invents SaveComplete or resumes old Start.
     private bool ReviewOwner(LocalMap map,AsaRestartRecord record,
-        DateTimeOffset? expectedStart=null,string? expectedProfile=null)
+        DateTimeOffset? expectedStart=null,string? expectedProfile=null,
+        bool allowJustReviewed=false)
     {
+        // The Core recovery calls its final verifier AFTER it durably
+        // writes OperatorReviewed. That terminal phase is allowed ONLY
+        // during this last identity check, not for a fresh recovery preview.
+        bool unresolved=record.Phase is AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator;
         if(record.MapId!=map.Id||record.OldPid<=0||record.NewPid!=0||
-           record.Phase is not (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator)||
+           !(unresolved||(allowJustReviewed&&record.Phase==AsaRestartPhase.OperatorReviewed))||
            (expectedProfile!=null&&JsonSerializer.Serialize(map)!=expectedProfile))
             return false;
         var general=cluster.Operations.Observe(map.InstallationPath);
@@ -272,7 +277,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                             return fresh!=null&&fresh.Id==approved.JournalId&&
                                 fresh.MapId==owned.Id&&fresh.OldPid==approved.OldPid&&
                                 fresh.NewPid==0&&ReviewOwner(owned,fresh,
-                                    approved.OldStartedUtc,approved.ProfileSnapshot);
+                                    approved.OldStartedUtc,approved.ProfileSnapshot,
+                                    allowJustReviewed:true);
                         });
                     return Ok(id,new{
                         mapId=owned.Id,oldPid=approved.OldPid,
