@@ -123,6 +123,18 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_RESTART_INTERRUPTED__?:()=>void})
       .__UNTAMED_RESTART_INTERRUPTED__=()=>{restartInterrupted=true;};
     let lifecycleInterrupted=false;
+    let storeLaunchRecoveryFixture=false;
+    let storeLaunchRecoveryCalls=0;
+    (window as typeof window & {__UNTAMED_STORE_LAUNCH_RECOVERY__?:()=>void})
+      .__UNTAMED_STORE_LAUNCH_RECOVERY__=()=>{
+        storeLaunchRecoveryFixture=true;lifecycleInterrupted=true;
+        Object.assign(state.local.maps[1],{
+          name:"Aberration",storeProtected:true,rconConfigured:true,
+          running:true,status:"Fut",storeLifecycleState:"needsOperator"
+        });
+      };
+    (window as typeof window & {__UNTAMED_STORE_RECOVERY_CALLS__?:()=>number})
+      .__UNTAMED_STORE_RECOVERY_CALLS__=()=>storeLaunchRecoveryCalls;
     (window as typeof window & {__UNTAMED_LIFECYCLE_INTERRUPTED__?:()=>void})
       .__UNTAMED_LIFECYCLE_INTERRUPTED__=()=>{lifecycleInterrupted=true;};
     let steamInterrupted=false;
@@ -2200,15 +2212,48 @@ test.beforeEach(async ({ page }) => {
             runtimeLoadedVerified:false,
             evidence:"VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK"};
         case "servers.lifecycleJournal": return {
-          mapId:m.mapId,mapName:m.mapId===two?"Astraeos":"The Island",
+          mapId:m.mapId,mapName:m.mapId===two?(storeLaunchRecoveryFixture?"Aberration":"Astraeos"):"The Island",
           journalExists:lifecycleInterrupted,
+          operationId:storeLaunchRecoveryFixture?"00000000-0000-4000-8000-000000001625":null,
           phase:lifecycleInterrupted?"NeedsOperator":null,
           kind:lifecycleInterrupted?"Launch":null,
           changedUtc:lifecycleInterrupted?"2026-11-06T11:00:00Z":null,
+          classification:lifecycleInterrupted?"unknownOutcome":"closed",
+          blockingCode:storeLaunchRecoveryFixture&&lifecycleInterrupted?
+            "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":null,
+          recoverySupported:storeLaunchRecoveryFixture&&lifecycleInterrupted&&m.mapId===two,
           needsOperatorReview:lifecycleInterrupted,
           autoResumeAllowed:false,storeTouched:false,
           evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
         };
+        case "servers.lifecycleRecoveryPreview":
+          if(!storeLaunchRecoveryFixture||!lifecycleInterrupted||m.mapId!==two)
+            throw new Error("UM-RECOVERY-LAUNCH-NEEDS-OPERATOR-ONLY");
+          return {token:"00000000-0000-4000-8000-000000001626",
+            mapId:two,mapName:"Aberration",
+            operationId:"00000000-0000-4000-8000-000000001625",
+            kind:"Launch",phase:"NeedsOperator",pid:123456,
+            processStartedUtc:"2026-11-12T03:00:00Z",rconPort:37095,
+            expiresUtc:new Date(Date.now()+180000).toISOString(),
+            exactWindowsProcessVerified:true,originalStoreSessionVerified:true,
+            rconListenerOwnerVerified:true,priorCommandOutcomeUnknown:true,
+            previousOperationWillNotBeRetried:true,requiresTypedApproval:true,
+            auditRequired:true,storeBytesModified:false,
+            evidence:"ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW"};
+        case "servers.lifecycleRecoveryApply":
+          if(!storeLaunchRecoveryFixture||!lifecycleInterrupted||m.mapId!==two||
+            m.token!=="00000000-0000-4000-8000-000000001626"||
+            m.confirm!==true||m.ackUnknownOutcome!==true||
+            m.typedApproval!=="STORE-V1 NAPLÓ HELYREÁLLÍTÁS")
+            throw new Error("UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED");
+          storeLaunchRecoveryCalls++;lifecycleInterrupted=false;
+          Object.assign(state.local.maps[1],{storeLifecycleState:"running"});
+          return {mapId:two,operationId:"00000000-0000-4000-8000-000000001625",
+            state:"operatorReviewed",previousOutcomeStillUnknown:true,
+            originalJournalAudited:true,storeBytesModified:false,
+            processStarted:false,processStopped:false,rconCommandSent:false,
+            noAutomaticRetry:true,newOperationRequiresFreshApproval:true,
+            evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"};
         case "servers.freshStartStatus": return {
           mapId:m.mapId,mapName:"Astraeos",running:freshStarted,confirmedStopped:!freshStarted,
           pid:freshStarted?45678:null,readyCertified:false,
@@ -3566,6 +3611,34 @@ test("adopting an observed live map opens actual lifecycle UI without navigating
   await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
   await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeEnabled();
   await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
+});
+
+test("running Aberration Store-v1 stale Launch journal is reviewed once, never auto-replayed",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_LAUNCH_RECOVERY__?:()=>void
+  }).__UNTAMED_STORE_LAUNCH_RECOVERY__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const map=page.locator(".premium-map-line.is-local").filter({hasText:"Aberration"});
+  await expect(map).toBeVisible();
+  await map.click();
+  const locked=page.getByRole("region",{name:"Store-v1 beragadt indítás helyreállítása"});
+  await expect(locked).toBeVisible();
+  await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeDisabled();
+  await locked.getByRole("button",{name:"Helyreállítás előellenőrzése"}).click();
+  const confirm=locked.getByRole("button",{name:"Auditált helyreállítás végrehajtása"});
+  await expect(confirm).toBeDisabled();
+  await locked.getByRole("checkbox").check();
+  await locked.getByRole("textbox",{name:"Store-v1 napló helyreállítási jóváhagyás"})
+    .fill("STORE-V1 NAPLÓ HELYREÁLLÍTÁS");
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeEnabled();
+  await expect(locked).toHaveCount(0);
+  const count=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_RECOVERY_CALLS__?:()=>number
+  }).__UNTAMED_STORE_RECOVERY_CALLS__?.()??-1);
+  expect(count).toBe(1);
 });
 
 test("P0 original live Store method denial is identified as native dispatch/build mismatch, never Kova process proof failure",async({page})=>{
