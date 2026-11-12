@@ -2215,8 +2215,24 @@ try
         Check(planned.GetProperty("data").GetProperty("mapLevel").GetString()
                 ==customLevel,
             "initial launch preview keeps the source-pinned Unreal level");
+        string staleCustomToken=planned.GetProperty("data").GetProperty("token").GetString()!;
+        customMap.FreshInstallMapLevel="ExternallyChanged_WP";
+        var staleCustomApply=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token=staleCustomToken,confirm=true});
+        Check(IsError(staleCustomApply,"UM-INITIAL-CONFLICT")&&
+              customMap.Arguments==""&&customMap.GamePort==0,
+            "level changed after preview rejects first setup without writing a mismatched launch");
+        customMap.FreshInstallMapLevel=customLevel;
+        var replayCustom=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token=staleCustomToken,confirm=true});
+        Check(IsError(replayCustom,"UM-INITIAL-PREVIEW-EXPIRED"),
+            "stale first-setup approval cannot be replayed after rejected map identity change");
+        var approvedCustom=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=customMap.Id,sessionName="Synthetic Custom Server",
+                gamePort=7951,queryPort=27951,customLevel=""});
+        IsOk(approvedCustom,"restored custom level receives a fresh native preview");
         var committed=await Call(customSetup.HandleAsync,"servers.initialApply",
-            new{token=planned.GetProperty("data").GetProperty("token").GetString(),
+            new{token=approvedCustom.GetProperty("data").GetProperty("token").GetString(),
                 confirm=true});
         IsOk(committed,"approved custom first setup writes only local launch profile");
         var configuredCustom=customCluster.Config.LocalMaps.Single(m=>m.Id==customMap.Id);

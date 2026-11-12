@@ -22,7 +22,9 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record Prepared(Guid Token,Guid MapId,string Session,int Game,int Query,
         string BaselineMapName,string Level,string BaselineArguments,int BaselineGame,int BaselineQuery,
-        string BaselineExe,DateTimeOffset CreatedUtc);
+        string BaselineExe,string BaselineRoot,string BaselineInstalledLevel,
+        bool BaselineUseApi,string BaselineLoaderPath,string BaselineLoaderArguments,
+        string BaselineRconSecret,DateTimeOffset CreatedUtc);
 
     public DesktopInitialMapSetupBridge(ClusterService service) =>
         cluster=service ?? throw new ArgumentNullException(nameof(service));
@@ -164,7 +166,10 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     if(pending.Count>=6)pending.Clear();
                     var token=Guid.NewGuid();
                     pending[token]=new(token,map.Id,session,game,query,map.Name,level,
-                        map.Arguments,map.GamePort,map.QueryPort,map.ExecutablePath,DateTimeOffset.UtcNow);
+                        map.Arguments,map.GamePort,map.QueryPort,map.ExecutablePath,
+                        map.InstallationPath,map.FreshInstallMapLevel,map.StartWithAsaApi,
+                        map.ApiLoaderPath,map.ApiLoaderArguments,map.RconPasswordProtected,
+                        DateTimeOffset.UtcNow);
                     return Success(id,new{
                         token,mapId=map.Id,mapName=map.Name,sessionName=session,
                         mapLevel=level,requiresCustomLevel=!official,
@@ -192,8 +197,21 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                    owned.GamePort!=saved.BaselineGame ||
                    owned.QueryPort!=saved.BaselineQuery ||
                    !string.Equals(owned.ExecutablePath,saved.BaselineExe,
-                       StringComparison.OrdinalIgnoreCase))
+                       StringComparison.OrdinalIgnoreCase) ||
+                   !string.Equals(owned.InstallationPath,saved.BaselineRoot,
+                       StringComparison.OrdinalIgnoreCase) ||
+                   owned.FreshInstallMapLevel!=saved.BaselineInstalledLevel ||
+                   owned.StartWithAsaApi!=saved.BaselineUseApi ||
+                   owned.ApiLoaderPath!=saved.BaselineLoaderPath ||
+                   owned.ApiLoaderArguments!=saved.BaselineLoaderArguments ||
+                   owned.RconPasswordProtected!=saved.BaselineRconSecret)
+                {
+                    // A stale preview must not authorize a different installed
+                    // level, API launch mode or credential profile. Require a
+                    // fresh operator preview even if the values later revert.
+                    pending.Remove(approvalToken);
                     return Fail(id,"UM-INITIAL-CONFLICT");
+                }
                 var final=cluster.Check(owned);
                 if(!final.ConfirmedStopped || final.Running || owned.Maintenance)
                     return Fail(id,"UM-INITIAL-STOP-REQUIRED");
