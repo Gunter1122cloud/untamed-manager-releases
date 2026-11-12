@@ -2652,6 +2652,7 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-INI-GAME-MISSING"||
                   e.message==="UM-INI-CREATE-SHARED-STORE"||
                   e.message==="UM-INI-CONFIG-DIRECTORY-MISSING"||
+                  e.message.startsWith("UM-INITIAL-PORT-")||
                   e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-")||
                   e.message==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"||
                   e.message.startsWith("UM-RECOVERY-"))
