@@ -55,14 +55,32 @@ public static class LegacyStoreV1PinnedSource
     }
 
     /// <summary>
+    /// For already-approved imports and read-only diagnostics. This validates
+    /// the Manager copy, but only Resolve(map) binds it to a concrete map.
+    /// </summary>
+    public static string PreferredProfile(string managerProfileRoot,string originalKovaProfile)
+    {
+        string pinned=DirectoryFor(managerProfileRoot);
+        if(!Directory.Exists(pinned))
+        {
+            if(File.Exists(pinned))
+                throw new InvalidDataException("UM-STORE-PIN-NOT-A-DIRECTORY");
+            return originalKovaProfile;
+        }
+        _=VerifyPinned(pinned);
+        return pinned;
+    }
+
+    /// <summary>
     /// A corrupt Manager-owned pin NEVER falls back silently to Kova. Without
     /// a pin, earlier installations continue using their original Kova source.
     /// </summary>
     public static string Resolve(string managerProfileRoot,string originalKovaProfile,
         LocalMap map)
     {
-        string pinned=DirectoryFor(managerProfileRoot);
-        if(!Directory.Exists(pinned))return originalKovaProfile;
+        string pinned=PreferredProfile(managerProfileRoot,originalKovaProfile);
+        if(string.Equals(pinned,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
+            return originalKovaProfile;
         var proof=VerifyPinned(pinned);
         if(!string.Equals(map.HistoricalArchiveSha256,proof.FourFileHash,
                StringComparison.Ordinal))
@@ -89,6 +107,15 @@ public static class LegacyStoreV1PinnedSource
            source.StartsWith(manager+Path.DirectorySeparatorChar,
                StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-STORE-PIN-SOURCE-OVERLAP");
+        string existingPin=DirectoryFor(manager);
+        if(string.Equals(source,existingPin,StringComparison.OrdinalIgnoreCase))
+        {
+            var existing=VerifyPinned(existingPin);
+            if(existing.FourFileHash!=approvedFourFileHash||
+               existing.LaunchHash!=approvedLaunchHash)
+                throw new InvalidDataException("UM-STORE-PIN-EXISTING-CONFLICT");
+            return;
+        }
         var original=LegacyStoreV1OriginalImport.Inspect(source);
         if(!string.Equals(original.FourFilesSha256,approvedFourFileHash,
                StringComparison.Ordinal)||
