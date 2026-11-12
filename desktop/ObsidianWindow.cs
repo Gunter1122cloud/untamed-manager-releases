@@ -97,7 +97,19 @@ public sealed class ObsidianWindow : Form
     // A malformed bridge request must never escape an async-void WebView2
     // event handler and terminate the Windows Manager. Keep native exception
     // details and private machine paths out of renderer responses.
-    internal static string NativeErrorResponse(string raw)
+    // Plugin management is intentionally MANUAL: only map-owned folder
+    // opening and on-disk inventory are available in the shipping Manager.
+    // Retired editor/ZIP/toggle handler classes are not an executable route
+    // from WebView2, even if an old client directly posts their method names.
+    internal static bool IsManualOnlyDeniedPluginMethod(string? method) =>
+        method is "plugins.togglePreview" or "plugins.toggleApply" or
+            "plugins.zipSelect" or "plugins.zipApply" or
+            "plugins.zipRollbackSelect" or "plugins.zipRollbackApply" or
+            "plugins.jsonOpen" or "plugins.jsonPreview" or
+            "plugins.jsonSave" or "plugins.jsonClose";
+
+    internal static string NativeErrorResponse(string raw,
+        string error="UM-NATIVE-UNEXPECTED-FAILURE")
     {
         string? id=null;
         try
@@ -113,7 +125,7 @@ public sealed class ObsidianWindow : Form
             }
         }
         catch(JsonException) { /* Untrusted syntax: return an uncorrelated error */ }
-        return JsonSerializer.Serialize(new{id,ok=false,error="UM-NATIVE-UNEXPECTED-FAILURE"});
+        return JsonSerializer.Serialize(new{id,ok=false,error});
     }
 
     // Windows-native chrome is styled through DWM. Keep the regular system
@@ -642,7 +654,9 @@ public sealed class ObsidianWindow : Form
                 if (requireGlobalGate) await _bridgeGate.WaitAsync();
                 try
                 {
-                    string response = apiCoreRoute ? await _apiCore.HandleAsync(incoming)
+                    string response = IsManualOnlyDeniedPluginMethod(methodName)
+                        ? NativeErrorResponse(incoming,"UM-PLUGIN-MANUAL-FOLDER-ONLY")
+                        : apiCoreRoute ? await _apiCore.HandleAsync(incoming)
                         : lanRoute ? await _lan.HandleAsync(incoming)
                         : nativeScheduleRoute ? await _nativeSchedules.HandleAsync(incoming)
                         : mapMaintenanceRoute ? await _mapMaintenance.HandleAsync(incoming)
