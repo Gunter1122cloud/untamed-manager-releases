@@ -62,10 +62,19 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
     try{
       const result=await managerBridge.historicalActiveStartPreview(mapId);
       setPreview(result);
-    }catch{
-      setError("A kiválasztott Store-v1 map helyi indítási előfeltételei, a valódi leállítás, "+
-        "az RCON/INI, a portok vagy a megőrzött indítási profil nem igazolható. "+
-        "Nem indítottunk ASA-folyamatot.");
+    }catch(e){
+      const code=e instanceof Error?e.message:"";
+      const errors:Record<string,string>={
+        "UM-STORE-NATIVE-PORT-IN-USE":"A map Game/Query vagy RCON-portja jelenleg foglalt. Ellenőrizd a helyi Windows-folyamatokat; ASA nem indult.",
+        "UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED":"A korábbi ASA/Loader folyamat leállítása nem bizonyítható. Új Start nem indítható.",
+        "UM-STORE-NATIVE-ORIGINAL-TWO-HOST-NOT-READY":"A még át nem vett Kova-profil régi kétgépes ACTIVE/DONE állapota nem igazolt. A jóváhagyott Obsidian-profil ettől függetlenül működhet.",
+        "UM-STORE-RUNTIME-CLUSTER-INCOMPLETE":"A jóváhagyott Obsidian map hiányos runtime clusterazonosítóval vagy átviteli gyökérrel rendelkezik.",
+        "UM-STORE-RUNTIME-RCON-INI-MISMATCH":"Az ASA jelenlegi RCON INI és a helyi Obsidian RCON-profil nem egyezik. Ellenőrizd a jóváhagyott beállításokat.",
+        "UM-STORE-NATIVE-EXE-RCON-PARITY":"A helyi ASA EXE vagy RCON INI azonossága nem igazolható.",
+        "UM-STORE-NATIVE-BACKUP-RECOVERY":"A telepítésnél korábbi mentési/visszaállítási helyreállítás vár kezelői rendezésre.",
+        "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED":"Válaszd ki és hagyd jóvá az ASA API Loader vagy a közvetlen indítási módot."
+      };
+      setError(errors[code]??"A Store-v1 map indítási előellenőrzése nem sikerült. Ellenőrizd a helyi naplót és folyamatállapotot; ASA nem indult.");
     }finally{setBusy(false);}
   };
   const start=async()=>{

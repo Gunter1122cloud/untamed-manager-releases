@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -17,6 +18,23 @@ namespace UntamedDesktop;
 /// </summary>
 public sealed class DesktopHistoricalActiveStartBridge : IDisposable
 {
+    // Only literal native safety codes are returned to WebView. Never forward
+    // exception details, paths, credentials or original Kova source records.
+    private static readonly HashSet<string> SafeStartErrors = new(StringComparer.Ordinal)
+    {
+        "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED",
+        "UM-STORE-NATIVE-ACTIVE-IMPORT-ONLY",
+        "UM-STORE-NATIVE-EXE-RCON-PARITY",
+        "UM-STORE-NATIVE-BACKUP-RECOVERY",
+        "UM-STORE-NATIVE-PORT-IN-USE",
+        "UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED",
+        "UM-STORE-NATIVE-ORIGINAL-TWO-HOST-NOT-READY",
+        "UM-STORE-NATIVE-RCON-CHANGED",
+        "UM-STORE-RUNTIME-CLUSTER-INCOMPLETE",
+        "UM-STORE-RUNTIME-RCON-INI-MISMATCH",
+        "UM-STORE-RUNTIME-CONVERSION-DENIED",
+        "UM-STORE-RUNTIME-ARGUMENTS-TOO-LONG"
+    };
     private sealed record Pending(Guid Token,Guid MapId,string ProfileJson,
         string PlanFingerprint,int Game,int Query,int Rcon,bool UseApi,DateTimeOffset Created);
     private sealed record ModePending(Guid Token,Guid MapId,string Profile,
@@ -387,6 +405,12 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 });
             }
             finally{serial.Release();}
+        }
+        catch(Exception e) when(e is InvalidDataException or InvalidOperationException or
+            UnauthorizedAccessException or IOException)
+        {
+            return Fail(id,SafeStartErrors.Contains(e.Message)?e.Message:
+                "UM-STORE-ACTIVE-START-SAFETY-FAILED");
         }
         catch(Exception)
         {

@@ -6722,6 +6722,17 @@ try
                 ExecutablePath=exe,Arguments="SYNTHETIC_NO_ACTUAL_PROCESS"
             };
         }
+        // Native failures retain an exact bounded safety code without
+        // leaking a filesystem path or starting/replaying an ASA process.
+        using(var blockedBridge=new DesktopHistoricalActiveStartBridge(historic,
+            _=>throw new InvalidOperationException("UM-STORE-NATIVE-PORT-IN-USE"),
+            (_,_,_)=>throw new InvalidOperationException("Must not launch")))
+        {
+            var blocked=await Call(blockedBridge.HandleAsync,
+                "historical.activeStartPreview",new{mapId=storeMap.Id});
+            Check(IsError(blocked,"UM-STORE-NATIVE-PORT-IN-USE")&&launches==0,
+                "Store-v1 native preview reports exact safe local port conflict without launch");
+        }
         using(var bridge=new DesktopHistoricalActiveStartBridge(historic,
             Prepare,Start))
         {
