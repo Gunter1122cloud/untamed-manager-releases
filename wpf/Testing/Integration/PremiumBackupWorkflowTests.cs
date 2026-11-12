@@ -121,9 +121,11 @@ public static class PremiumBackupWorkflowTests
         Check(File.ReadAllText(game)=="offline synthetic world data, not an actual ARK save",
             "racing process observer never modifies the original world file");
         var catalogItems=LocalBackupCatalog.Inspect(catalog,map.Id,10);
-        Check(catalogItems.Count==1&&catalogItems.Single().Valid &&
-              catalogItems.Single().TotalBytes==preview.SelectedBytes,
-            "Backup Center history verifies newly created package and matches preview byte count");
+        Check(catalogItems.Count==2&&catalogItems.Count(x=>x.Valid)==1&&
+              catalogItems.Any(x=>!x.Valid&&
+                  x.Status.StartsWith("Incomplete backup",StringComparison.Ordinal))&&
+              catalogItems.Single(x=>x.Valid).TotalBytes==preview.SelectedBytes,
+            "Backup Center lists interrupted staging as invalid and keeps only the verified package restorable");
         bool targetCollision=false,createCollision=false;
         try{LocalBackupWorkflow.Preview(map,stopped,target,scope);}
         catch(IOException){targetCollision=true;}
