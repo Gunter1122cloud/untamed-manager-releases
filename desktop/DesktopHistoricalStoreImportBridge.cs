@@ -1274,10 +1274,12 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             // sufficient to register a live original Store owner.
             var fresh=LegacyStoreV1ProcessObserver.Observe(map,observed.Maps);
             if(!fresh.Running||fresh.ConfirmedStopped||
-               fresh.Identity?.Pid!=map.LastProcess?.Pid||
+               fresh.Identity is null||map.LastProcess is null||
+               fresh.Identity.Pid!=map.LastProcess.Pid||
                fresh.Identity.StartedUtc!=map.LastProcess.StartedUtc||
                (map.StartWithAsaApi &&
-                (fresh.LoaderIdentity?.Pid!=map.LastLoader?.Pid||
+                (fresh.LoaderIdentity is null||map.LastLoader is null||
+                 fresh.LoaderIdentity.Pid!=map.LastLoader.Pid||
                  fresh.LoaderIdentity.StartedUtc!=map.LastLoader.StartedUtc))||
                (!map.StartWithAsaApi&&fresh.LoaderIdentity!=null))
                 throw new InvalidDataException("UM-ORIGINAL-LIVE-PHYSICAL-IDENTITY-CHANGED");
