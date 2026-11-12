@@ -6541,6 +6541,10 @@ try
             var preview=await Call(bridge.HandleAsync,"historical.rconPreview",
                 new{mapId=protectedMap.Id,rconPort,password=originalPass});
             IsOk(preview,"original existing INI verifies historical RCON credentials");
+            Check(preview.GetProperty("data").GetProperty("originalActiveDoneVerified").GetBoolean()&&
+                  !preview.GetProperty("data").GetProperty("approvedObsidianSourcePinned").GetBoolean()&&
+                  preview.GetProperty("data").GetProperty("legacyPeerCheckRequiredForLocalAttach").GetBoolean(),
+                "un-pinned synthetic legacy Store RCON reports historical peer proof without claiming a local pin");
             Check(!preview.ToString().Contains(originalPass,StringComparison.Ordinal)&&
                   !preview.ToString().Contains(histRoot,StringComparison.OrdinalIgnoreCase),
                 "historical RCON preview does not expose password or private root to React");

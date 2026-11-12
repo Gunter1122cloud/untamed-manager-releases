@@ -962,7 +962,9 @@ export type HistoricalRconStatus = {
 };
 export type HistoricalRconPreview = {
   token:string;mapId:string;mapName:string;rconPort:number;
-  existingIniVerified:true;originalActiveDoneVerified:true;
+  existingIniVerified:true;originalActiveDoneVerified:boolean;
+  approvedObsidianSourcePinned:boolean;
+  legacyPeerCheckRequiredForLocalAttach:boolean;
   originalStoreTouched:false;serverStarted:false;
   evidence:"HISTORICAL_RCON_EXISTING_INI_PREVIEW_ONLY";
 };

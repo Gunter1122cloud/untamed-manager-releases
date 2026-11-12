@@ -288,6 +288,12 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                     string protectedPassword=SecureStore.Protect(password);
                     string hash=IniHash(map!);
                     Demand(map!,port,protectedPassword,hash);
+                    // A locally pinned Obsidian source replaces old Kova
+                    // ACTIVE/DONE handoff for an already approved import.
+                    // Do not claim that legacy peer markers were checked on
+                    // this independent local RCON attachment.
+                    bool pinned=LegacyStoreV1PinnedSource.HasApprovedLocalSource(
+                        cluster.Store.Root,map!);
                     var permit=new Approval(Guid.NewGuid(),map!.Id,
                         JsonSerializer.Serialize(map),map.HistoricalMapKey,
                         map.InstallationPath,map.ExecutablePath,
@@ -297,7 +303,9 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                     return Ok(id,new{
                         token=permit.Token,mapId=map.Id,mapName=map.Name,
                         rconPort=port,existingIniVerified=true,
-                        originalActiveDoneVerified=true,
+                        originalActiveDoneVerified=!pinned,
+                        approvedObsidianSourcePinned=pinned,
+                        legacyPeerCheckRequiredForLocalAttach=!pinned,
                         originalStoreTouched=false,serverStarted=false,
                         evidence="HISTORICAL_RCON_EXISTING_INI_PREVIEW_ONLY"
                     });
