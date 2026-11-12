@@ -851,7 +851,7 @@ export type IniPreview = {
   evidence: "HASHED_IN_MEMORY_PREVIEW";
 };
 export type IniRebasePreview = {
-  content:string;freshSha256:string;mergedLines:number;
+  content:string;diskContent:string;freshSha256:string;mergedLines:number;
   evidence:"THREE_WAY_INI_REBASE_PREVIEW_NO_WRITE";
 };
 export type IniSaveReceipt = {

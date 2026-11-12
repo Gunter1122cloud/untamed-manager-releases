@@ -1452,7 +1452,9 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
     setBusy(true);setError("");setNotice("");setPreview(null);
     try{
       const merge=await managerBridge.iniRebasePreview(opened.token,content);
-      setOpened({...opened,sha256:merge.freshSha256,content:merge.content});
+      // Keep the freshly read DISK baseline separate from the rebased user
+      // draft. Otherwise the new hash-preview action would be disabled.
+      setOpened({...opened,sha256:merge.freshSha256,content:merge.diskContent});
       setContent(merge.content);
       setMergeAvailable(false);
       setNotice("A nem ütköző INI-kulcsváltozások egyeztetve, lemezírás nélkül. Kérj új hash-előnézetet, majd külön hagyd jóvá a mentést.");

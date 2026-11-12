@@ -293,7 +293,8 @@ public sealed class DesktopIniBridge : IDisposable
                     openedFile.PreviewedContent=null;
                     openedFile.Preview=null;
                     return Ok(id,new{
-                        content=merge.Content,freshSha256=latest.Sha256,
+                        content=merge.Content,diskContent=latest.Text,
+                        freshSha256=latest.Sha256,
                         mergedLines=merge.MergedLines,
                         evidence="THREE_WAY_INI_REBASE_PREVIEW_NO_WRITE"
                     });
