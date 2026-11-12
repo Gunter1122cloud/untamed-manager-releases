@@ -3547,6 +3547,27 @@ test("P0 native non-Store live ASA takeover requires explicit approval and prese
   await expect(page.getByRole("tab",{name:"RCON / Konzol"})).toBeVisible();
 });
 
+test("adopting an observed live map opens actual lifecycle UI without navigating away",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const processes=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
+  const registration=processes.getByLabel("Futó ASA regisztrálása PID 4443");
+  await registration.getByRole("button",{name:"Regisztráció ellenőrzése"}).click();
+  await registration.getByRole("button",{name:"Regisztrálás · csak Manager"}).click();
+  const observed=page.locator(".premium-map-line.is-local").filter({hasText:"Ragnarok"});
+  await expect(observed).toBeVisible();
+  await observed.click();
+  await expect(page.getByRole("region",{name:"Megfigyelési map adatlapja"})).toBeVisible();
+  const takeover=page.getByLabel("Futó ASA vezérlés átvétele PID 4443");
+  await takeover.getByRole("button",{name:"Vezérlés átvételének ellenőrzése"}).click();
+  await takeover.getByLabel("Natív vezérlésátvétel előnézet").getByRole("checkbox").check();
+  await takeover.getByRole("button",{name:"Vezérlés átvétele – natív ellenőrzéssel"}).click();
+  await expect(page.getByRole("region",{name:"Megfigyelési map adatlapja"})).toHaveCount(0);
+  await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeEnabled();
+  await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
+});
+
 test("P0 original live Store method denial is identified as native dispatch/build mismatch, never Kova process proof failure",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(
