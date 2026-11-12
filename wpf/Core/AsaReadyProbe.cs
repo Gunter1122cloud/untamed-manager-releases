@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -92,6 +93,38 @@ public static class AsaReadyProbe
         }
         catch(Exception ex) when(ex is ArgumentException or IOException or UnauthorizedAccessException
                                  or NotSupportedException){return false;}
+    }
+
+    // Only an explicit approved Start preview/apply hashes these binaries.
+    // The bytes of an EXE or selected API Loader must not silently change
+    // between an operator's preview and the one-shot Process.Start.
+    // No periodic dashboard polling or world-save hashing is performed.
+    internal static string ApprovedLaunchBinariesFingerprint(LocalMap map)
+    {
+        if(map==null||!IsRegisteredServerBinary(map))
+            throw new InvalidDataException("UM-ASA-LAUNCH-BINARY-NOT-REGISTERED");
+        string server=Path.Combine(Path.GetFullPath(map.InstallationPath),
+            "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+        static string Hash(string path,long maxSize)
+        {
+            var info=new FileInfo(path);
+            if(!info.Exists||info.Length is <1 || info.Length>maxSize ||
+               (info.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("UM-ASA-LAUNCH-BINARY-UNVERIFIED");
+            using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,
+                FileShare.Read,131072,FileOptions.SequentialScan);
+            if(stream.Length!=info.Length)
+                throw new InvalidDataException("UM-ASA-LAUNCH-BINARY-CHANGED");
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        string binary=Hash(server,4L*1024*1024*1024);
+        if(!map.StartWithAsaApi)return binary;
+        string expectedLoader=Path.Combine(Path.GetDirectoryName(server)!,
+            "AsaApiLoader.exe");
+        if(!string.Equals(Path.GetFullPath(map.ApiLoaderPath),expectedLoader,
+            StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-ASA-LAUNCH-LOADER-IDENTITY");
+        return binary+"|"+Hash(expectedLoader,512L*1024*1024);
     }
 
     // Never trust a successful RCON authentication at a port that multiple

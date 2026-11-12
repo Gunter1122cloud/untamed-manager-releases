@@ -22,7 +22,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         bool UseApi,string LoaderPath,string LoaderArguments,
         string RconCredential,string FreshClusterId,string FreshTransferDirectory,
         string InstalledLevel,string IniFingerprint,
-        DateTimeOffset CreatedUtc);
+        string BinariesFingerprint,DateTimeOffset CreatedUtc);
     private readonly ClusterService cluster;
     private readonly Func<Guid,bool,ProcessIdentity> launch;
     private readonly bool nativeLauncher;
@@ -213,7 +213,9 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                         map.StartWithAsaApi,map.ApiLoaderPath,map.ApiLoaderArguments,
                         map.RconPasswordProtected,map.FreshStoreClusterId,
                         map.FreshStoreTransferDirectory,map.FreshInstallMapLevel,
-                        IniFingerprint(map),DateTimeOffset.UtcNow);
+                        IniFingerprint(map),
+                        AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map),
+                        DateTimeOffset.UtcNow);
                     return Ok(id,new {
                         token=pending.Token,mapId=map.Id,mapName=map.Name,
                         steamBuild=pending.Build,gamePort=map.GamePort,
@@ -250,6 +252,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                    current.FreshStoreTransferDirectory!=permit.FreshTransferDirectory ||
                    current.FreshInstallMapLevel!=permit.InstalledLevel ||
                    IniFingerprint(current)!=permit.IniFingerprint ||
+                   AsaReadyProbe.ApprovedLaunchBinariesFingerprint(current)!=
+                       permit.BinariesFingerprint ||
                    AsaSteamBuildCatalog.InstalledBuild(current.InstallationPath)!=permit.Build)
                     return Error(id,"UM-FRESH-START-CHANGED");
                 var identity=launch(current.Id,true);

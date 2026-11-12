@@ -2669,6 +2669,21 @@ try
         Check(IsError(staleStart,"UM-FRESH-START-CHANGED")&&calls==0,
             "INI bytes changed after preview invalidate fresh ASA start approval");
         File.WriteAllBytes(rconIni,rconOriginal);
+        var binaryPreview=await Call(starter.HandleAsync,
+            "servers.freshStartPreview",new{mapId=fresh.Id});
+        IsOk(binaryPreview,"new ASA start preflight protects actual installed server binary");
+        byte[] originalFreshExe=File.ReadAllBytes(fresh.ExecutablePath);
+        try
+        {
+            File.WriteAllBytes(fresh.ExecutablePath,
+                originalFreshExe.Concat(new byte[]{0x6D}).ToArray());
+            var binaryChanged=await Call(starter.HandleAsync,"servers.freshStartApply",
+                new{token=binaryPreview.GetProperty("data")
+                    .GetProperty("token").GetString(),confirm=true});
+            Check(IsError(binaryChanged,"UM-FRESH-START-CHANGED")&&calls==0,
+                "changing the ASA EXE after preview rejects a fresh Start with no process launch");
+        }
+        finally{File.WriteAllBytes(fresh.ExecutablePath,originalFreshExe);}
         var refreshed=await Call(starter.HandleAsync,"servers.freshStartPreview",
             new{mapId=fresh.Id});
         IsOk(refreshed,"unchanged fresh ASA INI bytes receive a new explicit start preview");
@@ -6735,15 +6750,23 @@ try
             Id=Guid.NewGuid(),Name="Ragnarok",InstallationPath=hashRoot,
             ExecutablePath=hashExe,StartWithAsaApi=false
         };
-        string directSha=LegacyStoreV1NativeStartPlanner.DirectExecutableSha256(hashMap);
+        string directSha=AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap);
         File.WriteAllBytes(hashExe,beforeExeBytes.Concat(new byte[]{0x42}).ToArray());
-        string changedExeSha=LegacyStoreV1NativeStartPlanner.DirectExecutableSha256(hashMap);
+        string changedExeSha=AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap);
         Check(directSha.Length==64&&changedExeSha.Length==64&&
               directSha!=changedExeSha,
             "original direct ASA Start approval can bind physical executable content, not only its path");
         File.WriteAllBytes(hashExe,beforeExeBytes);
-        Check(LegacyStoreV1NativeStartPlanner.DirectExecutableSha256(hashMap)==directSha,
+        Check(AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap)==directSha,
             "original ASA EXE fixture restored without touching world, Store or transfer data");
+        string hashLoader=Path.Combine(hashBin,"AsaApiLoader.exe");
+        File.WriteAllBytes(hashLoader,new byte[]{77,90,11,24});
+        hashMap.ApiLoaderPath=hashLoader;
+        hashMap.StartWithAsaApi=true;
+        string loaderSha=AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap);
+        File.AppendAllText(hashLoader,"changed");
+        Check(AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap)!=loaderSha,
+            "API Loader replacement invalidates exact original ASA/Loader start fingerprint");
 
         int launches=0,prepared=0;
         bool changedPlan=false;
