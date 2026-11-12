@@ -850,6 +850,10 @@ export type IniPreview = {
   bytes: number; originalSha256: string; nextSha256: string;
   evidence: "HASHED_IN_MEMORY_PREVIEW";
 };
+export type IniRebasePreview = {
+  content:string;freshSha256:string;mergedLines:number;
+  evidence:"THREE_WAY_INI_REBASE_PREVIEW_NO_WRITE";
+};
 export type IniSaveReceipt = {
   saved: true; backupCreated: boolean; sha256: string;
   evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
@@ -2058,6 +2062,8 @@ export const managerBridge = {
   iniCreateGameApply: (token:string) =>
     request<IniGameCreateReceipt>("ini.createGameApply",{token,confirm:true}),
   iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
+  iniRebasePreview: (token:string,content:string) =>
+    request<IniRebasePreview>("ini.rebasePreview",{token,content}),
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
   iniClose: (token: string) => request<{closed:true}>("ini.close", { token }),
   runningLocalAsa: () => request<RunningLocalAsaSnapshot>("servers.runningLocal"),

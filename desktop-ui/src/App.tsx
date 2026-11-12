@@ -1375,6 +1375,7 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   const [opened, setOpened] = useState<IniDocument | null>(null);
   const [content, setContent] = useState("");
   const [preview, setPreview] = useState<IniPreview | null>(null);
+  const [mergeAvailable,setMergeAvailable]=useState(false);
   const [createPreview,setCreatePreview]=useState<IniGameCreatePreview|null>(null);
   const [createApproved,setCreateApproved]=useState(false);
   const [missingGame,setMissingGame]=useState(false);
@@ -1382,13 +1383,13 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
-    setOpened(null); setContent(""); setPreview(null);
+    setOpened(null); setContent(""); setPreview(null);setMergeAvailable(false);
     setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
     setNotice(""); setError("");
   }, [selected, file]);
   const load = async () => {
     if (!selected) return;
-    setBusy(true); setError(""); setNotice(""); setPreview(null);
+    setBusy(true); setError(""); setNotice(""); setPreview(null);setMergeAvailable(false);
     setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
     try {
       const fresh = await managerBridge.iniOpen(selected, file);
@@ -1446,18 +1447,37 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
     catch { setPreview(null); setError("Az INI előnézet érvénytelen vagy lejárt. Nem írtunk fájlba."); }
     finally { setBusy(false); }
   };
+  const rebaseIni = async () => {
+    if(!opened||busy)return;
+    setBusy(true);setError("");setNotice("");setPreview(null);
+    try{
+      const merge=await managerBridge.iniRebasePreview(opened.token,content);
+      setOpened({...opened,sha256:merge.freshSha256,content:merge.content});
+      setContent(merge.content);
+      setMergeAvailable(false);
+      setNotice("A nem ütköző INI-kulcsváltozások egyeztetve, lemezírás nélkül. Kérj új hash-előnézetet, majd külön hagyd jóvá a mentést.");
+    }catch(e){
+      const code=e instanceof Error?e.message:"UM-INI-MERGE-FAILED";
+      setError(code==="UM-INI-MERGE-CONFLICT"
+        ?"Az INI ugyanazon kulcsán vagy a sorstruktúrában versengő módosítás történt. Automatikus egyeztetés tiltva; a meglévő fájl változatlan. Ellenőrizd kézzel a különbségeket."
+        :"Nem sikerült az INI újraegyeztetése ("+code+"). A lemezen nem írtunk fájlt.");
+    }finally{setBusy(false);}
+  };
   const save = async () => {
     if (!opened || !preview?.changed) return;
     setBusy(true); setError(""); setNotice("");
     try {
       const result = await managerBridge.iniSave(opened.token);
-      setOpened(null); setPreview(null); setContent("");
+      setOpened(null); setPreview(null); setContent("");setMergeAvailable(false);
       setNotice(result.backupCreated
         ? "Az INI mentése atomikusan befejeződött, visszaállítási .bak másolattal."
         : "Az INI mentése befejeződött.");
     } catch(e) {
       const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
-      setError("Az INI-mentést a natív biztonsági ellenőrzés elutasította ("+code+"). Ellenőrizd, hogy a map leállt-e, és nem változott-e közben a fájl.");
+      setError(code==="UM-INI-ETAG-MISMATCH"
+        ?"Az INI időközben megváltozott. Az eredeti fájlt nem írtuk felül. A háromutas egyeztetéssel ellenőrizheted a független kulcsmódosításokat."
+        :"Az INI-mentést a natív biztonsági ellenőrzés elutasította ("+code+"). Ellenőrizd, hogy a map leállt-e, és nem változott-e közben a fájl.");
+      setMergeAvailable(code==="UM-INI-ETAG-MISMATCH");
       setPreview(null);
     } finally { setBusy(false); }
   };
@@ -1466,7 +1486,7 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
     setBusy(true);setError("");
     try { await managerBridge.iniClose(opened.token); }
     catch { /* Local draft expires; discarding UI text never writes a file. */ }
-    finally { setOpened(null); setContent(""); setPreview(null); setBusy(false); }
+    finally { setOpened(null); setContent(""); setPreview(null);setMergeAvailable(false);setBusy(false); }
   };
   return <>
     <div className="page-intro"><span className="eyebrow">LOCAL CONFIGURATION / ETAG PROTECTION</span><h1>INI szerkesztő</h1>
@@ -1514,6 +1534,10 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
           <button className="secondary" disabled={busy} onClick={() => { void close(); }}>Mégse · piszkozat elvetése</button>
           <button className="primary" disabled={busy || content===opened.content} onClick={() => { void showPreview(); }}>Hash és változások előnézete</button>
           <button className="primary" disabled={busy || !preview?.changed} onClick={() => { void save(); }}>Jóváhagyás és atomikus mentés</button>
+          {mergeAvailable&&<button className="secondary" disabled={busy}
+            onClick={()=>{void rebaseIni();}}>
+            Háromutas INI-egyeztetés előnézete (nem ment)
+          </button>}
         </div>
         {preview && <div className="ini-preview">
           <span>Változás: <b>{preview.changed ? "Igen" : "Nincs"}</b></span>

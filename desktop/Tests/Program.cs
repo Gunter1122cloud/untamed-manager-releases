@@ -1554,6 +1554,57 @@ try
         Check(File.ReadAllText(iniFile).Contains("EXTERNAL=1"),
             "external change preserved on failed staged save");
 
+        var failedMerge=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=conflictToken,content="[ServerSettings]\nExample=3\n"});
+        Check(IsError(failedMerge,"UM-INI-MERGE-CONFLICT"),
+            "three-way merge refuses structural changes with original writer edits intact");
+        Check(File.ReadAllText(iniFile).Contains("EXTERNAL=1"),
+            "rejected three-way merge does not write to the disk");
+
+        // Distinct INI keys and comments are preserved when another process
+        // changes an unrelated value while this operator edits Example.
+        File.WriteAllText(iniFile,"[ServerSettings]\nExample=2\nForeign=old\n; keep comment\n");
+        var rebasedOpen=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        IsOk(rebasedOpen,"three-way INI fixture opens baseline without writes");
+        string mergeToken=rebasedOpen.GetProperty("data").GetProperty("token").GetString()!;
+        string operatorEdit="[ServerSettings]\nExample=3\nForeign=old\n; keep comment\n";
+        IsOk(await Call(ini.HandleAsync,"ini.preview",
+            new{token=mergeToken,content=operatorEdit}),
+            "operator INI change receives ordinary hash preview");
+        File.WriteAllText(iniFile,"[ServerSettings]\nExample=2\nForeign=new\n; keep comment\n");
+        Check(IsError(await Call(ini.HandleAsync,"ini.save",new{token=mergeToken}),
+                "UM-INI-ETAG-MISMATCH"),
+            "other writer triggers ETag rejection before merge");
+        var goodMerge=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=mergeToken,content=operatorEdit});
+        IsOk(goodMerge,"disjoint INI modifications merge without writing");
+        string rebasedText=goodMerge.GetProperty("data").GetProperty("content").GetString()!;
+        Check(rebasedText.Contains("Example=3")&&rebasedText.Contains("Foreign=new")&&
+              rebasedText.Contains("; keep comment")&&
+              File.ReadAllText(iniFile).Contains("Example=2"),
+            "merge previews the operator change alongside the newer disk value and comment");
+        Check(IsError(await Call(ini.HandleAsync,"ini.save",new{token=mergeToken}),
+                "UM-INI-PREVIEW-REQUIRED"),
+            "rebased INI cannot save before a new explicit hash preview");
+        IsOk(await Call(ini.HandleAsync,"ini.preview",
+            new{token=mergeToken,content=rebasedText}),
+            "operator must approve fresh rebased SHA preview");
+        IsOk(await Call(ini.HandleAsync,"ini.save",new{token=mergeToken}),
+            "newly previewed merged INI is atomically committed");
+        Check(File.ReadAllText(iniFile).Contains("Example=3")&&
+              File.ReadAllText(iniFile).Contains("Foreign=new"),
+            "independent disk and user values survive the approved merge");
+        var collisionOpen=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        string collisionToken=collisionOpen.GetProperty("data").GetProperty("token").GetString()!;
+        File.WriteAllText(iniFile,"[ServerSettings]\nExample=4\nForeign=new\n; keep comment\n");
+        var collision=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=collisionToken,content=rebasedText.Replace("Example=3","Example=5")});
+        Check(IsError(collision,"UM-INI-MERGE-CONFLICT")&&
+              File.ReadAllText(iniFile).Contains("Example=4"),
+            "same INI key edited by both writers conflicts and preserves newer disk bytes");
+
         // This test's older INI read fixture intentionally had no server EXE.
         // A genuinely FRESH install must have its registered ASA binary before
         // the new create endpoint can be approved. Materialize only synthetic

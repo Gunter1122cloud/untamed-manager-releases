@@ -28,7 +28,7 @@ public sealed class DesktopIniBridge : IDisposable
     {
         public required Guid Token {get;init;}
         public required Guid MapId {get;init;}
-        public required ConfigSnapshot Snapshot {get;init;}
+        public required ConfigSnapshot Snapshot {get;set;}
         public required DateTimeOffset OpenedUtc {get;init;}
         public string? PreviewedContent {get;set;}
         public ConfigPreview? Preview {get;set;}
@@ -103,8 +103,8 @@ public sealed class DesktopIniBridge : IDisposable
                 return Fail(null,"UM-INVALID-MESSAGE");
             id=requestId.ToString("D");
             string? method=methodValue.GetString();
-            if(method is not ("ini.open" or "ini.preview" or "ini.save" or "ini.close"
-                or "ini.createGamePreview" or "ini.createGameApply"))
+            if(method is not ("ini.open" or "ini.preview" or "ini.rebasePreview" or
+                "ini.save" or "ini.close" or "ini.createGamePreview" or "ini.createGameApply"))
                 return Fail(id,"UM-METHOD-DENIED");
 
             await gate.WaitAsync();
@@ -268,6 +268,36 @@ public sealed class DesktopIniBridge : IDisposable
                         evidence="HASHED_IN_MEMORY_PREVIEW"
                     });
                 }
+                if(method=="ini.rebasePreview")
+                {
+                    if(!data.TryGetProperty("content",out var rebasedField) ||
+                       rebasedField.ValueKind!=JsonValueKind.String)
+                        return Fail(id,"UM-INI-INVALID-CONTENT");
+                    string proposed=rebasedField.GetString()??"";
+                    if(proposed.Length>2_000_000)
+                        return Fail(id,"UM-INI-CONTENT-TOO-LARGE");
+                    var observed=owned.HistoricalStoreProtected?
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,owned):
+                        cluster.Check(owned);
+                    if(!observed.ConfirmedStopped||observed.Running||
+                       owned.Maintenance)
+                        return Fail(id,"UM-INI-STOP-REQUIRED");
+                    var latest=SafeConfigEditor.Read(openedFile.Snapshot.Path,
+                        owned.InstallationPath,ConfigKind.GameIni,observed,
+                        owned.Maintenance);
+                    var merge=SafeConfigEditor.RebaseIni(
+                        openedFile.Snapshot,proposed,latest);
+                    // No file mutation, no implicit approval, no reuse of
+                    // the old hash preview. Only the fresh baseline is kept.
+                    openedFile.Snapshot=latest;
+                    openedFile.PreviewedContent=null;
+                    openedFile.Preview=null;
+                    return Ok(id,new{
+                        content=merge.Content,freshSha256=latest.Sha256,
+                        mergedLines=merge.MergedLines,
+                        evidence="THREE_WAY_INI_REBASE_PREVIEW_NO_WRITE"
+                    });
+                }
                 if(openedFile.PreviewedContent==null || openedFile.Preview==null ||
                    !openedFile.Preview.Changed)
                     return Fail(id,"UM-INI-PREVIEW-REQUIRED");
@@ -308,6 +338,7 @@ public sealed class DesktopIniBridge : IDisposable
         catch(UnauthorizedAccessException){return Fail(id,"UM-INI-ACCESS-DENIED");}
         catch(InvalidDataException){return Fail(id,"UM-INI-PATH-OR-CONTENT-UNSAFE");}
         catch(ConfigEtagConflictException){return Fail(id,"UM-INI-ETAG-MISMATCH");}
+        catch(ConfigMergeConflictException){return Fail(id,"UM-INI-MERGE-CONFLICT");}
         catch(IOException){return Fail(id,"UM-INI-CONFLICT-OR-IO-ERROR");}
         catch(Exception)
         {
