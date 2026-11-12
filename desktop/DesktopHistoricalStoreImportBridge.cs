@@ -797,7 +797,19 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             InvalidOperationException or System.Text.RegularExpressions.RegexMatchTimeoutException or
             System.Security.Cryptography.CryptographicException)
         {
-            // Never echo private paths, usernames, Kova IDs or ZIP content to UI.
+            // Allow only bounded, known machine-readable reasons. Raw native
+            // messages can contain local paths, private Store fields or secrets.
+            // A prior NeedsOperator lease is NOT a Kova source failure.
+            if(ex.Message=="UNTAMED_OPERATION_NEEDS_OPERATOR")
+                return Fail(id,"UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
+            if(ex.Message=="UNTAMED_OPERATION_BUSY")
+                return Fail(id,"UM-ORIGINAL-LIVE-OTHER-MANAGER-OPERATION-IN-PROGRESS");
+            if(ex.Message.Length is >=7 and <=112 &&
+                System.Text.RegularExpressions.Regex.IsMatch(ex.Message,
+                    @"\A(?:UM-[A-Z0-9_-]+|UNTAMED_[A-Z0-9_]+)\z",
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                    TimeSpan.FromMilliseconds(100)))
+                return Fail(id,ex.Message);
             return Fail(id,"UM-HISTORICAL-VERIFICATION-FAILED");
         }
     }
