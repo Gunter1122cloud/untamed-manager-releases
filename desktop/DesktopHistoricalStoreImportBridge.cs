@@ -81,6 +81,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.originalRegister" or "historical.originalBatchPreview" or
                 "historical.originalBatchRegister" or
                 "historical.originalLiveBatchPreview" or
+                "historical.originalLiveOperationBlockers" or
                 "historical.originalLiveBatchApply" or
                 "historical.originalClusterPreview" or
                 "historical.originalClusterApply"))
@@ -177,10 +178,32 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     });
                 }
 
+                if(method=="historical.originalLiveOperationBlockers")
+                {
+                    // This is a read-only diagnostic. It can locate the
+                    // blocked installation even when another original map
+                    // still lacks a Manager registration.
+                    var (original,observed,_)=VerifyLiveOriginalFive();
+                    var blocked=OriginalLiveOperationBlockers(observed.Maps);
+                    return Ok(id,new{
+                        mapCount=observed.Maps.Length,
+                        blockedCount=blocked.Length,
+                        blockedMaps=blocked,
+                        allRecoveriesRequireFreshOwnerProof=true,
+                        noAutomaticCommandRetry=true,
+                        processStarted=false,processStopped=false,
+                        evidence="ORIGINAL_FIVE_RUNNING_MAP_DURABLE_JOURNAL_BLOCKERS_READ_ONLY"
+                    });
+                }
                 if(method=="historical.originalLiveBatchPreview")
                 {
                     pendingOriginalLiveBatch=null;
                     var (original,observed,shared)=VerifyLiveOriginalFive();
+                    // An existing NeedsOperator journal is NOT a source or
+                    // process mismatch; surface it BEFORE offering a token
+                    // that would inevitably fail at AcquireMany().
+                    if(OriginalLiveOperationBlockers(observed.Maps).Length>0)
+                        return Fail(id,"UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
                     var preview=cluster.PreviewOriginalStoreLiveFive(observed.Maps);
                     var registryHash=OriginalLiveRegistryHash(original);
                     var token=Guid.NewGuid();
@@ -231,6 +254,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                        OriginalLiveRegistryHash(original)!=approved.RegistryHash||
                        !observed.Maps.Select(m=>m.Id).SequenceEqual(approved.MapIds))
                         return Fail(id,"UM-ORIGINAL-LIVE-SOURCE-OR-PROCESS-CHANGED");
+                    if(OriginalLiveOperationBlockers(observed.Maps).Length>0)
+                        return Fail(id,"UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
                     // Lock all five installations in deterministic order.
                     // Under those locks the Core calls back for a SECOND
                     // complete original source + real Windows PID/parent
@@ -812,6 +837,34 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 return Fail(id,ex.Message);
             return Fail(id,"UM-HISTORICAL-VERIFICATION-FAILED");
         }
+    }
+
+    private sealed record OriginalLiveJournalBlocker(Guid MapId,
+        string MapName,string Kind,string Phase,Guid OperationId,
+        string BlockingCode,bool ExistingManagerProfile,
+        bool SupportedReviewInMapDetails);
+
+    private OriginalLiveJournalBlocker[] OriginalLiveOperationBlockers(
+        IReadOnlyList<LocalMap> original)
+    {
+        var blocked=new List<OriginalLiveJournalBlocker>();
+        foreach(var map in original)
+        {
+            var journal=cluster.Operations.Observe(map.InstallationPath);
+            if(journal?.Phase is not (UntamedOperationPhase.Prepared or
+                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
+                continue;
+            var existing=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==map.Id);
+            bool supported=existing?.HistoricalStoreProtected==true &&
+                journal.Kind==UntamedOperationKind.Launch &&
+                journal.Phase==UntamedOperationPhase.NeedsOperator;
+            blocked.Add(new(map.Id,map.Name,journal.Kind.ToString(),
+                journal.Phase.ToString(),journal.Operation,
+                supported?"UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
+                    "UM-ORIGINAL-LIVE-OTHER-JOURNAL-REQUIRES-REVIEW",
+                existing!=null,supported));
+        }
+        return blocked.ToArray();
     }
 
     private sealed record HistoricalClusterSourceData(string ClusterId,
