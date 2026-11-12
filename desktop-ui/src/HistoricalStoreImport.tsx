@@ -308,7 +308,23 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }catch(e){
       if(epoch===directEpoch.current){
         const code=e instanceof Error?e.message:"UM-ORIGINAL-LIVE-FAILED";
-        setDirectError(code==="UM-METHOD-DENIED"?
+        // The source/process may have been valid in preview, yet another
+        // manager or an interrupted Launch journal could win a lease before
+        // final approval. Re-read ALL five blocking journals at this point.
+        if(code==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"){
+          try{
+            const blockers=await managerBridge.historicalOriginalLiveOperationBlockers();
+            if(epoch===directEpoch.current)setLiveBlockers(blockers);
+          }catch{/* Keep the original native failure, never retry apply. */}
+        }
+        if(epoch!==directEpoch.current)return;
+        setDirectError(code==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"?
+          "Az ötmapos átvételt egy időközben megjelent vagy korábbról "+
+          "megmaradt műveleti napló blokkolja. A zárolt map neve és "+
+          "naplófázisa alább látható. Nem indítunk vagy küldünk parancsot "+
+          "újra; auditált map-helyreállítás és új natív előnézet kell ("+
+          code+").":
+          code==="UM-METHOD-DENIED"?
           "A telepített natív dispatcher elutasította a "+
           "historical.originalLiveBatchApply hívást (UM-METHOD-DENIED). "+
           "Ez alkalmazáskomponens-/kiadáseltérés, nem Store-migrációs "+
