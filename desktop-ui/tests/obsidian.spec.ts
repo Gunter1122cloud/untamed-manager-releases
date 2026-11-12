@@ -2594,7 +2594,9 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-INI-GAME-MISSING"||
                   e.message==="UM-INI-CREATE-SHARED-STORE"||
                   e.message==="UM-INI-CONFIG-DIRECTORY-MISSING"||
-                  e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-"))
+                  e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-")||
+                  e.message==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"||
+                  e.message.startsWith("UM-RECOVERY-"))
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
             }
@@ -3674,6 +3676,9 @@ test("running Aberration Store-v1 stale Launch journal is reviewed once, never a
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_STORE_LAUNCH_RECOVERY__?:()=>void
   }).__UNTAMED_STORE_LAUNCH_RECOVERY__?.());
+  // The mock changes a native snapshot: explicitly refresh the parent data
+  // rather than expecting a hidden in-memory fixture to trigger React state.
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   const map=page.locator(".premium-map-line.is-local").filter({hasText:"Aberration"});
   await expect(map).toBeVisible();
