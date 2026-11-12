@@ -183,30 +183,76 @@ public static class LocalRunningAsaDiscovery
     internal static IReadOnlyList<Sample> ReadSamples()
     {
         var samples=new List<Sample>();
-        using var query=new ManagementObjectSearcher(
-            "SELECT ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine FROM Win32_Process");
-        using var rows=query.Get();
-        foreach(ManagementObject item in rows)
+        // Narrow WQL filter: never enumerate unrelated processes, usernames
+        // or shell commands. A failure in one WMI process row must not hide
+        // another ASA/Loader PID.
+        try
         {
-            string name=Convert.ToString(item["Name"])??"";
-            if(!name.Equals("ArkAscendedServer.exe",StringComparison.OrdinalIgnoreCase)&&
-               !name.Equals("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase))
-                continue;
-            int pid=Convert.ToInt32(item["ProcessId"]);
-            if(pid<=0)continue;
-            DateTimeOffset? started=null;
-            try
+            using var query=new ManagementObjectSearcher(
+                "SELECT ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine "+
+                "FROM Win32_Process WHERE Name='ArkAscendedServer.exe' "+
+                "OR Name='AsaApiLoader.exe'");
+            using var rows=query.Get();
+            foreach(ManagementObject item in rows)
             {
-                using var process=Process.GetProcessById(pid);
-                if(!process.HasExited)
-                    started=new DateTimeOffset(process.StartTime.ToUniversalTime());
+                try
+                {
+                    string name=Convert.ToString(item["Name"])??"";
+                    if(!name.Equals("ArkAscendedServer.exe",StringComparison.OrdinalIgnoreCase)&&
+                       !name.Equals("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    int pid=Convert.ToInt32(item["ProcessId"]);
+                    if(pid<=0)continue;
+                    DateTimeOffset? started=null;
+                    try
+                    {
+                        using var process=Process.GetProcessById(pid);
+                        if(!process.HasExited)
+                            started=new DateTimeOffset(process.StartTime.ToUniversalTime());
+                    }
+                    catch(Exception) { /* identity remains unverified */ }
+                    samples.Add(new Sample(pid,Convert.ToInt32(item["ParentProcessId"]),
+                        started,name,Convert.ToString(item["ExecutablePath"]),
+                        Convert.ToString(item["CommandLine"])));
+                }
+                catch(Exception)
+                {
+                    // Next ASA process may be accessible. Do not convert one
+                    // unreadable Win32_Process row into "no servers running".
+                }
             }
-            catch(Exception) { /* an unreadable identity stays unverified */ }
-            samples.Add(new Sample(pid,Convert.ToInt32(item["ParentProcessId"]),
-                started,name,Convert.ToString(item["ExecutablePath"]),
-                Convert.ToString(item["CommandLine"])));
         }
-        return samples;
+        catch(Exception)
+        {
+            // A denied or temporarily unhealthy WMI provider must not erase
+            // every visible ASA process: PID-only enumeration below remains
+            // read-only, with no process ownership / RCON authorization.
+        }
+        var known=samples.Select(x=>x.Pid).ToHashSet();
+        foreach(var name in new[]{"ArkAscendedServer","AsaApiLoader"})
+        {
+            Process[] processes;
+            try{processes=Process.GetProcessesByName(name);}
+            catch(Exception){continue;}
+            foreach(var process in processes)
+            {
+                using(process)
+                {
+                    try
+                    {
+                        if(process.HasExited||!known.Add(process.Id))continue;
+                        DateTimeOffset? started=null;
+                        try{started=new DateTimeOffset(process.StartTime.ToUniversalTime());}
+                        catch(Exception){/* inaccessible PID is still visible */ }
+                        // No WMI ancestry or command-line proof: display only.
+                        // Never let a fallback match become an adopted owner.
+                        samples.Add(new Sample(process.Id,0,started,name+".exe",null,null));
+                    }
+                    catch(Exception){/* process exited while enumerating */ }
+                }
+            }
+        }
+        return samples.OrderBy(x=>x.Pid).ToArray();
     }
 
     public static IReadOnlyList<Observation> Inspect(IEnumerable<LocalMap> maps)=>
