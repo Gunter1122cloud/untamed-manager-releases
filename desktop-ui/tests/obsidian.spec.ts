@@ -68,6 +68,9 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_UPDATE_MALFORMED_METADATA__?:()=>void})
       .__UNTAMED_UPDATE_MALFORMED_METADATA__=()=>{updateMetadataMalformed=true;};
     let updatePreparedCount=0;
+    let updateCheckCount=0;
+    (window as typeof window & {__UNTAMED_UPDATE_CHECK_COUNT__?:()=>number})
+      .__UNTAMED_UPDATE_CHECK_COUNT__=()=>updateCheckCount;
     (window as typeof window & {
       __UNTAMED_UPDATE_RELEASE_CHANGED__?:()=>void;
       __UNTAMED_UPDATE_PREPARED_COUNT__?:()=>number;
@@ -112,9 +115,6 @@ test.beforeEach(async ({ page }) => {
     let steamUpdateStarted = false;
     let steamBatchApplyCount=0;
     let steamBatchStarted=false;
-    let steamScheduledMap="";
-    let steamScheduledEnabled=false;
-    let steamScheduledMinutes=180;
 
     (window as typeof window & {__UNTAMED_STEAM_BATCH_APPLIES__?:()=>number})
       .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
@@ -349,6 +349,21 @@ test.beforeEach(async ({ page }) => {
         } as typeof state.local.maps[number]);
     }
     let rconAllowed=false;
+    let dashboardPlayerListFixture=false;
+    let dashboardSecondPlayerListUnavailable=false;
+    (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?:()=>void})
+      .__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__=()=>{
+        dashboardPlayerListFixture=true;
+        dashboardSecondPlayerListUnavailable=true;
+        Object.assign(state.local.maps[0],{rconConfigured:true,running:true});
+        Object.assign(state.local.maps[1],{rconConfigured:true,running:true});
+      };
+    (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS__?:()=>void})
+      .__UNTAMED_DASHBOARD_PLAYERS__=()=>{
+        dashboardPlayerListFixture=true;
+        Object.assign(state.local.maps[0],{rconConfigured:true,running:true});
+        Object.assign(state.local.maps[1],{rconConfigured:true,running:true});
+      };
     (window as typeof window & {__UNTAMED_RCON_ENABLE__?:()=>void})
       .__UNTAMED_RCON_ENABLE__=()=>{rconAllowed=true;};
     const pluginJsonToken="00000000-0000-4000-8000-000000001262";
@@ -372,6 +387,8 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
+    const missingGameToken="00000000-0000-4000-8000-000000003334";
+    let missingGameCreated=false;
     const nativeSchedules:Record<string,any[]>={};
     const opsJobId="00000000-0000-4000-8000-000000009988";
     let opsJobCreated=false;
@@ -654,7 +671,25 @@ test.beforeEach(async ({ page }) => {
             evidence:"LOCAL_VERIFIED_READ_ONLY_RCON"
           };
         case "rcon.listPlayers":
-          throw new Error("Only verified local process/port can query players");
+          if(!dashboardPlayerListFixture)
+            throw new Error("Only verified local process/port can query players");
+          if(m.mapId===one)return {
+            mapId:one,mapName:"The Island",response:
+              "1. Alpha, 01139694fbcc481b8a11f4d6ea667bd2\n"+
+              "2. Beta, 01139694fbcc481b8a11f4d6ea667bd3",
+            observedUtc:"2026-11-11T18:00:00Z",readOnly:true,
+            saveCompleteProven:false,evidence:"LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS"
+          };
+          if(m.mapId===two){
+            if(dashboardSecondPlayerListUnavailable)
+              throw new Error("Synthetic RCON not available on second map");
+            return {
+            mapId:two,mapName:"Astraeos",response:"No Players Connected",
+            observedUtc:"2026-11-11T18:00:00Z",readOnly:true,
+            saveCompleteProven:false,evidence:"LOCAL_VERIFIED_READ_ONLY_LISTPLAYERS"
+          };
+          }
+          throw new Error("Unknown player-list map");
         case "backup.history": return {
           mapId:m.mapId,
           mapName:m.mapId===two?"Astraeos":"The Island",
@@ -752,7 +787,9 @@ test.beforeEach(async ({ page }) => {
           installationPermitted:false,updaterVerified:false,
           evidence:"LOCAL_RELEASE_IDENTITY_NO_NETWORK"
         };
-        case "updates.check": return {
+        case "updates.check":
+          updateCheckCount++;
+          return {
           repository:"Gunter1122cloud/untamed-manager-releases",
           runningVersion:"2.0.0.0",installedTag:"v2.0.0-obsidian-preview.1478",
           channel:m.channel??"stable",found:true,newer:true,
@@ -1471,6 +1508,13 @@ test.beforeEach(async ({ page }) => {
           if(m.token!=="00000000-0000-4000-8000-000000007147"||m.confirm!==true)
             throw new Error("UM-LIVE-APPROVAL-REQUIRED");
           importedObserved=true;
+          state.local.maps.push({
+            id:"00000000-0000-4000-8000-000000007148",
+            name:"Ragnarok",running:false,
+            observedReadOnlyImported:true,storeProtected:false,
+            gamePort:7827,status:"Megfigyelt futó ASA",
+            steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"
+          } as typeof state.local.maps[number]);
           return {mapId:"00000000-0000-4000-8000-000000007148",
             mapName:"Ragnarok",mapKey:"Ragnarok_WP",pid:4443,
             readOnly:true,lifecycleAuthorized:false,storeWriterAuthorized:false,
@@ -1494,6 +1538,11 @@ test.beforeEach(async ({ page }) => {
              m.confirm!==true||m.externalControllerStopped!==true)
             throw new Error("UM-ADOPT-EXPLICIT-APPROVAL-REQUIRED");
           adoptedObserved=true;
+          Object.assign(state.local.maps.find(map=>
+            map.id==="00000000-0000-4000-8000-000000007148"),{
+            running:true,observedReadOnlyImported:false,
+            status:"Fut · helyi natív vezérlés"
+          });
           return {mapId:"00000000-0000-4000-8000-000000007148",
             mapName:"Ragnarok",pid:4443,lifecycleAuthorized:true,
             storeWriterAuthorized:false,rconRequiresSeparateConfiguration:true,
@@ -1593,7 +1642,7 @@ test.beforeEach(async ({ page }) => {
         }
         case "operations.scheduleCreate": {
           if(!m.confirm || !state.local.maps.some(x=>x.id===m.mapId)||
-             !["Observation","ModCheck","ApiCheck","SteamCheck"].includes(m.kind??"")||
+             !["Observation","ModCheck","ApiCheck"].includes(m.kind??"")||
              !m.intervalMinutes || m.intervalMinutes<5 || m.intervalMinutes>10080 ||
              opsJobEnabled)throw new Error("UM-OPS-SCHEDULE-DENIED");
           opsJobCreated=true;opsJobEnabled=true;
@@ -1916,7 +1965,28 @@ test.beforeEach(async ({ page }) => {
             movedCount:pending.preview.moves.length,appliedUtc:"2026-11-08T00:00:02Z"};
         }
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
-        case "ini.open": return {token:iniToken,mapId:one,file:m.file||"Game.ini",content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
+        case "ini.open":
+          if(["missingGameIni","missingGameIniStore"].includes(
+              new URLSearchParams(window.location.search).get("fixture")??"") &&
+             m.file==="Game.ini"&&!missingGameCreated)
+            throw new Error("UM-INI-GAME-MISSING");
+          return {token:iniToken,mapId:one,file:m.file||"Game.ini",
+            content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",
+            sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
+        case "ini.createGamePreview":
+          if(new URLSearchParams(window.location.search).get("fixture")==="missingGameIniStore")
+            throw new Error("UM-INI-CREATE-SHARED-STORE");
+          if(missingGameCreated)throw new Error("UM-INI-GAME-ALREADY-EXISTS");
+          return {token:missingGameToken,mapId:m.mapId,file:"Game.ini",createsFile:false,
+            requiresStoppedProcess:true,originalStoreTouched:false,
+            evidence:"FRESH_GAME_INI_CREATE_PREVIEW_NO_WRITE"};
+        case "ini.createGameApply":
+          if(m.token!==missingGameToken||m.confirm!==true||missingGameCreated)
+            throw new Error("UM-INI-CREATE-EXPLICIT-APPROVAL");
+          missingGameCreated=true;
+          return {mapId:one,file:"Game.ini",created:true,bytes:38,
+            originalStoreTouched:false,
+            evidence:"FRESH_GAME_INI_DURABLE_CREATE_NEW_VERIFIED"};
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
         case "ini.save": return {saved:true,backupCreated:true,sha256:"FFEE11",evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
         case "ini.close": return {closed:true};
@@ -2155,7 +2225,7 @@ test.beforeEach(async ({ page }) => {
         case "servers.freshReadiness": return {
           mapId:m.mapId,mapName:"Astraeos",stage:"RconAuthenticated",
           observedUtc:"2026-11-06T11:00:00Z",loaderObserved:false,
-          apiInitialized:false,joinAdvertised:false,
+          apiRequired:false,apiInitialized:false,joinAdvertised:false,
           rconAuthenticated:true,productionReady:false,
           description:"Synthetic test only: RCON authenticated; game join unverified",
           storeTouched:false,
@@ -2292,43 +2362,16 @@ test.beforeEach(async ({ page }) => {
             serverStopRequested:false,remoteHostTouched:false,
             storeWriterTouched:false,automaticRetry:false};
         case "steam.scheduleStatus": return {
-          hostId:state.local.hostId,runnerState:"active",
-          schedules:steamScheduledMap?[{
-            mapId:steamScheduledMap,
-            mapName:state.local.maps.find(x=>x.id===steamScheduledMap)?.name??"Unknown",
-            intervalMinutes:steamScheduledMinutes,enabled:steamScheduledEnabled,
-            nextDueUtc:"2026-11-11T19:00:00Z",lastAttemptUtc:null,
-            lastStatus:steamScheduledEnabled?"scheduled":"disabled-by-operator",
-            oldBuild:null,newBuild:null
-          }]:[],
+          hostId:state.local.hostId,runnerState:"manual-only",
+          schedules:[],
           runningMapAutoStop:false,runningMapAutoRestart:false,
           storeWriterTouched:false,remoteHostUpdate:false,
-          evidence:"DURABLE_OPT_IN_STOPPED_ONLY_STEAMCMD"
+          evidence:"MANUAL_ONLY_STEAMCMD_NO_SCHEDULED_EXECUTION"
         };
         case "steam.scheduleSet":
-        case "steam.scheduleDisable": {
-          const map=state.local.maps.find(x=>x.id===m.mapId);
-          if(!map||map.running||map.storeProtected)
-            throw new Error("UM-STEAM-SCHEDULE-NOT-ELIGIBLE");
-          if(m.confirm!==true ||
-             m.typedApproval!=="AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS")
-            throw new Error("UM-STEAM-SCHEDULE-APPROVAL");
-          if(m.method==="steam.scheduleSet") {
-            if(!Number.isInteger(m.intervalMinutes)||
-               m.intervalMinutes<60||m.intervalMinutes>10080)
-              throw new Error("UM-STEAM-SCHEDULE-INTERVAL");
-            steamScheduledMinutes=m.intervalMinutes;
-            steamScheduledEnabled=true;
-          } else steamScheduledEnabled=false;
-          steamScheduledMap=m.mapId;
-          return {mapId:m.mapId,enabled:steamScheduledEnabled,
-            intervalMinutes:steamScheduledMinutes,
-            nextDueUtc:"2026-11-11T19:00:00Z",
-            lastStatus:steamScheduledEnabled?"scheduled":"disabled-by-operator",
-            autoStopRunning:false,autoRestartRunning:false,
-            storeWriterTouched:false,
-            evidence:"EXPLICIT_LOCAL_STOPPED_ONLY_SCHEDULE_CHANGE"};
-        }
+          throw new Error("UM-STEAM-SCHEDULE-MANUAL-ONLY");
+        case "steam.scheduleDisable":
+          throw new Error("UM-SCHEDULED-STEAM-MISSING");
         case "steam.publishedBuild": return {
           mapId:m.mapId,mapName:"Astraeos",
           installedBuild:"123456",availableBuild:"123457",
@@ -2463,6 +2506,9 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"||
                   e.message==="UM-UPDATE-CHECK-REQUIRED"||
                   e.message==="UM-UPDATE-CHECK-STALE"||
+                  e.message==="UM-INI-GAME-MISSING"||
+                  e.message==="UM-INI-CREATE-SHARED-STORE"||
+                  e.message==="UM-INI-CONFIG-DIRECTORY-MISSING"||
                   e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-"))
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
@@ -2535,6 +2581,7 @@ test("read-only operations scheduler requires approval, shows durable receipt an
   await expect(page.getByRole("combobox",{name:"Ütemezett ellenőrzés mapja"})).toHaveCount(0);
   await expect(page.locator(".ops-scheduler-map")).toContainText("The Island");
   await expect(add).toBeDisabled();
+  await expect(page.getByRole("combobox",{name:"Csak olvasó ellenőrzés típusa"}).getByRole("option",{name:/Steam/i})).toHaveCount(0);
   await page.getByRole("combobox",{name:"Csak olvasó ellenőrzés típusa"}).selectOption("Observation");
   await page.getByRole("spinbutton",{name:"Ellenőrzési időköz percben"}).fill("5");
   await expect(add).toBeDisabled();
@@ -2582,13 +2629,43 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
   await restart.getByRole("checkbox",{name:/Kifejezetten jóváhagyom/}).check();
   await restart.getByRole("button",{name:"Ütemezés mentése"}).click();
   await expect(restart.getByText("Bekapcsolva")).toBeVisible();
-  await expect(panel.getByText(/Automatikus SteamCMD-frissítés még nem engedélyezett/)).toBeVisible();
+  await expect(panel.getByText(/Automatikus SteamCMD-frissítés nem engedélyezett/)).toBeVisible();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.getByLabel("Fő navigáció").getByRole("button",{name:"Üzemeltetés",exact:true}).click();
   const row=page.locator(".ops-compact-table tbody tr").nth(1);
   await expect(row).toContainText("Astraeos");
   await expect(row).toContainText(/SaveWorld|Újraindítás/);
   await expect(page.locator(".ops-summary")).toContainText("Natív ASA feladat");
+});
+
+
+test("dashboard shows authenticated per-map ASA players and zero without inventing peer counts",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.evaluate(()=>
+    (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS__?:()=>void})
+      .__UNTAMED_DASHBOARD_PLAYERS__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  const rows=page.locator(".premium-server-row");
+  await expect(rows.filter({hasText:"The Island"}).locator(".premium-server-players")).toHaveText("2");
+  await expect(rows.filter({hasText:"Astraeos"}).locator(".premium-server-players")).toHaveText("0");
+  await expect(rows.filter({hasText:"Ragnarok"}).locator(".premium-server-players")).toHaveText("—");
+  await expect(page.locator(".premium-metric").filter({hasText:"Játékosok"}).locator("strong")).toHaveText("2");
+});
+
+
+test("dashboard marks incomplete local player data as a lower bound",async({page})=>{
+  await page.setViewportSize({width:1600,height:900});
+  await page.goto("/");
+  await page.evaluate(()=>
+    (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?:()=>void})
+      .__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  const rows=page.locator(".premium-server-row");
+  await expect(rows.filter({hasText:"The Island"}).locator(".premium-server-players")).toHaveText("2");
+  await expect(rows.filter({hasText:"Astraeos"}).locator(".premium-server-players")).toHaveText("—");
+  await expect(page.locator(".premium-metric").filter({hasText:"Játékosok"})).toContainText("2+");
+  await expect(page.locator(".premium-metric").filter({hasText:"Játékosok"})).toContainText("Részleges helyi adat: 1/2 map");
 });
 
 test("original Store physical UNC probe is explicit and never grants transfer or restore rights",async({page})=>{
@@ -3135,11 +3212,19 @@ test("Update Center verifies Obsidian-only installer and requires explicit two-s
   await page.goto("/");
   await page.getByRole("button",{name:"Frissítések"}).click();
   await expect(page.getByRole("heading",{name:"Frissítési központ"})).toBeVisible();
+  await expect(page.getByText("Frissítési mód")).toBeVisible();
+  await expect(page.getByText(/Kizárólag kézi indítás/)).toBeVisible();
+  await expect(page.getByText("Automatikus telepítés")).toHaveCount(0);
   await expect(page.getByText("2.0.0 Preview")).toBeVisible();
   await expect(page.getByText("Build #1478")).toBeVisible();
   await expect(page.getByText(/egyetlen támogatott kiadási ág/)).toBeVisible();
   await expect(page.getByRole("combobox",{name:"Frissítési csatorna"})).toHaveCount(0);
+  const checkCount=async()=>page.evaluate(()=>(
+    window as typeof window & {__UNTAMED_UPDATE_CHECK_COUNT__?:()=>number}
+  ).__UNTAMED_UPDATE_CHECK_COUNT__?.()??-1);
+  expect(await checkCount()).toBe(0); // startup + opening page are read-only local status
   await page.getByRole("button",{name:"Frissítések keresése"}).click();
+  expect(await checkCount()).toBe(1); // only explicit operator click hits GitHub release check
   await expect(page.getByText("Új kiadás érhető el")).toBeVisible();
   await expect(page.getByText("9.0.0 Preview")).toBeVisible();
   await expect(page.getByText("Untamed_Obsidian_Desktop_Preview_Setup.exe")).toBeVisible();
@@ -3451,6 +3536,36 @@ test("P0 native non-Store live ASA takeover requires explicit approval and prese
   await apply.click();
   await expect(handoff).toHaveCount(0);
   await expect(panel.getByLabel("Futó ASA vezérlés átvétele PID 4442")).toHaveCount(0);
+  // Ownership handoff must refresh the PARENT server registry, not merely
+  // the WMI candidate panel. The user can now open real management actions.
+  const adopted=page.locator(".premium-map-line.is-local").filter({hasText:"Ragnarok"});
+  await expect(adopted).toBeVisible();
+  await adopted.click();
+  await expect(page.getByRole("region",{name:"Megfigyelési map adatlapja"})).toHaveCount(0);
+  await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
+  await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
+  await expect(page.getByRole("tab",{name:"RCON / Konzol"})).toBeVisible();
+});
+
+test("adopting an observed live map opens actual lifecycle UI without navigating away",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const processes=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
+  const registration=processes.getByLabel("Futó ASA regisztrálása PID 4443");
+  await registration.getByRole("button",{name:"Regisztráció ellenőrzése"}).click();
+  await registration.getByRole("button",{name:"Regisztrálás · csak Manager"}).click();
+  const observed=page.locator(".premium-map-line.is-local").filter({hasText:"Ragnarok"});
+  await expect(observed).toBeVisible();
+  await observed.click();
+  await expect(page.getByRole("region",{name:"Megfigyelési map adatlapja"})).toBeVisible();
+  const takeover=page.getByLabel("Futó ASA vezérlés átvétele PID 4443");
+  await takeover.getByRole("button",{name:"Vezérlés átvételének ellenőrzése"}).click();
+  await takeover.getByLabel("Natív vezérlésátvétel előnézet").getByRole("checkbox").check();
+  await takeover.getByRole("button",{name:"Vezérlés átvétele – natív ellenőrzéssel"}).click();
+  await expect(page.getByRole("region",{name:"Megfigyelési map adatlapja"})).toHaveCount(0);
+  await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeEnabled();
+  await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
 });
 
 test("P0 original live Store method denial is identified as native dispatch/build mismatch, never Kova process proof failure",async({page})=>{
@@ -3961,6 +4076,40 @@ test("INI editor requires explicit open, preview and save in test contract",asyn
   await page.screenshot({path:"test-results/ini-preview-1366.png",fullPage:true});
   await page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}).click();
   await expect(page.getByText(/visszaállítási \.bak másolattal/)).toBeVisible();
+});
+
+test("missing Game.ini requires two explicit user actions before opening the native ETag editor",async({page})=>{
+  await page.setViewportSize({width:940,height:620});
+  await page.goto("/?fixture=missingGameIni");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  const create=page.getByRole("region",{name:"Hiányzó Game.ini létrehozása"});
+  await expect(create).toBeVisible();
+  await expect(create.getByRole("button",{name:"Game.ini létrehozása és megnyitása"}))
+    .toHaveCount(0);
+  await create.getByRole("button",{name:"Game.ini létrehozásának előnézete"}).click();
+  const apply=create.getByRole("button",{name:"Game.ini létrehozása és megnyitása"});
+  await expect(apply).toBeDisabled();
+  await create.getByRole("checkbox").check();
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(page.getByRole("textbox",{name:"Az eredeti fájl szerkeszthető tartalma"}))
+    .toBeVisible();
+  await expect(page.getByText(/hiányzó Game.ini kizárólag ezen/)).toBeVisible();
+  await expect(create).toHaveCount(0);
+});
+
+test("historical Store sibling prevents missing Game.ini creation with useful visible error",async({page})=>{
+  await page.setViewportSize({width:940,height:620});
+  await page.goto("/?fixture=missingGameIniStore");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  const region=page.getByRole("region",{name:"Hiányzó Game.ini létrehozása"});
+  await expect(region).toBeVisible();
+  await region.getByRole("button",{name:"Game.ini létrehozásának előnézete"}).click();
+  await expect(page.getByRole("alert")).toContainText("történeti Kova/Store-v1 map");
+  await expect(region.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.getByRole("textbox",{name:"Az eredeti fájl szerkeszthető tartalma"})).toHaveCount(0);
 });
 
 test("720px desktop sidebar scroll reaches Settings and INI without clipping", async ({page})=>{
@@ -5574,38 +5723,20 @@ test("real stopped-map SteamCMD update is opt-in and reports verified outcome",a
   await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toHaveCount(0);
 });
 
-test("stopped-only Steam auto-update needs typed opt-in and can be durably disabled",async({page})=>{
+test("SteamCMD schedule is permanently disabled; only separately approved manual update remains",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await page.getByRole("tab",{name:"Frissítés"}).click();
-  const schedule=page.getByRole("region",{
-    name:"Leállított ASA Steam automatikus frissítése"
+  const policy=page.getByRole("region",{
+    name:"Kizárólag kézi ASA SteamCMD frissítés"
   });
-  await expect(schedule).toBeVisible();
-  await expect(schedule).toContainText("Nincs beállítva");
-  await expect(schedule).toContainText("Futó ASA-t nem állít le");
-  const start=schedule.getByRole("button",{
-    name:"Leállított map automatikus frissítése: BE"
-  });
-  await expect(start).toBeDisabled();
-  await schedule.getByRole("spinbutton",{
-    name:"Automatikus SteamCMD ütemezés perc"
-  }).fill("90");
-  const approve=schedule.getByRole("textbox",{
-    name:"Automatikus SteamCMD jóváhagyó szöveg"
-  });
-  await approve.fill("AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS");
-  await expect(start).toBeEnabled();
-  await start.click();
-  await expect(schedule).toContainText("Aktív – következő ellenőrzés");
-  await expect(schedule).toContainText("scheduled");
-  const disable=schedule.getByRole("button",{name:"Kikapcsolás"});
-  await expect(disable).toBeDisabled();
-  await approve.fill("AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS");
-  await disable.click();
-  await expect(schedule).toContainText("Letiltva");
-  await expect(schedule).toContainText("disabled-by-operator");
+  await expect(policy).toBeVisible();
+  await expect(policy).toContainText("Automatikus frissítés: kikapcsolva");
+  await expect(policy).toContainText("kizárólag");
+  await expect(policy.getByRole("textbox")).toHaveCount(0);
+  await expect(policy.getByRole("spinbutton")).toHaveCount(0);
+  await expect(policy.getByRole("button")).toHaveCount(0);
 });
 
 test("SteamCMD monitor reattaches to existing native job after WebView2 reload without another Steam update",async({page})=>{
@@ -5653,7 +5784,9 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await page.getByRole("button",{name:"ASA / RCON készenlét ellenőrzése"}).click();
   await expect(page.getByText("ASA készenléti szint: RconAuthenticated")).toBeVisible();
   await expect(page.getByText("RCON hitelesítve", {exact:true})).toBeVisible();
-  await expect(page.getByText("Még nincs igazolva", {exact:true})).toBeVisible();
+  await expect(page.getByText("Közvetlen ASA mód – Loader nem szükséges", {exact:true})).toBeVisible();
+  await expect(page.getByText("Várakozás vagy hiba – a natív bizonyíték nem teljes", {exact:true})).toBeVisible();
+  await expect(page.getByText(/A szerverhirdetés és RCON még nem bizonyítja/)).toBeVisible();
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
 });
 
@@ -5664,13 +5797,13 @@ test("ASA normal Stop requires approval and never force-kills or claims SaveComp
   await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
   await page.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toBeVisible();
-  await expect(page.getByText(/SaveWorld → új World Save Complete \+ stabil \.ark → DoExit → PID-ellenőrzés/)).toBeVisible();
+  await expect(page.getByText(/SaveWorld → új, stabil \.ark megfigyelése \(SaveComplete naplósor, ha létezik\) → DoExit → PID-ellenőrzés/)).toBeVisible();
   const confirm=page.getByRole("button",{name:"Szerver szabályos leállítása"});
   await expect(confirm).toBeDisabled();
   await page.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await confirm.click();
   await expect(page.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"})).toBeVisible({timeout:12000});
-  await expect(page.locator(".success-inline").filter({hasText:"független lemezmentése nincs igazolva"})).toBeVisible();
+  await expect(page.locator(".success-inline").filter({hasText:"SaveWorld/DoExit lemezmentése nincs igazolva"})).toBeVisible();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
 });
 

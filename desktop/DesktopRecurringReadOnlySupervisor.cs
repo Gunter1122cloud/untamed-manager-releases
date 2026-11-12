@@ -13,16 +13,14 @@ namespace UntamedDesktop;
 /// inspections. The durable Core runner claims each due slot before dispatch,
 /// skips missed slots and never replays a task after Manager restart.
 /// No RCON, SteamCMD app_update, ASA lifecycle, Store writer, SQL, or peer writes.
-/// An explicitly scheduled SteamCheck may run SteamCMD app_info_print only
-/// and persist the comparison to the Manager-local status journal.
+/// Legacy SteamCheck schedules are strictly inert under the manual-only
+/// SteamCMD policy; no background version lookup is allowed.
 /// </summary>
 public sealed class DesktopRecurringReadOnlySupervisor : IDisposable
 {
     private readonly ClusterService cluster;
     private readonly RecurringReadOnlyRunner journal;
     private readonly Func<LocalMap, ProcessCheck> inspect;
-    private readonly Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>> publishedSteam;
-    private readonly SteamBuildStatusStore steamStatus;
     private readonly CancellationTokenSource cancel=new();
     private Task? loop;
     private int started;
@@ -39,10 +37,9 @@ public sealed class DesktopRecurringReadOnlySupervisor : IDisposable
         // or external MariaDB directory. The Core validates fixed disk/link.
         journal=new RecurringReadOnlyRunner(cluster.Store.Root);
         inspect=processInspector??cluster.ObserveLocalProcessesReadOnly;
-        steamStatus=new SteamBuildStatusStore(cluster.Store.Root);
-        publishedSteam=steamPublished??((map,ct)=>AsaSteamBuildCatalog.CheckAsync(
-            cluster.Config.SteamCmdExecutable,map.InstallationPath,"public",
-            TimeSpan.FromSeconds(85),ct));
+        // Keep the legacy injectable constructor contract, but never retain
+        // or invoke an unattended Steam metadata callback.
+        _=steamPublished;
     }
 
     public RecurringJobReceipt[] Recent(int count=30)=>journal.Recent(count);
@@ -52,15 +49,10 @@ public sealed class DesktopRecurringReadOnlySupervisor : IDisposable
     {
         if(Volatile.Read(ref disposed)!=0)
             throw new ObjectDisposedException(nameof(DesktopRecurringReadOnlySupervisor));
-        var schedules=cluster.SnapshotRecurringSchedules();
+        var schedules=cluster.SnapshotRecurringSchedules()
+            .Where(x=>x.Kind!=OperationalTaskKind.SteamCheck).ToArray();
         if(schedules.Length==0)return Array.Empty<RecurringJobReceipt>();
         var maps=cluster.Config.LocalMaps.ToDictionary(m=>m.Id);
-        // Multiple due maps using a single ASA installation share one
-        // authoritative Steam appinfo query in this tick (not an update).
-        // Cache the Task (including a failed result) so two due maps on
-        // one installation never start two appinfo processes in a tick.
-        var publicCache=new Dictionary<string,Task<AsaSteamBuildCheck>>(
-            StringComparer.OrdinalIgnoreCase);
         return journal.Tick(schedules,maps.Keys.ToHashSet(),now,
             job=>!maps.TryGetValue(job.Map,out var map)||map.Maintenance,
             job=>{
@@ -85,67 +77,13 @@ public sealed class DesktopRecurringReadOnlySupervisor : IDisposable
                             throw new InvalidDataException("ASA API file integrity not confirmed");
                         break;
                     case OperationalTaskKind.SteamCheck:
-                    {
-                        // A due SteamCheck now compares *published* and installed
-                        // build IDs. The former local-manifest-only check could
-                        // never report whether an ASA update was available.
-                        var pending=new SteamSerialMaintenanceQueue(
-                            cluster.Store.Root,cluster.Config.LocalHostId).Observe();
-                        if(pending!=null && pending.Phase is
-                           (SteamQueuePhase.Prepared or SteamQueuePhase.MapInProgress or
-                            SteamQueuePhase.NeedsOperator))
-                            throw new InvalidOperationException(
-                                "UM-STEAM-READONLY-CHECK-BLOCKED-BY-UPDATE");
-                        new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
-                        string root=Path.TrimEndingDirectorySeparator(
-                            Path.GetFullPath(map.InstallationPath));
-                        string? installed=AsaSteamBuildCatalog.InstalledBuild(root);
-                        if(string.IsNullOrWhiteSpace(installed))
-                            throw new InvalidDataException("Installed Steam Build ID unknown");
-                        if(!publicCache.TryGetValue(root,out var query))
-                        {
-                            using var deadline=CancellationTokenSource.CreateLinkedTokenSource(
-                                cancel.Token);
-                            deadline.CancelAfter(TimeSpan.FromSeconds(90));
-                            try
-                            { query=publishedSteam(map,deadline.Token); }
-                            catch(Exception ex)
-                            { query=Task.FromException<AsaSteamBuildCheck>(ex); }
-                            query??=Task.FromException<AsaSteamBuildCheck>(
-                                new InvalidDataException("Missing Steam metadata task"));
-                            publicCache.Add(root,query);
-                            // The query is fully awaited before disposing the
-                            // linked cancellation source.
-                            var checkedReport=query.GetAwaiter().GetResult();
-                            ValidateAndPersist(root,installed,map,checkedReport);
-                            break;
-                        }
-                        var report=query.GetAwaiter().GetResult();
-                        ValidateAndPersist(root,installed,map,report);
-                        break;
-                    }
+                        // Defense in depth if the projection filter changes:
+                        // never call SteamCMD from the recurring supervisor.
+                        throw new InvalidOperationException("UM-STEAM-CHECK-MANUAL-ONLY");
                     default:
                         throw new UnauthorizedAccessException("Autonomous lifecycle operation forbidden");
                 }
             });
-    }
-
-    private void ValidateAndPersist(string root,string installed,LocalMap map,
-        AsaSteamBuildCheck report)
-    {
-                        if(report==null || report.Branch!="public" ||
-                           !string.Equals(root,Path.TrimEndingDirectorySeparator(
-                               Path.GetFullPath(report.InstallationRoot)),
-                               StringComparison.OrdinalIgnoreCase) ||
-                           !string.Equals(installed,report.InstalledBuild,
-                               StringComparison.Ordinal) ||
-                           report.State is not (AsaSteamBuildState.Current or
-                               AsaSteamBuildState.UpdateAvailable) ||
-                           report.CheckedUtc>DateTimeOffset.UtcNow.AddMinutes(1) ||
-                           DateTimeOffset.UtcNow-report.CheckedUtc>TimeSpan.FromMinutes(10))
-                            throw new InvalidDataException(
-                                "UM-STEAM-READONLY-PUBLISHED-BUILD-UNVERIFIED");
-                        steamStatus.SaveCheck(map,report);
     }
 
     public void Start()

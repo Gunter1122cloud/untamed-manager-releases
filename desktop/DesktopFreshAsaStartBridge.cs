@@ -144,6 +144,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                         stage=observed.Stage.ToString(),
                         observedUtc=observed.ObservedUtc,
                         loaderObserved=observed.LoaderObserved,
+                        apiRequired=map.StartWithAsaApi,
                         apiInitialized=observed.ApiInitialized,
                         joinAdvertised=observed.JoinAdvertised,
                         rconAuthenticated=observed.Stage==AsaRuntimeStage.RconAuthenticated,

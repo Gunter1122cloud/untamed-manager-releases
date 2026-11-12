@@ -851,7 +851,15 @@ public sealed partial class ClusterService : IAsyncDisposable
         IsFresh=value.IsFresh,LastSuccessUtc=value.LastSuccessUtc,StateCode=value.StateCode,
         Snapshot=value.Snapshot==null?null:CopyTelemetry(value.Snapshot)
     };
-    public void Save() => Store.Save(Config);
+    public void Save()
+    {
+        Store.Save(Config);
+        // Config mutations (notably live ASA adoption) can change the same
+        // map's ownership and process identity without changing map count.
+        // Never serve the prior observation-only state from a 900ms cache
+        // immediately after a successful native ownership transition.
+        lock(_telemetryGate)_telemetryCache=null;
+    }
 
     private readonly object _recurringScheduleGate=new();
 
@@ -863,9 +871,17 @@ public sealed partial class ClusterService : IAsyncDisposable
     public RecurringSchedule[] SnapshotRecurringSchedules()
     {
         lock(_recurringScheduleGate)
-            return JsonSerializer.Deserialize<RecurringSchedule[]>(
+        {
+            var copy=JsonSerializer.Deserialize<RecurringSchedule[]>(
                 JsonSerializer.Serialize(Config.RecurringSchedules))
                 ??throw new InvalidDataException("Recurring schedule configuration invalid");
+            // A historical SteamCheck may remain Enabled=true in a saved profile.
+            // Project it as inactive for EVERY consumer without rewriting the
+            // owner's configuration or deleting the previous approval record.
+            foreach(var job in copy)
+                if(job.Kind==OperationalTaskKind.SteamCheck)job.Enabled=false;
+            return copy;
+        }
     }
 
     private static bool ReadOnlyScheduleKind(OperationalTaskKind kind)=>
@@ -881,6 +897,8 @@ public sealed partial class ClusterService : IAsyncDisposable
     public RecurringSchedule CreateReadOnlySchedule(Guid mapId,
         OperationalTaskKind kind,int minutes)
     {
+        if(kind==OperationalTaskKind.SteamCheck)
+            throw new InvalidOperationException("UM-STEAM-CHECK-MANUAL-ONLY");
         if(mapId==Guid.Empty||!ReadOnlyScheduleKind(kind)||
            minutes is <5 or >10080)
             throw new InvalidDataException("Invalid read-only schedule specification");

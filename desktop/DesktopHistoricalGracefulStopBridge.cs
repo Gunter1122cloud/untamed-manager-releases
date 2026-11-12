@@ -27,7 +27,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         public string Kind;
         public Job(Guid mapId,string kind){MapId=mapId;Kind=kind;}
         public string State="queued",Step="preflight";
-        public bool ConfirmedStopped,PreExitSaveObserved;
+        public bool ConfirmedStopped,PreExitSaveObserved,PreExitWorldMetadataObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
@@ -83,6 +83,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             {
                 job.ConfirmedStopped=receipt.ConfirmedStopped;
                 job.PreExitSaveObserved=receipt.PreExitSaveLogAndWorldObserved;
+                job.PreExitWorldMetadataObserved=receipt.PreExitWorldMetadataObserved;
             }
         }
     }
@@ -104,6 +105,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             changedUtc=job.ChangedUtc,
             confirmedStopped=job.ConfirmedStopped,
             preExitSaveLogAndWorldObserved=job.PreExitSaveObserved,
+            preExitWorldMetadataObserved=job.PreExitWorldMetadataObserved,
             finalDoExitSaveCertified=false,
             gameClientRejoinVerified=false,
             automaticRetry=false,forceKill=false,storeTouched=false,
@@ -461,7 +463,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                             Update(job,"completed","A régi ASA-folyamat kilépett",receipt);
                         }
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
                         if(approved.Kind=="SaveWorldOnly")
                         {
@@ -476,7 +478,10 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                                 // Prepared/broken journal remains fail-closed.
                             }
                         }
-                        Update(job,"needsOperator","A Store-v1 RCON mentési művelet megszakadt; PID és napló kézi ellenőrzése szükséges");
+                        Update(job,"needsOperator",
+                            "Store-v1 RCON művelet megszakadt ["+
+                            NativeLifecycleFailureCode.From(ex)+
+                            "]; PID és napló kézi ellenőrzése szükséges");
                     }
                 });
                 return Ok(id,new{

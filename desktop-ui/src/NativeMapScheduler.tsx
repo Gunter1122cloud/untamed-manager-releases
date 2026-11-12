@@ -182,7 +182,7 @@ export function NativeMapScheduler({mapId}:{mapId:string}){
     {status&&<p className="native-schedule-foot">
       Ütemezőmotor: {status.runnerState}. Az újraindítás Windows PID-je igazolható,
       de az ASA játékbeli visszacsatlakozás és az operációs rendszer szintű fájlflush külön teszt.
-      Automatikus SteamCMD-frissítés még nem engedélyezett ezen a natív útvonalon.
+      Automatikus SteamCMD-frissítés nem engedélyezett. Csak külön jóváhagyott kézi frissítés futtatható.
     </p>}
   </section>;
 }

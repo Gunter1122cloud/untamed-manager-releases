@@ -89,6 +89,7 @@ var map=new LocalMap{
 };
 cluster.AddMap(map);
 await LocalAsaApiModeTests.Run(root);
+await ManualOnlySteamScheduleTests.Run(root);
  await HistoricalAsaApiModeTests.Run(root);
  SteamProtectedFileCoverageTests.Run(root);
  await HistoricalLocalConfigGuardTests.Run(root);
@@ -929,104 +930,74 @@ try
             "disabled recurring task never runs even after its prior due time");
     }
 
-    // P0 scheduled public Steam build comparison: the original SteamCheck
-    // only opened appmanifest, so it could NEVER detect a public update.
-    // This isolated fixture injects a deterministic appinfo result and
-    // proves that no actual steamcmd.exe, ASA process, RCON or Store runs.
+    // Historical SteamCheck jobs must NEVER query SteamCMD automatically.
+    // Synthetic TEMP-only test retains the exact saved legacy configuration.
     {
         string watchRoot=Path.Combine(root,"p0-scheduled-public-steam-check");
-        string watchInstall=Path.Combine(watchRoot,"single-install");
-        string steamApps=Path.Combine(watchInstall,"steamapps");
+        string install=Path.Combine(watchRoot,"single-install");
+        string steamApps=Path.Combine(install,"steamapps");
         Directory.CreateDirectory(steamApps);
         string acf=Path.Combine(steamApps,"appmanifest_2430930.acf");
         File.WriteAllText(acf,
             "\"AppState\"\n{\n  \"appid\" \"2430930\"\n  \"buildid\" \"123456\"\n}\n");
         byte[] originalManifest=File.ReadAllBytes(acf);
-        await using var watched=new ClusterService("scheduled-public-check",
+        await using var watched=new ClusterService("manual-only-public-check",
             Path.Combine(watchRoot,"manager-profile"),
             _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true));
-        var firstWatched=new LocalMap {
-            Id=Guid.NewGuid(),Name="Public version check A",
-            InstallationPath=watchInstall,
-            ExecutablePath=Path.Combine(watchInstall,"ShooterGame","Binaries",
+        var first=new LocalMap {
+            Id=Guid.NewGuid(),Name="Retired SteamCheck A",
+            InstallationPath=install,
+            ExecutablePath=Path.Combine(install,"ShooterGame","Binaries",
                 "Win64","ArkAscendedServer.exe")
         };
-        var secondWatched=new LocalMap {
-            Id=Guid.NewGuid(),Name="Public version check B",
-            InstallationPath=watchInstall,
-            ExecutablePath=firstWatched.ExecutablePath
+        var second=new LocalMap {
+            Id=Guid.NewGuid(),Name="Retired SteamCheck B",
+            InstallationPath=install,ExecutablePath=first.ExecutablePath
         };
-        watched.AddMap(firstWatched);
-        watched.AddMap(secondWatched);
-        foreach(var target in new[]{firstWatched,secondWatched})
+        watched.AddMap(first);watched.AddMap(second);
+        foreach(var target in new[]{first,second})
             watched.Config.RecurringSchedules.Add(new RecurringSchedule{
                 Id=Guid.NewGuid(),Map=target.Id,Kind=OperationalTaskKind.SteamCheck,
                 Frequency=ScheduleFrequency.IntervalMinutes,IntervalMinutes=5,
                 Enabled=true
             });
         watched.Save();
-        byte[] managerBefore=File.ReadAllBytes(watched.Store.FilePath);
-        int publicQueries=0;
-        using var scheduled=new DesktopRecurringReadOnlySupervisor(watched,
-            _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true),
-            (target,_)=>{
-                publicQueries++;
-                return Task.FromResult(AsaSteamBuildCatalog.Compare(
-                    target.InstallationPath,"public","123456","123457",
-                    DateTimeOffset.UtcNow));
+        byte[] before=File.ReadAllBytes(watched.Store.FilePath);
+        int queries=0;
+        using var recurring=new DesktopRecurringReadOnlySupervisor(watched,
+            _=>new ProcessCheck(false,"synthetic stopped",null,true),
+            (_,_)=>{
+                queries++;
+                throw new InvalidOperationException("Steam appinfo must not run");
             });
-        var baseTime=DateTimeOffset.UtcNow;
-        Check(scheduled.TickOnce(baseTime).Length==0 &&
-              publicQueries==0,
-            "first scheduled Steam check only persists future due time");
-        var verified=scheduled.TickOnce(baseTime.AddMinutes(6));
-        Check(verified.Count(x=>x.Status=="succeeded")==2 &&
-              publicQueries==1,
-            "two map schedules sharing one installation use a single published Steam appinfo comparison");
-        var statuses=new SteamBuildStatusStore(watched.Store.Root);
-        Check(new[]{firstWatched,secondWatched}.All(m=>{
-                var s=statuses.Read(m);
-                return s.State==AsaSteamBuildState.UpdateAvailable &&
-                    s.LocalBuild=="123456" && s.AvailableBuild=="123457" &&
-                    s.LastCheckedUtc.HasValue && !s.LastUpdatedUtc.HasValue;
-            }) &&
-            originalManifest.SequenceEqual(File.ReadAllBytes(acf)) &&
-            managerBefore.SequenceEqual(File.ReadAllBytes(watched.Store.FilePath)),
-            "scheduled public build checks persist true update availability only in Manager profile without touching ASA files/config");
-        Check(scheduled.TickOnce(baseTime.AddMinutes(6)).Length==0 &&
-              publicQueries==1,
-            "claimed Steam check slots cannot be replayed or launch a second appinfo query");
-
-        // A published appinfo result for another local build is not trusted.
-        // A failed shared-root query is cached as a failed receipt, not
-        // silently repeated once per map or persisted as a newer build.
-        int invalidQueries=0;
-        using(var invalid=new DesktopRecurringReadOnlySupervisor(watched,
-            _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true),
-            (target,_)=>{
-                invalidQueries++;
-                return Task.FromResult(AsaSteamBuildCatalog.Compare(
-                    target.InstallationPath,"public","999999","1000000",
-                    DateTimeOffset.UtcNow));
-            }))
-        {
-            var denied=invalid.TickOnce(baseTime.AddMinutes(12));
-            Check(denied.Count(x=>x.Status=="failed-not-retried")==2 &&
-                  invalidQueries==1 &&
-                  new[]{firstWatched,secondWatched}.All(m=>{
-                      var saved=statuses.Read(m);
-                      return saved.LocalBuild=="123456" &&
-                          saved.AvailableBuild=="123457" &&
-                          saved.State==AsaSteamBuildState.UpdateAvailable;
-                  }) &&
-                  originalManifest.SequenceEqual(File.ReadAllBytes(acf)),
-                "mismatched public Steam metadata fails closed once per installation, preserving last verified build evidence");
+        Check(watched.SnapshotRecurringSchedules().Count(x=>
+                 x.Kind==OperationalTaskKind.SteamCheck&&!x.Enabled)==2,
+            "historical SteamCheck records project as inactive without deleting user data");
+        var operations=new DesktopOperationsCenterBridge(watched,recurring);
+        var denied=await Call(operations.HandleAsync,"operations.scheduleCreate",
+            new{mapId=first.Id,kind="SteamCheck",intervalMinutes=60,confirm=true});
+        Check(IsError(denied,"UM-STEAM-CHECK-MANUAL-ONLY"),
+            "native RPC cannot create a scheduled Steam version check");
+        bool coreDenied=false;
+        try{watched.CreateReadOnlySchedule(first.Id,OperationalTaskKind.SteamCheck,60);}
+        catch(InvalidOperationException ex){
+            coreDenied=ex.Message=="UM-STEAM-CHECK-MANUAL-ONLY";
         }
+        Check(coreDenied,"direct Core schedule API also rejects SteamCheck");
+        recurring.Start();
+        Check(recurring.TickOnce(DateTimeOffset.UtcNow.AddDays(30)).Length==0 &&
+              queries==0 && recurring.DueDates().Count==0,
+            "expired SteamCheck cannot launch Steam appinfo from the background worker");
+        var status=await Call(operations.HandleAsync,"operations.snapshot");
+        IsOk(status,"operations status remains accessible without Steam polling");
+        Check(File.ReadAllBytes(acf).SequenceEqual(originalManifest) &&
+              File.ReadAllBytes(watched.Store.FilePath).SequenceEqual(before) &&
+              watched.Config.RecurringSchedules.All(x=>x.Enabled),
+            "manual-only policy preserves original Manager and ASA bytes");
     }
 
-    // P0 scheduled STOPPED-only SteamCMD end-to-end: public build evidence,
-    // durable consent/claim, Core updater invocation and negative Store guard.
-    // This is an isolated Windows TEMP fixture; no real SteamCMD, ASA or RCON.
+    // P0 manual-only SteamCMD: legacy schedules are inert even when due.
+    // No real SteamCMD, ASA, Kova Store, RCON, or background updater.
     {
         string lab=Path.Combine(root,"p0-auto-stopped-steam");
         string install=Path.Combine(lab,"install");
@@ -1034,15 +1005,7 @@ try
             "ArkAscendedServer.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
         File.WriteAllBytes(executable,new byte[]{1,2,3,4,5});
-        string isolatedSteamApps=Path.Combine(install,"steamapps");
-        Directory.CreateDirectory(isolatedSteamApps);
-        string manifest=Path.Combine(isolatedSteamApps,"appmanifest_2430930.acf");
-        static void FakeManifest(string path,string build)=>
-            File.WriteAllText(path,
-                "\"AppState\"\n{\n  \"appid\" \"2430930\"\n  \"buildid\" \""+
-                build+"\"\n}\n");
-        FakeManifest(manifest,"123456");
-        await using var host=new ClusterService("p0-auto-stopped",
+        await using var host=new ClusterService("p0-manual-only-steam",
             Path.Combine(lab,"manager-profile"),
             _=>new ProcessCheck(false,"synthetic confirmed stopped",null,true));
         var target=new LocalMap {
@@ -1052,83 +1015,39 @@ try
         };
         host.AddMap(target);
         int autoRuns=0;
-        string backup=Path.Combine(lab,"verified-fixture-backup");
-        Directory.CreateDirectory(backup);
         using var supervisor=new DesktopScheduledStoppedSteamSupervisor(host,
-            (map,token)=>{
-                token.ThrowIfCancellationRequested();
+            (_,_)=>{
                 autoRuns++;
-                Check(map.Id==target.Id,"scheduled Steam mutation only targets owned local map");
-                FakeManifest(manifest,"123457");
-                return Task.FromResult(new SteamStoppedMapUpdater.Receipt(
-                    map.Id,map.InstallationPath,"123456","123457",backup,
-                    DateTimeOffset.UtcNow,true));
+                throw new InvalidOperationException("Scheduled updater must be inert");
             });
+        supervisor.Start();
         var bridge=new DesktopScheduledStoppedSteamBridge(host,supervisor);
-        Check(supervisor.Snapshot().Length==0 && autoRuns==0,
-            "automatic stopped Steam update is disabled until explicit opt-in");
-        var bad=await Call(bridge.HandleAsync,"steam.scheduleSet",
-            new{mapId=target.Id,intervalMinutes=60,confirm=true,
-                typedApproval="NO"});
-        Check(IsError(bad,"UM-STEAM-SCHEDULE-APPROVAL")&&autoRuns==0,
-            "scheduled Steam update rejects missing typed native consent");
-        var unknown=await Call(bridge.HandleAsync,"steam.scheduleSet",
-            new{mapId=Guid.NewGuid(),intervalMinutes=60,confirm=true,
-                typedApproval="AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS"});
-        Check(IsError(unknown,"UM-STEAM-SCHEDULE-NOT-LOCAL")&&autoRuns==0,
-            "scheduled Steam updater never admits a remote or unknown map");
-        var sibling=new LocalMap {
-            Id=Guid.NewGuid(),Name="Original Store sibling",
-            InstallationPath=install,ExecutablePath=executable,
-            HistoricalMapKey="original-Kova-unchanged"
-        };
-        host.AddMap(sibling);
-        var protectedResult=await Call(bridge.HandleAsync,"steam.scheduleSet",
+        Check(supervisor.RuntimeState=="manual-only" &&
+              supervisor.Snapshot().Length==0 && autoRuns==0,
+            "startup never schedules or dispatches unattended SteamCMD");
+        var denied=await Call(bridge.HandleAsync,"steam.scheduleSet",
             new{mapId=target.Id,intervalMinutes=60,confirm=true,
                 typedApproval="AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS"});
-        Check(!protectedResult.GetProperty("ok").GetBoolean() && autoRuns==0,
-            "a historical Store map sharing the installation blocks automatic scheduling");
-        host.RemoveMap(sibling.Id);
-        var start=DateTimeOffset.UtcNow;
-        var scheduled=supervisor.Configure(target.Id,60,start);
-        Check(scheduled.Enabled&&scheduled.NextDueUtc==start.AddMinutes(60),
-            "explicit scheduled Steam task persists next due timestamp");
-        var noPublished=await supervisor.TickOnceAsync(start.AddMinutes(61));
-        Check(noPublished.Single().LastStatus=="no-fresh-authoritative-update"&&
-              autoRuns==0,
-            "no trusted public Steam metadata means no autonomous SteamCMD update");
-        // The existing read-only build checker is the sole source of truth.
-        var status=new SteamBuildStatusStore(host.Store.Root);
-        status.SaveCheck(target,AsaSteamBuildCatalog.Compare(
-            install,"public","123456","123457",DateTimeOffset.UtcNow));
-        supervisor.Configure(target.Id,60,start);
-        var completed=await supervisor.TickOnceAsync(start.AddMinutes(61));
-        Check(completed.Single().LastStatus=="verified-stopped-install-updated"&&
-              completed.Single().OldBuild=="123456"&&
-              completed.Single().NewBuild=="123457"&&autoRuns==1 &&
-              AsaSteamBuildCatalog.InstalledBuild(install)=="123457",
-            "fresh public metadata triggers exactly one verified stopped-only Core update");
-        var sameSlot=await supervisor.TickOnceAsync(start.AddMinutes(61));
-        Check(autoRuns==1&&sameSlot.Single().LastStatus==
-              "verified-stopped-install-updated",
-            "same durable update slot never replays");
-        using(var reattached=new DesktopScheduledStoppedSteamSupervisor(host,
-            (_,_)=>throw new InvalidOperationException("must not replay")))
-        {
-            Check(reattached.Snapshot().Single().LastStatus==
-                  "verified-stopped-install-updated",
-                "Manager restart reattaches completed Steam schedule receipt");
-            var disabled=await Call(bridge.HandleAsync,"steam.scheduleDisable",
-                new{mapId=target.Id,confirm=true,
-                    typedApproval="AUTOMATIKUS LEÁLLÍTOTT FRISSÍTÉS"});
-            IsOk(disabled,"operator can durably disable autonomous stopped Steam updates");
-            Check(!reattached.Snapshot().Single().Enabled&&autoRuns==1,
-                "disabled scheduled Steam updater stays off across Manager recreation");
+        Check(IsError(denied,"UM-STEAM-SCHEDULE-MANUAL-ONLY")&&autoRuns==0,
+            "old typed consent cannot enable the retired automatic Steam updater");
+        bool refused=false;
+        try{supervisor.Configure(target.Id,60,DateTimeOffset.UtcNow);}
+        catch(InvalidOperationException ex){
+            refused=ex.Message=="UM-STEAM-SCHEDULE-MANUAL-ONLY";
         }
+        Check(refused&&autoRuns==0,
+            "native supervisor rejects even direct Configure calls");
+        var snapshot=await supervisor.TickOnceAsync(DateTimeOffset.UtcNow.AddDays(7));
+        Check(snapshot.Length==0&&autoRuns==0,
+            "direct scheduler TickOnce never invokes an updater");
+        var status=await Call(bridge.HandleAsync,"steam.scheduleStatus");
+        Check(status.GetProperty("ok").GetBoolean() &&
+              status.GetProperty("data").GetProperty("runnerState").GetString()=="manual-only",
+            "UI status truthfully reports manual-only SteamCMD");
         Check(File.ReadAllBytes(executable).SequenceEqual(
-                  new byte[]{1,2,3,4,5})&&
+                  new byte[]{1,2,3,4,5}) &&
               !Directory.Exists(Path.Combine(install,"ShooterGame","Saved")),
-            "scheduled update fixture never touches ASA world/character/Store data");
+            "retired schedule never changes ASA binary, world, profile or Store files");
     }
 
     // Explicit new-ASA schedule engine uses durable local claim records and
@@ -1257,6 +1176,67 @@ try
             Check(IsError(protectedAttempt,"UM-ASA-SCHEDULE-NATIVE-DENIED"),
                 "Store-v1 protection cannot be bypassed by an isolated runner hook");
         }
+        // Force a durable receipt write failure AFTER a synthetic dispatch:
+        // no live ASA binary, port, RCON or protected Store is touched.
+        m1.HistoricalStoreProtected=false;
+        FileStream? journalLock=null;
+        int journalDispatches=0;
+        using(var faulted=new DesktopScheduledAsaOperationsSupervisor(
+            scheduleCluster,rcon,restarter,(id,kind,token)=>{
+                journalDispatches++;
+                journalLock=new FileStream(
+                    Path.Combine(isolated,"native-asa-schedules-v1.json"),
+                    FileMode.Open,FileAccess.Read,FileShare.None);
+                return Task.FromResult("SYNTHETIC_DISPATCH_THEN_JOURNAL_LOCK");
+            },_=>true))
+        {
+            faulted.Disable(m1.Id,"Restart");
+            var next=faulted.Configure(m1.Id,"SaveWorld","Interval",
+                15,180,127).NextDueUtc;
+            bool interrupted=false;
+            try{await faulted.TickOnceAsync(next.AddMinutes(1));}
+            catch(InvalidOperationException ex) when(
+                ex.Message=="UM-ASA-SCHEDULE-JOURNAL-WRITE-NEEDS-OPERATOR")
+            {interrupted=true;}
+            finally{journalLock?.Dispose();}
+            Check(interrupted&&journalDispatches==1&&
+                faulted.RuntimeState=="journal-write-needs-operator",
+                "native scheduler stops on failed durable receipt and exposes operator fault");
+            bool replayDenied=false;
+            try{await faulted.TickOnceAsync(next.AddMinutes(20));}
+            catch(InvalidOperationException ex) when(
+                ex.Message=="UM-ASA-SCHEDULE-OPERATOR-REVIEW-REQUIRED")
+            {replayDenied=true;}
+            Check(replayDenied&&journalDispatches==1,
+                "receipt failure permanently denies further automatic scheduler ticks");
+        }
+    }
+
+    // An adopted running ASA map keeps the same local registry size.
+    // A config save must invalidate the 900ms snapshot immediately or the UI
+    // can show a stale monitoring-only map after successful native handoff.
+    {
+        string directory=Path.Combine(root,"p0-telemetry-invalidation");
+        Directory.CreateDirectory(directory);
+        await using var owner=new ClusterService("p0-telemetry",directory,
+            inspect:_=>new ProcessCheck(false,"SYNTHETIC_STOPPED",null));
+        var changed=new LocalMap {
+            Id=Guid.NewGuid(),Name="Old observed title",
+            InstallationPath=Path.Combine(directory,"server"),
+            ExecutablePath=Path.Combine(directory,"server","ShooterGame",
+                "Binaries","Win64","ArkAscendedServer.exe"),
+            GamePort=47777,QueryPort=47778
+        };
+        owner.Config.LocalMaps.Add(changed);
+        owner.Save();
+        var oldSnapshot=owner.LocalStatus();
+        Check(oldSnapshot.Maps.Single().Name=="Old observed title",
+            "synthetic local host status initially exposes saved map identity");
+        changed.Name="Managed title after adoption";
+        owner.Save();
+        var refreshed=owner.LocalStatus();
+        Check(refreshed.Maps.Single().Name=="Managed title after adoption",
+            "Manager config save instantly refreshes host telemetry without waiting for polling TTL");
     }
 
     // P0 map settings use the original ClusterService.ReplaceMap CAS and
@@ -1568,6 +1548,68 @@ try
             "external INI modification is a distinct ETag conflict and preserves newer bytes");
         Check(File.ReadAllText(iniFile).Contains("EXTERNAL=1"),
             "external change preserved on failed staged save");
+
+        // This test's older INI read fixture intentionally had no server EXE.
+        // A genuinely FRESH install must have its registered ASA binary before
+        // the new create endpoint can be approved. Materialize only synthetic
+        // path bytes; no executable is ever launched by this fixture.
+        bool hadServerExe=File.Exists(map.ExecutablePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(map.ExecutablePath)!);
+        if(!hadServerExe)
+            File.WriteAllText(map.ExecutablePath,
+                "Isolated ASA executable path fixture; NEVER executed");
+        // Missing Game.ini on a new stopped ASA installation is a supported
+        // explicit operation, never an implicit file write on open.
+        File.Delete(iniFile);
+        var historicalIniSibling=new LocalMap{
+            Id=Guid.NewGuid(),Name="Synthetic historical sibling",
+            InstallationPath=installation,
+            HistoricalMapKey="ImportedOldMap_WP"
+        };
+        cluster.AddMap(historicalIniSibling);
+        var sharedDenied=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        Check(IsError(sharedDenied,"UM-INI-CREATE-SHARED-STORE") &&
+              !File.Exists(iniFile),
+            "historical Store sibling returns precise denied code without creating Game.ini");
+        cluster.RemoveMap(historicalIniSibling.Id);
+        var missing=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        Check(IsError(missing,"UM-INI-GAME-MISSING")&&!File.Exists(iniFile),
+            "opening a missing Game.ini never silently creates a file");
+        var creation=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        IsOk(creation,"fresh local Game.ini creation is read-only preflighted");
+        Check(!File.Exists(iniFile) &&
+              !creation.GetProperty("data").GetProperty("createsFile").GetBoolean(),
+            "creation preview leaves installation untouched");
+        string creationToken=creation.GetProperty("data").GetProperty("token").GetString()!;
+        var declinedCreate=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=creationToken,confirm=false});
+        Check(IsError(declinedCreate,"UM-INI-CREATE-EXPLICIT-APPROVAL") &&
+              !File.Exists(iniFile),
+            "missing Game.ini cannot be created without final approval");
+        var createdGame=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=creationToken,confirm=true});
+        IsOk(createdGame,"approved fresh Game.ini created using atomic CreateNew");
+        Check(createdGame.GetProperty("data").GetProperty("created").GetBoolean() &&
+              File.ReadAllText(iniFile).Contains("ShooterGameMode",StringComparison.Ordinal),
+            "native Game.ini creation really writes a valid UTF-8 starter section");
+        byte[] createdOriginal=File.ReadAllBytes(iniFile);
+        var replayCreate=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=creationToken,confirm=true});
+        Check(!replayCreate.GetProperty("ok").GetBoolean() &&
+              createdOriginal.SequenceEqual(File.ReadAllBytes(iniFile)),
+            "consumed create token cannot overwrite the newly created Game.ini");
+        var alreadyExists=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        Check(IsError(alreadyExists,"UM-INI-GAME-ALREADY-EXISTS") &&
+              createdOriginal.SequenceEqual(File.ReadAllBytes(iniFile)),
+            "existing Game.ini returns precise conflict code and cannot be overwritten");
+        var reopened=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        IsOk(reopened,"newly created Game.ini opens in the original ETag editor");
+        if(!hadServerExe)File.Delete(map.ExecutablePath);
     }
 
     // A real existing ASA install may be registered without constructing
@@ -2259,6 +2301,33 @@ try
         finally { File.WriteAllBytes(rconIni,rconOriginal); }
         Check(AsaRconConfigurationEvidence.Matches(fresh),
             "RCON settings remain byte-identical after isolated negative test");
+        // Legacy Kova credentials may include '=' and meaningful whitespace.
+        // A new password generator must never silently trim or replace them.
+        string savedCredential=fresh.RconPasswordProtected;
+        string unusual="  =legacy+secret= with trailing space ";
+        try
+        {
+            string prior=SecureStore.Unprotect(savedCredential);
+            string raw=File.ReadAllText(rconIni);
+            Check(raw.Contains("ServerAdminPassword="+prior,
+                    StringComparison.Ordinal),"legacy password fixture found");
+            File.WriteAllText(rconIni,raw.Replace(
+                "ServerAdminPassword="+prior,
+                "ServerAdminPassword="+unusual,StringComparison.Ordinal));
+            fresh.RconPasswordProtected=SecureStore.Protect(unusual);
+            Check(AsaRconConfigurationEvidence.Matches(fresh),
+                "exact preexisting RCON credential with spaces and equals is preserved");
+            fresh.RconPasswordProtected=SecureStore.Protect(unusual.Trim());
+            Check(!AsaRconConfigurationEvidence.Matches(fresh),
+                "trimming preexisting password cannot silently pass INI parity");
+        }
+        finally
+        {
+            fresh.RconPasswordProtected=savedCredential;
+            File.WriteAllBytes(rconIni,rconOriginal);
+        }
+        Check(AsaRconConfigurationEvidence.Matches(fresh),
+            "historical password parity regression leaves INI and DPAPI state intact");
         int calls=0;
         var localGameBind=new[]{
             new System.Net.IPEndPoint(System.Net.IPAddress.Any,fresh.GamePort)};
@@ -3846,6 +3915,38 @@ try
         Check(!rotatedWitness.CompletionObserved &&
               !rotatedWitness.LogIdentityValid,
             "log truncation or rotation cannot reuse SaveComplete evidence");
+        // Some real ASA builds write the .ark but omit both save log markers.
+        // This may release an operator-approved lifecycle stop, but it NEVER
+        // yields the stricter paired-log SaveComplete certification.
+        string silentLog=Path.Combine(witnessRoot,"absent-log","ShooterGame.log");
+        string silentWorld=Path.Combine(witnessRoot,"silent-world.ark");
+        File.WriteAllText(silentWorld,"SYNTHETIC SILENT WORLD BEFORE");
+        File.SetLastWriteTimeUtc(silentWorld,DateTime.UtcNow.AddSeconds(-30));
+        var silentBoundary=AsaWorldSaveEvidence.BeginFromPaths(Guid.NewGuid(),
+            32655,DateTimeOffset.UtcNow,witnessRoot,silentLog,silentWorld)!;
+        var initiallySilent=await AsaWorldSaveEvidence.ObserveAsync(silentBoundary,()=>true);
+        Check(!initiallySilent.WorldMetadataObserved &&
+              !initiallySilent.CompletionObserved,
+            "missing ASA log alone cannot certify SaveWorld or world metadata");
+        File.AppendAllText(silentWorld," + NEW SAVE");
+        File.SetLastWriteTimeUtc(silentWorld,DateTime.UtcNow.AddSeconds(2));
+        var stableWithoutLog=await AsaWorldSaveEvidence.ObserveAsync(
+            silentBoundary,()=>true);
+        Check(stableWithoutLog.WorldMetadataObserved &&
+              stableWithoutLog.WorldUpdated&&stableWithoutLog.WorldStable &&
+              !stableWithoutLog.CompletionObserved &&
+              !stableWithoutLog.LogIdentityValid &&
+              stableWithoutLog.Stage=="WORLD_UPDATED_STABLE_LOG_MISSING",
+            "changed stable ASA world without log is explicitly weaker lifecycle evidence");
+        var weakWait=await AsaWorldSaveEvidence.WaitAsync(silentBoundary,()=>true,
+            TimeSpan.FromSeconds(5),allowWorldMetadata:true);
+        Check(weakWait.WorldMetadataObserved&&!weakWait.CompletionObserved,
+            "metadata-tolerant SaveWorld wait never fabricates SaveComplete log");
+        var rearmed=AsaWorldSaveEvidence.BeginFromPaths(Guid.NewGuid(),
+            32655,DateTimeOffset.UtcNow,witnessRoot,silentLog,silentWorld)!;
+        var unchanged=await AsaWorldSaveEvidence.ObserveAsync(rearmed,()=>true);
+        Check(!unchanged.WorldMetadataObserved&&!unchanged.CompletionObserved,
+            "previous stable .ark cannot authorize a second SaveWorld without new change");
     }
 
     // Read-only RCON uses an isolated synthetic process identity and injected
@@ -3927,6 +4028,12 @@ try
               Guid.TryParse(rconWatch.GetProperty("watchId").GetString(),out watchId) &&
               watchId!=Guid.Empty,
             "owned SaveWorld dispatch establishes a private new-log witness boundary");
+        var duplicateWhilePending=await Call(rcon.HandleAsync,"rcon.saveWorld",
+            new{mapId=fakeMap.Id,confirm=true});
+        Check(IsError(duplicateWhilePending,"UM-RCON-SAVE-ALREADY-PENDING") &&
+              dispatched==2,
+            "second SaveWorld on same map cannot invalidate an active witness");
+
         var pendingLog=await Call(rcon.HandleAsync,"rcon.saveStatus",new{
             mapId=fakeMap.Id,watchId
         });
@@ -4913,10 +5020,22 @@ try
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectCopy") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectArchive") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.compareArchives") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("dashboard.snapshot") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("servers.runningLocal") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("rcon.listPlayers") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("rcon.gameLog") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("servers.restartStatus") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("historical.restartStatus") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("historical.gracefulStopStatus") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("schedule.nativeStatus") &&
           ObsidianWindow.RequiresGlobalBridgeGate("updates.install") &&
           ObsidianWindow.RequiresGlobalBridgeGate("servers.restartApply") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("servers.gracefulStopApply") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("rcon.saveWorld") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("historical.restartApply") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("schedule.nativeSet") &&
           ObsidianWindow.RequiresGlobalBridgeGate(null),
-        "Obsidian updater staging cannot monopolize global server command gate");
+        "read-only dashboard, RCON and lifecycle status bypass slow UI mutation gate without unlocking any writes");
 
     // Obsidian catalog must never accept a WPF binary even if its release
     // digest, version and GitHub repository are otherwise correct.
@@ -6631,6 +6750,9 @@ try
                   new AsaManualRestartJournal(restartRoot).Observe()?.Phase==
                     AsaRestartPhase.NeedsOperator,
                 "failed Store restart persists NeedsOperator and never fakes a new PID");
+            Check(status.GetProperty("data").GetProperty("step").GetString()!
+                      .Contains("[UM-",StringComparison.Ordinal),
+                "failed Store restart exposes a bounded failure code while retaining NeedsOperator");
         }
         using(var reattached=new DesktopHistoricalRestartBridge(
             restartCluster,RestartProbe,RestartStop,RestartStart))

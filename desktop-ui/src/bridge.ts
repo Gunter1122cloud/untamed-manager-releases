@@ -465,15 +465,17 @@ export type FreshAsaRestartStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   stage:string;oldPid:number;newPid:number;changedUtc:string;
   newProcessRole?:"asaServer"|"loaderParent";
+  newAsaServerPid?:number;apiChildAndRconVerified?:boolean;
   saveCompleteProven:false;readinessCertified:false;
-  preExitSaveEvidenceObserved:boolean;finalDoExitSaveCertified:false;
+  preExitSaveEvidenceObserved:boolean;preExitWorldMetadataObserved?:boolean;
+  finalDoExitSaveCertified:false;
   gameClientRejoinVerified:false;
   killPerformed:false;storeTouched:false;autoRetry:false;
 };
 export type FreshAsaReadiness = {
   mapId:string;mapName:string;
   stage:"Unconfigured"|"ExecutableVerified"|"ProcessVerified"|"RconAuthenticated";
-  observedUtc:string;loaderObserved:boolean;apiInitialized:boolean;
+  observedUtc:string;loaderObserved:boolean;apiRequired:boolean;apiInitialized:boolean;
   joinAdvertised:boolean;rconAuthenticated:boolean;productionReady:boolean;
   description:string;storeTouched:false;
   evidence:"READ_ONLY_LOCAL_ASA_PROCESS_AND_RCON_READINESS";
@@ -503,6 +505,7 @@ export type FreshAsaStopStatus = {
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;confirmedStopped:boolean;
   saveCompleteProven:false;preExitSaveEvidenceObserved:boolean;
+  preExitWorldMetadataObserved?:boolean;
   finalDoExitSaveCertified:false;gameClientRejoinVerified:false;
   killPerformed:false;restartPerformed:false;
   storeTouched:false;
@@ -592,12 +595,12 @@ export type ScheduledStoppedSteamItem = {
 export type ScheduledStoppedSteamOverview = {
   hostId:string;runnerState:string;schedules:ScheduledStoppedSteamItem[];
   runningMapAutoStop:false;runningMapAutoRestart:false;storeWriterTouched:false;
-  remoteHostUpdate:false;evidence:"DURABLE_OPT_IN_STOPPED_ONLY_STEAMCMD";
+  remoteHostUpdate:false;evidence:"MANUAL_ONLY_STEAMCMD_NO_SCHEDULED_EXECUTION";
 };
 export type ScheduledStoppedSteamSaved = {
   mapId:string;enabled:boolean;intervalMinutes:number;nextDueUtc:string;
   lastStatus:string;autoStopRunning:false;autoRestartRunning:false;
-  storeWriterTouched:false;evidence:"EXPLICIT_LOCAL_STOPPED_ONLY_SCHEDULE_CHANGE";
+  storeWriterTouched:false;evidence:"RETIRED_SCHEDULE_DISABLED_WITH_MANUAL_ONLY_POLICY";
 };
 export type RconConfigStatus = {
   mapId:string;mapName:string;rconPort:number;configured:boolean;permitted:boolean;
@@ -641,7 +644,8 @@ export type RconSaveStatus = {
   mapId:string;watchId:string;rconCommandDispatched:true;
   logSavingStarted:boolean;logSaveCompleteObserved:boolean;
   worldFileUpdated:boolean;worldFileStable:boolean;
-  combinedSaveEvidenceObserved:boolean;diskFsyncCertified:false;
+  combinedSaveEvidenceObserved:boolean;worldMetadataObserved?:boolean;
+  diskFsyncCertified:false;
   gameClientRejoinVerified:false;sourceIsLocalAsaLog:true;
   stage:string;evidence:"LOCAL_ASA_POST_DISPATCH_LOG_AND_WORLD_METADATA";
 };
@@ -819,6 +823,16 @@ export type IniPreview = {
 export type IniSaveReceipt = {
   saved: true; backupCreated: boolean; sha256: string;
   evidence: "ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED";
+};
+export type IniGameCreatePreview = {
+  token:string; mapId:string; file:"Game.ini"; createsFile:false;
+  requiresStoppedProcess:true; originalStoreTouched:false;
+  evidence:"FRESH_GAME_INI_CREATE_PREVIEW_NO_WRITE";
+};
+export type IniGameCreateReceipt = {
+  mapId:string; file:"Game.ini";created:true;bytes:number;
+  originalStoreTouched:false;
+  evidence:"FRESH_GAME_INI_DURABLE_CREATE_NEW_VERIFIED";
 };
 
 export type HistoricalLaunchEvidence = {
@@ -1061,6 +1075,7 @@ export type HistoricalRestartStatus = {
   step:string;changedUtc:string;oldPid:number;newPid:number;
   launchMode:"asaApiLoader"|"directAsa";
   oldProcessStopped:boolean;preExitSaveLogAndWorldObserved:boolean;
+  preExitWorldMetadataObserved?:boolean;
   readyCertified:false;gameClientRejoinVerified:false;
   finalDoExitSaveCertified:false;automaticRetry:false;
   forceKill:false;storeTouched:false;
@@ -1127,6 +1142,7 @@ export type HistoricalGracefulStopStatus = {
   jobId:string;kind:"Stop"|"SaveWorldOnly";state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;confirmedStopped:boolean;
   preExitSaveLogAndWorldObserved:boolean;
+  preExitWorldMetadataObserved?:boolean;
   finalDoExitSaveCertified:false;gameClientRejoinVerified:false;
   automaticRetry:false;forceKill:false;storeTouched:false;
   evidence:"ORIGINAL_STORE_V1_REAL_SAVEWORLD_DOEXIT_STATE"|
@@ -1512,6 +1528,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "plugins.jsonOpen" | "plugins.jsonPreview" | "plugins.jsonSave" | "plugins.jsonClose" |
   "cluster.restoreLabPreview" | "cluster.restoreLabApply" | "cluster.restoreLabStatus" |
   "ini.open" | "ini.preview" | "ini.save" | "ini.close" |
+  "ini.createGamePreview" | "ini.createGameApply" |
   "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
   "servers.runningPreview" | "servers.runningRegister" |
   "servers.runningAdoptPreview" | "servers.runningAdoptApply" |
@@ -1973,6 +1990,10 @@ export const managerBridge = {
   offlineRestoreLabStatus: (jobId:string) =>
     request<OfflineAsaRestoreStatus>("cluster.restoreLabStatus",{jobId}),
   iniOpen: (mapId: string, file: IniFile) => request<IniDocument>("ini.open", { mapId, file }),
+  iniCreateGamePreview: (mapId:string) =>
+    request<IniGameCreatePreview>("ini.createGamePreview",{mapId}),
+  iniCreateGameApply: (token:string) =>
+    request<IniGameCreateReceipt>("ini.createGameApply",{token,confirm:true}),
   iniPreview: (token: string, content: string) => request<IniPreview>("ini.preview", { token, content }),
   iniSave: (token: string) => request<IniSaveReceipt>("ini.save", { token }),
   iniClose: (token: string) => request<{closed:true}>("ini.close", { token }),

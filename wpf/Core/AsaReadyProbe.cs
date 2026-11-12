@@ -19,18 +19,22 @@ public enum AsaRuntimeStage
 public sealed record AsaReadinessSnapshot(
     Guid MapId, DateTimeOffset ObservedUtc, AsaRuntimeStage Stage,
     bool LoaderObserved, bool ApiInitialized, bool JoinAdvertised,
-    string Explanation)
+    string Explanation,bool ApiRequired=false)
 {
-    // A successful ListPlayers response does not prove that an ASA client can join.
+    // Runtime-ready means current PID + authenticated RCON + this launch's
+    // join-advertising log. API is required ONLY for opt-in Loader launches.
+    // This does NOT prove that a real player joined or travelled between maps.
     public bool ProductionReady =>
-        Stage == AsaRuntimeStage.RconAuthenticated && ApiInitialized && JoinAdvertised;
+        Stage==AsaRuntimeStage.RconAuthenticated && JoinAdvertised &&
+        (!ApiRequired || ApiInitialized);
 }
 
 public static class AsaReadyProbe
 {
     private static AsaReadinessSnapshot Result(LocalMap map,AsaRuntimeStage stage,
-        string explanation,bool loader=false) =>
-        new(map.Id,DateTimeOffset.UtcNow,stage,loader,false,false,explanation);
+        string explanation,bool loader=false,bool api=false,bool join=false) =>
+        new(map.Id,DateTimeOffset.UtcNow,stage,loader,api,join,explanation,
+            map.StartWithAsaApi);
 
     private static bool Identical(ProcessIdentity? a,ProcessIdentity? b)
     {
@@ -70,10 +74,11 @@ public static class AsaReadyProbe
             if(!Path.GetFullPath(map.ExecutablePath).Equals(expected,StringComparison.OrdinalIgnoreCase)||
                !File.Exists(expected)||(File.GetAttributes(expected)&FileAttributes.ReparsePoint)!=0)
                 return false;
-            // The loader is optional for vanilla ASA; when configured it must
-            // exist as a real local executable, never as a junction/UNC alias.
-            if(!string.IsNullOrWhiteSpace(map.ApiLoaderPath))
+            // Only explicit ASA API launch needs an authenticated loader.
+            // An inactive cached LoaderPath never blocks direct ASA mode.
+            if(map.StartWithAsaApi)
             {
+                if(string.IsNullOrWhiteSpace(map.ApiLoaderPath))return false;
                 string loader=Path.GetFullPath(map.ApiLoaderPath);
                 if(!loader.StartsWith(Path.GetFullPath(map.InstallationPath).TrimEnd(
                     Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar,
@@ -95,9 +100,15 @@ public static class AsaReadyProbe
         System.Collections.Generic.IEnumerable<LocalMap> localMaps)
     {
         if(map==null||localMaps==null)throw new ArgumentNullException(nameof(map));
+        // Game and query endpoints are UDP, even across different port
+        // roles. RCON is TCP and only conflicts with another RCON listener.
+        if(map.GamePort>0 && map.GamePort==map.QueryPort)return true;
         return localMaps.Any(other=>other.Id!=map.Id &&
             ((map.RconPort>0 && other.RconPort==map.RconPort) ||
-             (map.GamePort>0 && other.GamePort==map.GamePort)));
+             (map.GamePort>0 &&
+                (other.GamePort==map.GamePort || other.QueryPort==map.GamePort)) ||
+             (map.QueryPort>0 &&
+                (other.QueryPort==map.QueryPort || other.GamePort==map.QueryPort))));
     }
 
     // A declared command-line port cannot silently disagree with the GUI
@@ -116,9 +127,11 @@ public static class AsaReadyProbe
                 value is <1 or >65535 || value!=configured;
         }
         return Mismatched(map.Arguments,
-                   @"(?:^|[\s?])(?:-)?RCONPort\s*=\s*(?<port>\d+)(?=$|[\s?])",map.RconPort) ||
+                   @"(?:^|[\s?])(?:-)?RCONPort\s*=\s*(?<port>[^\s?]*)(?=$|[\s?])",map.RconPort) ||
                Mismatched(map.Arguments,
-                   @"(?:^|\s)-Port\s*=\s*(?<port>\d+)(?=$|\s)",map.GamePort);
+                   @"(?:^|[\s?])(?:-)?Port\s*=\s*(?<port>[^\s?]*)(?=$|[\s?])",map.GamePort) ||
+               Mismatched(map.Arguments,
+                   @"(?:^|[\s?])(?:-)?QueryPort\s*=\s*(?<port>[^\s?]*)(?=$|[\s?])",map.QueryPort);
     }
 
     public static async Task<AsaReadinessSnapshot> ProbeAsync(ClusterService cluster,
@@ -129,10 +142,10 @@ public static class AsaReadyProbe
             throw new UnauthorizedAccessException("Only a registered local map can be probed");
         if(HasPortConflict(map,cluster.Config.LocalMaps))
             return Result(map,AsaRuntimeStage.Unconfigured,
-                "Conflicting local map/RCON port ownership; readiness probe refused");
+                "Conflicting local UDP game/query or TCP RCON port ownership; readiness probe refused");
         if(DeclaredPortMismatch(map))
             return Result(map,AsaRuntimeStage.Unconfigured,
-                "Launch arguments disagree with configured game or RCON port");
+                "Launch arguments disagree with configured game, query or RCON port");
         return await ObserveAsync(map,()=>cluster.Check(map),
             async ct=>await RconProtocol.Execute(map.RconHost,map.RconPort,
                 SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",ct),
@@ -166,7 +179,7 @@ public static class AsaReadyProbe
            before.Identity.Pid<=0||
            !Matches(before.Identity.ExecutablePath,map.ExecutablePath)||
            !string.Equals(before.Identity.Arguments,map.Arguments,StringComparison.Ordinal)||
-           (string.IsNullOrWhiteSpace(map.ApiLoaderPath)!=(before.LoaderIdentity is null))||
+           (map.StartWithAsaApi!=(before.LoaderIdentity is not null))||
            (before.LoaderIdentity!=null &&
             (before.LoaderIdentity.Pid<=0 ||
              !Matches(before.LoaderIdentity.ExecutablePath,map.ApiLoaderPath)||
@@ -190,9 +203,25 @@ public static class AsaReadyProbe
             if(string.IsNullOrWhiteSpace(response))
                 return Result(map,AsaRuntimeStage.ProcessVerified,
                     "RCON reply was empty; readiness cannot be confirmed",hasLoader);
+            var log=AsaRuntimeLogEvidence.Inspect(map,before.Identity,
+                before.LoaderIdentity);
+            cancellationToken.ThrowIfCancellationRequested();
+            // Reading a large rolling game/API log takes time. The ASA child
+            // or Loader may exit and a PID may be reused AFTER RCON succeeds.
+            // A third independent local OS inspection closes this race.
+            var final=inspect();
+            if(!final.Running||final.ConfirmedStopped||
+               !Identical(before.Identity,final.Identity)||
+               !Identical(before.LoaderIdentity,final.LoaderIdentity))
+                return Result(map,AsaRuntimeStage.ProcessVerified,
+                    "ASA/Loader process changed while confirming runtime logs; readiness refused");
+            bool ready=log.JoinAdvertised &&
+                (!map.StartWithAsaApi||log.ApiInitialized);
             return Result(map,AsaRuntimeStage.RconAuthenticated,
-                "ASA process and local RCON ListPlayers verified; API initialization and client join remain unverified",
-                hasLoader);
+                ready?
+                "ASA PID, RCON and current startup join-advertising log confirmed; live client join/travel remains unverified":
+                "ASA PID and RCON confirmed; current startup join-advertising or required API load still unverified",
+                hasLoader,log.ApiInitialized,log.JoinAdvertised);
         }
         catch(OperationCanceledException) when(cancellationToken.IsCancellationRequested){throw;}
         catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidDataException

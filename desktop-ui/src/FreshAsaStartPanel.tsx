@@ -89,8 +89,17 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       <h3>ASA készenléti szint: {readiness.stage}</h3>
       <div className="details-line"><span>Windows folyamat / RCON</span>
         <b>{readiness.rconAuthenticated?"RCON hitelesítve":"RCON nem igazolt"}</b></div>
-      <div className="details-line"><span>ASA API inicializálás / játékosbelépés</span>
-        <b>{readiness.apiInitialized&&readiness.joinAdvertised?"Igazolt":"Még nincs igazolva"}</b></div>
+      <div className="details-line"><span>ASA API Loader</span>
+        <b>{!readiness.apiRequired?"Közvetlen ASA mód – Loader nem szükséges":
+          !readiness.loaderObserved?"ASA API mód – Loader PID nem igazolt":
+          readiness.apiInitialized?"Inicializálás igazolva":
+            "Loader látható; API inicializálás nem igazolt"}</b></div>
+      <div className="details-line"><span>ASA szerverhirdetés</span>
+        <b>{readiness.joinAdvertised?"Aktuális indítás naplójában igazolt":"Jelenleg nem igazolt"}</b></div>
+      <div className="details-line"><span>ASA / RCON futásra kész</span>
+        <b>{readiness.productionReady?"PID + RCON + szükséges runtime igazolt":
+          "Várakozás vagy hiba – a natív bizonyíték nem teljes"}</b></div>
+      <p className="muted small">A szerverhirdetés és RCON még nem bizonyítja, hogy valódi játékos csatlakozott vagy karakterutazás sikerült.</p>
       <p className="muted small">{readiness.description}</p>
     </div>}
     {preview&&<div className="historical-preview" role="region" aria-label="Valódi ASA indítás jóváhagyása">

@@ -14,6 +14,9 @@ public sealed record AsaGracefulStopReceipt(Guid MapId,int Pid,
     // They do not prove ASA's final DoExit save was fsynced, nor that a
     // character/tribe can actually rejoin after a restore.
     public bool PreExitSaveLogAndWorldObserved {get;init;}
+    // Separate from strict SaveComplete/log certification: a new stable .ark
+    // observed after authenticated SaveWorld is enough for a guarded DoExit.
+    public bool PreExitWorldMetadataObserved {get;init;}
     public bool GameClientRejoinVerified=>false;
 }
 
@@ -32,6 +35,8 @@ public static class AsaGracefulStop
         string.Equals(a.ExecutablePath,b.ExecutablePath,
             StringComparison.OrdinalIgnoreCase) &&
         a.Arguments==b.Arguments;
+    private static bool SameOptional(ProcessIdentity? a,ProcessIdentity? b)=>
+        a==null?b==null:Same(a,b);
 
     public static async Task<AsaGracefulStopReceipt> StopAsync(
         ClusterService cluster,Guid mapId,ProcessIdentity expected,
@@ -66,12 +71,19 @@ public static class AsaGracefulStop
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
         var ct=deadline.Token;
+        var initial=cluster.Check(map);
+        // A Loader-parent is part of the *same* process family; it must not
+        // disappear or get replaced while RCON SaveWorld/DoExit is in flight.
+        if(map.StartWithAsaApi!=(initial.LoaderIdentity!=null))
+            throw new InvalidOperationException("UM-ASA-STOP-LOADER-FAMILY-MISMATCH");
+        var expectedLoader=initial.LoaderIdentity;
         void Verify()
         {
             ct.ThrowIfCancellationRequested();
             var check=cluster.Check(map);
             if(!check.Running||check.ConfirmedStopped||
                !Same(check.Identity,expected)||
+               !SameOptional(check.LoaderIdentity,expectedLoader)||
                !owns(map.RconPort,expected.Pid))
                 throw new InvalidOperationException("ASA PID or RCON listener identity changed");
         }
@@ -90,7 +102,7 @@ public static class AsaGracefulStop
             throw new InvalidOperationException("UM-ASA-STOP-LOCAL-BINARY-CHANGED");
         Verify();
         lease.MarkMutationStarted();
-        bool preExitEvidence=false;
+        bool preExitEvidence=false,worldMetadataEvidence=false;
         if(sendCommands!=null)
             await sendCommands(map,expected,ct).WaitAsync(ct);
         else
@@ -110,12 +122,15 @@ public static class AsaGracefulStop
                 witness,()=>{
                     try{Verify();return true;}
                     catch{return false;}
-                },TimeSpan.FromSeconds(90),ct);
-            if(!observed.CompletionObserved)
+                },TimeSpan.FromSeconds(90),ct,allowWorldMetadata:true);
+            if(!observed.CompletionObserved&&!observed.WorldMetadataObserved)
                 throw new InvalidOperationException(
-                    "UM-ASA-STOP-SAVE-NOT-OBSERVED_NO_DOEXIT");
-            preExitEvidence=true;
-            evidenceStage?.Invoke("ASA World Save Complete + stabil .ark megfigyelve");
+                    "UM-ASA-STOP-SAVE-NOT-OBSERVED_NO_DOEXIT:"+observed.Stage);
+            preExitEvidence=observed.CompletionObserved;
+            worldMetadataEvidence=observed.WorldMetadataObserved;
+            evidenceStage?.Invoke(preExitEvidence
+                ?"ASA SaveComplete napló és stabil .ark megfigyelve"
+                :"ASA .ark változása és stabilizálódása megfigyelve; mentésnapló nem igazolt");
             Verify();
             await RconProtocol.DispatchDoExitAsync(
                 map.RconPort,password,Verify,ct);
@@ -130,9 +145,11 @@ public static class AsaGracefulStop
             if(check.ConfirmedStopped && !check.Running &&
                check.Identity==null&&check.LoaderIdentity==null)
                 break;
-            if(check.Running && !Same(check.Identity,expected))
+            if(check.Running &&
+               (!Same(check.Identity,expected)||
+                !SameOptional(check.LoaderIdentity,expectedLoader)))
                 throw new InvalidOperationException(
-                    "Unexpected replacement ASA process during shutdown");
+                    "Unexpected replacement ASA/Loader process during shutdown");
             await Task.Delay(300,ct);
         }
         evidenceStage?.Invoke("Régi ASA Windows-folyamat kilépése igazolva");
@@ -140,9 +157,12 @@ public static class AsaGracefulStop
         return new(map.Id,expected.Pid,true,false,true,DateTimeOffset.UtcNow,
             preExitEvidence?
               "REAL_LOCAL_PREEXIT_SAVE_LOG_AND_WORLD_VERIFIED_FINAL_EXIT_SAVE_UNVERIFIED":
+            worldMetadataEvidence?
+              "REAL_LOCAL_PREEXIT_WORLD_METADATA_OBSERVED_LOG_UNVERIFIED_FINAL_EXIT_SAVE_UNVERIFIED":
               "ISOLATED_COMMAND_DISPATCH_AND_PROCESS_EXIT_NO_INDEPENDENT_SAVE_WITNESS")
         {
-            PreExitSaveLogAndWorldObserved=preExitEvidence
+            PreExitSaveLogAndWorldObserved=preExitEvidence,
+            PreExitWorldMetadataObserved=worldMetadataEvidence
         };
     }
 }

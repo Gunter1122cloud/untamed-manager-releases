@@ -8,7 +8,7 @@ import {
 import {
   managerBridge, dashboardRemotes, type BackupOverview, type ConfiguredMods, type CurseForgeResult,
   type LogTail, type ModDraftState, type ModDraftSave, type ModDraftMode,
-  type IniFile, type IniDocument, type IniPreview, type LocalImportPreview,
+  type IniFile, type IniDocument, type IniPreview, type IniGameCreatePreview, type LocalImportPreview,
   type SteamInstallations, type SuggestedPorts,
   type CurseForgeCategory, type CurseForgeFeatured, type CurseForgeProject, type CurseForgeFile,
   type PluginInventory, type PluginState, type PluginTogglePreview, type SharedModInventory, type DashboardSnapshot,
@@ -610,7 +610,7 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
     {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap} onImport={()=>setImportMode("existing")}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
     {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}
-    <LocalRunningAsaPanel/>
+    <LocalRunningAsaPanel onRegistered={onImported}/>
     {serverView==="gallery"?<Panel title="Mapkártyák · helyi kezelés / távoli megfigyelés">
       <ClusterMapGallery snapshot={snapshot} query={search} onSelect={onSelect}
         onInstall={openInstall} onImport={()=>setImportMode("existing")}/>
@@ -1342,6 +1342,28 @@ function LogsCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   </div>;
 }
 
+const iniCreateErrorMessages:Record<string,string>={
+  "UM-INI-CREATE-FRESH-ONLY":"A kiválasztott map nem igazoltan új, helyi és Store-v1-től független ASA-telepítés. A történeti adatokhoz nem nyúltunk.",
+  "UM-INI-CREATE-SHARED-STORE":"A telepítést egy történeti Kova/Store-v1 map is használja. Új Game.ini nem hozható létre itt.",
+  "UM-INI-CREATE-ALL-MAPS-STOPPED":"A közös telepítés valamelyik mapja fut vagy leállítása nem igazolt. Előbb ellenőrizd az összes helyi folyamatot.",
+  "UM-INI-GAME-ALREADY-EXISTS":"A Game.ini már létezik. Nyisd meg a meglévő fájlt; a létrehozás nem írta felül.",
+  "UM-INI-CREATE-LINKED-PATH":"A célmappa junction/link útvonalon található. A művelet tiltott.",
+  "UM-INI-CREATE-LINK-CHANGED":"A célmappa linkállapota az előellenőrzés óta megváltozott. A létrehozás leállt.",
+  "UM-INI-CREATE-CONCURRENT-TARGET":"Egy másik művelet létrehozta a Game.ini-t. Nyisd meg újra; nem történt felülírás.",
+  "UM-INI-CREATE-PROFILE-CHANGED":"A map beállításai megváltoztak az előnézet óta. Ellenőrizd újra.",
+  "UM-INI-CREATE-LEASE-CHANGED":"A telepítés vagy a map módosult a zárolás alatt. Indíts új előellenőrzést.",
+  "UM-INI-CREATE-EXPIRED":"Az előnézet jóváhagyása lejárt. Indíts új előellenőrzést.",
+  "UM-INI-CREATE-EXPLICIT-APPROVAL":"A létrehozáshoz új, kifejezett jóváhagyás kell.",
+  "UM-INI-CREATE-SHA-MISMATCH":"A frissen létrehozott fájl tartalma nem egyezik a visszaellenőrzéskor. Kézi fájlellenőrzés szükséges.",
+  "UM-INI-CREATE-FIXED-DISK":"A telepítésnek helyi Windows-lemezen kell lennie.",
+  "UM-INI-MAP-NOT-OWNED":"Ezt a mapot nem a helyi Manager kezeli."
+};
+function describeIniCreateFailure(code:string){
+  return Object.hasOwn(iniCreateErrorMessages,code)?
+    iniCreateErrorMessages[code]:
+    "A natív ellenőrzés nem engedélyezte a létrehozást. Ellenőrizd a map állapotát; nem történt automatikus újrapróbálkozás.";
+}
+
 function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   snapshot: DashboardSnapshot; selected: string; setSelected: (v: string) => void;
   mapLocked?:boolean
@@ -1350,21 +1372,28 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   const [opened, setOpened] = useState<IniDocument | null>(null);
   const [content, setContent] = useState("");
   const [preview, setPreview] = useState<IniPreview | null>(null);
+  const [createPreview,setCreatePreview]=useState<IniGameCreatePreview|null>(null);
+  const [createApproved,setCreateApproved]=useState(false);
+  const [missingGame,setMissingGame]=useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     setOpened(null); setContent(""); setPreview(null);
+    setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
     setNotice(""); setError("");
   }, [selected, file]);
   const load = async () => {
     if (!selected) return;
     setBusy(true); setError(""); setNotice(""); setPreview(null);
+    setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
     try {
       const fresh = await managerBridge.iniOpen(selected, file);
       setOpened(fresh); setContent(fresh.content);
     } catch(e) {
       const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
+      setMissingGame(file==="Game.ini"&&
+        ["UM-INI-GAME-MISSING","UM-INI-CONFIG-DIRECTORY-MISSING"].includes(code));
       const message:Record<string,string>={
         "UM-INI-STOP-REQUIRED":"A map nincs igazoltan leállítva, vagy karbantartás folyik. Az INI-szerkesztés tiltva.",
         "UM-INI-INSTALLATION-MISSING":"A regisztrált ASA telepítési gyökér hiányzik vagy nem helyi útvonal. Ellenőrizd a map regisztrációját.",
@@ -1380,6 +1409,32 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
       };
       setError(message[code]??"A natív INI-ellenőrzés megtagadta a megnyitást ("+code+").");
     } finally { setBusy(false); }
+  };
+  const prepareMissingGame=async()=>{
+    if(!selected||file!=="Game.ini"||busy)return;
+    setBusy(true);setError("");setCreatePreview(null);setCreateApproved(false);
+    try{setCreatePreview(await managerBridge.iniCreateGamePreview(selected));}
+    catch(e){
+      const code=e instanceof Error?e.message:"UM-INI-CREATE-DENIED";
+      setError(describeIniCreateFailure(code));
+    }finally{setBusy(false);}
+  };
+  const applyMissingGame=async()=>{
+    if(!createPreview||!createApproved||createPreview.mapId!==selected||
+       file!=="Game.ini"||busy)return;
+    const token=createPreview.token;
+    setBusy(true);setError("");setCreatePreview(null);setCreateApproved(false);
+    try{
+      const receipt=await managerBridge.iniCreateGameApply(token);
+      if(!receipt.created||receipt.originalStoreTouched)
+        throw new Error("UM-INI-CREATE-RECEIPT-INVALID");
+      const fresh=await managerBridge.iniOpen(selected,"Game.ini");
+      setOpened(fresh);setContent(fresh.content);setMissingGame(false);
+      setNotice("A hiányzó Game.ini kizárólag ezen az igazoltan leállított új mapon jött létre. A fájlt az ETag-védett szerkesztő már megnyitotta.");
+    }catch(e){
+      const code=e instanceof Error?e.message:"UM-INI-CREATE-FAILED";
+      setError(describeIniCreateFailure(code));
+    }finally{setBusy(false);}
   };
   const showPreview = async () => {
     if (!opened) return;
@@ -1431,6 +1486,23 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
     <Panel title={opened ? `Szerkesztés · ${opened.file}` : "Helyi konfiguráció"}
       action={opened && <span className="muted tiny">Kódolás: {opened.encoding} · {opened.bytes.toLocaleString("hu-HU")} byte</span>}>
       {!opened && <div className="empty">Válaszd ki a regisztrált helyi mapot és az INI-fájlt. Megnyitás csak igazolt leállítás esetén lehetséges.</div>}
+      {missingGame && file==="Game.ini"&&!opened&&<section className="historical-preview"
+        role="region" aria-label="Hiányzó Game.ini létrehozása">
+        <h3>Új, még nem létező Game.ini biztonságos létrehozása</h3>
+        <p>Csak új, nem Store-v1-es, helyi és igazoltan leállított szervernél.
+          A már létező Game.ini soha nem írható felül ezzel a művelettel.</p>
+        <button type="button" className="secondary" disabled={busy}
+          onClick={()=>{void prepareMissingGame();}}>Game.ini létrehozásának előnézete</button>
+        {createPreview&&<>
+          <label className="historical-approval">
+            <input type="checkbox" checked={createApproved} disabled={busy}
+              onChange={e=>setCreateApproved(e.target.checked)}/>
+            Jóváhagyom a hiányzó Game.ini létrehozását ezen az új, leállított mapon.
+          </label>
+          <button type="button" className="primary" disabled={!createApproved||busy}
+            onClick={()=>{void applyMissingGame();}}>Game.ini létrehozása és megnyitása</button>
+        </>}
+      </section>}
       {opened && <>
         <label className="ini-editor-label" htmlFor="ini-contents">Az eredeti fájl szerkeszthető tartalma</label>
         <textarea id="ini-contents" className="ini-editor" spellCheck={false} value={content}
@@ -1570,6 +1642,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const [restartJournal,setRestartJournal]=useState<AsaRestartJournalStatus|null>(null);
   const [journalsVerifiedFor,setJournalsVerifiedFor]=useState("");
   const [journalReadError,setJournalReadError]=useState(false);
+  const map=snapshot.local.maps.find(m=>m.id===mapId);
+  const historical=!!map?.storeProtected&&!map?.freshStoreEnrolled;
+  const fresh=!!map&&(!map.storeProtected||!!map.freshStoreEnrolled);
+  const observedOnly=!!map?.observedReadOnlyImported;
   useEffect(()=>{
     setSection("overview");setInitialSetupSaved(false);
     setOriginalRconAction("broadcast");setOpenOriginalStoreEnrollment(false);
@@ -1578,13 +1654,12 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     let active=true;
     setLifecycle(null);setRestartJournal(null);
     setJournalsVerifiedFor("");setJournalReadError(false);
-    const currentMap=snapshot.local.maps.find(m=>m.id===mapId);
-    if(currentMap?.observedReadOnlyImported){
+    if(observedOnly){
       // Observation-only map never needs native lifecycle probes.
       setJournalsVerifiedFor(mapId);
       return ()=>{active=false;};
     }
-    const originalStore=!!currentMap?.storeProtected&&!currentMap?.freshStoreEnrolled;
+    const originalStore=historical;
     Promise.all([
       managerBridge.asaLifecycleJournal(mapId),
       originalStore?Promise.resolve(null):managerBridge.freshAsaRestartCurrent(mapId)
@@ -1597,12 +1672,11 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       if(active)setJournalReadError(true);
     });
     return ()=>{active=false;};
-  },[mapId]);
-  const lifecycleBlocked=journalsVerifiedFor!==mapId||
+  },[mapId,observedOnly,historical]);
+  // An observed map may become actively managed without navigating away.
+  // Re-probe durable journals on that transition, fail closed until they load.
+  const lifecycleBlocked=journalsVerifiedFor!==mapId||journalReadError||
     Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview);
-  const map=snapshot.local.maps.find(m=>m.id===mapId);
-  const historical=!!map?.storeProtected&&!map?.freshStoreEnrolled;
-  const fresh=!!map&&(!map.storeProtected||!!map.freshStoreEnrolled);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   // WMI registration is a read-only observation, never process ownership.
   if(map.observedReadOnlyImported)return <div className="map-detail-page" role="region"
@@ -1636,7 +1710,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     </div>
     {openOriginalStoreEnrollment&&
       <HistoricalStoreImport onImported={onConfigured}/>}
-    <LocalRunningAsaPanel/>
+    <LocalRunningAsaPanel onRegistered={onConfigured}/>
   </div>;
   const sections: Array<{id:MapSection;name:string}>=[
     {id:"overview",name:"Áttekintés"},{id:"monitor",name:"Üzemeltetés"},

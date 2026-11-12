@@ -114,8 +114,8 @@ export function UpdateCenterPage(){
             <strong>{buildLabel(current?.installedTag)}</strong></div>
           <div className="uk-updates-info-row"><span><ShieldCheck size={16}/> Forrás</span>
             <strong>Gunter1122cloud / GitHub Releases</strong></div>
-          <div className="uk-updates-info-row"><span><Info size={16}/> Automatikus telepítés</span>
-            <strong>Kizárólag külön SHA-256 ellenőrzés és kifejezett jóváhagyás után</strong></div>
+          <div className="uk-updates-info-row"><span><Info size={16}/> Frissítési mód</span>
+            <strong>Kizárólag kézi indítás – ellenőrzés, letöltés és telepítés külön jóváhagyással</strong></div>
           <div className="uk-updates-checkbox"><CheckCircle2 size={17}/>
             <span>A verzióellenőrzés önmagában semmilyen szerver- vagy alkalmazásfájlt nem módosít.</span></div>
         </div>

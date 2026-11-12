@@ -409,7 +409,15 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                 if(saveStatus.GetProperty("combinedSaveEvidenceObserved").GetBoolean())
                 {
                     lease.Complete();
-                    return "ASA_LOG_AND_WORLD_STABLE_PREEXIT_NO_FSYNC_CERTIFICATION";
+                    return "ASA_LOG_AND_WORLD_STABLE_NO_FSYNC_CERTIFICATION";
+                }
+                // ASA does not always emit the paired save log markers.
+                // Distinguish a stable changed .ark from log-certified success.
+                if(saveStatus.TryGetProperty("worldMetadataObserved",out var metadata)&&
+                   metadata.ValueKind==JsonValueKind.True)
+                {
+                    lease.Complete();
+                    return "ASA_WORLD_METADATA_STABLE_LOG_UNVERIFIED";
                 }
                 var stage=saveStatus.GetProperty("stage").GetString();
                 if(stage is "LOG_ROTATED_OR_TRUNCATED" or "WORLD_LINKED" or
@@ -426,7 +434,11 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         var started=Decode(await restart.HandleAsync(
             Message("servers.restartApply",new {token,confirm=true})));
         var jobId=started.GetProperty("jobId").GetGuid();
-        for(int n=0;n<105;n++)
+        // Native graceful stop may consume two minutes and an ASA API
+        // loader-child/RCON handshake may consume another two. Do not mark
+        // the scheduled restart failed while its native one-shot job is still
+        // within those guarded limits. The operation remains serialized.
+        for(int n=0;n<180;n++)
         {
             ct.ThrowIfCancellationRequested();
             await Task.Delay(TimeSpan.FromSeconds(2),ct);
@@ -445,6 +457,9 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         CancellationToken token=default)
     {
         if(Volatile.Read(ref disposed)!=0)throw new ObjectDisposedException(GetType().Name);
+        if(RuntimeState=="journal-write-needs-operator")
+            throw new InvalidOperationException(
+                "UM-ASA-SCHEDULE-OPERATOR-REVIEW-REQUIRED");
         if(!await tickGate.WaitAsync(0,token))return Snapshot();
         try
         {
@@ -526,7 +541,16 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                             return true;
                         });
                     }
-                    catch {Volatile.Write(ref runtimeState,"journal-write-needs-operator");}
+                    catch
+                    {
+                        // A previously dispatched SaveWorld/Restart may have
+                        // completed while the durable receipt could not be
+                        // persisted. Never schedule another slot or report
+                        // "active" until an operator inspects the journal.
+                        Volatile.Write(ref runtimeState,"journal-write-needs-operator");
+                        throw new InvalidOperationException(
+                            "UM-ASA-SCHEDULE-JOURNAL-WRITE-NEEDS-OPERATOR");
+                    }
                 }
             }
             return Snapshot();
@@ -576,14 +600,23 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     try
                     {
                         await TickOnceAsync(DateTimeOffset.UtcNow,cancel.Token);
+                        if(RuntimeState=="journal-write-needs-operator")break;
                         Volatile.Write(ref runtimeState,"active");
                     }
                     catch(OperationCanceledException) when(cancel.IsCancellationRequested){break;}
-                    catch(Exception){Volatile.Write(ref runtimeState,"journal-or-operation-error");}
+                    catch(Exception)
+                    {
+                        if(RuntimeState=="journal-write-needs-operator")break;
+                        Volatile.Write(ref runtimeState,"journal-or-operation-error");
+                    }
                 } while(await timer.WaitForNextTickAsync(cancel.Token));
             }
             catch(OperationCanceledException){/* Manager closing, never replay. */}
-            finally{Volatile.Write(ref runtimeState,"stopped");}
+            finally
+            {
+                if(RuntimeState!="journal-write-needs-operator")
+                    Volatile.Write(ref runtimeState,"stopped");
+            }
         });
     }
     public void Dispose()

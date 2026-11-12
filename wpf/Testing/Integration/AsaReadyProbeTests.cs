@@ -22,9 +22,10 @@ public static class AsaReadyProbeTests
         File.WriteAllText(serverExe,"Isolated binary-path fixture; never executed");
         File.WriteAllText(loaderExe,"Isolated loader-path fixture; never executed");
         var map=new LocalMap {
-            Name="Isolated ASA readiness",InstallationPath=installation,
+            Id=Guid.NewGuid(),Name="Isolated ASA readiness",InstallationPath=installation,
             ExecutablePath=serverExe,Arguments="TheIsland?SessionName=Fixture -log",
             ApiLoaderPath=loaderExe,ApiLoaderArguments="--fixture-loader",
+            StartWithAsaApi=true,
             RconHost="127.0.0.1",RconPort=27999,
             RconPasswordProtected="TEST_ONLY_ENCRYPTED_PLACEHOLDER"
         };
@@ -51,7 +52,7 @@ public static class AsaReadyProbeTests
             return Task.FromResult("No Players Connected.");
         });
         Check(healthy.Stage==AsaRuntimeStage.RconAuthenticated &&
-            healthy.LoaderObserved && processPolls==2 && rconCalls==1,
+            healthy.LoaderObserved && processPolls==3 && rconCalls==1,
             "process and loader identity rechecked across authenticated RCON fixture");
         Check(!healthy.ApiInitialized&&!healthy.JoinAdvertised&&!healthy.ProductionReady,
             "ListPlayers is not mistaken for API initialized or join advertised");
@@ -106,6 +107,22 @@ public static class AsaReadyProbeTests
         Check(empty.Stage==AsaRuntimeStage.ProcessVerified,
             "empty RCON response cannot establish authenticated readiness");
 
+        // API ON -> OFF must not retain the Loader PID requirement.
+        map.StartWithAsaApi=false;
+        var directProcess=steady with {LoaderIdentity=null};
+        var direct=await AsaReadyProbe.ObserveAsync(map,()=>directProcess,
+            _=>Task.FromResult("No Players Connected."));
+        Check(direct.Stage==AsaRuntimeStage.RconAuthenticated &&
+            !direct.LoaderObserved && !direct.ProductionReady,
+            "direct mode verifies ASA/RCON without requiring cached Loader PID");
+        File.Delete(loaderExe);
+        Check(AsaReadyProbe.IsRegisteredServerBinary(map),
+            "direct mode remains valid with missing inactive cached Loader");
+        map.StartWithAsaApi=true;
+        Check(!AsaReadyProbe.IsRegisteredServerBinary(map),
+            "API opt-in refuses a missing required Loader executable");
+        File.WriteAllText(loaderExe,"Isolated loader-path fixture; never executed");
+
         map.Maintenance=true;
         rconCalls=0;
         var maintenance=await AsaReadyProbe.ObserveAsync(map,()=>steady,
@@ -120,6 +137,113 @@ public static class AsaReadyProbeTests
         Check(missingCredential.Stage==AsaRuntimeStage.ProcessVerified && rconCalls==0,
             "missing local RCON credentials never invoke transport");
         map.RconPasswordProtected="TEST_ONLY_ENCRYPTED_PLACEHOLDER";
+
+        // Current-session join advertising is independent of ListPlayers.
+        // These are synthetic local logs, not a spawned or contacted ASA.
+        string gameLog=Path.Combine(installation,"ShooterGame","Saved","Logs",
+            "ShooterGame.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(gameLog)!);
+        map.LogFilePath=gameLog;
+        static string GameStamp(DateTimeOffset utc)=>
+            utc.UtcDateTime.ToString("yyyy.MM.dd-HH.mm.ss:fff",
+                System.Globalization.CultureInfo.InvariantCulture);
+        File.WriteAllLines(gameLog,new[]{
+            "["+GameStamp(started.AddMinutes(2))+"]Log file open",
+            "["+GameStamp(started.AddMinutes(3))+"]Server has successfully started!",
+            "["+GameStamp(started.AddMinutes(4))+"]Server has completed startup and is now advertising for join."
+        });
+        var joinOnly=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(joinOnly.Stage==AsaRuntimeStage.RconAuthenticated &&
+              joinOnly.JoinAdvertised && !joinOnly.ApiInitialized &&
+              !joinOnly.ProductionReady && joinOnly.ApiRequired,
+            "current ASA join-advertising log alone cannot certify opted-in API");
+
+        string apiLog=Path.Combine(installation,"ShooterGame","Win64","logs",
+            "ArkApi.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(apiLog)!);
+        string apiTimestamp=DateTime.Now.ToString("MM/dd/yy HH:mm",
+            System.Globalization.CultureInfo.InvariantCulture);
+        File.WriteAllText(apiLog,apiTimestamp+
+            " [API] API was successfully loaded"+Environment.NewLine);
+        var loadWithoutHooks=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!loadWithoutHooks.ApiInitialized &&
+              !loadWithoutHooks.ProductionReady,
+            "API load log without Initialized hooks never certifies runtime");
+        // A real ArkApi log uses hooks -> success on initial load.
+        File.WriteAllText(apiLog,apiTimestamp+
+            " [API][info] Loading..."+Environment.NewLine+
+            apiTimestamp+" [API][info] Initialized hooks"+Environment.NewLine+
+            apiTimestamp+" [API][info] API was successfully loaded"+Environment.NewLine);
+        var hooksFirst=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(hooksFirst.ProductionReady && hooksFirst.JoinAdvertised &&
+              hooksFirst.ApiInitialized && hooksFirst.LoaderObserved,
+            "real ArkApi hooks-before-success order certifies opted-in runtime");
+        // Never reuse success from a prior load after another Loading marker.
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API][info] Loading..."+Environment.NewLine);
+        var reloadStarted=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!reloadStarted.ApiInitialized&&!reloadStarted.ProductionReady,
+            "new API Loading marker invalidates the previous complete startup");
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API][info] API was successfully loaded"+Environment.NewLine);
+        var missingNewHooks=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!missingNewHooks.ApiInitialized&&!missingNewHooks.ProductionReady,
+            "load marker after a new session cannot reuse its old hooks");
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API][info] Initialized hooks"+Environment.NewLine);
+        var loadFirst=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(loadFirst.ProductionReady&&loadFirst.ApiInitialized,
+            "loader versions with load-before-hooks order are also supported");
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API][info] API was successfully loaded"+Environment.NewLine);
+        var secondLoad=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!secondLoad.ApiInitialized&&!secondLoad.ProductionReady,
+            "repeated successful load invalidates the previous hook pair");
+        File.AppendAllText(apiLog,apiTimestamp+
+            " [API][info] Initialized hooks"+Environment.NewLine);
+
+        int thirdPoll=0;
+        var switchedAfterLogs=await AsaReadyProbe.ObserveAsync(map,()=>{
+            thirdPoll++;
+            return thirdPoll<3?steady:steady with {
+                Identity=new ProcessIdentity{
+                    Pid=server.Pid,StartedUtc=server.StartedUtc.AddSeconds(1),
+                    ExecutablePath=serverExe,Arguments=map.Arguments
+                }
+            };
+        },_=>Task.FromResult("No Players Connected."));
+        Check(thirdPoll==3 &&
+              switchedAfterLogs.Stage==AsaRuntimeStage.ProcessVerified &&
+              !switchedAfterLogs.ProductionReady,
+            "PID reuse after log scan cannot certify a superseded ASA process");
+        File.Delete(apiLog);
+        var missingApi=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!missingApi.ProductionReady && !missingApi.ApiInitialized,
+            "missing API log never reuses a previous positive runtime proof");
+
+        map.StartWithAsaApi=false;
+        map.LogFilePath=""; // Fresh map registry has no explicitly selected log.
+        var directReady=await AsaReadyProbe.ObserveAsync(map,
+            ()=>steady with {LoaderIdentity=null},
+            _=>Task.FromResult("No Players Connected."));
+        Check(directReady.ProductionReady && directReady.JoinAdvertised &&
+              !directReady.ApiRequired && !directReady.ApiInitialized,
+            "direct ASA + RCON + current join-advertising log is runtime-ready without API");
+        map.StartWithAsaApi=true;
+        File.AppendAllText(gameLog,
+            "["+GameStamp(DateTimeOffset.UtcNow)+"]Log file closed"+Environment.NewLine);
+        var shutdown=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."));
+        Check(!shutdown.JoinAdvertised && !shutdown.ProductionReady,
+            "closed ASA log session cannot claim an accepting server");
 
         using var cancelled=new CancellationTokenSource();
         cancelled.Cancel();
@@ -148,7 +272,25 @@ public static class AsaReadyProbeTests
         otherMap.RconPort=27998;otherMap.GamePort=7777;map.GamePort=7777;
         Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
             "duplicate local game port is detected across owned maps");
-        map.GamePort=0;otherMap.RconPort=map.RconPort;
+        map.GamePort=0;otherMap.GamePort=0;
+        map.QueryPort=27019;otherMap.QueryPort=27019;
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "duplicate local ASA query UDP port cannot certify server advertisement");
+        otherMap.QueryPort=27020;
+        Check(!AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "distinct owned game/query/RCON ports do not invent a collision");
+        otherMap.GamePort=27019;
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "ASA query UDP cannot reuse another map's game UDP port");
+        otherMap.GamePort=0;
+        map.GamePort=27020;
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map,otherMap}),
+            "ASA game UDP cannot reuse another map's query UDP port");
+        map.GamePort=27019;
+        Check(AsaReadyProbe.HasPortConflict(map,new[]{map}),
+            "one ASA map cannot use the same UDP port for game and query");
+        map.GamePort=0;map.QueryPort=0;otherMap.QueryPort=0;
+        otherMap.RconPort=map.RconPort;
         string originalArguments=map.Arguments;
         map.Arguments+=" ?RCONPort=27998";
         Check(AsaReadyProbe.DeclaredPortMismatch(map),
@@ -156,6 +298,31 @@ public static class AsaReadyProbeTests
         map.Arguments=originalArguments+" ?RCONPort="+map.RconPort;
         Check(!AsaReadyProbe.DeclaredPortMismatch(map),
             "correctly matching explicit RCON port is accepted");
+        map.QueryPort=27015;
+        map.Arguments=originalArguments+" -QueryPort=27016";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "ASA -QueryPort mismatching local port refuses RCON-ready state");
+        map.Arguments=originalArguments+" ?QueryPort=27015";
+        Check(!AsaReadyProbe.DeclaredPortMismatch(map),
+            "matching Unreal URL-style ?QueryPort is accepted");
+        map.Arguments=originalArguments+" -QueryPort=27015 -QueryPort=27015";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "duplicate QueryPort switches reject ambiguous query listener");
+        map.Arguments=originalArguments+" -QueryPort=invalid";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "nonnumeric QueryPort switch fails closed instead of being ignored");
+        map.Arguments=originalArguments+" -QueryPort=";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "empty QueryPort value is never mistaken for absent configuration");
+        map.GamePort=7777;
+        map.Arguments=originalArguments+" -Port=not-a-port";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "invalid Game port switch cannot certify an owned UDP listener");
+        map.GamePort=0;
+        map.Arguments=originalArguments+" ?RCONPort=wrong";
+        Check(AsaReadyProbe.DeclaredPortMismatch(map),
+            "invalid RCON port switch cannot certify the TCP listener");
+        map.QueryPort=0;
         map.Arguments=originalArguments;
 
         await using(var owner=new ClusterService("ready-fixture",

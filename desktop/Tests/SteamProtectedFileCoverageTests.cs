@@ -26,20 +26,25 @@ internal static class SteamProtectedFileCoverageTests
             "UntamedDisabledPlugins","Example","config.json");
         string loader=Path.Combine(install,"ShooterGame","Binaries","Win64",
             "AsaApiLoader.exe");
+        string versionBin=Path.Combine(install,"ShooterGame","Binaries","Win64",
+            "Version.dll");
+        string versionRoot=Path.Combine(install,"Version.dll");
         foreach(var pair in new[]{
             (saved,"world-bytes"),(runtime,"runtime-bytes"),
             (config,"runtime-config"),(disabled,"disabled-plugin-config"),
-            (loader,"loader-binary")})
+            (loader,"loader-binary"),(versionBin,"version-injection"),
+            (versionRoot,"version-root-injection")})
         {
             Directory.CreateDirectory(Path.GetDirectoryName(pair.Item1)!);
             File.WriteAllText(pair.Item1,pair.Item2);
         }
         var first=SteamProtectedFiles.Snapshot(install);
-        Check(first.Count==5 &&
+        Check(first.Count==7 &&
               first.Keys.Any(x=>x.EndsWith("AsaApi.dll",StringComparison.OrdinalIgnoreCase)) &&
-              first.Keys.Any(x=>x.EndsWith("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase)),
+              first.Keys.Any(x=>x.EndsWith("AsaApiLoader.exe",StringComparison.OrdinalIgnoreCase)) &&
+              first.Keys.Any(x=>x.EndsWith("Version.dll",StringComparison.OrdinalIgnoreCase)),
             "world, API DLL, config, disabled plugin and loader are all protected");
-        foreach(string path in new[]{saved,runtime,config,disabled,loader})
+        foreach(string path in new[]{saved,runtime,config,disabled,loader,versionBin,versionRoot})
         {
             string original=File.ReadAllText(path);
             File.WriteAllText(path,original+"-altered");

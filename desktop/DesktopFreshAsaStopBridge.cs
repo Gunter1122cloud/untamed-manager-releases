@@ -22,7 +22,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     {
         public Guid JobId=Guid.NewGuid();
         public string State="queued",Step="preflight";
-        public bool ConfirmedStopped,SaveCompleteProven,PreExitSaveEvidenceObserved;
+        public bool ConfirmedStopped,SaveCompleteProven,PreExitSaveEvidenceObserved,PreExitWorldMetadataObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
     }
     private readonly ClusterService cluster;
@@ -92,6 +92,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 task.ConfirmedStopped=receipt.ConfirmedStopped;
                 task.SaveCompleteProven=receipt.SaveCompleteProven;
                 task.PreExitSaveEvidenceObserved=receipt.PreExitSaveLogAndWorldObserved;
+                task.PreExitWorldMetadataObserved=receipt.PreExitWorldMetadataObserved;
             }
         }
     }
@@ -103,6 +104,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
             confirmedStopped=task.ConfirmedStopped,
             saveCompleteProven=task.SaveCompleteProven,
             preExitSaveEvidenceObserved=task.PreExitSaveEvidenceObserved,
+            preExitWorldMetadataObserved=task.PreExitWorldMetadataObserved,
             finalDoExitSaveCertified=false,gameClientRejoinVerified=false,
             killPerformed=false,restartPerformed=false,storeTouched=false
         };
@@ -178,7 +180,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 var item=new Job();
                 job=item;
                 _=Task.Run(async()=>{
-                    Change(item,"running","SaveWorld → új ASA SaveComplete + stabil .ark → DoExit");
+                    Change(item,"running","SaveWorld → új stabil .ark / naplóellenőrzés → DoExit");
                     try
                     {
                         var receipt=await stop(map.Id,current,
@@ -188,9 +190,11 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                             throw new InvalidDataException("ASA graceful stop receipt invalid");
                         Change(item,"completed","Windows process verified stopped",receipt);
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
-                        Change(item,"needsOperator","Stop interrupted; inspect process and save journal");
+                        Change(item,"needsOperator",
+                            "Stop interrupted ["+NativeLifecycleFailureCode.From(ex)+
+                            "]; inspect process and save journal");
                     }
                 });
                 return Ok(id,new{jobId=item.JobId,started=true,

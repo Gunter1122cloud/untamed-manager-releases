@@ -69,6 +69,8 @@ public sealed class DesktopOperationsCenterBridge
                    interval.ValueKind!=JsonValueKind.Number||
                    !interval.TryGetInt32(out int minutes))
                     return Task.FromResult(Fail(id,"UM-OPS-SCHEDULE-INVALID-OR-UNAPPROVED"));
+                if(kind==OperationalTaskKind.SteamCheck)
+                    return Task.FromResult(Fail(id,"UM-STEAM-CHECK-MANUAL-ONLY"));
                 var created=cluster.CreateReadOnlySchedule(mapId,kind,minutes);
                 return Task.FromResult(Ok(id,new {
                     jobId=created.Id,mapId=created.Map,kind=created.Kind.ToString(),

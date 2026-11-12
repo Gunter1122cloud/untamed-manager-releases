@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,6 +21,8 @@ public sealed class DesktopIniBridge : IDisposable
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim gate = new(1,1);
     private readonly Dictionary<Guid,OpenDocument> opened = new();
+    private sealed record MissingGameApproval(Guid Token,Guid MapId,string Profile,DateTimeOffset Expires);
+    private MissingGameApproval? pendingGame;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed class OpenDocument
     {
@@ -31,6 +35,58 @@ public sealed class DesktopIniBridge : IDisposable
     }
     public DesktopIniBridge(ClusterService source)=>
         cluster=source??throw new ArgumentNullException(nameof(source));
+
+    private (LocalMap Map,string Path) MissingGamePreflight(Guid mapId)
+    {
+        var map=Owned(mapId)??throw new UnauthorizedAccessException("UM-INI-MAP-NOT-OWNED");
+        if(map.ObservedReadOnlyImported||map.HistoricalStoreProtected||
+           map.Maintenance||FreshStoreEnrollmentPolicy.IsEnrolled(map)||
+           !string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
+           !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
+           !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
+           !string.IsNullOrWhiteSpace(map.FreshStoreClusterId)||
+           !string.IsNullOrWhiteSpace(map.FreshStoreTransferDirectory)||
+           (map.Arguments+" "+map.ApiLoaderArguments).Contains("-usestore",
+               StringComparison.OrdinalIgnoreCase)||
+           !AsaReadyProbe.IsRegisteredServerBinary(map))
+            throw new UnauthorizedAccessException("UM-INI-CREATE-FRESH-ONLY");
+        var root=Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar);
+        if(root.StartsWith(@"\\",StringComparison.Ordinal)||
+           new DriveInfo(Path.GetPathRoot(root)!).DriveType!=DriveType.Fixed)
+            throw new InvalidDataException("UM-INI-CREATE-FIXED-DISK");
+        var members=cluster.Config.LocalMaps.Where(m=>
+            !string.IsNullOrWhiteSpace(m.InstallationPath)&&
+            Path.GetFullPath(m.InstallationPath).TrimEnd(Path.DirectorySeparatorChar)
+                .Equals(root,StringComparison.OrdinalIgnoreCase));
+        foreach(var member in members)
+        {
+            if(member.HistoricalStoreProtected||member.ObservedReadOnlyImported||
+               FreshStoreEnrollmentPolicy.IsEnrolled(member)||
+               !string.IsNullOrWhiteSpace(member.HistoricalMapKey)||
+               !string.IsNullOrWhiteSpace(member.HistoricalArchiveSha256)||
+               !string.IsNullOrWhiteSpace(member.StoreTestRoot)||
+               !string.IsNullOrWhiteSpace(member.FreshStoreClusterId)||
+               !string.IsNullOrWhiteSpace(member.FreshStoreTransferDirectory))
+                throw new UnauthorizedAccessException("UM-INI-CREATE-SHARED-STORE");
+            var state=cluster.Check(member);
+            if(!state.ConfirmedStopped||state.Running||
+               state.Identity!=null||state.LoaderIdentity!=null)
+                throw new InvalidOperationException("UM-INI-CREATE-ALL-MAPS-STOPPED");
+        }
+        // Diagnose a specific shared Store sibling first; still enforce
+        // the full fresh-install/restore-journal gate before any mutation.
+        if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map))
+            throw new UnauthorizedAccessException("UM-INI-CREATE-FRESH-ONLY");
+        string target=Path.Combine(root,"ShooterGame","Saved","Config",
+            "WindowsServer","Game.ini");
+        for(var dir=new DirectoryInfo(Path.GetDirectoryName(target)!);
+            dir!=null;dir=dir.Parent)
+            if(dir.Exists&&(dir.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("UM-INI-CREATE-LINKED-PATH");
+        if(File.Exists(target)||Directory.Exists(target))
+            throw new InvalidOperationException("UM-INI-GAME-ALREADY-EXISTS");
+        return (map,target);
+    }
 
     public async Task<string> HandleAsync(string raw)
     {
@@ -47,7 +103,8 @@ public sealed class DesktopIniBridge : IDisposable
                 return Fail(null,"UM-INVALID-MESSAGE");
             id=requestId.ToString("D");
             string? method=methodValue.GetString();
-            if(method is not ("ini.open" or "ini.preview" or "ini.save" or "ini.close"))
+            if(method is not ("ini.open" or "ini.preview" or "ini.save" or "ini.close"
+                or "ini.createGamePreview" or "ini.createGameApply"))
                 return Fail(id,"UM-METHOD-DENIED");
 
             await gate.WaitAsync();
@@ -57,6 +114,71 @@ public sealed class DesktopIniBridge : IDisposable
                     DateTimeOffset.UtcNow-x.Value.OpenedUtc>TimeSpan.FromMinutes(12))
                     .Select(x=>x.Key).ToArray())opened.Remove(expired);
 
+                if(method=="ini.createGamePreview")
+                {
+                    pendingGame=null;
+                    if(!GetGuid(data,"mapId",out var mapId))
+                        return Fail(id,"UM-INI-CREATE-MAP");
+                    var selected=MissingGamePreflight(mapId);
+                    pendingGame=new MissingGameApproval(Guid.NewGuid(),mapId,
+                        JsonSerializer.Serialize(selected.Map),DateTimeOffset.UtcNow.AddMinutes(3));
+                    return Ok(id,new{
+                        token=pendingGame.Token,mapId,file="Game.ini",
+                        createsFile=false,requiresStoppedProcess=true,
+                        originalStoreTouched=false,
+                        evidence="FRESH_GAME_INI_CREATE_PREVIEW_NO_WRITE"
+                    });
+                }
+                if(method=="ini.createGameApply")
+                {
+                    if(!GetGuid(data,"token",out var gameToken)||pendingGame==null||
+                       pendingGame.Token!=gameToken||
+                       !data.TryGetProperty("confirm",out var consent)||
+                       consent.ValueKind!=JsonValueKind.True)
+                        return Fail(id,"UM-INI-CREATE-EXPLICIT-APPROVAL");
+                    var approved=pendingGame;
+                    pendingGame=null; // never replay, even after an I/O failure
+                    if(approved.Expires<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-INI-CREATE-EXPIRED");
+                    var candidate=MissingGamePreflight(approved.MapId);
+                    if(JsonSerializer.Serialize(candidate.Map)!=approved.Profile)
+                        return Fail(id,"UM-INI-CREATE-PROFILE-CHANGED");
+                    using var lease=cluster.Operations.Acquire(candidate.Map.InstallationPath,
+                        UntamedOperationKind.Configuration);
+                    var rechecked=MissingGamePreflight(approved.MapId);
+                    if(!ReferenceEquals(rechecked.Map,candidate.Map)||
+                       rechecked.Path!=candidate.Path||
+                       JsonSerializer.Serialize(rechecked.Map)!=approved.Profile)
+                        return Fail(id,"UM-INI-CREATE-LEASE-CHANGED");
+                    const string template="[/Script/ShooterGame.ShooterGameMode]\r\n";
+                    byte[] bytes=Encoding.UTF8.GetBytes(template);
+                    lease.MarkMutationStarted();
+                    Directory.CreateDirectory(Path.GetDirectoryName(rechecked.Path)!);
+                    // A race can replace a newly created directory with a
+                    // reparse-point alias after the first preflight. Recheck
+                    // every ancestor immediately before CreateNew.
+                    for(var d=new DirectoryInfo(Path.GetDirectoryName(rechecked.Path)!);
+                        d!=null;d=d.Parent)
+                        if(d.Exists&&(d.Attributes&FileAttributes.ReparsePoint)!=0)
+                            throw new InvalidDataException("UM-INI-CREATE-LINK-CHANGED");
+                    if(File.Exists(rechecked.Path)||Directory.Exists(rechecked.Path))
+                        throw new IOException("UM-INI-CREATE-CONCURRENT-TARGET");
+                    // Creating a file is opt-in and must NEVER overwrite a
+                    // historical or previously edited Game.ini, even on race.
+                    using(var output=new FileStream(rechecked.Path,FileMode.CreateNew,
+                        FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough))
+                    {output.Write(bytes);output.Flush(true);}
+                    using var verify=File.OpenRead(rechecked.Path);
+                    if(!CryptographicOperations.FixedTimeEquals(
+                        SHA256.HashData(verify),SHA256.HashData(bytes)))
+                        throw new IOException("UM-INI-CREATE-SHA-MISMATCH");
+                    lease.Complete();
+                    return Ok(id,new{
+                        mapId=approved.MapId,file="Game.ini",created=true,
+                        bytes=bytes.Length,originalStoreTouched=false,
+                        evidence="FRESH_GAME_INI_DURABLE_CREATE_NEW_VERIFIED"
+                    });
+                }
                 if(method=="ini.open")
                 {
                     if(!GetGuid(data,"mapId",out var mapId) ||
@@ -171,6 +293,18 @@ public sealed class DesktopIniBridge : IDisposable
         }
         catch(FileNotFoundException){return Fail(id,"UM-INI-NOT-FOUND");}
         catch(DirectoryNotFoundException){return Fail(id,"UM-INI-CONFIG-DIRECTORY-MISSING");}
+        // Only return fixed, explicitly allowlisted native error codes.
+        // Never propagate arbitrary exception text, paths or INI passwords.
+        catch(Exception ex) when(ex.Message is
+            "UM-INI-MAP-NOT-OWNED" or "UM-INI-CREATE-FRESH-ONLY" or
+            "UM-INI-CREATE-SHARED-STORE" or "UM-INI-CREATE-FIXED-DISK" or
+            "UM-INI-CREATE-ALL-MAPS-STOPPED" or
+            "UM-INI-GAME-ALREADY-EXISTS" or
+            "UM-INI-CREATE-LINKED-PATH" or "UM-INI-CREATE-LINK-CHANGED" or
+            "UM-INI-CREATE-CONCURRENT-TARGET" or "UM-INI-CREATE-SHA-MISMATCH")
+        {
+            return Fail(id,ex.Message);
+        }
         catch(UnauthorizedAccessException){return Fail(id,"UM-INI-ACCESS-DENIED");}
         catch(InvalidDataException){return Fail(id,"UM-INI-PATH-OR-CONTENT-UNSAFE");}
         catch(ConfigEtagConflictException){return Fail(id,"UM-INI-ETAG-MISMATCH");}

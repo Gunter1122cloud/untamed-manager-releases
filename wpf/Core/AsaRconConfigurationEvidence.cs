@@ -51,10 +51,16 @@ public static class AsaRconConfigurationEvidence
                 }
                 if(!inside || text.Length==0 || text[0] is ';' or '#')
                     continue;
-                int equals=text.IndexOf('=');
+                // Preserve the EXACT existing legacy secret including spaces,
+                // leading/trailing punctuation and embedded '='. New-password
+                // generation rules must never normalize imported credentials.
+                if(!inside || text.Length==0 || text[0] is ';' or '#')
+                    continue;
+                int equals=source.IndexOf('=');
                 if(equals<1)continue;
-                string key=text[..equals].Trim();
-                string value=text[(equals+1)..].Trim();
+                string key=source[..equals].Trim();
+                string rawValue=source[(equals+1)..];
+                string value=rawValue.Trim();
                 if(key.Equals("RCONEnabled",StringComparison.OrdinalIgnoreCase))
                 {
                     enabled++;
@@ -71,7 +77,7 @@ public static class AsaRconConfigurationEvidence
                 {
                     secrets++;
                     byte[] expected=Encoding.UTF8.GetBytes(password);
-                    byte[] actual=Encoding.UTF8.GetBytes(value);
+                    byte[] actual=Encoding.UTF8.GetBytes(rawValue);
                     matched &= actual.Length==expected.Length &&
                         CryptographicOperations.FixedTimeEquals(actual,expected);
                 }

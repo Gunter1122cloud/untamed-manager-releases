@@ -32,8 +32,10 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
         if(result.state==="completed"){
           setJobId(null);
           const text=result.preExitSaveEvidenceObserved?
-            "Az ASA leállt. Az explicit SaveWorld új naplóbejegyzése és stabil .ark fájl igazolt; a DoExit végső mentése és a visszatöltés továbbra sem bizonyított.":
-            "Az ASA-folyamat kilépett; a SaveWorld/DoExit független lemezmentése nincs igazolva.";
+            "Az ASA leállt. Az új SaveComplete naplósor és stabil .ark megfigyelve; a végső lemezmentés és visszatöltés nem tanúsított.":
+            result.preExitWorldMetadataObserved?
+            "Az ASA szabályosan leállt. A megváltozott .ark fájl stabilnak látszott; a SaveComplete naplósor nem jelent meg, ezért annak igazolása külön hiányzik.":
+            "Az ASA-folyamat kilépett; a SaveWorld/DoExit lemezmentése nincs igazolva.";
           recentStopReceipts.set(mapId,text);
           setMessage(text);
           onStopped().catch(()=>{});
@@ -83,7 +85,7 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
       onClick={()=>{void check();}}><Shield size={16}/> Normál leállítás előellenőrzése</button>
     {preview&&<div className="historical-preview" role="region" aria-label="ASA leállítás jóváhagyása">
       <h3>{preview.mapName} – PID: {preview.pid}</h3>
-      <p>RCON: SaveWorld → új World Save Complete + stabil .ark → DoExit → PID-ellenőrzés. Hiányzó mentési jelzésnél nincs DoExit vagy automatikus újrapróbálás.</p>
+      <p>RCON: SaveWorld → új, stabil .ark megfigyelése (SaveComplete naplósor, ha létezik) → DoExit → PID-ellenőrzés. Fájlbizonyíték nélkül nincs DoExit vagy automatikus újrapróbálás.</p>
       <label className="historical-approval"><input type="checkbox" checked={approved}
         disabled={busy} onChange={e=>setApproved(e.target.checked)}/>
         Jóváhagyom a kiválasztott helyi ASA szerver tényleges leállítását.
@@ -97,7 +99,8 @@ export function FreshAsaStopPanel({mapId,running,onStopped,journalBlocked}:{
       <span>Leállítás: {status.state} – {status.step}
         {status.state==="completed"&&" · a PID megszűnése igazolt"}
         {" · Explicit SaveWorld napló+fájl: "}
-        {status.preExitSaveEvidenceObserved?"igen":"nem igazolt"}</span></div>}
+        {status.preExitSaveEvidenceObserved?"naplóval igazolt":status.preExitWorldMetadataObserved?
+          "stabil .ark, napló nélkül":"nem igazolt"}</span></div>}
     {message&&<div className="success-inline" role="status"><CheckCircle2 size={17}/>{message}</div>}
     {error&&<div className="error-inline" role="alert"><AlertTriangle size={17}/>{error}</div>}
     <p className="muted tiny"><Shield size={14}/> A történeti Store-v1 átvételt nem módosítja. A szerverleállítás sikeressége önmagában nem bizonyít karakterutazást vagy független SaveComplete-jelet.</p>

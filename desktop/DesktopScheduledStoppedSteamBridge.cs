@@ -51,6 +51,9 @@ public sealed class DesktopScheduledStoppedSteamBridge
             if(method is not ("steam.scheduleStatus" or "steam.scheduleSet" or
                 "steam.scheduleDisable"))
                 return Task.FromResult(Fail(id,"UM-METHOD-DENIED"));
+            // Do not expose any path that can re-enable retired automatic jobs.
+            if(method=="steam.scheduleSet")
+                return Task.FromResult(Fail(id,"UM-STEAM-SCHEDULE-MANUAL-ONLY"));
             var schedule=supervisor.Snapshot();
             if(method=="steam.scheduleStatus")
                 return Task.FromResult(Ok(id,new {
@@ -66,7 +69,7 @@ public sealed class DesktopScheduledStoppedSteamBridge
                     runningMapAutoStop=false,
                     runningMapAutoRestart=false,storeWriterTouched=false,
                     remoteHostUpdate=false,
-                    evidence="DURABLE_OPT_IN_STOPPED_ONLY_STEAMCMD"
+                    evidence="MANUAL_ONLY_STEAMCMD_NO_SCHEDULED_EXECUTION"
                 }));
             if(!args.TryGetProperty("mapId",out var mapField)||
                mapField.ValueKind!=JsonValueKind.String||
@@ -95,7 +98,7 @@ public sealed class DesktopScheduledStoppedSteamBridge
                 nextDueUtc=result.NextDueUtc,lastStatus=result.LastStatus,
                 autoStopRunning=false,autoRestartRunning=false,
                 storeWriterTouched=false,
-                evidence="EXPLICIT_LOCAL_STOPPED_ONLY_SCHEDULE_CHANGE"
+                evidence="RETIRED_SCHEDULE_DISABLED_WITH_MANUAL_ONLY_POLICY"
             }));
         }
         catch(Exception)

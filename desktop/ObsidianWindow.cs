@@ -67,10 +67,26 @@ public sealed class ObsidianWindow : Form
     // Final update.install still takes the global gate before handing off
     // to the external updater and closing the Manager.
     internal static bool RequiresGlobalBridgeGate(string? method) =>
-        !string.Equals(method, "updates.prepare", StringComparison.Ordinal) &&
-        !string.Equals(method, "store.inspectCopy", StringComparison.Ordinal) &&
-        !string.Equals(method, "store.inspectArchive", StringComparison.Ordinal) &&
-        !string.Equals(method, "store.compareArchives", StringComparison.Ordinal);
+        method is not (
+            // Exact read-only methods must stay responsive while an owner
+            // is running an approved SteamCMD/backup/other lengthy mutation.
+            // Each native bridge retains its own per-operation coordination.
+            "dashboard.snapshot" or "servers.runningLocal" or
+            "servers.lifecycleJournal" or
+            "operations.snapshot" or "operations.map" or
+            "schedule.nativeStatus" or "schedule.nativeOverview" or
+            "servers.gracefulStopStatus" or "servers.restartStatus" or
+            "servers.restartCurrent" or "servers.freshStartStatus" or
+            "historical.restartStatus" or "historical.restartRecovery" or
+            "historical.gracefulStopStatus" or "historical.gracefulStopRecovery" or
+            "historical.saveWorldStatus" or "historical.saveWorldEvidence" or
+            "historical.activeStartStatus" or
+            "rcon.status" or "rcon.listPlayers" or "rcon.gameLog" or "rcon.chatLog" or
+            "historical.rconPlayers" or "historical.rconGameLog" or
+            "historical.rconChatLog" or "historical.rconLiveStatus" or
+            "updates.status" or "updates.prepare" or
+            "store.inspectCopy" or "store.inspectArchive" or
+            "store.compareArchives");
     // A malformed bridge request must never escape an async-void WebView2
     // event handler and terminate the Windows Manager. Keep native exception
     // details and private machine paths out of renderer responses.
@@ -556,7 +572,8 @@ public sealed class ObsidianWindow : Form
                             "mods.draftUndo" or "mods.draftRedo" or
                             "mods.draftDiscard" or "mods.draftSave";
                         iniRoute = name is "ini.open" or "ini.preview" or
-                            "ini.save" or "ini.close";
+                            "ini.save" or "ini.close" or
+                            "ini.createGamePreview" or "ini.createGameApply";
                         registryRoute = name is "servers.inspectLocal" or
                             "servers.importLocal";
                         runningAsaRegistrationRoute = name is "servers.runningPreview" or

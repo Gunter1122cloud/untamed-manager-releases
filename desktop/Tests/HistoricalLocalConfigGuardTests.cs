@@ -42,6 +42,22 @@ internal static class HistoricalLocalConfigGuardTests
         var confirmed=HistoricalLocalConfigGuard.DemandStopped(cluster,map);
         Check(confirmed.ConfirmedStopped&&!confirmed.Running,
             "native historical WMI proof authorizes offline edit despite generic argv uncertainty");
+        // The strict preflight must reject someone else's or an in-flight
+        // local operation. The relaxed observer is valid only after the
+        // Steam updater has acquired this exact installation lease.
+        using(var held=cluster.Operations.Acquire(install,UntamedOperationKind.Update))
+        {
+            bool pendingRefused=false;
+            try{HistoricalLocalConfigGuard.DemandStopped(cluster,map);}
+            catch(InvalidOperationException){pendingRefused=true;}
+            Check(pendingRefused,
+                "historical Steam preflight rejects pending mutation journal");
+            var inOwnLease=HistoricalLocalConfigGuard.DemandStopped(cluster,map,
+                underOwnOperation:true);
+            Check(inOwnLease.ConfirmedStopped,
+                "historical stopped family can be checked under owned update lease");
+            held.Complete();
+        }
         // ClusterService.Check intentionally reports historical Store as
         // uncertain regardless of a synthetic inspector. Do not pretend a
         // fixture PID is a genuine WMI ArkAscendedServer process. Test the
