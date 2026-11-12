@@ -1,11 +1,12 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 
 namespace UntamedManager.Core;
 
-public enum AsaRestartPhase { Stopping, Starting, Completed, NeedsOperator }
+public enum AsaRestartPhase { Stopping, Starting, Completed, NeedsOperator, OperatorReviewed }
 
 /// <summary>
 /// Machine-wide, installation-keyed journal for manually approved ASA Restart.
@@ -93,7 +94,7 @@ public sealed class AsaManualRestartJournal
             throw new InvalidDataException("UM-ASA-RESTART-JOURNAL-MAP");
         return Exclusive(()=>{
             var prior=Observe();
-            if(prior!=null&&prior.Phase!=AsaRestartPhase.Completed)
+            if(prior!=null&&prior.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
                 throw new IOException("UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR");
             var record=new AsaRestartRecord(1,Guid.NewGuid(),mapId,key,
                 oldPid,0,AsaRestartPhase.Stopping,DateTimeOffset.UtcNow);
@@ -112,7 +113,7 @@ public sealed class AsaManualRestartJournal
             var current=Observe()??throw new InvalidDataException(
                 "UM-ASA-RESTART-JOURNAL-MISSING");
             if(current.Id!=id||current.Phase is
-                (AsaRestartPhase.Completed or AsaRestartPhase.NeedsOperator) ||
+                (AsaRestartPhase.Completed or AsaRestartPhase.NeedsOperator or AsaRestartPhase.OperatorReviewed) ||
                (next==AsaRestartPhase.Starting &&
                    current.Phase!=AsaRestartPhase.Stopping)||
                (next==AsaRestartPhase.Completed &&
@@ -126,10 +127,78 @@ public sealed class AsaManualRestartJournal
         });
     }
 
+    /// <summary>
+    /// Under the caller's installation-wide operation semaphore, review a
+    /// genuinely interrupted original Restart whose OLD process still runs.
+    /// Restart is NOT marked Completed. Crash recovery is explicit: if this
+    /// journal was reviewed first but the paired Launch journal remains
+    /// pending, a fresh owner proof can resume the SECOND half safely.
+    /// This method NEVER executes an ASA/RCON command.
+    /// </summary>
+    internal AsaRestartRecord ReviewOriginalOldPid(Guid expectedMap,
+        Guid expectedId,int currentOldPid)
+    {
+        if(expectedMap==Guid.Empty||expectedId==Guid.Empty||currentOldPid<=0)
+            throw new InvalidDataException("UM-RESTART-REVIEW-APPROVAL-INVALID");
+        return Exclusive(()=>{
+            var old=Observe()??throw new InvalidDataException(
+                "UM-RESTART-REVIEW-JOURNAL-MISSING");
+            if(old.MapId!=expectedMap||old.Id!=expectedId||
+               old.OldPid!=currentOldPid||old.NewPid!=0)
+                throw new InvalidOperationException(
+                    "UM-RESTART-REVIEW-OLD-PID-OR-ID-CHANGED");
+            string audit=Path.Combine(folder,key+"-"+old.Id.ToString("N")+
+                ".operator-reviewed.json");
+            if(old.Phase==AsaRestartPhase.OperatorReviewed)
+            {
+                if(!File.Exists(audit)||
+                   (File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0)
+                    throw new InvalidDataException("UM-RESTART-REVIEW-AUDIT-MISSING");
+                var preserved=JsonSerializer.Deserialize<AsaRestartRecord>(
+                    File.ReadAllBytes(audit),Json);
+                if(preserved==null||preserved.Id!=old.Id||
+                   preserved.MapId!=old.MapId||preserved.Resource!=old.Resource||
+                   preserved.OldPid!=old.OldPid||preserved.NewPid!=0||
+                   preserved.Phase is not (AsaRestartPhase.Stopping or
+                       AsaRestartPhase.NeedsOperator))
+                    throw new InvalidDataException("UM-RESTART-REVIEW-AUDIT-MISMATCH");
+                return old;
+            }
+            if(old.Phase is not (AsaRestartPhase.NeedsOperator or
+                AsaRestartPhase.Stopping))
+                throw new UnauthorizedAccessException(
+                    "UM-RESTART-REVIEW-OLD-PROCESS-NOT-PENDING");
+            if(DateTimeOffset.UtcNow-old.ChangedUtc<TimeSpan.FromMinutes(3))
+                throw new InvalidOperationException("UM-RESTART-REVIEW-TOO-RECENT");
+            byte[] original=File.ReadAllBytes(path);
+            if(File.Exists(audit))
+            {
+                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                   !CryptographicOperations.FixedTimeEquals(
+                       SHA256.HashData(File.ReadAllBytes(audit)),
+                       SHA256.HashData(original)))
+                    throw new InvalidDataException("UM-RESTART-REVIEW-AUDIT-MISMATCH");
+            }
+            else
+            {
+                using var fs=new FileStream(audit,FileMode.CreateNew,
+                    FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+                fs.Write(original);
+                fs.Flush(flushToDisk:true);
+            }
+            var reviewed=old with{
+                Phase=AsaRestartPhase.OperatorReviewed,
+                ChangedUtc=DateTimeOffset.UtcNow
+            };
+            Write(reviewed);
+            return reviewed;
+        });
+    }
+
     public void DemandNoPending()
     {
         var current=Observe();
-        if(current!=null&&current.Phase!=AsaRestartPhase.Completed)
+        if(current!=null&&current.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
             throw new InvalidOperationException(
                 "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR");
     }
@@ -141,7 +210,7 @@ public sealed class AsaManualRestartJournal
         // durable record is present in the expected in-progress phase.
         // Missing/completed journal files cannot authorize a stale token.
         if(restartId==null &&
-           (current==null||current.Phase==AsaRestartPhase.Completed))return;
+           (current==null||current.Phase is (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed)))return;
         if(restartId==null||current==null||current.Id!=restartId.Value||
            current.Phase!=AsaRestartPhase.Stopping)
             throw new InvalidOperationException(
