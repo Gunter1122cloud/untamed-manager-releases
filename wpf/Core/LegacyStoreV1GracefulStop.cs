@@ -88,11 +88,18 @@ internal static class LegacyStoreV1GracefulStop
         return new(map,identity,fingerprint);
     }
 
-    internal static string OriginalSource(LocalMap map)
-    {
-        var proof=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,
+    internal static string OriginalSource(LocalMap map) =>
+        ReadSource(map,Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.ApplicationData),"Kova"));
+
+    internal static string OriginalSource(ClusterService cluster,LocalMap map) =>
+        ReadSource(map,LegacyStoreV1PinnedSource.Resolve(cluster.Store.Root,
             Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.ApplicationData),"Kova"));
+                Environment.SpecialFolder.ApplicationData),"Kova"),map));
+
+    private static string ReadSource(LocalMap map,string profile)
+    {
+        var proof=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,profile);
         if(!proof.CompletedOriginalSourceGuard||!proof.BothPeersDone||
            !proof.SharedSessionMatches||proof.ActiveMaps!=10||proof.DonePeers!=2||
            !proof.LocalMapBindingMatches||!proof.NoMutationMarker||
@@ -125,7 +132,7 @@ internal static class LegacyStoreV1GracefulStop
         inspect??=(map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
         stopped??=(map=>LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
             map,cluster.Config.LocalMaps));
-        source??=OriginalSource;
+        source??=(map=>OriginalSource(cluster,map));
         portOwner??=RconPortOwnership.IsOwnedListener;
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(maximum);
@@ -242,7 +249,7 @@ internal static class LegacyStoreV1GracefulStop
            maximum<=TimeSpan.Zero||maximum>TimeSpan.FromMinutes(3))
             throw new InvalidDataException("UM-ORIGINAL-SAVE-APPROVAL");
         inspect??=(map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
-        source??=OriginalSource;
+        source??=(map=>OriginalSource(cluster,map));
         portOwner??=RconPortOwnership.IsOwnedListener;
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(maximum);
@@ -308,7 +315,7 @@ internal static class LegacyStoreV1GracefulStop
         Require(cluster,mapId,
             inspect??(map=>LegacyStoreV1ProcessObserver.Observe(
                 map,cluster.Config.LocalMaps)),
-            source??OriginalSource,
+            source??(map=>OriginalSource(cluster,map)),
             portOwner??RconPortOwnership.IsOwnedListener,
             recoveryReadOnly:true);
 
@@ -318,5 +325,5 @@ internal static class LegacyStoreV1GracefulStop
         Func<int,int,bool>? portOwner=null)=>
         Require(cluster,mapId,inspect??(map=>LegacyStoreV1ProcessObserver.Observe(
                 map,cluster.Config.LocalMaps)),
-            source??OriginalSource,portOwner??RconPortOwnership.IsOwnedListener);
+            source??(map=>OriginalSource(cluster,map)),portOwner??RconPortOwnership.IsOwnedListener);
 }
