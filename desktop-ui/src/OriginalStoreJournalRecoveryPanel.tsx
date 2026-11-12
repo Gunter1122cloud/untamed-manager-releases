@@ -40,9 +40,9 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       if(result.state!=="operatorReviewed"||!result.originalJournalAudited||
          !result.previousOutcomeStillUnknown||result.processStarted||
          result.processStopped||result.rconCommandSent||
-         result.restartMarkedSuccessful===true||
          (expectedPair===2&&(!result.restartJournalAudited||
-           result.pairedJournalsReviewed!==2||result.oldRunningPid!==oldPid)))
+           result.pairedJournalsReviewed!==2||result.oldRunningPid!==oldPid||
+           result.restartMarkedSuccessful!==false)))
         throw new Error("UM-RECOVERY-INVALID-NATIVE-RECEIPT");
       setReceipt(true);
       try{await onRecovered();}
