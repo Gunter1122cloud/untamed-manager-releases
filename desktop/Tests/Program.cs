@@ -3200,6 +3200,18 @@ try
         prior.LastLoader=null;
         prior.HistoricalLaunchModeNeedsApproval=true;
         prior.LogFilePath="existing-user-log-path";
+        string retainedRconPassword="SYNTHETIC-STORE-RCON-ONLY-9572";
+        prior.RconPort=37095;
+        prior.RconPasswordProtected=SecureStore.Protect(retainedRconPassword);
+        var ini=AsaInitialRconSettings.NewIniPath(prior.InstallationPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(ini)!);
+        File.WriteAllText(ini,
+            "[ServerSettings]"+Environment.NewLine+
+            "RCONEnabled=True"+Environment.NewLine+
+            "RCONPort=37095"+Environment.NewLine+
+            "ServerAdminPassword="+retainedRconPassword+Environment.NewLine);
+        Check(AsaRconConfigurationEvidence.Matches(prior),
+            "synthetic original Store RCON configuration exactly matches protected DPAPI secret");
         lab.AddMap(prior);
         int physicalChecks=0;
         var admitted=lab.ReconcileOriginalStoreLiveFive(candidates,()=>{
@@ -3212,6 +3224,9 @@ try
                 candidates.Select(m=>m.Id))&&
             reattached.LogFilePath=="existing-user-log-path"&&
             reattached.HistoricalMapKey==prior.HistoricalMapKey&&
+            reattached.RconPort==prior.RconPort&&
+            reattached.RconPasswordProtected==prior.RconPasswordProtected&&
+            AsaRconConfigurationEvidence.Matches(reattached)&&
             reattached.StartWithAsaApi&&reattached.LastLoader?.Pid==41002&&
             reattached.LastProcess?.Pid==42002&&
             !reattached.HistoricalLaunchModeNeedsApproval,
