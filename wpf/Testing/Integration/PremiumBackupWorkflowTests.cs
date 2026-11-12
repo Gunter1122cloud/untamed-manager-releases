@@ -193,6 +193,42 @@ public static class PremiumBackupWorkflowTests
         Check(File.ReadAllText(coreDll)=="API-CORE"&&
               File.ReadAllText(disabledPlugin)=="disabled-data",
             "expanded runtime backup makes no changes to the source installation");
+        // A symbolic link in an intermediate directory must not evade the
+        // file-root prefix check. This test uses only TEMP fixture paths.
+        string linkedRoot=Path.Combine(fixture,"linked-map-fixture");
+        Directory.CreateDirectory(linkedRoot);
+        string linkedShooter=Path.Combine(linkedRoot,"ShooterGame");
+        bool linkCreated=false;
+        try
+        {
+            Directory.CreateSymbolicLink(linkedShooter,
+                Path.Combine(install,"ShooterGame"));
+            linkCreated=true;
+        }
+        catch(Exception e) when(e is UnauthorizedAccessException or IOException or
+            PlatformNotSupportedException or NotSupportedException)
+        {
+            Console.WriteLine("SKIP backup-center symlink fixture: OS link privilege unavailable");
+        }
+        if(linkCreated)
+        {
+            var linkedMap=new LocalMap {
+                Id=Guid.NewGuid(),Name="Linked source fixture",
+                InstallationPath=linkedRoot
+            };
+            bool linkRejected=false;
+            try
+            {
+                LocalBackupWorkflow.Preview(linkedMap,stopped,
+                    Path.Combine(catalog,"must-not-create-linked"),
+                    LocalBackupScope.WorldAndProfiles);
+            }
+            catch(InvalidDataException e) when(e.Message.Contains("Linked backup source"))
+            { linkRejected=true; }
+            Check(linkRejected && !Directory.Exists(
+                Path.Combine(catalog,"must-not-create-linked")),
+                "backup rejects symbolic intermediate source directories before file copy");
+        }
         return Task.CompletedTask;
     }
 }
