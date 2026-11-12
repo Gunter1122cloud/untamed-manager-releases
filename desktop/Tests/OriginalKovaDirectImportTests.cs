@@ -222,6 +222,10 @@ internal static class OriginalKovaDirectImportTests
                 pinnedManager,local,parityMap);
             Check(changedIniEpoch!=iniEpoch,
                 "editing ASA GameUserSettings.ini cannot reuse old local approval");
+            File.Delete(existingGus);
+            Check(LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                    pinnedManager,local,parityMap)==oldEpoch,
+                "temporary INI test leaves imported map's source epoch unchanged");
             var edited=JsonSerializer.Deserialize<LocalMap>(
                 JsonSerializer.Serialize(parityMap))!;
             edited.GamePort=7781;edited.QueryPort=27019;
