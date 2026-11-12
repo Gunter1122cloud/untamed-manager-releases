@@ -132,7 +132,7 @@ internal static class OriginalStoreFiveMapBackupTests
         bool limited=false;
         try
         {
-            KovaCompatibleWorldBackup.Create(maps[0],cluster.Store.Root,
+            UntamedWorldBackup.Create(maps[0],cluster.Store.Root,
                 ()=>new ProcessCheck(false,"isolated stopped ASA",null,true));
         }
         catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-FILE-LIMIT")
