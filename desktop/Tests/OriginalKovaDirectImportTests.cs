@@ -164,8 +164,10 @@ internal static class OriginalKovaDirectImportTests
         // Other original peer carries five OTHER GUIDs but must produce
         // the identical cluster ID and the SAME original transfer directory.
         var peerIds=Enumerable.Range(0,5).Select(_=>Guid.NewGuid()).ToArray();
+        string[] ryzenMaps={"ScorchedEarth_WP","LostColony_WP",
+            "Ragnarok_WP","TheCenter_WP","Aberration_WP"};
         var peerMaps=peerIds.Select((id,i)=>new LegacyStoreV1OriginalMap(
-            id,"PeerMap_"+i,Path.Combine(baseRoot,"synthetic-peer-"+i),
+            id,ryzenMaps[i],Path.Combine(baseRoot,"synthetic-peer-"+i),
             7827+i*10,27215+i*10,firstOriginal.EnabledMods,
             firstOriginal.PassiveMods)).ToArray();
         // Peer Kova metadata is local to its host, so hashes need not be the
@@ -174,7 +176,7 @@ internal static class OriginalKovaDirectImportTests
         var secondSource=new LegacyStoreV1OriginalLocalSelection(
             peerOriginalFourHash,new string('E',64),peerMaps);
         var second=new LocalMap{
-            Id=peerMaps[0].MapId,Name="PeerMap_0",
+            Id=peerMaps[0].MapId,Name="Scorched Earth",
             InstallationPath=peerMaps[0].OriginalInstallationRoot,
             HistoricalStoreProtected=true,
             HistoricalArchiveSha256=peerOriginalFourHash,
