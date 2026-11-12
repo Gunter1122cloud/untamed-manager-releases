@@ -92,10 +92,20 @@ internal static class LegacyStoreV1GracefulStop
         ReadSource(map,Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData),"Kova"));
 
-    internal static string OriginalSource(ClusterService cluster,LocalMap map) =>
-        ReadSource(map,LegacyStoreV1PinnedSource.Resolve(cluster.Store.Root,
-            Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.ApplicationData),"Kova"),map));
+    internal static string OriginalSource(ClusterService cluster,LocalMap map)
+    {
+        string legacy=Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.ApplicationData),"Kova");
+        string selected=LegacyStoreV1PinnedSource.Resolve(
+            cluster.Store.Root,legacy,map);
+        // ACTIVE/DONE was Kova's import/migration coordination, not a
+        // runtime requirement for independently managed local SaveWorld/Stop.
+        // A peer being offline must not invalidate a locally owned PID/RCON.
+        if(!string.Equals(selected,legacy,StringComparison.OrdinalIgnoreCase))
+            return LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                cluster.Store.Root,legacy,map);
+        return ReadSource(map,legacy);
+    }
 
     private static string ReadSource(LocalMap map,string profile)
     {
