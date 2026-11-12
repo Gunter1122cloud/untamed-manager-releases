@@ -19,7 +19,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
 {
     private sealed record Pending(Guid Token,Guid MapId,Guid Operation,
         int Pid,DateTimeOffset StartedUtc,string SourceSha,string ProfileJson,
-        DateTimeOffset ExpiresUtc);
+        Guid? RestartId,string? RestartSnapshot,DateTimeOffset ExpiresUtc);
     private readonly ClusterService cluster;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> ownerProof;
     private readonly SemaphoreSlim serial=new(1,1);
@@ -36,7 +36,8 @@ public sealed class DesktopAsaLifecycleJournalBridge
         Func<Guid,LegacyStoreV1GracefulStop.Owned>? proof)
     {
         cluster=local??throw new ArgumentNullException(nameof(local));
-        ownerProof=proof??(mapId=>LegacyStoreV1GracefulStop.Preview(cluster,mapId));
+        ownerProof=proof??(mapId=>
+            LegacyStoreV1GracefulStop.PreviewForUnfinishedRestartReview(cluster,mapId));
     }
 
     private static string Ok(string id,object data)=>
@@ -104,6 +105,14 @@ public sealed class DesktopAsaLifecycleJournalBridge
             {
                 var map=Owned(mapId);
                 var old=cluster.Operations.Observe(map.InstallationPath);
+                var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
+                bool restartPending=restart?.Phase is (AsaRestartPhase.Stopping or
+                    AsaRestartPhase.Starting or AsaRestartPhase.NeedsOperator);
+                bool isOriginalPending=map.HistoricalStoreProtected&&
+                    old?.Kind==UntamedOperationKind.Launch&&PendingPhase(old);
+                bool restartReviewable=restart==null||restart.Phase is
+                    (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed or
+                     AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator);
                 if(method=="servers.lifecycleJournal")
                     return Ok(id,new{
                         mapId=map.Id,mapName=map.Name,
@@ -112,14 +121,22 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         phase=old?.Phase.ToString(),kind=old?.Kind.ToString(),
                         changedUtc=old?.UpdatedUtc,
                         classification=Classification(old),
-                        blockingCode=PendingPhase(old)?
-                            old?.Kind==UntamedOperationKind.Launch&&
-                            PendingPhase(old)&&map.HistoricalStoreProtected?
-                            "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
-                            "UM-RECOVERY-OTHER-OPERATION-REQUIRES-REVIEW":null,
-                        recoverySupported=map.HistoricalStoreProtected&&
-                            old?.Kind==UntamedOperationKind.Launch&&PendingPhase(old),
-                        needsOperatorReview=PendingPhase(old),
+                        blockingCode=restartPending?
+                            (isOriginalPending&&restartReviewable?
+                                "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE":
+                                "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR"):
+                            PendingPhase(old)?
+                                (isOriginalPending?
+                                    "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
+                                    "UM-RECOVERY-OTHER-OPERATION-REQUIRES-REVIEW"):null,
+                        restartJournalExists=restart!=null,
+                        restartId=restart?.Id,restartPhase=restart?.Phase.ToString(),
+                        restartChangedUtc=restart?.ChangedUtc,
+                        restartOldPid=restart?.OldPid,restartNewPid=restart?.NewPid,
+                        restartClassification=restartPending?"unknownOutcome":
+                            restart?.Phase==AsaRestartPhase.OperatorReviewed?"operatorReviewed":"closed",
+                        recoverySupported=isOriginalPending&&restartReviewable,
+                        needsOperatorReview=PendingPhase(old)||restartPending,
                         autoResumeAllowed=false,storeTouched=false,
                         evidence="DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
                     });
@@ -133,16 +150,30 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         return Error(id,"UM-RECOVERY-LAUNCH-PENDING-ONLY");
                     if(DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
                         return Error(id,"UM-RECOVERY-OPERATION-TOO-RECENT");
+                    if(!restartReviewable)
+                        return Error(id,"UM-RECOVERY-RESTART-PHASE-NOT-REVIEWABLE");
                     var witness=await Task.Run(()=>Proof(mapId));
+                    if(restart!=null&&restart.Phase is not AsaRestartPhase.Completed &&
+                       (restart.MapId!=mapId||restart.OldPid!=witness.Process.Pid||
+                        restart.NewPid!=0))
+                        return Error(id,"UM-RECOVERY-RESTART-OLD-PID-MISMATCH");
                     var token=Guid.NewGuid();
                     pending=new(token,mapId,old.Operation,
                         witness.Process.Pid,witness.Process.StartedUtc,
                         witness.SourceSha,JsonSerializer.Serialize(witness.Map),
+                        restart?.Phase==AsaRestartPhase.Completed?null:restart?.Id,
+                        restart?.Phase==AsaRestartPhase.Completed?null:
+                            JsonSerializer.Serialize(restart),
                         DateTimeOffset.UtcNow.AddMinutes(3));
                     return Ok(id,new{
                         token,mapId,mapName=map.Name,
                         operationId=old.Operation,kind=old.Kind.ToString(),
                         phase=old.Phase.ToString(),pid=witness.Process.Pid,
+                        restartId=pending.RestartId,
+                        restartPhase=restart?.Phase.ToString(),
+                        restartOldPid=restart?.OldPid,
+                        restartNewPid=restart?.NewPid,
+                        pairedJournals=pending.RestartId!=null?2:1,
                         processStartedUtc=witness.Process.StartedUtc,
                         rconPort=map.RconPort,
                         expiresUtc=pending.ExpiresUtc,
@@ -170,6 +201,14 @@ public sealed class DesktopAsaLifecycleJournalBridge
                    typed.ValueKind!=JsonValueKind.String||
                    typed.GetString()!="STORE-V1 NAPLÓ HELYREÁLLÍTÁS")
                     return Error(id,"UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED");
+                // Pin both original journal IDs and the precise preflight
+                // Restart-v1 record. No competing UI or Manager may silently
+                // replace either during the three-minute approval window.
+                var currentRestart=new AsaManualRestartJournal(map.InstallationPath).Observe();
+                if((pinned.RestartSnapshot??"")!=
+                   (currentRestart==null||currentRestart.Phase==AsaRestartPhase.Completed?
+                       "":JsonSerializer.Serialize(currentRestart)))
+                    return Error(id,"UM-RECOVERY-RESTART-JOURNAL-CHANGED");
                 bool CheckPinned()
                 {
                     var now=Proof(mapId);
@@ -180,11 +219,16 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         JsonSerializer.Serialize(now.Map)==pinned.ProfileJson;
                 }
                 cluster.Operations.ReviewRunningOriginalLaunch(
-                    map.InstallationPath,pinned.Operation,CheckPinned);
+                    map.InstallationPath,pinned.Operation,CheckPinned,
+                    mapId,pinned.RestartId,pinned.Pid);
                 return Ok(id,new{
                     mapId,operationId=pinned.Operation,
                     state="operatorReviewed",previousOutcomeStillUnknown=true,
-                    originalJournalAudited=true,storeBytesModified=false,
+                    originalJournalAudited=true,
+                    restartJournalAudited=pinned.RestartId!=null,
+                    pairedJournalsReviewed=pinned.RestartId!=null?2:1,
+                    restartMarkedSuccessful=false,oldRunningPid=pinned.Pid,
+                    storeBytesModified=false,
                     processStarted=false,processStopped=false,rconCommandSent=false,
                     noAutomaticRetry=true,newOperationRequiresFreshApproval=true,
                     evidence="ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"
