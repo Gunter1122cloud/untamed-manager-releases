@@ -2816,6 +2816,30 @@ try
                 "native Start preserves ASA mod load/download order in launch args");
         }
         finally { fresh.Arguments=originalLaunch; }
+        // "Store" is a legitimate custom session word; it is NOT an
+        // implicit -usestore switch. Actual Store/cluster switches still
+        // cannot be smuggled into a non-enrolled local launch.
+        try
+        {
+            fresh.Arguments=AsaSteamMapCatalog.LaunchArguments(
+                fresh.Name,"Untamed Store House",fresh.GamePort,fresh.QueryPort);
+            var named=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            IsOk(named,"ordinary Store word in ASA session name does not block fresh Start");
+            Check(calls==2,
+                "read-only preview of a Store-named fresh session does not spawn ASA");
+            fresh.Arguments=originalLaunch+" -ClusterDirOverride=C:\\Unsafe";
+            var forbiddenTransfer=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            Check(IsError(forbiddenTransfer,"UM-FRESH-START-NOT-READY")&&calls==2,
+                "unapproved cluster transfer override is rejected for non-Store ASA");
+            fresh.Arguments=originalLaunch+" -usestore";
+            var forbiddenStore=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            Check(IsError(forbiddenStore,"UM-FRESH-START-NOT-READY")&&calls==2,
+                "Store-v1 launch switch cannot bypass native enrollment");
+        }
+        finally {fresh.Arguments=originalLaunch;}
     }
 
     // Local serial SteamCMD batch: a new UI command must delegate to the

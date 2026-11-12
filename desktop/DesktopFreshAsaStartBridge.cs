@@ -62,6 +62,16 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         return One("Game.ini")+"|"+One("GameUserSettings.ini");
     }
 
+    // A map/session name may legitimately contain the word "Store".
+    // Only actual command-line switches select Store-v1 mode or redirect
+    // the shared transfer directory. Do not make ordinary names a
+    // permanent generic blocker to independently approved fresh ASA Start.
+    private static readonly System.Text.RegularExpressions.Regex ForeignStoreSwitch=
+        new(@"(?:^|\s)-(?:usestore|convert(?:to|from)store|clusterid|clusterdirOverride)(?=$|\s|=)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+            TimeSpan.FromMilliseconds(100));
+
     private LocalMap? Owned(Guid id)=>
         cluster.Config.LocalMaps.SingleOrDefault(map=>map.Id==id);
     private static bool ReadGuid(JsonElement item,string name,out Guid guid)
@@ -76,8 +86,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
-           (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-               StringComparison.OrdinalIgnoreCase)))||map.Maintenance||
+           ForeignStoreSwitch.IsMatch(map.Arguments+" "+map.ApiLoaderArguments)))||
+           map.Maintenance||
            map.GamePort is <1024 or >65535 ||
            map.QueryPort is <1024 or >65535 ||
            string.IsNullOrWhiteSpace(map.Arguments) ||
