@@ -137,6 +137,34 @@ internal static class OriginalKovaDirectImportTests
             VaultProtocol.ClusterId,originalCluster.path,"active",originalIni));
         LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
             parityMap,discovered,originalCluster.path,originalIni,launch.Arguments);
+        // Approved original source is copied to an independent, bounded
+        // Manager-owned profile. Disabling the synthetic Kova source must not
+        // break source parity or silently invent a new transfer directory.
+        string pinnedManager=Path.Combine(baseRoot,"standalone-source-profile");
+        LegacyStoreV1PinnedSource.Capture(local,pinnedManager,
+            discovered.FourFilesSha256,discovered.LaunchProfileSha256);
+        LegacyStoreV1PinnedSource.Capture(local,pinnedManager,
+            discovered.FourFilesSha256,discovered.LaunchProfileSha256);
+        string hiddenLocal=local+"-temporarily-offline";
+        Directory.Move(local,hiddenLocal);
+        try
+        {
+            string pinned=LegacyStoreV1PinnedSource.Resolve(pinnedManager,local,parityMap);
+            var frozen=LegacyStoreV1OriginalImport.Inspect(pinned);
+            Check(!string.Equals(pinned,local,StringComparison.OrdinalIgnoreCase)&&
+                  frozen.FourFilesSha256==discovered.FourFilesSha256&&
+                  frozen.LaunchProfileSha256==discovered.LaunchProfileSha256,
+                "approved standalone Store source preserves five IDs and mod/port order without original local Kova directory");
+        }
+        finally{Directory.Move(hiddenLocal,local);}
+        string pinnedLaunch=Path.Combine(pinnedManager,"original-store-v1-source",
+            "launch-profiles-v1.json");
+        File.AppendAllText(pinnedLaunch,"\\nTAMPER");
+        bool pinTamperDenied=false;
+        try{LegacyStoreV1PinnedSource.Resolve(pinnedManager,local,parityMap);}
+        catch(InvalidDataException){pinTamperDenied=true;}
+        Check(pinTamperDenied,
+            "tampered Manager-owned source pin fails closed rather than falling back to Kova");
         Check(launch.Arguments.Contains("-clusterid="+VaultProtocol.ClusterId)&&
               launch.Arguments.Contains("-ClusterDirOverride="+originalCluster.path)&&
               launch.Arguments.Count(x=>x=="-usestore")==1&&
