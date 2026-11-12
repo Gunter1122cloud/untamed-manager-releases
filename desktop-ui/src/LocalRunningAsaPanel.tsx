@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, AlertTriangle, RefreshCw, Shield } from "lucide-react";
 import { managerBridge, type RunningLocalAsaSnapshot, type RunningLocalAsaProcess,
   type RunningAsaImportPreview, type RunningAsaAdoptPreview } from "./bridge";
@@ -127,7 +127,10 @@ export function LocalRunningAsaPanel({onRegistered}:{
   const [snapshot,setSnapshot]=useState<RunningLocalAsaSnapshot|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
+  const refreshing=useRef(false);
   const inspect=useCallback(async (isCurrent:()=>boolean=()=>true)=>{
+    if(refreshing.current)return;
+    refreshing.current=true;
     if(isCurrent()){setLoading(true);setError("");}
     try {
       const next=await managerBridge.runningLocalAsa();
@@ -138,13 +141,15 @@ export function LocalRunningAsaPanel({onRegistered}:{
         setError(e instanceof Error?e.message:"UM-READ-UNAVAILABLE");
       }
     } finally {
+      refreshing.current=false;
       if(isCurrent())setLoading(false);
     }
   },[]);
   useEffect(()=>{
     let current=true;
     void inspect(()=>current);
-    return ()=>{current=false;};
+    const timer=window.setInterval(()=>{void inspect(()=>current);},15000);
+    return ()=>{current=false;window.clearInterval(timer);};
   },[inspect]);
 
   return <section className="glass panel" aria-label="Futó helyi ASA-folyamatok">
@@ -157,12 +162,21 @@ export function LocalRunningAsaPanel({onRegistered}:{
       </button>
     </div>
     <div className="panel-inner">
-      <p className="muted small">A Windows folyamatlistáját olvassa. A találat nem jelenti, hogy a
-        Manager átvette a szerver vezérlését vagy a Store-v1 írási jogát.</p>
+      <p className="muted small">A Windows összes ASA és ASA API Loader folyamatát
+        automatikusan ellenőrzi 15 másodpercenként, a háttérben és tálcára csukva is.
+        Az ismeretlen PID megfigyelés, nem tulajdonjog vagy Store-v1 írási engedély.</p>
+      {snapshot?.automaticDiscovery&&<p className="muted small">
+        Folyamatfigyelő: {snapshot.watcherState??"ismeretlen"} ·
+        {snapshot.fresh?" friss Windows-folyamatkép":" újraellenőrzés szükséges"}
+      </p>}
+      {snapshot?.fresh===false&&<div role="alert" className="warning-inline">
+        <AlertTriangle size={16}/> A folyamatlista pillanatnyilag nem igazolt.
+        Ez nem jelenti azt, hogy az ASA-szerverek leálltak.
+      </div>}
       {error && <div className="error-inline" aria-live="polite"><AlertTriangle size={16}/>
         A helyi folyamatfelderítés nem elérhető ({error}); az állapot ismeretlen.</div>}
       {!error && loading && !snapshot && <p className="muted small">Helyi folyamatok ellenőrzése…</p>}
-      {!loading && snapshot?.processes.length===0 && <p className="muted small">
+      {!loading && snapshot?.fresh!==false && snapshot?.processes.length===0 && <p className="muted small">
         A lekérdezés nem talált ASA-szervert vagy ASA API Loadert ezen a Windows-gépen.
       </p>}
       {snapshot?.processes.map(p=><div key={p.pid} className="import-preview">
