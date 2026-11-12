@@ -452,13 +452,14 @@ internal static class OriginalKovaDirectImportTests
         Check(preview.GetProperty("ok").GetBoolean(),
             "second local map may be staged independently");
         string secondToken=preview.GetProperty("data").GetProperty("token").GetString()!;
-        File.WriteAllText(Path.Combine(local,names[3]),source[3]+" ");
+        string managerPinRoot=Path.Combine(manager,"original-store-v1-source");
+        File.WriteAllText(Path.Combine(managerPinRoot,names[3]),source[3]+" ");
         var tampered=await Call(bridge,"historical.originalRegister",
             new{token=secondToken,confirm=true});
         Check(!tampered.GetProperty("ok").GetBoolean()&&
               cluster.Config.LocalMaps.Count==1,
-            "changed original lock source rejects registration after preview");
-        File.WriteAllText(Path.Combine(local,names[3]),source[3]);
+            "changed Obsidian-owned pinned source rejects registration after preview");
+        File.WriteAllText(Path.Combine(managerPinRoot,names[3]),source[3]);
 
         var launchPreview=await Call(bridge,"historical.originalPreview",
             new{mapId=ids[1],gamePort=7787,queryPort=27025});
@@ -466,7 +467,8 @@ internal static class OriginalKovaDirectImportTests
             "launch profile and original metadata both verified at preview");
         string changedLaunch=launchBytes.Replace("987654321","555555555",
             StringComparison.Ordinal);
-        File.WriteAllText(launchProfilePath,changedLaunch);
+        File.WriteAllText(Path.Combine(managerPinRoot,"launch-profiles-v1.json"),
+            changedLaunch);
         var deniedLaunch=await Call(bridge,"historical.originalRegister",
             new{
                 token=launchPreview.GetProperty("data").GetProperty("token").GetString(),
@@ -474,8 +476,19 @@ internal static class OriginalKovaDirectImportTests
             });
         Check(!deniedLaunch.GetProperty("ok").GetBoolean()&&
               cluster.Config.LocalMaps.Count==1,
-            "changed original mod load-order bytes after preview deny registration");
-        File.WriteAllText(launchProfilePath,launchBytes);
+            "changed pinned mod load-order bytes after preview deny registration");
+        File.WriteAllText(Path.Combine(managerPinRoot,"launch-profiles-v1.json"),
+            launchBytes);
+
+        // The retired Kova profile is no longer the running authority.
+        // Mutating it after an explicit pinned import must NOT change the
+        // registered immutable Obsidian source or block the next local map.
+        File.WriteAllText(Path.Combine(local,names[3]),source[3]+" ");
+        var independent=await Call(bridge,"historical.originalPreview",
+            new{mapId=ids[1],gamePort=7787,queryPort=27025});
+        Check(independent.GetProperty("ok").GetBoolean(),
+            "retired local Kova source changes do not invalidate verified Obsidian source");
+        File.WriteAllText(Path.Combine(local,names[3]),source[3]);
 
         for(int i=1;i<5;i++)
         {
