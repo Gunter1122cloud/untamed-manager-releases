@@ -2999,6 +2999,117 @@ try
             "foreign map cannot query native operation journal");
     }
 
+    // Real durable coordinator + native recovery API, isolated in TEMP.
+    // The original operation is kept for audit. Neither Test nor production
+    // recovery can execute an ASA command, replay a dinowipe, or spawn a PID.
+    {
+        string path=Path.Combine(root,"store-running-launch-recovery");
+        await using var originalLab=new ClusterService("store-recovery-ci",
+            Path.Combine(path,"profile"),
+            _=>new ProcessCheck(false,"synthetic-no-asa",null,true));
+        var protectedMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Aberration",
+            InstallationPath=Path.Combine(path,"Aberration"),
+            HistoricalStoreProtected=true,HistoricalMapKey="Aberration_WP",
+            HistoricalArchiveSha256=new string('B',64),
+            RconPort=37095
+        };
+        originalLab.AddMap(protectedMap);
+        using(var lease=originalLab.Operations.Acquire(
+            protectedMap.InstallationPath,UntamedOperationKind.Launch))
+            lease.MarkMutationStarted();
+        var key=UntamedOperationCoordinator.ResourceKey(protectedMap.InstallationPath);
+        var journalFile=Path.Combine(root,"operation-journals",key+".json");
+        var initial=originalLab.Operations.Observe(protectedMap.InstallationPath)!;
+        File.WriteAllText(journalFile,JsonSerializer.Serialize(initial with {
+            UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+        }));
+        string before=File.ReadAllText(journalFile);
+        int proofCalls=0;
+        var identity=new ProcessIdentity{
+            Pid=23456,StartedUtc=DateTimeOffset.UtcNow.AddHours(-3),
+            ExecutablePath=Path.Combine(protectedMap.InstallationPath,
+                "ShooterGame","Binaries","Win64","ArkAscendedServer.exe"),
+            Arguments="SYNTHETIC_OWNER_ONLY"
+        };
+        bool sameProcess=true;
+        using var review=new DesktopAsaLifecycleJournalBridge(originalLab,id=>{
+            proofCalls++;
+            if(!sameProcess)throw new InvalidDataException(
+                "UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
+            return new LegacyStoreV1GracefulStop.Owned(protectedMap,
+                identity,new string('A',64));
+        });
+        var current=await Call(review.HandleAsync,
+            "servers.lifecycleJournal",new{mapId=protectedMap.Id});
+        IsOk(current,"interrupted Store-v1 Launch is classified as unknown outcome");
+        Check(current.GetProperty("data").GetProperty("recoverySupported").GetBoolean()&&
+            current.GetProperty("data").GetProperty("classification").GetString()=="unknownOutcome"&&
+            current.GetProperty("data").GetProperty("blockingCode").GetString()==
+                "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE",
+            "recovery status exposes the exact blocker without deleting its durable journal");
+        var staged=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        IsOk(staged,"original Store-v1 running owner recovery preview is native and read-only");
+        var reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
+        var missingApproval=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,typedApproval="INCORRECT"
+            });
+        Check(IsError(missingApproval,"UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED")&&
+            File.ReadAllText(journalFile)==before,
+            "bad approval cannot clear, replace or replay an interrupted Launch");
+        staged=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
+        sameProcess=false;
+        var changed=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        Check(IsError(changed,"UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED")&&
+            File.ReadAllText(journalFile)==before,
+            "a changed ASA PID/source cannot be approved by a prior recovery token");
+        sameProcess=true;
+        staged=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
+        var reviewed=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        IsOk(reviewed,"authorized running original Store Launch can be reviewed, not replayed");
+        var receipt=reviewed.GetProperty("data");
+        var audit=Path.Combine(root,"operation-journals",
+            key+"-"+initial.Operation.ToString("N")+".operator-reviewed.json");
+        Check(proofCalls>=5&&receipt.GetProperty("previousOutcomeStillUnknown").GetBoolean()&&
+            !receipt.GetProperty("rconCommandSent").GetBoolean()&&
+            !receipt.GetProperty("processStarted").GetBoolean()&&
+            File.Exists(audit)&&File.ReadAllText(audit)==before&&
+            originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
+                UntamedOperationPhase.OperatorReviewed,
+            "old Launch journal is archived byte-for-byte; no double RCON or ASA startup");
+        var repeated=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        Check(IsError(repeated,"UM-RECOVERY-APPROVAL-EXPIRED"),
+            "single-use recovery token cannot be applied twice");
+        using(var next=originalLab.Operations.Acquire(
+            protectedMap.InstallationPath,UntamedOperationKind.Configuration))
+            next.Complete();
+        Check(originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
+            UntamedOperationPhase.Completed,
+            "reviewed operation unlocks only fresh, separately authorized actions");
+    }
+
     // Native cross-map Mod Center inventory: real Core parser, read-only
     // historical Store-v1 metadata, never the quarantined Arguments field.
     {
