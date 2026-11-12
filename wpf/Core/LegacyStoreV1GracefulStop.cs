@@ -25,7 +25,8 @@ internal static class LegacyStoreV1GracefulStop
 
     internal static Owned Require(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck> inspect,Func<LocalMap,string> source,
-        Func<int,int,bool> portOwner,Guid? approvedRestartId=null)
+        Func<int,int,bool> portOwner,Guid? approvedRestartId=null,
+        bool recoveryReadOnly=false)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(inspect);
@@ -57,7 +58,7 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException("UM-ORIGINAL-RESTART-STOP-NOT-AUTHORIZED");
             restart.DemandAuthorizedStop(restartId);
         }
-        else restart.DemandNoPending();
+        else if(!recoveryReadOnly)restart.DemandNoPending();
         string fingerprint=source(map);
         if(fingerprint.Length!=64||fingerprint.Any(c=>!Uri.IsHexDigit(c)))
             throw new InvalidDataException("UM-ORIGINAL-STOP-SOURCE-NOT-ACTIVE");
@@ -68,6 +69,22 @@ internal static class LegacyStoreV1GracefulStop
            (state.LoaderIdentity!=null&&state.LoaderIdentity.Pid==identity.Pid)||
            !portOwner(map.RconPort,identity.Pid))
             throw new InvalidOperationException("UM-ORIGINAL-STOP-PID-RCON-NOT-OWNED");
+        if(recoveryReadOnly)
+        {
+            // This bypass is ONLY for read-only proof during an explicitly
+            // approved paired-journal review, never for Stop/Restart/RCON.
+            // Still require the ORIGINAL live PID, full Store session and
+            // RCON port ownership proof above; an unexpected restarted PID
+            // must NOT be made eligible for the old-process recovery.
+            var oldRestart=restart.Observe();
+            if(oldRestart!=null&&oldRestart.Phase is not
+                (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed)&&
+               (oldRestart.MapId!=mapId||oldRestart.OldPid!=identity.Pid||
+                oldRestart.NewPid!=0||oldRestart.Phase is not
+                    (AsaRestartPhase.NeedsOperator or AsaRestartPhase.Stopping)))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-RESTART-OLD-PID-OR-PHASE-MISMATCH");
+        }
         return new(map,identity,fingerprint);
     }
 
@@ -282,6 +299,18 @@ internal static class LegacyStoreV1GracefulStop
         return new(mapId,approvedPid,true,DateTimeOffset.UtcNow,
             "ORIGINAL_ACTIVE_STORE_SAVEWORLD_LOG_AND_STABLE_WORLD_NO_DOEXIT");
     }
+
+    internal static Owned PreviewForUnfinishedRestartReview(
+        ClusterService cluster,Guid mapId,
+        Func<LocalMap,ProcessCheck>? inspect=null,
+        Func<LocalMap,string>? source=null,
+        Func<int,int,bool>? portOwner=null)=>
+        Require(cluster,mapId,
+            inspect??(map=>LegacyStoreV1ProcessObserver.Observe(
+                map,cluster.Config.LocalMaps)),
+            source??OriginalSource,
+            portOwner??RconPortOwnership.IsOwnedListener,
+            recoveryReadOnly:true);
 
     internal static Owned Preview(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck>? inspect=null,
