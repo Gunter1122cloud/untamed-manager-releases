@@ -141,8 +141,23 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     }
                     CompletedSteamInstall? source;
                     try{source=SteamFreshInstall.InspectCompleted(Canonical(recoveredRoot));}
-                    catch(Exception ex) when(ex is InvalidDataException or IOException or
-                        UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                    catch(InvalidDataException ex)
+                    {
+                        // Return ONLY known safe error codes, never arbitrary
+                        // source file paths or untrusted SteamCMD output.
+                        string code=ex.Message is
+                            "UM-FRESH-RECOVERY-JOURNAL-INVALID" or
+                            "UM-FRESH-RECOVERY-UNPINNED-COMPLETION" or
+                            "UM-FRESH-RECOVERY-COMPLETED-FILES-CHANGED" or
+                            "UM-FRESH-RECOVERY-LEVEL-MISMATCH" or
+                            "UM-FRESH-RECOVERY-MAP-NAME-INVALID" or
+                            "UM-FRESH-RECOVERY-BINARY-OUTSIDE-ROOT"
+                            ?ex.Message:"UM-FRESH-RECOVERY-FILES-UNVERIFIED";
+                        return Error(id,code);
+                    }
+                    catch(Exception ex) when(ex is IOException or
+                        UnauthorizedAccessException or ArgumentException or
+                        NotSupportedException or FormatException)
                     { return Error(id,"UM-FRESH-RECOVERY-FILES-UNVERIFIED"); }
                     if(source==null)return Error(id,"UM-FRESH-RECOVERY-NO-COMPLETE-JOURNAL");
                     if(!string.Equals(source.MapName,recoveredName,StringComparison.OrdinalIgnoreCase))
