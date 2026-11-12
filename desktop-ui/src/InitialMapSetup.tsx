@@ -73,7 +73,9 @@ export function InitialMapSetup({mapId,onConfigured}: {
         ? "A regisztrált ASA EXE nem igazolható a map saját telepítési gyökerében. Az első konfiguráció nem lett mentve."
         : code==="UM-INITIAL-PORT-IN-USE"
           ? "A kiválasztott Game vagy Query UDP-portot már egy Windows-folyamat használja. Válassz szabad portokat, majd ellenőrizd újra; a Manager-profil nem módosult."
-          : "A Manager nem fogadta el az indítási paramétereket ("+code+
+          : code==="UM-INITIAL-PORT-UNVERIFIED"
+            ? "A Windows UDP-portfoglalásai most nem ellenőrizhetők megbízhatóan. Nem állítjuk, hogy a port foglalt vagy szabad; kérj új előnézetet, ha a rendszerállapot rendeződött."
+            : "A Manager nem fogadta el az indítási paramétereket ("+code+
             "). Lehetséges helyi portütközés, futó map vagy módosult konfiguráció.");
     }finally{setBusy(false);}
   };
@@ -98,7 +100,9 @@ export function InitialMapSetup({mapId,onConfigured}: {
       const code=e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED";
       setError(code==="UM-INITIAL-PORT-IN-USE"
         ? "A Game vagy Query UDP-port az előnézet után foglalttá vált. A jóváhagyott profil nem lett mentve; válassz új portokat és kérj új előnézetet."
-        : "Az első konfigurálás elutasítva ("+code+
+        : code==="UM-INITIAL-PORT-UNVERIFIED"
+          ? "A jóváhagyás pillanatában a Windows UDP-portállapota nem ellenőrizhető. Nem írtunk profilt; kérj új előnézetet, és ne indíts mapot ismeretlen portállapottal."
+          : "Az első konfigurálás elutasítva ("+code+
           "). A megfigyelt mapot és a fájlokat nem indítottuk el.");
     }finally{setBusy(false);}
   };

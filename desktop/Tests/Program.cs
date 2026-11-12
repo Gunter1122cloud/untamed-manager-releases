@@ -2368,6 +2368,19 @@ try
               !AsaLocalPortPreflight.CanStart(fresh,noPorts,localRconBind) &&
               AsaLocalPortPreflight.CanStart(fresh,noPorts,noPorts),
             "OS game/query UDP or RCON TCP port conflicts deny real ASA start");
+        static IEnumerable<System.Net.IPEndPoint> BrokenPortQuery()
+        {
+            yield return new System.Net.IPEndPoint(
+                System.Net.IPAddress.Loopback,12345);
+            throw new InvalidOperationException("Synthetic OS port enumeration failed");
+        }
+        Check(AsaLocalPortPreflight.Inspect(fresh,noPorts,noPorts)==
+                  AsaLocalPortAvailability.Available&&
+              AsaLocalPortPreflight.Inspect(fresh,localQueryBind,noPorts)==
+                  AsaLocalPortAvailability.InUse&&
+              AsaLocalPortPreflight.Inspect(fresh,BrokenPortQuery(),noPorts)==
+                  AsaLocalPortAvailability.Unverified,
+            "busy listener and unavailable Windows port evidence have different states");
         using var starter=new DesktopFreshAsaStartBridge(cluster,(id,approved)=>{
             Check(approved && id==fresh.Id,"native launch receives exact approved local map");
             calls++;
