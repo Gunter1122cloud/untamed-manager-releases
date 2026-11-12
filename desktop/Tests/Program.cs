@@ -6721,6 +6721,21 @@ try
             "unconfigured loader mode cannot be guessed from an EXE path or process name");
         otherOriginalMap.StartWithAsaApi=true;
 
+        // A direct original Store launch must not reuse approval if the
+        // physical ASA EXE changed at the same registered path. This
+        // explicit preflight hashes only the server binary, never world
+        // saves or shared Store transfer files.
+        var beforeExeBytes=File.ReadAllBytes(exe);
+        string directSha=LegacyStoreV1NativeStartPlanner.DirectExecutableSha256(storeMap);
+        File.WriteAllBytes(exe,beforeExeBytes.Concat(new byte[]{0x42}).ToArray());
+        string changedExeSha=LegacyStoreV1NativeStartPlanner.DirectExecutableSha256(storeMap);
+        Check(directSha.Length==64&&changedExeSha.Length==64&&
+              directSha!=changedExeSha,
+            "original direct ASA Start approval can bind physical executable content, not only its path");
+        File.WriteAllBytes(exe,beforeExeBytes);
+        Check(LegacyStoreV1NativeStartPlanner.DirectExecutableSha256(storeMap)==directSha,
+            "original ASA EXE fixture restored without touching world, Store or transfer data");
+
         int launches=0,prepared=0;
         bool changedPlan=false;
         LegacyStoreV1NativeStartPlan Prepare(LocalMap original)

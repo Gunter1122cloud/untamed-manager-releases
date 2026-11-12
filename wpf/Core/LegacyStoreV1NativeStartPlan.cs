@@ -25,6 +25,28 @@ internal static class LegacyStoreV1NativeStartPlanner
     private static readonly string LocalOriginal=Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
 
+    // Only the explicit Start preview/apply hashes the stopped ASA EXE.
+    // Direct launches must bind approval to the exact binary bytes, not
+    // merely an unchanged path/mtime. The API path already embeds the
+    // official cache probe's executable SHA-256 in its launch fingerprint.
+    // Never hash gigabyte world saves or poll the executable on a dashboard.
+    internal static string DirectExecutableSha256(LocalMap map)
+    {
+        if(map==null||!AsaReadyProbe.IsRegisteredServerBinary(map))
+            throw new InvalidDataException("UM-STORE-NATIVE-EXE-NOT-REGISTERED");
+        string expected=Path.Combine(Path.GetFullPath(map.InstallationPath),
+            "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+        var info=new FileInfo(expected);
+        if(!info.Exists||info.Length is <1 or >4L*1024*1024*1024||
+           (info.Attributes&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-STORE-NATIVE-EXE-UNVERIFIED");
+        using var reader=new FileStream(expected,FileMode.Open,FileAccess.Read,
+            FileShare.Read,131072,FileOptions.SequentialScan);
+        if(reader.Length!=info.Length)
+            throw new InvalidDataException("UM-STORE-NATIVE-EXE-CHANGED");
+        return Convert.ToHexString(SHA256.HashData(reader));
+    }
+
     internal static LegacyStoreV1NativeStartPlan Prepare(ClusterService cluster,
         LocalMap map,Guid? approvedRestartId=null)
     {
@@ -172,9 +194,11 @@ internal static class LegacyStoreV1NativeStartPlanner
             byte[] gameIni=held.Read(gameIniPath,4_000_000);
             gameIniSha=Convert.ToHexString(SHA256.HashData(gameIni));
         }
+        string directBinarySha=map.StartWithAsaApi?"API_BINARY_ALREADY_BOUND":
+            DirectExecutableSha256(map);
         string evidence=string.Join("\n",map.Id.ToString("D"),
             Path.GetFullPath(map.InstallationPath),Path.GetFullPath(map.ExecutablePath),
-            map.HistoricalArchiveSha256,currentSource.LaunchProfileSha256,
+            directBinarySha,map.HistoricalArchiveSha256,currentSource.LaunchProfileSha256,
             original.SourceStateSha256,originalIniSha,gameIniSha,
             args,launchMode,map.RconPort.ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
@@ -256,10 +280,12 @@ internal static class LegacyStoreV1NativeStartPlanner
         if(File.Exists(gameIniPath))
             gameIniSha=Convert.ToHexString(SHA256.HashData(
                 held.Read(gameIniPath,4_000_000)));
+        string directBinarySha=map.StartWithAsaApi?"API_BINARY_ALREADY_BOUND":
+            DirectExecutableSha256(map);
         string evidence=string.Join("\n",map.Id.ToString("D"),
             Path.GetFullPath(map.InstallationPath),
             Path.GetFullPath(map.ExecutablePath),
-            source.FourFilesSha256,source.LaunchProfileSha256,
+            directBinarySha,source.FourFilesSha256,source.LaunchProfileSha256,
             Convert.ToHexString(SHA256.HashData(ini)),gameIniSha,
             args,launchMode,map.RconPort.ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
