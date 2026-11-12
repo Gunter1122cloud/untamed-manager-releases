@@ -550,7 +550,8 @@ public sealed class ObsidianWindow : Form
                             "backup.originalBatchJournalRepairPreview" or
                             "backup.originalBatchJournalRepairApply";
                         pluginStateRoute = name is
-                            "plugins.state" or "plugins.togglePreview" or "plugins.toggleApply";
+                            "plugins.state" or "plugins.openFolder" or
+                            "plugins.togglePreview" or "plugins.toggleApply";
                         pluginZipRoute = name is "plugins.zipSelect" or "plugins.zipApply" or
                             "plugins.zipRollbackSelect" or "plugins.zipRollbackApply";
                         pluginJsonRoute = name is "plugins.jsonOpen" or "plugins.jsonPreview" or

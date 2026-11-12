@@ -312,6 +312,11 @@ export type CurseForgeResult = {
   mods: CurseForgeMod[];
 };
 
+export type PluginFolderOpened = {
+  mapId:string;opened:true;runtimeLoadedVerified:false;
+  filesChanged:false;serverOperation:false;rconSent:false;
+  evidence:"LOCAL_ARKAPI_PLUGIN_FOLDER_OPENED_IN_EXPLORER";
+};
 export type PluginState = {
   mapId:string; mapName:string;historicalProtected:boolean;
   plugins:Array<{name:string;enabled:boolean;runtimeLoadedVerified:false}>;
@@ -1569,7 +1574,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "operations.scheduleCreate" | "operations.scheduleDisable" |
   "schedule.nativeStatus" | "schedule.nativeSet" | "schedule.nativeDisable" |
   "schedule.nativeOverview" |
-  "maps.maintenanceStatus" | "maps.maintenanceSet" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
+  "maps.maintenanceStatus" | "maps.maintenanceSet" | "dashboard.snapshot" | "mods.configured" | "mods.sharedInventory" | "curseforge.search" | "plugins.inventory" | "plugins.state" | "plugins.openFolder" | "plugins.togglePreview" | "plugins.toggleApply" | "backups.summary" | "logs.read" | "steam.installations" | "servers.suggestPorts" |
   "curseforge.credentialStatus" | "curseforge.credentialSave" | "curseforge.credentialClear" |
   "mods.draftStart" | "mods.draftStage" | "mods.draftUndo" |
   "mods.draftRedo" | "mods.draftDiscard" | "mods.draftSave" |
@@ -1900,6 +1905,8 @@ export const managerBridge = {
   sharedModInventory: () => request<SharedModInventory>("mods.sharedInventory"),
   catalogSearch: (term: string, page = 0) => request<CurseForgeResult>("curseforge.search", { term, page }),
   pluginInventory: (mapId: string) => request<PluginInventory>("plugins.inventory", { mapId }),
+  pluginOpenFolder: (mapId:string) =>
+    request<PluginFolderOpened>("plugins.openFolder",{mapId}),
   apiCoreRelease: () => request<AsaApiCoreRelease>("api.coreRelease"),
   apiCorePreview: (mapId:string,assetName:string) =>
     request<AsaApiCorePreview>("api.corePreview",{mapId,assetName}),
