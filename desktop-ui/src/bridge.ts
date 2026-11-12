@@ -468,7 +468,7 @@ export type OriginalStoreLifecycleRecoveryPreview = {
 };
 export type OriginalStoreLifecycleRecoveryReceipt = {
   mapId:string;operationId:string;state:"operatorReviewed";
-  previousOutcomeStillUnknown:true;originalJournalAudited:true;
+  previousOutcomeStillUnknown:true;originalJournalAudited:boolean;
   restartJournalAudited?:boolean;pairedJournalsReviewed?:number;
   restartMarkedSuccessful?:false;oldRunningPid?:number;
   storeBytesModified:false;processStarted:false;processStopped:false;
