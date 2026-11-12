@@ -12,8 +12,9 @@ namespace UntamedDesktop;
 /// <summary>
 /// Single-send, original ACTIVE Store-v1 local admin RCON. No browser-supplied
 /// endpoint, no remote LAN write, no new original session/lock or conversion.
-/// Requires the original two-peer source, exact PID/start and locally owned
-/// TCP listener at preview, after native approval and after authentication.
+/// Requires a verified pinned original Store source (or historical two-peer
+/// proof on older imports), exact PID/start and locally owned TCP RCON listener.
+/// A pending durable Restart must never be bypassed by arbitrary admin RCON.
 /// </summary>
 public sealed class DesktopHistoricalRconAdminBridge : IDisposable
 {
@@ -94,6 +95,10 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
         if(journal?.Phase is UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
             throw new InvalidOperationException("UM-ORIGINAL-ADMIN-DURABLE-RECOVERY-REQUIRED");
+        // The generic installation journal can be Completed even when the
+        // separately durable manual Restart remains Stopping/Starting or
+        // NeedsOperator. Never send extra RCON during an uncertain restart.
+        new AsaManualRestartJournal(original.InstallationPath).DemandNoPending();
         var proof=inspect(mapId);
         if(!ReferenceEquals(proof.Map,original)||
            proof.Process.Pid<=0||proof.Process.StartedUtc==default||
@@ -180,6 +185,11 @@ public sealed class DesktopHistoricalRconAdminBridge : IDisposable
                     throw new InvalidDataException("UM-ORIGINAL-ADMIN-LEASE-PROOF-CHANGED");
                 void Recheck()
                 {
+                    // The authenticated transport calls this immediately
+                    // before dispatch too. Include the separate restart journal,
+                    // not just the in-memory native approval.
+                    new AsaManualRestartJournal(locked.Map.InstallationPath)
+                        .DemandNoPending();
                     var now=inspect(approved.MapId);
                     if(!ReferenceEquals(now.Map,locked.Map)||
                        !Identical(now.Process,locked.Process)||

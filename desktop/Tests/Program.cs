@@ -7951,6 +7951,36 @@ try
             IsOk(wipe,"original Store admin wild wipe can be dispatched exactly once with explicit consent");
             Check(adminSent==2,
                 "two separate original Store admin approvals dispatched exactly twice in total");
+            // Restart-v1 is durable independently from the generic operation
+            // journal, which is already Completed after the last RCON. An
+            // interrupted restart must suppress both a fresh admin preview
+            // and a previously issued admin approval before sending any byte.
+            var staleAdmin=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="broadcast",message="Hello Store"});
+            IsOk(staleAdmin,"fresh admin preview before restart overlap");
+            var restartGuard=new AsaManualRestartJournal(adminRoot);
+            var restarting=restartGuard.Begin(originalAdminMap.Id,adminPid);
+            var blockedSend=await Call(adminBridge.HandleAsync,
+                "historical.adminSend",
+                new{token=staleAdmin.GetProperty("data").GetProperty("token").GetString(),
+                    confirm=true,typedApproval="STORE-V1 ADMIN"});
+            Check(IsError(blockedSend,"UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR")&&
+                  adminSent==2,
+                "admin RCON preview made before restart cannot dispatch during pending Restart-v1");
+            var blockedPreview=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="broadcast",message="Hello Store"});
+            Check(IsError(blockedPreview,"UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR")&&
+                  adminSent==2,
+                "pending Restart-v1 blocks fresh RCON even when generic operation journal is Completed");
+            restartGuard.Change(restarting.Id,AsaRestartPhase.NeedsOperator);
+            var blockedRecovery=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="wildWipe",message=""});
+            Check(IsError(blockedRecovery,"UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR")&&
+                  adminSent==2,
+                "interrupted Restart-v1 NeedsOperator blocks dangerous wild wipe without command replay");
         }
         Check(File.ReadAllBytes(adminIni).SequenceEqual(originalAdminIni),
             "original ASA GameUserSettings.ini stays byte-identical after approved Store RCON admin tests");
