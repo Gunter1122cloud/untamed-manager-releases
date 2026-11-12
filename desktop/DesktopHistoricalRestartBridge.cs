@@ -272,8 +272,12 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                         return Fail(id,"UM-ORIGINAL-RESTART-LEASE-OWNER-CHANGED");
                     // Establish durable restart boundary before a single RCON
                     // byte can be sent; interruptions require operator review.
-                    lease.MarkMutationStarted();
+                    // Establish the durable Restart-v1 boundary BEFORE
+                    // marking the generic operation mutating. A rejected
+                    // Begin() sends no ASA/RCON bytes and must not create a
+                    // second false NeedsOperator Launch journal.
                     record=restart.Begin(original.Id,approved.Pid);
+                    lease.MarkMutationStarted();
                     lease.Complete();
                 }
                 var job=new Job{MapId=original.Id,OldPid=approved.Pid,
