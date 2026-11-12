@@ -1212,6 +1212,33 @@ try
         }
     }
 
+    // An adopted running ASA map keeps the same local registry size.
+    // A config save must invalidate the 900ms snapshot immediately or the UI
+    // can show a stale monitoring-only map after successful native handoff.
+    {
+        string directory=Path.Combine(root,"p0-telemetry-invalidation");
+        Directory.CreateDirectory(directory);
+        await using var owner=new ClusterService("p0-telemetry",directory,
+            inspect:_=>new ProcessCheck(false,"SYNTHETIC_STOPPED",null));
+        var changed=new LocalMap {
+            Id=Guid.NewGuid(),Name="Old observed title",
+            InstallationPath=Path.Combine(directory,"server"),
+            ExecutablePath=Path.Combine(directory,"server","ShooterGame",
+                "Binaries","Win64","ArkAscendedServer.exe"),
+            GamePort=47777,QueryPort=47778
+        };
+        owner.Config.LocalMaps.Add(changed);
+        owner.Save();
+        var oldSnapshot=owner.LocalStatus();
+        Check(oldSnapshot.Maps.Single().Name=="Old observed title",
+            "synthetic local host status initially exposes saved map identity");
+        changed.Name="Managed title after adoption";
+        owner.Save();
+        var refreshed=owner.LocalStatus();
+        Check(refreshed.Maps.Single().Name=="Managed title after adoption",
+            "Manager config save instantly refreshes host telemetry without waiting for polling TTL");
+    }
+
     // P0 map settings use the original ClusterService.ReplaceMap CAS and
     // the existing installation coordinator. Never touch live ASA/RCON/Store.
     {
