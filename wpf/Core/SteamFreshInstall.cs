@@ -24,6 +24,9 @@ public sealed record SteamFreshInstallReceipt(Guid MapId,string InstallationRoot
 public sealed record InterruptedSteamInstall(Guid MapId,string MapName,
     string InstallRoot,string SteamCmdExecutable,string Phase,DateTimeOffset ChangedUtc,
     string? MapLevel=null);
+public sealed record CompletedSteamInstall(Guid MapId,string MapName,
+    string InstallRoot,string ServerExecutable,string SteamCmdExecutable,
+    string MapLevel,string BuildId,DateTimeOffset CompletedUtc);
 
 public static class SteamFreshInstall
 {
@@ -120,6 +123,62 @@ public static class SteamFreshInstall
                 "Legacy unfinished Steam journal has no map name; review manually");
         return new(entry.MapId,entry.MapName,root,entry.SteamExe,
             entry.Phase,entry.ChangedUtc,entry.MapLevel);
+    }
+
+    /// <summary>
+    /// Recover a verified but not-yet-registered new ASA installation after
+    /// the Windows Manager exited. This performs READS ONLY. It never runs
+    /// SteamCMD, creates a map, edits an INI or touches the old Kova cluster.
+    /// Registration must still be explicitly approved in the native bridge.
+    /// A prepared/mutating journal is NOT a completed install.
+    /// </summary>
+    public static CompletedSteamInstall? InspectCompleted(string chosenRoot)
+    {
+        string root=Canonical(chosenRoot);
+        string file=OperationPath(root);
+        if(!File.Exists(file))return null;
+        if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0||
+           new FileInfo(file).Length is <=0 or >16384)
+            throw new InvalidDataException("UM-FRESH-RECOVERY-JOURNAL-INVALID");
+        Journal entry;
+        try
+        {
+            entry=JsonSerializer.Deserialize<Journal>(File.ReadAllText(file)) ??
+                throw new InvalidDataException("UM-FRESH-RECOVERY-JOURNAL-INVALID");
+        }
+        catch(JsonException ex)
+        {
+            throw new InvalidDataException("UM-FRESH-RECOVERY-JOURNAL-INVALID",ex);
+        }
+        if(entry.Phase!="complete")return null;
+        if(entry.MapId==Guid.Empty||!Same(entry.InstallRoot,root)||
+           string.IsNullOrWhiteSpace(entry.MapName)||
+           string.IsNullOrWhiteSpace(entry.MapLevel)||
+           string.IsNullOrWhiteSpace(entry.SteamExe))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-JOURNAL-INVALID");
+        string originalLevel;
+        try{originalLevel=AsaSteamMapCatalog.LevelFor(entry.MapName);}
+        catch(InvalidDataException)
+        {
+            originalLevel=AsaSteamMapCatalog.ValidateCustomLevel(entry.MapLevel);
+        }
+        if(!string.Equals(originalLevel,entry.MapLevel,StringComparison.Ordinal))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-LEVEL-MISMATCH");
+        string steam=Canonical(entry.SteamExe);
+        // Both must still exist in the SAME fixed local installation root.
+        var probe=LocalAsaInstallLocator.Probe(root);
+        var build=AsaSteamBuildCatalog.InstalledBuild(root);
+        if(!probe.HasServerExecutable || string.IsNullOrWhiteSpace(probe.ServerExecutable) ||
+           string.IsNullOrWhiteSpace(build))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-FILES-UNVERIFIED");
+        string binary=Canonical(probe.ServerExecutable);
+        if(!binary.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar)+
+            Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase) ||
+           !File.Exists(binary) ||
+           (File.GetAttributes(binary)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-FRESH-RECOVERY-BINARY-OUTSIDE-ROOT");
+        return new(entry.MapId,entry.MapName,root,binary,steam,
+            originalLevel,build,entry.ChangedUtc);
     }
 
     private static void SaveJournal(string file,Journal value)
