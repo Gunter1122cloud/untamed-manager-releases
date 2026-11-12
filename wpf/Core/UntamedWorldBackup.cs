@@ -403,8 +403,12 @@ public static class UntamedWorldBackup
         // cross-process lock could deadlock on Windows.
         var coordinator=operationCoordinator??new UntamedOperationCoordinator();
         var protective=Create(map,profile,process,"protective",coordinator);
+        // The protective copy is a Backup, but the subsequent directory swap
+        // is a Restore. The durable operation type must identify the actual
+        // mutating action so crash-recovery and operator review cannot mistake
+        // a partially restored world for an interrupted backup.
         using var lease=coordinator.Acquire(
-            map.InstallationPath,UntamedOperationKind.Backup);
+            map.InstallationPath,UntamedOperationKind.Restore);
         Stopped(process);
         if(!Scan(world,key).SequenceEqual(current))
             throw new IOException("UM-BACKUP-SOURCE-CHANGED-AFTER-PROTECTIVE");

@@ -62,6 +62,36 @@ public static class PremiumBackupWorkflowTests
               !Directory.Exists(catalog),
             "unsafe or unknown process, overlapping destination and invalid scopes fail before I/O");
 
+        // Protect the original character/tribe profile from an accidentally
+        // reported complete backup. Historical -usestore is special:
+        // empty legacy loose files must be preserved, not modified.
+        string emptyProfile=Path.Combine(Path.GetDirectoryName(game)!,
+            "76561198000000001.arkprofile");
+        File.WriteAllBytes(emptyProfile,Array.Empty<byte>());
+        bool looseRejected=false;
+        try{LocalBackupWorkflow.Preview(map,stopped,target,scope);}
+        catch(InvalidDataException e) when(e.Message.Contains("UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE"))
+        {looseRejected=true;}
+        Check(looseRejected&&!Directory.Exists(target),
+            "0-byte loose character file rejects normal stopped-map backup");
+        map.Arguments="-usestore";
+        var legacyPreview=LocalBackupWorkflow.Preview(map,stopped,target,scope);
+        Check(legacyPreview.Files==4&&new FileInfo(emptyProfile).Length==0,
+            "original Store mode keeps empty historical loose profile bytes unchanged");
+        map.Arguments="";
+        File.Delete(emptyProfile);
+        string emptyWorld=Path.Combine(Path.GetDirectoryName(game)!,"EmptyOtherMap.ark");
+        File.WriteAllBytes(emptyWorld,Array.Empty<byte>());
+        map.Arguments="-usestore";
+        bool worldRejected=false;
+        try{LocalBackupWorkflow.Preview(map,stopped,target,scope);}
+        catch(InvalidDataException e) when(e.Message.Contains("UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE"))
+        {worldRejected=true;}
+        map.Arguments="";
+        File.Delete(emptyWorld);
+        Check(worldRejected&&!Directory.Exists(target),
+            "0-byte ASA world is always rejected, including historical Store mode");
+
         var backup=LocalBackupWorkflow.Create(map,stopped,target,scope);
         var verified=TestBackupPackage.Verify(target,map.Id);
         Check(backup.PackageDirectory==target&&backup.Manifest.Files.Count==3 &&

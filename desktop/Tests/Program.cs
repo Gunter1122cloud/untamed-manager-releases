@@ -5092,6 +5092,10 @@ try
         restored=await Call(worldBridge.HandleAsync,"backup.restore",
             new{token=restoreToken,mapName="The Island",confirm=true});
         IsOk(restored,"real map world restore finishes with protective backup");
+        var restoreJournal=new UntamedOperationCoordinator().Observe(localInstall);
+        Check(restoreJournal?.Kind==UntamedOperationKind.Restore&&
+              restoreJournal.Phase==UntamedOperationPhase.Completed,
+            "completed world directory swap is durably journaled as Restore, not a misleading Backup");
         Check(File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup) &&
               File.ReadAllBytes(charFile).SequenceEqual(survivorBeforeBackup) &&
               restored.GetProperty("data").GetProperty("oldWorldRetained").GetBoolean() &&
@@ -5362,6 +5366,10 @@ try
                   ".untamed-restore-TheIsland_WP.json")) &&
               !Directory.EnumerateDirectories(worldParent,".untamed-stage-*").Any(),
             "pre-swap failure leaves live world intact, removes stage and does not fake a crash recovery marker");
+        var deniedRestoreJournal=new UntamedOperationCoordinator().Observe(localInstall);
+        Check(deniedRestoreJournal?.Kind==UntamedOperationKind.Restore&&
+              deniedRestoreJournal.Phase==UntamedOperationPhase.CancelledBeforeMutation,
+            "denied pre-swap restore remains a non-mutated Restore operation in durable journal");
 
         string crashMarker=Path.Combine(worldParent,
             ".untamed-restore-TheIsland_WP.json");

@@ -43,6 +43,8 @@ public static class LocalBackupWorkflow
            File.Exists(target)||File.Exists(staging))
             throw new IOException("Backup target or interrupted backup already exists");
         var paths=SelectFiles(root,scope);
+        ValidateCriticalSaveLengths(paths,LocalBackupScope.WorldAndProfiles.HasFlag(scope) &&
+            UntamedWorldBackup.HasLiveOrHistoricalStore(map));
         long bytes=0;
         foreach(var entry in paths)
             bytes=checked(bytes+new FileInfo(entry.Value).Length);
@@ -75,6 +77,7 @@ public static class LocalBackupWorkflow
         if(Directory.Exists(target)||Directory.Exists(staging)||File.Exists(target)||File.Exists(staging))
             throw new IOException("Target or interrupted backup already exists");
         var paths=SelectFiles(root,scope);
+        ValidateCriticalSaveLengths(paths,UntamedWorldBackup.HasLiveOrHistoricalStore(map));
         // Fail before staging if this fixed local disk cannot hold the selected files.
         // A reserve is intentional: File hashes and the manifest do not prove ASA consistency.
         long totalBytes=0;
@@ -119,6 +122,34 @@ public static class LocalBackupWorkflow
         TestBackupPackage.Verify(target,map.Id);
         operation.Complete();
         return new(target,manifest);
+    }
+
+    // The generic local backup is used before SteamCMD as well as by the
+    // Backup Center. A 0-byte ASA world is never a recoverable copy, and a
+    // 0-byte loose profile/tribe must not be advertised as a healthy
+    // non-Store backup. Original Store-v1 conversions can legitimately
+    // retain empty loose profiles: copy their exact bytes, never repair them.
+    private static void ValidateCriticalSaveLengths(
+        IReadOnlyDictionary<string,string> files,bool historicalStore)
+    {
+        foreach(var (relative,full) in files)
+        {
+            var parts=relative.Split(new[]{
+                Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar
+            },StringSplitOptions.RemoveEmptyEntries);
+            if(parts.Length<4||
+               !parts[0].Equals("ShooterGame",StringComparison.OrdinalIgnoreCase)||
+               !parts[1].Equals("Saved",StringComparison.OrdinalIgnoreCase)||
+               !(parts[2].StartsWith("SavedArks",StringComparison.OrdinalIgnoreCase)||
+                 parts[2].Equals("SaveGames",StringComparison.OrdinalIgnoreCase)))
+                continue;
+            string name=Path.GetFileName(relative);
+            bool world=name.EndsWith(".ark",StringComparison.OrdinalIgnoreCase);
+            bool loose=name.EndsWith(".arkprofile",StringComparison.OrdinalIgnoreCase)||
+                       name.EndsWith(".arktribe",StringComparison.OrdinalIgnoreCase);
+            if((world||loose&&!historicalStore)&&new FileInfo(full).Length==0)
+                throw new InvalidDataException("UM-BACKUP-ZERO-BYTE-CRITICAL-SAVE");
+        }
     }
 
     private static SortedDictionary<string,string> SelectFiles(string root,LocalBackupScope scope)
