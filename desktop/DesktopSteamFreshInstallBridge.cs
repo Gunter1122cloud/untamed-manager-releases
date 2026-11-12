@@ -227,7 +227,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                     };
                     lock(stateGate)currentJob=recJob;
                     return Ok(id,new{
-                        mapId=latest.MapId,mapName=latest.MapName,
+                        jobId=recJob.Id,mapId=latest.MapId,mapName=latest.MapName,
                         needsConfiguration=true,serverStarted=false,
                         filesDownloadedAgain=false,kovaFilesWritten=false,
                         evidence="COMPLETED_STEAMCMD_RECOVERED_MANAGER_REGISTRATION_ONLY"
