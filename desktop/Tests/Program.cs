@@ -2648,6 +2648,18 @@ try
             new{token=firstToken,confirm=false});
         Check(IsError(denied,"UM-FRESH-START-APPROVAL")&&calls==0,
             "real fresh ASA start requires explicit confirmation");
+        // A concurrent, harmless-looking INI edit still invalidates a
+        // previously approved start. No process may launch on old evidence.
+        File.AppendAllText(rconIni,"\r\n; concurrent external ASA INI edit\r\n");
+        var staleStart=await Call(starter.HandleAsync,"servers.freshStartApply",
+            new{token=firstToken,confirm=true});
+        Check(IsError(staleStart,"UM-FRESH-START-CHANGED")&&calls==0,
+            "INI bytes changed after preview invalidate fresh ASA start approval");
+        File.WriteAllBytes(rconIni,rconOriginal);
+        var refreshed=await Call(starter.HandleAsync,"servers.freshStartPreview",
+            new{mapId=fresh.Id});
+        IsOk(refreshed,"unchanged fresh ASA INI bytes receive a new explicit start preview");
+        firstToken=refreshed.GetProperty("data").GetProperty("token").GetString()!;
         var launched=await Call(starter.HandleAsync,"servers.freshStartApply",
             new{token=firstToken,confirm=true});
         IsOk(launched,"confirmed new local ASA start calls native process adapter");

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,6 +20,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
     private sealed record Approval(Guid Token,Guid Map,string Root,string Executable,
         string Arguments,int Game,int Query,int Rcon,string Build,
         bool UseApi,string LoaderPath,string LoaderArguments,
+        string RconCredential,string FreshClusterId,string FreshTransferDirectory,
+        string InstalledLevel,string IniFingerprint,
         DateTimeOffset CreatedUtc);
     private readonly ClusterService cluster;
     private readonly Func<Guid,bool,ProcessIdentity> launch;
@@ -34,6 +37,29 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         cluster=service??throw new ArgumentNullException(nameof(service));
         nativeLauncher=starter==null;
         launch=starter??((mapId,approved)=>cluster.LaunchFreshAsa(mapId,approved));
+    }
+
+    private static string IniFingerprint(LocalMap map)
+    {
+        // Fresh-start approval is bound to the actual on-disk ASA INI bytes,
+        // including unknown mod sections. Hash only the two small config
+        // files ONCE at preview and AGAIN at apply; never hash a live world.
+        string config=Path.Combine(Path.GetFullPath(map.InstallationPath),
+            "ShooterGame","Saved","Config","WindowsServer");
+        string One(string fileName)
+        {
+            string file=Path.Combine(config,fileName);
+            if(!File.Exists(file))return "ABSENT";
+            var info=new FileInfo(file);
+            if((info.Attributes&FileAttributes.ReparsePoint)!=0 ||
+               info.Length>16L*1024*1024)
+                throw new InvalidDataException("UM-FRESH-START-INI-UNSAFE");
+            byte[] bytes=File.ReadAllBytes(file);
+            if(bytes.LongLength!=info.Length)
+                throw new IOException("UM-FRESH-START-INI-CHANGED");
+            return bytes.Length+":"+Convert.ToHexString(SHA256.HashData(bytes));
+        }
+        return One("Game.ini")+"|"+One("GameUserSettings.ini");
     }
 
     private LocalMap? Owned(Guid id)=>
@@ -185,7 +211,9 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                         map.ExecutablePath,map.Arguments,map.GamePort,map.QueryPort,
                         map.RconPort,AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath),
                         map.StartWithAsaApi,map.ApiLoaderPath,map.ApiLoaderArguments,
-                        DateTimeOffset.UtcNow);
+                        map.RconPasswordProtected,map.FreshStoreClusterId,
+                        map.FreshStoreTransferDirectory,map.FreshInstallMapLevel,
+                        IniFingerprint(map),DateTimeOffset.UtcNow);
                     return Ok(id,new {
                         token=pending.Token,mapId=map.Id,mapName=map.Name,
                         steamBuild=pending.Build,gamePort=map.GamePort,
@@ -217,6 +245,11 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                    current.StartWithAsaApi!=permit.UseApi ||
                    current.ApiLoaderPath!=permit.LoaderPath ||
                    current.ApiLoaderArguments!=permit.LoaderArguments ||
+                   current.RconPasswordProtected!=permit.RconCredential ||
+                   current.FreshStoreClusterId!=permit.FreshClusterId ||
+                   current.FreshStoreTransferDirectory!=permit.FreshTransferDirectory ||
+                   current.FreshInstallMapLevel!=permit.InstalledLevel ||
+                   IniFingerprint(current)!=permit.IniFingerprint ||
                    AsaSteamBuildCatalog.InstalledBuild(current.InstallationPath)!=permit.Build)
                     return Error(id,"UM-FRESH-START-CHANGED");
                 var identity=launch(current.Id,true);
