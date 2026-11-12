@@ -158,9 +158,22 @@ export function FreshAsaSteamWizard({
       setMessage("A befejezett SteamCMD-napló, az ASA EXE és az appmanifest ellenőrizve. "+
         "Nem történt új letöltés vagy regisztráció. A mapazonosító megőrzéséhez külön jóváhagyás szükséges.");
     }catch(e){
-      setError("A befejezett telepítés nem vehető át ("+
-        (e instanceof Error?e.message:"UM-FRESH-RECOVERY-NOT-VERIFIED")+
-        "). A még megszakadt letöltést a külön tudatos folytatással kezeld.");
+      const code=e instanceof Error?e.message:"UM-FRESH-RECOVERY-NOT-VERIFIED";
+      const detail:Record<string,string>={
+        "UM-FRESH-RECOVERY-UNPINNED-COMPLETION":
+          "A régi befejezett telepítési napló nem tartalmaz SHA-256 bizonyítékot. "+
+          "A szervert a meglévő ASA-könyvtár kézi importálásával veheted át.",
+        "UM-FRESH-RECOVERY-COMPLETED-FILES-CHANGED":
+          "Az ASA EXE vagy a Steam appmanifest eltér a befejezéskor ellenőrzött "+
+          "fájltól. Automatikus átvétel tilos; ellenőrizd a telepítést.",
+        "UM-FRESH-RECOVERY-NO-COMPLETE-JOURNAL":
+          "Nincs befejezett SteamCMD-napló ehhez a mappához. A megszakadt "+
+          "letöltést a külön tudatos folytatással kezeld.",
+        "UM-FRESH-RECOVERY-ALREADY-REGISTERED":
+          "Ez a map vagy telepítési mappa már szerepel a Manager profiljában."
+      };
+      setError(detail[code]??("Befejezett ASA-telepítés nem vehető át ("+
+        code+"). A meglévő fájlokat nem módosítottuk."));
     }finally{setBusy(false);}
   };
   const registerCompletedRecovery=async()=>{
