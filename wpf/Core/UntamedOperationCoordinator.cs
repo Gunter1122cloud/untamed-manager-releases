@@ -276,6 +276,55 @@ public sealed class UntamedOperationCoordinator
         finally{semaphore.Release();}
     }
 
+    /// <summary>
+    /// An old original Restart-v1 journal can remain unresolved even if the
+    /// general operation record was previously closed. Review ONLY that
+    /// restart, under the SAME installation lease. The old ASA must still be
+    /// running with its original PID; no new ASA/RCON command is executed.
+    /// </summary>
+    internal void ReviewRunningOriginalRestartOnly(string installation,
+        Guid expectedMapId,Guid expectedRestartId,int oldPid,
+        Func<bool> verifyOriginalRunning)
+    {
+        ArgumentNullException.ThrowIfNull(verifyOriginalRunning);
+        if(expectedMapId==Guid.Empty||expectedRestartId==Guid.Empty||oldPid<=0)
+            throw new InvalidDataException("UM-RECOVERY-RESTART-ONLY-APPROVAL");
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))
+            throw new IOException("UM-RECOVERY-OPERATION-STILL-OWNED");
+        try
+        {
+            var general=Read(Path.Combine(stateRoot,key+".json"),key);
+            if(general?.Phase is UntamedOperationPhase.Prepared or
+                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator)
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-PAIRED-LAUNCH-REVIEW-REQUIRED");
+            var restart=new AsaManualRestartJournal(installation);
+            var observed=restart.Observe();
+            if(observed==null||observed.Id!=expectedRestartId||
+               observed.MapId!=expectedMapId||observed.OldPid!=oldPid||
+               observed.NewPid!=0||
+               observed.Phase is not (AsaRestartPhase.Stopping or
+                   AsaRestartPhase.NeedsOperator or
+                   AsaRestartPhase.OperatorReviewed))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-RESTART-OLD-PID-OR-PHASE-CHANGED");
+            if(!verifyOriginalRunning())
+                throw new UnauthorizedAccessException(
+                    "UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
+            if(!verifyOriginalRunning())
+                throw new UnauthorizedAccessException("UM-RECOVERY-SOURCE-CHANGED");
+            restart.ReviewOriginalOldPid(expectedMapId,expectedRestartId,oldPid);
+            // If this final check fails, the durable audited Restart remains
+            // OperatorReviewed but no command was sent. All future operations
+            // still revalidate current process identity separately.
+            if(!verifyOriginalRunning())
+                throw new UnauthorizedAccessException("UM-RECOVERY-SOURCE-CHANGED");
+        }
+        finally{semaphore.Release();}
+    }
+
     public Batch AcquireMany(IEnumerable<string> installations,UntamedOperationKind kind)
     {
         var leases=new List<Lease>();
