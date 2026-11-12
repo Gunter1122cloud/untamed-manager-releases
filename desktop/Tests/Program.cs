@@ -3144,6 +3144,95 @@ try
             "unavailable WMI cannot produce a fake stopped/zero-ASA success state");
     }
 
+    // Store-v1 five running maps: atomic native reconciliation retains
+    // existing GUID and configuration. This is synthetic source+PID evidence;
+    // production must ALSO pass exact physical Windows and ACTIVE/DONE checks.
+    {
+        string dir=Path.Combine(root,"original-live-five-reconcile");
+        await using var lab=new ClusterService("five-map-reconcile",
+            Path.Combine(dir,"profile"),
+            _=>new ProcessCheck(false,"synthetic",null,true));
+        var candidates=new List<LocalMap>();
+        string[] names={"The Island","The Center","Aberration","Ragnarok","Scorched Earth"};
+        string[] keys={"TheIsland_WP","TheCenter_WP","Aberration_WP",
+            "Ragnarok_WP","ScorchedEarth_WP"};
+        string sourceHash=new('B',64);
+        for(int index=0;index<5;index++)
+        {
+            string mapRoot=Path.Combine(dir,"map-"+index);
+            string binary=Path.Combine(mapRoot,"ShooterGame","Binaries",
+                "Win64","ArkAscendedServer.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+            File.WriteAllBytes(binary,new byte[]{0x4D,0x5A});
+            bool api=index==2;
+            string apiBinary=Path.Combine(Path.GetDirectoryName(binary)!,
+                "AsaApiLoader.exe");
+            if(api)File.WriteAllBytes(apiBinary,new byte[]{0x4D,0x5A});
+            var started=DateTimeOffset.UtcNow.AddHours(-2);
+            var observed=new LocalMap{
+                Id=Guid.NewGuid(),Name=names[index],InstallationPath=mapRoot,
+                ExecutablePath=binary,GamePort=7777+index*20,
+                QueryPort=27015+index*20,HistoricalStoreProtected=true,
+                HistoricalArchiveSha256=sourceHash,HistoricalMapKey=keys[index],
+                HistoricalEnabledMods=new(){"101","202"},
+                HistoricalPassiveMods=new(){"303"},StartWithAsaApi=api,
+                ApiLoaderPath=api?apiBinary:"",
+                LastProcess=new ProcessIdentity{
+                    Pid=42000+index,StartedUtc=started.AddSeconds(1),
+                    ExecutablePath=binary,
+                    Arguments=api?"HISTORICAL_STORE_V1_API_CHILD_VERIFIED":
+                        "HISTORICAL_STORE_V1_READ_ONLY_OBSERVATION"
+                },
+                LastLoader=api?new ProcessIdentity{
+                    Pid=41000+index,StartedUtc=started,
+                    ExecutablePath=apiBinary,
+                    Arguments="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"
+                }:null
+            };
+            candidates.Add(observed);
+        }
+        // Partial previous import must not be overwritten or rekeyed.
+        var prior=JsonSerializer.Deserialize<LocalMap>(
+            JsonSerializer.Serialize(candidates[2]))!;
+        prior.StartWithAsaApi=false;
+        prior.ApiLoaderPath="";
+        prior.LastProcess=null;
+        prior.LastLoader=null;
+        prior.HistoricalLaunchModeNeedsApproval=true;
+        prior.LogFilePath="existing-user-log-path";
+        lab.AddMap(prior);
+        int physicalChecks=0;
+        var admitted=lab.ReconcileOriginalStoreLiveFive(candidates,()=>{
+            physicalChecks++;return true;
+        });
+        var reattached=lab.Config.LocalMaps.Single(m=>m.Id==prior.Id);
+        Check(admitted.Added==4&&admitted.Reattached==1&&physicalChecks==1&&
+            lab.Config.LocalMaps.Count==5&&
+            lab.Config.LocalMaps.Select(m=>m.Id).ToHashSet().SetEquals(
+                candidates.Select(m=>m.Id))&&
+            reattached.LogFilePath=="existing-user-log-path"&&
+            reattached.HistoricalMapKey==prior.HistoricalMapKey&&
+            reattached.StartWithAsaApi&&reattached.LastLoader?.Pid==41002&&
+            reattached.LastProcess?.Pid==42002&&
+            !reattached.HistoricalLaunchModeNeedsApproval,
+            "five-map live reattach preserves GUID and existing profile settings, updates only WMI-proven PID/mode");
+        var idempotent=lab.ReconcileOriginalStoreLiveFive(candidates,()=>true);
+        Check(idempotent.Unchanged==5&&idempotent.Added==0&&
+            lab.Config.LocalMaps.Count==5,
+            "repeat five-map reconciliation never creates a second map or ASA process");
+        using(var lease=lab.Operations.Acquire(
+            candidates[2].InstallationPath,UntamedOperationKind.Launch))
+            lease.MarkMutationStarted();
+        string profileBefore=JsonSerializer.Serialize(lab.Config.LocalMaps);
+        bool correctlyBlocked=false;
+        try{_ =lab.ReconcileOriginalStoreLiveFive(candidates,()=>true);}
+        catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_NEEDS_OPERATOR")
+        {correctlyBlocked=true;}
+        Check(correctlyBlocked&&profileBefore==JsonSerializer.Serialize(
+            lab.Config.LocalMaps),
+            "unknown old Launch prevents new five-map mutation and preserves every existing profile");
+    }
+
     // Native cross-map Mod Center inventory: real Core parser, read-only
     // historical Store-v1 metadata, never the quarantined Arguments field.
     {
