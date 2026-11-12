@@ -1924,6 +1924,118 @@ try
             "manager can restore verified native Steam job status after UI navigation");
     }
 
+    // Completed SteamCMD install after Manager restart: the memory-only job
+    // disappeared, but the SOURCE-PINNED journal and local binaries survived.
+    // This fixture creates only synthetic files under a unique TEMP root and
+    // one GUID-derived journal under the isolated CI runner's ProgramData.
+    {
+        string recoveredRoot=Path.Combine(root,"fresh-completed-after-restart");
+        string recoveredExe=Path.Combine(recoveredRoot,"ShooterGame","Binaries",
+            "Win64","ArkAscendedServer.exe");
+        string recoveredManifest=Path.Combine(recoveredRoot,"steamapps",
+            "appmanifest_2430930.acf");
+        Directory.CreateDirectory(Path.GetDirectoryName(recoveredExe)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(recoveredManifest)!);
+        const string recoveryMap="Synthetic Completed Recovery";
+        const string recoveryLevel="SyntheticCompleted_WP";
+        Guid recoveryMapId=Guid.NewGuid();
+        File.WriteAllText(recoveredExe,"SYNTHETIC VERIFIED COMPLETED ASA EXE");
+        File.WriteAllText(recoveredManifest,
+            "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
+        string journalKey=Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(recoveredRoot.ToUpperInvariant())));
+        string journalFile=Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.CommonApplicationData),
+            "UntamedManager","FreshSteamInstall-v1",journalKey+".json");
+        Directory.CreateDirectory(Path.GetDirectoryName(journalFile)!);
+        File.WriteAllText(journalFile,JsonSerializer.Serialize(new {
+            MapId=recoveryMapId,InstallRoot=recoveredRoot,SteamExe=steamExe,
+            Phase="complete",ChangedUtc=DateTimeOffset.UtcNow,
+            MapName=recoveryMap,MapLevel=recoveryLevel,
+            BinarySha256=Convert.ToHexString(
+                SHA256.HashData(File.ReadAllBytes(recoveredExe))),
+            ManifestSha256=Convert.ToHexString(
+                SHA256.HashData(File.ReadAllBytes(recoveredManifest)))
+        }));
+        try
+        {
+            int downloadsBeforeRecovery=fakeRuns;
+            using var recoveredBridge=new DesktopSteamFreshInstallBridge(cluster,
+                SyntheticSteamRunner,availableFreeBytes:_=>100L*1024*1024*1024);
+            var preview=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            IsOk(preview,"completed SteamCMD journal can be previewed after independent Manager restart");
+            string approvalToken=preview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            Check(preview.GetProperty("data").GetProperty("mapId").GetGuid()==
+                    recoveryMapId && fakeRuns==downloadsBeforeRecovery,
+                "recovery preview preserves exact map GUID without another SteamCMD process");
+
+            var unapproved=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=approvalToken,confirm=true,typedApproval="NO"
+                });
+            Check(IsError(unapproved,"UM-FRESH-RECOVERY-APPROVAL-REQUIRED") &&
+                !cluster.Config.LocalMaps.Any(m=>m.Id==recoveryMapId),
+                "typed native consent is required before recovering a registered map");
+
+            File.AppendAllText(recoveredExe,"TAMPER");
+            var changed=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=approvalToken,confirm=true,
+                    typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
+                });
+            Check(IsError(changed,"UM-FRESH-RECOVERY-FILES-CHANGED") &&
+                !cluster.Config.LocalMaps.Any(m=>m.Id==recoveryMapId),
+                "changed EXE invalidates a one-use recovery token without writing the Manager profile");
+            File.WriteAllText(recoveredExe,"SYNTHETIC VERIFIED COMPLETED ASA EXE");
+
+            var freshPreview=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            IsOk(freshPreview,"restored completed journal has a new approved recovery preview");
+            approvalToken=freshPreview.GetProperty("data").GetProperty("token").GetString()!;
+            var applied=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=approvalToken,confirm=true,
+                    typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
+                });
+            IsOk(applied,"previously downloaded ASA registered without a second download or start");
+            var recoveredMap=cluster.Config.LocalMaps.Single(m=>m.Id==recoveryMapId);
+            Check(recoveredMap.Name==recoveryMap && recoveredMap.GamePort==0 &&
+                  recoveredMap.QueryPort==0 && !recoveredMap.AutoStart &&
+                  !recoveredMap.StartWithAsaApi &&
+                  recoveredMap.FreshInstallMapLevel==recoveryLevel &&
+                  fakeRuns==downloadsBeforeRecovery &&
+                  File.ReadAllText(recoveredExe)=="SYNTHETIC VERIFIED COMPLETED ASA EXE",
+                "independent completed recovery preserves GUID and ASA binary while leaving initial configuration pending");
+            var replay=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=approvalToken,confirm=true,
+                    typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
+                });
+            Check(IsError(replay,"UM-FRESH-RECOVERY-APPROVAL-REQUIRED") &&
+                  cluster.Config.LocalMaps.Count(m=>m.Id==recoveryMapId)==1,
+                "completed Steam recovery consent is never replayable");
+            var duplicate=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            Check(IsError(duplicate,"UM-FRESH-RECOVERY-ALREADY-REGISTERED"),
+                "completed Steam recovery refuses a second registration of the same installation");
+        }
+        finally
+        {
+            if(File.Exists(journalFile))File.Delete(journalFile);
+        }
+    }
+
     // Synthetic custom/unofficial map SteamCMD: the ASA 2430930 binaries
     // are shared, but the Unreal map level is an explicit validated token.
     // No custom level text may become a SteamCMD command-line argument.
