@@ -3066,10 +3066,13 @@ test("Cluster page owns character travel evidence without unlocking Store",async
   await expect(page.getByLabel("Fő navigáció").getByRole("button",{name:"Karakterutazás teszt"})).toHaveCount(0);
   await page.getByLabel("Fő navigáció").getByRole("button",{name:"Cluster",exact:true}).click();
   await expect(page.getByRole("heading",{name:"Karakterutazás tesztközpont"})).toBeVisible();
-  const mandatory=page.getByRole("region",{name:"Referenciával igazolt, kötelező működés"});
-  await expect(mandatory).toContainText("REFERENCIÁVAL IGAZOLT – NÁLUNK IS KÖTELEZŐEN MŰKÖDNIE KELL");
-  await expect(mandatory).toContainText("Saját éles Store-v1 igazolás: még nincs");
-  await expect(mandatory).toContainText("két map egy Windows gépen");
+  const mandatory=page.getByRole("region",{name:"ASA natív karakterutazás ellenőrzése"});
+  await expect(mandatory).toContainText("ASA NATÍV TRANSFER – KONFIGURÁCIÓMEGŐRZÉS");
+  await expect(mandatory).toContainText("Natív ASA indítási konfigurációellenőrzés beépítve");
+  await expect(mandatory).toContainText("Csak az éles HP → Ryzen → HP tesztkarakter-utazás függőben");
+  await expect(mandatory).toContainText("nem hoz létre külön");
+  await expect(page.getByText("A karakterutazás az ASA feladata.",{exact:false}))
+    .toBeVisible();
   const embedded=page.getByRole("region",{name:"Beágyazott Store-v1 ellenőrzése"});
   await embedded.getByRole("button",{name:"Offline .ark másolat megvizsgálása"}).click();
   await expect(embedded).toContainText("2 karakterindex-bejegyzés");
