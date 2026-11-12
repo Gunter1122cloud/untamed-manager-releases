@@ -118,7 +118,7 @@ internal static class OriginalKovaDirectImportTests
         // synthesized cluster or transfer settings. Verify the exact ASA
         // launch arguments before any real Process.Start could occur.
         var firstOriginal=discovered.Maps[0];
-        var selected=new LocalMap{
+        var parityMap=new LocalMap{
             Id=firstOriginal.MapId,Name="The Island",
             InstallationPath=firstOriginal.OriginalInstallationRoot,
             HistoricalStoreProtected=true,
@@ -136,7 +136,7 @@ internal static class OriginalKovaDirectImportTests
             firstOriginal.EnabledMods,firstOriginal.PassiveMods,
             VaultProtocol.ClusterId,originalCluster.path,"active",originalIni));
         LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
-            selected,discovered,originalCluster.path,originalIni,launch.Arguments);
+            parityMap,discovered,originalCluster.path,originalIni,launch.Arguments);
         Check(launch.Arguments.Contains("-clusterid="+VaultProtocol.ClusterId)&&
               launch.Arguments.Contains("-ClusterDirOverride="+originalCluster.path)&&
               launch.Arguments.Count(x=>x=="-usestore")==1&&
@@ -148,17 +148,17 @@ internal static class OriginalKovaDirectImportTests
             catch(InvalidDataException){return true;}
         }
         Check(RefusesChanged(()=>{
-              selected.QueryPort++;
-              try{LegacyStoreV1SourceLaunchParity.RequireOriginalMap(selected,discovered);}
-              finally{selected.QueryPort--;}
+              parityMap.QueryPort++;
+              try{LegacyStoreV1SourceLaunchParity.RequireOriginalMap(parityMap,discovered);}
+              finally{parityMap.QueryPort--;}
             })&&
             RefusesChanged(()=>{
-              selected.HistoricalEnabledMods.Reverse();
-              try{LegacyStoreV1SourceLaunchParity.RequireOriginalMap(selected,discovered);}
-              finally{selected.HistoricalEnabledMods.Reverse();}
+              parityMap.HistoricalEnabledMods.Reverse();
+              try{LegacyStoreV1SourceLaunchParity.RequireOriginalMap(parityMap,discovered);}
+              finally{parityMap.HistoricalEnabledMods.Reverse();}
             })&&
             RefusesChanged(()=>LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
-              selected,discovered,originalCluster.path,originalIni,
+              parityMap,discovered,originalCluster.path,originalIni,
               launch.Arguments.Where(x=>!x.StartsWith("-ClusterDirOverride=")).ToArray())),
             "changed query port, mod order or missing transfer override refuse Obsidian launch parity");
         // Other original peer carries five OTHER GUIDs but must produce
@@ -168,13 +168,16 @@ internal static class OriginalKovaDirectImportTests
             id,"PeerMap_"+i,Path.Combine(baseRoot,"synthetic-peer-"+i),
             7827+i*10,27215+i*10,firstOriginal.EnabledMods,
             firstOriginal.PassiveMods)).ToArray();
+        // Peer Kova metadata is local to its host, so hashes need not be the
+        // same even though both original launchers share KovaCluster/UNC.
+        string peerOriginalFourHash=new string('D',64);
         var secondSource=new LegacyStoreV1OriginalLocalSelection(
-            discovered.FourFilesSha256,discovered.LaunchProfileSha256,peerMaps);
+            peerOriginalFourHash,new string('E',64),peerMaps);
         var second=new LocalMap{
             Id=peerMaps[0].MapId,Name="PeerMap_0",
             InstallationPath=peerMaps[0].OriginalInstallationRoot,
             HistoricalStoreProtected=true,
-            HistoricalArchiveSha256=discovered.FourFilesSha256,
+            HistoricalArchiveSha256=peerOriginalFourHash,
             HistoricalMapKey=peerMaps[0].MapKey,
             HistoricalEnabledMods=peerMaps[0].EnabledMods.ToList(),
             HistoricalPassiveMods=peerMaps[0].PassiveMods.ToList(),
@@ -228,10 +231,10 @@ internal static class OriginalKovaDirectImportTests
         Check(launchCount==10,
             "all ten original maps receive the same Kova cluster/transfer identity on their respective hosts");
         Check(RefusesChanged(()=>LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
-                selected,discovered,originalCluster.path,originalIni,
+                parityMap,discovered,originalCluster.path,originalIni,
                 launch.Arguments.Concat(new[]{"-usestore"}).ToArray()))&&
               RefusesChanged(()=>LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
-                selected,discovered,originalCluster.path,originalIni,
+                parityMap,discovered,originalCluster.path,originalIni,
                 launch.Arguments.Select(a=>a.StartsWith("-clusterid=",
                     StringComparison.OrdinalIgnoreCase)?
                     "-clusterid=ObsidianCluster":a).ToArray())),
