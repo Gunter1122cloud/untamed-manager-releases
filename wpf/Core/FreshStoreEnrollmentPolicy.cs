@@ -55,10 +55,7 @@ public static class FreshStoreEnrollmentPolicy
         // Require the existing native initial-setup grammar rather than
         // accepting arbitrary WebView-supplied process command lines.
         if(string.IsNullOrWhiteSpace(arguments)||arguments.Length>7800||
-           arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase)||
-           arguments.Contains("convert",StringComparison.OrdinalIgnoreCase)||
-           arguments.Contains("-clusterid",StringComparison.OrdinalIgnoreCase)||
-           arguments.Contains("ClusterDirOverride",StringComparison.OrdinalIgnoreCase)||
+           AsaStoreArgumentSwitches.ContainsProtectedSwitch(arguments)||
            arguments.Contains('\r')||arguments.Contains('\n'))
             Deny("UM-FRESH-STORE-BASE-ARGS-UNSAFE");
         var session=Regex.Match(arguments,

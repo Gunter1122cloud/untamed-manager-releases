@@ -2816,6 +2816,27 @@ try
                 "native Start preserves ASA mod load/download order in launch args");
         }
         finally { fresh.Arguments=originalLaunch; }
+        // One Core lexer is shared by the actual Process.Start boundary,
+        // native preview, legacy backup guard and fresh Store enrollment.
+        // Quoted session words are never misclassified as ASA flags.
+        Check(!AsaStoreArgumentSwitches.ContainsProtectedSwitch(
+                  "TheIsland_WP?listen?SessionName=\"Untamed Store -usestore -clusterid\" -Port=7777") &&
+              !AsaStoreArgumentSwitches.ContainsConversion(
+                  "TheIsland_WP?listen?SessionName=\"ConvertToStore Celebration\"") &&
+              !AsaStoreArgumentSwitches.ContainsStoreWriter(
+                  "TheIsland_WP?listen?SessionName=\"UK -usestore Weekend\""),
+            "quoted session names and internal Store keywords never trigger real Start/backup denial");
+        Check(AsaStoreArgumentSwitches.ContainsStoreWriter(
+                  "TheIsland_WP?listen -usestore") &&
+              AsaStoreArgumentSwitches.ContainsConversion(
+                  "TheIsland_WP?listen -ConvertToStore") &&
+              AsaStoreArgumentSwitches.ContainsProtectedSwitch(
+                  "TheIsland_WP?listen -ClusterDirOverride=\"C:\\Transfer Share\"") &&
+              AsaStoreArgumentSwitches.ContainsProtectedSwitch(
+                  "TheIsland_WP?listen \"-clusterid\"=KovaCluster") &&
+              AsaStoreArgumentSwitches.ContainsProtectedSwitch(
+                  "TheIsland_WP?listen -ClusterDirOverride=\"unterminated"),
+            "real Store/cluster switches and malformed quoted arguments cannot bypass native authorization");
         // "Store" is a legitimate custom session word; it is NOT an
         // implicit -usestore switch. Actual Store/cluster switches still
         // cannot be smuggled into a non-enrolled local launch.

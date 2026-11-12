@@ -83,9 +83,8 @@ public static class UntamedWorldBackup
         })
         {
             if(string.IsNullOrWhiteSpace(args))continue;
-            if(args.Contains("-usestore",StringComparison.OrdinalIgnoreCase)||
-               args.Contains("-converttostore",StringComparison.OrdinalIgnoreCase)||
-               args.Contains("-convertfromstore",StringComparison.OrdinalIgnoreCase))
+            if(AsaStoreArgumentSwitches.ContainsStoreWriter(args)||
+               AsaStoreArgumentSwitches.ContainsConversion(args))
                 return true;
         }
         return false;

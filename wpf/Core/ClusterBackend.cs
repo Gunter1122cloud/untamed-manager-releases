@@ -1559,7 +1559,8 @@ public sealed partial class ClusterService : IAsyncDisposable
             return new(false,"UM-LIVE-OBSERVATION-ONLY-STOP-UNVERIFIED",null,false);
         if(map.HistoricalStoreProtected)
             return new(false,"Történeti Store-v1 map: indítás tiltva a teljes eredeti launch/szinkron validációjáig",null);
-        if((map.Arguments+" "+map.ApiLoaderArguments).Contains("converttostore",StringComparison.OrdinalIgnoreCase))
+        if(AsaStoreArgumentSwitches.ContainsConversion(map.Arguments)||
+           AsaStoreArgumentSwitches.ContainsConversion(map.ApiLoaderArguments))
             return new(false,"Store conversion is forbidden",null);
         if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
         {
@@ -1567,7 +1568,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             catch(Exception ex) when(ex is InvalidDataException or InvalidOperationException or IOException)
             {return new(false,"Új Store-map előfeltétele nem igazolt: "+ex.Message,null);}
         }
-        else if(map.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase))
+        else if(AsaStoreArgumentSwitches.ContainsStoreWriter(map.Arguments))
         {
             var store=LocalStoreProbe.Inspect(map.StoreTestRoot,VaultProtocol.ClusterId,map.Arguments);
             if(!store.Safe)return new(false,store.Reason,null);
@@ -1651,8 +1652,8 @@ public sealed partial class ClusterService : IAsyncDisposable
             FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);
         else if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
                 !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
-                (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-                    StringComparison.OrdinalIgnoreCase))
+                AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments) ||
+                AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments))
             throw new InvalidOperationException("Store-v1/historical launch remains locked");
         if(map.Maintenance)
             throw new InvalidOperationException("UM-ASA-START-MAINTENANCE");
