@@ -764,6 +764,8 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-BACKUP-ORIGINAL-FIVE-STOPPED-REQUIRED");
           return {token:"00000000-0000-4000-8000-00000000b051",
             localMaps:5,worldBytes:5*1024*1024*1024,
+            maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
+            resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true,
             mapNames:["The Island","Astraeos","The Center",
               "Scorched Earth","Extinction"],
             originalSourcePinned:true,allMapsConfirmedStopped:true,
@@ -804,7 +806,10 @@ test.beforeEach(async ({ page }) => {
             mapId:m.mapId,
             mapName:localBackupMap===two?"Astraeos":"The Island",
             mapKey:localBackupMap===two?"Astraeos_WP":"TheIsland_WP",
-            point:null,confirmedStopped:true,willCreateProtectiveBackup:false,
+            point:null,confirmedStopped:true,
+            maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
+            resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true,
+            willCreateProtectiveBackup:false,
             originalWorldRetained:false,storeWriterTouched:false,
             action:"BACKUP",evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
           };
@@ -824,6 +829,8 @@ test.beforeEach(async ({ page }) => {
           mapId:m.mapId,mapName:m.mapId===two?"Astraeos":"The Island",
           mapKey:m.mapId===two?"Astraeos_WP":"TheIsland_WP",
           point:m.point,confirmedStopped:true,
+          maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
+          resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true,
           willCreateProtectiveBackup:true,originalWorldRetained:true,
           storeWriterTouched:false,action:"RESTORE",
           evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
