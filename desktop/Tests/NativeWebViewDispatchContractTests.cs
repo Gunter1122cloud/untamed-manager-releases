@@ -126,6 +126,35 @@ internal static class NativeWebViewDispatchContractTests
             "historical.unsafeOperation"),
             "real dispatcher includes both live 5-map methods and denies unknown methods");
 
+        // The previous plugin JSON, ZIP installer and runtime-toggle routes
+        // remain parseable by older UI clients but MUST fail closed at the
+        // actual WebView2 dispatcher. Only folder-open/inventory is allowed.
+        string[] forbiddenPlugins={
+            "plugins.togglePreview","plugins.toggleApply",
+            "plugins.zipSelect","plugins.zipApply",
+            "plugins.zipRollbackSelect","plugins.zipRollbackApply",
+            "plugins.jsonOpen","plugins.jsonPreview",
+            "plugins.jsonSave","plugins.jsonClose"
+        };
+        Check(forbiddenPlugins.All(ObsidianWindow.IsManualOnlyDeniedPluginMethod)&&
+              !ObsidianWindow.IsManualOnlyDeniedPluginMethod("plugins.openFolder")&&
+              !ObsidianWindow.IsManualOnlyDeniedPluginMethod("plugins.inventory")&&
+              !ObsidianWindow.IsManualOnlyDeniedPluginMethod("plugins.state"),
+            "shipping WebView2 accepts manual plugin folder/inventory but denies retired writes");
+        var pluginRequestId=Guid.NewGuid();
+        using(var refused=System.Text.Json.JsonDocument.Parse(
+            ObsidianWindow.NativeErrorResponse(
+                "{\\\"id\\\":\\\""+pluginRequestId.ToString("D")+
+                "\\\"}","UM-PLUGIN-MANUAL-FOLDER-ONLY")))
+        {
+            Check(refused.RootElement.GetProperty("id").GetString()==
+                    pluginRequestId.ToString("D")&&
+                  !refused.RootElement.GetProperty("ok").GetBoolean()&&
+                  refused.RootElement.GetProperty("error").GetString()==
+                    "UM-PLUGIN-MANUAL-FOLDER-ONLY",
+                "refused plugin mutation yields correlated, explicit error without file changes");
+        }
+
         // Ensure each named routing group points to an actual compiled
         // handler AND that the target handler contains its requested method.
         // This catches copied/pasted route groups wired to a wrong bridge,
