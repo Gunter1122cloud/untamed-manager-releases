@@ -121,7 +121,9 @@ function LiveAdoptControls({process,afterAdopt}:{
 }
 
 /** Live, on-demand WMI process observation. No process adoption or mutation. */
-export function LocalRunningAsaPanel() {
+export function LocalRunningAsaPanel({onRegistered}:{
+  onRegistered?:()=>Promise<void>;
+}={}) {
   const [snapshot,setSnapshot]=useState<RunningLocalAsaSnapshot|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
@@ -198,12 +200,16 @@ export function LocalRunningAsaPanel() {
             p.observedReadOnlyImported && p.profileMapId && !p.loaderParentObserved &&
             !p.launchFacts?.storeFlagPresent && !p.launchFacts?.clusterSwitchPresent &&
             !p.launchFacts?.transferOverridePresent && !p.launchFacts?.conversionFlagPresent &&
-            <LiveAdoptControls process={p} afterAdopt={()=>{void inspect();}}/>}
+            <LiveAdoptControls process={p} afterAdopt={()=>{
+              void inspect();void onRegistered?.();
+            }}/>}
           {p.processKind==="asaServer" && p.matchState==="unregistered" &&
             p.launchFacts?.argumentsValidated && !p.launchFacts.storeFlagPresent &&
             !p.launchFacts.clusterSwitchPresent && !p.launchFacts.transferOverridePresent &&
             !p.launchFacts.conversionFlagPresent && p.startedUtc &&
-            <LiveImportControls process={p} afterImport={()=>{void inspect();}}/>}
+            <LiveImportControls process={p} afterImport={()=>{
+              void inspect();void onRegistered?.();
+            }}/>}
           {p.processKind==="asaServer" && p.launchFacts?.argumentsValidated &&
             (p.launchFacts.storeFlagPresent||p.launchFacts.clusterSwitchPresent||
              p.launchFacts.transferOverridePresent||p.launchFacts.conversionFlagPresent) &&
