@@ -27,8 +27,7 @@ public static class LocalBackupWorkflow
     {
         if(map==null||map.Id==Guid.Empty)
             throw new InvalidDataException("Map identity required");
-        if(check==null||!check.ConfirmedStopped||check.Running)
-            throw new InvalidOperationException("Confirmed stopped map required before backup");
+        RequireStopped(check);
         if(scope==LocalBackupScope.None ||
            (scope & ~(LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini|LocalBackupScope.Plugins))!=0)
             throw new InvalidDataException("Unsupported backup scope");
@@ -55,19 +54,32 @@ public static class LocalBackupWorkflow
         return new(map.Id,scope,target,paths.Count,bytes,free,reserve);
     }
 
+    private static void RequireStopped(ProcessCheck? state)
+    {
+        if(state==null||!state.ConfirmedStopped||state.Running||
+           state.Identity!=null||state.LoaderIdentity!=null)
+            throw new InvalidOperationException(
+                "UM-BACKUP-CONFIRMED-STOPPED-REQUIRED");
+    }
+
     public static LocalBackupResult Create(LocalMap map,ProcessCheck check,string destination,
-        LocalBackupScope scope,Action<string>? progress=null)
+        LocalBackupScope scope,Action<string>? progress=null,
+        Func<ProcessCheck>? checkCurrent=null)
     {
         // The same immutable preflight gates the actual file operation.
         // The content and membership are verified again during the copy.
         Preview(map,check,destination,scope);
         if(map==null||map.Id==Guid.Empty)throw new InvalidDataException("Map identity required");
-        if(!check.ConfirmedStopped||check.Running)
-            throw new InvalidOperationException("Confirmed stopped map required before backup");
+        RequireStopped(check);
+        // Legacy callers retain the original initial proof. Every production
+        // SteamCMD/desktop caller passes a FRESH OS process observer, so a
+        // process starting during file copy blocks backup publication.
+        void Recheck()=>RequireStopped(checkCurrent?.Invoke()??check);
         if(scope==LocalBackupScope.None || (scope & ~(LocalBackupScope.WorldAndProfiles|LocalBackupScope.Ini|LocalBackupScope.Plugins))!=0)
             throw new InvalidDataException("Unsupported backup scope");
         var root=FixedLocalPath(map.InstallationPath);
         using var operation=new UntamedOperationCoordinator().Acquire(root,UntamedOperationKind.Backup);
+        Recheck();
         var target=FixedLocalPath(destination);
         if(!Directory.Exists(root))throw new DirectoryNotFoundException(root);
         if(IsInside(root,target)||IsInside(target,root)||string.Equals(root,target,StringComparison.OrdinalIgnoreCase))
@@ -87,7 +99,6 @@ public static class LocalBackupWorkflow
         if(totalBytes>free || reserve>free-totalBytes)
             throw new IOException("Insufficient free disk space for backup and safety reserve");
         string data=Path.Combine(staging,"data");
-        operation.MarkMutationStarted();
         Directory.CreateDirectory(data);
         foreach(var entry in paths)
         {
@@ -100,6 +111,7 @@ public static class LocalBackupWorkflow
         }
         // Check source bytes AND membership. A new character/profile/plugin
         // file must not silently disappear from a supposedly complete scope.
+        Recheck();
         var manifest=BackupIntegrity.Create(data,map.Id,
             scope+"; stopped-map file copy; ASA and shared Store consistency NOT established");
         if(manifest.Files.Count!=paths.Count)throw new InvalidDataException("Staged backup file count differs");
@@ -116,8 +128,14 @@ public static class LocalBackupWorkflow
         if(!paths.Keys.SequenceEqual(finalPaths.Keys,StringComparer.OrdinalIgnoreCase))
             throw new InvalidDataException("Source file set changed while backing up");
         BackupIntegrity.Verify(data,manifest,map.Id);
+        Recheck();
         File.WriteAllText(Path.Combine(staging,"manifest.json"),BackupIntegrity.Serialize(manifest));
         File.WriteAllText(Path.Combine(staging,"complete"),"1");
+        Recheck();
+        // Only the atomic publication can create a successful package.
+        // A process-state race before this point must not strand the map
+        // in a misleading Backup/NeedsOperator journal.
+        operation.MarkMutationStarted();
         Directory.Move(staging,target);
         TestBackupPackage.Verify(target,map.Id);
         operation.Complete();

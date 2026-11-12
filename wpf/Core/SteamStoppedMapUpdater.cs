@@ -297,7 +297,7 @@ public static class SteamStoppedMapUpdater
                 // LocalBackupWorkflow hashes source AND destination and fails
                 // on changed memberships. Missing world saves reject update.
                 var backup=LocalBackupWorkflow.Create(map,ObserveStopped(map),
-                    destination,scope);
+                    destination,scope,checkCurrent:()=>ObserveStopped(map));
                 var manifestFile=Path.Combine(backup.PackageDirectory,"manifest.json");
                 if(!File.Exists(manifestFile))
                     throw new InvalidDataException("Verified pre-update backup manifest is missing");

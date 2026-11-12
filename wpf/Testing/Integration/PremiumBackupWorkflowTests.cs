@@ -97,6 +97,29 @@ public static class PremiumBackupWorkflowTests
         Check(backup.PackageDirectory==target&&backup.Manifest.Files.Count==3 &&
               verified.Files.Count==3&&File.Exists(Path.Combine(target,"complete")),
             "confirmed stopped local backup saves and verifies exactly three synthetic files");
+        // Simulate an external ASA process taking ownership after bytes
+        // were copied but before final commit. The incomplete staging folder
+        // must never be published as a successful file backup.
+        string racing=Path.Combine(catalog,"race-after-copy");
+        int reads=0;
+        bool raceRejected=false;
+        try
+        {
+            LocalBackupWorkflow.Create(map,stopped,racing,scope,
+                checkCurrent:()=>++reads>=3?running:stopped);
+        }
+        catch(InvalidOperationException ex) when(ex.Message.Contains(
+            "UM-BACKUP-CONFIRMED-STOPPED-REQUIRED"))
+        {raceRejected=true;}
+        var afterRace=new UntamedOperationCoordinator().Observe(install);
+        Check(raceRejected&&reads>=3&&
+              !Directory.Exists(racing)&&
+              Directory.Exists(racing+".incomplete")&&
+              afterRace?.Kind==UntamedOperationKind.Backup&&
+              afterRace.Phase==UntamedOperationPhase.CancelledBeforeMutation,
+            "ASA startup during staged copy refuses success without a stranded NeedsOperator lease");
+        Check(File.ReadAllText(game)=="offline synthetic world data, not an actual ARK save",
+            "racing process observer never modifies the original world file");
         var catalogItems=LocalBackupCatalog.Inspect(catalog,map.Id,10);
         Check(catalogItems.Count==1&&catalogItems.Single().Valid &&
               catalogItems.Single().TotalBytes==preview.SelectedBytes,
