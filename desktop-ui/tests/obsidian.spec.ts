@@ -75,6 +75,20 @@ test.beforeEach(async ({ page }) => {
     let missingBackupPolicyFixture=false;
     (window as typeof window & {__UNTAMED_MISSING_BACKUP_POLICY__?:()=>void})
       .__UNTAMED_MISSING_BACKUP_POLICY__=()=>{missingBackupPolicyFixture=true;};
+    let sourcePinCommits=0;
+    let runtimeConfigCommits=0;
+    let mismatchRuntimePreview=false;
+    (window as typeof window & {
+      __UNTAMED_SOURCE_PIN_COMMITS__?:()=>number;
+      __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number;
+      __UNTAMED_RUNTIME_MISMATCH__?:()=>void;
+    }).__UNTAMED_SOURCE_PIN_COMMITS__=()=>sourcePinCommits;
+    (window as typeof window & {
+      __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number;
+    }).__UNTAMED_RUNTIME_CONFIG_COMMITS__=()=>runtimeConfigCommits;
+    (window as typeof window & {
+      __UNTAMED_RUNTIME_MISMATCH__?:()=>void;
+    }).__UNTAMED_RUNTIME_MISMATCH__=()=>{mismatchRuntimePreview=true;};
     let originalLiveFiveFixture=false;
     let originalLiveMixedFixture=false;
     let originalLiveDispatchDenied=false;
@@ -1327,6 +1341,45 @@ test.beforeEach(async ({ page }) => {
           productionUseAllowed:false,
           evidence:"PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION"
         };
+        case "historical.sourcePinPreview": return {
+          token:"00000000-0000-4000-8000-000000001991",
+          verifiedLocalMaps:1,requiresExplicitApproval:true,peerStatusRequired:false,
+          evidence:"READ_ONLY_OBSIDIAN_SOURCE_PIN_PREVIEW"
+        };
+        case "historical.sourcePinApply":
+          if(m.token!=="00000000-0000-4000-8000-000000001991"||
+             m.confirm!==true||m.typedApproval!=="OBSIDIAN FORRÁS ÁTVÉTEL"||
+             sourcePinCommits>0)
+            throw new Error("UM-STORE-SOURCE-PIN-APPROVAL-REQUIRED");
+          sourcePinCommits++;
+          return {pinned:true,localMaps:1,originalKovaRequiredAfterPin:false,
+            kovaFilesWritten:false,asaFilesWritten:false,rconUsed:false,
+            evidence:"IMMUTABLE_SOURCE_PINNED_IN_OBSIDIAN_MANAGER_PROFILE"};
+        case "historical.runtimeSettingsStatus":
+          if(sourcePinCommits<1||m.mapId!=="00000000-0000-4000-8000-000000009001")
+            throw new Error("UM-STORE-RUNTIME-SOURCE-PIN-REQUIRED");
+          return {mapId:m.mapId,mapName:"The Island",gamePort:7777,queryPort:27015,
+            clusterId:"KovaCluster",transferRoot:"D:\\Synthetic\\OriginalCluster",
+            originalSourcePinned:true,peerRequiredForLocalStart:false,
+            sharedTransferAccessVerified:false};
+        case "historical.runtimeSettingsPreview":
+          if(sourcePinCommits<1||m.mapId!=="00000000-0000-4000-8000-000000009001")
+            throw new Error("UM-STORE-RUNTIME-SOURCE-PIN-REQUIRED");
+          return {token:"00000000-0000-4000-8000-000000001992",
+            mapId:mismatchRuntimePreview?"00000000-0000-4000-8000-000000009099":m.mapId,
+            gamePort:m.gamePort,queryPort:m.queryPort,
+            clusterId:m.clusterId,transferRoot:m.transferRoot,
+            sourcePinVerified:true,requiresStoppedProcess:true,
+            iniMustAlreadyMatchPorts:true,evidence:"OBSIDIAN_LOCAL_RUNTIME_SETTINGS_PREVIEW"};
+        case "historical.runtimeSettingsApply":
+          if(sourcePinCommits<1||m.token!=="00000000-0000-4000-8000-000000001992"||
+             m.confirm!==true||m.typedApproval!=="OBSIDIAN MAP KONFIG")
+            throw new Error("UM-STORE-RUNTIME-EXPLICIT-APPROVAL");
+          runtimeConfigCommits++;
+          return {mapId:"00000000-0000-4000-8000-000000009001",
+            updated:true,portAndClusterSettingsStoredInManager:true,
+            kovaFilesWritten:false,asaFilesWritten:false,
+            noServerStarted:true,noRconSent:true};
         case "historical.originalList": return {
           sourceVerified:true,originalFourFilesUnchanged:true,
           evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
@@ -1344,7 +1397,7 @@ test.beforeEach(async ({ page }) => {
           })):[{mapId:"00000000-0000-4000-8000-000000009001",
             mapKey:"TheIsland_WP",name:"The Island",
             folderName:"OriginalIsland",gamePort:7777,queryPort:27015,
-            enabledMods:22,passiveMods:3,registered:false}]
+            enabledMods:22,passiveMods:3,registered:sourcePinCommits>0}]
         };
         case "historical.originalClusterPreview": {
           sourceKovaClusterToken="00000000-0000-4000-8000-000000009555";
@@ -5690,6 +5743,74 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   await expect(section).toContainText("The Island felvéve az eredeti GUID-dal");
   await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"}))
     .toHaveValue("");
+});
+
+test("pinned Obsidian Store source and approved offline runtime changes use only explicit native approvals",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const pin=page.getByRole("region",{name:"Eredeti Store-v1 konfiguráció végleges átvétele"});
+  await pin.getByRole("button",{name:"Meglévő mapok forrásátvételének ellenőrzése"}).click();
+  const approval=pin.getByRole("region",{name:"Obsidian saját forrás átvételének jóváhagyása"});
+  await expect(approval).toContainText("1 korábban regisztrált map");
+  const commit=approval.getByRole("button",{name:"Forrás átvételének jóváhagyása"});
+  await expect(commit).toBeDisabled();
+  await approval.getByRole("textbox",{name:/Jóváhagyó szöveg/}).fill("OBSIDIAN FORRÁS");
+  await expect(commit).toBeDisabled();
+  await approval.getByRole("textbox",{name:/Jóváhagyó szöveg/})
+    .fill("OBSIDIAN FORRÁS ÁTVÉTEL");
+  await commit.click();
+  await expect(pin.getByRole("status")).toContainText("Obsidian saját profiljában");
+  const runtime=page.getByRole("region",{name:"Obsidian Store-v1 port és cluster módosítása"});
+  await runtime.getByRole("button",{name:"Eredeti és átvett helyi mapok listázása"}).click();
+  await runtime.getByRole("combobox",{name:"Átvett helyi map"})
+    .selectOption("00000000-0000-4000-8000-000000009001");
+  await runtime.getByRole("button",{name:"Jelenlegi Obsidian-beállítások betöltése"}).click();
+  await expect(runtime.getByRole("spinbutton",{name:"Game UDP-port"})).toHaveValue("7777");
+  await runtime.getByRole("textbox",{name:"Cluster ID"}).fill("ObsidianCluster");
+  await runtime.getByRole("button",{name:"Beállításmódosítás előellenőrzése"}).click();
+  const runtimeApproval=runtime.getByRole("region",{
+    name:"Átvett map konfigurációjának jóváhagyása"
+  });
+  await expect(runtimeApproval).toContainText("ObsidianCluster");
+  await expect(runtimeApproval.getByRole("button",{name:"Jóváhagyott változtatások mentése"})).toBeDisabled();
+  await runtimeApproval.getByRole("textbox",{name:/Jóváhagyás/})
+    .fill("OBSIDIAN MAP KONFIG");
+  await runtimeApproval.getByRole("button",{name:"Jóváhagyott változtatások mentése"}).click();
+  await expect(runtime.getByRole("status")).toContainText("Obsidian profiljába mentve");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SOURCE_PIN_COMMITS__?:()=>number;
+    __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number;
+  }).__UNTAMED_SOURCE_PIN_COMMITS__?.())).toBe(1);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number;
+  }).__UNTAMED_RUNTIME_CONFIG_COMMITS__?.())).toBe(1);
+});
+
+test("Store runtime approval refuses a native preview for another map without applying",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const pin=page.getByRole("region",{name:"Eredeti Store-v1 konfiguráció végleges átvétele"});
+  await pin.getByRole("button",{name:"Meglévő mapok forrásátvételének ellenőrzése"}).click();
+  await pin.getByRole("textbox",{name:/Jóváhagyó szöveg/}).fill("OBSIDIAN FORRÁS ÁTVÉTEL");
+  await pin.getByRole("button",{name:"Forrás átvételének jóváhagyása"}).click();
+  const runtime=page.getByRole("region",{name:"Obsidian Store-v1 port és cluster módosítása"});
+  await runtime.getByRole("button",{name:"Eredeti és átvett helyi mapok listázása"}).click();
+  await runtime.getByRole("combobox",{name:"Átvett helyi map"})
+    .selectOption("00000000-0000-4000-8000-000000009001");
+  await runtime.getByRole("button",{name:"Jelenlegi Obsidian-beállítások betöltése"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RUNTIME_MISMATCH__?:()=>void
+  }).__UNTAMED_RUNTIME_MISMATCH__?.());
+  await runtime.getByRole("button",{name:"Beállításmódosítás előellenőrzése"}).click();
+  await expect(runtime.getByRole("alert")).toContainText("UM-STORE-RUNTIME-PREVIEW-DIFFERENT-CONFIG");
+  await expect(runtime.getByRole("region",{
+    name:"Átvett map konfigurációjának jóváhagyása"
+  })).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number
+  }).__UNTAMED_RUNTIME_CONFIG_COMMITS__?.())).toBe(0);
 });
 
 test("original Kova Cluster registry adoption requires exact typed approval and never writes Store data",async({page})=>{
