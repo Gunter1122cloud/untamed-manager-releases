@@ -141,7 +141,7 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
         lock(sync)
             running=current!=null&&current.MapId==mapId&&
                 current.State is "queued" or "running"?current:null;
-        bool pendingRestart=entry!=null&&entry.Phase!=AsaRestartPhase.Completed;
+        bool pendingRestart=entry!=null&&entry.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         var operation=cluster.Operations.Observe(map.InstallationPath);
         bool pendingOperation=operation?.Phase is UntamedOperationPhase.Prepared or
             UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator;
