@@ -134,6 +134,41 @@ public static class LegacyStoreV1PinnedSource
     }
 
     /// <summary>
+    /// Unchanging native-operation source proof for LOCAL SaveWorld/Stop/RCON
+    /// against an owned map, without requiring the other ASA host or the
+    /// obsolete Kova ACTIVE/DONE coordination files. It is NOT a proof that
+    /// cluster transfer is currently available.
+    /// </summary>
+    public static string RuntimeFingerprint(string managerProfileRoot,
+        string originalKovaProfile,LocalMap map)
+    {
+        string selected=Resolve(managerProfileRoot,originalKovaProfile,map);
+        if(string.Equals(selected,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("UM-STORE-PIN-NOT-YET-APPROVED");
+        var source=LegacyStoreV1OriginalImport.Inspect(selected);
+        var cluster=ReadOriginalCluster(selected);
+        var mods=ModStateController.Read(map);
+        string effectiveId=string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)
+            ?cluster.RuntimeClusterId:map.HistoricalRuntimeClusterId;
+        string effectivePath=string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)
+            ?cluster.TransferRoot:map.HistoricalRuntimeTransferDirectory;
+        if(string.IsNullOrWhiteSpace(effectiveId)||
+           string.IsNullOrWhiteSpace(effectivePath))
+            throw new InvalidDataException("UM-STORE-RUNTIME-CLUSTER-INCOMPLETE");
+        var evidence=string.Join("\n",
+            source.FourFilesSha256,source.LaunchProfileSha256,
+            map.Id.ToString("D"),map.HistoricalMapKey,
+            Path.GetFullPath(map.InstallationPath),
+            map.GamePort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            map.QueryPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            map.RconPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            effectiveId,effectivePath,
+            string.Join(",",mods.EnabledOrder),string.Join(",",mods.Passive),
+            map.StartWithAsaApi?"API":"DIRECT");
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(evidence)));
+    }
+
+    /// <summary>
     /// This is a Manager-profile-only mutation permitted solely from an
     /// explicitly approved import. The approved source hashes are consumed
     /// here; neither an untrusted WebView path nor a replacement cluster id
