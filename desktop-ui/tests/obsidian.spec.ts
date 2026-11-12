@@ -6241,6 +6241,33 @@ test("initial ASA map setup reports actual OS port conflicts at preview and appr
     .toHaveCount(0);
 });
 
+test("unapproved first ASA map setup choices survive map card navigation without applying native configuration",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await page.getByRole("textbox",{name:"ASA szerver neve"}).fill("Untamed Kézi Draft");
+  await page.getByRole("textbox",{name:"Első Game UDP"}).fill("7953");
+  await page.getByRole("textbox",{name:"Első Query UDP"}).fill("27953");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await expect(page.getByRole("textbox",{name:"ASA szerver neve"}))
+    .toHaveValue("Untamed Kézi Draft");
+  await expect(page.getByRole("textbox",{name:"Első Game UDP"}))
+    .toHaveValue("7953");
+  await expect(page.getByRole("textbox",{name:"Első Query UDP"}))
+    .toHaveValue("27953");
+  await expect(page.getByRole("heading",{name:"Konfigurációs előnézet"}))
+    .toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Beállítások ellenőrzése"}))
+    .toBeEnabled();
+});
+
 test("N-host profile and local copy select-all are limited to local eligible maps",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
