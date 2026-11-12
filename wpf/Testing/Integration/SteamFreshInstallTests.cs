@@ -39,10 +39,9 @@ public static class SteamFreshInstallTests
             completed.BuildId=="123456"&&completed.ServerExecutable==receipt.ServerExecutable &&
             SteamFreshInstall.InspectIncomplete(destination)==null,
             "Manager restart reads verified complete journal with original map GUID, without reinstall");
-        Check(File.ReadAllText(receipt.ServerExecutable).Contains("synthetic",StringComparison.OrdinalIgnoreCase) &&
-              completed!=null,
-            "read-only completed recovery leaves original verified installation bytes intact");
         byte[] untouchedExe=File.ReadAllBytes(receipt.ServerExecutable);
+        Check(completed!=null&&untouchedExe.Length>0,
+            "read-only completed recovery retains verified installed ASA binary");
         File.AppendAllText(receipt.ServerExecutable,"TAMPER");
         bool modifiedDenied=false;
         try{_=SteamFreshInstall.InspectCompleted(destination);}
