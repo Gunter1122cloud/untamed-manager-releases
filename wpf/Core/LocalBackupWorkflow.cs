@@ -28,15 +28,18 @@ public static class LocalBackupWorkflow
     public const int MaxSelectedFiles = 100_000;
     public const long MaxSelectedBytes = 2L * 1024 * 1024 * 1024 * 1024;
 
-    public static void ValidateFileBudget(int count,long bytes)
+    public static void ValidateFileBudget(int count,long bytes,
+        BackupResourcePolicy? limits=null)
     {
         if(count<1 || count>MaxSelectedFiles)
             throw new InvalidDataException("UM-BACKUP-FILE-LIMIT");
         if(bytes<0 || bytes>MaxSelectedBytes)
             throw new InvalidDataException("UM-BACKUP-SIZE-LIMIT");
+        (limits??BackupResourcePolicy.Default).DemandFits(count,bytes);
     }
     public static LocalBackupPreflight Preview(LocalMap map,ProcessCheck check,
-        string destination,LocalBackupScope scope)
+        string destination,LocalBackupScope scope,
+        BackupResourcePolicy? limits=null)
     {
         if(map==null||map.Id==Guid.Empty)
             throw new InvalidDataException("Map identity required");
@@ -61,7 +64,7 @@ public static class LocalBackupWorkflow
         foreach(var entry in paths)
         {
             bytes=checked(bytes+new FileInfo(entry.Value).Length);
-            ValidateFileBudget(paths.Count,bytes);
+            ValidateFileBudget(paths.Count,bytes,limits);
         }
         long reserve=Math.Max(64L*1024*1024,bytes/10);
         long free=new DriveInfo(Path.GetPathRoot(target)!).AvailableFreeSpace;
@@ -80,11 +83,12 @@ public static class LocalBackupWorkflow
 
     public static LocalBackupResult Create(LocalMap map,ProcessCheck check,string destination,
         LocalBackupScope scope,Action<string>? progress=null,
-        Func<ProcessCheck>? checkCurrent=null)
+        Func<ProcessCheck>? checkCurrent=null,
+        BackupResourcePolicy? limits=null)
     {
         // The same immutable preflight gates the actual file operation.
         // The content and membership are verified again during the copy.
-        Preview(map,check,destination,scope);
+        Preview(map,check,destination,scope,limits);
         if(map==null||map.Id==Guid.Empty)throw new InvalidDataException("Map identity required");
         RequireStopped(check);
         // Legacy callers retain the original initial proof. Every production
@@ -113,7 +117,7 @@ public static class LocalBackupWorkflow
         foreach(var entry in paths)
         {
             totalBytes=checked(totalBytes+new FileInfo(entry.Value).Length);
-            ValidateFileBudget(paths.Count,totalBytes);
+            ValidateFileBudget(paths.Count,totalBytes,limits);
         }
         long reserve=Math.Max(64L*1024*1024,totalBytes/10);
         long free=new DriveInfo(Path.GetPathRoot(target)!).AvailableFreeSpace;
