@@ -3261,7 +3261,10 @@ try
         bool wrongPidDenied=false;
         try{_ =LegacyStoreV1GracefulStop.PreviewForUnfinishedRestartReview(
             lab,original.Id,
-            _=>new ProcessCheck(true,"changed PID",pid with{Pid=16797}),
+            _=>new ProcessCheck(true,"changed PID",new ProcessIdentity{
+                Pid=16797,StartedUtc=pid.StartedUtc,
+                ExecutablePath=pid.ExecutablePath,Arguments=pid.Arguments
+            }),
             _=>new string('A',64),(port,owner)=>true);}
         catch(InvalidOperationException ex) when(
             ex.Message=="UM-RECOVERY-RESTART-OLD-PID-OR-PHASE-MISMATCH")
