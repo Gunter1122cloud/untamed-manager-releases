@@ -3110,6 +3110,40 @@ try
             "reviewed operation unlocks only fresh, separately authorized actions");
     }
 
+    // Automatic watcher: all ASA and API Loader processes are detected even
+    // without registered map profiles, never silently treated as controllable.
+    {
+        var childExe=Path.Combine(root,"discovery-ci","ArkAscendedServer.exe");
+        var parentExe=Path.Combine(root,"discovery-ci","AsaApiLoader.exe");
+        var startedAt=DateTimeOffset.UtcNow.AddHours(-2);
+        bool unavailable=false;
+        int polls=0;
+        using var watcher=new DesktopAutomaticAsaDiscoverySupervisor(()=>{
+            polls++;
+            if(unavailable)throw new IOException("SYNTHETIC_WMI_FAILED");
+            return new LocalRunningAsaDiscovery.Sample[]{
+                new(32001,32003,startedAt.AddSeconds(2),
+                    "ArkAscendedServer.exe",childExe,
+                    "\\""+childExe+"\\" Aberration_WP?listen"),
+                new(32003,0,startedAt,"AsaApiLoader.exe",parentExe,
+                    "\\""+parentExe+"\\" Aberration_WP?listen"),
+                new(32005,0,startedAt,"ArkAscendedServer.exe",null,null)
+            };
+        },()=>Array.Empty<LocalMap>());
+        var found=watcher.RefreshOnce();
+        Check(found.Fresh&&found.Processes.Length==3&&polls==1&&
+            found.Processes.Count(x=>x.ProcessKind=="asaServer")==2&&
+            found.Processes.Count(x=>x.ProcessKind=="apiLoader")==1&&
+            found.Processes.All(x=>!x.Controllable&&!x.StoreWriteAuthorized)&&
+            found.Processes.Any(x=>x.Pid==32005&&x.MatchState=="unverified"),
+            "automatic ASA watcher displays all known and PID-only processes without adoption or writes");
+        unavailable=true;
+        var failure=watcher.RefreshOnce();
+        Check(!failure.Fresh&&failure.Status=="wmi-unavailable"&&
+            failure.Processes.Length==0&&!watcher.Snapshot().Fresh,
+            "unavailable WMI cannot produce a fake stopped/zero-ASA success state");
+    }
+
     // Native cross-map Mod Center inventory: real Core parser, read-only
     // historical Store-v1 metadata, never the quarantined Arguments field.
     {
