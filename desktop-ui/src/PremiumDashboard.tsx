@@ -168,6 +168,12 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
     ].filter(x=>x.map.name.toLocaleLowerCase("hu-HU").includes(term));
   },[query,local,remotes,snapshot.local.hostName]);
   const running=[...local,...peer].filter(m=>m.running).length;
+  const discovered=snapshot.asaDiscovery;
+  const localAsaProcesses=discovered?.fresh?
+    discovered.processes.filter(x=>x.processKind==="asaServer"):[];
+  const localApiLoaders=discovered?.fresh?
+    discovered.processes.filter(x=>x.processKind==="apiLoader"):[];
+  const unknownAsa=localAsaProcesses.filter(x=>x.matchState!=="profileCandidate");
   const runningLocal=local.filter(map=>map.running&&!map.observedReadOnlyImported);
   const knownLocal=runningLocal.filter(map=>playerCounts[map.id]!==null&&
     playerCounts[map.id]!==undefined);
@@ -199,6 +205,18 @@ export function PremiumDashboard({snapshot,onServers,onInstall,onCluster,onSelec
       <Metric icon={Monitor} value={hosts} label="Gazdagép"
         detail={remotes.length?`Helyi + ${remotes.length} LAN-peer`:"Helyi gép"} tone="cyan"/>
     </div>
+    {discovered&&<div className={discovered.fresh?
+      "success-inline":"warning-inline"} role="status">
+      <Activity size={16}/>
+      {discovered.fresh?
+        `Automatikus ASA-felderítés: ${localAsaProcesses.length} szerverfolyamat, ${localApiLoaders.length} API Loader; 15 másodpercenként`:
+        "Az automatikus ASA-felderítés pillanatnyilag nem igazolt. Nem feltétlenül álltak le a szerverek."}
+      {discovered.fresh&&unknownAsa.length>0&&
+        <span> · {unknownAsa.length} ismeretlen vagy még nem átvett PID</span>}
+      <button type="button" className="secondary" onClick={onServers}>
+        Folyamatok és átvétel
+      </button>
+    </div>}
     <div className="premium-dashboard-grid">
       <section className="premium-panel premium-server-panel">
         <header className="premium-panel-heading premium-servers-heading">

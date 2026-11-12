@@ -2999,6 +2999,255 @@ try
             "foreign map cannot query native operation journal");
     }
 
+    // Real durable coordinator + native recovery API, isolated in TEMP.
+    // The original operation is kept for audit. Neither Test nor production
+    // recovery can execute an ASA command, replay a dinowipe, or spawn a PID.
+    {
+        string path=Path.Combine(root,"store-running-launch-recovery");
+        await using var originalLab=new ClusterService("store-recovery-ci",
+            Path.Combine(path,"profile"),
+            _=>new ProcessCheck(false,"synthetic-no-asa",null,true));
+        var protectedMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Aberration",
+            InstallationPath=Path.Combine(path,"Aberration"),
+            HistoricalStoreProtected=true,HistoricalMapKey="Aberration_WP",
+            HistoricalArchiveSha256=new string('B',64),
+            RconPort=37095
+        };
+        originalLab.AddMap(protectedMap);
+        using(var lease=originalLab.Operations.Acquire(
+            protectedMap.InstallationPath,UntamedOperationKind.Launch))
+            lease.MarkMutationStarted();
+        var key=UntamedOperationCoordinator.ResourceKey(protectedMap.InstallationPath);
+        var journalFile=Path.Combine(root,"operation-journals",key+".json");
+        var initial=originalLab.Operations.Observe(protectedMap.InstallationPath)!;
+        File.WriteAllText(journalFile,JsonSerializer.Serialize(initial with {
+            UpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+        }));
+        string before=File.ReadAllText(journalFile);
+        int proofCalls=0;
+        var identity=new ProcessIdentity{
+            Pid=23456,StartedUtc=DateTimeOffset.UtcNow.AddHours(-3),
+            ExecutablePath=Path.Combine(protectedMap.InstallationPath,
+                "ShooterGame","Binaries","Win64","ArkAscendedServer.exe"),
+            Arguments="SYNTHETIC_OWNER_ONLY"
+        };
+        bool sameProcess=true;
+        var review=new DesktopAsaLifecycleJournalBridge(originalLab,id=>{
+            proofCalls++;
+            if(!sameProcess)throw new InvalidDataException(
+                "UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
+            return new LegacyStoreV1GracefulStop.Owned(protectedMap,
+                identity,new string('A',64));
+        });
+        var current=await Call(review.HandleAsync,
+            "servers.lifecycleJournal",new{mapId=protectedMap.Id});
+        IsOk(current,"interrupted Store-v1 Launch is classified as unknown outcome");
+        Check(current.GetProperty("data").GetProperty("recoverySupported").GetBoolean()&&
+            current.GetProperty("data").GetProperty("classification").GetString()=="unknownOutcome"&&
+            current.GetProperty("data").GetProperty("blockingCode").GetString()==
+                "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE",
+            "recovery status exposes the exact blocker without deleting its durable journal");
+        var staged=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        IsOk(staged,"original Store-v1 running owner recovery preview is native and read-only");
+        var reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
+        var missingApproval=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,typedApproval="INCORRECT"
+            });
+        Check(IsError(missingApproval,"UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED")&&
+            File.ReadAllText(journalFile)==before,
+            "bad approval cannot clear, replace or replay an interrupted Launch");
+        staged=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
+        sameProcess=false;
+        var changed=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        Check(IsError(changed,"UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED")&&
+            File.ReadAllText(journalFile)==before,
+            "a changed ASA PID/source cannot be approved by a prior recovery token");
+        sameProcess=true;
+        staged=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
+        var reviewed=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        IsOk(reviewed,"authorized running original Store Launch can be reviewed, not replayed");
+        var receipt=reviewed.GetProperty("data");
+        var audit=Path.Combine(root,"operation-journals",
+            key+"-"+initial.Operation.ToString("N")+".operator-reviewed.json");
+        Check(proofCalls>=5&&receipt.GetProperty("previousOutcomeStillUnknown").GetBoolean()&&
+            !receipt.GetProperty("rconCommandSent").GetBoolean()&&
+            !receipt.GetProperty("processStarted").GetBoolean()&&
+            File.Exists(audit)&&File.ReadAllText(audit)==before&&
+            originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
+                UntamedOperationPhase.OperatorReviewed,
+            "old Launch journal is archived byte-for-byte; no double RCON or ASA startup");
+        var repeated=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        Check(IsError(repeated,"UM-RECOVERY-APPROVAL-EXPIRED"),
+            "single-use recovery token cannot be applied twice");
+        using(var next=originalLab.Operations.Acquire(
+            protectedMap.InstallationPath,UntamedOperationKind.Configuration))
+            next.Complete();
+        Check(originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
+            UntamedOperationPhase.Completed,
+            "reviewed operation unlocks only fresh, separately authorized actions");
+    }
+
+    // Automatic watcher: all ASA and API Loader processes are detected even
+    // without registered map profiles, never silently treated as controllable.
+    {
+        var childExe=Path.Combine(root,"discovery-ci","ArkAscendedServer.exe");
+        var parentExe=Path.Combine(root,"discovery-ci","AsaApiLoader.exe");
+        var startedAt=DateTimeOffset.UtcNow.AddHours(-2);
+        bool unavailable=false;
+        int polls=0;
+        using var watcher=new DesktopAutomaticAsaDiscoverySupervisor(()=>{
+            polls++;
+            if(unavailable)throw new IOException("SYNTHETIC_WMI_FAILED");
+            return new LocalRunningAsaDiscovery.Sample[]{
+                new(32001,32003,startedAt.AddSeconds(2),
+                    "ArkAscendedServer.exe",childExe,
+                    "\""+childExe+"\" Aberration_WP?listen"),
+                new(32003,0,startedAt,"AsaApiLoader.exe",parentExe,
+                    "\""+parentExe+"\" Aberration_WP?listen"),
+                new(32005,0,startedAt,"ArkAscendedServer.exe",null,null)
+            };
+        },()=>Array.Empty<LocalMap>());
+        var found=watcher.RefreshOnce();
+        Check(found.Fresh&&found.Processes.Length==3&&polls==1&&
+            found.Processes.Count(x=>x.ProcessKind=="asaServer")==2&&
+            found.Processes.Count(x=>x.ProcessKind=="apiLoader")==1&&
+            found.Processes.All(x=>!x.Controllable&&!x.StoreWriteAuthorized)&&
+            found.Processes.Any(x=>x.Pid==32005&&x.MatchState=="unverified"),
+            "automatic ASA watcher displays all known and PID-only processes without adoption or writes");
+        unavailable=true;
+        var failure=watcher.RefreshOnce();
+        Check(!failure.Fresh&&failure.Status=="wmi-unavailable"&&
+            failure.Processes.Length==0&&!watcher.Snapshot().Fresh,
+            "unavailable WMI cannot produce a fake stopped/zero-ASA success state");
+    }
+
+    // Store-v1 five running maps: atomic native reconciliation retains
+    // existing GUID and configuration. This is synthetic source+PID evidence;
+    // production must ALSO pass exact physical Windows and ACTIVE/DONE checks.
+    {
+        string dir=Path.Combine(root,"original-live-five-reconcile");
+        await using var lab=new ClusterService("five-map-reconcile",
+            Path.Combine(dir,"profile"),
+            _=>new ProcessCheck(false,"synthetic",null,true));
+        var candidates=new List<LocalMap>();
+        string[] names={"The Island","The Center","Aberration","Ragnarok","Scorched Earth"};
+        string[] keys={"TheIsland_WP","TheCenter_WP","Aberration_WP",
+            "Ragnarok_WP","ScorchedEarth_WP"};
+        string sourceHash=new('B',64);
+        for(int index=0;index<5;index++)
+        {
+            string mapRoot=Path.Combine(dir,"map-"+index);
+            string binary=Path.Combine(mapRoot,"ShooterGame","Binaries",
+                "Win64","ArkAscendedServer.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+            File.WriteAllBytes(binary,new byte[]{0x4D,0x5A});
+            bool api=index==2;
+            string apiBinary=Path.Combine(Path.GetDirectoryName(binary)!,
+                "AsaApiLoader.exe");
+            if(api)File.WriteAllBytes(apiBinary,new byte[]{0x4D,0x5A});
+            var started=DateTimeOffset.UtcNow.AddHours(-2);
+            var observed=new LocalMap{
+                Id=Guid.NewGuid(),Name=names[index],InstallationPath=mapRoot,
+                ExecutablePath=binary,GamePort=7777+index*20,
+                QueryPort=27015+index*20,HistoricalStoreProtected=true,
+                HistoricalArchiveSha256=sourceHash,HistoricalMapKey=keys[index],
+                HistoricalEnabledMods=new(){"101","202"},
+                HistoricalPassiveMods=new(){"303"},StartWithAsaApi=api,
+                ApiLoaderPath=api?apiBinary:"",
+                LastProcess=new ProcessIdentity{
+                    Pid=42000+index,StartedUtc=started.AddSeconds(1),
+                    ExecutablePath=binary,
+                    Arguments=api?"HISTORICAL_STORE_V1_API_CHILD_VERIFIED":
+                        "HISTORICAL_STORE_V1_READ_ONLY_OBSERVATION"
+                },
+                LastLoader=api?new ProcessIdentity{
+                    Pid=41000+index,StartedUtc=started,
+                    ExecutablePath=apiBinary,
+                    Arguments="HISTORICAL_STORE_V1_API_LOADER_VERIFIED"
+                }:null
+            };
+            candidates.Add(observed);
+        }
+        // Partial previous import must not be overwritten or rekeyed.
+        var prior=JsonSerializer.Deserialize<LocalMap>(
+            JsonSerializer.Serialize(candidates[2]))!;
+        prior.StartWithAsaApi=false;
+        prior.ApiLoaderPath="";
+        prior.LastProcess=null;
+        prior.LastLoader=null;
+        prior.HistoricalLaunchModeNeedsApproval=true;
+        prior.LogFilePath="existing-user-log-path";
+        string retainedRconPassword="SYNTHETIC-STORE-RCON-ONLY-9572";
+        prior.RconPort=37095;
+        prior.RconPasswordProtected=SecureStore.Protect(retainedRconPassword);
+        var ini=AsaInitialRconSettings.NewIniPath(prior.InstallationPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(ini)!);
+        File.WriteAllText(ini,
+            "[ServerSettings]"+Environment.NewLine+
+            "RCONEnabled=True"+Environment.NewLine+
+            "RCONPort=37095"+Environment.NewLine+
+            "ServerAdminPassword="+retainedRconPassword+Environment.NewLine);
+        Check(AsaRconConfigurationEvidence.Matches(prior),
+            "synthetic original Store RCON configuration exactly matches protected DPAPI secret");
+        lab.AddMap(prior);
+        int physicalChecks=0;
+        var admitted=lab.ReconcileOriginalStoreLiveFive(candidates,()=>{
+            physicalChecks++;return true;
+        });
+        var reattached=lab.Config.LocalMaps.Single(m=>m.Id==prior.Id);
+        Check(admitted.Added==4&&admitted.Reattached==1&&physicalChecks==1&&
+            lab.Config.LocalMaps.Count==5&&
+            lab.Config.LocalMaps.Select(m=>m.Id).ToHashSet().SetEquals(
+                candidates.Select(m=>m.Id))&&
+            reattached.LogFilePath=="existing-user-log-path"&&
+            reattached.HistoricalMapKey==prior.HistoricalMapKey&&
+            reattached.RconPort==prior.RconPort&&
+            reattached.RconPasswordProtected==prior.RconPasswordProtected&&
+            AsaRconConfigurationEvidence.Matches(reattached)&&
+            reattached.StartWithAsaApi&&reattached.LastLoader?.Pid==41002&&
+            reattached.LastProcess?.Pid==42002&&
+            !reattached.HistoricalLaunchModeNeedsApproval,
+            "five-map live reattach preserves GUID and existing profile settings, updates only WMI-proven PID/mode");
+        var idempotent=lab.ReconcileOriginalStoreLiveFive(candidates,()=>true);
+        Check(idempotent.Unchanged==5&&idempotent.Added==0&&
+            lab.Config.LocalMaps.Count==5,
+            "repeat five-map reconciliation never creates a second map or ASA process");
+        using(var lease=lab.Operations.Acquire(
+            candidates[2].InstallationPath,UntamedOperationKind.Launch))
+            lease.MarkMutationStarted();
+        string profileBefore=JsonSerializer.Serialize(lab.Config.LocalMaps);
+        bool correctlyBlocked=false;
+        try{_ =lab.ReconcileOriginalStoreLiveFive(candidates,()=>true);}
+        catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_NEEDS_OPERATOR")
+        {correctlyBlocked=true;}
+        Check(correctlyBlocked&&profileBefore==JsonSerializer.Serialize(
+            lab.Config.LocalMaps),
+            "unknown old Launch prevents new five-map mutation and preserves every existing profile");
+    }
+
     // Native cross-map Mod Center inventory: real Core parser, read-only
     // historical Store-v1 metadata, never the quarantined Arguments field.
     {

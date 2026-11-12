@@ -155,6 +155,7 @@ export type RunningLocalAsaProcess = {
 };
 export type RunningLocalAsaSnapshot = {
   observedUtc:string;processes:RunningLocalAsaProcess[];
+  automaticDiscovery?:boolean;watcherState?:string;fresh?:boolean;
   readOnly:true;ownershipVerified:false;
   lifecycleAuthorized:false;storeWriterAuthorized:false;
   evidence:"LOCAL_WMI_SNAPSHOT_PROFILE_CANDIDATES_NOT_OWNER_PROOF";
@@ -251,6 +252,8 @@ export type HistoricalExpansionReadiness = {
 };
 
 export type DashboardSnapshot = {
+  asaDiscovery?:{status:string;observedUtc?:string|null;fresh:boolean;
+    processes:RunningLocalAsaProcess[]}|null;
   mode: "LIVE_READ_ONLY";
   observedUtc: string;
   local: LocalHost;
@@ -441,9 +444,29 @@ export type DurableSteamQueue = {
 };
 export type AsaLifecycleJournal = {
   mapId:string;mapName:string;journalExists:boolean;
+  operationId?:string|null;
   phase?:string|null;kind?:string|null;changedUtc?:string|null;
+  classification?:"none"|"inProgressOrInterrupted"|"unknownOutcome"|"closed"|"unverified";
+  blockingCode?:string|null;recoverySupported?:boolean;
   needsOperatorReview:boolean;autoResumeAllowed:false;
   storeTouched:false;evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY";
+};
+export type OriginalStoreLifecycleRecoveryPreview = {
+  token:string;mapId:string;mapName:string;operationId:string;
+  kind:string;phase:string;pid:number;processStartedUtc:string;
+  rconPort:number;expiresUtc:string;
+  exactWindowsProcessVerified:true;originalStoreSessionVerified:true;
+  rconListenerOwnerVerified:true;priorCommandOutcomeUnknown:true;
+  previousOperationWillNotBeRetried:true;requiresTypedApproval:true;
+  auditRequired:true;storeBytesModified:false;
+  evidence:"ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW";
+};
+export type OriginalStoreLifecycleRecoveryReceipt = {
+  mapId:string;operationId:string;state:"operatorReviewed";
+  previousOutcomeStillUnknown:true;originalJournalAudited:true;
+  storeBytesModified:false;processStarted:false;processStopped:false;
+  rconCommandSent:false;noAutomaticRetry:true;newOperationRequiresFreshApproval:true;
+  evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW";
 };
 export type AsaRestartJournalStatus = {
   exists:boolean;belongsToMap:boolean;phase?:string|null;
@@ -1189,6 +1212,18 @@ export type OriginalKovaLiveBatchPreview = {
   requiresExternalControllerStopped:true;requiresTypedApproval:true;
   evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT";
 };
+export type OriginalKovaLiveOperationBlocker = {
+  mapId:string;mapName:string;kind:string;phase:string;
+  operationId:string;blockingCode:string;existingManagerProfile:boolean;
+  supportedReviewInMapDetails:boolean;
+};
+export type OriginalKovaLiveOperationBlockers = {
+  mapCount:number;blockedCount:number;
+  blockedMaps:OriginalKovaLiveOperationBlocker[];
+  allRecoveriesRequireFreshOwnerProof:true;
+  noAutomaticCommandRetry:true;processStarted:false;processStopped:false;
+  evidence:"ORIGINAL_FIVE_RUNNING_MAP_DURABLE_JOURNAL_BLOCKERS_READ_ONLY";
+};
 export type OriginalKovaLiveBatchReceipt = {
   importedMaps:number;addedMaps:number;reconnectedMaps:number;
   unchangedMaps:number;mapIds:string[];apiLoaderPairs:number;
@@ -1536,14 +1571,15 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
   "steam.freshPreflight" | "steam.freshStart" | "steam.freshStatus" |
   "steam.freshCurrent" | "steam.freshCancel" | "steam.freshDiscard" |
-  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
+  "steam.freshRegister" | "steam.freshBrowse" | "servers.freshStartPreview" | "servers.freshStartApply" | "servers.freshStartStatus" | "servers.ownedKillPreview" | "servers.ownedKillApply" | "servers.gracefulStopPreview" | "servers.gracefulStopApply" | "servers.gracefulStopStatus" | "servers.restartPreview" | "servers.restartApply" | "servers.restartStatus" | "servers.restartCurrent" | "servers.freshReadiness" | "servers.lifecycleJournal" |
+  "servers.lifecycleRecoveryPreview" | "servers.lifecycleRecoveryApply" | "plugins.zipSelect" | "plugins.zipApply" | "plugins.zipRollbackSelect" | "plugins.zipRollbackApply" | "steam.stoppedDiagnostics" | "steam.stoppedPreview" | "steam.stoppedApply" | "steam.stoppedStatus" | "steam.stoppedCurrent" | "steam.publishedBuild" | "steam.batchPreview" | "steam.batchApply" | "steam.batchStatus" | "steam.batchCurrent" | "steam.scheduleStatus" | "steam.scheduleSet" | "steam.scheduleDisable" |
   "servers.initialStatus" | "servers.initialPreview" |
   "servers.initialApply" | "servers.apiModeStatus" |
   "servers.apiModePreview" | "servers.apiModeApply" | "historical.localStatus" | "historical.localParity" | "historical.list" |
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
-  "historical.originalLiveBatchPreview" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
+  "historical.originalLiveBatchPreview" | "historical.originalLiveOperationBlockers" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
    "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModeStatus" | "historical.loaderModePreview" | "historical.loaderModeApply" |
@@ -1579,7 +1615,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   categoryId?: number; sort?: number; descending?: boolean;
   mapName?: string; installRoot?: string; steamExe?: string;
   allowSteamCmdDownload?: boolean; explicitRetry?: boolean;
-   confirm?: boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; watchId?: string; sessionName?: string;
+   confirm?: boolean; ackUnknownOutcome?:boolean; externalControllerStopped?:boolean; maintenance?:boolean; jobId?: string; watchId?: string; sessionName?: string;
    targetDirectoryName?:string;
   kind?:ReadOnlyScheduleKind|NativeScheduleKind;frequency?:NativeScheduleFrequency;
   intervalMinutes?:number;minuteOfDay?:number;daysMask?:number;
@@ -1750,6 +1786,12 @@ export const managerBridge = {
   updateStatus: () => request<UpdateStatus>("updates.status"),
   asaLifecycleJournal: (mapId:string) =>
     request<AsaLifecycleJournal>("servers.lifecycleJournal",{mapId}),
+  originalStoreLifecycleRecoveryPreview: (mapId:string) =>
+    request<OriginalStoreLifecycleRecoveryPreview>("servers.lifecycleRecoveryPreview",{mapId}),
+  originalStoreLifecycleRecoveryApply: (mapId:string,token:string,typedApproval:string) =>
+    request<OriginalStoreLifecycleRecoveryReceipt>("servers.lifecycleRecoveryApply",{
+      mapId,token,typedApproval,confirm:true,ackUnknownOutcome:true
+    }),
   ownedAsaKillPreview: (mapId:string) =>
     request<OwnedAsaKillPreview>("servers.ownedKillPreview",{mapId}),
   ownedAsaKillApply: (token:string,typedApproval:string) =>
@@ -2143,6 +2185,8 @@ export const managerBridge = {
     request<OriginalKovaBatchReceipt>("historical.originalBatchRegister",{token,confirm:true}),
   historicalOriginalLiveBatchPreview: () =>
     request<OriginalKovaLiveBatchPreview>("historical.originalLiveBatchPreview"),
+  historicalOriginalLiveOperationBlockers: () =>
+    request<OriginalKovaLiveOperationBlockers>("historical.originalLiveOperationBlockers"),
   historicalOriginalLiveBatchApply: (token:string,externalControllerStopped:boolean,typedApproval:string) =>
     request<OriginalKovaLiveBatchReceipt>("historical.originalLiveBatchApply",{
       token,externalControllerStopped,typedApproval,confirm:true

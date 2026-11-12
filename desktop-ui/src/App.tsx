@@ -39,6 +39,7 @@ import { FreshAsaStartPanel } from "./FreshAsaStartPanel";
 import { FreshAsaStopPanel } from "./FreshAsaStopPanel";
 import { FreshAsaRestartPanel } from "./FreshAsaRestartPanel";
 import { LocalMapLifecycleBar } from "./LocalMapLifecycleBar";
+import { OriginalStoreJournalRecoveryPanel } from "./OriginalStoreJournalRecoveryPanel";
 import type { AsaLifecycleJournal, AsaRestartJournalStatus } from "./bridge";
 import { PluginZipInstaller } from "./PluginZipInstaller";
 import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
@@ -1642,6 +1643,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const [restartJournal,setRestartJournal]=useState<AsaRestartJournalStatus|null>(null);
   const [journalsVerifiedFor,setJournalsVerifiedFor]=useState("");
   const [journalReadError,setJournalReadError]=useState(false);
+  const [journalRevision,setJournalRevision]=useState(0);
   const map=snapshot.local.maps.find(m=>m.id===mapId);
   const historical=!!map?.storeProtected&&!map?.freshStoreEnrolled;
   const fresh=!!map&&(!map.storeProtected||!!map.freshStoreEnrolled);
@@ -1672,7 +1674,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       if(active)setJournalReadError(true);
     });
     return ()=>{active=false;};
-  },[mapId,observedOnly,historical]);
+  },[mapId,observedOnly,historical,journalRevision]);
   // An observed map may become actively managed without navigating away.
   // Re-probe durable journals on that transition, fail closed until they load.
   const lifecycleBlocked=journalsVerifiedFor!==mapId||journalReadError||
@@ -1748,6 +1750,19 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       <Shield size={17}/> Félbeszakadt helyi ASA-művelet ({lifecycle.kind??"ismeretlen"} / {lifecycle.phase??"ismeretlen"}).
       A korábbi művelet naplója megmaradt; automatikus Start, Stop és ismétlés helyett kézi ellenőrzés szükséges.
     </div>}
+    {historical&&lifecycle?.recoverySupported&&
+      <OriginalStoreJournalRecoveryPanel mapId={mapId} journal={lifecycle}
+        onRecovered={async()=>{
+          setJournalsVerifiedFor("");
+          setJournalRevision(n=>n+1);
+          await onConfigured();
+        }}/>}
+    {historical&&lifecycle?.needsOperatorReview&&!lifecycle.recoverySupported&&
+      <div className="warning-inline" role="alert">
+        <Shield size={17}/> Zárolás: {lifecycle.blockingCode??"UM-RECOVERY-UNKNOWN"}.
+        Ez a naplótípus nem rendezhető a futó Launch helyreállítóval;
+        az érintett natív művelet külön helyreállítási eljárást igényel.
+      </div>}
     <div className="map-detail-tabs" role="tablist" aria-label="Map funkciói">
       {sections.map(item=><button type="button" key={item.id} role="tab"
         aria-selected={section===item.id}

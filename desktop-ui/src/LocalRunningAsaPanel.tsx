@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, AlertTriangle, RefreshCw, Shield } from "lucide-react";
 import { managerBridge, type RunningLocalAsaSnapshot, type RunningLocalAsaProcess,
   type RunningAsaImportPreview, type RunningAsaAdoptPreview } from "./bridge";
@@ -127,24 +127,38 @@ export function LocalRunningAsaPanel({onRegistered}:{
   const [snapshot,setSnapshot]=useState<RunningLocalAsaSnapshot|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
+  // React StrictMode mounts/cleans/remounts effects. A single in-flight
+  // boolean may strand the second mount behind an abandoned first request:
+  // the process list then stays on "Ellenőrzés..." indefinitely.
+  // Each request gets a monotonically increasing identity instead. The
+  // newest live response wins, and old responses can never re-authorize PID
+  // adoption or overwrite a newer Windows process observation.
+  const requestVersion=useRef(0);
   const inspect=useCallback(async (isCurrent:()=>boolean=()=>true)=>{
+    const version=++requestVersion.current;
     if(isCurrent()){setLoading(true);setError("");}
+    const active=()=>isCurrent()&&version===requestVersion.current;
     try {
       const next=await managerBridge.runningLocalAsa();
-      if(isCurrent())setSnapshot(next);
+      if(active())setSnapshot(next);
     } catch(e) {
-      if(isCurrent()){
+      if(active()){
         setSnapshot(null);
         setError(e instanceof Error?e.message:"UM-READ-UNAVAILABLE");
       }
     } finally {
-      if(isCurrent())setLoading(false);
+      if(active())setLoading(false);
     }
   },[]);
   useEffect(()=>{
     let current=true;
     void inspect(()=>current);
-    return ()=>{current=false;};
+    const timer=window.setInterval(()=>{void inspect(()=>current);},15000);
+    return ()=>{
+      current=false;
+      ++requestVersion.current;
+      window.clearInterval(timer);
+    };
   },[inspect]);
 
   return <section className="glass panel" aria-label="Futó helyi ASA-folyamatok">
@@ -157,12 +171,21 @@ export function LocalRunningAsaPanel({onRegistered}:{
       </button>
     </div>
     <div className="panel-inner">
-      <p className="muted small">A Windows folyamatlistáját olvassa. A találat nem jelenti, hogy a
-        Manager átvette a szerver vezérlését vagy a Store-v1 írási jogát.</p>
+      <p className="muted small">A Windows összes ASA és ASA API Loader folyamatát
+        automatikusan ellenőrzi 15 másodpercenként, a háttérben és tálcára csukva is.
+        Az ismeretlen PID megfigyelés, nem tulajdonjog vagy Store-v1 írási engedély.</p>
+      {snapshot?.automaticDiscovery&&<p className="muted small">
+        Folyamatfigyelő: {snapshot.watcherState??"ismeretlen"} ·
+        {snapshot.fresh?" friss Windows-folyamatkép":" újraellenőrzés szükséges"}
+      </p>}
+      {snapshot?.fresh===false&&<div role="alert" className="warning-inline">
+        <AlertTriangle size={16}/> A folyamatlista pillanatnyilag nem igazolt.
+        Ez nem jelenti azt, hogy az ASA-szerverek leálltak.
+      </div>}
       {error && <div className="error-inline" aria-live="polite"><AlertTriangle size={16}/>
         A helyi folyamatfelderítés nem elérhető ({error}); az állapot ismeretlen.</div>}
       {!error && loading && !snapshot && <p className="muted small">Helyi folyamatok ellenőrzése…</p>}
-      {!loading && snapshot?.processes.length===0 && <p className="muted small">
+      {!loading && snapshot?.fresh!==false && snapshot?.processes.length===0 && <p className="muted small">
         A lekérdezés nem talált ASA-szervert vagy ASA API Loadert ezen a Windows-gépen.
       </p>}
       {snapshot?.processes.map(p=><div key={p.pid} className="import-preview">

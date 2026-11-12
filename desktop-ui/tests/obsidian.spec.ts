@@ -36,6 +36,20 @@ test.beforeEach(async ({ page }) => {
         state.remote=null;
         state.peerMessage="Peer nincs beállítva";
       };
+    (window as typeof window & {__UNTAMED_AUTO_DISCOVERY_FIXTURE__?:()=>void})
+      .__UNTAMED_AUTO_DISCOVERY_FIXTURE__=()=>{
+        Object.assign(state,{asaDiscovery:{
+          status:"ok",fresh:true,observedUtc:"2026-11-12T08:00:00Z",
+          processes:[
+            {pid:4001,processKind:"asaServer",mapKey:"Aberration_WP",
+              matchState:"profileCandidate"},
+            {pid:4002,processKind:"asaServer",mapKey:"Unknown_WP",
+              matchState:"unverified"},
+            {pid:4003,processKind:"apiLoader",mapKey:"Aberration_WP",
+              matchState:"profileCandidate"}
+          ]
+        }});
+      };
     (window as typeof window & {__UNTAMED_OBSERVED_MAP_FIXTURE__?:()=>void})
       .__UNTAMED_OBSERVED_MAP_FIXTURE__=()=>{
         Object.assign(state.local.maps[1],{
@@ -52,6 +66,17 @@ test.beforeEach(async ({ page }) => {
     let originalLiveDispatchDenied=false;
     let originalLiveExpiredPreviewOnce=false;
     let originalLiveApprovalLostOnce=false;
+    let originalLiveBlockedApply=false;
+    let originalLiveBlockedAttempts=0;
+    (window as typeof window & {
+      __UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__?:()=>void;
+      __UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?:()=>number;
+    }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__=()=>{
+      originalLiveFiveFixture=true;originalLiveBlockedApply=true;
+    };
+    (window as typeof window & {
+      __UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?:()=>number;
+    }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__=()=>originalLiveBlockedAttempts;
     (window as typeof window & {
       __UNTAMED_ORIGINAL_LIVE_EXPIRED_ONCE__?:()=>void;
       __UNTAMED_ORIGINAL_LIVE_TOKEN_LOST_ONCE__?:()=>void;
@@ -123,6 +148,18 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_RESTART_INTERRUPTED__?:()=>void})
       .__UNTAMED_RESTART_INTERRUPTED__=()=>{restartInterrupted=true;};
     let lifecycleInterrupted=false;
+    let storeLaunchRecoveryFixture=false;
+    let storeLaunchRecoveryCalls=0;
+    (window as typeof window & {__UNTAMED_STORE_LAUNCH_RECOVERY__?:()=>void})
+      .__UNTAMED_STORE_LAUNCH_RECOVERY__=()=>{
+        storeLaunchRecoveryFixture=true;lifecycleInterrupted=true;
+        Object.assign(state.local.maps[1],{
+          name:"Aberration",storeProtected:true,rconConfigured:true,
+          running:true,status:"Fut",storeLifecycleState:"needsOperator"
+        });
+      };
+    (window as typeof window & {__UNTAMED_STORE_RECOVERY_CALLS__?:()=>number})
+      .__UNTAMED_STORE_RECOVERY_CALLS__=()=>storeLaunchRecoveryCalls;
     (window as typeof window & {__UNTAMED_LIFECYCLE_INTERRUPTED__?:()=>void})
       .__UNTAMED_LIFECYCLE_INTERRUPTED__=()=>{lifecycleInterrupted=true;};
     let steamInterrupted=false;
@@ -1565,7 +1602,22 @@ test.beforeEach(async ({ page }) => {
             requiresExternalControllerStopped:true,requiresTypedApproval:true,
             evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT"};
         }
+        case "historical.originalLiveOperationBlockers":
+          return {mapCount:5,blockedCount:1,blockedMaps:[{
+            mapId:"00000000-0000-4000-8000-000000007103",
+            mapName:"Aberration",kind:"Launch",phase:"NeedsOperator",
+            operationId:"00000000-0000-4000-8000-000000007199",
+            blockingCode:"UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE",
+            existingManagerProfile:true,supportedReviewInMapDetails:true
+          }],allRecoveriesRequireFreshOwnerProof:true,
+            noAutomaticCommandRetry:true,processStarted:false,
+            processStopped:false,
+            evidence:"ORIGINAL_FIVE_RUNNING_MAP_DURABLE_JOURNAL_BLOCKERS_READ_ONLY"};
         case "historical.originalLiveBatchApply":
+          if(originalLiveBlockedApply){
+            originalLiveBlockedAttempts++;
+            throw new Error("UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
+          }
           if(originalLiveApprovalLostOnce){
             originalLiveApprovalLostOnce=false;
             throw new Error("UM-ORIGINAL-LIVE-APPROVAL-EXPIRED");
@@ -2200,15 +2252,48 @@ test.beforeEach(async ({ page }) => {
             runtimeLoadedVerified:false,
             evidence:"VERIFIED_OWNED_PLUGIN_ZIP_ROLLBACK"};
         case "servers.lifecycleJournal": return {
-          mapId:m.mapId,mapName:m.mapId===two?"Astraeos":"The Island",
+          mapId:m.mapId,mapName:m.mapId===two?(storeLaunchRecoveryFixture?"Aberration":"Astraeos"):"The Island",
           journalExists:lifecycleInterrupted,
+          operationId:storeLaunchRecoveryFixture?"00000000-0000-4000-8000-000000001625":null,
           phase:lifecycleInterrupted?"NeedsOperator":null,
           kind:lifecycleInterrupted?"Launch":null,
           changedUtc:lifecycleInterrupted?"2026-11-06T11:00:00Z":null,
+          classification:lifecycleInterrupted?"unknownOutcome":"closed",
+          blockingCode:storeLaunchRecoveryFixture&&lifecycleInterrupted?
+            "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":null,
+          recoverySupported:storeLaunchRecoveryFixture&&lifecycleInterrupted&&m.mapId===two,
           needsOperatorReview:lifecycleInterrupted,
           autoResumeAllowed:false,storeTouched:false,
           evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
         };
+        case "servers.lifecycleRecoveryPreview":
+          if(!storeLaunchRecoveryFixture||!lifecycleInterrupted||m.mapId!==two)
+            throw new Error("UM-RECOVERY-LAUNCH-NEEDS-OPERATOR-ONLY");
+          return {token:"00000000-0000-4000-8000-000000001626",
+            mapId:two,mapName:"Aberration",
+            operationId:"00000000-0000-4000-8000-000000001625",
+            kind:"Launch",phase:"NeedsOperator",pid:123456,
+            processStartedUtc:"2026-11-12T03:00:00Z",rconPort:37095,
+            expiresUtc:new Date(Date.now()+180000).toISOString(),
+            exactWindowsProcessVerified:true,originalStoreSessionVerified:true,
+            rconListenerOwnerVerified:true,priorCommandOutcomeUnknown:true,
+            previousOperationWillNotBeRetried:true,requiresTypedApproval:true,
+            auditRequired:true,storeBytesModified:false,
+            evidence:"ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW"};
+        case "servers.lifecycleRecoveryApply":
+          if(!storeLaunchRecoveryFixture||!lifecycleInterrupted||m.mapId!==two||
+            m.token!=="00000000-0000-4000-8000-000000001626"||
+            m.confirm!==true||m.ackUnknownOutcome!==true||
+            m.typedApproval!=="STORE-V1 NAPLÓ HELYREÁLLÍTÁS")
+            throw new Error("UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED");
+          storeLaunchRecoveryCalls++;lifecycleInterrupted=false;
+          Object.assign(state.local.maps[1],{storeLifecycleState:"running"});
+          return {mapId:two,operationId:"00000000-0000-4000-8000-000000001625",
+            state:"operatorReviewed",previousOutcomeStillUnknown:true,
+            originalJournalAudited:true,storeBytesModified:false,
+            processStarted:false,processStopped:false,rconCommandSent:false,
+            noAutomaticRetry:true,newOperationRequiresFreshApproval:true,
+            evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"};
         case "servers.freshStartStatus": return {
           mapId:m.mapId,mapName:"Astraeos",running:freshStarted,confirmedStopped:!freshStarted,
           pid:freshStarted?45678:null,readyCertified:false,
@@ -2509,7 +2594,9 @@ test.beforeEach(async ({ page }) => {
                   e.message==="UM-INI-GAME-MISSING"||
                   e.message==="UM-INI-CREATE-SHARED-STORE"||
                   e.message==="UM-INI-CONFIG-DIRECTORY-MISSING"||
-                  e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-"))
+                  e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-")||
+                  e.message==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"||
+                  e.message.startsWith("UM-RECOVERY-"))
                 ?e.message:"UM-METHOD-DENIED";
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
             }
@@ -3568,6 +3655,53 @@ test("adopting an observed live map opens actual lifecycle UI without navigating
   await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
 });
 
+test("dashboard continuously exposes every observed ASA process without false lifecycle ownership",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_AUTO_DISCOVERY_FIXTURE__?:()=>void
+  }).__UNTAMED_AUTO_DISCOVERY_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await expect(page.getByRole("status").filter({
+    hasText:"Automatikus ASA-felderítés"
+  })).toContainText("2 szerverfolyamat, 1 API Loader");
+  await expect(page.getByRole("status").filter({
+    hasText:"Automatikus ASA-felderítés"
+  })).toContainText("1 ismeretlen vagy még nem átvett PID");
+  await page.getByRole("button",{name:"Folyamatok és átvétel"}).click();
+  await expect(page.getByRole("region",{name:"Futó helyi ASA-folyamatok"})).toBeVisible();
+});
+
+test("running Aberration Store-v1 stale Launch journal is reviewed once, never auto-replayed",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_LAUNCH_RECOVERY__?:()=>void
+  }).__UNTAMED_STORE_LAUNCH_RECOVERY__?.());
+  // The mock changes a native snapshot: explicitly refresh the parent data
+  // rather than expecting a hidden in-memory fixture to trigger React state.
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const map=page.locator(".premium-map-line.is-local").filter({hasText:"Aberration"});
+  await expect(map).toBeVisible();
+  await map.click();
+  const locked=page.getByRole("region",{name:"Store-v1 beragadt indítás helyreállítása"});
+  await expect(locked).toBeVisible();
+  await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeDisabled();
+  await locked.getByRole("button",{name:"Helyreállítás előellenőrzése"}).click();
+  const confirm=locked.getByRole("button",{name:"Auditált helyreállítás végrehajtása"});
+  await expect(confirm).toBeDisabled();
+  await locked.getByRole("checkbox").check();
+  await locked.getByRole("textbox",{name:"Store-v1 napló helyreállítási jóváhagyás"})
+    .fill("STORE-V1 NAPLÓ HELYREÁLLÍTÁS");
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeEnabled();
+  await expect(locked).toHaveCount(0);
+  const count=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_RECOVERY_CALLS__?:()=>number
+  }).__UNTAMED_STORE_RECOVERY_CALLS__?.()??-1);
+  expect(count).toBe(1);
+});
+
 test("P0 original live Store method denial is identified as native dispatch/build mismatch, never Kova process proof failure",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(
@@ -3726,6 +3860,43 @@ test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeEnabled();
   // Do NOT click: this test asserts the exact two-factor gate only.
+});
+
+test("Store-v1 five-map preview can succeed but later Aberration Launch journal blocks apply with exact map diagnostics",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  await panel.getByRole("button",{
+    name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
+  }).click();
+  const proof=panel.getByRole("region",{
+    name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
+  });
+  await expect(proof).toBeVisible();
+  await proof.getByRole("checkbox").check();
+  await proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await proof.getByRole("button",{
+    name:"Eredeti öt futó Store-v1 map átvétele"
+  }).click();
+  const blockers=panel.getByRole("region",{
+    name:"Öt Store-v1 map zároló műveleti naplói"
+  });
+  await expect(blockers).toContainText("Aberration");
+  await expect(blockers).toContainText("Launch / NeedsOperator");
+  await expect(blockers).toContainText("UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE");
+  await expect(panel).toContainText("UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
+  await expect(proof).toHaveCount(0);
+  const attempts=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?:()=>number;
+  }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?.()??-1);
+  expect(attempts).toBe(1);
 });
 
 test("P0 original Kova five-map live takeover reattaches partially registered originals without duplicates",async({page})=>{

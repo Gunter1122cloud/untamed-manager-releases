@@ -18,6 +18,10 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
 {
     private readonly ClusterService _cluster;
     internal ClusterService LocalCluster => _cluster;
+    private DesktopAutomaticAsaDiscoverySupervisor? _automaticDiscovery;
+    internal void AttachAutomaticAsaDiscovery(
+        DesktopAutomaticAsaDiscoverySupervisor watcher)=>
+        _automaticDiscovery=watcher??throw new ArgumentNullException(nameof(watcher));
     private readonly SemaphoreSlim _serial = new(1, 1);
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
     private readonly CurseForgeCatalog _catalog;
@@ -101,7 +105,12 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                     "servers.suggestPorts" => GetSuggestedLocalPorts(),
                     "servers.runningLocal" => await Task.Run<object>(() => new {
                         observedUtc = DateTimeOffset.UtcNow,
-                        processes = LocalRunningAsaDiscovery.Inspect(_cluster.Config.LocalMaps),
+                        processes = _automaticDiscovery==null
+                            ?LocalRunningAsaDiscovery.Inspect(_cluster.Config.LocalMaps)
+                            :_automaticDiscovery.Snapshot().Processes,
+                        automaticDiscovery = _automaticDiscovery!=null,
+                        watcherState = _automaticDiscovery?.Snapshot().Status ?? "unavailable",
+                        fresh = _automaticDiscovery?.Snapshot().Fresh ?? true,
                         readOnly = true,
                         ownershipVerified = false,
                         lifecycleAuthorized = false,
@@ -180,7 +189,13 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
             // into a managed lifecycle/Store owner. Failure stays "unverified".
             IReadOnlyList<LocalRunningAsaDiscovery.Observation> observed =
                 Array.Empty<LocalRunningAsaDiscovery.Observation>();
-            if(_cluster.Config.LocalMaps.Any(m=>m.ObservedReadOnlyImported))
+            if(_automaticDiscovery!=null)
+            {
+                // All ASA/Loader processes are continuously discovered even
+                // when NO map has been registered. Never infer write ownership.
+                observed=_automaticDiscovery.Snapshot().Processes;
+            }
+            else if(_cluster.Config.LocalMaps.Any(m=>m.ObservedReadOnlyImported))
             {
                 try{observed=LocalRunningAsaDiscovery.Inspect(_cluster.Config.LocalMaps);}
                 catch(Exception){/* No WMI evidence; fail closed. */}
@@ -203,6 +218,12 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
             {
                 mode = "LIVE_READ_ONLY",
                 observedUtc = DateTimeOffset.UtcNow,
+                asaDiscovery = _automaticDiscovery==null?null:new {
+                    status=_automaticDiscovery.Snapshot().Status,
+                    observedUtc=_automaticDiscovery.Snapshot().ObservedUtc,
+                    fresh=_automaticDiscovery.Snapshot().Fresh,
+                    processes=_automaticDiscovery.Snapshot().Processes
+                },
                 local = new {
                     hostName = local.HostName,
                     hostId = local.HostId,
