@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,6 +51,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
     private sealed record SourcePinPrepared(Guid Token,string FourHash,
         string LaunchHash,Guid[] ApprovedLocalMapIds,DateTimeOffset ExpiresUtc);
     private SourcePinPrepared? pendingSourcePin;
+    private sealed record RuntimeSettingsPrepared(Guid Token,Guid MapId,
+        string MapSnapshot,string GusSha,int GamePort,int QueryPort,
+        string ClusterId,string TransferRoot,DateTimeOffset ExpiresUtc);
+    private RuntimeSettingsPrepared? pendingRuntimeSettings;
 
     public DesktopHistoricalStoreImportBridge(ClusterService service,
         Func<LocalMap,ProcessCheck>? processInspector=null,
@@ -97,7 +102,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.originalLiveBatchApply" or
                 "historical.originalClusterPreview" or
                 "historical.originalClusterApply" or
-                "historical.sourcePinPreview" or "historical.sourcePinApply"))
+                "historical.sourcePinPreview" or "historical.sourcePinApply" or
+                "historical.runtimeSettingsPreview" or "historical.runtimeSettingsApply"))
                 return Fail(id,"UM-METHOD-DENIED");
             await gate.WaitAsync();
             try
@@ -114,7 +120,131 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     pendingOriginalCluster=null;
                 if(pendingSourcePin?.ExpiresUtc<DateTimeOffset.UtcNow)
                     pendingSourcePin=null;
+                if(pendingRuntimeSettings?.ExpiresUtc<DateTimeOffset.UtcNow)
+                    pendingRuntimeSettings=null;
 
+                if(method is "historical.runtimeSettingsPreview" or
+                    "historical.runtimeSettingsApply")
+                {
+                    // ONLY a source-pinned, locally owned map may edit its
+                    // runtime ports/cluster without modifying the immutable
+                    // original metadata or a live ASA/transfer file.
+                    if(method=="historical.runtimeSettingsPreview")
+                    {
+                        pendingRuntimeSettings=null;
+                        if(!GuidField(data,"mapId",out var mapId)||
+                           !PortField(data,"gamePort",out var game)||
+                           !PortField(data,"queryPort",out var query)||
+                           game==query||
+                           !TextField(data,"clusterId",80,out var clusterId)||
+                           !TextField(data,"transferRoot",520,out var transferRoot))
+                            return Fail(id,"UM-STORE-RUNTIME-SETTINGS-INVALID");
+                        var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
+                        if(map==null||!map.HistoricalStoreProtected||
+                           map.ObservedReadOnlyImported)
+                            return Fail(id,"UM-STORE-RUNTIME-LOCAL-MAP-REQUIRED");
+                        string legacy=Path.Combine(Environment.GetFolderPath(
+                            Environment.SpecialFolder.ApplicationData),"Kova");
+                        string source=LegacyStoreV1PinnedSource.Resolve(
+                            cluster.Store.Root,legacy,map);
+                        if(string.Equals(source,legacy,StringComparison.OrdinalIgnoreCase))
+                            return Fail(id,"UM-STORE-RUNTIME-SOURCE-PIN-REQUIRED");
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,map);
+                        var candidate=JsonSerializer.Deserialize<LocalMap>(
+                            JsonSerializer.Serialize(map)) ??
+                            throw new InvalidDataException("UM-STORE-RUNTIME-CLONE");
+                        candidate.GamePort=game;candidate.QueryPort=query;
+                        candidate.HistoricalRuntimeClusterId=clusterId;
+                        candidate.HistoricalRuntimeTransferDirectory=transferRoot;
+                        LocalMapPortPolicy.RequireNoConflicts(candidate,
+                            cluster.Config.LocalMaps);
+                        string ini=AsaInitialRconSettings.NewIniPath(map.InstallationPath);
+                        using var held=new VaultReadSnapshot();
+                        byte[] iniBytes=held.Read(ini,131072);
+                        // The existing editor is the ONLY way to modify an
+                        // existing GUS. If it explicitly declares Port or
+                        // QueryPort, it must match the new choice first.
+                        var mods=ModStateController.Read(candidate);
+                        _=LegacyStoreV1ActiveLaunch.Build(new(
+                            candidate.HistoricalMapKey,game,query,
+                            mods.EnabledOrder.ToArray(),mods.Passive.ToArray(),
+                            clusterId,transferRoot,"active",
+                            Encoding.UTF8.GetString(iniBytes),
+                            SourcePinnedClusterOnly:false));
+                        string gusSha=Convert.ToHexString(SHA256.HashData(iniBytes));
+                        var token=Guid.NewGuid();
+                        pendingRuntimeSettings=new(token,map.Id,
+                            JsonSerializer.Serialize(map),gusSha,game,query,
+                            clusterId,transferRoot,DateTimeOffset.UtcNow.AddMinutes(5));
+                        return Ok(id,new{
+                            token,mapId=map.Id,gamePort=game,queryPort=query,
+                            clusterId,transferRoot,sourcePinVerified=true,
+                            noAutomaticTransfer=true,requiresStoppedProcess=true,
+                            iniMustAlreadyMatchPorts=true,requiresApproval=true,
+                            evidence="OBSIDIAN_LOCAL_RUNTIME_SETTINGS_PREVIEW"
+                        });
+                    }
+                    if(!GuidField(data,"token",out var runtimeToken)||
+                       !BoolField(data,"confirm",out var runtimeApproved)||
+                       !runtimeApproved||
+                       !TextField(data,"typedApproval",80,out var runtimePhrase)||
+                       runtimePhrase!="OBSIDIAN MAP KONFIG"||
+                       pendingRuntimeSettings?.Token!=runtimeToken)
+                        return Fail(id,"UM-STORE-RUNTIME-EXPLICIT-APPROVAL");
+                    var staged=pendingRuntimeSettings!;
+                    pendingRuntimeSettings=null;
+                    if(staged.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Fail(id,"UM-STORE-RUNTIME-PREVIEW-EXPIRED");
+                    var owned=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==staged.MapId);
+                    if(owned==null||JsonSerializer.Serialize(owned)!=staged.MapSnapshot)
+                        return Fail(id,"UM-STORE-RUNTIME-MAP-CHANGED");
+                    HistoricalLocalConfigGuard.DemandStopped(cluster,owned);
+                    using var operation=cluster.Operations.Acquire(
+                        owned.InstallationPath,UntamedOperationKind.Configuration);
+                    HistoricalLocalConfigGuard.DemandStopped(cluster,owned,
+                        underOwnOperation:true);
+                    if(JsonSerializer.Serialize(owned)!=staged.MapSnapshot)
+                        return Fail(id,"UM-STORE-RUNTIME-MAP-CHANGED");
+                    string original=LegacyStoreV1PinnedSource.Resolve(
+                        cluster.Store.Root,Path.Combine(Environment.GetFolderPath(
+                        Environment.SpecialFolder.ApplicationData),"Kova"),owned);
+                    LegacyStoreV1PinnedSource.RequireImmutableIdentity(owned,
+                        LegacyStoreV1OriginalImport.Inspect(original));
+                    using(var held=new VaultReadSnapshot())
+                    {
+                        byte[] current=held.Read(AsaInitialRconSettings.NewIniPath(
+                            owned.InstallationPath),131072);
+                        if(Convert.ToHexString(SHA256.HashData(current))!=staged.GusSha)
+                            return Fail(id,"UM-STORE-RUNTIME-INI-CHANGED");
+                        var candidate=JsonSerializer.Deserialize<LocalMap>(
+                            staged.MapSnapshot) ??
+                            throw new InvalidDataException("UM-STORE-RUNTIME-CLONE");
+                        candidate.GamePort=staged.GamePort;
+                        candidate.QueryPort=staged.QueryPort;
+                        candidate.HistoricalRuntimeClusterId=staged.ClusterId;
+                        candidate.HistoricalRuntimeTransferDirectory=staged.TransferRoot;
+                        LocalMapPortPolicy.RequireNoConflicts(candidate,
+                            cluster.Config.LocalMaps);
+                        var mods=ModStateController.Read(candidate);
+                        _=LegacyStoreV1ActiveLaunch.Build(new(
+                            candidate.HistoricalMapKey,candidate.GamePort,
+                            candidate.QueryPort,mods.EnabledOrder.ToArray(),
+                            mods.Passive.ToArray(),staged.ClusterId,staged.TransferRoot,
+                            "active",Encoding.UTF8.GetString(current),
+                            SourcePinnedClusterOnly:false));
+                        operation.MarkMutationStarted();
+                        cluster.ReplaceMap(owned,candidate);
+                    }
+                    operation.Complete();
+                    return Ok(id,new{
+                        mapId=staged.MapId,updated=true,
+                        portAndClusterSettingsStoredInManager=true,
+                        kovaFilesWritten=false,asaFilesWritten=false,
+                        noServerStarted=true,noRconSent=true,
+                        requiresManualAsaTransferVerification=true,
+                        evidence="OBSIDIAN_APPROVED_OFFLINE_RUNTIME_SETTINGS_APPLIED"
+                    });
+                }
                 if(method=="historical.sourcePinPreview")
                 {
                     // Existing imported maps may predate Obsidian-owned source
