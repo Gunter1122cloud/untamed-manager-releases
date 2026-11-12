@@ -1662,7 +1662,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   beforeA?: string; beforeB?: string; afterA?: string; afterB?: string;
   sourceMap?: string;destinationMap?: string; profileId?: string;
   hostId?:string;hostName?:string;mapIds?:string[];
-  clusterId?:string;transferDirectory?:string;backupDirectory?:string };
+  clusterId?:string;transferDirectory?:string;transferRoot?:string;
+  backupDirectory?:string };
 type WireResponse = { id: string | null; ok: boolean; data?: unknown; error?: string };
 type NativeWebView = {
   postMessage: (message: WireRequest) => void;
