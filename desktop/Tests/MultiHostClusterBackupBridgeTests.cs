@@ -184,6 +184,14 @@ public static class MultiHostClusterBackupBridgeTests
         File.Copy(catalogPath, protectedCatalogPath);
         var choices = new Queue<string?>();
         using var bridge = new DesktopMultiHostClusterBackupBridge(service, _ => choices.Dequeue());
+        var missingCancellation=await Call(bridge,"cluster.multiHostCancel",
+            new{jobId=Guid.NewGuid().ToString("D"),confirm=true});
+        Check(Error(missingCancellation,"UM-MULTIHOST-BACKUP-JOB-NOT-FOUND"),
+            "offline cancellation rejects a nonexistent job without touching any archive");
+        var unapprovedCancellation=await Call(bridge,"cluster.multiHostCancel",
+            new{jobId=Guid.NewGuid().ToString("D")});
+        Check(Error(unapprovedCancellation,"UM-MULTIHOST-CANCEL-EXPLICIT-CONFIRMATION"),
+            "offline cancellation requires explicit confirmation and exact job GUID");
 
         // Real interrupted v1 engine: a failure after object 2 leaves the
         // journal and partial objects, not a fabricated fixture. The operator
@@ -289,6 +297,14 @@ public static class MultiHostClusterBackupBridgeTests
             "approved offline archive starts without touching a server process");
         string jobId = started.GetProperty("data").GetProperty("jobId").GetString()!;
         var finished = await WaitFor(bridge, "cluster.multiHostBackupStatus", jobId);
+        var finishedCancel=await Call(bridge,"cluster.multiHostCancel",
+            new{jobId,confirm=true});
+        Check(Error(finishedCancel,"UM-MULTIHOST-CANCEL-NOT-RUNNING"),
+            "completed offline package cannot be marked cancelled or rolled back by stale request");
+        var foreignCancel=await Call(bridge,"cluster.multiHostCancel",
+            new{jobId=Guid.NewGuid().ToString("D"),confirm=true});
+        Check(Error(foreignCancel,"UM-MULTIHOST-BACKUP-JOB-NOT-FOUND"),
+            "different offline job ID cannot cancel a previously completed package");
         Check(finished.GetProperty("data").GetProperty("state").GetString() == "completed" &&
               File.ReadAllText(liveMarker) == "synthetic test marker only",
             "multi-host backup job completes and registered map marker stays byte-identical");
