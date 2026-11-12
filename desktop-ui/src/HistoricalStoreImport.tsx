@@ -244,7 +244,19 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }catch(e){
       if(epoch===directEpoch.current){
         const code=e instanceof Error?e.message:"UM-ORIGINAL-LIVE-UNVERIFIED";
-        setDirectError(code==="UM-METHOD-DENIED"?
+        setDirectError(code==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"?
+          "Az ötmapos újracsatlakoztatást egy korábbi ASA Launch/Stop "+
+          "NeedsOperator napló zárolja. Nyisd meg az érintett Store-v1 map "+
+          "adatlapját, válaszd a 'Helyreállítás előellenőrzése' műveletet, "+
+          "ellenőrizd a PID-et, indításiidőt, RCON-portot és ACTIVE/DONE "+
+          "sessiont, majd külön hagyd jóvá az auditált helyreállítást. "+
+          "Az eredeti napló megmarad; ezután új ötmapos felismerés szükséges. "+
+          "Nem küldünk új Startot vagy RCON parancsot ("+code+").":
+          code==="UM-ORIGINAL-LIVE-OTHER-MANAGER-OPERATION-IN-PROGRESS"?
+          "Másik helyi Manager-művelet birtokolja az ASA telepítési zárolását. "+
+          "Az ötmapos átvétel nem kezdődött meg. Az aktív művelet állapotát "+
+          "ellenőrizd, és csak lezárt állapot után kérj új előnézetet ("+code+").":
+          code==="UM-METHOD-DENIED"?
           "A telepített Obsidian natív WebView2-dispatchere elutasította a "+
           "historical.originalLiveBatchPreview hívást (UM-METHOD-DENIED). "+
           "Ez alkalmazásverzió-/útvonalhiba, NEM Kova ACTIVE/DONE-, PID-, "+
