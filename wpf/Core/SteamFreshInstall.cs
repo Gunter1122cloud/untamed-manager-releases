@@ -180,6 +180,11 @@ public static class SteamFreshInstall
            string.IsNullOrWhiteSpace(build))
             throw new InvalidDataException("UM-FRESH-RECOVERY-FILES-UNVERIFIED");
         string binary=Canonical(probe.ServerExecutable);
+        if(!binary.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar)+
+            Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase) ||
+           !File.Exists(binary) ||
+           (File.GetAttributes(binary)&FileAttributes.ReparsePoint)!=0)
+            throw new InvalidDataException("UM-FRESH-RECOVERY-BINARY-OUTSIDE-ROOT");
         string manifest=Path.Combine(root,"steamapps","appmanifest_2430930.acf");
         // A completion journal from older builds without hashes is NOT
         // sufficient evidence to adopt an executable after a crash. The
@@ -194,11 +199,7 @@ public static class SteamFreshInstall
            !string.Equals(FileSha256(manifest),entry.ManifestSha256,
                 StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-FRESH-RECOVERY-COMPLETED-FILES-CHANGED");
-        if(!binary.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar)+
-            Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase) ||
-           !File.Exists(binary) ||
-           (File.GetAttributes(binary)&FileAttributes.ReparsePoint)!=0)
-            throw new InvalidDataException("UM-FRESH-RECOVERY-BINARY-OUTSIDE-ROOT");
+
         return new(entry.MapId,entry.MapName,root,binary,steam,
             originalLevel,build,entry.ChangedUtc);
     }
