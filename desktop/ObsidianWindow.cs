@@ -73,6 +73,7 @@ public sealed class ObsidianWindow : Form
             // Each native bridge retains its own per-operation coordination.
             "dashboard.snapshot" or "servers.runningLocal" or
             "servers.lifecycleJournal" or
+            "servers.lifecycleRecoveryPreview" or
             "operations.snapshot" or "operations.map" or
             "schedule.nativeStatus" or "schedule.nativeOverview" or
             "servers.gracefulStopStatus" or "servers.restartStatus" or
@@ -194,6 +195,7 @@ public sealed class ObsidianWindow : Form
     private readonly DesktopAsaLifecycleJournalBridge _lifecycleJournal;
     private readonly DesktopOperationsCenterBridge _operations;
     private readonly DesktopRecurringReadOnlySupervisor _readOnlySupervisor;
+    private readonly DesktopAutomaticAsaDiscoverySupervisor _asaDiscovery;
     private readonly DesktopLanSettingsBridge _lan;
     private readonly DesktopStoreTravelEvidenceBridge _travel;
     private readonly DesktopEmbeddedStoreBridge _embeddedStore;
@@ -265,6 +267,8 @@ public sealed class ObsidianWindow : Form
             _bridge.LocalCluster,_rcon,_freshRestart);
         _mapMaintenance = new DesktopMapMaintenanceBridge(_bridge.LocalCluster);
         _lifecycleJournal = new DesktopAsaLifecycleJournalBridge(_bridge.LocalCluster);
+        _asaDiscovery = new DesktopAutomaticAsaDiscoverySupervisor(_bridge.LocalCluster);
+        _bridge.AttachAutomaticAsaDiscovery(_asaDiscovery);
         _readOnlySupervisor = new DesktopRecurringReadOnlySupervisor(_bridge.LocalCluster);
         _operations = new DesktopOperationsCenterBridge(_bridge.LocalCluster,_readOnlySupervisor);
         _lan = new DesktopLanSettingsBridge(_bridge.LocalCluster);
@@ -306,6 +310,7 @@ public sealed class ObsidianWindow : Form
             {
                 // Restarts only the Manager-side read-only schedule loop;
                 // never starts/stops any ARK server or touches shared Store.
+                _asaDiscovery.Start();
                 _readOnlySupervisor.Start();
                 _scheduledBackups.Start();
                 _scheduledSteam.Start();
@@ -326,6 +331,7 @@ public sealed class ObsidianWindow : Form
         };
         FormClosed += (_, _) =>
         {
+            _asaDiscovery.Dispose();
             _readOnlySupervisor.Dispose();
             _scheduledBackups.Dispose();
             _scheduledSteam.Dispose();
@@ -515,7 +521,9 @@ public sealed class ObsidianWindow : Form
                         ownedKillRoute = name is "servers.ownedKillPreview" or "servers.ownedKillApply";
                         freshRestartRoute = name is "servers.restartPreview" or "servers.restartApply" or
                             "servers.restartStatus" or "servers.restartCurrent";
-                        lifecycleJournalRoute = name is "servers.lifecycleJournal";
+                        lifecycleJournalRoute = name is "servers.lifecycleJournal" or
+                            "servers.lifecycleRecoveryPreview" or
+                            "servers.lifecycleRecoveryApply";
                         operationsRoute = name is "operations.snapshot" or "operations.map" or
                             "operations.scheduleCreate" or "operations.scheduleDisable";
                         nativeScheduleRoute = name is "schedule.nativeStatus" or
