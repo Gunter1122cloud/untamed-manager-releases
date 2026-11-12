@@ -1609,6 +1609,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
+  "historical.sourcePinPreview" | "historical.sourcePinApply" |
   "historical.originalLiveBatchPreview" | "historical.originalLiveOperationBlockers" | "historical.operationJournalInventory" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
@@ -2213,6 +2214,12 @@ export const managerBridge = {
   historicalLiveGuard: (mapId:string) => request<HistoricalLiveGuard>("historical.liveGuard",{mapId}),
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
   historicalOriginalList: () => request<OriginalKovaLocalMapList>("historical.originalList"),
+  historicalSourcePinPreview: () =>
+    request<{token:string;verifiedLocalMaps:number;requiresExplicitApproval:true;peerStatusRequired:false}>(
+      "historical.sourcePinPreview"),
+  historicalSourcePinApply: (token:string,typedApproval:string) =>
+    request<{pinned:true;localMaps:number;originalKovaRequiredAfterPin:false}>(
+      "historical.sourcePinApply",{token,typedApproval,confirm:true}),
   historicalOriginalBatchPreview: () =>
     request<OriginalKovaBatchPreview>("historical.originalBatchPreview"),
   historicalOriginalBatchRegister: (token:string) =>
