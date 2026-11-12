@@ -37,12 +37,19 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         Func<int,int,bool>? listenerOwner=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
-        originalGuard=sourceGuard??(map=>
-            LegacyStoreV1LiveReadGate.InspectOriginalActive(map,
-                LegacyStoreV1PinnedSource.Resolve(cluster.Store.Root,
-                    Path.Combine(Environment.GetFolderPath(
-                        Environment.SpecialFolder.ApplicationData),"Kova"),map))
-                .CompletedOriginalSourceGuard);
+        originalGuard=sourceGuard??(map=>{
+            string legacy=Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.ApplicationData),"Kova");
+            string profile=LegacyStoreV1PinnedSource.Resolve(
+                cluster.Store.Root,legacy,map);
+            if(!string.Equals(profile,legacy,StringComparison.OrdinalIgnoreCase))
+                return LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                    cluster.Store.Root,legacy,map).Length==64;
+            // Unmigrated old profiles retain the old read-only Kova gate.
+            // An approved Obsidian import never depends on those old markers.
+            return LegacyStoreV1LiveReadGate.InspectOriginalActive(
+                map,legacy).CompletedOriginalSourceGuard;
+        });
         rconProof=iniEvidence??AsaRconConfigurationEvidence.Matches;
         apiProcessObserver=apiObserver??(map=>
             LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
