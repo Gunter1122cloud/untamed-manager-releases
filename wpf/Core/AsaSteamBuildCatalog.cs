@@ -132,7 +132,7 @@ public static class AsaSteamBuildCatalog
         // Keep the 2430930 context for EACH nested object; a global
         // "seen app" flag silently turned another app's public branch into
         // an apparent ASA update. Truncated/ambiguous responses fail closed.
-        var tokens=Regex.Matches(raw,"\\\"(?:[^\\\"\\\\\\\\]|\\\\\\\\.)*\\\"|[{}]")
+        var tokens=Regex.Matches(raw,"\"(?:[^\"\\\\]|\\\\.)*\"|[{}]")
             .Select(m=>m.Value).ToArray();
         var path=new List<string>();
         string? pending=null;
