@@ -70,7 +70,10 @@ public static class OperationJournalInventory
         // A verified original Kova profile can identify otherwise foreign
         // resource hashes WITHOUT rewriting a journal or adopting a map.
         // This is SOURCE-path correlation only, never live ASA owner proof.
-        var originalKeys=new Dictionary<string,string>(StringComparer.Ordinal);
+        // Original Kova maps may legitimately share one binary installation:
+        // the operation journal is installation-keyed, so retain every
+        // verified source map name for the same resource key.
+        var originalKeys=new Dictionary<string,List<string>>(StringComparer.Ordinal);
         if(trustedOriginalSource!=null)
         {
             if(trustedOriginalSource.Count!=5 ||
@@ -83,8 +86,13 @@ public static class OperationJournalInventory
                    string.IsNullOrWhiteSpace(old.MapKey))
                     throw new InvalidDataException("UM-JOURNAL-ORIGINAL-SOURCE-INVALID");
                 string key=UntamedOperationCoordinator.ResourceKey(old.OriginalInstallationRoot);
-                if(!originalKeys.TryAdd(key,old.MapKey))
-                    throw new InvalidDataException("UM-JOURNAL-ORIGINAL-SOURCE-DUPLICATE");
+                if(!originalKeys.TryGetValue(key,out var shared))
+                {
+                    shared=new List<string>();
+                    originalKeys.Add(key,shared);
+                }
+                if(!shared.Contains(old.MapKey,StringComparer.OrdinalIgnoreCase))
+                    shared.Add(old.MapKey);
             }
         }
         var entries=new List<OperationJournalInventoryEntry>();
@@ -111,8 +119,11 @@ public static class OperationJournalInventory
                 if(entries.Count>=MaxRecords){truncated=true;break;}
                 owners.TryGetValue(key,out var names);
                 bool registeredMap=names is {Count:>0};
-                string? historicalName=null;
-                bool originalMatch=!registeredMap&&originalKeys.TryGetValue(key,out historicalName);
+                List<string>? historicalNames=null;
+                bool originalMatch=!registeredMap&&
+                    originalKeys.TryGetValue(key,out historicalNames);
+                string? historicalName=originalMatch?
+                    string.Join(", ",historicalNames!):null;
                 string fingerprint=key[..16]; // No path or Store identifiers.
                 try
                 {

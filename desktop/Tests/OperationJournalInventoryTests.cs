@@ -80,6 +80,15 @@ internal static class OperationJournalInventoryTests
         Check(!OperationJournalInventory.Inspect(new[]{localMap})
               .HistoricalSourceReadable,
             "no Kova source does not invent historical journal attribution");
+        var sharedSources=sources.ToArray();
+        sharedSources[1]=sharedSources[1] with {
+            OriginalInstallationRoot=unknown
+        };
+        var shared=OperationJournalInventory.Inspect(new[]{localMap},sharedSources);
+        Check(shared.HistoricalSourceRecords==1&&
+              shared.Entries.Any(e=>e.HistoricalSourceMatched&&
+                  e.HistoricalMapKey=="Synthetic1, Synthetic2"),
+            "two original Kova map IDs sharing one installation retain both names without inventing two journal resources");
 
         // Different real resource keys may share the 16-character displayed
         // fingerprint. Never undercount genuinely separate unregistered keys.
