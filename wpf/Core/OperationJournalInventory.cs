@@ -111,7 +111,8 @@ public static class OperationJournalInventory
                 if(entries.Count>=MaxRecords){truncated=true;break;}
                 owners.TryGetValue(key,out var names);
                 bool registeredMap=names is {Count:>0};
-                bool originalMatch=!registeredMap&&originalKeys.TryGetValue(key,out string? historicalName);
+                string? historicalName=null;
+                bool originalMatch=!registeredMap&&originalKeys.TryGetValue(key,out historicalName);
                 string fingerprint=key[..16]; // No path or Store identifiers.
                 try
                 {
