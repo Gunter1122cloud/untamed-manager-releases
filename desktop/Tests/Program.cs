@@ -3012,7 +3012,7 @@ try
             InstallationPath=Path.Combine(path,"Aberration"),
             HistoricalStoreProtected=true,HistoricalMapKey="Aberration_WP",
             HistoricalArchiveSha256=new string('B',64),
-            RconPort=37095
+            RconPort=37045
         };
         originalLab.AddMap(protectedMap);
         using(var lease=originalLab.Operations.Acquire(
@@ -3032,11 +3032,22 @@ try
                 "ShooterGame","Binaries","Win64","ArkAscendedServer.exe"),
             Arguments="SYNTHETIC_OWNER_ONLY"
         };
-        bool sameProcess=true;
+        var restartJournal=new AsaManualRestartJournal(protectedMap.InstallationPath);
+        var oldRestart=restartJournal.Begin(protectedMap.Id,23456);
+        restartJournal.Change(oldRestart.Id,AsaRestartPhase.NeedsOperator);
+        string restartFile=Path.Combine(root,"operation-journals","Restart-v1",key+".json");
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(
+            restartJournal.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+            }));
+        string restartOriginalBytes=File.ReadAllText(restartFile);
+        bool sameProcess=true,failAfterFirstRestartReview=false;
         var review=new DesktopAsaLifecycleJournalBridge(originalLab,id=>{
             proofCalls++;
-            if(!sameProcess)throw new InvalidDataException(
-                "UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
+            if(!sameProcess||failAfterFirstRestartReview&&
+                restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed)
+                throw new InvalidDataException(
+                    "UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
             return new LegacyStoreV1GracefulStop.Owned(protectedMap,
                 identity,new string('A',64));
         });
@@ -3046,7 +3057,9 @@ try
         Check(current.GetProperty("data").GetProperty("recoverySupported").GetBoolean()&&
             current.GetProperty("data").GetProperty("classification").GetString()=="unknownOutcome"&&
             current.GetProperty("data").GetProperty("blockingCode").GetString()==
-                "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE",
+                "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE"&&
+            current.GetProperty("data").GetProperty("restartOldPid").GetInt32()==23456&&
+            current.GetProperty("data").GetProperty("restartPhase").GetString()=="NeedsOperator",
             "recovery status exposes the exact blocker without deleting its durable journal");
         var staged=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
@@ -3058,8 +3071,9 @@ try
                 ackUnknownOutcome=true,typedApproval="INCORRECT"
             });
         Check(IsError(missingApproval,"UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED")&&
-            File.ReadAllText(journalFile)==before,
-            "bad approval cannot clear, replace or replay an interrupted Launch");
+            File.ReadAllText(journalFile)==before&&
+            File.ReadAllText(restartFile)==restartOriginalBytes,
+            "bad approval cannot change either durable journal or repeat a command");
         staged=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
         reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
@@ -3071,11 +3085,40 @@ try
                 typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
             });
         Check(IsError(changed,"UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED")&&
-            File.ReadAllText(journalFile)==before,
-            "a changed ASA PID/source cannot be approved by a prior recovery token");
+            File.ReadAllText(journalFile)==before&&
+            File.ReadAllText(restartFile)==restartOriginalBytes,
+            "a changed ASA PID/source cannot change either journal");
         sameProcess=true;
+        failAfterFirstRestartReview=true;
         staged=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
+        var interruptedPair=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        Check(!interruptedPair.GetProperty("ok").GetBoolean()&&
+            restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+            originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
+                UntamedOperationPhase.NeedsOperator,
+            "crash after first audited journal leaves second journal blocking every write");
+        var restartAudit=Path.Combine(root,"operation-journals","Restart-v1",
+            key+"-"+oldRestart.Id.ToString("N")+".operator-reviewed.json");
+        Check(File.Exists(restartAudit)&&
+            File.ReadAllText(restartAudit)==restartOriginalBytes,
+            "original Restart-v1 NeedsOperator bytes are safely archived before transition");
+        bool stillBlocked=false;
+        try{using var denied=originalLab.Operations.Acquire(
+            protectedMap.InstallationPath,UntamedOperationKind.Configuration);}
+        catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_NEEDS_OPERATOR")
+        {stillBlocked=true;}
+        Check(stillBlocked,"partial paired recovery NEVER opens a second ASA mutation lease");
+        failAfterFirstRestartReview=false;
+        staged=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        IsOk(staged,"fresh operator preview resumes partially audited paired journals");
         reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
         var reviewed=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryApply",new{
@@ -3083,7 +3126,7 @@ try
                 ackUnknownOutcome=true,
                 typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
             });
-        IsOk(reviewed,"authorized running original Store Launch can be reviewed, not replayed");
+        IsOk(reviewed,"paired Store-v1 Launch/Restart recovery completes without restart or command replay");
         var receipt=reviewed.GetProperty("data");
         var audit=Path.Combine(root,"operation-journals",
             key+"-"+initial.Operation.ToString("N")+".operator-reviewed.json");
@@ -3091,9 +3134,14 @@ try
             !receipt.GetProperty("rconCommandSent").GetBoolean()&&
             !receipt.GetProperty("processStarted").GetBoolean()&&
             File.Exists(audit)&&File.ReadAllText(audit)==before&&
+            File.Exists(restartAudit)&&File.ReadAllText(restartAudit)==restartOriginalBytes&&
+            restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+            receipt.GetProperty("restartJournalAudited").GetBoolean()&&
+            !receipt.GetProperty("restartMarkedSuccessful").GetBoolean()&&
+            receipt.GetProperty("pairedJournalsReviewed").GetInt32()==2&&
             originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
                 UntamedOperationPhase.OperatorReviewed,
-            "old Launch journal is archived byte-for-byte; no double RCON or ASA startup");
+            "both real-schema journals are archived byte-for-byte; no fake restart or double ASA/RCON command");
         var repeated=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryApply",new{
                 mapId=protectedMap.Id,token=reviewToken,confirm=true,
