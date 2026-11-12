@@ -25,6 +25,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   }|null>(null);
   const [runtimeApproval,setRuntimeApproval]=useState("");
   const [runtimeBusy,setRuntimeBusy]=useState(false);
+  const [runtimeApplying,setRuntimeApplying]=useState(false);
   const [runtimeError,setRuntimeError]=useState("");
   const [runtimeNotice,setRuntimeNotice]=useState("");
   // Every map/port/cluster edit invalidates in-flight native status and
@@ -228,10 +229,12 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }finally{if(epoch===runtimeEpoch.current)setRuntimeBusy(false);}
   };
   const applyRuntimeSettings=async()=>{
-    if(runtimeBusy||!runtimePreview||runtimeApproval!=="OBSIDIAN MAP KONFIG")return;
+    if(runtimeBusy||runtimeApplying||!runtimePreview||
+       runtimeApproval!=="OBSIDIAN MAP KONFIG")return;
     const token=runtimePreview.token;
     const epoch=++runtimeEpoch.current;
-    setRuntimeBusy(true);setRuntimeError("");setRuntimeNotice("");
+    setRuntimeBusy(true);setRuntimeApplying(true);
+    setRuntimeError("");setRuntimeNotice("");
     setRuntimePreview(null);setRuntimeApproval("");
     try{
       await managerBridge.historicalRuntimeSettingsApply(token,"OBSIDIAN MAP KONFIG");
@@ -246,7 +249,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       if(epoch!==runtimeEpoch.current)return;
       setRuntimeError("A konfiguráció mentése nem sikerült ("+
         (e instanceof Error?e.message:"UM-STORE-RUNTIME-APPLY-FAILED")+").");
-    }finally{if(epoch===runtimeEpoch.current)setRuntimeBusy(false);}
+    }finally{
+      if(epoch===runtimeEpoch.current){setRuntimeBusy(false);setRuntimeApplying(false);}
+    }
   };
 
   const loadOriginalMaps=async()=>{
@@ -639,7 +644,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <form onSubmit={e=>void previewRuntimeSettings(e)} className="historical-import-form">
             <label htmlFor="obsidian-runtime-map">Átvett helyi map</label>
             <select id="obsidian-runtime-map" className="settings-input"
-              value={runtimeMapId}
+              value={runtimeMapId} disabled={runtimeApplying}
               onChange={e=>{invalidateRuntime();setRuntimeMapId(e.target.value);
                 setRuntimeGame("");setRuntimeQuery("");setRuntimeCluster("");
                 setRuntimeTransfer("");}}> 
@@ -657,19 +662,19 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <label htmlFor="obsidian-runtime-game">Game UDP-port</label>
             <input id="obsidian-runtime-game" className="settings-input"
               type="number" min={1024} max={65535} value={runtimeGame}
-              onChange={e=>{invalidateRuntime();setRuntimeGame(e.target.value);}}/>
+              disabled={runtimeApplying} onChange={e=>{invalidateRuntime();setRuntimeGame(e.target.value);}}/>
             <label htmlFor="obsidian-runtime-query">Query UDP-port</label>
             <input id="obsidian-runtime-query" className="settings-input"
               type="number" min={1024} max={65535} value={runtimeQuery}
-              onChange={e=>{invalidateRuntime();setRuntimeQuery(e.target.value);}}/>
+              disabled={runtimeApplying} onChange={e=>{invalidateRuntime();setRuntimeQuery(e.target.value);}}/>
             <label htmlFor="obsidian-runtime-cluster">Cluster ID</label>
             <input id="obsidian-runtime-cluster" className="settings-input"
               maxLength={80} value={runtimeCluster}
-              onChange={e=>{invalidateRuntime();setRuntimeCluster(e.target.value);}}/>
+              disabled={runtimeApplying} onChange={e=>{invalidateRuntime();setRuntimeCluster(e.target.value);}}/>
             <label htmlFor="obsidian-runtime-transfer">ASA transferkönyvtár</label>
             <input id="obsidian-runtime-transfer" className="settings-input"
               maxLength={520} value={runtimeTransfer}
-              onChange={e=>{invalidateRuntime();setRuntimeTransfer(e.target.value);}}/>
+              disabled={runtimeApplying} onChange={e=>{invalidateRuntime();setRuntimeTransfer(e.target.value);}}/>
             <p className="muted small">Az INI-fájlban megadott Port/QueryPort értékeknek
               már egyezniük kell az új portokkal. A művelet az INI-t nem írja át,
               és a másik gép elérhetősége nem feltétele a helyi konfigurációnak.</p>
