@@ -471,6 +471,19 @@ internal static class OriginalKovaDirectImportTests
                   File.ReadAllBytes(launchProfilePath)))==launchHash,
             "original four Store metadata and launch order remain byte-identical after imports");
 
+        // The same native historical bridge must keep read-only parity
+        // available after Kova's synthetic local directory disappears.
+        string temporarilyMissingKova=local+"-bridge-offline";
+        Directory.Move(local,temporarilyMissingKova);
+        try
+        {
+            var withoutKova=await Call(bridge,"historical.originalList");
+            Check(withoutKova.GetProperty("ok").GetBoolean()&&
+                  withoutKova.GetProperty("data").GetProperty("maps").GetArrayLength()==5,
+                "imported original map roster remains readable with Obsidian source pin and no Kova profile");
+        }
+        finally{Directory.Move(temporarilyMissingKova,local);}
+
         // A second empty Manager profile imports all five original maps in ONE
         // ConfigStore write, without ever calling original Kova/ASA mutation.
         string batchManager=Path.Combine(baseRoot,"atomic-batch-manager");
