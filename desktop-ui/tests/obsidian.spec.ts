@@ -66,6 +66,17 @@ test.beforeEach(async ({ page }) => {
     let originalLiveDispatchDenied=false;
     let originalLiveExpiredPreviewOnce=false;
     let originalLiveApprovalLostOnce=false;
+    let originalLiveBlockedApply=false;
+    let originalLiveBlockedAttempts=0;
+    (window as typeof window & {
+      __UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__?:()=>void;
+      __UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?:()=>number;
+    }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__=()=>{
+      originalLiveFiveFixture=true;originalLiveBlockedApply=true;
+    };
+    (window as typeof window & {
+      __UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?:()=>number;
+    }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__=()=>originalLiveBlockedAttempts;
     (window as typeof window & {
       __UNTAMED_ORIGINAL_LIVE_EXPIRED_ONCE__?:()=>void;
       __UNTAMED_ORIGINAL_LIVE_TOKEN_LOST_ONCE__?:()=>void;
@@ -1591,7 +1602,22 @@ test.beforeEach(async ({ page }) => {
             requiresExternalControllerStopped:true,requiresTypedApproval:true,
             evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT"};
         }
+        case "historical.originalLiveOperationBlockers":
+          return {mapCount:5,blockedCount:1,blockedMaps:[{
+            mapId:"00000000-0000-4000-8000-000000007103",
+            mapName:"Aberration",kind:"Launch",phase:"NeedsOperator",
+            operationId:"00000000-0000-4000-8000-000000007199",
+            blockingCode:"UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE",
+            existingManagerProfile:true,supportedReviewInMapDetails:true
+          }],allRecoveriesRequireFreshOwnerProof:true,
+            noAutomaticCommandRetry:true,processStarted:false,
+            processStopped:false,
+            evidence:"ORIGINAL_FIVE_RUNNING_MAP_DURABLE_JOURNAL_BLOCKERS_READ_ONLY"};
         case "historical.originalLiveBatchApply":
+          if(originalLiveBlockedApply){
+            originalLiveBlockedAttempts++;
+            throw new Error("UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
+          }
           if(originalLiveApprovalLostOnce){
             originalLiveApprovalLostOnce=false;
             throw new Error("UM-ORIGINAL-LIVE-APPROVAL-EXPIRED");
@@ -3829,6 +3855,43 @@ test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeEnabled();
   // Do NOT click: this test asserts the exact two-factor gate only.
+});
+
+test("Store-v1 five-map preview can succeed but later Aberration Launch journal blocks apply with exact map diagnostics",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  await panel.getByRole("button",{
+    name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
+  }).click();
+  const proof=panel.getByRole("region",{
+    name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
+  });
+  await expect(proof).toBeVisible();
+  await proof.getByRole("checkbox").check();
+  await proof.getByRole("textbox",{
+    name:"Store-v1 futó átvétel megerősítése"
+  }).fill("STORE-V1 FUTÓ ÁTVÉTEL");
+  await proof.getByRole("button",{
+    name:"Eredeti öt futó Store-v1 map átvétele"
+  }).click();
+  const blockers=panel.getByRole("region",{
+    name:"Öt Store-v1 map zároló műveleti naplói"
+  });
+  await expect(blockers).toContainText("Aberration");
+  await expect(blockers).toContainText("Launch / NeedsOperator");
+  await expect(blockers).toContainText("UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE");
+  await expect(panel).toContainText("UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
+  await expect(proof).toHaveCount(0);
+  const attempts=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?:()=>number;
+  }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?.()??-1);
+  expect(attempts).toBe(1);
 });
 
 test("P0 original Kova five-map live takeover reattaches partially registered originals without duplicates",async({page})=>{
