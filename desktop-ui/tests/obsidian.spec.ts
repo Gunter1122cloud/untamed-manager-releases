@@ -2842,6 +2842,7 @@ test.beforeEach(async ({ page }) => {
               const error=e instanceof Error&&
                 (e.message.startsWith("UM-FRESH-ROOT-OVERLAP|")||
                   e.message==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"||
+                  e.message==="UM-FRESH-START-CHANGED"||
                   e.message==="UM-UPDATE-CHECK-REQUIRED"||
                   e.message==="UM-UPDATE-CHECK-STALE"||
                   e.message==="UM-INI-GAME-MISSING"||
@@ -5567,6 +5568,25 @@ test("Servers page offers immediate real ASA download separately from importing 
   await page.getByRole("button",{name:"ASA letöltés indítása"}).click();
   await expect(page.getByText(/letöltve és hozzáadva a Managerhez/))
     .toBeVisible({timeout:12000});
+});
+
+test("unfinished custom-map SteamCMD wizard keeps unapproved form choices after navigation",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("__custom__");
+  await page.getByRole("textbox",{name:"Egyedi ASA map neve"}).fill("Atlantis Demo");
+  await page.getByRole("textbox",{name:"Egyedi ASA level azonosító"}).fill("Atlantis_WP");
+  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Drafts\\Atlantis");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await expect(page.getByRole("combobox",{name:"Új ASA map"})).toHaveValue("__custom__");
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA map neve"}))
+    .toHaveValue("Atlantis Demo");
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA level azonosító"}))
+    .toHaveValue("Atlantis_WP");
+  await expect(page.getByRole("textbox",{name:"Új ASA célmappa"}))
+    .toHaveValue("D:\\ASA-Drafts\\Atlantis");
+  await expect(page.getByText("SteamCMD folyamatban")).toHaveCount(0);
 });
 
 test("SteamCMD simple path entry starts installation without advanced options or extra confirmation",async ({page})=>{
