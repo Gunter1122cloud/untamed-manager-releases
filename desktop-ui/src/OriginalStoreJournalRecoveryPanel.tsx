@@ -32,17 +32,21 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
     if(!prepared||typed!==approval||!confirmed||busy)return;
     const token=prepared.token;
     const expectedPair=prepared.pairedJournals??1;
+    const restartRequired=!!prepared.restartId;
     const oldPid=prepared.pid;
     setBusy(true);setPrepared(null);setError("");
     try{
       const result=await managerBridge.originalStoreLifecycleRecoveryApply(
         mapId,token,typed);
-      if(result.state!=="operatorReviewed"||!result.originalJournalAudited||
+      if(result.state!=="operatorReviewed"||
+         (!result.originalJournalAudited&&!result.restartJournalAudited)||
          !result.previousOutcomeStillUnknown||result.processStarted||
          result.processStopped||result.rconCommandSent||
-         (expectedPair===2&&(!result.restartJournalAudited||
-           result.pairedJournalsReviewed!==2||result.oldRunningPid!==oldPid||
-           result.restartMarkedSuccessful!==false)))
+         (restartRequired&&(!result.restartJournalAudited||
+           result.oldRunningPid!==oldPid||
+           result.restartMarkedSuccessful!==false))||
+         (expectedPair===2&&result.pairedJournalsReviewed!==2))
+         
         throw new Error("UM-RECOVERY-INVALID-NATIVE-RECEIPT");
       setReceipt(true);
       try{await onRecovered();}
@@ -56,7 +60,10 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       Beragadt Store-v1 indítás · ellenőrzött helyreállítás</h2></div>
     <div className="panel-inner">
       <p className="warning-inline"><AlertTriangle size={16}/>
-        A korábbi <b>{journal.kind??"Launch"} / {journal.phase??"NeedsOperator"}</b>
+        A korábbi <b>{journal.restartClassification==="unknownOutcome"&&
+          journal.classification==="closed"?
+          "Restart-v1 / "+(journal.restartPhase??"NeedsOperator"):
+          (journal.kind??"Launch")+" / "+(journal.phase??"NeedsOperator")}</b>
         művelet eredménye nem ismert. Az előző parancs NEM lesz újraküldve,
         és az auditnapló NEM lesz törölve.</p>
       <p className="muted small">Műveleti napló: {journal.operationId??"nem olvasható"}
