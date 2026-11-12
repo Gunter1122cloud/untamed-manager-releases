@@ -3570,13 +3570,16 @@ test("crash restore marker blocks new snapshot and restore actions in native bac
   await expect(page.getByRole("button",{name:"Visszaállítás"})).toBeDisabled();
 });
 
-test("dropped native WebView response expires its Promise and rejects without an automatic mutation retry",async({page})=>{
+test("dropped native WebView status response times out in the packaged UI without retrying the operation",async({page})=>{
   await page.clock.install();
   await page.goto("/");
-  await page.evaluate(async()=>{
+  // Exercise the SAME compiled bundle as the real WebView2 host. Importing
+  // /src/bridge.ts works only on Vite dev server and fails in production dist.
+  await expect(page.getByRole("navigation",{name:"Fő navigáció"})).toBeVisible();
+  await page.evaluate(()=>{
     const host=window as unknown as {
       chrome:{webview:{postMessage:(message:{id:string;method:string})=>void}};
-      __rpcFailure?:Promise<string>;__droppedNativeRequests?:number
+      __droppedNativeRequests?:number
     };
     const webview=host.chrome.webview;
     const original=webview.postMessage.bind(webview);
@@ -3584,25 +3587,23 @@ test("dropped native WebView response expires its Promise and rejects without an
     webview.postMessage=(message)=>{
       if(message.method==="updates.status"){
         host.__droppedNativeRequests=(host.__droppedNativeRequests??0)+1;
-        return; // Synthetic abandoned native RPC; no response ever arrives.
+        return; // Synthetic abandoned native status; no response arrives.
       }
       original(message);
     };
-    const bridge=await import("/src/bridge.ts");
-    host.__rpcFailure=bridge.managerBridge.updateStatus()
-      .then(()=>"unexpected-success")
-      .catch((error:Error)=>error.message);
   });
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Frissítések"}).click();
+  await expect(page.getByRole("heading",{name:"Frissítési központ"})).toBeVisible();
   await page.clock.fastForward(121_000);
-  const observed=await page.evaluate(async()=>{
-    const host=window as unknown as {
-      __rpcFailure:Promise<string>;__droppedNativeRequests:number
-    };
-    return {error:await host.__rpcFailure,dropped:host.__droppedNativeRequests};
-  });
-  expect(observed).toEqual({
-    error:"UM-NATIVE-TIMEOUT-OPERATION-STATUS-UNKNOWN",dropped:1
-  });
+  await expect(page.getByRole("alert")).toContainText(
+    "A natív verziólekérdezés időtúllépést ért el");
+  await expect(page.getByRole("alert")).toContainText(
+    "nincs automatikus újrapróbálás vagy telepítés");
+  const dropped=await page.evaluate(()=>(
+    window as typeof window & {__droppedNativeRequests?:number}
+  ).__droppedNativeRequests??-1);
+  expect(dropped).toBe(1);
 });
 
 test("Update Center verifies Obsidian-only installer and requires explicit two-stage native approval",async({page})=>{
