@@ -857,7 +857,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
             var existing=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==map.Id);
             bool supported=existing?.HistoricalStoreProtected==true &&
                 journal.Kind==UntamedOperationKind.Launch &&
-                journal.Phase==UntamedOperationPhase.NeedsOperator;
+                journal.Phase is (UntamedOperationPhase.Prepared or
+                    UntamedOperationPhase.Mutating or
+                    UntamedOperationPhase.NeedsOperator);
             blocked.Add(new(map.Id,map.Name,journal.Kind.ToString(),
                 journal.Phase.ToString(),journal.Operation,
                 supported?"UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
