@@ -2700,6 +2700,52 @@ try
             new{token=firstToken,confirm=true});
         Check(IsError(replay,"UM-FRESH-START-TOKEN-EXPIRED")&&calls==1,
             "approved ASA start is one-shot and cannot automatically repeat");
+
+        // Fresh Start must follow the SAME Restart-v1 terminal states as
+        // fresh Stop/Restart and original Store Start. An interrupted
+        // restart blocks, but a fully audited old restart may be followed
+        // by a NEW, separately approved Start. The fixture is contained
+        // in the isolated TEMP journal scope; there is no real ASA process.
+        var localRestart=new AsaManualRestartJournal(fresh.InstallationPath);
+        var restartKey=UntamedOperationCoordinator.ResourceKey(fresh.InstallationPath);
+        var restartFolder=Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+            "Restart-v1");
+        string restartFile=Path.Combine(restartFolder,restartKey+".json");
+        var interrupted=localRestart.Begin(fresh.Id,56781);
+        var pendingRestart=localRestart.Change(interrupted.Id,AsaRestartPhase.NeedsOperator);
+        string auditFile=Path.Combine(restartFolder,restartKey+"-"+
+            interrupted.Id.ToString("N")+".operator-reviewed.json");
+        try
+        {
+            var blockedAfterCrash=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            Check(IsError(blockedAfterCrash,"UM-FRESH-START-NOT-READY")&&calls==1,
+                "pending durable Restart-v1 still blocks independent fresh ASA Start");
+            // Simulate an old, crashed operation in the isolated test only:
+            // native review refuses a recent journal and preserves the
+            // immutable original audit record on approval.
+            var oldRecord=pendingRestart with {
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+            };
+            File.WriteAllText(restartFile,JsonSerializer.Serialize(oldRecord,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            var reviewed=localRestart.ReviewOriginalOldPid(
+                fresh.Id,interrupted.Id,56781);
+            Check(reviewed.Phase==AsaRestartPhase.OperatorReviewed &&
+                  File.Exists(auditFile),
+                "manual review records the interrupted restart without claiming success");
+            var afterReview=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            IsOk(afterReview,"fully reviewed old Restart-v1 no longer blocks a new explicit local Start");
+            Check(calls==1,
+                "post-review preview never starts ASA or replays the old Restart");
+        }
+        finally
+        {
+            // Only temporary synthetic CI fixture files are removed.
+            if(File.Exists(restartFile))File.Delete(restartFile);
+            if(File.Exists(auditFile))File.Delete(auditFile);
+        }
         fresh.HistoricalStoreProtected=true;
         var historical=await Call(starter.HandleAsync,"servers.freshStartPreview",
             new{mapId=fresh.Id});

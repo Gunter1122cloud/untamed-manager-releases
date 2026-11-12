@@ -106,8 +106,15 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         }
         else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map))return false;
         if(!AsaRconConfigurationEvidence.Matches(map))return false;
+        // The durable Restart-v1 protocol explicitly permits a NEW
+        // independent Start after a verified operator audit. Treat
+        // OperatorReviewed the same as Completed; a pending Stopping,
+        // Starting or NeedsOperator still blocks every new launch.
+        // The old restart is never resumed or reported successful.
         var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
-        if(restart!=null&&restart.Phase!=AsaRestartPhase.Completed)return false;
+        if(restart!=null&&restart.Phase is not
+            (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
+            return false;
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
         if(!AsaLocalPortPreflight.CanStart(map))return false;
         AsaApiLaunchPolicy.Resolve(map);
