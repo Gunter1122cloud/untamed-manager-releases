@@ -128,8 +128,9 @@ internal static class OriginalKovaDirectImportTests
             HistoricalPassiveMods=firstOriginal.PassiveMods.ToList(),
             GamePort=firstOriginal.GamePort,QueryPort=firstOriginal.QueryPort
         };
-        string originalIni="[ServerSettings]\\nPort="+firstOriginal.GamePort+
-            "\\nQueryPort="+firstOriginal.QueryPort+"\\n";
+        string originalIni="[ServerSettings]"+Environment.NewLine+
+            "Port="+firstOriginal.GamePort+Environment.NewLine+
+            "QueryPort="+firstOriginal.QueryPort+Environment.NewLine;
         var launch=LegacyStoreV1ActiveLaunch.Build(new(
             firstOriginal.MapKey,firstOriginal.GamePort,firstOriginal.QueryPort,
             firstOriginal.EnabledMods,firstOriginal.PassiveMods,
@@ -188,6 +189,53 @@ internal static class OriginalKovaDirectImportTests
         Check(peerLaunch.Arguments.Contains("-clusterid="+VaultProtocol.ClusterId)&&
               peerLaunch.Arguments.Contains("-ClusterDirOverride="+originalCluster.path),
             "both isolated original host launch profiles preserve one KovaCluster and transfer share, without character-movement code");
+
+        // Every map on BOTH original hosts gets exactly the source launcher
+        // grammar; this test never moves a profile or copies world files.
+        var sourceByHost=new[]{discovered,secondSource};
+        var launchCount=0;
+        foreach(var verifiedSource in sourceByHost)
+        {
+            foreach(var mapOriginal in verifiedSource.Maps)
+            {
+                var registered=new LocalMap{
+                    Id=mapOriginal.MapId,
+                    Name=mapOriginal.MapKey,
+                    InstallationPath=mapOriginal.OriginalInstallationRoot,
+                    HistoricalStoreProtected=true,
+                    HistoricalArchiveSha256=verifiedSource.FourFilesSha256,
+                    HistoricalMapKey=mapOriginal.MapKey,
+                    HistoricalEnabledMods=mapOriginal.EnabledMods.ToList(),
+                    HistoricalPassiveMods=mapOriginal.PassiveMods.ToList(),
+                    GamePort=mapOriginal.GamePort,QueryPort=mapOriginal.QueryPort
+                };
+                var sourceArgs=LegacyStoreV1ActiveLaunch.Build(new(
+                    mapOriginal.MapKey,mapOriginal.GamePort,mapOriginal.QueryPort,
+                    mapOriginal.EnabledMods,mapOriginal.PassiveMods,
+                    VaultProtocol.ClusterId,originalCluster.path,"active",""));
+                LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+                    registered,verifiedSource,originalCluster.path,"",sourceArgs.Arguments);
+                Check(sourceArgs.Arguments.Count(a=>a.StartsWith(
+                          "-ClusterDirOverride=",StringComparison.OrdinalIgnoreCase))==1&&
+                      sourceArgs.Arguments.Count(a=>a.StartsWith(
+                          "-clusterid=",StringComparison.OrdinalIgnoreCase))==1&&
+                      sourceArgs.Arguments.Count(a=>a.Equals(
+                          "-usestore",StringComparison.OrdinalIgnoreCase))==1,
+                    "ASA native argument parity for "+mapOriginal.MapKey);
+                launchCount++;
+            }
+        }
+        Check(launchCount==10,
+            "all ten original maps receive the same Kova cluster/transfer identity on their respective hosts");
+        Check(RefusesChanged(()=>LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+                selected,discovered,originalCluster.path,originalIni,
+                launch.Arguments.Concat(new[]{"-usestore"}).ToArray()))&&
+              RefusesChanged(()=>LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+                selected,discovered,originalCluster.path,originalIni,
+                launch.Arguments.Select(a=>a.StartsWith("-clusterid=",
+                    StringComparison.OrdinalIgnoreCase)?
+                    "-clusterid=ObsidianCluster":a).ToArray())),
+            "duplicate Store flag and renamed cluster identity are rejected before process launch");
 
         await using var cluster=new ClusterService(
             "direct-kova-test",manager,
