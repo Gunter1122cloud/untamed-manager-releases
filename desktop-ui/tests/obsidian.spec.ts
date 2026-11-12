@@ -1473,6 +1473,29 @@ test.beforeEach(async ({ page }) => {
           return {mapId:"00000000-0000-4000-8000-000000008881",
             mapName:"Valguero",needsConfiguration:true,serverStarted:false,
             evidence:"VERIFIED_STEAM_FILES_REGISTERED_MANAGER_PROFILE_ONLY"};
+        case "steam.freshRecoverPreview":
+          if(m.installRoot!=="D:\\ASA-Verified" || m.mapName!=="Valguero")
+            throw new Error("UM-FRESH-RECOVERY-NO-COMPLETE-JOURNAL");
+          return {token:"00000000-0000-4000-8000-000000001909",
+            mapId:"00000000-0000-4000-8000-000000001908",
+            mapName:"Valguero",mapLevel:"Valguero_WP",buildId:"123456",
+            verified:true,filesDownloadedAgain:false,serverStarted:false};
+        case "steam.freshRecoverRegister":
+          if(m.typedApproval!=="ASA TELEPÍTÉS ÁTVÉTEL" ||
+             m.token!=="00000000-0000-4000-8000-000000001909")
+            throw new Error("UM-FRESH-RECOVERY-APPROVAL-REQUIRED");
+          if(state.local.maps.some(x=>x.id==="00000000-0000-4000-8000-000000001908"))
+            throw new Error("UM-FRESH-RECOVERY-ALREADY-REGISTERED");
+          state.local.maps.push({
+            id:"00000000-0000-4000-8000-000000001908",
+            name:"Valguero",running:false,status:"Nincs beállítva",
+            gamePort:0,steamBuildId:"123456",steamUpdateState:"Nem ellenőrizhető"
+          });
+          return {jobId:"00000000-0000-4000-8000-000000001907",
+            mapId:"00000000-0000-4000-8000-000000001908",
+            mapName:"Valguero",needsConfiguration:true,serverStarted:false,
+            filesDownloadedAgain:false,kovaFilesWritten:false,
+            evidence:"COMPLETED_STEAMCMD_RECOVERED_MANAGER_REGISTRATION_ONLY"};
         case "steam.freshCancel": return {cancelRequested:true};
         case "steam.freshDiscard": return {discarded:true};
         case "maps.maintenanceStatus": {
@@ -5436,6 +5459,36 @@ test("registered SteamCMD wizard reopens at native configured step without repla
   await expect(page.getByRole("region",{
     name:"Telepítés utáni ASA konfiguráció"
   })).toContainText("Az első indítási profil mentve.");
+});
+
+test("completed ASA files recover after Manager restart without downloading again",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("Valguero");
+  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Verified");
+  await page.getByRole("button",{
+    name:/Befejezett SteamCMD-telepítés visszavétele/
+  }).click();
+  const approval=page.getByRole("region",{
+    name:"Befejezett SteamCMD telepítés jóváhagyása"
+  });
+  await expect(approval).toContainText("Valguero");
+  const register=approval.getByRole("button",{
+    name:"Ellenőrzött ASA-fájlok regisztrálása az eredeti GUID-dal"
+  });
+  await expect(register).toBeDisabled();
+  await approval.getByRole("textbox",{
+    name:"Befejezett telepítés jóváhagyó szöveg"
+  }).fill("ASA TELEPÍTÉS ÁTVÉTEL");
+  await expect(register).toBeEnabled();
+  await register.click();
+  await expect(page.getByRole("region",{
+    name:"Telepítés utáni ASA konfiguráció"
+  })).toBeVisible();
+  await expect(page.getByText("Első mapbeállítások")).toBeVisible();
+  await expect(page.getByText(/eredeti mapazonosítóval regisztrálva, letöltés és szerverindítás nélkül/))
+    .toBeVisible();
+  await expect(page.getByText("A valódi ASA-letöltés elindult.")).toHaveCount(0);
 });
 
 test("Newly imported local map first setup saves session and UDP ports only after preview and confirmation",async ({page})=>{
