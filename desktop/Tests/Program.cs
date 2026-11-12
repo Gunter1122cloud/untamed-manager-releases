@@ -695,15 +695,15 @@ try
         const string safeIni="[ServerSettings]\nPort=7777\nQueryPort=27015\n";
         var input=new LegacyStoreV1ActiveLaunch.Input(
             "ScorchedEarth_WP",7777,27015,
-            new[]{"123456","654321","123456"},new[]{"654321"},
+            new[]{"123456","654321"},new[]{"654321"},
             "KovaCluster", @"\\192.0.2.1\SyntheticCluster","active",safeIni);
         var active=LegacyStoreV1ActiveLaunch.Build(input);
         Check(active.Arguments.SequenceEqual(new[]{
             "ScorchedEarth_WP?listen","-Port=7777","-QueryPort=27015",
-            "-mods=654321,123456","-passivemods=654321",
+            "-mods=123456,654321","-passivemods=654321",
             "-clusterid=KovaCluster",@"-ClusterDirOverride=\\192.0.2.1\SyntheticCluster",
             "-usestore","-log"})&&!active.ConversionRequested,
-            "original active Store-v1 source grammar preserves passive-first mods and forbids conversion");
+            "original active Store-v1 source grammar preserves the exact enabled mod order with separate passive flags and forbids conversion");
         void Reject(LegacyStoreV1ActiveLaunch.Input changed,string label)
         {
             bool denied=false;
@@ -727,6 +727,8 @@ try
             "Game and Query UDP ports cannot collide");
         Reject(input with{PassiveMods=new[]{"999999"}},
             "passive mod cannot be newly injected into the original enabled order");
+        Reject(input with{Mods=new[]{"123456","654321","123456"}},
+            "ambiguous duplicated original mod order is never silently rewritten during native startup");
         Reject(input with{Mods=Enumerable.Repeat("123456",101).ToArray()},
             "over-limit legacy mod list fails closed");
         Check(!active.Arguments.Any(x=>x.Contains("converttostore",StringComparison.OrdinalIgnoreCase)),
