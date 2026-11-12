@@ -9,6 +9,11 @@ import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, t
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
   const [directList,setDirectList]=useState<OriginalKovaLocalMapList|null>(null);
+  const [pinPreview,setPinPreview]=useState<{token:string;verifiedLocalMaps:number}|null>(null);
+  const [pinPhrase,setPinPhrase]=useState("");
+  const [pinBusy,setPinBusy]=useState(false);
+  const [pinError,setPinError]=useState("");
+  const [pinNotice,setPinNotice]=useState("");
   const [directMapId,setDirectMapId]=useState("");
   const [directGamePort,setDirectGamePort]=useState("");
   const [directQueryPort,setDirectQueryPort]=useState("");
@@ -120,6 +125,36 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       if(epoch!==importEpoch.current)return;
       setError("A Store-v1 regisztráció meghiúsult ("+(e instanceof Error?e.message:"UM-HISTORICAL-VERIFICATION-FAILED")+"). Az eredeti világ- és karakterfájlokhoz nem nyúltunk.");
     }finally{setRegistering(false);if(epoch===importEpoch.current)setBusy(false);}
+  };
+
+  const inspectSourcePin=async()=>{
+    if(pinBusy)return;
+    setPinBusy(true);setPinPreview(null);setPinPhrase("");setPinError("");setPinNotice("");
+    try{
+      const proof=await managerBridge.historicalSourcePinPreview();
+      setPinPreview(proof);
+    }catch(e){
+      setPinError("Az Obsidian-forrásátvétel előellenőrzése sikertelen ("+
+        (e instanceof Error?e.message:"UM-STORE-SOURCE-PIN-FAILED")+").");
+    }finally{setPinBusy(false);}
+  };
+  const applySourcePin=async()=>{
+    if(pinBusy||!pinPreview||pinPhrase!=="OBSIDIAN FORRÁS ÁTVÉTEL")return;
+    setPinBusy(true);setPinError("");setPinNotice("");
+    const token=pinPreview.token;setPinPreview(null);
+    try{
+      const result=await managerBridge.historicalSourcePinApply(
+        token,"OBSIDIAN FORRÁS ÁTVÉTEL");
+      setPinNotice(result.localMaps+
+        " map eredeti konfigurációja az Obsidian saját profiljában rögzítve. "+
+        "A régi Kova-program és helyi profil nem szükséges a későbbi helyi vezérléshez. "+
+        "A clusterutazást továbbra is az ASA kezeli.");
+      try{await onImported();}catch{setPinError(
+        "A forrásátvétel sikerült, de a felületi frissítés nem. Ne ismételd meg a műveletet.");}
+    }catch(e){
+      setPinError("A forrásátvétel nem sikerült ("+
+        (e instanceof Error?e.message:"UM-STORE-SOURCE-PIN-FAILED")+").");
+    }finally{setPinBusy(false);setPinPhrase("");}
   };
 
   const loadOriginalMaps=async()=>{
@@ -457,6 +492,42 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         A regisztráció nem indít szervert; a map saját Start, Stop és mentés funkciói
         külön előellenőrzés és jóváhagyás után használhatók.
       </p>
+      <section className="historical-peer-check" aria-label="Eredeti Store-v1 konfiguráció végleges átvétele">
+        <h3>Obsidian önálló Store-v1 forrás</h3>
+        <p className="muted small">
+          Már regisztrált korábbi mapoknál az eredeti öt helyi konfigurációfájl és az
+          indítási beállítások külön jóváhagyással az Obsidian saját profiljába másolhatók.
+          A meglévő Kova-, ASA- és transferfájlokat a művelet nem módosítja.
+          Az ACTIVE/DONE Kova-migrációs jelölők nem szükségesek a későbbi helyi
+          indításhoz; kétgépes utazás csak az ASA elérhető transferkönyvtárával működhet.
+        </p>
+        <div className="settings-actions">
+          <button type="button" className="secondary" onClick={()=>void inspectSourcePin()}
+            disabled={pinBusy}>
+            <Shield size={16}/> {pinBusy?"Ellenőrzés folyamatban...":"Meglévő mapok forrásátvételének ellenőrzése"}
+          </button>
+        </div>
+        {pinPreview&&<div className="historical-preview" role="region"
+          aria-label="Obsidian saját forrás átvételének jóváhagyása">
+          <p>{pinPreview.verifiedLocalMaps} korábban regisztrált map eredeti
+            konfigurációjának ellenőrzött másolata készíthető el a Manager profiljában.
+            Ez önmagában nem indít szervert és nem ellenőrzi a játékbeli utazást.</p>
+          <label className="historical-typed-confirmation" htmlFor="obsidian-source-pin-phrase">
+            Jóváhagyó szöveg: OBSIDIAN FORRÁS ÁTVÉTEL
+          </label>
+          <input id="obsidian-source-pin-phrase" type="text" className="settings-input"
+            value={pinPhrase} onChange={e=>setPinPhrase(e.target.value)}
+            autoComplete="off" spellCheck={false}/>
+          <div className="settings-actions">
+            <button type="button" onClick={()=>void applySourcePin()}
+              disabled={pinBusy||pinPhrase!=="OBSIDIAN FORRÁS ÁTVÉTEL"}>
+              Forrás átvételének jóváhagyása
+            </button>
+          </div>
+        </div>}
+        {pinError&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{pinError}</div>}
+        {pinNotice&&<div role="status" className="success-inline"><CheckCircle2 size={16}/>{pinNotice}</div>}
+      </section>
       <section className="historical-peer-check" aria-label="Közvetlen Kova Store-v1 mapimport">
         <div className="settings-actions">
           <button type="button" className="secondary" disabled={journalInventoryBusy}
