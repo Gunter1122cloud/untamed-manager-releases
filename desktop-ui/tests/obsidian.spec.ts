@@ -4794,7 +4794,12 @@ test("new empty Store-map uses existing cluster membership, one-shot approval an
 
 test("new Store API Loader mode needs separate approval and permits direct opt-out without start",async({page})=>{
   await page.goto("/");
-  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  // The main dashboard may virtualize map cards. Select the verified LOCAL
+  // roster row on the Servers page, like the adjacent Store enrollment test.
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local")
+    .filter({hasText:"Astraeos"}).click();
   const enrollment=page.getByRole("region",{name:"Új üres Store-map"});
   await enrollment.getByRole("button",{name:"Üres Store-map előellenőrzése"}).click();
   await enrollment.getByRole("checkbox",{name:/Jóváhagyom az üres map/}).check();
