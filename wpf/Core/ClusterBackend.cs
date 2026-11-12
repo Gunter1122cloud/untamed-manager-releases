@@ -851,7 +851,15 @@ public sealed partial class ClusterService : IAsyncDisposable
         IsFresh=value.IsFresh,LastSuccessUtc=value.LastSuccessUtc,StateCode=value.StateCode,
         Snapshot=value.Snapshot==null?null:CopyTelemetry(value.Snapshot)
     };
-    public void Save() => Store.Save(Config);
+    public void Save()
+    {
+        Store.Save(Config);
+        // Config mutations (notably live ASA adoption) can change the same
+        // map's ownership and process identity without changing map count.
+        // Never serve the prior observation-only state from a 900ms cache
+        // immediately after a successful native ownership transition.
+        lock(_telemetryGate)_telemetryCache=null;
+    }
 
     private readonly object _recurringScheduleGate=new();
 
