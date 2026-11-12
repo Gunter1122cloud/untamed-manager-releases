@@ -155,11 +155,11 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     // Profile-level suggestions do not check the operating
                     // system. An unrelated process can already own the UDP
                     // listener even when no Manager map is registered.
-                    var availability=AsaLocalPortPreflight.Inspect(new LocalMap{
+                    var previewPorts=AsaLocalPortPreflight.Inspect(new LocalMap{
                         GamePort=game,QueryPort=query,RconPort=0
                     });
-                    if(availability!=AsaLocalPortAvailability.Available)
-                        return Fail(id,availability==AsaLocalPortAvailability.InUse?
+                    if(previewPorts!=AsaLocalPortAvailability.Available)
+                        return Fail(id,previewPorts==AsaLocalPortAvailability.InUse?
                             "UM-INITIAL-PORT-IN-USE":"UM-INITIAL-PORT-UNVERIFIED");
                     if(pending.Count>=6)pending.Clear();
                     var token=Guid.NewGuid();
