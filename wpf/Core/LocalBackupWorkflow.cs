@@ -22,6 +22,19 @@ public sealed record LocalBackupPreflight(Guid MapId,LocalBackupScope Scope,
 
 public static class LocalBackupWorkflow
 {
+    // Per-map offline file copy limits. This is not the larger, separately
+    // bounded multi-host archive. Reject oversized sources before any staging
+    // directory is created, never silently omit a component.
+    public const int MaxSelectedFiles = 100_000;
+    public const long MaxSelectedBytes = 2L * 1024 * 1024 * 1024 * 1024;
+
+    public static void ValidateFileBudget(int count,long bytes)
+    {
+        if(count<1 || count>MaxSelectedFiles)
+            throw new InvalidDataException("UM-BACKUP-FILE-LIMIT");
+        if(bytes<0 || bytes>MaxSelectedBytes)
+            throw new InvalidDataException("UM-BACKUP-SIZE-LIMIT");
+    }
     public static LocalBackupPreflight Preview(LocalMap map,ProcessCheck check,
         string destination,LocalBackupScope scope)
     {
@@ -46,7 +59,10 @@ public static class LocalBackupWorkflow
             scope.HasFlag(LocalBackupScope.WorldAndProfiles));
         long bytes=0;
         foreach(var entry in paths)
+        {
             bytes=checked(bytes+new FileInfo(entry.Value).Length);
+            ValidateFileBudget(paths.Count,bytes);
+        }
         long reserve=Math.Max(64L*1024*1024,bytes/10);
         long free=new DriveInfo(Path.GetPathRoot(target)!).AvailableFreeSpace;
         if(bytes>free||reserve>free-bytes)
@@ -94,7 +110,11 @@ public static class LocalBackupWorkflow
         // Fail before staging if this fixed local disk cannot hold the selected files.
         // A reserve is intentional: File hashes and the manifest do not prove ASA consistency.
         long totalBytes=0;
-        foreach(var entry in paths)totalBytes=checked(totalBytes+new FileInfo(entry.Value).Length);
+        foreach(var entry in paths)
+        {
+            totalBytes=checked(totalBytes+new FileInfo(entry.Value).Length);
+            ValidateFileBudget(paths.Count,totalBytes);
+        }
         long reserve=Math.Max(64L*1024*1024,totalBytes/10);
         long free=new DriveInfo(Path.GetPathRoot(target)!).AvailableFreeSpace;
         if(totalBytes>free || reserve>free-totalBytes)
@@ -250,6 +270,10 @@ public static class LocalBackupWorkflow
             parent=Path.GetDirectoryName(parent);
         }
         var relative=Path.GetRelativePath(root,full);
+        if(info.Length>MaxSelectedBytes)
+            throw new InvalidDataException("UM-BACKUP-SIZE-LIMIT");
+        if(result.Count>=MaxSelectedFiles)
+            throw new InvalidDataException("UM-BACKUP-FILE-LIMIT");
         if(!result.TryAdd(relative,full))throw new InvalidDataException("Duplicate backup path");
     }
     private static bool IsInside(string root,string candidate)=>
