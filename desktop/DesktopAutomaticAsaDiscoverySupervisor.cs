@@ -76,17 +76,18 @@ public sealed class DesktopAutomaticAsaDiscoverySupervisor : IDisposable
         if(Volatile.Read(ref disposed)!=0)
             throw new ObjectDisposedException(nameof(DesktopAutomaticAsaDiscoverySupervisor));
         if(Interlocked.Exchange(ref started,1)!=0)return;
+        var token=cancel.Token;
         loop=Task.Run(async()=>{
             using var timer=new PeriodicTimer(TimeSpan.FromSeconds(15));
             try
             {
                 do
                 {
-                    if(cancel.IsCancellationRequested)break;
+                    if(token.IsCancellationRequested)break;
                     RefreshOnce();
-                }while(await timer.WaitForNextTickAsync(cancel.Token));
+                }while(await timer.WaitForNextTickAsync(token));
             }
-            catch(OperationCanceledException) when(cancel.IsCancellationRequested)
+            catch(OperationCanceledException) when(token.IsCancellationRequested)
             { /* Manager closed; never touch the running ASA processes */ }
         });
     }
