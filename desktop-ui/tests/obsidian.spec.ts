@@ -36,6 +36,20 @@ test.beforeEach(async ({ page }) => {
         state.remote=null;
         state.peerMessage="Peer nincs beállítva";
       };
+    (window as typeof window & {__UNTAMED_AUTO_DISCOVERY_FIXTURE__?:()=>void})
+      .__UNTAMED_AUTO_DISCOVERY_FIXTURE__=()=>{
+        Object.assign(state,{asaDiscovery:{
+          status:"ok",fresh:true,observedUtc:"2026-11-12T08:00:00Z",
+          processes:[
+            {pid:4001,processKind:"asaServer",mapKey:"Aberration_WP",
+              matchState:"profileCandidate"},
+            {pid:4002,processKind:"asaServer",mapKey:"Unknown_WP",
+              matchState:"unverified"},
+            {pid:4003,processKind:"apiLoader",mapKey:"Aberration_WP",
+              matchState:"profileCandidate"}
+          ]
+        }});
+      };
     (window as typeof window & {__UNTAMED_OBSERVED_MAP_FIXTURE__?:()=>void})
       .__UNTAMED_OBSERVED_MAP_FIXTURE__=()=>{
         Object.assign(state.local.maps[1],{
@@ -3611,6 +3625,22 @@ test("adopting an observed live map opens actual lifecycle UI without navigating
   await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
   await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeEnabled();
   await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
+});
+
+test("dashboard continuously exposes every observed ASA process without false lifecycle ownership",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_AUTO_DISCOVERY_FIXTURE__?:()=>void
+  }).__UNTAMED_AUTO_DISCOVERY_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await expect(page.getByRole("status").filter({
+    hasText:"Automatikus ASA-felderítés"
+  })).toContainText("2 szerverfolyamat, 1 API Loader");
+  await expect(page.getByRole("status").filter({
+    hasText:"Automatikus ASA-felderítés"
+  })).toContainText("1 ismeretlen vagy még nem átvett PID");
+  await page.getByRole("button",{name:"Folyamatok és átvétel"}).click();
+  await expect(page.getByRole("region",{name:"Futó helyi ASA-folyamatok"})).toBeVisible();
 });
 
 test("running Aberration Store-v1 stale Launch journal is reviewed once, never auto-replayed",async({page})=>{
