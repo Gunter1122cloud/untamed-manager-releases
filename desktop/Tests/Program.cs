@@ -1597,6 +1597,25 @@ try
         Check(File.ReadAllText(iniFile).Contains("Example=3")&&
               File.ReadAllText(iniFile).Contains("Foreign=new"),
             "independent disk and user values survive the approved merge");
+        // External comment edits are independent of an operator changing a
+        // different existing value. They must survive rebase byte-for-byte.
+        var commentsOpen=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        IsOk(commentsOpen,"comment-only concurrent edit opens its old INI baseline");
+        string commentsToken=commentsOpen.GetProperty("data").GetProperty("token").GetString()!;
+        string commentsBaseline=File.ReadAllText(iniFile);
+        File.WriteAllText(iniFile,commentsBaseline.Replace("; keep comment","; changed by external editor"));
+        var commentsRebase=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=commentsToken,content=commentsBaseline.Replace("Example=3","Example=7")});
+        IsOk(commentsRebase,"external comment change is nonconflicting with independent INI value edit");
+        string commentsMerged=commentsRebase.GetProperty("data").GetProperty("content").GetString()!;
+        Check(commentsMerged.Contains("Example=7")&&
+              commentsMerged.Contains("; changed by external editor")&&
+              File.ReadAllText(iniFile).Contains("Example=3"),
+            "three-way rebase keeps external comments and remains a no-write preview");
+        IsOk(await Call(ini.HandleAsync,"ini.close",new{token=commentsToken}),
+            "close comment rebase without saving or touching ASA process");
+        File.WriteAllText(iniFile,commentsBaseline);
         var collisionOpen=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
         string collisionToken=collisionOpen.GetProperty("data").GetProperty("token").GetString()!;

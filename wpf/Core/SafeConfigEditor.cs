@@ -96,9 +96,10 @@ public static class SafeConfigEditor
     /// <summary>
     /// Safe optimistic rebase of an INI edit onto a newer on-disk snapshot.
     /// It never writes files. Only VALUE changes on EXISTING, positionally
-    /// stable key=value lines may be merged; comments, headers, arrays,
-    /// added/removed/reordered lines or ambiguous structural changes require
-    /// manual review. A same-line edit by two writers is a hard conflict.
+    /// stable key=value lines may be merged. Unrelated external edits of an
+    /// existing comment are preserved if the operator did not edit that line.
+    /// Headers, arrays, added/removed/reordered lines or ambiguous structural
+    /// changes require manual review. Conflicting same-line edits fail closed.
     /// Duplicate ASA INI keys remain distinct positional entries.
     /// </summary>
     public static IniRebaseResult RebaseIni(ConfigSnapshot original,
@@ -124,6 +125,16 @@ public static class SafeConfigEditor
         {
             if(before[i]==disk[i])continue;
             string line=before[i].TrimStart();
+            string freshLine=disk[i].TrimStart();
+            if((line.StartsWith(';')||line.StartsWith('#')) &&
+               (freshLine.StartsWith(';')||freshLine.StartsWith('#')))
+            {
+                // Another editor may update a comment without changing the
+                // section or any ASA key. Preserve those disk bytes exactly,
+                // but never silently merge competing edits to the comment.
+                if(user[i]!=before[i])throw new ConfigMergeConflictException();
+                continue;
+            }
             int eq=before[i].IndexOf('=');
             if(eq<=0||line.StartsWith('[')||
                line.StartsWith(';')||line.StartsWith('#')||
