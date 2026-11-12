@@ -2976,9 +2976,16 @@ try
         var beforeJournal=await Call(journalBridge.HandleAsync,
             "servers.lifecycleJournal",new{mapId=stopLabMap.Id});
         IsOk(beforeJournal,"native lifecycle journal can be observed read-only");
-        Check(!beforeJournal.GetProperty("data")
-                  .GetProperty("needsOperatorReview").GetBoolean(),
-            "completed graceful stop has no pending operator review");
+        Check(beforeJournal.GetProperty("data")
+                  .GetProperty("needsOperatorReview").GetBoolean()&&
+              beforeJournal.GetProperty("data")
+                  .GetProperty("restartPhase").GetString()=="NeedsOperator"&&
+              !beforeJournal.GetProperty("data")
+                  .GetProperty("recoverySupported").GetBoolean()&&
+              beforeJournal.GetProperty("data")
+                  .GetProperty("blockingCode").GetString()==
+                  "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR",
+            "completed graceful stop does not hide a distinct unresolved Restart-v1 journal on a non-Store map");
         using(var lease=lab.Operations.Acquire(stopRoot,UntamedOperationKind.Launch))
         {
             lease.MarkMutationStarted();
