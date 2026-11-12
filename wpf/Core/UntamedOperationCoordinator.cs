@@ -171,6 +171,75 @@ public sealed class UntamedOperationCoordinator
         finally{semaphore.Release();}
     }
 
+    /// <summary>
+    /// Explicit recovery for an OLD, uncertain original Store-v1 Launch/Stop
+    /// attempt when the EXACT original ASA server is still running. This
+    /// does NOT certify the old operation's success and never resends DoExit,
+    /// SaveWorld, DinoWipe or Start. The native bridge must independently pin
+    /// and recheck the PID + start time, RCON listener, original ACTIVE/DONE
+    /// session and DPAPI-backed map profile before it supplies the verifier.
+    ///
+    /// A durable copy of the original journal is preserved; the journal is
+    /// transitioned to OperatorReviewed only under the SAME cross-process
+    /// installation semaphore used by Start/Stop/Admin/SteamCMD.
+    /// </summary>
+    internal void ReviewRunningOriginalLaunch(string installation,
+        Guid expectedOperation,Func<bool> verifyOriginalRunning)
+    {
+        ArgumentNullException.ThrowIfNull(verifyOriginalRunning);
+        if(expectedOperation==Guid.Empty)
+            throw new InvalidDataException("UM-RECOVERY-OPERATION-ID");
+        string key=ResourceKey(installation);
+        using var semaphore=new Semaphore(1,1,"Global\\Untamed-Operation-v1-"+key);
+        if(!semaphore.WaitOne(0))
+            throw new IOException("UM-RECOVERY-OPERATION-STILL-OWNED");
+        try
+        {
+            Directory.CreateDirectory(LocalPath(stateRoot));
+            string journal=Path.Combine(stateRoot,key+".json");
+            var old=Read(journal,key);
+            if(old==null||old.Operation!=expectedOperation)
+                throw new InvalidOperationException("UM-RECOVERY-JOURNAL-CHANGED");
+            // NEVER review an in-flight mutation, failed Backup/Restore, or
+            // an EmergencyKill through the running-Launch recovery route.
+            if(old.Kind!=UntamedOperationKind.Launch||
+               old.Phase!=UntamedOperationPhase.NeedsOperator)
+                throw new UnauthorizedAccessException("UM-RECOVERY-LAUNCH-NEEDS-OPERATOR-ONLY");
+            // A failed DoExit/Restart can still be in flight for a while.
+            // No time-based auto-clear: age merely qualifies a MANUAL review.
+            if(DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
+                throw new InvalidOperationException("UM-RECOVERY-OPERATION-TOO-RECENT");
+            if(!verifyOriginalRunning())
+                throw new UnauthorizedAccessException("UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
+            string audit=Path.Combine(stateRoot,key+"-"+old.Operation.ToString("N")+
+                ".operator-reviewed.json");
+            byte[] bytes=File.ReadAllBytes(journal);
+            if(File.Exists(audit))
+            {
+                if((File.GetAttributes(audit)&FileAttributes.ReparsePoint)!=0||
+                   !CryptographicOperations.FixedTimeEquals(
+                       SHA256.HashData(File.ReadAllBytes(audit)),SHA256.HashData(bytes)))
+                    throw new InvalidDataException("UM-RECOVERY-AUDIT-MISMATCH");
+            }
+            else
+            {
+                using var stream=new FileStream(audit,FileMode.CreateNew,
+                    FileAccess.Write,FileShare.None,4096,FileOptions.WriteThrough);
+                stream.Write(bytes);
+                stream.Flush(flushToDisk:true);
+            }
+            // Do not change the record if the physical source changed between
+            // the two independent fresh observations under the same lease.
+            if(!verifyOriginalRunning())
+                throw new UnauthorizedAccessException("UM-RECOVERY-SOURCE-CHANGED");
+            Write(journal,old with {
+                Phase=UntamedOperationPhase.OperatorReviewed,
+                UpdatedUtc=DateTimeOffset.UtcNow
+            });
+        }
+        finally{semaphore.Release();}
+    }
+
     public Batch AcquireMany(IEnumerable<string> installations,UntamedOperationKind kind)
     {
         var leases=new List<Lease>();
