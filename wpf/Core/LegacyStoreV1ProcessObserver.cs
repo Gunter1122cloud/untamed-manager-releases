@@ -70,6 +70,13 @@ public static class LegacyStoreV1ProcessObserver
                 "-ClusterDirOverride=",StringComparison.OrdinalIgnoreCase)).ToArray();
             if(paths.Length!=1)return false;
             string sharedPath=paths[0]["-ClusterDirOverride=".Length..];
+            if(!string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory)&&
+               !sharedPath.Equals(map.HistoricalRuntimeTransferDirectory,
+                   StringComparison.OrdinalIgnoreCase))
+                return false;
+            if(string.IsNullOrWhiteSpace(map.HistoricalRuntimeClusterId)!=
+               string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory))
+                return false;
             // After an approved Obsidian runtime edit, the saved map profile
             // (not the old Kova peer marker) determines the exact expected
             // cluster and mod order for local PID reattachment.
