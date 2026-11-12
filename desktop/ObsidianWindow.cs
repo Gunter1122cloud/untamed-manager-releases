@@ -618,7 +618,8 @@ public sealed class ObsidianWindow : Form
                         freshRoute = name is "steam.freshPreflight" or "steam.freshStart" or
                             "steam.freshStatus" or "steam.freshCurrent" or
                             "steam.freshCancel" or "steam.freshDiscard" or
-                            "steam.freshRegister" or "steam.freshBrowse";
+                            "steam.freshRegister" or "steam.freshBrowse" or
+                            "steam.freshRecoverPreview" or "steam.freshRecoverRegister";
                         initialRoute = name is "servers.initialStatus" or
                             "servers.initialPreview" or "servers.initialApply";
                         freshStoreEnrollmentRoute = name is "freshStore.enrollmentStatus" or
