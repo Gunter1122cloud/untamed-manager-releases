@@ -39,8 +39,9 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         cluster=service??throw new ArgumentNullException(nameof(service));
         originalGuard=sourceGuard??(map=>
             LegacyStoreV1LiveReadGate.InspectOriginalActive(map,
-                Path.Combine(Environment.GetFolderPath(
-                    Environment.SpecialFolder.ApplicationData),"Kova"))
+                LegacyStoreV1PinnedSource.Resolve(cluster.Store.Root,
+                    Path.Combine(Environment.GetFolderPath(
+                        Environment.SpecialFolder.ApplicationData),"Kova"),map))
                 .CompletedOriginalSourceGuard);
         rconProof=iniEvidence??AsaRconConfigurationEvidence.Matches;
         apiProcessObserver=apiObserver??(map=>
