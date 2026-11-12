@@ -30,6 +30,16 @@ public static class PremiumBackupWorkflowTests
         {tooLarge=true;}
         Check(tooMany&&tooLarge,
             "offline backup file and size ceilings reject oversized sources before copying");
+        bool localLimitDenied=false,localByteDenied=false;
+        var narrower=new BackupResourcePolicy(1,1024*1024,true);
+        try{LocalBackupWorkflow.ValidateFileBudget(2,100,narrower);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-FILE-LIMIT")
+        {localLimitDenied=true;}
+        try{LocalBackupWorkflow.ValidateFileBudget(1,1024*1024+1,narrower);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-BYTE-LIMIT")
+        {localByteDenied=true;}
+        Check(localLimitDenied&&localByteDenied,
+            "operator-configured offline limits reject file count and byte size before staging");
         bool worldLimitRejected=false,negativeWorldRejected=false;
         Check(UntamedWorldBackup.CheckedWorldBytes(1,
             UntamedWorldBackup.MaxWorldPackageBytes-1)==
