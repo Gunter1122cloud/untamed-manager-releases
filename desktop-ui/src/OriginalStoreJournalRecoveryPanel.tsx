@@ -31,16 +31,22 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
   const apply=async()=>{
     if(!prepared||typed!==approval||!confirmed||busy)return;
     const token=prepared.token;
+    const expectedPair=prepared.pairedJournals??1;
+    const oldPid=prepared.pid;
     setBusy(true);setPrepared(null);setError("");
     try{
       const result=await managerBridge.originalStoreLifecycleRecoveryApply(
         mapId,token,typed);
       if(result.state!=="operatorReviewed"||!result.originalJournalAudited||
          !result.previousOutcomeStillUnknown||result.processStarted||
-         result.processStopped||result.rconCommandSent)
+         result.processStopped||result.rconCommandSent||
+         result.restartMarkedSuccessful===true||
+         (expectedPair===2&&(!result.restartJournalAudited||
+           result.pairedJournalsReviewed!==2||result.oldRunningPid!==oldPid)))
         throw new Error("UM-RECOVERY-INVALID-NATIVE-RECEIPT");
       setReceipt(true);
-      await onRecovered();
+      try{await onRecovered();}
+      catch{setError("UM-RECOVERY-FINISHED-UI-REFRESH-FAILED: az audit elkészült, csak a nézet frissítése nem sikerült; NE ismételd a műveletet.");}
     }catch(e){setError(e instanceof Error?e.message:"UM-RECOVERY-APPLY-FAILED");}
     finally{setBusy(false);}
   };
@@ -53,15 +59,35 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
         A korábbi <b>{journal.kind??"Launch"} / {journal.phase??"NeedsOperator"}</b>
         művelet eredménye nem ismert. Az előző parancs NEM lesz újraküldve,
         és az auditnapló NEM lesz törölve.</p>
-      <p className="muted small">Napóazonosító: {journal.operationId??"nem olvasható"}.
-        Az eredeti ASA PID, indításiidő, RCON-porttulajdonos, a Kova ACTIVE/DONE
-        session és a jelenlegi Manager-profil friss igazolása kötelező.</p>
+      <p className="muted small">Műveleti napló: {journal.operationId??"nem olvasható"}
+        {" · "}{journal.changedUtc??"időpont nem olvasható"}
+        {" · "}{journal.blockingCode??"ismeretlen blokkoló"}.
+        Az eredeti ASA PID, indításiidő, RCON-porttulajdonos, INI,
+        a Kova ACTIVE/DONE session és a jelenlegi Manager-profil
+        friss igazolása kötelező.</p>
+      {journal.restartJournalExists&&<div className="warning-inline">
+        <ShieldCheck size={16}/>
+        <span><b>Összetartozó Restart-v1 napló:</b> {journal.restartId??"ismeretlen"}
+          {" · "}{journal.restartPhase??"ismeretlen fázis"}
+          {" · régi PID "}{journal.restartOldPid??"?"}
+          {" · új PID "}{journal.restartNewPid??"?"}.
+          {" "}{journal.restartClassification==="operatorReviewed"?
+            "Az előző rendezésben már auditálva: nem sikeres restart.":
+            "A régi ASA tovább fut; a korábbi restart kimenetele nem lesz sikeresnek minősítve."}
+        </span>
+      </div>}
       {!prepared&&!receipt&&<button type="button" className="secondary"
         disabled={busy} onClick={()=>{void inspect();}}>
         {busy?"Ellenőrzés…":"Helyreállítás előellenőrzése"}
       </button>}
       {prepared&&<div className="import-preview" aria-label="Store-v1 napló-helyreállítás előnézete">
-        <p><b>{prepared.mapName}</b> · PID {prepared.pid} · RCON {prepared.rconPort}</p>
+        <p><b>{prepared.mapName}</b> · PID {prepared.pid} · RCON {prepared.rconPort}
+          {" · "}{prepared.pairedJournals??1} napló felülvizsgálata</p>
+        {prepared.restartId&&<p className="muted small">
+          Restart-v1 {prepared.restartId} · {prepared.restartPhase} ·
+          régi PID {prepared.restartOldPid}, új PID {prepared.restartNewPid}.
+          Az eredeti ASA-folyamatot megtartjuk; nem lesz új Start, DoExit vagy SaveWorld.
+        </p>}
         <p className="muted small">Az előző művelet kimenetele továbbra is bizonytalan.
           Az audit után a későbbi műveletek új, önálló jóváhagyással indíthatók.</p>
         <label><input type="checkbox" checked={confirmed} disabled={busy}
@@ -82,8 +108,8 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
         </button>
       </div>}
       {receipt&&<div className="success-inline" role="status"><CheckCircle2 size={16}/>
-        A korábbi napló auditmásolata megmaradt, kezelői felülvizsgálata kész.
-        Új parancsot nem küldtem.
+        Az összetartozó műveleti naplók auditálva, a korábbi restart
+        eredménye továbbra is bizonytalan. Új parancsot nem küldtem.
       </div>}
       {error&&<div className="error-inline" role="alert">
         <AlertTriangle size={16}/>{error}. Nem történt automatikus ismétlés.
