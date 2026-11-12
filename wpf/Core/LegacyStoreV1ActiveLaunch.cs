@@ -26,7 +26,7 @@ public static class LegacyStoreV1ActiveLaunch
     public sealed record Input(string MapKey,int GamePort,int QueryPort,
         IReadOnlyList<string> Mods,IReadOnlyList<string> PassiveMods,
         string ClusterId,string ClusterPath,string OriginalPhase,
-        string GameUserSettingsIni);
+        string GameUserSettingsIni,bool SourcePinnedClusterOnly=true);
     public sealed record Result(string[] Arguments,string MapKey,int GamePort,
         int QueryPort,string[] ModOrder,string[] PassiveModOrder,
         string StoreMode,bool ConversionRequested,string Evidence);
@@ -41,7 +41,8 @@ public static class LegacyStoreV1ActiveLaunch
         if(data.GamePort is <1024 or >65535||data.QueryPort is <1024 or >65535||
            data.GamePort==data.QueryPort)
             throw new InvalidDataException("UM-STORE-V1-PORTS");
-        if(data.ClusterId!="KovaCluster"||!ClusterName.IsMatch(data.ClusterId))
+        if(!ClusterName.IsMatch(data.ClusterId)||
+           (data.SourcePinnedClusterOnly&&data.ClusterId!="KovaCluster"))
             throw new InvalidDataException("UM-STORE-V1-CLUSTER-IDENTITY");
         if(!ValidWindowsClusterPath(data.ClusterPath))
             throw new InvalidDataException("UM-STORE-V1-CLUSTER-PATH");
@@ -55,8 +56,11 @@ public static class LegacyStoreV1ActiveLaunch
         ValidateIniPort(data.GameUserSettingsIni,"Port",data.GamePort);
         ValidateIniPort(data.GameUserSettingsIni,"QueryPort",data.QueryPort);
         var passive=data.PassiveMods.ToArray();
-        var order=passive.Concat(data.Mods.Where(x=>!passive.Contains(x,StringComparer.Ordinal)))
-            .Distinct(StringComparer.Ordinal).ToArray();
+        // The -mods switch is an ordered list, not a passive-first group.
+        // -passivemods selects a subset without reshuffling that list.
+        var order=data.Mods.ToArray();
+        if(order.Distinct(StringComparer.Ordinal).Count()!=order.Length)
+            throw new InvalidDataException("UM-STORE-V1-DUPLICATE-MOD");
         var args=new List<string> {
             data.MapKey+"?listen",
             "-Port="+data.GamePort.ToString(CultureInfo.InvariantCulture),
