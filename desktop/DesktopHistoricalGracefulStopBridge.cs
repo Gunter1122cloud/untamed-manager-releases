@@ -132,9 +132,11 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         lock(sync)
             if(currentJob!=null&&currentJob.MapId==reviewedMapId&&
                currentJob.State is "queued" or "running")return false;
+        var sourceProfile=LegacyStoreV1PinnedSource.Resolve(cluster.Store.Root,
+            Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.ApplicationData),"Kova"),reviewedMap);
         var sourceWitness=LegacyStoreV1LiveReadGate.InspectOriginalActive(
-            reviewedMap,Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.ApplicationData),"Kova"));
+            reviewedMap,sourceProfile);
         return sourceWitness.CompletedOriginalSourceGuard&&
             string.Equals(sourceWitness.SourceStateSha256,reviewedSourceSha,
                 StringComparison.Ordinal);
