@@ -169,26 +169,26 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                            !TextField(data,"clusterId",80,out var clusterId)||
                            !TextField(data,"transferRoot",520,out var transferRoot))
                             return Fail(id,"UM-STORE-RUNTIME-SETTINGS-INVALID");
-                        var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
-                        if(map==null||!map.HistoricalStoreProtected||
-                           map.ObservedReadOnlyImported)
+                        var runtimeMap=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
+                        if(runtimeMap==null||!runtimeMap.HistoricalStoreProtected||
+                           runtimeMap.ObservedReadOnlyImported)
                             return Fail(id,"UM-STORE-RUNTIME-LOCAL-MAP-REQUIRED");
                         string legacy=Path.Combine(Environment.GetFolderPath(
                             Environment.SpecialFolder.ApplicationData),"Kova");
                         string source=LegacyStoreV1PinnedSource.Resolve(
-                            cluster.Store.Root,legacy,map);
+                            cluster.Store.Root,legacy,runtimeMap);
                         if(string.Equals(source,legacy,StringComparison.OrdinalIgnoreCase))
                             return Fail(id,"UM-STORE-RUNTIME-SOURCE-PIN-REQUIRED");
-                        HistoricalLocalConfigGuard.DemandStopped(cluster,map);
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,runtimeMap);
                         var candidate=JsonSerializer.Deserialize<LocalMap>(
-                            JsonSerializer.Serialize(map)) ??
+                            JsonSerializer.Serialize(runtimeMap)) ??
                             throw new InvalidDataException("UM-STORE-RUNTIME-CLONE");
                         candidate.GamePort=game;candidate.QueryPort=query;
                         candidate.HistoricalRuntimeClusterId=clusterId;
                         candidate.HistoricalRuntimeTransferDirectory=transferRoot;
                         LocalMapPortPolicy.RequireNoConflicts(candidate,
                             cluster.Config.LocalMaps);
-                        string ini=AsaInitialRconSettings.NewIniPath(map.InstallationPath);
+                        string ini=AsaInitialRconSettings.NewIniPath(runtimeMap.InstallationPath);
                         using var held=new VaultReadSnapshot();
                         byte[] iniBytes=held.Read(ini,131072);
                         // The existing editor is the ONLY way to modify an
@@ -203,11 +203,11 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             SourcePinnedClusterOnly:false));
                         string gusSha=Convert.ToHexString(SHA256.HashData(iniBytes));
                         var token=Guid.NewGuid();
-                        pendingRuntimeSettings=new(token,map.Id,
-                            JsonSerializer.Serialize(map),gusSha,game,query,
+                        pendingRuntimeSettings=new(token,runtimeMap.Id,
+                            JsonSerializer.Serialize(runtimeMap),gusSha,game,query,
                             clusterId,transferRoot,DateTimeOffset.UtcNow.AddMinutes(5));
                         return Ok(id,new{
-                            token,mapId=map.Id,gamePort=game,queryPort=query,
+                            token,mapId=runtimeMap.Id,gamePort=game,queryPort=query,
                             clusterId,transferRoot,sourcePinVerified=true,
                             noAutomaticTransfer=true,requiresStoppedProcess=true,
                             iniMustAlreadyMatchPorts=true,requiresApproval=true,
@@ -221,19 +221,19 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                        runtimePhrase!="OBSIDIAN MAP KONFIG"||
                        pendingRuntimeSettings?.Token!=runtimeToken)
                         return Fail(id,"UM-STORE-RUNTIME-EXPLICIT-APPROVAL");
-                    var staged=pendingRuntimeSettings!;
+                    var runtimeStage=pendingRuntimeSettings!;
                     pendingRuntimeSettings=null;
-                    if(staged.ExpiresUtc<DateTimeOffset.UtcNow)
+                    if(runtimeStage.ExpiresUtc<DateTimeOffset.UtcNow)
                         return Fail(id,"UM-STORE-RUNTIME-PREVIEW-EXPIRED");
-                    var owned=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==staged.MapId);
-                    if(owned==null||JsonSerializer.Serialize(owned)!=staged.MapSnapshot)
+                    var owned=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==runtimeStage.MapId);
+                    if(owned==null||JsonSerializer.Serialize(owned)!=runtimeStage.MapSnapshot)
                         return Fail(id,"UM-STORE-RUNTIME-MAP-CHANGED");
                     HistoricalLocalConfigGuard.DemandStopped(cluster,owned);
                     using var operation=cluster.Operations.Acquire(
                         owned.InstallationPath,UntamedOperationKind.Configuration);
                     HistoricalLocalConfigGuard.DemandStopped(cluster,owned,
                         underOwnOperation:true);
-                    if(JsonSerializer.Serialize(owned)!=staged.MapSnapshot)
+                    if(JsonSerializer.Serialize(owned)!=runtimeStage.MapSnapshot)
                         return Fail(id,"UM-STORE-RUNTIME-MAP-CHANGED");
                     string original=LegacyStoreV1PinnedSource.Resolve(
                         cluster.Store.Root,Path.Combine(Environment.GetFolderPath(
@@ -244,22 +244,22 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     {
                         byte[] current=held.Read(AsaInitialRconSettings.NewIniPath(
                             owned.InstallationPath),131072);
-                        if(Convert.ToHexString(SHA256.HashData(current))!=staged.GusSha)
+                        if(Convert.ToHexString(SHA256.HashData(current))!=runtimeStage.GusSha)
                             return Fail(id,"UM-STORE-RUNTIME-INI-CHANGED");
                         var candidate=JsonSerializer.Deserialize<LocalMap>(
-                            staged.MapSnapshot) ??
+                            runtimeStage.MapSnapshot) ??
                             throw new InvalidDataException("UM-STORE-RUNTIME-CLONE");
-                        candidate.GamePort=staged.GamePort;
-                        candidate.QueryPort=staged.QueryPort;
-                        candidate.HistoricalRuntimeClusterId=staged.ClusterId;
-                        candidate.HistoricalRuntimeTransferDirectory=staged.TransferRoot;
+                        candidate.GamePort=runtimeStage.GamePort;
+                        candidate.QueryPort=runtimeStage.QueryPort;
+                        candidate.HistoricalRuntimeClusterId=runtimeStage.ClusterId;
+                        candidate.HistoricalRuntimeTransferDirectory=runtimeStage.TransferRoot;
                         LocalMapPortPolicy.RequireNoConflicts(candidate,
                             cluster.Config.LocalMaps);
                         var mods=ModStateController.Read(candidate);
                         _=LegacyStoreV1ActiveLaunch.Build(new(
                             candidate.HistoricalMapKey,candidate.GamePort,
                             candidate.QueryPort,mods.EnabledOrder.ToArray(),
-                            mods.Passive.ToArray(),staged.ClusterId,staged.TransferRoot,
+                            mods.Passive.ToArray(),runtimeStage.ClusterId,runtimeStage.TransferRoot,
                             "active",Encoding.UTF8.GetString(current),
                             SourcePinnedClusterOnly:false));
                         operation.MarkMutationStarted();
@@ -267,7 +267,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     }
                     operation.Complete();
                     return Ok(id,new{
-                        mapId=staged.MapId,updated=true,
+                        mapId=runtimeStage.MapId,updated=true,
                         portAndClusterSettingsStoredInManager=true,
                         kovaFilesWritten=false,asaFilesWritten=false,
                         noServerStarted=true,noRconSent=true,
@@ -326,8 +326,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         stage.ApprovedLocalMapIds.Contains(m.Id)).ToArray();
                     if(current.Length!=stage.ApprovedLocalMapIds.Length)
                         return Fail(id,"UM-STORE-SOURCE-PIN-MAP-REMOVED");
-                    foreach(var map in current)
-                        LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
+                    foreach(var sourceMap in current)
+                        LegacyStoreV1PinnedSource.RequireImmutableIdentity(sourceMap,source);
                     LegacyStoreV1PinnedSource.Capture(localLegacyDataDirectory,
                         cluster.Store.Root,stage.FourHash,stage.LaunchHash);
                     return Ok(id,new{
