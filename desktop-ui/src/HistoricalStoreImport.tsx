@@ -3,6 +3,7 @@ import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucid
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
   type OriginalKovaLocalMapList, type OriginalKovaImportPreview,
   type OriginalKovaBatchPreview, type OriginalKovaLiveBatchPreview,
+  type OriginalKovaLiveOperationBlockers,
   type OriginalKovaClusterPreview } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
@@ -15,6 +16,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [batchPreview,setBatchPreview]=useState<OriginalKovaBatchPreview|null>(null);
   const [batchApproved,setBatchApproved]=useState(false);
   const [liveBatchPreview,setLiveBatchPreview]=useState<OriginalKovaLiveBatchPreview|null>(null);
+  const [liveBlockers,setLiveBlockers]=useState<OriginalKovaLiveOperationBlockers|null>(null);
   const [liveControllerStopped,setLiveControllerStopped]=useState(false);
   const [liveTypedApproval,setLiveTypedApproval]=useState("");
   const [liveClockMs,setLiveClockMs]=useState(()=>Date.now());
@@ -235,7 +237,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     const epoch=++directEpoch.current;
     setDirectBusy(true);setDirectError("");setDirectNotice("");
     setBatchPreview(null);setBatchApproved(false);setLiveBatchPreview(null);
-    setLiveControllerStopped(false);setLiveTypedApproval("");
+    setLiveBlockers(null);setLiveControllerStopped(false);setLiveTypedApproval("");
     try{
       const proof=await managerBridge.historicalOriginalLiveBatchPreview();
       if(epoch===directEpoch.current){
@@ -244,6 +246,13 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }catch(e){
       if(epoch===directEpoch.current){
         const code=e instanceof Error?e.message:"UM-ORIGINAL-LIVE-UNVERIFIED";
+        if(code==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"){
+          try{
+            const blockers=await managerBridge.historicalOriginalLiveOperationBlockers();
+            if(epoch===directEpoch.current)setLiveBlockers(blockers);
+          }catch{/* Preserve the original specific native blocker code. */}
+        }
+        if(epoch!==directEpoch.current)return;
         setDirectError(code==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"?
           "Az ötmapos újracsatlakoztatást egy korábbi ASA Launch/Stop "+
           "NeedsOperator napló zárolja. Nyisd meg az érintett Store-v1 map "+
@@ -464,6 +473,23 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               onClick={()=>{void previewLiveFive();}}>
               <Shield size={16}/> Öt már futó eredeti Store-v1 map teljes natív felismerése
             </button>
+          </div>}
+        {liveBlockers&&liveBlockers.blockedCount>0&&
+          <div className="historical-preview" role="region"
+            aria-label="Öt Store-v1 map zároló műveleti naplói">
+            <h4>Zároló naplók: {liveBlockers.blockedCount}/{liveBlockers.mapCount}</h4>
+            <p>Ez a naplóhiba nem jelenti azt, hogy az ASA leállt. Az
+              újracsatlakoztatás önmagában semmilyen régi parancsot nem ismétel.</p>
+            {liveBlockers.blockedMaps.map(blocker=><div key={blocker.mapId}
+              className="warning-inline">
+              <Shield size={15}/>
+              <span><b>{blocker.mapName}</b> – {blocker.kind} / {blocker.phase}
+                {" · "}{blocker.blockingCode}
+                {" · "}{blocker.supportedReviewInMapDetails?
+                  "Nyisd meg a map adatlapját: auditált helyreállítás, majd új felismerés.":
+                  "Külön natív helyreállítás szükséges; automatikus feloldás nincs."}
+              </span>
+            </div>)}
           </div>}
         {liveBatchPreview&&<div className="historical-preview" role="region"
           aria-label="Öt futó Store-v1 szerver átvételének jóváhagyása">
