@@ -3212,6 +3212,64 @@ try
             "standalone restart audit preserves original bytes and never falsifies a successful restart");
     }
 
+    // Reproduce the ACTUAL native circular preflight, not only the mocked
+    // recovery bridge. All binary/INI/process/port data are synthetic TEMP.
+    {
+        string baseDir=Path.Combine(root,"p0-original-review-circular-guard");
+        string exe=Path.Combine(baseDir,"ShooterGame","Binaries",
+            "Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exe)!);
+        File.WriteAllBytes(exe,new byte[]{0x4D,0x5A});
+        const string password="SYNTHETIC-STORE-REVIEW-ONLY-37045";
+        AsaInitialRconSettings.CreateForNewServer(baseDir,37045,password);
+        var original=new LocalMap{
+            Id=Guid.NewGuid(),Name="Aberration",InstallationPath=baseDir,
+            ExecutablePath=exe,HistoricalStoreProtected=true,
+            HistoricalMapKey="Aberration_WP",RconPort=37045,
+            RconPasswordProtected=SecureStore.Protect(password)
+        };
+        await using var lab=new ClusterService("old-asaserver-proof",
+            Path.Combine(root,"p0-circular-guard-profile"),
+            _=>new ProcessCheck(false,"synthetic",null,true));
+        lab.AddMap(original);
+        var pid=new ProcessIdentity{
+            Pid=16796,StartedUtc=DateTimeOffset.UtcNow.AddHours(-4),
+            ExecutablePath=exe,Arguments="Aberration_WP?listen -usestore"
+        };
+        var ongoing=new ProcessCheck(true,"synthetic running original",pid);
+        var restart=new AsaManualRestartJournal(baseDir);
+        var old=restart.Begin(original.Id,pid.Pid);
+        restart.Change(old.Id,AsaRestartPhase.NeedsOperator);
+        Check(AsaRconConfigurationEvidence.Matches(original),
+            "original recovery verifies DPAPI RCON secret against synthetic INI");
+        bool normalDenied=false;
+        try{_ =LegacyStoreV1GracefulStop.Preview(lab,original.Id,
+            _=>ongoing,_=>new string('A',64),
+            (port,owner)=>port==37045&&owner==16796);}
+        catch(InvalidOperationException ex) when(
+            ex.Message=="UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR")
+        {normalDenied=true;}
+        Check(normalDenied,
+            "ordinary Stop/Restart cannot bypass a NeedsOperator restart journal");
+        var proven=LegacyStoreV1GracefulStop.PreviewForUnfinishedRestartReview(
+            lab,original.Id,_=>ongoing,_=>new string('A',64),
+            (port,owner)=>port==37045&&owner==16796);
+        Check(proven.Map.Id==original.Id&&proven.Process.Pid==16796&&
+            proven.SourceSha==new string('A',64)&&
+            restart.Observe()?.Phase==AsaRestartPhase.NeedsOperator,
+            "explicit review preview breaks circular guard without changing either original journal");
+        bool wrongPidDenied=false;
+        try{_ =LegacyStoreV1GracefulStop.PreviewForUnfinishedRestartReview(
+            lab,original.Id,
+            _=>new ProcessCheck(true,"changed PID",pid with{Pid=16797}),
+            _=>new string('A',64),(port,owner)=>true);}
+        catch(InvalidOperationException ex) when(
+            ex.Message=="UM-RECOVERY-RESTART-OLD-PID-OR-PHASE-MISMATCH")
+        {wrongPidDenied=true;}
+        Check(wrongPidDenied,
+            "read-only recovery still refuses an unexpected ASA PID even with a matching map and RCON listener");
+    }
+
     // Automatic watcher: all ASA and API Loader processes are detected even
     // without registered map profiles, never silently treated as controllable.
     {
