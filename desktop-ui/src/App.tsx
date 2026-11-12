@@ -610,7 +610,7 @@ function Servers({ snapshot, search, setSearch, onSelect, onImported }: {
     {importMode==="new" && <FreshAsaSteamWizard onRegistered={onImported} initialMapName={installMap} onImport={()=>setImportMode("existing")}/>}
     {importMode==="existing" && <LocalAsaImport onImported={onImported}/>}
     {importMode==="store" && <HistoricalStoreImport onImported={onImported}/>}
-    <LocalRunningAsaPanel/>
+    <LocalRunningAsaPanel onRegistered={onImported}/>
     {serverView==="gallery"?<Panel title="Mapkártyák · helyi kezelés / távoli megfigyelés">
       <ClusterMapGallery snapshot={snapshot} query={search} onSelect={onSelect}
         onInstall={openInstall} onImport={()=>setImportMode("existing")}/>
@@ -1708,7 +1708,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     </div>
     {openOriginalStoreEnrollment&&
       <HistoricalStoreImport onImported={onConfigured}/>}
-    <LocalRunningAsaPanel/>
+    <LocalRunningAsaPanel onRegistered={onConfigured}/>
   </div>;
   const sections: Array<{id:MapSection;name:string}>=[
     {id:"overview",name:"Áttekintés"},{id:"monitor",name:"Üzemeltetés"},
