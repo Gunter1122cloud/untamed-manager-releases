@@ -146,6 +146,13 @@ internal static class OriginalStoreFiveMapBackupTests
         catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-POLICY-INVALID")
         {invalidRejected=true;}
         Check(invalidRejected,"invalid resource policy does not silently downgrade to defaults");
+        File.WriteAllText(policyFile,"{\"schema\":1,\"maxFiles\":");
+        bool brokenJsonRejected=false;
+        try{_=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-POLICY-INVALID")
+        {brokenJsonRejected=true;}
+        Check(brokenJsonRejected,
+            "truncated resource policy JSON reports a specific safe error without copying files");
         File.Delete(policyFile);
         Check(!BackupResourcePolicy.ForManagerProfile(cluster.Store.Root).Customized,
             "removing TEMP test-only budget restores the documented default");
