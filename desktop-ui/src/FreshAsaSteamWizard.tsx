@@ -29,6 +29,10 @@ export function FreshAsaSteamWizard({
   const [installRoot,setInstallRoot]=useState("");
   const [steamExe,setSteamExe]=useState("");
   const [explicitRetry,setExplicitRetry]=useState(false);
+  const [recoveryPreview,setRecoveryPreview]=useState<{
+    token:string;mapId:string;mapName:string;mapLevel:string;buildId:string
+  }|null>(null);
+  const [recoveryPhrase,setRecoveryPhrase]=useState("");
   const [job,setJob]=useState<FreshInstallJob|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -133,12 +137,62 @@ export function FreshAsaSteamWizard({
       const result=await managerBridge.freshBrowse();
       if(result.selected && result.installRoot) {
         setInstallRoot(result.installRoot);
+        setRecoveryPreview(null);setRecoveryPhrase("");
         setMessage("Célmappa kiválasztva. Az ASA letöltését az alábbi zöld gomb indítja.");
       }
     }catch{
       setError("A Windows-mappaválasztó nem érhető el. A teljes elérési utat kézzel is megadhatod.");
     }finally{setBusy(false);}
   };
+  const previewCompletedRecovery=async()=>{
+    if(busy||running)return;
+    if(!installRoot.trim()||!resolvedMapName){
+      setError("Add meg a befejezett telepítés mapnevét és teljes helyi mappáját.");
+      return;
+    }
+    setBusy(true);invalidate();setRecoveryPreview(null);setRecoveryPhrase("");
+    try{
+      const proof=await managerBridge.freshRecoverPreview(resolvedMapName,
+        installRoot.trim(),mapName==="__custom__"?customLevel.trim():undefined);
+      setRecoveryPreview(proof);
+      setMessage("A befejezett SteamCMD-napló, az ASA EXE és az appmanifest ellenőrizve. "+
+        "Nem történt új letöltés vagy regisztráció. A mapazonosító megőrzéséhez külön jóváhagyás szükséges.");
+    }catch(e){
+      setError("A befejezett telepítés nem vehető át ("+
+        (e instanceof Error?e.message:"UM-FRESH-RECOVERY-NOT-VERIFIED")+
+        "). A még megszakadt letöltést a külön tudatos folytatással kezeld.");
+    }finally{setBusy(false);}
+  };
+  const registerCompletedRecovery=async()=>{
+    if(busy||!recoveryPreview||recoveryPhrase!=="ASA TELEPÍTÉS ÁTVÉTEL")return;
+    const proof=recoveryPreview;
+    setBusy(true);invalidate();setRecoveryPreview(null);setRecoveryPhrase("");
+    try{
+      const restored=await managerBridge.freshRecoverRegister(
+        proof.token,"ASA TELEPÍTÉS ÁTVÉTEL");
+      jobMutationGeneration.current++;
+      autoRegisterId.current=null;
+      setJob({
+        jobId:restored.jobId,mapId:restored.mapId,mapName:restored.mapName,
+        stage:"registered",detail:"Korábban ellenőrzött ASA-fájlok regisztrálva",
+        percent:100,verified:true,registered:true,errorCode:null,
+        evidence:"NATIVE_STEAMCMD_JOB_STATE"
+      });
+      setRegisteredMapId(restored.mapId);setFirstConfigurationSaved(false);
+      setMessage(restored.mapName+
+        " eredeti mapazonosítóval regisztrálva, letöltés és szerverindítás nélkül. "+
+        "Folytasd az első konfigurációval.");
+      try{await onRegistered();}catch{
+        setError("A map átvétele sikerült, de a szerverlista frissítése nem. "+
+          "Ne ismételd a regisztrációt; nyisd meg újra a Szerverek oldalt.");
+      }
+    }catch(e){
+      setError("A befejezett telepítés regisztrációja nem sikerült ("+
+        (e instanceof Error?e.message:"UM-FRESH-RECOVERY-FAILED")+
+        "). A már telepített ASA-fájlokat nem módosítottuk.");
+    }finally{setBusy(false);}
+  };
+
   const startDownload=async(e:FormEvent)=>{
     e.preventDefault();
     if(busy||running)return;
@@ -153,6 +207,7 @@ export function FreshAsaSteamWizard({
       return;
     }
     jobMutationGeneration.current++;
+    setRecoveryPreview(null);setRecoveryPhrase("");
     setBusy(true);invalidate();
     try{
       // Missing Valve SteamCMD is downloaded automatically; the clicked
@@ -258,7 +313,7 @@ export function FreshAsaSteamWizard({
       <form className="fresh-wizard-form" onSubmit={e=>{void startDownload(e);}}>
         <label>ASA map
           <select aria-label="Új ASA map" value={mapName} disabled={running||busy}
-            onChange={e=>{setMapName(e.target.value);invalidate();}}>
+            onChange={e=>{setMapName(e.target.value);setRecoveryPreview(null);setRecoveryPhrase("");invalidate();}}>
             {mapNames.map(map=><option key={map} value={map}>{map}</option>)}
             <option value="__custom__">Egyedi / modolt ASA map</option>
           </select>
@@ -268,13 +323,13 @@ export function FreshAsaSteamWizard({
             <input aria-label="Egyedi ASA map neve" value={customMapName}
               maxLength={100} disabled={running||busy}
               placeholder="Például: Atlantis"
-              onChange={e=>{setCustomMapName(e.target.value);invalidate();}}/>
+              onChange={e=>{setCustomMapName(e.target.value);setRecoveryPreview(null);setRecoveryPhrase("");invalidate();}}/>
           </label>
           <label>Pontos Unreal map level
             <input aria-label="Egyedi ASA level azonosító" value={customLevel}
               maxLength={80} disabled={running||busy} spellCheck={false}
               placeholder="A mod készítőjétől kapott tényleges level"
-              onChange={e=>{setCustomLevel(e.target.value);invalidate();}}/>
+              onChange={e=>{setCustomLevel(e.target.value);setRecoveryPreview(null);setRecoveryPhrase("");invalidate();}}/>
           </label>
           <p className="muted small">A SteamCMD a közös ASA 2430930 szerverfájlokat telepíti.
             Az egyedi pálya modjait később a Mod Centerben kell megadni.
@@ -283,7 +338,7 @@ export function FreshAsaSteamWizard({
         <label>Új, üres helyi telepítési könyvtár
           <span className="fresh-folder-row">
             <input aria-label="Új ASA célmappa" value={installRoot}
-              onChange={e=>{setInstallRoot(e.target.value);invalidate();}}
+              onChange={e=>{setInstallRoot(e.target.value);setRecoveryPreview(null);setRecoveryPhrase("");invalidate();}}
               placeholder="D:\ASA-Servers\TheIsland" maxLength={520} disabled={running||busy}/>
             <button type="button" className="secondary" disabled={running||busy}
               onClick={()=>{void chooseFolder();}}><FolderOpen size={16}/> Mappa kiválasztása</button>
@@ -304,6 +359,11 @@ export function FreshAsaSteamWizard({
         <button type="submit" className="primary" disabled={running||busy}>
           <HardDrive size={17}/>{busy?"Előkészítés...":running?"Letöltés folyamatban":"ASA letöltés indítása"}
         </button>
+        <button type="button" className="secondary"
+          disabled={busy||running||!installRoot.trim()}
+          onClick={()=>{void previewCompletedRecovery();}}>
+          <Shield size={16}/> Befejezett SteamCMD-telepítés visszavétele (újraindítás után)
+        </button>
         {onImport&&<button type="button" className="secondary"
           disabled={busy||running} onClick={onImport}>
           Már telepített ASA-könyvtár importálása
@@ -311,6 +371,28 @@ export function FreshAsaSteamWizard({
         <p className="muted tiny">A „Letöltés indítása” gomb jóváhagyja az új mappába történő valódi lemezírást.
           A beépített ellenőrzés megállítja a telepítést ütköző, nem üres vagy Store-v1-védett hely esetén.</p>
       </form>
+      {recoveryPreview&&<div className="fresh-job" role="region"
+        aria-label="Befejezett SteamCMD telepítés jóváhagyása">
+        <h3>Ellenőrzött telepítés visszavétele</h3>
+        <p>Map: {recoveryPreview.mapName} · Level: {recoveryPreview.mapLevel} ·
+          Build: {recoveryPreview.buildId}</p>
+        <p className="muted small">A Manager korábbi befejezett telepítési
+          naplójából az eredeti map GUID kerül regisztrálásra, új SteamCMD
+          futtatás, ASA-indítás, INI- vagy Store-v1-módosítás nélkül.
+          A szervernév, portok és RCON külön első konfigurációt igényelnek.</p>
+        <label htmlFor="fresh-complete-recovery-approval">
+          Jóváhagyás – írd be: ASA TELEPÍTÉS ÁTVÉTEL
+        </label>
+        <input id="fresh-complete-recovery-approval" type="text"
+          aria-label="Befejezett telepítés jóváhagyó szöveg"
+          value={recoveryPhrase} autoComplete="off" spellCheck={false}
+          onChange={e=>setRecoveryPhrase(e.target.value)}/>
+        <button type="button" className="primary"
+          disabled={busy||recoveryPhrase!=="ASA TELEPÍTÉS ÁTVÉTEL"}
+          onClick={()=>{void registerCompletedRecovery();}}>
+          Ellenőrzött ASA-fájlok regisztrálása az eredeti GUID-dal
+        </button>
+      </div>}
       {job&&<div className="fresh-job">
         <div className="fresh-job-head"><h3>{job.mapName}</h3><span className="mod-tag amber">
           {job.registered?"Regisztrálva":job.verified?"Ellenőrzött ASA-fájlok":job.errorCode?"Megszakadt":"SteamCMD folyamatban"}</span></div>
