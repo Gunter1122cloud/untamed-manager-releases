@@ -152,7 +152,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     var saved=new AsaManualRestartJournal(map.InstallationPath).Observe();
                     bool belongs=saved!=null&&saved.MapId==map.Id;
-                    bool pending=saved!=null&&saved.Phase!=AsaRestartPhase.Completed;
+                    bool pending=saved!=null&&saved.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
                     return Ok(id,new{
                         exists=saved!=null,belongsToMap=belongs,
                         phase=saved?.Phase.ToString(),
