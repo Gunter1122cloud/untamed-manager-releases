@@ -61,6 +61,9 @@ test.beforeEach(async ({ page }) => {
     let freshId = "";
     let importedObserved=false;
     let adoptedObserved=false;
+    let missingBackupPolicyFixture=false;
+    (window as typeof window & {__UNTAMED_MISSING_BACKUP_POLICY__?:()=>void})
+      .__UNTAMED_MISSING_BACKUP_POLICY__=()=>{missingBackupPolicyFixture=true;};
     let originalLiveFiveFixture=false;
     let originalLiveMixedFixture=false;
     let originalLiveDispatchDenied=false;
@@ -764,8 +767,10 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-BACKUP-ORIGINAL-FIVE-STOPPED-REQUIRED");
           return {token:"00000000-0000-4000-8000-00000000b051",
             localMaps:5,worldBytes:5*1024*1024*1024,
-            maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
-            resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true,
+            ...(missingBackupPolicyFixture?{}:{
+              maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
+              resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true
+            }),
             mapNames:["The Island","Astraeos","The Center",
               "Scorched Earth","Extinction"],
             originalSourcePinned:true,allMapsConfirmedStopped:true,
@@ -807,8 +812,10 @@ test.beforeEach(async ({ page }) => {
             mapName:localBackupMap===two?"Astraeos":"The Island",
             mapKey:localBackupMap===two?"Astraeos_WP":"TheIsland_WP",
             point:null,confirmedStopped:true,
-            maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
-            resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true,
+            ...(missingBackupPolicyFixture?{}:{
+              maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
+              resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true
+            }),
             willCreateProtectiveBackup:false,
             originalWorldRetained:false,storeWriterTouched:false,
             action:"BACKUP",evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
@@ -829,8 +836,10 @@ test.beforeEach(async ({ page }) => {
           mapId:m.mapId,mapName:m.mapId===two?"Astraeos":"The Island",
           mapKey:m.mapId===two?"Astraeos_WP":"TheIsland_WP",
           point:m.point,confirmedStopped:true,
-          maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
-          resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true,
+          ...(missingBackupPolicyFixture?{}:{
+            maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
+            resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true
+          }),
           willCreateProtectiveBackup:true,originalWorldRetained:true,
           storeWriterTouched:false,action:"RESTORE",
           evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
@@ -3333,6 +3342,19 @@ test("Mentésközpont calls real native preview/create and displays verified cha
   await page.screenshot({path:"test-results/uk-real-world-backup-1600.png",fullPage:false});
 });
 
+test("old native backup previews without resource proof cannot be approved",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_MISSING_BACKUP_POLICY__?:()=>void
+  }).__UNTAMED_MISSING_BACKUP_POLICY__?.());
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  await page.getByRole("combobox",{name:"Mentendő helyi map"}).selectOption(second);
+  await page.getByRole("button",{name:"Világmentés készítése"}).click();
+  await expect(page.getByText(/natív Manager mentési előnézete nem tartalmaz ellenőrzött erőforráskorlátot/)).toBeVisible();
+  await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Mentés indítása"})).toHaveCount(0);
+});
+
 test("backup approval and completed receipt never follow another selected map",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Mentések",exact:true}).click();
@@ -5833,6 +5855,27 @@ test("original five-map Kova backup requires one confirmed user action and uses 
     __UNTAMED_FIVE_BACKUP_COPIES__?:()=>number;
   }).__UNTAMED_FIVE_BACKUP_COPIES__?.());
   expect(count).toBe(1);
+});
+
+test("five-map backup refuses mismatched native resource-policy response",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_MISSING_BACKUP_POLICY__?:()=>void;
+    __UNTAMED_FIVE_BACKUP_FIXTURE__?:()=>void;
+  }).__UNTAMED_MISSING_BACKUP_POLICY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FIVE_BACKUP_FIXTURE__?:()=>void;
+  }).__UNTAMED_FIVE_BACKUP_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const section=page.getByRole("region",{name:"Eredeti Store-v1 ötmapos helyi mentés"});
+  await section.getByRole("button",{
+    name:"Mind az 5 eredeti helyi map mentésének ellenőrzése"
+  }).click();
+  await expect(section.getByRole("region",{
+    name:"Eredeti Store-v1 ötmapos mentés jóváhagyása"
+  })).toHaveCount(0);
+  await expect(section).toContainText("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
 });
 
 test("SQL-free offline cluster archive requires four native folders and explicit approval",async ({page})=>{
