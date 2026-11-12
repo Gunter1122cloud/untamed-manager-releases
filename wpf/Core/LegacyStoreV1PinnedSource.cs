@@ -155,6 +155,17 @@ public static class LegacyStoreV1PinnedSource
         if(string.IsNullOrWhiteSpace(effectiveId)||
            string.IsNullOrWhiteSpace(effectivePath))
             throw new InvalidDataException("UM-STORE-RUNTIME-CLUSTER-INCOMPLETE");
+        // Bind approval epochs to the exact *current* ASA configuration
+        // bytes. Otherwise changing the INI between RCON/SaveWorld preview
+        // and apply could reuse an old source SHA even when the running
+        // server settings had changed. Never read shared Store/transfer.
+        using var snapshot=new VaultReadSnapshot();
+        string IniTag(string path,int limit)=>File.Exists(path)
+            ?Convert.ToHexString(SHA256.HashData(snapshot.Read(path,limit)))
+            :"ABSENT";
+        string gus=IniTag(AsaInitialRconSettings.NewIniPath(map.InstallationPath),131072);
+        string game=IniTag(Path.Combine(map.InstallationPath,
+            "ShooterGame","Saved","Config","WindowsServer","Game.ini"),4_000_000);
         var evidence=string.Join("\n",
             source.FourFilesSha256,source.LaunchProfileSha256,
             map.Id.ToString("D"),map.HistoricalMapKey,
@@ -164,7 +175,10 @@ public static class LegacyStoreV1PinnedSource
             map.RconPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
             effectiveId,effectivePath,
             string.Join(",",mods.EnabledOrder),string.Join(",",mods.Passive),
-            map.StartWithAsaApi?"API":"DIRECT");
+            map.StartWithAsaApi?"API":"DIRECT",
+            Path.GetFullPath(map.ExecutablePath??""),
+            map.StartWithAsaApi?Path.GetFullPath(map.ApiLoaderPath??""):"",
+            map.RconPasswordProtected??"",gus,game);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(evidence)));
     }
 
