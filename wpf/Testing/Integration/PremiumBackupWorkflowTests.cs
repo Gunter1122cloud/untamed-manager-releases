@@ -30,6 +30,20 @@ public static class PremiumBackupWorkflowTests
         {tooLarge=true;}
         Check(tooMany&&tooLarge,
             "offline backup file and size ceilings reject oversized sources before copying");
+        bool worldLimitRejected=false,negativeWorldRejected=false;
+        Check(UntamedWorldBackup.CheckedWorldBytes(1,
+            UntamedWorldBackup.MaxWorldPackageBytes-1)==
+            UntamedWorldBackup.MaxWorldPackageBytes,
+            "world backup accepts exact bounded source total");
+        try{UntamedWorldBackup.CheckedWorldBytes(1,
+            UntamedWorldBackup.MaxWorldPackageBytes);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-SIZE-LIMIT")
+        {worldLimitRejected=true;}
+        try{UntamedWorldBackup.CheckedWorldBytes(-1,1);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-SIZE-LIMIT")
+        {negativeWorldRejected=true;}
+        Check(worldLimitRejected&&negativeWorldRejected,
+            "world source and untrusted archive manifests reject oversized and negative lengths");
         string fixture=Path.Combine(root,"premium-backup-center-fixture");
         string install=Path.Combine(fixture,"mock-map");
         string saved=Path.Combine(install,"ShooterGame","Saved");
