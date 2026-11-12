@@ -12,7 +12,7 @@ namespace UntamedManager.Core;
 /// permanent running dependency. On an explicitly approved native import,
 /// copy the five immutable metadata/launch files into the Manager's OWN local
 /// profile. No ASA world, shared Store/transfer, lock or Kova file is written.
-/// The live ACTIVE/DONE peer proof is still mandatory at every native Start.
+/// ACTIVE/DONE belongs to the historical Kova conversion/handoff protocol,\n/// not to ordinary local ASA startup after the immutable source is pinned.
 /// </summary>
 public static class LegacyStoreV1PinnedSource
 {
@@ -85,9 +85,52 @@ public static class LegacyStoreV1PinnedSource
         if(!string.Equals(map.HistoricalArchiveSha256,proof.FourFileHash,
                StringComparison.Ordinal))
             throw new InvalidDataException("UM-STORE-PIN-MAP-IDENTITY");
-        LegacyStoreV1SourceLaunchParity.RequireOriginalMap(
-            map,LegacyStoreV1OriginalImport.Inspect(pinned));
+        RequireImmutableIdentity(map,LegacyStoreV1OriginalImport.Inspect(pinned));
         return pinned;
+    }
+
+    /// <summary>
+    /// The imported GUID, map level, installation root and original source
+    /// fingerprint stay immutable. Ports, enabled/passive mods and cluster
+    /// selection are CURRENT Obsidian settings; comparing them with the
+    /// historical launch profile would incorrectly reject approved edits.
+    /// </summary>
+    public static void RequireImmutableIdentity(LocalMap map,
+        LegacyStoreV1OriginalLocalSelection source)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        ArgumentNullException.ThrowIfNull(source);
+        if(!map.HistoricalStoreProtected||map.Id==Guid.Empty||
+           map.ObservedReadOnlyImported||
+           !string.Equals(map.HistoricalArchiveSha256,
+               source.FourFilesSha256,StringComparison.Ordinal))
+            throw new InvalidDataException("UM-STORE-PIN-OWNER-CHANGED");
+        var original=source.Maps.SingleOrDefault(x=>x.MapId==map.Id);
+        if(original==null||
+           !string.Equals(map.HistoricalMapKey,original.MapKey,StringComparison.Ordinal)||
+           !string.Equals(Path.GetFullPath(map.InstallationPath),
+               Path.GetFullPath(original.OriginalInstallationRoot),
+               StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-STORE-PIN-MAP-ROOT-CHANGED");
+    }
+
+    public sealed record OriginalCluster(string RuntimeClusterId,string TransferRoot);
+
+    public static OriginalCluster ReadOriginalCluster(string profile)
+    {
+        string directory=VaultReadSnapshot.LocalPath(profile,true);
+        using var held=new VaultReadSnapshot();
+        using var doc=JsonDocument.Parse(held.Read(
+            Path.Combine(directory,"cluster-v1.json"),1_048_576));
+        var source=doc.RootElement;
+        if(!source.TryGetProperty("id",out var id)||
+           !source.TryGetProperty("path",out var path)||
+           id.ValueKind!=JsonValueKind.String||
+           path.ValueKind!=JsonValueKind.String||
+           string.IsNullOrWhiteSpace(id.GetString())||
+           string.IsNullOrWhiteSpace(path.GetString()))
+            throw new InvalidDataException("UM-STORE-PIN-CLUSTER-METADATA");
+        return new(id.GetString()!,path.GetString()!);
     }
 
     /// <summary>
