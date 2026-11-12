@@ -14,6 +14,19 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [pinBusy,setPinBusy]=useState(false);
   const [pinError,setPinError]=useState("");
   const [pinNotice,setPinNotice]=useState("");
+  const [runtimeMapId,setRuntimeMapId]=useState("");
+  const [runtimeGame,setRuntimeGame]=useState("");
+  const [runtimeQuery,setRuntimeQuery]=useState("");
+  const [runtimeCluster,setRuntimeCluster]=useState("");
+  const [runtimeTransfer,setRuntimeTransfer]=useState("");
+  const [runtimePreview,setRuntimePreview]=useState<{
+    token:string;mapId:string;gamePort:number;queryPort:number;
+    clusterId:string;transferRoot:string
+  }|null>(null);
+  const [runtimeApproval,setRuntimeApproval]=useState("");
+  const [runtimeBusy,setRuntimeBusy]=useState(false);
+  const [runtimeError,setRuntimeError]=useState("");
+  const [runtimeNotice,setRuntimeNotice]=useState("");
   const [directMapId,setDirectMapId]=useState("");
   const [directGamePort,setDirectGamePort]=useState("");
   const [directQueryPort,setDirectQueryPort]=useState("");
@@ -155,6 +168,58 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       setPinError("A forrásátvétel nem sikerült ("+
         (e instanceof Error?e.message:"UM-STORE-SOURCE-PIN-FAILED")+").");
     }finally{setPinBusy(false);setPinPhrase("");}
+  };
+
+  const loadRuntimeSettings=async()=>{
+    if(!runtimeMapId||runtimeBusy)return;
+    setRuntimeBusy(true);setRuntimeError("");setRuntimeNotice("");
+    setRuntimePreview(null);setRuntimeApproval("");
+    try{
+      const result=await managerBridge.historicalRuntimeSettingsStatus(runtimeMapId);
+      setRuntimeGame(String(result.gamePort));setRuntimeQuery(String(result.queryPort));
+      setRuntimeCluster(result.clusterId);setRuntimeTransfer(result.transferRoot);
+    }catch(e){
+      setRuntimeError("Az Obsidian-konfiguráció nem olvasható ("+
+        (e instanceof Error?e.message:"UM-STORE-RUNTIME-SETTINGS-UNAVAILABLE")+").");
+    }finally{setRuntimeBusy(false);}
+  };
+  const previewRuntimeSettings=async(e:FormEvent)=>{
+    e.preventDefault();
+    const game=Number(runtimeGame),query=Number(runtimeQuery);
+    if(!runtimeMapId||!Number.isInteger(game)||!Number.isInteger(query)||
+       game<1024||game>65535||query<1024||query>65535||game===query||
+       !runtimeCluster.trim()||!runtimeTransfer.trim()){
+      setRuntimeError("Adj meg két eltérő érvényes UDP-portot, cluster ID-t és teljes transfer-útvonalat.");
+      return;
+    }
+    setRuntimeBusy(true);setRuntimeError("");setRuntimeNotice("");
+    setRuntimePreview(null);setRuntimeApproval("");
+    try{
+      setRuntimePreview(await managerBridge.historicalRuntimeSettingsPreview(
+        runtimeMapId,game,query,runtimeCluster.trim(),runtimeTransfer.trim()));
+    }catch(e){
+      setRuntimeError("Konfiguráció előellenőrzése elutasítva ("+
+        (e instanceof Error?e.message:"UM-STORE-RUNTIME-PREFLIGHT-FAILED")+
+        "). Ha az INI-ben régi Port/QueryPort szerepel, előbb a leállított map INI-szerkesztőjében módosítsd.");
+    }finally{setRuntimeBusy(false);}
+  };
+  const applyRuntimeSettings=async()=>{
+    if(runtimeBusy||!runtimePreview||runtimeApproval!=="OBSIDIAN MAP KONFIG")return;
+    const token=runtimePreview.token;
+    setRuntimeBusy(true);setRuntimeError("");setRuntimeNotice("");
+    setRuntimePreview(null);setRuntimeApproval("");
+    try{
+      await managerBridge.historicalRuntimeSettingsApply(token,"OBSIDIAN MAP KONFIG");
+      setRuntimeNotice("A portok és a clusterbeállítások az Obsidian profiljába mentve. "+
+        "Sem ASA-indítás, sem RCON, sem Kova-fájlmódosítás nem történt. "+
+        "A tényleges kétgépes utazási útvonal ellenőrzése külön feladat.");
+      try{await onImported();}catch{
+        setRuntimeError("A konfiguráció mentése sikerült, de a szerverlista frissítése nem.");
+      }
+    }catch(e){
+      setRuntimeError("A konfiguráció mentése nem sikerült ("+
+        (e instanceof Error?e.message:"UM-STORE-RUNTIME-APPLY-FAILED")+").");
+    }finally{setRuntimeBusy(false);}
   };
 
   const loadOriginalMaps=async()=>{
@@ -527,6 +592,79 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         </div>}
         {pinError&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{pinError}</div>}
         {pinNotice&&<div role="status" className="success-inline"><CheckCircle2 size={16}/>{pinNotice}</div>}
+      </section>
+      <section className="historical-peer-check" aria-label="Obsidian Store-v1 port és cluster módosítása">
+        <h3>Átvett map port- és clusterbeállításai</h3>
+        <p className="muted small">
+          Az eredeti forrás megmarad ellenőrzési bizonyítéknak; a jóváhagyott
+          további Game/Query portok és transferbeállítások az Obsidian profiljába
+          kerülnek. A mapnak és az azonos telepítési mappát használó
+          szervereknek leállított állapotban kell lenniük.
+          A régi Kova ACTIVE/DONE jelölők nem szükségesek ehhez a helyi módosításhoz.
+        </p>
+        <div className="settings-actions">
+          <button type="button" className="secondary" disabled={directBusy||runtimeBusy}
+            onClick={()=>void loadOriginalMaps()}>
+            Eredeti és átvett helyi mapok listázása
+          </button>
+        </div>
+        {directList&&directList.maps.some(m=>m.registered)&&
+          <form onSubmit={e=>void previewRuntimeSettings(e)} className="historical-import-form">
+            <label htmlFor="obsidian-runtime-map">Átvett helyi map</label>
+            <select id="obsidian-runtime-map" className="settings-input"
+              value={runtimeMapId}
+              onChange={e=>{setRuntimeMapId(e.target.value);setRuntimePreview(null);
+                setRuntimeApproval("");setRuntimeError("");}}>
+              <option value="">Válassz mapot</option>
+              {directList.maps.filter(m=>m.registered).map(m=>
+                <option key={m.mapId} value={m.mapId}>{m.name}</option>)}
+            </select>
+            <div className="settings-actions">
+              <button type="button" className="secondary"
+                disabled={!runtimeMapId||runtimeBusy}
+                onClick={()=>void loadRuntimeSettings()}>
+                Jelenlegi Obsidian-beállítások betöltése
+              </button>
+            </div>
+            <label htmlFor="obsidian-runtime-game">Game UDP-port</label>
+            <input id="obsidian-runtime-game" className="settings-input"
+              type="number" min={1024} max={65535} value={runtimeGame}
+              onChange={e=>{setRuntimeGame(e.target.value);setRuntimePreview(null);}}/>
+            <label htmlFor="obsidian-runtime-query">Query UDP-port</label>
+            <input id="obsidian-runtime-query" className="settings-input"
+              type="number" min={1024} max={65535} value={runtimeQuery}
+              onChange={e=>{setRuntimeQuery(e.target.value);setRuntimePreview(null);}}/>
+            <label htmlFor="obsidian-runtime-cluster">Cluster ID</label>
+            <input id="obsidian-runtime-cluster" className="settings-input"
+              maxLength={80} value={runtimeCluster}
+              onChange={e=>{setRuntimeCluster(e.target.value);setRuntimePreview(null);}}/>
+            <label htmlFor="obsidian-runtime-transfer">ASA transferkönyvtár</label>
+            <input id="obsidian-runtime-transfer" className="settings-input"
+              maxLength={520} value={runtimeTransfer}
+              onChange={e=>{setRuntimeTransfer(e.target.value);setRuntimePreview(null);}}/>
+            <p className="muted small">Az INI-fájlban megadott Port/QueryPort értékeknek
+              már egyezniük kell az új portokkal. A művelet az INI-t nem írja át,
+              és a másik gép elérhetősége nem feltétele a helyi konfigurációnak.</p>
+            <button type="submit" disabled={!runtimeMapId||runtimeBusy}>
+              {runtimeBusy?"Ellenőrzés...":"Beállításmódosítás előellenőrzése"}
+            </button>
+          </form>}
+        {runtimePreview&&<div role="region" className="historical-preview"
+          aria-label="Átvett map konfigurációjának jóváhagyása">
+          <p>Map: {runtimePreview.mapId}. Game: {runtimePreview.gamePort},
+            Query: {runtimePreview.queryPort}. Cluster: {runtimePreview.clusterId}.
+            Transfer: {runtimePreview.transferRoot}</p>
+          <label htmlFor="obsidian-runtime-approval">Jóváhagyás: OBSIDIAN MAP KONFIG</label>
+          <input id="obsidian-runtime-approval" className="settings-input"
+            value={runtimeApproval} onChange={e=>setRuntimeApproval(e.target.value)}
+            autoComplete="off" spellCheck={false}/>
+          <button type="button" disabled={runtimeBusy||runtimeApproval!=="OBSIDIAN MAP KONFIG"}
+            onClick={()=>void applyRuntimeSettings()}>
+            Jóváhagyott változtatások mentése
+          </button>
+        </div>}
+        {runtimeError&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{runtimeError}</div>}
+        {runtimeNotice&&<div role="status" className="success-inline"><CheckCircle2 size={16}/>{runtimeNotice}</div>}
       </section>
       <section className="historical-peer-check" aria-label="Közvetlen Kova Store-v1 mapimport">
         <div className="settings-actions">
