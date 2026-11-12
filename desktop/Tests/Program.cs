@@ -1965,6 +1965,21 @@ try
                 _=>new ProcessCheck(false,"Synthetic stopped only",null,true));
             using var recoveredBridge=new DesktopSteamFreshInstallBridge(recoveryCluster,
                 SyntheticSteamRunner,availableFreeBytes:_=>100L*1024*1024*1024);
+            string pinnedJournalBytes=File.ReadAllText(journalFile);
+            File.WriteAllText(journalFile,JsonSerializer.Serialize(new{
+                MapId=recoveryMapId,InstallRoot=recoveredRoot,SteamExe=steamExe,
+                Phase="complete",ChangedUtc=DateTimeOffset.UtcNow,
+                MapName=recoveryMap,MapLevel=recoveryLevel
+            }));
+            var legacyJournal=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            Check(IsError(legacyJournal,"UM-FRESH-RECOVERY-UNPINNED-COMPLETION") &&
+                  recoveryCluster.Config.LocalMaps.Count==0,
+                "unhashed historical completion is not treated as verified executable ownership");
+            File.WriteAllText(journalFile,pinnedJournalBytes);
             var preview=await Call(recoveredBridge.HandleAsync,
                 "steam.freshRecoverPreview",new{
                     mapName=recoveryMap,installRoot=recoveredRoot,
