@@ -43,7 +43,8 @@ public sealed class ObsidianWindow : Form
         "historical.originalRegister" or
         "historical.originalBatchPreview" or "historical.originalBatchRegister" or
         "historical.originalLiveBatchPreview" or
-        "historical.originalLiveOperationBlockers" or "historical.originalLiveBatchApply" or
+        "historical.originalLiveOperationBlockers" or "historical.operationJournalInventory" or
+        "historical.originalLiveBatchApply" or
         "historical.originalClusterPreview" or "historical.originalClusterApply" or
         "historical.pairedEvidence" or "historical.launchEvidence" or
         "historical.liveGuard";
@@ -83,6 +84,7 @@ public sealed class ObsidianWindow : Form
             "historical.gracefulStopStatus" or "historical.gracefulStopRecovery" or
             "historical.saveWorldStatus" or "historical.saveWorldEvidence" or
             "historical.activeStartStatus" or
+            "historical.operationJournalInventory" or
             "rcon.status" or "rcon.listPlayers" or "rcon.gameLog" or "rcon.chatLog" or
             "historical.rconPlayers" or "historical.rconGameLog" or
             "historical.rconChatLog" or "historical.rconLiveStatus" or

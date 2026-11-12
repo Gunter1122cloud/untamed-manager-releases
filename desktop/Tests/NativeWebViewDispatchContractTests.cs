@@ -115,6 +115,10 @@ internal static class NativeWebViewDispatchContractTests
             "all original Kova native methods are forwarded, including live 5-map preview/apply: "+
             string.Join(", ",unroutedHistorical));
         Check(ObsidianWindow.IsHistoricalStoreMethod(
+            "historical.operationJournalInventory")&&
+              !ObsidianWindow.RequiresGlobalBridgeGate(
+            "historical.operationJournalInventory")&&
+              ObsidianWindow.IsHistoricalStoreMethod(
             "historical.originalLiveBatchPreview")&&
               ObsidianWindow.IsHistoricalStoreMethod(
             "historical.originalLiveBatchApply")&&
