@@ -71,7 +71,13 @@ internal static class LegacyStoreV1NativeStartPlanner
         if(stopped.Running||!stopped.ConfirmedStopped||
            stopped.Identity!=null||stopped.LoaderIdentity!=null)
             throw new InvalidOperationException("UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED");
-        var original=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,LocalOriginal);
+        // Once the owner explicitly approved importing the verified source,
+        // a Manager-owned immutable copy replaces the *local* Kova profile
+        // dependency. The REAL shared two-peer ACTIVE/DONE files are still
+        // inspected afresh before every native ASA start.
+        var sourceProfile=LegacyStoreV1PinnedSource.Resolve(
+            cluster.Store.Root,LocalOriginal,map);
+        var original=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,sourceProfile);
         if(!original.CompletedOriginalSourceGuard||!original.BothPeersDone||
            !original.SharedSessionMatches||!original.NoPendingConversion||
            !original.NoMutationMarker||!original.LocalMapBindingMatches||
@@ -90,7 +96,7 @@ internal static class LegacyStoreV1NativeStartPlanner
         // original Kova launch-profiles-v1.json on this specific host.
         // The four-file Store hash and the launch profile hash are both
         // pinned; no alternative transfer directory is generated.
-        var currentSource=LegacyStoreV1OriginalImport.Inspect(LocalOriginal);
+        var currentSource=LegacyStoreV1OriginalImport.Inspect(sourceProfile);
         var originalMap=LegacyStoreV1SourceLaunchParity.RequireOriginalMap(
             map,currentSource);
         var plan=LegacyStoreV1ActiveLaunch.Build(new(
