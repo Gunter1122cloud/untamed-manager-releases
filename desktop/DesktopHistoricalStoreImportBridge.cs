@@ -289,6 +289,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     // inspection. Only the Manager registry is updated in
                     // a single ConfigStore CAS. All original Kova/ASA and
                     // two-host transfer bytes remain untouched.
+                    LegacyStoreV1PinnedSource.Capture(localLegacyDataDirectory,
+                        cluster.Store.Root,approved.FourFilesHash,approved.LaunchHash);
                     var outcome=cluster.ReconcileOriginalStoreLiveFive(
                         observed.Maps,()=>{
                             var (again,now,peer)=VerifyLiveOriginalFive();
@@ -421,6 +423,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             RconPort=0,ApiLoaderArguments=""
                         });
                     }
+                    LegacyStoreV1PinnedSource.Capture(localLegacyDataDirectory,
+                        cluster.Store.Root,batchStage.FourFilesHash,
+                        batchStage.LaunchProfileHash);
                     cluster.AddMapsAtomically(additions);
                     return Ok(id,new{
                         importedMaps=additions.Count,
@@ -530,6 +535,9 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         return Fail(id,"UM-HISTORICAL-STOP-REQUIRED");
                     // Register ONLY in Obsidian's own ConfigStore. No original
                     // Kova file, shared session, world or transfer byte changes.
+                    LegacyStoreV1PinnedSource.Capture(localLegacyDataDirectory,
+                        cluster.Store.Root,directApproval.FourFilesHash,
+                        directApproval.LaunchProfileHash);
                     cluster.AddMap(new LocalMap{
                         Id=directApproval.MapId,Name=directApproval.LocalName,
                         InstallationPath=root,ExecutablePath=directApproval.ServerExe,
