@@ -41,8 +41,17 @@ public sealed record BackupResourcePolicy(int MaxFiles,long MaxTotalBytes,bool C
             return Default;
         }
         using var held=new VaultReadSnapshot();
-        using var json=JsonDocument.Parse(held.Read(path,4096),
-            new JsonDocumentOptions{MaxDepth=5});
+        JsonDocument parsed;
+        try
+        {
+            parsed=JsonDocument.Parse(held.Read(path,4096),
+                new JsonDocumentOptions{MaxDepth=5});
+        }
+        catch(JsonException e)
+        {
+            throw new InvalidDataException("UM-BACKUP-RESOURCE-POLICY-INVALID",e);
+        }
+        using var json=parsed;
         var root=json.RootElement;
         if(root.ValueKind!=JsonValueKind.Object ||
            !root.TryGetProperty("schema",out var version)||
