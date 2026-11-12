@@ -143,7 +143,7 @@ public static class SteamFreshInstall
     public static CompletedSteamInstall? InspectCompleted(string chosenRoot)
     {
         string root=Canonical(chosenRoot);
-        string file=OperationPath(root);
+        string file=Canonical(OperationPath(root));
         if(!File.Exists(file))return null;
         if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0||
            new FileInfo(file).Length is <=0 or >16384)
@@ -164,6 +164,9 @@ public static class SteamFreshInstall
            string.IsNullOrWhiteSpace(entry.MapLevel)||
            string.IsNullOrWhiteSpace(entry.SteamExe))
             throw new InvalidDataException("UM-FRESH-RECOVERY-JOURNAL-INVALID");
+        if(!string.Equals(LocalMapNameRules.Normalize(entry.MapName),entry.MapName,
+               StringComparison.Ordinal))
+            throw new InvalidDataException("UM-FRESH-RECOVERY-MAP-NAME-INVALID");
         string originalLevel;
         try{originalLevel=AsaSteamMapCatalog.LevelFor(entry.MapName);}
         catch(InvalidDataException)
@@ -175,6 +178,8 @@ public static class SteamFreshInstall
         string steam=Canonical(entry.SteamExe);
         // Both must still exist in the SAME fixed local installation root.
         var probe=LocalAsaInstallLocator.Probe(root);
+        string manifest=Canonical(Path.Combine(root,"steamapps",
+            "appmanifest_2430930.acf"));
         var build=AsaSteamBuildCatalog.InstalledBuild(root);
         if(!probe.HasServerExecutable || string.IsNullOrWhiteSpace(probe.ServerExecutable) ||
            string.IsNullOrWhiteSpace(build))
@@ -185,7 +190,7 @@ public static class SteamFreshInstall
            !File.Exists(binary) ||
            (File.GetAttributes(binary)&FileAttributes.ReparsePoint)!=0)
             throw new InvalidDataException("UM-FRESH-RECOVERY-BINARY-OUTSIDE-ROOT");
-        string manifest=Path.Combine(root,"steamapps","appmanifest_2430930.acf");
+
         // A completion journal from older builds without hashes is NOT
         // sufficient evidence to adopt an executable after a crash. The
         // operator may instead use the existing manual ASA import workflow.
