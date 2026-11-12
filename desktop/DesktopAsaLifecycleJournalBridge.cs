@@ -19,7 +19,7 @@ public sealed class DesktopAsaLifecycleJournalBridge
 {
     private sealed record Pending(Guid Token,Guid MapId,Guid Operation,
         int Pid,DateTimeOffset StartedUtc,string SourceSha,string ProfileJson,
-        Guid? RestartId,string? RestartSnapshot,DateTimeOffset ExpiresUtc);
+        Guid? RestartId,string? RestartSnapshot,bool RestartOnly,DateTimeOffset ExpiresUtc);
     private readonly ClusterService cluster;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> ownerProof;
     private readonly SemaphoreSlim serial=new(1,1);
@@ -110,6 +110,10 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     AsaRestartPhase.Starting or AsaRestartPhase.NeedsOperator);
                 bool isOriginalPending=map.HistoricalStoreProtected&&
                     old?.Kind==UntamedOperationKind.Launch&&PendingPhase(old);
+                bool restartOnlyReviewable=map.HistoricalStoreProtected&&
+                    !PendingPhase(old)&&restart?.Phase is
+                        (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator)&&
+                    restart.NewPid==0;
                 bool restartReviewable=restart==null||restart.Phase is
                     (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed or
                      AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator);
@@ -124,7 +128,9 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         blockingCode=restartPending?
                             (isOriginalPending&&restartReviewable?
                                 "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE":
-                                "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR"):
+                                restartOnlyReviewable?
+                                    "UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE":
+                                    "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR"):
                             PendingPhase(old)?
                                 (isOriginalPending?
                                     "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
@@ -135,7 +141,8 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         restartOldPid=restart?.OldPid,restartNewPid=restart?.NewPid,
                         restartClassification=restartPending?"unknownOutcome":
                             restart?.Phase==AsaRestartPhase.OperatorReviewed?"operatorReviewed":"closed",
-                        recoverySupported=isOriginalPending&&restartReviewable,
+                        recoverySupported=isOriginalPending&&restartReviewable||
+                            restartOnlyReviewable,
                         needsOperatorReview=PendingPhase(old)||restartPending,
                         autoResumeAllowed=false,storeTouched=false,
                         evidence="DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
@@ -145,10 +152,12 @@ public sealed class DesktopAsaLifecycleJournalBridge
                 if(method=="servers.lifecycleRecoveryPreview")
                 {
                     pending=null;
-                    if(old==null||old.Kind!=UntamedOperationKind.Launch||
-                       !PendingPhase(old))
-                        return Error(id,"UM-RECOVERY-LAUNCH-PENDING-ONLY");
-                    if(DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
+                    if(!isOriginalPending&&!restartOnlyReviewable)
+                        return Error(id,"UM-RECOVERY-LAUNCH-OR-RESTART-PENDING-ONLY");
+                    if(isOriginalPending&&old!=null&&
+                       DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3)||
+                       restartOnlyReviewable&&restart!=null&&
+                       DateTimeOffset.UtcNow-restart.ChangedUtc<TimeSpan.FromMinutes(3))
                         return Error(id,"UM-RECOVERY-OPERATION-TOO-RECENT");
                     if(!restartReviewable)
                         return Error(id,"UM-RECOVERY-RESTART-PHASE-NOT-REVIEWABLE");
@@ -158,22 +167,25 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         restart.NewPid!=0))
                         return Error(id,"UM-RECOVERY-RESTART-OLD-PID-MISMATCH");
                     var token=Guid.NewGuid();
-                    pending=new(token,mapId,old.Operation,
+                    pending=new(token,mapId,old?.Operation??Guid.Empty,
                         witness.Process.Pid,witness.Process.StartedUtc,
                         witness.SourceSha,JsonSerializer.Serialize(witness.Map),
                         restart?.Phase==AsaRestartPhase.Completed?null:restart?.Id,
                         restart?.Phase==AsaRestartPhase.Completed?null:
                             JsonSerializer.Serialize(restart),
-                        DateTimeOffset.UtcNow.AddMinutes(3));
+                        restartOnlyReviewable,DateTimeOffset.UtcNow.AddMinutes(3));
                     return Ok(id,new{
                         token,mapId,mapName=map.Name,
-                        operationId=old.Operation,kind=old.Kind.ToString(),
-                        phase=old.Phase.ToString(),pid=witness.Process.Pid,
+                        operationId=old?.Operation??Guid.Empty,
+                        kind=restartOnlyReviewable?"Restart":old?.Kind.ToString()??"Launch",
+                        phase=restartOnlyReviewable?restart?.Phase.ToString():
+                            old?.Phase.ToString(),
+                        pid=witness.Process.Pid,
                         restartId=pending.RestartId,
                         restartPhase=restart?.Phase.ToString(),
                         restartOldPid=restart?.OldPid,
                         restartNewPid=restart?.NewPid,
-                        pairedJournals=pending.RestartId!=null?2:1,
+                        pairedJournals=pending.RestartId!=null&&!restartOnlyReviewable?2:1,
                         processStartedUtc=witness.Process.StartedUtc,
                         rconPort=map.RconPort,
                         expiresUtc=pending.ExpiresUtc,
@@ -218,15 +230,23 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         now.SourceSha==pinned.SourceSha&&
                         JsonSerializer.Serialize(now.Map)==pinned.ProfileJson;
                 }
-                cluster.Operations.ReviewRunningOriginalLaunch(
+                if(pinned.RestartOnly)
+                {
+                    if(pinned.RestartId is not Guid restartId)
+                        return Error(id,"UM-RECOVERY-RESTART-ID-MISSING");
+                    cluster.Operations.ReviewRunningOriginalRestartOnly(
+                        map.InstallationPath,mapId,restartId,pinned.Pid,CheckPinned);
+                }
+                else cluster.Operations.ReviewRunningOriginalLaunch(
                     map.InstallationPath,pinned.Operation,CheckPinned,
                     mapId,pinned.RestartId,pinned.Pid);
                 return Ok(id,new{
                     mapId,operationId=pinned.Operation,
                     state="operatorReviewed",previousOutcomeStillUnknown=true,
-                    originalJournalAudited=true,
+                    originalJournalAudited=!pinned.RestartOnly,
                     restartJournalAudited=pinned.RestartId!=null,
-                    pairedJournalsReviewed=pinned.RestartId!=null?2:1,
+                    pairedJournalsReviewed=pinned.RestartOnly?1:
+                        pinned.RestartId!=null?2:1,
                     restartMarkedSuccessful=false,oldRunningPid=pinned.Pid,
                     storeBytesModified=false,
                     processStarted=false,processStopped=false,rconCommandSent=false,
