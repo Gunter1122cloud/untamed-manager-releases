@@ -200,6 +200,9 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_FRESH_START_CHANGED__?:()=>void})
       .__UNTAMED_FRESH_START_CHANGED__=()=>{freshStartInvalidated=true;};
     let restartInterrupted=false;
+    let freshRestartReviewCount=0;
+    (window as typeof window & {__UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number})
+      .__UNTAMED_FRESH_RESTART_REVIEWS__=()=>freshRestartReviewCount;
     (window as typeof window & {__UNTAMED_RESTART_INTERRUPTED__?:()=>void})
       .__UNTAMED_RESTART_INTERRUPTED__=()=>{restartInterrupted=true;};
     let lifecycleInterrupted=false;
@@ -2581,6 +2584,28 @@ test.beforeEach(async ({ page }) => {
           autoResumeAllowed:false,
           evidence:"DURABLE_MACHINE_LOCAL_MANUAL_ASA_RESTART"
         };
+        case "servers.restartReviewPreview":
+          if(!restartInterrupted||m.mapId!==one)
+            throw new Error("UM-ASA-RESTART-REVIEW-NOT-ELIGIBLE");
+          return {token:"00000000-0000-4000-8000-000000009669",
+            mapId:one,mapName:"The Island",oldPid:44117,
+            oldStartedUtc:"2026-11-10T10:00:00Z",
+            journalId:"00000000-0000-4000-8000-000000009668",
+            phase:"NeedsOperator",exactOldProcessVerified:true,
+            rconOwnerVerified:true,previousOutcomeUnknown:true,
+            restartWillNotReplay:true,serverStarted:false,
+            serverStopped:false,rconSent:false,
+            evidence:"FRESH_ASA_OLD_RUNNING_PID_LOCAL_RESTART_REVIEW_PREVIEW"};
+        case "servers.restartReviewApply":
+          if(m.token!=="00000000-0000-4000-8000-000000009669"||
+             m.confirm!==true||!restartInterrupted)
+            throw new Error("UM-ASA-RESTART-REVIEW-APPROVAL");
+          freshRestartReviewCount++;restartInterrupted=false;
+          return {mapId:one,oldPid:44117,state:"operatorReviewed",
+            previousOutcomeUnknown:true,newRestartSucceeded:false,
+            serverStarted:false,serverStopped:false,rconSent:false,
+            originalJournalAudited:true,nextActionRequiresNewApproval:true,
+            evidence:"FRESH_ASA_OLD_RUNNING_PID_RESTART_JOURNAL_AUDITED"};
         case "servers.restartPreview": return {
           token:"00000000-0000-4000-8000-000000009666",
           mapId:m.mapId,mapName:"The Island",currentPid:44117,
@@ -6570,9 +6595,24 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
   await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"})).toBeDisabled();
+  const recovery=page.getByRole("region",{name:"Megszakadt helyi Restart rendezése"});
+  await expect(recovery).toBeVisible();
+  await expect(recovery).toContainText("Régi PID: 44117");
+  await recovery.getByRole("button",{
+    name:"Futó régi ASA ellenőrzése és Restart-napló rendezése"
+  }).click();
+  await expect(page.locator(".success-inline").filter({
+    hasText:"Manager helyi naplóját"
+  })).toHaveCount(0);
+  await expect(page.getByText(/Régi PID: 44117/)).toHaveCount(0);
+  await expect(page.getByText(/Az eredeti, még futó ASA PID 44117 igazolt/)).toBeVisible();
+  const reviewCount=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number
+  }).__UNTAMED_FRESH_RESTART_REVIEWS__?.()??-1);
+  expect(reviewCount).toBe(1);
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
+  await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
 });
 

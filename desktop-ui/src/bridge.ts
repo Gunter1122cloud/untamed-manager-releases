@@ -488,6 +488,21 @@ export type AsaRestartJournalStatus = {
   needsOperatorReview:boolean;autoResumeAllowed:false;
   evidence:"DURABLE_MACHINE_LOCAL_MANUAL_ASA_RESTART";
 };
+export type FreshAsaRestartReviewPreview = {
+  token:string;mapId:string;mapName:string;
+  oldPid:number;oldStartedUtc:string;journalId:string;phase:string;
+  exactOldProcessVerified:true;rconOwnerVerified:true;
+  previousOutcomeUnknown:true;restartWillNotReplay:true;
+  serverStarted:false;serverStopped:false;rconSent:false;
+  evidence:"FRESH_ASA_OLD_RUNNING_PID_LOCAL_RESTART_REVIEW_PREVIEW";
+};
+export type FreshAsaRestartReviewReceipt = {
+  mapId:string;oldPid:number;state:"operatorReviewed";
+  previousOutcomeUnknown:true;newRestartSucceeded:false;
+  serverStarted:false;serverStopped:false;rconSent:false;
+  originalJournalAudited:true;nextActionRequiresNewApproval:true;
+  evidence:"FRESH_ASA_OLD_RUNNING_PID_RESTART_JOURNAL_AUDITED";
+};
 export type FreshAsaRestartPreview = {
   token:string;mapId:string;mapName:string;currentPid:number;
   saveWorldBeforeExit:true;verifiesOldProcessExit:true;
@@ -1853,6 +1868,10 @@ export const managerBridge = {
     request<FreshAsaStopStatus>("servers.gracefulStopStatus",{jobId}),
   freshAsaRestartCurrent: (mapId:string) =>
     request<AsaRestartJournalStatus>("servers.restartCurrent",{mapId}),
+  freshAsaRestartReviewPreview: (mapId:string) =>
+    request<FreshAsaRestartReviewPreview>("servers.restartReviewPreview",{mapId}),
+  freshAsaRestartReviewApply: (token:string) =>
+    request<FreshAsaRestartReviewReceipt>("servers.restartReviewApply",{token,confirm:true}),
   freshAsaRestartPreview: (mapId:string) =>
     request<FreshAsaRestartPreview>("servers.restartPreview",{mapId}),
   freshAsaRestartApply: (token:string) =>
