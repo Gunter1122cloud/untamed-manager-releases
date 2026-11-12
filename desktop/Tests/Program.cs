@@ -1604,6 +1604,12 @@ try
         Check(IsError(collision,"UM-INI-MERGE-CONFLICT")&&
               File.ReadAllText(iniFile).Contains("Example=4"),
             "same INI key edited by both writers conflicts and preserves newer disk bytes");
+        File.WriteAllText(iniFile,"[DifferentSection]\nExample=3\nForeign=new\n; keep comment\n");
+        var sectionMoved=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=collisionToken,content=rebasedText.Replace("Example=3","Example=5")});
+        Check(IsError(sectionMoved,"UM-INI-MERGE-CONFLICT")&&
+              File.ReadAllText(iniFile).Contains("[DifferentSection]"),
+            "external section rename is never silently accepted as an INI rebase");
 
         // This test's older INI read fixture intentionally had no server EXE.
         // A genuinely FRESH install must have its registered ASA binary before

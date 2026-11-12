@@ -117,6 +117,20 @@ public static class SafeConfigEditor
         var disk=Normalize(current.Text,"\n").Split('\n');
         if(before.Length!=user.Length||before.Length!=disk.Length)
             throw new ConfigMergeConflictException();
+        // A peer edit may not alter the section or key identity of a line.
+        // Preserving same linecount alone is insufficient: a renamed header
+        // would relocate all subsequent values to a different ASA INI section.
+        for(int i=0;i<before.Length;i++)
+        {
+            if(before[i]==disk[i])continue;
+            string line=before[i].TrimStart();
+            int eq=before[i].IndexOf('=');
+            if(eq<=0||line.StartsWith('[')||
+               line.StartsWith(';')||line.StartsWith('#')||
+               !disk[i].StartsWith(before[i][..(eq+1)],
+                   StringComparison.Ordinal))
+                throw new ConfigMergeConflictException();
+        }
         int editedCount=0;
         for(int i=0;i<before.Length;i++)
         {
