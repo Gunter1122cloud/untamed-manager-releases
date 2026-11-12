@@ -162,6 +162,8 @@ public sealed class DesktopAsaLifecycleJournalBridge
                     if(!restartReviewable)
                         return Error(id,"UM-RECOVERY-RESTART-PHASE-NOT-REVIEWABLE");
                     var witness=await Task.Run(()=>Proof(mapId));
+                    bool sourcePinned=LegacyStoreV1PinnedSource.HasApprovedLocalSource(
+                        cluster.Store.Root,map);
                     if(restart!=null&&restart.Phase is not AsaRestartPhase.Completed &&
                        (restart.MapId!=mapId||restart.OldPid!=witness.Process.Pid||
                         restart.NewPid!=0))
@@ -189,7 +191,10 @@ public sealed class DesktopAsaLifecycleJournalBridge
                         processStartedUtc=witness.Process.StartedUtc,
                         rconPort=map.RconPort,
                         expiresUtc=pending.ExpiresUtc,
-                        exactWindowsProcessVerified=true,originalStoreSessionVerified=true,
+                        exactWindowsProcessVerified=true,
+                        originalStoreSessionVerified=!sourcePinned,
+                        approvedObsidianSourcePinned=sourcePinned,
+                        legacyPeerCheckRequiredForLocalReview=!sourcePinned,
                         rconListenerOwnerVerified=true,priorCommandOutcomeUnknown=true,
                         previousOperationWillNotBeRetried=true,requiresTypedApproval=true,
                         auditRequired=true,storeBytesModified=false,

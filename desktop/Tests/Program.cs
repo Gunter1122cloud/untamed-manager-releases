@@ -3381,6 +3381,10 @@ try
         var staged=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
         IsOk(staged,"original Store-v1 running owner recovery preview is native and read-only");
+        Check(staged.GetProperty("data").GetProperty("originalStoreSessionVerified").GetBoolean()&&
+              !staged.GetProperty("data").GetProperty("approvedObsidianSourcePinned").GetBoolean()&&
+              staged.GetProperty("data").GetProperty("legacyPeerCheckRequiredForLocalReview").GetBoolean(),
+            "synthetic unpinned original recovery must not pretend it has an approved independent local source");
         var reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
         var missingApproval=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryApply",new{

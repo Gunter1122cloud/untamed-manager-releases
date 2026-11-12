@@ -465,7 +465,9 @@ export type OriginalStoreLifecycleRecoveryPreview = {
   rconPort:number;expiresUtc:string;
   restartId?:string|null;restartPhase?:string|null;restartOldPid?:number|null;
   restartNewPid?:number|null;pairedJournals?:number;
-  exactWindowsProcessVerified:true;originalStoreSessionVerified:true;
+  exactWindowsProcessVerified:true;originalStoreSessionVerified:boolean;
+  approvedObsidianSourcePinned:boolean;
+  legacyPeerCheckRequiredForLocalReview:boolean;
   rconListenerOwnerVerified:true;priorCommandOutcomeUnknown:true;
   previousOperationWillNotBeRetried:true;requiresTypedApproval:true;
   auditRequired:true;storeBytesModified:false;

@@ -69,9 +69,10 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
       <p className="muted small">Műveleti napló: {journal.operationId??"nem olvasható"}
         {" · "}{journal.changedUtc??"időpont nem olvasható"}
         {" · "}{journal.blockingCode??"ismeretlen blokkoló"}.
-        Az eredeti ASA PID, indításiidő, RCON-porttulajdonos, INI,
-        a Kova ACTIVE/DONE session és a jelenlegi Manager-profil
-        friss igazolása kötelező.</p>
+        Az eredeti ASA PID, indítási idő, RCON-porttulajdonos, INI
+        és a jelenlegi Manager-profil friss igazolása kötelező.
+        Jóváhagyottan átvett Obsidian-forrásnál a régi Kova ACTIVE/DONE
+        jelölő nem előfeltétele a helyi naplórendezésnek.</p>
       {journal.restartJournalExists&&<div className="warning-inline">
         <ShieldCheck size={16}/>
         <span><b>Összetartozó Restart-v1 napló:</b> {journal.restartId??"ismeretlen"}
@@ -95,7 +96,10 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
           régi PID {prepared.restartOldPid}, új PID {prepared.restartNewPid}.
           Az eredeti ASA-folyamatot megtartjuk; nem lesz új Start, DoExit vagy SaveWorld.
         </p>}
-        <p className="muted small">Az előző művelet kimenetele továbbra is bizonytalan.
+        <p className="muted small">{prepared.approvedObsidianSourcePinned?
+          "Az eredeti Kova-forrás jóváhagyott Obsidian-másolata igazolt; nem állítjuk, hogy a régi két peer aktuális ACTIVE/DONE-jelölője ellenőrzött.":
+          "Az eredeti, még nem helyileg rögzített Kova-forrás kétpeer-es sessionje igazolt."}
+          {" "}Az előző művelet kimenetele továbbra is bizonytalan.
           Az audit után a későbbi műveletek új, önálló jóváhagyással indíthatók.</p>
         <label><input type="checkbox" checked={confirmed} disabled={busy}
           onChange={e=>setConfirmed(e.target.checked)}/>
