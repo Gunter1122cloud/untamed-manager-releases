@@ -177,6 +177,21 @@ internal static class OriginalStoreFiveMapBackupTests
                   map,cluster.Store.Root).Length==0),
             "source fingerprint change rejects without creating any backup point");
         currentSource=new(sourceSha,launchSha,mapRows.ToArray());
+        var staleBudgetPreview=await Call(bridge,"backup.originalBatchPreview");
+        Check(staleBudgetPreview.GetProperty("ok").GetBoolean(),
+            "five-map preview binds the current Manager backup resource ceiling");
+        string staleBudgetToken=staleBudgetPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        File.WriteAllText(policyFile,
+            "{\"schema\":1,\"maxFiles\":100000,\"maxTotalBytes\":1048576}");
+        var policyChanged=await Call(bridge,"backup.originalBatchCreate",
+            new{token=staleBudgetToken,confirm=true});
+        Check(!policyChanged.GetProperty("ok").GetBoolean()&&
+              policyChanged.GetProperty("error").GetString()==
+                  "UM-BACKUP-RESOURCE-POLICY-CHANGED"&&
+              maps.All(map=>UntamedWorldBackup.List(map,cluster.Store.Root).Length==0),
+            "changed backup budget invalidates approval without creating any five-map archive");
+        File.Delete(policyFile);
         var approvedPreview=await Call(bridge,"backup.originalBatchPreview");
         Check(approvedPreview.GetProperty("ok").GetBoolean(),
             "operator can request a fresh five-map approval after source correction");
