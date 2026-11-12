@@ -5787,6 +5787,45 @@ test("pinned Obsidian Store source and approved offline runtime changes use only
   }).__UNTAMED_RUNTIME_CONFIG_COMMITS__?.())).toBe(1);
 });
 
+test("delayed Store runtime preview cannot restore approval after a different cluster is typed",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const pin=page.getByRole("region",{name:"Eredeti Store-v1 konfiguráció végleges átvétele"});
+  await pin.getByRole("button",{name:"Meglévő mapok forrásátvételének ellenőrzése"}).click();
+  await pin.getByRole("textbox",{name:/Jóváhagyó szöveg/}).fill("OBSIDIAN FORRÁS ÁTVÉTEL");
+  await pin.getByRole("button",{name:"Forrás átvételének jóváhagyása"}).click();
+  const runtime=page.getByRole("region",{name:"Obsidian Store-v1 port és cluster módosítása"});
+  await runtime.getByRole("button",{name:"Eredeti és átvett helyi mapok listázása"}).click();
+  await runtime.getByRole("combobox",{name:"Átvett helyi map"})
+    .selectOption("00000000-0000-4000-8000-000000009001");
+  await runtime.getByRole("button",{name:"Jelenlegi Obsidian-beállítások betöltése"}).click();
+  await page.evaluate(()=>{
+    const host=window as unknown as {
+      chrome:{webview:{postMessage:(message:{method:string})=>void}}
+    };
+    const original=host.chrome.webview.postMessage.bind(host.chrome.webview);
+    host.chrome.webview.postMessage=(message)=>{
+      if(message.method==="historical.runtimeSettingsPreview"){
+        window.setTimeout(()=>original(message),180);
+        return;
+      }
+      original(message);
+    };
+  });
+  await runtime.getByRole("button",{name:"Beállításmódosítás előellenőrzése"}).click();
+  await runtime.getByRole("textbox",{name:"Cluster ID"}).fill("EditedAfterPreviewRequest");
+  await page.waitForTimeout(350);
+  await expect(runtime.getByRole("region",{
+    name:"Átvett map konfigurációjának jóváhagyása"
+  })).toHaveCount(0);
+  await expect(runtime.getByRole("textbox",{name:"Cluster ID"}))
+    .toHaveValue("EditedAfterPreviewRequest");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number
+  }).__UNTAMED_RUNTIME_CONFIG_COMMITS__?.())).toBe(0);
+});
+
 test("Store runtime approval refuses a native preview for another map without applying",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
