@@ -1028,7 +1028,7 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
           <small>{plugin.binaries.map(b=>b.name+
             (b.version?" · "+b.version:"")).join(", ")||"Nincs DLL-adat"}</small>
         </div>
-        <span className="mod-tag amber">Fájl jelen van · betöltés nem igazolt</span>
+        <span className="mod-tag amber">Pluginmappa megtalálva · betöltés nem igazolt</span>
       </div>)}
       {info&&info.plugins.length===0&&<div className="empty">
         Nem található plugin a map helyi ASA API mappájában.

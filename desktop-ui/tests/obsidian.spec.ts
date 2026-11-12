@@ -5750,9 +5750,11 @@ test("each map Plugin Center opens only its owned local plugin folder with manua
   await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
   await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("The Island");
   await expect(page.getByRole("button",{name:"Pluginmappa megnyitása"})).toBeEnabled();
-  await expect(page.getByText("Fájl jelen van · betöltés nem igazolt")).toBeVisible();
+  await expect(page.getByText("Pluginmappa megtalálva · betöltés nem igazolt")).toBeVisible();
   await page.getByRole("button",{name:"Pluginmappa megnyitása"}).click();
-  await expect(page.getByText(/Windows Intézőben/)).toBeVisible();
+  await expect(page.getByRole("status").filter({
+    hasText:"A map saját ASA API Plugins mappája megnyílt"
+  })).toBeVisible();
   await expect(page.getByRole("button",{name:"Plugin ZIP kiválasztása és ellenőrzése"})).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Letiltás előnézete"})).toHaveCount(0);
   await expect(page.getByRole("button",{name:"config.json szerkesztése"})).toHaveCount(0);
