@@ -3124,9 +3124,9 @@ try
             return new LocalRunningAsaDiscovery.Sample[]{
                 new(32001,32003,startedAt.AddSeconds(2),
                     "ArkAscendedServer.exe",childExe,
-                    "\\""+childExe+"\\" Aberration_WP?listen"),
+                    "\""+childExe+"\" Aberration_WP?listen"),
                 new(32003,0,startedAt,"AsaApiLoader.exe",parentExe,
-                    "\\""+parentExe+"\\" Aberration_WP?listen"),
+                    "\""+parentExe+"\" Aberration_WP?listen"),
                 new(32005,0,startedAt,"ArkAscendedServer.exe",null,null)
             };
         },()=>Array.Empty<LocalMap>());
