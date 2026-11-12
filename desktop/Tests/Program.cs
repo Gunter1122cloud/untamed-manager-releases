@@ -2065,6 +2065,20 @@ try
         Check(!bad.GetProperty("ok").GetBoolean(),
             "initial setup rejects identical Game and Query UDP ports");
 
+        // Real OS UDP ownership, not just the Manager's map registry.
+        // The socket belongs to this isolated test process, not any ASA port.
+        using(var occupied=new System.Net.Sockets.UdpClient(
+            new IPEndPoint(IPAddress.Loopback,testGamePort)))
+        {
+            var busyPreview=await Call(setup.HandleAsync,
+                "servers.initialPreview",
+                new{mapId=valguero.Id,sessionName="Occupied preview",
+                    gamePort=testGamePort,queryPort=testQueryPort});
+            Check(IsError(busyPreview,"UM-INITIAL-PORT-IN-USE")&&
+                  valguero.Arguments=="",
+                "OS-owned Game UDP port rejects initial preview without profile writes");
+        }
+
         var preview=await Call(setup.HandleAsync,"servers.initialPreview",
             new{mapId=valguero.Id,sessionName="Untamed Kingdom Test",
                 gamePort=testGamePort,queryPort=testQueryPort});
@@ -2078,6 +2092,15 @@ try
         Check(IsError(unconfirmed,"UM-INITIAL-CONFIRMATION-REQUIRED"),
             "unapproved initial setup writes nothing and preserves preview");
 
+        using(var occupied=new System.Net.Sockets.UdpClient(
+            new IPEndPoint(IPAddress.Loopback,testQueryPort)))
+        {
+            var blockedApply=await Call(setup.HandleAsync,"servers.initialApply",
+                new{token,confirm=true});
+            Check(IsError(blockedApply,"UM-INITIAL-PORT-IN-USE")&&
+                  valguero.GamePort==0&&valguero.Arguments=="",
+                "UDP port claimed after preview blocks apply and preserves original profile");
+        }
         var committed=await Call(setup.HandleAsync,"servers.initialApply",
             new{token,confirm=true});
         IsOk(committed,"approved initial setup saves registered Manager launch profile");

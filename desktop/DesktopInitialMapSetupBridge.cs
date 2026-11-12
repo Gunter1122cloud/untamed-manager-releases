@@ -152,6 +152,12 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                     LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
                         Id=map.Id,Name=map.Name,GamePort=game,QueryPort=query
                     },cluster.Config.LocalMaps);
+                    // Profile-level suggestions do not check the operating
+                    // system. An unrelated process can already own the UDP
+                    // listener even when no Manager map is registered.
+                    if(!AsaLocalPortPreflight.CanStart(new LocalMap{
+                        GamePort=game,QueryPort=query,RconPort=0
+                    }))return Fail(id,"UM-INITIAL-PORT-IN-USE");
                     if(pending.Count>=6)pending.Clear();
                     var token=Guid.NewGuid();
                     pending[token]=new(token,map.Id,session,game,query,map.Name,level,
@@ -191,6 +197,11 @@ public sealed class DesktopInitialMapSetupBridge : IDisposable
                 LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
                     Id=owned.Id,Name=owned.Name,GamePort=saved.Game,QueryPort=saved.Query
                 },cluster.Config.LocalMaps);
+                // A free port during preview can be occupied by another
+                // process before approval; no partial profile write is allowed.
+                if(!AsaLocalPortPreflight.CanStart(new LocalMap{
+                    GamePort=saved.Game,QueryPort=saved.Query,RconPort=0
+                }))return Fail(id,"UM-INITIAL-PORT-IN-USE");
                 var copy=JsonSerializer.Deserialize<LocalMap>(JsonSerializer.Serialize(owned))
                     ?? throw new InvalidDataException("Could not prepare local map profile");
                 copy.GamePort=saved.Game;
