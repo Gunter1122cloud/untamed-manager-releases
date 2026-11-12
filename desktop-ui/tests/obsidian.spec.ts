@@ -4005,16 +4005,12 @@ test("running Aberration Store-v1 stale Launch journal is reviewed once, never a
   await expect(locked).toContainText("NeedsOperator");
   await expect(locked).toContainText("régi PID 123456");
   await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeDisabled();
-  await locked.getByRole("button",{name:"Helyreállítás előellenőrzése"}).click();
-  await expect(locked).toContainText("2 napló felülvizsgálata");
-  await expect(locked).toContainText("új PID 0");
-  const confirm=locked.getByRole("button",{name:"Auditált helyreállítás végrehajtása"});
-  await expect(confirm).toBeDisabled();
-  await locked.getByRole("checkbox").check();
-  await locked.getByRole("textbox",{name:"Store-v1 napló helyreállítási jóváhagyás"})
-    .fill("STORE-V1 NAPLÓ HELYREÁLLÍTÁS");
-  await expect(confirm).toBeEnabled();
-  await confirm.click();
+  // One deliberate click runs fresh native proof and one-shot journal
+  // review; no typed phrase, stale token reuse, old RCON or Restart replay.
+  const repair=locked.getByRole("button",{name:"Ellenőrzés és helyi naplórendezés"});
+  await expect(repair).toBeEnabled();
+  await expect(locked.getByRole("textbox")).toHaveCount(0);
+  await repair.click();
   await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeEnabled();
   await expect(locked).toHaveCount(0);
   const count=await page.evaluate(()=>(window as typeof window & {
@@ -4034,13 +4030,8 @@ test("old Store Restart-only NeedsOperator is explicitly recoverable without dec
   const panel=page.getByRole("region",{name:"Store-v1 beragadt indítás helyreállítása"});
   await expect(panel).toContainText("Restart-v1 / NeedsOperator");
   await expect(panel).toContainText("UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE");
-  await panel.getByRole("button",{name:"Helyreállítás előellenőrzése"}).click();
-  await expect(panel).toContainText("1 napló felülvizsgálata");
-  await panel.getByRole("checkbox").check();
-  await panel.getByRole("textbox",{
-    name:"Store-v1 napló helyreállítási jóváhagyás"
-  }).fill("STORE-V1 NAPLÓ HELYREÁLLÍTÁS");
-  await panel.getByRole("button",{name:"Auditált helyreállítás végrehajtása"}).click();
+  await expect(panel.getByRole("textbox")).toHaveCount(0);
+  await panel.getByRole("button",{name:"Ellenőrzés és helyi naplórendezés"}).click();
   await expect(panel).toHaveCount(0);
   await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeEnabled();
 });
