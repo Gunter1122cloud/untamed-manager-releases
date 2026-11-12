@@ -55,6 +55,26 @@ export function FreshAsaSteamWizard({
     return ()=>{active=false;};
   },[]);
 
+  // The post-install wizard may be closed and reopened at any time.
+  // Reconstruct the completed step from the NATIVE persisted map profile,
+  // never a local boolean or a guessed display name. This is read-only and
+  // does not issue a second registration, INI write, Start or RCON.
+  const resumedMapId=registeredMapId||(job?.registered?job.mapId:null);
+  useEffect(()=>{
+    if(!job?.registered||!resumedMapId)return;
+    let active=true;
+    managerBridge.initialStatus(resumedMapId).then(status=>{
+      if(active && status.mapId===resumedMapId &&
+         status.blocker==="PROFILE_ALREADY_CONFIGURED_OR_PROTECTED" &&
+         status.gamePort>0 && status.queryPort>0 && status.hasServerExecutable)
+        setFirstConfigurationSaved(true);
+    }).catch(()=>{
+      // Read-only status unavailable: keep the native initial setup panel
+      // available instead of fabricating a completed configuration.
+    });
+    return ()=>{active=false;};
+  },[job?.registered,resumedMapId]);
+
   useEffect(()=>{
     if(!job||job.registered||job.verified||!!job.errorCode)return;
     let active=true;
