@@ -127,7 +127,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             return false;
         var pendingRestart=new AsaManualRestartJournal(
             reviewedMap.InstallationPath).Observe();
-        if(pendingRestart!=null&&pendingRestart.Phase!=AsaRestartPhase.Completed)
+        if(pendingRestart!=null&&pendingRestart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
             return false;
         lock(sync)
             if(currentJob!=null&&currentJob.MapId==reviewedMapId&&
@@ -152,7 +152,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
         // The manual original Restart has a separate durable journal.
         // It must also block SaveWorld and Stop UI during Stopping/Starting.
         var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
-        bool restartPending=restart!=null&&restart.Phase!=AsaRestartPhase.Completed;
+        bool restartPending=restart!=null&&restart.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
         Job? running;
         lock(sync)
             running=currentJob!=null&&currentJob.MapId==mapId&&
