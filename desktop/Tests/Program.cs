@@ -6746,6 +6746,32 @@ try
             Check(IsError(blocked,"UM-STORE-NATIVE-PORT-IN-USE")&&launches==0,
                 "Store-v1 native preview reports exact safe local port conflict without launch");
         }
+        // Exact original source/Restart failure codes must be actionable;
+        // never expose raw paths or arbitrary exception text to WebView.
+        foreach(string safeCode in new[]{
+            "UM-STORE-PIN-FILE-CHANGED",
+            "UM-STORE-PIN-MAP-ROOT-CHANGED",
+            "UM-STORE-PIN-MAP-IDENTITY",
+            "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR"})
+        {
+            using var denied=new DesktopHistoricalActiveStartBridge(historic,
+                _=>throw new InvalidDataException(safeCode),
+                (_,_,_)=>throw new InvalidOperationException("Must not launch"));
+            var response=await Call(denied.HandleAsync,
+                "historical.activeStartPreview",new{mapId=storeMap.Id});
+            Check(IsError(response,safeCode)&&launches==0,
+                "native Store Start preserves a concrete source/restart blocker without launching ASA");
+        }
+        using(var redacted=new DesktopHistoricalActiveStartBridge(historic,
+            _=>throw new IOException("path C:\\SECRET\\my-key.txt"),
+            (_,_,_)=>throw new InvalidOperationException("Must not launch")))
+        {
+            var response=await Call(redacted.HandleAsync,
+                "historical.activeStartPreview",new{mapId=storeMap.Id});
+            Check(IsError(response,"UM-STORE-ACTIVE-START-SAFETY-FAILED")&&
+                  !response.ToString().Contains("SECRET",StringComparison.Ordinal),
+                "native Store Start redacts unexpected filesystem and credential errors");
+        }
         using(var bridge=new DesktopHistoricalActiveStartBridge(historic,
             Prepare,Start))
         {

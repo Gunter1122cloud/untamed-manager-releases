@@ -72,7 +72,18 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         "UM-STORE-RUNTIME-RCON-INI-MISMATCH":"Az ASA jelenlegi RCON INI és a helyi Obsidian RCON-profil nem egyezik. Ellenőrizd a jóváhagyott beállításokat.",
         "UM-STORE-NATIVE-EXE-RCON-PARITY":"A helyi ASA EXE vagy RCON INI azonossága nem igazolható.",
         "UM-STORE-NATIVE-BACKUP-RECOVERY":"A telepítésnél korábbi mentési/visszaállítási helyreállítás vár kezelői rendezésre.",
-        "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED":"Válaszd ki és hagyd jóvá az ASA API Loader vagy a közvetlen indítási módot."
+        "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED":"Válaszd ki és hagyd jóvá az ASA API Loader vagy a közvetlen indítási módot.",
+        "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR":"Az előző Restart megszakadt, a helyi Restart-v1 napló kézi rendezést igényel. A map nem indulhat el újra automatikusan.",
+        "UM-STORE-PIN-MANIFEST-MISSING":"Hiányzik a jóváhagyott Kova-forrás Obsidianban tárolt ellenőrzőjegyzéke. Az eredeti fájlokat ne írd felül; ellenőrizd az átvételt.",
+        "UM-STORE-PIN-MANIFEST-INVALID":"Az átvett Store-v1 forrás ellenőrzőjegyzéke hibás. Az eredeti fájlok megőrzendők; újraellenőrzés szükséges.",
+        "UM-STORE-PIN-FILE-CHANGED":"Az Obsidian saját, jóváhagyott Store-v1 forrásmásolata eltér az átvételkori fájltól. Az indítás letiltva.",
+        "UM-STORE-PIN-SOURCE-PARITY":"Az átvett Store-v1 forrásfájlok közös ellenőrzőösszege nem egyezik. Új forrásazonosság-ellenőrzés szükséges.",
+        "UM-STORE-PIN-NOT-A-DIRECTORY":"A helyi Store-v1 forrásmappa helyét fájl foglalja el. Kézi profiljavítás szükséges.",
+        "UM-STORE-PIN-MAP-IDENTITY":"A jóváhagyott Store-v1 forrás nem ehhez a maphoz tartozik. A mapazonosító megőrzése mellett ellenőrizd az importot.",
+        "UM-STORE-PIN-OWNER-CHANGED":"A map tulajdonosa vagy forrásazonossága eltér az átvett Store-v1 profiltól. Indítás letiltva.",
+        "UM-STORE-PIN-MAP-ROOT-CHANGED":"Az eredeti map telepítési gyökere eltér a megőrzött forrástól. Ellenőrizd a jóváhagyott helyi profilt.",
+        "UM-STORE-PIN-CLUSTER-METADATA":"Az eredeti runtime clusterazonosító vagy átviteli útvonal nem olvasható a megőrzött forrásból.",
+        "UM-STORE-PIN-NOT-YET-APPROVED":"Az eredeti Kova-forrás még nem került jóváhagyottan az Obsidian saját profiljába; előbb az átvételt kell véglegesíteni."
       };
       setError(errors[code]??"A Store-v1 map indítási előellenőrzése nem sikerült. Ellenőrizd a helyi naplót és folyamatállapotot; ASA nem indult.");
     }finally{setBusy(false);}
@@ -92,10 +103,17 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       try{setState(await managerBridge.historicalActiveStartStatus(mapId));}
       catch{setState(null);}
       await onStarted();
-    }catch{
-      setError("Az eredeti állapot megváltozott, az indítás nem igazolható, "+
-        "vagy megszakadt. Nem lesz automatikus újrapróbálás. "+
-        "Ellenőrizd a Windows PID-et és az eredeti Store-műveleti naplót.");
+    }catch(e){
+      const code=e instanceof Error?e.message:"";
+      const details:Record<string,string>={
+        "UM-STORE-ACTIVE-MAP-CHANGED":"A map jóváhagyott profilja változott. Indíts új előellenőrzést.",
+        "UM-STORE-ACTIVE-ORIGINAL-SOURCE-CHANGED":"Az eredeti Store-forrás vagy a helyi indítási terv változott. Új előellenőrzés szükséges.",
+        "UM-STORE-ACTIVE-PROCESS-UNVERIFIED":"A Start utáni Windows folyamat nem igazolható. Ellenőrizd a tényleges PID-et és a tartós műveleti naplót; ne próbáld vakon újraindítani.",
+        "UM-STORE-ACTIVE-APPROVAL-EXPIRED":"A jóváhagyás lejárt vagy már felhasználtad. Friss előellenőrzés kell."
+      };
+      setError(details[code]??"Az indítás eredménye nem igazolható, "+
+        "vagy az eredeti állapot megváltozott. Nincs automatikus újrapróbálás. "+
+        "Ellenőrizd a Windows PID-et és a Store-műveleti naplót.");
     }finally{setBusy(false);}
   };
   return <section className="glass panel historical-active-start"

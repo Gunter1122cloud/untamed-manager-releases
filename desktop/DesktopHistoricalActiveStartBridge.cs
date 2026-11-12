@@ -33,7 +33,18 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
         "UM-STORE-RUNTIME-CLUSTER-INCOMPLETE",
         "UM-STORE-RUNTIME-RCON-INI-MISMATCH",
         "UM-STORE-RUNTIME-CONVERSION-DENIED",
-        "UM-STORE-RUNTIME-ARGUMENTS-TOO-LONG"
+        "UM-STORE-RUNTIME-ARGUMENTS-TOO-LONG",
+        "UM-STORE-PIN-MANIFEST-MISSING",
+        "UM-STORE-PIN-MANIFEST-INVALID",
+        "UM-STORE-PIN-FILE-CHANGED",
+        "UM-STORE-PIN-SOURCE-PARITY",
+        "UM-STORE-PIN-NOT-A-DIRECTORY",
+        "UM-STORE-PIN-MAP-IDENTITY",
+        "UM-STORE-PIN-OWNER-CHANGED",
+        "UM-STORE-PIN-MAP-ROOT-CHANGED",
+        "UM-STORE-PIN-CLUSTER-METADATA",
+        "UM-STORE-PIN-NOT-YET-APPROVED",
+        "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR"
     };
     private sealed record Pending(Guid Token,Guid MapId,string ProfileJson,
         string PlanFingerprint,int Game,int Query,int Rcon,bool UseApi,DateTimeOffset Created);
