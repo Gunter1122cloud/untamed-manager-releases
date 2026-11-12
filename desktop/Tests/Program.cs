@@ -4993,10 +4993,22 @@ try
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectCopy") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.inspectArchive") &&
           !ObsidianWindow.RequiresGlobalBridgeGate("store.compareArchives") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("dashboard.snapshot") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("servers.runningLocal") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("rcon.listPlayers") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("rcon.gameLog") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("servers.restartStatus") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("historical.restartStatus") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("historical.gracefulStopStatus") &&
+          !ObsidianWindow.RequiresGlobalBridgeGate("schedule.nativeStatus") &&
           ObsidianWindow.RequiresGlobalBridgeGate("updates.install") &&
           ObsidianWindow.RequiresGlobalBridgeGate("servers.restartApply") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("servers.gracefulStopApply") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("rcon.saveWorld") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("historical.restartApply") &&
+          ObsidianWindow.RequiresGlobalBridgeGate("schedule.nativeSet") &&
           ObsidianWindow.RequiresGlobalBridgeGate(null),
-        "Obsidian updater staging cannot monopolize global server command gate");
+        "read-only dashboard, RCON and lifecycle status bypass slow UI mutation gate without unlocking any writes");
 
     // Obsidian catalog must never accept a WPF binary even if its release
     // digest, version and GitHub repository are otherwise correct.
