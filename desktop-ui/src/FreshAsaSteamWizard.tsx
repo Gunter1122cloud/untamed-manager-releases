@@ -74,7 +74,11 @@ export function FreshAsaSteamWizard({
             setRegisteredMapId(receipt.mapId);
             setFirstConfigurationSaved(false);
             setMessage(receipt.mapName+" letöltve és hozzáadva a Managerhez. Következő lépés: első konfiguráció, majd RCON/mod/API/cluster és külön jóváhagyott Start.");
-            await onRegistered();
+            try {
+              await onRegistered();
+            } catch {
+              if(active)setError("A map regisztrációja sikerült, de a szerverlista frissítése nem. Ne regisztráld újra; nyisd meg a Szerverek oldalt, vagy frissítsd az állapotot.");
+            }
           }catch{
             if(active){
               setJob(state);
@@ -187,7 +191,11 @@ export function FreshAsaSteamWizard({
       setRegisteredMapId(receipt.mapId);
       setFirstConfigurationSaved(false);
       setMessage(receipt.mapName+" regisztrálva. Folytasd az alábbi első mapbeállítással, utána a mapadatlap RCON/mod/API/cluster lépéseivel.");
-      await onRegistered();
+      try {
+        await onRegistered();
+      } catch {
+        setError("A map regisztrációja sikerült, de a szerverlista frissítése nem. Ne próbáld újra regisztrálni; frissítsd a nézetet.");
+      }
     }catch(e){
       setError("A Manager nem regisztrálta az ellenőrzött fájlokat ("+
         (e instanceof Error?e.message:"UM-FRESH-OPERATION-FAILED")+").");
