@@ -1508,6 +1508,13 @@ test.beforeEach(async ({ page }) => {
           if(m.token!=="00000000-0000-4000-8000-000000007147"||m.confirm!==true)
             throw new Error("UM-LIVE-APPROVAL-REQUIRED");
           importedObserved=true;
+          state.local.maps.push({
+            id:"00000000-0000-4000-8000-000000007148",
+            name:"Ragnarok",running:false,
+            observedReadOnlyImported:true,storeProtected:false,
+            gamePort:7827,status:"Megfigyelt futó ASA",
+            steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"
+          } as typeof state.local.maps[number]);
           return {mapId:"00000000-0000-4000-8000-000000007148",
             mapName:"Ragnarok",mapKey:"Ragnarok_WP",pid:4443,
             readOnly:true,lifecycleAuthorized:false,storeWriterAuthorized:false,
@@ -1531,6 +1538,11 @@ test.beforeEach(async ({ page }) => {
              m.confirm!==true||m.externalControllerStopped!==true)
             throw new Error("UM-ADOPT-EXPLICIT-APPROVAL-REQUIRED");
           adoptedObserved=true;
+          Object.assign(state.local.maps.find(map=>
+            map.id==="00000000-0000-4000-8000-000000007148"),{
+            running:true,observedReadOnlyImported:false,
+            status:"Fut · helyi natív vezérlés"
+          });
           return {mapId:"00000000-0000-4000-8000-000000007148",
             mapName:"Ragnarok",pid:4443,lifecycleAuthorized:true,
             storeWriterAuthorized:false,rconRequiresSeparateConfiguration:true,
@@ -3524,6 +3536,15 @@ test("P0 native non-Store live ASA takeover requires explicit approval and prese
   await apply.click();
   await expect(handoff).toHaveCount(0);
   await expect(panel.getByLabel("Futó ASA vezérlés átvétele PID 4442")).toHaveCount(0);
+  // Ownership handoff must refresh the PARENT server registry, not merely
+  // the WMI candidate panel. The user can now open real management actions.
+  const adopted=page.locator(".premium-map-line.is-local").filter({hasText:"Ragnarok"});
+  await expect(adopted).toBeVisible();
+  await adopted.click();
+  await expect(page.getByRole("region",{name:"Megfigyelési map adatlapja"})).toHaveCount(0);
+  await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
+  await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"})).toBeVisible();
+  await expect(page.getByRole("tab",{name:"RCON / Konzol"})).toBeVisible();
 });
 
 test("P0 original live Store method denial is identified as native dispatch/build mismatch, never Kova process proof failure",async({page})=>{
