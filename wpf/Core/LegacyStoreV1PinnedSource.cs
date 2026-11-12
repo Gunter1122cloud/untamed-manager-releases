@@ -176,8 +176,11 @@ public static class LegacyStoreV1PinnedSource
             effectiveId,effectivePath,
             string.Join(",",mods.EnabledOrder),string.Join(",",mods.Passive),
             map.StartWithAsaApi?"API":"DIRECT",
-            Path.GetFullPath(map.ExecutablePath??""),
-            map.StartWithAsaApi?Path.GetFullPath(map.ApiLoaderPath??""):"",
+            string.IsNullOrWhiteSpace(map.ExecutablePath)?"UNSET":
+                Path.GetFullPath(map.ExecutablePath),
+            !map.StartWithAsaApi?"DIRECT":
+                string.IsNullOrWhiteSpace(map.ApiLoaderPath)?"UNSET":
+                    Path.GetFullPath(map.ApiLoaderPath),
             map.RconPasswordProtected??"",gus,game);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(evidence)));
     }
