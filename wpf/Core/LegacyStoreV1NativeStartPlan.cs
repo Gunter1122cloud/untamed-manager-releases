@@ -86,11 +86,21 @@ internal static class LegacyStoreV1NativeStartPlanner
         byte[] ini=held.Read(AsaInitialRconSettings.NewIniPath(map.InstallationPath),131072);
         if(!AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException("UM-STORE-NATIVE-RCON-CHANGED");
+        // The in-memory Obsidian registration must still match the CURRENT
+        // original Kova launch-profiles-v1.json on this specific host.
+        // The four-file Store hash and the launch profile hash are both
+        // pinned; no alternative transfer directory is generated.
+        var currentSource=LegacyStoreV1OriginalImport.Inspect(LocalOriginal);
+        var originalMap=LegacyStoreV1SourceLaunchParity.RequireOriginalMap(
+            map,currentSource);
         var plan=LegacyStoreV1ActiveLaunch.Build(new(
-            map.HistoricalMapKey,map.GamePort,map.QueryPort,
-            map.HistoricalEnabledMods,map.HistoricalPassiveMods,
+            originalMap.MapKey,originalMap.GamePort,originalMap.QueryPort,
+            originalMap.EnabledMods,originalMap.PassiveMods,
             VaultProtocol.ClusterId,original.VerifiedOriginalSharedPath,
             "active",Encoding.UTF8.GetString(ini)));
+        LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+            map,currentSource,original.VerifiedOriginalSharedPath,
+            Encoding.UTF8.GetString(ini),plan.Arguments);
         if(plan.ConversionRequested||plan.StoreMode!="active"||
            plan.Arguments.Count(x=>x.Equals("-usestore",
                StringComparison.OrdinalIgnoreCase))!=1)
@@ -138,10 +148,22 @@ internal static class LegacyStoreV1NativeStartPlanner
                 ":"+cfgHash+":"+cacheState;
         }
         string originalIniSha=Convert.ToHexString(SHA256.HashData(ini));
+        // Preserve source Game.ini transfer/upload/download rules exactly.
+        // Hash the existing file's bytes along with GUS, without rewriting
+        // either config or inventing another ASA transfer mechanism.
+        string gameIniPath=Path.Combine(map.InstallationPath,"ShooterGame",
+            "Saved","Config","WindowsServer","Game.ini");
+        string gameIniSha="ABSENT";
+        if(File.Exists(gameIniPath))
+        {
+            byte[] gameIni=held.Read(gameIniPath,4_000_000);
+            gameIniSha=Convert.ToHexString(SHA256.HashData(gameIni));
+        }
         string evidence=string.Join("\n",map.Id.ToString("D"),
             Path.GetFullPath(map.InstallationPath),Path.GetFullPath(map.ExecutablePath),
-            map.HistoricalArchiveSha256,original.SourceStateSha256,
-            originalIniSha,args,launchMode,map.RconPort.ToString(
+            map.HistoricalArchiveSha256,currentSource.LaunchProfileSha256,
+            original.SourceStateSha256,originalIniSha,gameIniSha,
+            args,launchMode,map.RconPort.ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
         string fingerprint=Convert.ToHexString(SHA256.HashData(
             Encoding.UTF8.GetBytes(evidence)));

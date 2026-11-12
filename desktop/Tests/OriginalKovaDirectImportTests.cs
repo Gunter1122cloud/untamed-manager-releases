@@ -114,6 +114,81 @@ internal static class OriginalKovaDirectImportTests
               discovered.LaunchProfileSha256==launchHash,
             "five original GUIDs, map keys and installation paths remain byte-bound");
 
+        // A stopped or running original Kova map must NOT receive newly
+        // synthesized cluster or transfer settings. Verify the exact ASA
+        // launch arguments before any real Process.Start could occur.
+        var firstOriginal=discovered.Maps[0];
+        var selected=new LocalMap{
+            Id=firstOriginal.MapId,Name="The Island",
+            InstallationPath=firstOriginal.OriginalInstallationRoot,
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=discovered.FourFilesSha256,
+            HistoricalMapKey=firstOriginal.MapKey,
+            HistoricalEnabledMods=firstOriginal.EnabledMods.ToList(),
+            HistoricalPassiveMods=firstOriginal.PassiveMods.ToList(),
+            GamePort=firstOriginal.GamePort,QueryPort=firstOriginal.QueryPort
+        };
+        string originalIni="[ServerSettings]\\nPort="+firstOriginal.GamePort+
+            "\\nQueryPort="+firstOriginal.QueryPort+"\\n";
+        var launch=LegacyStoreV1ActiveLaunch.Build(new(
+            firstOriginal.MapKey,firstOriginal.GamePort,firstOriginal.QueryPort,
+            firstOriginal.EnabledMods,firstOriginal.PassiveMods,
+            VaultProtocol.ClusterId,originalCluster.path,"active",originalIni));
+        LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+            selected,discovered,originalCluster.path,originalIni,launch.Arguments);
+        Check(launch.Arguments.Contains("-clusterid="+VaultProtocol.ClusterId)&&
+              launch.Arguments.Contains("-ClusterDirOverride="+originalCluster.path)&&
+              launch.Arguments.Count(x=>x=="-usestore")==1&&
+              !launch.Arguments.Any(x=>x.Contains("converttostore")),
+            "registered original map inherits exactly the KovaCluster identity, physical transfer UNC and once-only active Store flag");
+        bool RefusesChanged(Action apply)
+        {
+            try{apply();return false;}
+            catch(InvalidDataException){return true;}
+        }
+        Check(RefusesChanged(()=>{
+              selected.QueryPort++;
+              try{LegacyStoreV1SourceLaunchParity.RequireOriginalMap(selected,discovered);}
+              finally{selected.QueryPort--;}
+            })&&
+            RefusesChanged(()=>{
+              selected.HistoricalEnabledMods.Reverse();
+              try{LegacyStoreV1SourceLaunchParity.RequireOriginalMap(selected,discovered);}
+              finally{selected.HistoricalEnabledMods.Reverse();}
+            })&&
+            RefusesChanged(()=>LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+              selected,discovered,originalCluster.path,originalIni,
+              launch.Arguments.Where(x=>!x.StartsWith("-ClusterDirOverride=")).ToArray())),
+            "changed query port, mod order or missing transfer override refuse Obsidian launch parity");
+        // Other original peer carries five OTHER GUIDs but must produce
+        // the identical cluster ID and the SAME original transfer directory.
+        var peerIds=Enumerable.Range(0,5).Select(_=>Guid.NewGuid()).ToArray();
+        var peerMaps=peerIds.Select((id,i)=>new LegacyStoreV1OriginalMap(
+            id,"PeerMap_"+i,Path.Combine(baseRoot,"synthetic-peer-"+i),
+            7827+i*10,27215+i*10,firstOriginal.EnabledMods,
+            firstOriginal.PassiveMods)).ToArray();
+        var secondSource=new LegacyStoreV1OriginalLocalSelection(
+            discovered.FourFilesSha256,discovered.LaunchProfileSha256,peerMaps);
+        var second=new LocalMap{
+            Id=peerMaps[0].MapId,Name="PeerMap_0",
+            InstallationPath=peerMaps[0].OriginalInstallationRoot,
+            HistoricalStoreProtected=true,
+            HistoricalArchiveSha256=discovered.FourFilesSha256,
+            HistoricalMapKey=peerMaps[0].MapKey,
+            HistoricalEnabledMods=peerMaps[0].EnabledMods.ToList(),
+            HistoricalPassiveMods=peerMaps[0].PassiveMods.ToList(),
+            GamePort=peerMaps[0].GamePort,QueryPort=peerMaps[0].QueryPort
+        };
+        var peerLaunch=LegacyStoreV1ActiveLaunch.Build(new(
+            peerMaps[0].MapKey,peerMaps[0].GamePort,peerMaps[0].QueryPort,
+            peerMaps[0].EnabledMods,peerMaps[0].PassiveMods,
+            VaultProtocol.ClusterId,originalCluster.path,"active",""));
+        LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
+            second,secondSource,originalCluster.path,"",peerLaunch.Arguments);
+        Check(peerLaunch.Arguments.Contains("-clusterid="+VaultProtocol.ClusterId)&&
+              peerLaunch.Arguments.Contains("-ClusterDirOverride="+originalCluster.path),
+            "both isolated original host launch profiles preserve one KovaCluster and transfer share, without character-movement code");
+
         await using var cluster=new ClusterService(
             "direct-kova-test",manager,
             _=>new ProcessCheck(false,"isolated synthetic stopped",null,true));
