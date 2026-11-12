@@ -47,6 +47,7 @@ public sealed class ObsidianWindow : Form
         "historical.originalLiveBatchApply" or
         "historical.originalClusterPreview" or "historical.originalClusterApply" or
         "historical.sourcePinPreview" or "historical.sourcePinApply" or
+        "historical.runtimeSettingsStatus" or
         "historical.runtimeSettingsPreview" or "historical.runtimeSettingsApply" or
         "historical.pairedEvidence" or "historical.launchEvidence" or
         "historical.liveGuard";
