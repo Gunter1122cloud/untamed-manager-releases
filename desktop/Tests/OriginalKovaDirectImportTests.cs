@@ -114,6 +114,56 @@ internal static class OriginalKovaDirectImportTests
               discovered.LaunchProfileSha256==launchHash,
             "five original GUIDs, map keys and installation paths remain byte-bound");
 
+        // Migration of a PREVIOUSLY imported Manager profile is separate
+        // from the first-time import, with explicit one-use native approval.
+        // All files below are synthetic TEMP fixtures, not production Kova.
+        await using(var existingManager=new ClusterService(
+            "existing-pre-pin",Path.Combine(baseRoot,"existing-pre-pin")))
+        {
+            var firstSource=discovered.Maps[0];
+            existingManager.AddMap(new LocalMap{
+                Id=firstSource.MapId,Name="Previously imported map",
+                HistoricalStoreProtected=true,
+                HistoricalArchiveSha256=discovered.FourFilesSha256,
+                HistoricalMapKey=firstSource.MapKey,
+                InstallationPath=firstSource.OriginalInstallationRoot,
+                HistoricalEnabledMods=firstSource.EnabledMods.ToList(),
+                HistoricalPassiveMods=firstSource.PassiveMods.ToList(),
+                GamePort=firstSource.GamePort,QueryPort=firstSource.QueryPort
+            });
+            using var originalBridge=new DesktopHistoricalStoreImportBridge(
+                existingManager,localLegacyDataDirectory:local);
+            var sourcePreview=await Call(originalBridge,"historical.sourcePinPreview");
+            Check(sourcePreview.GetProperty("ok").GetBoolean()&&
+                sourcePreview.GetProperty("data").GetProperty(
+                    "verifiedLocalMaps").GetInt32()==1,
+                "existing pre-pin Manager offers a non-mutating migration preview");
+            string sourceToken=sourcePreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            var sourceRejected=await Call(originalBridge,
+                "historical.sourcePinApply",
+                new{token=sourceToken,confirm=true,typedApproval="INVALID"});
+            Check(!sourceRejected.GetProperty("ok").GetBoolean(),
+                "source migration requires the exact typed native approval");
+            var sourceApplied=await Call(originalBridge,
+                "historical.sourcePinApply",
+                new{token=sourceToken,confirm=true,
+                    typedApproval="OBSIDIAN FORRÁS ÁTVÉTEL"});
+            Check(sourceApplied.GetProperty("ok").GetBoolean()&&
+                sourceApplied.GetProperty("data").GetProperty(
+                    "originalKovaRequiredAfterPin").GetBoolean()==false,
+                "approved legacy migration writes only the Obsidian Manager source");
+            string hidden=local+"-independent-pin-test";
+            Directory.Move(local,hidden);
+            try
+            {
+                var afterKova=await Call(originalBridge,"historical.originalList");
+                Check(afterKova.GetProperty("ok").GetBoolean(),
+                    "migrated original map list remains readable with missing Kova");
+            }
+            finally{Directory.Move(hidden,local);}
+        }
+
         // A stopped or running original Kova map must NOT receive newly
         // synthesized cluster or transfer settings. Verify the exact ASA
         // launch arguments before any real Process.Start could occur.
