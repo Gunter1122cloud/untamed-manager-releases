@@ -225,8 +225,11 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     if(onceMore.Pid!=approved.Pid ||
                        onceMore.StartedUtc!=approved.StartedUtc)
                         return Fail(id,"UM-ASA-RESTART-PROCESS-CHANGED");
-                    prepareLease.MarkMutationStarted();
+                    // A failed Restart-v1 Begin() is a PRE-MUTATION
+                    // refusal; never strand the generic operation journal
+                    // if another durable Restart already blocks the action.
                     persisted=restartJournal.Begin(currentMap.Id,approved.Pid);
+                    prepareLease.MarkMutationStarted();
                     prepareLease.Complete();
                 }
                 var job=new Job{
