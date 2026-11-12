@@ -153,6 +153,22 @@ internal static class OriginalStoreFiveMapBackupTests
         {brokenJsonRejected=true;}
         Check(brokenJsonRejected,
             "truncated resource policy JSON reports a specific safe error without copying files");
+        File.WriteAllText(policyFile,
+            "{\"schema\":1,\"maxFiles\":1,\"maxFiles\":100000,\"maxTotalBytes\":1048576}");
+        bool duplicateRejected=false;
+        try{_=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-POLICY-INVALID")
+        {duplicateRejected=true;}
+        Check(duplicateRejected,
+            "duplicate backup resource limit cannot be interpreted using last JSON property");
+        File.WriteAllText(policyFile,
+            "{\"schema\":1,\"maxFiles\":1,\"maxF\\u0069les\":2,\"maxTotalBytes\":1048576}");
+        bool escapedDuplicateRejected=false;
+        try{_=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-POLICY-INVALID")
+        {escapedDuplicateRejected=true;}
+        Check(escapedDuplicateRejected,
+            "escaped duplicate JSON property cannot bypass backup resource policy validation");
         File.Delete(policyFile);
         Check(!BackupResourcePolicy.ForManagerProfile(cluster.Store.Root).Customized,
             "removing TEMP test-only budget restores the documented default");

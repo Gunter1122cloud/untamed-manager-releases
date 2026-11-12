@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
@@ -53,7 +54,17 @@ public sealed record BackupResourcePolicy(int MaxFiles,long MaxTotalBytes,bool C
         }
         using var json=parsed;
         var root=json.RootElement;
-        if(root.ValueKind!=JsonValueKind.Object ||
+        if(root.ValueKind!=JsonValueKind.Object)
+            throw new InvalidDataException("UM-BACKUP-RESOURCE-POLICY-INVALID");
+        // System.Text.Json permits duplicate properties by default and the
+        // last occurrence wins during TryGetProperty. A limit file with two
+        // conflicting budgets must not receive an implicit interpretation.
+        // Name decoding is important: maxF\\u0069les is also maxFiles.
+        var names=new HashSet<string>(StringComparer.Ordinal);
+        foreach(var property in root.EnumerateObject())
+            if(!names.Add(property.Name))
+                throw new InvalidDataException("UM-BACKUP-RESOURCE-POLICY-INVALID");
+        if(
            !root.TryGetProperty("schema",out var version)||
            version.ValueKind!=JsonValueKind.Number||
            !version.TryGetInt32(out var schema)||schema!=1||
