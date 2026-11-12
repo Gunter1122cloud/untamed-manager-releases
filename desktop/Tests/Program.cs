@@ -3033,7 +3033,7 @@ try
             Arguments="SYNTHETIC_OWNER_ONLY"
         };
         bool sameProcess=true;
-        using var review=new DesktopAsaLifecycleJournalBridge(originalLab,id=>{
+        var review=new DesktopAsaLifecycleJournalBridge(originalLab,id=>{
             proofCalls++;
             if(!sameProcess)throw new InvalidDataException(
                 "UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
