@@ -443,6 +443,7 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
+    let iniConcurrentRebased=false;
     const missingGameToken="00000000-0000-4000-8000-000000003334";
     let missingGameCreated=false;
     const nativeSchedules:Record<string,any[]>={};
@@ -2102,7 +2103,22 @@ test.beforeEach(async ({ page }) => {
             originalStoreTouched:false,
             evidence:"FRESH_GAME_INI_DURABLE_CREATE_NEW_VERIFIED"};
         case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
-        case "ini.save": return {saved:true,backupCreated:true,sha256:"FFEE11",evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
+        case "ini.rebasePreview": {
+          if(new URLSearchParams(window.location.search).get("fixture")!=="iniConcurrent")
+            throw new Error("UM-METHOD-DENIED");
+          iniConcurrentRebased=true;
+          return {
+            content:"[ServerSettings]\\nExample=2\\nForeign=remote\\n",
+            diskContent:"[ServerSettings]\\nExample=1\\nForeign=remote\\n",
+            freshSha256:"CCDD22",mergedLines:1,
+            evidence:"THREE_WAY_INI_REBASE_PREVIEW_NO_WRITE"
+          };
+        }
+        case "ini.save":
+          if(new URLSearchParams(window.location.search).get("fixture")==="iniConcurrent" &&
+             !iniConcurrentRebased)throw new Error("UM-INI-ETAG-MISMATCH");
+          return {saved:true,backupCreated:true,sha256:"FFEE11",
+            evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
         case "ini.close": return {closed:true};
         case "plugins.jsonOpen":
           if(m.plugin!=="ExamplePlugin")throw new Error("UM-PLUGIN-JSON-INVALID-NAME");
@@ -4387,6 +4403,28 @@ test("INI editor requires explicit open, preview and save in test contract",asyn
   await page.screenshot({path:"test-results/ini-preview-1366.png",fullPage:true});
   await page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}).click();
   await expect(page.getByText(/visszaállítási \.bak másolattal/)).toBeVisible();
+});
+
+test("INI ETag conflict offers an explicit three-way rebase and requires fresh approval",async({page})=>{
+  await page.goto("/?fixture=iniConcurrent");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  const edit=page.getByRole("textbox",{name:"Az eredeti fájl szerkeszthető tartalma"});
+  await edit.fill("[ServerSettings]\\nExample=2\\n");
+  await page.getByRole("button",{name:"Hash és változások előnézete"}).click();
+  await page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}).click();
+  await expect(page.getByRole("alert")).toContainText("háromutas egyeztetéssel");
+  await page.getByRole("button",{
+    name:"Háromutas INI-egyeztetés előnézete (nem ment)"
+  }).click();
+  await expect(edit).toContainText("Foreign=remote");
+  await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}))
+    .toBeDisabled();
+  await expect(page.getByRole("button",{name:"Hash és változások előnézete"}))
+    .toBeEnabled();
+  await page.getByRole("button",{name:"Hash és változások előnézete"}).click();
+  await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}))
+    .toBeEnabled();
 });
 
 test("missing Game.ini requires two explicit user actions before opening the native ETag editor",async({page})=>{
