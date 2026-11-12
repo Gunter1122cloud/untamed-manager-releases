@@ -202,9 +202,15 @@ public sealed class UntamedOperationCoordinator
                 throw new InvalidOperationException("UM-RECOVERY-JOURNAL-CHANGED");
             // NEVER review an in-flight mutation, failed Backup/Restore, or
             // an EmergencyKill through the running-Launch recovery route.
+            // Prepared may be a crash before dispatch; Mutating may be a
+            // crash AFTER dispatch. Neither is automatically retried.
+            // All three unresolved phases require manual consent, old age,
+            // the released OS lease and exact fresh running-owner proof.
             if(old.Kind!=UntamedOperationKind.Launch||
-               old.Phase!=UntamedOperationPhase.NeedsOperator)
-                throw new UnauthorizedAccessException("UM-RECOVERY-LAUNCH-NEEDS-OPERATOR-ONLY");
+               old.Phase is not (UntamedOperationPhase.Prepared or
+                   UntamedOperationPhase.Mutating or
+                   UntamedOperationPhase.NeedsOperator))
+                throw new UnauthorizedAccessException("UM-RECOVERY-LAUNCH-PENDING-ONLY");
             // A failed DoExit/Restart can still be in flight for a while.
             // No time-based auto-clear: age merely qualifies a MANUAL review.
             if(DateTimeOffset.UtcNow-old.UpdatedUtc<TimeSpan.FromMinutes(3))
