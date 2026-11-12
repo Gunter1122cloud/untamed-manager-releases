@@ -1048,7 +1048,8 @@ export type HistoricalActiveStartPreview = {
   token:string;mapId:string;mapName:string;gamePort:number;
   queryPort:number;rconPort:number;launchMode:"asaApiLoader"|"directAsa";
   apiCacheState:string;apiCacheRuntimeCertified:false;
-  originalTwoPeersVerified:true;
+  originalTwoPeersVerified:boolean;
+  originalPeerCheckRequiredForLocalStart:boolean;
   conversionAllowed:false;automaticRetryAllowed:false;
   serverStarted:false;readyCertified:false;gameplayTravelVerified:false;
   evidence:"ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT";

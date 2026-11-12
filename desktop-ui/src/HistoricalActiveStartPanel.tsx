@@ -4,9 +4,10 @@ import {managerBridge,type HistoricalActiveStartPreview,
   type HistoricalActiveStartStatus,type HistoricalLoaderModePreview} from "./bridge";
 
 /**
- * Starts the ORIGINAL ACTIVE/DONE local ASA map only after a native
- * old-session/two-peer/INI/port/process preflight and an additional typed
- * confirmation. No WebView-supplied launch arguments or original paths.
+ * Starts a preserved historical Store-v1 ASA map with native source,
+ * INI/port/process checks and explicit typed approval. A pinned Obsidian
+ * source does not depend on another host's obsolete Kova ACTIVE/DONE marker.
+ * No WebView-supplied launch arguments or original paths.
  */
 export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
   mapId:string;rconAttached:boolean;onStarted:()=>Promise<void>
@@ -62,8 +63,8 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       const result=await managerBridge.historicalActiveStartPreview(mapId);
       setPreview(result);
     }catch{
-      setError("Az eredeti kétgépes ACTIVE/DONE session/lock, a valódi leállítás, "+
-        "az eredeti RCON/INI, a portok vagy a megőrzött indítási profil nem igazolható. "+
+      setError("A kiválasztott Store-v1 map helyi indítási előfeltételei, a valódi leállítás, "+
+        "az RCON/INI, a portok vagy a megőrzött indítási profil nem igazolható. "+
         "Nem indítottunk ASA-folyamatot.");
     }finally{setBusy(false);}
   };
@@ -95,10 +96,11 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       <span className="mod-tag amber"><LockKeyhole size={13}/> Meglévő ACTIVE session</span>
     </div>
     <div className="panel-inner">
-      <p className="muted small">Az eredeti tízmapos, kétgépes Store-v1 klaszter
-        már aktív adatformátumával indít. Az eredeti két peer, mapazonosító,
-        lock, meglévő ASA/RCON INI, portok és leállított folyamat minden
-        indítás előtt a natív Windows rétegben újraellenőrzésre kerül.</p>
+      <p className="muted small">Az eredeti Store-v1 mapot megőrzött adatformátummal
+        indítja. A natív Windows réteg minden indítás előtt ellenőrzi a map
+        azonosságát, az ASA/RCON INI-t, a portokat és a leállított folyamatot.
+        Az Obsidianba jóváhagyottan átvett map helyi indítása nem igényli a másik
+        host régi Kova ACTIVE/DONE-jelölőjét; a tényleges clusterutazás külön bizonyítandó.</p>
       <div className="details-line"><span>Kiválasztott indítás</span>
         <b>{state?.launchModeApprovalRequired?
           "Még nem jóváhagyott · indítás tiltva":
@@ -160,8 +162,10 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         <Shield size={17}/>
         <div>
           <b>{preview.mapName} · Game {preview.gamePort} · Query {preview.queryPort}</b>
-          <p>Mindkét eredeti Store peer ACTIVE/DONE állapota igazolt a
-            művelet előnézetében. A Manager a {preview.launchMode==="asaApiLoader"?
+          <p>{preview.originalPeerCheckRequiredForLocalStart?
+              "A régi, még át nem vett Kova-profil két peerének ACTIVE/DONE állapota igazolt.":
+              "Az Obsidianban jóváhagyott helyi Store-profil indítható a másik host régi ACTIVE/DONE jelölője nélkül; a távoli elérés és a karakterutazás ettől még nem igazolt."}
+            {" "}A Manager a {preview.launchMode==="asaApiLoader"?
               "helyi ASA API Loadert indítja; a gyermek ASA PID-et külön kell igazolni":
               "helyi ASA EXE-t indítja"}.
             Nem konvertál, nem hoz létre új sessiont vagy shared lockot.</p>

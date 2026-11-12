@@ -1053,8 +1053,9 @@ test.beforeEach(async ({ page }) => {
           return {
             token:historicalStartToken,mapId:two,mapName:"Astraeos",
             gamePort:7847,queryPort:27025,rconPort:37145,
-            originalTwoPeersVerified:true,conversionAllowed:false,
-            automaticRetryAllowed:false,serverStarted:false,readyCertified:false,
+            originalTwoPeersVerified:false,originalPeerCheckRequiredForLocalStart:false,
+            conversionAllowed:false,automaticRetryAllowed:false,
+            serverStarted:false,readyCertified:false,
             gameplayTravelVerified:false,
             evidence:"ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT"
           };
@@ -4879,6 +4880,8 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await preflight.click();
   const approval=historic.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
   await expect(approval).toBeVisible();
+  await expect(approval).toContainText("a másik host régi ACTIVE/DONE jelölője nélkül");
+  await expect(approval).not.toContainText("Mindkét eredeti Store peer ACTIVE/DONE állapota igazolt");
   const spawn=approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
   await expect(spawn).toBeDisabled();
   await approval.locator('input[id="historical-start-phrase"]').fill("START");
