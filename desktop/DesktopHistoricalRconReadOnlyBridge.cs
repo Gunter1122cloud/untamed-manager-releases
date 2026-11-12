@@ -39,11 +39,12 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
         cluster=service??throw new ArgumentNullException(nameof(service));
         inspect=processInspector??(map=>LegacyStoreV1ProcessObserver.Observe(
             map,cluster.Config.LocalMaps));
-        // Read the SAME exact original two-peer ACTIVE/DONE source SHA
-        // used by the native historical Start and SaveWorld paths. A mere
-        // boolean probe cannot detect an A->B shared-session swap during
-        // a successful read-only RCON request.
-        sourceEpoch=sourceEpochProof??LegacyStoreV1GracefulStop.OriginalSource;
+        // After a verified Obsidian source import, local RCON reads bind
+        // to that Manager-owned source, not a retired Kova profile or a
+        // switched-off peer's old ACTIVE/DONE marker. Unmigrated profiles
+        // retain their original strict handoff check.
+        sourceEpoch=sourceEpochProof??(
+            map=>LegacyStoreV1GracefulStop.OriginalSource(cluster,map));
         owner=portOwner??RconPortOwnership.IsOwnedListener;
         send=dispatch??RconProtocol.Execute;
     }
