@@ -379,25 +379,35 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                         return Fail(id,"UM-MULTIHOST-CANCEL-EXPLICIT-CONFIRMATION");
                     if(current==null||current.Id!=jobId)
                         return Fail(id,"UM-MULTIHOST-BACKUP-JOB-NOT-FOUND");
-                    lock(current)
+                    var activeJob=current;
+                    lock(activeJob)
                     {
-                        if(current.State is not ("queued" or "running")||
+                        if(activeJob.State is not ("queued" or "running")||
                            currentCancellation==null)
                             return Fail(id,"UM-MULTIHOST-CANCEL-NOT-RUNNING");
-                        try{currentCancellation.Cancel();}
-                        catch(ObjectDisposedException)
-                        {return Fail(id,"UM-MULTIHOST-CANCEL-NOT-RUNNING");}
-                        current.Stage="CANCELLATION_REQUESTED_AWAIT_OPERATOR_RESULT";
-                        current.ChangedUtc=DateTimeOffset.UtcNow;
-                        return Ok(id,new{
-                            jobId=current.Id,cancelRequested=true,
-                            completed=false,requiresStatusRecheck=true,
-                            productionRestoreAllowed=false,
-                            rconSent=false,serverProcessTouched=false,
-                            automaticRollback=false,journalDeleted=false,
-                            evidence="EXACT_OFFLINE_JOB_CANCELLATION_REQUEST_ONLY"
-                        });
                     }
+                    // Do not invoke CancellationToken callbacks while holding
+                    // the job monitor: a callback may attempt to publish its
+                    // final state through Set(job), which locks this monitor.
+                    try{currentCancellation!.Cancel();}
+                    catch(ObjectDisposedException)
+                    {return Fail(id,"UM-MULTIHOST-CANCEL-NOT-RUNNING");}
+                    lock(activeJob)
+                    {
+                        if(activeJob.State is "queued" or "running")
+                        {
+                            activeJob.Stage="CANCELLATION_REQUESTED_AWAIT_OPERATOR_RESULT";
+                            activeJob.ChangedUtc=DateTimeOffset.UtcNow;
+                        }
+                    }
+                    return Ok(id,new{
+                        jobId=activeJob.Id,cancelRequested=true,
+                        completed=false,requiresStatusRecheck=true,
+                        productionRestoreAllowed=false,
+                        rconSent=false,serverProcessTouched=false,
+                        automaticRollback=false,journalDeleted=false,
+                        evidence="EXACT_OFFLINE_JOB_CANCELLATION_REQUEST_ONLY"
+                    });
                 }
                 if (method is "cluster.multiHostBackupStatus" or
                     "cluster.multiHostRestoreStatus" or "cluster.multiHostHostStageStatus")
