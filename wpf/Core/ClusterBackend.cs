@@ -59,6 +59,12 @@ public sealed class LocalMap
     public string HistoricalMapKey { get; set; } = "";
     public List<string> HistoricalEnabledMods { get; set; } = new();
     public List<string> HistoricalPassiveMods { get; set; } = new();
+    // Empty values preserve the original approved Store-v1 cluster settings.
+    // Nonempty values are editable Obsidian runtime settings and must come
+    // from an explicitly previewed, confirmed-stopped configuration change.
+    // The immutable source pin remains separate and is never rewritten.
+    public string HistoricalRuntimeClusterId { get; set; } = "";
+    public string HistoricalRuntimeTransferDirectory { get; set; } = "";
     public int GamePort { get; set; }
     public int QueryPort { get; set; }
     public int RconPort { get; set; }
