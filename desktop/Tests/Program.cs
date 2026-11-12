@@ -16,6 +16,8 @@ if (args.Length > 0 && args[0] == MultiHostTempProcessLeaseTests.ChildSwitch)
     Environment.Exit(MultiHostTempProcessLeaseTests.RunChild(args));
 if (args.Length > 0 && args[0] == MultiHostArchiveProcessLeaseTests.ChildSwitch)
     Environment.Exit(MultiHostArchiveProcessLeaseTests.RunChild(args));
+if (args.Length > 0 && args[0] == OperationJournalIsolationTests.ChildSwitch)
+    Environment.Exit(OperationJournalIsolationTests.RunChild(args));
 
 static void Check(bool value, string reason)
 {
@@ -112,6 +114,7 @@ await LegacyStorePhysicalTransferTests.Run(root);
 LegacyStoreOriginalLinkTests.Run(root);
 OriginalStoreLiveBatchEvidenceTests.Run(root);
 await OriginalStoreLiveReconcileTests.Run(root);
+await OperationJournalIsolationTests.Run(root);
 await OriginalStoreApiRconAttachTests.Run(root);
 await OriginalKovaDirectImportTests.Run(root);
 await LegacyStoreSaveEvidenceTests.Run(root);

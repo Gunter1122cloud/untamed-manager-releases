@@ -850,21 +850,46 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         var blocked=new List<OriginalLiveJournalBlocker>();
         foreach(var map in original)
         {
+            // Every installation has TWO independent durable operation logs.
+            // Previously only the common Launch journal was inspected:
+            // a restart-only NeedsOperator could pass the five-map preview
+            // and block the apply/next Stop with no actionable explanation.
             var journal=cluster.Operations.Observe(map.InstallationPath);
-            if(journal?.Phase is not (UntamedOperationPhase.Prepared or
-                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator))
-                continue;
+            var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
             var existing=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==map.Id);
-            bool supported=existing?.HistoricalStoreProtected==true &&
-                journal.Kind==UntamedOperationKind.Launch &&
-                journal.Phase is (UntamedOperationPhase.Prepared or
-                    UntamedOperationPhase.Mutating or
-                    UntamedOperationPhase.NeedsOperator);
-            blocked.Add(new(map.Id,map.Name,journal.Kind.ToString(),
-                journal.Phase.ToString(),journal.Operation,
-                supported?"UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
-                    "UM-ORIGINAL-LIVE-OTHER-JOURNAL-REQUIRES-REVIEW",
-                existing!=null,supported));
+            bool launchPending=journal?.Phase is (UntamedOperationPhase.Prepared or
+                UntamedOperationPhase.Mutating or UntamedOperationPhase.NeedsOperator);
+            bool restartPending=restart?.Phase is (AsaRestartPhase.Stopping or
+                AsaRestartPhase.Starting or AsaRestartPhase.NeedsOperator);
+            bool sameOriginalPid=restart!=null&&restart.OldPid>0&&
+                restart.OldPid==map.LastProcess?.Pid&&restart.NewPid==0&&
+                restart.MapId==map.Id;
+            if(launchPending)
+            {
+                bool supported=existing?.HistoricalStoreProtected==true &&
+                    journal!.Kind==UntamedOperationKind.Launch &&
+                    (!restartPending||sameOriginalPid&&restart?.Phase is
+                        (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator));
+                blocked.Add(new(map.Id,map.Name,journal!.Kind.ToString(),
+                    journal.Phase.ToString(),journal.Operation,
+                    supported?"UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":
+                        "UM-ORIGINAL-LIVE-OTHER-JOURNAL-REQUIRES-REVIEW",
+                    existing!=null,supported));
+            }
+            if(restartPending)
+            {
+                bool supported=existing?.HistoricalStoreProtected==true&&
+                    sameOriginalPid&&restart!.Phase is
+                        (AsaRestartPhase.Stopping or AsaRestartPhase.NeedsOperator)&&
+                    (!launchPending||journal?.Kind==UntamedOperationKind.Launch);
+                blocked.Add(new(map.Id,map.Name,"Restart-v1",
+                    restart!.Phase.ToString(),restart.Id,
+                    supported?(launchPending?
+                        "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE":
+                        "UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE"):
+                        "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR",
+                    existing!=null,supported));
+            }
         }
         return blocked.ToArray();
     }
