@@ -101,12 +101,6 @@ public static class LegacyStoreV1PinnedSource
     {
         string source=VaultReadSnapshot.LocalPath(originalKovaProfile,true);
         string manager=VaultReadSnapshot.LocalPath(managerProfileRoot,true);
-        if(source.Equals(manager,StringComparison.OrdinalIgnoreCase)||
-           manager.StartsWith(source+Path.DirectorySeparatorChar,
-               StringComparison.OrdinalIgnoreCase)||
-           source.StartsWith(manager+Path.DirectorySeparatorChar,
-               StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("UM-STORE-PIN-SOURCE-OVERLAP");
         string existingPin=DirectoryFor(manager);
         if(string.Equals(source,existingPin,StringComparison.OrdinalIgnoreCase))
         {
@@ -116,6 +110,12 @@ public static class LegacyStoreV1PinnedSource
                 throw new InvalidDataException("UM-STORE-PIN-EXISTING-CONFLICT");
             return;
         }
+        if(source.Equals(manager,StringComparison.OrdinalIgnoreCase)||
+           manager.StartsWith(source+Path.DirectorySeparatorChar,
+               StringComparison.OrdinalIgnoreCase)||
+           source.StartsWith(manager+Path.DirectorySeparatorChar,
+               StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("UM-STORE-PIN-SOURCE-OVERLAP");
         var original=LegacyStoreV1OriginalImport.Inspect(source);
         if(!string.Equals(original.FourFilesSha256,approvedFourFileHash,
                StringComparison.Ordinal)||
