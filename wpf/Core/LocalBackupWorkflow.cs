@@ -238,6 +238,17 @@ public static class LocalBackupWorkflow
         if((info.Attributes&FileAttributes.ReparsePoint)!=0)throw new InvalidDataException("Linked file rejected");
         var full=Path.GetFullPath(file);
         if(!IsInside(root,full))throw new InvalidDataException("File escapes map root");
+        // A lexical prefix is insufficient: ShooterGame, Saved, Config or any
+        // intermediate parent could be a junction/symlink to external data.
+        // Reject them before counting, hashing or copying the file.
+        var parent=Path.GetDirectoryName(full);
+        while(parent!=null && IsInside(root,parent))
+        {
+            var node=new DirectoryInfo(parent);
+            if((node.Attributes&FileAttributes.ReparsePoint)!=0)
+                throw new InvalidDataException("Linked backup source directory rejected");
+            parent=Path.GetDirectoryName(parent);
+        }
         var relative=Path.GetRelativePath(root,full);
         if(!result.TryAdd(relative,full))throw new InvalidDataException("Duplicate backup path");
     }
