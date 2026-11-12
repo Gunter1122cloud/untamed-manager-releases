@@ -1642,6 +1642,10 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
   const [restartJournal,setRestartJournal]=useState<AsaRestartJournalStatus|null>(null);
   const [journalsVerifiedFor,setJournalsVerifiedFor]=useState("");
   const [journalReadError,setJournalReadError]=useState(false);
+  const map=snapshot.local.maps.find(m=>m.id===mapId);
+  const historical=!!map?.storeProtected&&!map?.freshStoreEnrolled;
+  const fresh=!!map&&(!map.storeProtected||!!map.freshStoreEnrolled);
+  const observedOnly=!!map?.observedReadOnlyImported;
   useEffect(()=>{
     setSection("overview");setInitialSetupSaved(false);
     setOriginalRconAction("broadcast");setOpenOriginalStoreEnrollment(false);
@@ -1650,13 +1654,12 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
     let active=true;
     setLifecycle(null);setRestartJournal(null);
     setJournalsVerifiedFor("");setJournalReadError(false);
-    const currentMap=snapshot.local.maps.find(m=>m.id===mapId);
-    if(currentMap?.observedReadOnlyImported){
+    if(observedOnly){
       // Observation-only map never needs native lifecycle probes.
       setJournalsVerifiedFor(mapId);
       return ()=>{active=false;};
     }
-    const originalStore=!!currentMap?.storeProtected&&!currentMap?.freshStoreEnrolled;
+    const originalStore=historical;
     Promise.all([
       managerBridge.asaLifecycleJournal(mapId),
       originalStore?Promise.resolve(null):managerBridge.freshAsaRestartCurrent(mapId)
@@ -1669,12 +1672,11 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       if(active)setJournalReadError(true);
     });
     return ()=>{active=false;};
-  },[mapId]);
-  const lifecycleBlocked=journalsVerifiedFor!==mapId||
+  },[mapId,observedOnly,historical]);
+  // An observed map may become actively managed without navigating away.
+  // Re-probe durable journals on that transition, fail closed until they load.
+  const lifecycleBlocked=journalsVerifiedFor!==mapId||journalReadError||
     Boolean(lifecycle?.needsOperatorReview||restartJournal?.needsOperatorReview);
-  const map=snapshot.local.maps.find(m=>m.id===mapId);
-  const historical=!!map?.storeProtected&&!map?.freshStoreEnrolled;
-  const fresh=!!map&&(!map.storeProtected||!!map.freshStoreEnrolled);
   if(!map)return <div className="empty">A kiválasztott map már nem található a helyi Managerben.</div>;
   // WMI registration is a read-only observation, never process ownership.
   if(map.observedReadOnlyImported)return <div className="map-detail-page" role="region"
