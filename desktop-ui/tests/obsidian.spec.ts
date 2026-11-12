@@ -149,7 +149,17 @@ test.beforeEach(async ({ page }) => {
       .__UNTAMED_RESTART_INTERRUPTED__=()=>{restartInterrupted=true;};
     let lifecycleInterrupted=false;
     let storeLaunchRecoveryFixture=false;
+    let storeRestartOnlyFixture=false;
     let storeLaunchRecoveryCalls=0;
+    (window as typeof window & {__UNTAMED_STORE_RESTART_ONLY__?:()=>void})
+      .__UNTAMED_STORE_RESTART_ONLY__=()=>{
+        storeLaunchRecoveryFixture=true;storeRestartOnlyFixture=true;
+        lifecycleInterrupted=false;restartInterrupted=true;
+        Object.assign(state.local.maps[1],{
+          name:"Aberration",storeProtected:true,rconConfigured:true,
+          running:true,status:"Fut",storeLifecycleState:"needsOperator"
+        });
+      };
     (window as typeof window & {__UNTAMED_STORE_LAUNCH_RECOVERY__?:()=>void})
       .__UNTAMED_STORE_LAUNCH_RECOVERY__=()=>{
         storeLaunchRecoveryFixture=true;lifecycleInterrupted=true;restartInterrupted=true;
@@ -2260,7 +2270,9 @@ test.beforeEach(async ({ page }) => {
           changedUtc:lifecycleInterrupted?"2026-11-06T11:00:00Z":null,
           classification:lifecycleInterrupted?"unknownOutcome":"closed",
           blockingCode:storeLaunchRecoveryFixture&&lifecycleInterrupted?
-            "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE":null,
+            "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE":
+            storeRestartOnlyFixture&&restartInterrupted?
+              "UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE":null,
           restartJournalExists:storeLaunchRecoveryFixture,
           restartId:storeLaunchRecoveryFixture?"00000000-0000-4000-8000-000000001627":null,
           restartPhase:storeLaunchRecoveryFixture?
@@ -2270,22 +2282,26 @@ test.beforeEach(async ({ page }) => {
           restartNewPid:storeLaunchRecoveryFixture?0:null,
           restartClassification:storeLaunchRecoveryFixture?
             restartInterrupted?"unknownOutcome":"operatorReviewed":"closed",
-          recoverySupported:storeLaunchRecoveryFixture&&lifecycleInterrupted&&m.mapId===two,
+          recoverySupported:storeLaunchRecoveryFixture&&
+            (lifecycleInterrupted||storeRestartOnlyFixture&&restartInterrupted)&&m.mapId===two,
           needsOperatorReview:lifecycleInterrupted||storeLaunchRecoveryFixture&&restartInterrupted,
           autoResumeAllowed:false,storeTouched:false,
           evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
         };
         case "servers.lifecycleRecoveryPreview":
-          if(!storeLaunchRecoveryFixture||!lifecycleInterrupted||m.mapId!==two)
-            throw new Error("UM-RECOVERY-LAUNCH-NEEDS-OPERATOR-ONLY");
+          if(!storeLaunchRecoveryFixture||
+             !(lifecycleInterrupted||storeRestartOnlyFixture&&restartInterrupted)||
+             m.mapId!==two)
+            throw new Error("UM-RECOVERY-LAUNCH-OR-RESTART-PENDING-ONLY");
           return {token:"00000000-0000-4000-8000-000000001626",
             mapId:two,mapName:"Aberration",
             operationId:"00000000-0000-4000-8000-000000001625",
-            kind:"Launch",phase:"NeedsOperator",pid:123456,
+            kind:storeRestartOnlyFixture?"Restart":"Launch",
+            phase:"NeedsOperator",pid:123456,
             processStartedUtc:"2026-11-12T03:00:00Z",rconPort:37045,
             restartId:"00000000-0000-4000-8000-000000001627",
             restartPhase:"NeedsOperator",restartOldPid:123456,
-            restartNewPid:0,pairedJournals:2,
+            restartNewPid:0,pairedJournals:storeRestartOnlyFixture?1:2,
             expiresUtc:new Date(Date.now()+180000).toISOString(),
             exactWindowsProcessVerified:true,originalStoreSessionVerified:true,
             rconListenerOwnerVerified:true,priorCommandOutcomeUnknown:true,
@@ -2293,7 +2309,9 @@ test.beforeEach(async ({ page }) => {
             auditRequired:true,storeBytesModified:false,
             evidence:"ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW"};
         case "servers.lifecycleRecoveryApply":
-          if(!storeLaunchRecoveryFixture||!lifecycleInterrupted||m.mapId!==two||
+          if(!storeLaunchRecoveryFixture||
+             !(lifecycleInterrupted||storeRestartOnlyFixture&&restartInterrupted)||
+             m.mapId!==two||
             m.token!=="00000000-0000-4000-8000-000000001626"||
             m.confirm!==true||m.ackUnknownOutcome!==true||
             m.typedApproval!=="STORE-V1 NAPLÓ HELYREÁLLÍTÁS")
@@ -2302,8 +2320,9 @@ test.beforeEach(async ({ page }) => {
           Object.assign(state.local.maps[1],{storeLifecycleState:"running"});
           return {mapId:two,operationId:"00000000-0000-4000-8000-000000001625",
             state:"operatorReviewed",previousOutcomeStillUnknown:true,
-            originalJournalAudited:true,restartJournalAudited:true,
-            pairedJournalsReviewed:2,restartMarkedSuccessful:false,
+            originalJournalAudited:!storeRestartOnlyFixture,restartJournalAudited:true,
+            pairedJournalsReviewed:storeRestartOnlyFixture?1:2,
+            restartMarkedSuccessful:false,
             oldRunningPid:123456,storeBytesModified:false,
             processStarted:false,processStopped:false,rconCommandSent:false,
             noAutomaticRetry:true,newOperationRequiresFreshApproval:true,
@@ -3719,6 +3738,28 @@ test("running Aberration Store-v1 stale Launch journal is reviewed once, never a
     __UNTAMED_STORE_RECOVERY_CALLS__?:()=>number
   }).__UNTAMED_STORE_RECOVERY_CALLS__?.()??-1);
   expect(count).toBe(1);
+});
+
+test("old Store Restart-only NeedsOperator is explicitly recoverable without declaring a successful restart",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_RESTART_ONLY__?:()=>void;
+  }).__UNTAMED_STORE_RESTART_ONLY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").filter({hasText:"Aberration"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 beragadt indítás helyreállítása"});
+  await expect(panel).toContainText("Restart-v1 / NeedsOperator");
+  await expect(panel).toContainText("UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE");
+  await panel.getByRole("button",{name:"Helyreállítás előellenőrzése"}).click();
+  await expect(panel).toContainText("1 napló felülvizsgálata");
+  await panel.getByRole("checkbox").check();
+  await panel.getByRole("textbox",{
+    name:"Store-v1 napló helyreállítási jóváhagyás"
+  }).fill("STORE-V1 NAPLÓ HELYREÁLLÍTÁS");
+  await panel.getByRole("button",{name:"Auditált helyreállítás végrehajtása"}).click();
+  await expect(panel).toHaveCount(0);
+  await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeEnabled();
 });
 
 test("P0 original live Store method denial is identified as native dispatch/build mismatch, never Kova process proof failure",async({page})=>{
