@@ -4025,7 +4025,7 @@ test("original Store local journal inventory separates map-owned and unattribute
   await expect(inventory).toContainText("2 nem azonosított erőforrás");
   await expect(inventory).toContainText("Aberration");
   await expect(inventory).toContainText("Restart-v1");
-  await expect(inventory).toContainText("Sérült");
+  await expect(inventory).toContainText("sérült rekord");
   await expect(inventory).toContainText("Sem törlés");
 });
 
