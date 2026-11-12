@@ -62,8 +62,17 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       setMessage(summary);
       try{await onStarted();}catch{/* Process receipt remains visible even if dashboard refresh fails. */}
       await observe();
-    }catch{setError("Az ASA elindítása nem igazolható. Ellenőrizd a helyi naplókat és a folyamatállapotot; automatikus ismétlés nem történt.");}
-    finally{setBusy(false);}
+    }catch(cause){
+      const code=cause instanceof Error?cause.message:"";
+      const safe:Record<string,string>={
+        "UM-FRESH-START-CHANGED":"A szerverprofil, az ASA EXE/Loader bináris vagy az INI megváltozott a jóváhagyás után. Új indítási előellenőrzés szükséges; ASA nem lett automatikusan újraindítva.",
+        "UM-FRESH-START-TOKEN-EXPIRED":"A Start jóváhagyása lejárt vagy már felhasználtad. Friss előellenőrzést kell indítani.",
+        "UM-FRESH-START-UNVERIFIED-PROCESS":"Az indított Windows folyamat nem igazolható. Nézd meg a PID-et és a tartós naplót; NE próbáld vakon újra.",
+        "UM-FRESH-START-APPROVAL":"Az indításhoz külön kezelői jóváhagyás szükséges.",
+        "UM-FRESH-START-NOT-READY":"A helyi telepítés, RCON INI, portok vagy leállított folyamat előfeltételei már nem teljesülnek."
+      };
+      setError(safe[code]??"Az ASA elindítása nem igazolható. Ellenőrizd a helyi naplókat és a folyamatállapotot; automatikus ismétlés nem történt.");
+    }finally{setBusy(false);}
   };
 
   return <section className="premium-panel" aria-label="Valódi ASA első indítása" style={{marginBlock:18,padding:20}}>

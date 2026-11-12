@@ -196,6 +196,9 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_STEAM_BATCH_APPLIES__?:()=>number})
       .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
     let freshStarted=false;
+    let freshStartInvalidated=false;
+    (window as typeof window & {__UNTAMED_FRESH_START_CHANGED__?:()=>void})
+      .__UNTAMED_FRESH_START_CHANGED__=()=>{freshStartInvalidated=true;};
     let restartInterrupted=false;
     (window as typeof window & {__UNTAMED_RESTART_INTERRUPTED__?:()=>void})
       .__UNTAMED_RESTART_INTERRUPTED__=()=>{restartInterrupted=true;};
@@ -2562,6 +2565,7 @@ test.beforeEach(async ({ page }) => {
         };
         case "servers.freshStartApply":
           if(!m.confirm)throw new Error("approval required");
+          if(freshStartInvalidated)throw new Error("UM-FRESH-START-CHANGED");
           freshStarted=true;
           return {mapId:two,mapName:"Astraeos",pid:45678,
             createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
@@ -6475,6 +6479,24 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await expect(page.getByText("Várakozás vagy hiba – a natív bizonyíték nem teljes", {exact:true})).toBeVisible();
   await expect(page.getByText(/A szerverhirdetés és RCON még nem bizonyítja/)).toBeVisible();
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
+});
+
+test("changed ASA binary after preview surfaces exact reapproval without auto-start",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_START_CHANGED__?:()=>void
+  }).__UNTAMED_FRESH_START_CHANGED__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toBeVisible();
+  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
+  await expect(page.getByText(/ASA EXE\/Loader bináris vagy az INI megváltozott/))
+    .toBeVisible();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
+  await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"})).toHaveCount(0);
+  await expect(page.getByText(/Igazoltan leállítva/)).toBeVisible();
 });
 
 test("ASA normal Stop requires approval and never force-kills or claims SaveComplete",async({page})=>{
