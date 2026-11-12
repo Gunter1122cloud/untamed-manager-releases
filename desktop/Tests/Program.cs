@@ -3149,6 +3149,18 @@ try
             originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
                 UntamedOperationPhase.OperatorReviewed,
             "both real-schema journals are archived byte-for-byte; no fake restart or double ASA/RCON command");
+        // An audited Restart must unblock independently approved NEW
+        // operations; it must never authorize replay of an old restart token.
+        restartJournal.DemandNoPending();
+        restartJournal.DemandAuthorizedStop(null);
+        restartJournal.DemandAuthorizedStart(null);
+        bool oldRestartTokenDenied=false;
+        try{restartJournal.DemandAuthorizedStart(oldRestart.Id);}
+        catch(InvalidOperationException ex) when(
+            ex.Message=="UM-ASA-RESTART-JOURNAL-START-UNAUTHORIZED")
+        {oldRestartTokenDenied=true;}
+        Check(oldRestartTokenDenied,
+            "reviewed Restart allows fresh Start/Stop but rejects old interrupted Restart token");
         var repeated=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryApply",new{
                 mapId=protectedMap.Id,token=reviewToken,confirm=true,
