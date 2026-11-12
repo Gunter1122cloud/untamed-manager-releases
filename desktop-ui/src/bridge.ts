@@ -1127,13 +1127,15 @@ export type HistoricalRestartStatus = {
 };
 export type HistoricalGracefulStopPreview = {
   token:string;mapId:string;mapName:string;pid:number;rconPort:number;
-  originalTwoPeersVerified:true;usesSaveWorld:true;usesDoExit:true;
+  originalTwoPeersVerified:boolean;originalPeerCheckRequiredForLocalOperation:boolean;
+  usesSaveWorld:true;usesDoExit:true;
   forceKillAllowed:false;automaticRestart:false;originalStoreTouched:false;
   evidence:"ORIGINAL_STORE_V1_SAVEWORLD_DOEXIT_PREFLIGHT_ONLY";
 };
 export type HistoricalSaveWorldPreview = {
   token:string;mapId:string;mapName:string;pid:number;rconPort:number;
-  originalTwoPeersVerified:true;usesSaveWorld:true;usesDoExit:false;
+  originalTwoPeersVerified:boolean;originalPeerCheckRequiredForLocalOperation:boolean;
+  usesSaveWorld:true;usesDoExit:false;
   forceKillAllowed:false;automaticRestart:false;originalStoreTouched:false;
   evidence:"ORIGINAL_STORE_V1_SAVEWORLD_ONLY_PREFLIGHT";
 };

@@ -195,6 +195,8 @@ internal static class OriginalKovaDirectImportTests
             discovered.FourFilesSha256,discovered.LaunchProfileSha256);
         LegacyStoreV1PinnedSource.Capture(local,pinnedManager,
             discovered.FourFilesSha256,discovered.LaunchProfileSha256);
+        Check(LegacyStoreV1PinnedSource.HasApprovedLocalSource(pinnedManager,parityMap),
+            "approved local Store source remains valid without another Kova DONE peer");
         string hiddenLocal=local+"-temporarily-offline";
         Directory.Move(local,hiddenLocal);
         try

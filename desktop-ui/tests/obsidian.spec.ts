@@ -1233,7 +1233,8 @@ test.beforeEach(async ({ page }) => {
           originalSavePending=true;
           return {
             token:originalSaveToken,mapId:two,mapName:"Astraeos",
-            pid:42101,rconPort:37145,originalTwoPeersVerified:true,
+            pid:42101,rconPort:37145,originalTwoPeersVerified:false,
+            originalPeerCheckRequiredForLocalOperation:false,
             usesSaveWorld:true,usesDoExit:false,forceKillAllowed:false,
             automaticRestart:false,originalStoreTouched:false,
             evidence:"ORIGINAL_STORE_V1_SAVEWORLD_ONLY_PREFLIGHT"
@@ -1315,7 +1316,8 @@ test.beforeEach(async ({ page }) => {
             throw new Error("Original RCON owner or Store session invalid");
           return {
             token:originalStopToken,mapId:two,mapName:"Astraeos",
-            pid:42101,rconPort:37145,originalTwoPeersVerified:true,
+            pid:42101,rconPort:37145,originalTwoPeersVerified:false,
+            originalPeerCheckRequiredForLocalOperation:false,
             usesSaveWorld:true,usesDoExit:true,forceKillAllowed:false,
             automaticRestart:false,originalStoreTouched:false,
             evidence:"ORIGINAL_STORE_V1_SAVEWORLD_DOEXIT_PREFLIGHT_ONLY"
@@ -5044,6 +5046,7 @@ test("original Store-v1 SaveWorld-only runs the real native map action without s
   const approve=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
   await expect(approve).toContainText("PID 42101");
   await expect(approve).toContainText("RCON 37145");
+  await expect(approve).toContainText("nem szükséges a távoli régi Kova peer-jelölő");
   const save=approve.getByRole("button",{name:"SaveWorld végrehajtása"});
   await expect(save).toBeDisabled();
   const savePhrase=approve.getByLabel("Store-v1 mentés jóváhagyó szöveg");

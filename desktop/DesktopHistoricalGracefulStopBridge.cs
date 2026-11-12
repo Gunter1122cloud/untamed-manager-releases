@@ -32,6 +32,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     }
     private readonly ClusterService cluster;
     private readonly Func<Guid,LegacyStoreV1GracefulStop.Owned> preview;
+    private readonly bool nativePreview;
     private readonly Func<Guid,int,DateTimeOffset,string,Action<string>,Task<AsaGracefulStopReceipt>> stop;
     private readonly Func<Guid,int,DateTimeOffset,string,Action<string>,Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt>> saveOnly;
     private readonly SemaphoreSlim serial=new(1,1);
@@ -57,6 +58,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         verifyReviewSource=reviewVerifier??VerifyReviewOriginal;
+        nativePreview=probe==null;
         preview=probe??(map=>LegacyStoreV1GracefulStop.Preview(cluster,map));
         stop=executor??((map,pid,started,source,stage)=>
             LegacyStoreV1GracefulStop.StopAsync(cluster,map,pid,started,
@@ -378,6 +380,8 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                        owned.Process.StartedUtc==default||
                        owned.SourceSha.Length!=64)
                         return Fail(id,"UM-ORIGINAL-STOP-SOURCE-INVALID");
+                    bool legacyPeerNeeded=!LegacyStoreV1PinnedSource.HasApprovedLocalSource(
+                        cluster.Store.Root,original);
                     pending=new Approval(Guid.NewGuid(),mapId,owned.Process.Pid,
                         owned.Process.StartedUtc,JsonSerializer.Serialize(original),
                         owned.SourceSha,original.RconPort,DateTimeOffset.UtcNow,
@@ -385,8 +389,9 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
                     return Ok(id,new{
                         token=pending.Token,mapId,mapName=original.Name,
                         pid=pending.Pid,rconPort=pending.RconPort,
-                        originalTwoPeersVerified=true,usesSaveWorld=true,
-                        usesDoExit=!saveWorldOnly,forceKillAllowed=false,
+                        originalTwoPeersVerified=legacyPeerNeeded&&nativePreview,
+                        originalPeerCheckRequiredForLocalOperation=legacyPeerNeeded,
+                        usesSaveWorld=true,usesDoExit=!saveWorldOnly,forceKillAllowed=false,
                         automaticRestart=false,originalStoreTouched=false,
                         evidence=saveWorldOnly?
                             "ORIGINAL_STORE_V1_SAVEWORLD_ONLY_PREFLIGHT":

@@ -90,7 +90,7 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
     setBusy(true);setError("");setNotice("");setPreview(null);setPhrase("");
     try{setPreview(await managerBridge.historicalGracefulStopPreview(mapId));}
     catch{
-      setError("Az eredeti Store-v1 kétpeer-es ACTIVE/DONE session, a "+
+      setError("A map helyi Store-v1 forrásprofilja, a "+
         "Windows ASA PID vagy a hozzá tartozó RCON TCP-port nem igazolható. "+
         "Nem küldtünk SaveWorld parancsot.");
     }finally{setBusy(false);}
@@ -149,6 +149,9 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
         <AlertTriangle size={18}/>
         <div>
           <b>{preview.mapName} · PID {preview.pid} · TCP {preview.rconPort}</b>
+          <p>{preview.originalPeerCheckRequiredForLocalOperation?
+            "A még át nem vett Kova-profil régi ACTIVE/DONE ellenőrzése szükséges.":
+            "A jóváhagyott helyi Obsidian-profil leállítása nem függ a másik host régi Kova-jelölőjétől."}</p>
           <p>A program a jelenlegi mentést SaveWorld paranccsal kezdi, és
             csak új mentésjelzés után küld DoExit-et. Írd be a biztonsági
             jóváhagyást pontosan: STORE-V1 SAVEWORLD DOEXIT</p>

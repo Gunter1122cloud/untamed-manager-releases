@@ -7183,6 +7183,8 @@ try
             IsOk(preview,"original ACTIVE Store SaveWorld-only preflight");
             Check(!preview.GetProperty("data").GetProperty("usesDoExit").GetBoolean()&&
                 preview.GetProperty("data").GetProperty("usesSaveWorld").GetBoolean()&&
+                !preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                preview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalOperation").GetBoolean()&&
                 !preview.GetRawText().Contains(password,StringComparison.Ordinal),
                 "SaveWorld-only preview is explicit and never reveals Store credentials");
             string token=preview.GetProperty("data").GetProperty("token").GetString()!;
@@ -7705,6 +7707,8 @@ try
             IsOk(preview,"native two-stage original Store SaveWorld+DoExit preflight");
             Check(preview.GetProperty("data").GetProperty("usesSaveWorld").GetBoolean()&&
                   preview.GetProperty("data").GetProperty("usesDoExit").GetBoolean()&&
+                  !preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                  preview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalOperation").GetBoolean()&&
                   !preview.GetProperty("data").GetProperty("forceKillAllowed").GetBoolean()&&
                   !preview.ToString().Contains(originalPassword,StringComparison.Ordinal),
                 "original Store stop binds real source/PID but never leaks credentials or offers Kill");

@@ -100,8 +100,7 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
        !recovery||recovery.blocked||!running||jobId)return;
     setBusy(true);setPreview(null);setPhrase("");setError("");setNotice("");
     try{setPreview(await managerBridge.historicalSaveWorldPreview(mapId));}
-    catch{setError("A Store ACTIVE/DONE session, helyi PID, RCON-port vagy forrásadat nem "+
-      "ellenőrizhető. SaveWorld parancs nem indult.");}
+    catch{setError("A helyi Store-v1 profil, PID, RCON-port vagy forrásadat nem ellenőrizhető. SaveWorld parancs nem indult; a másik host régi Kova-jelölője önálló Obsidian-profilnál nem előfeltétel.");}
     finally{setBusy(false);}
   };
   const save=async()=>{
@@ -159,8 +158,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       <span className="mod-tag green">ASA tovább fut</span>
     </div>
     <div className="panel-inner">
-      <p className="muted small">Az eredeti kétgépes ACTIVE/DONE sessiont és Store-v1 lockokat
-        változatlanul használja. Az ellenőrzött helyi ASA PID-nek egyszer küldi a SaveWorld
+      <p className="muted small">A megőrzött Store-v1 adatokat változatlanul használja;
+        önálló Obsidian-profilnál a régi Kova ACTIVE/DONE peer-jelölő nem szükséges.
+        Az ellenőrzött helyi ASA PID-nek egyszer küldi a SaveWorld
         parancsot. A log és világfájl ellenőrzése után sincs DoExit, konverzió vagy
         karakter-, tribe- és tribute-fájlmódosítás a Managerből.</p>
       <button type="button" className="secondary" disabled={busy||!running||
@@ -171,6 +171,9 @@ export function HistoricalStoreSaveWorldPanel({mapId,running,onSaved}:{
       {preview&&<div className="warning-inline" role="region"
           aria-label="Store-v1 SaveWorld jóváhagyása">
         <div><strong>{preview.mapName} · PID {preview.pid} · RCON {preview.rconPort}</strong>
+          <p>{preview.originalPeerCheckRequiredForLocalOperation?
+            "A még át nem vett régi Kova-session két peerének ellenőrzése szükséges.":
+            "Önálló Obsidian helyi mentés: nem szükséges a távoli régi Kova peer-jelölő."}</p>
           <p>Valódi RCON SaveWorld következik. Írd be pontosan: STORE-V1 SAVEWORLD</p>
           <input aria-label="Store-v1 mentés jóváhagyó szöveg" value={phrase}
             spellCheck={false} autoComplete="off" maxLength={28}

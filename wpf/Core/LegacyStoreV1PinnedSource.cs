@@ -90,6 +90,29 @@ public static class LegacyStoreV1PinnedSource
     }
 
     /// <summary>
+    /// Is the complete approved original metadata pinned locally to this
+    /// concrete map? Never consult the retired Kova ACTIVE/DONE peer markers.
+    /// A corrupt, half-copied or wrong-map pin fails closed.
+    /// </summary>
+    public static bool HasApprovedLocalSource(string managerProfileRoot,LocalMap map)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        string pinned=DirectoryFor(managerProfileRoot);
+        if(!Directory.Exists(pinned))
+        {
+            if(File.Exists(pinned))
+                throw new InvalidDataException("UM-STORE-PIN-NOT-A-DIRECTORY");
+            return false;
+        }
+        var proof=VerifyPinned(pinned);
+        if(!string.Equals(map.HistoricalArchiveSha256,proof.FourFileHash,
+            StringComparison.Ordinal))
+            throw new InvalidDataException("UM-STORE-PIN-MAP-IDENTITY");
+        RequireImmutableIdentity(map,LegacyStoreV1OriginalImport.Inspect(pinned));
+        return true;
+    }
+
+    /// <summary>
     /// The imported GUID, map level, installation root and original source
     /// fingerprint stay immutable. Ports, enabled/passive mods and cluster
     /// selection are CURRENT Obsidian settings; comparing them with the
