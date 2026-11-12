@@ -1224,6 +1224,17 @@ export type OriginalKovaLiveOperationBlocker = {
   operationId:string;blockingCode:string;existingManagerProfile:boolean;
   supportedReviewInMapDetails:boolean;
 };
+export type OperationJournalInventorySnapshot = {
+  recordCount:number;registeredRecords:number;unattributedResources:number;
+  pendingRecords:number;corruptRecords:number;truncated:boolean;
+  entries:Array<{
+    resourceFingerprint:string;journal:string;kind:string;phase:string;
+    changedUtc:string|null;registered:boolean;registeredMapNames:string|null;
+    needsReview:boolean;corrupt:boolean;
+  }>;
+  evidence:"BOUNDED_READ_ONLY_LOCAL_OPERATION_JOURNAL_INVENTORY";
+  deletedOrReviewed:false;
+};
 export type OriginalKovaLiveOperationBlockers = {
   mapCount:number;blockedCount:number;
   blockedMaps:OriginalKovaLiveOperationBlocker[];
@@ -1586,7 +1597,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.preview" | "historical.register" |
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
-  "historical.originalLiveBatchPreview" | "historical.originalLiveOperationBlockers" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
+  "historical.originalLiveBatchPreview" | "historical.originalLiveOperationBlockers" | "historical.operationJournalInventory" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
    "freshStore.enrollmentStatus" | "freshStore.enrollmentPreview" | "freshStore.enrollmentApply" | "freshStore.loaderModeStatus" | "freshStore.loaderModePreview" | "freshStore.loaderModeApply" | "historical.activeStartStatus" | "historical.activeStartPreview" | "historical.activeStartApply" | "historical.loaderModeStatus" | "historical.loaderModePreview" | "historical.loaderModeApply" |
@@ -2194,6 +2205,8 @@ export const managerBridge = {
     request<OriginalKovaLiveBatchPreview>("historical.originalLiveBatchPreview"),
   historicalOriginalLiveOperationBlockers: () =>
     request<OriginalKovaLiveOperationBlockers>("historical.originalLiveOperationBlockers"),
+  historicalOperationJournalInventory: () =>
+    request<OperationJournalInventorySnapshot>("historical.operationJournalInventory"),
   historicalOriginalLiveBatchApply: (token:string,externalControllerStopped:boolean,typedApproval:string) =>
     request<OriginalKovaLiveBatchReceipt>("historical.originalLiveBatchApply",{
       token,externalControllerStopped,typedApproval,confirm:true

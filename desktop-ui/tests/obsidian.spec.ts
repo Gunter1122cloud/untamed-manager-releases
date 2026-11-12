@@ -1631,6 +1631,28 @@ test.beforeEach(async ({ page }) => {
             requiresExternalControllerStopped:true,requiresTypedApproval:true,
             evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT"};
         }
+        case "historical.operationJournalInventory":
+          return {recordCount:3,registeredRecords:1,unattributedResources:2,
+            pendingRecords:3,corruptRecords:1,truncated:false,
+            entries:[{
+              resourceFingerprint:"AAAABBBBCCCCDDDD",journal:"Operations-v1",
+              kind:"Launch",phase:"NeedsOperator",changedUtc:"2026-11-12T09:00:00Z",
+              registered:true,registeredMapNames:"Aberration",
+              needsReview:true,corrupt:false
+            },{
+              resourceFingerprint:"1111222233334444",journal:"Restart-v1",
+              kind:"Restart",phase:"NeedsOperator",changedUtc:"2026-11-07T09:00:00Z",
+              registered:false,registeredMapNames:null,
+              needsReview:true,corrupt:false
+            },{
+              resourceFingerprint:"FFFFEEEEDDDDCCCC",journal:"Operations-v1",
+              kind:"Unknown",phase:"Corrupt",changedUtc:null,
+              registered:false,registeredMapNames:null,
+              needsReview:true,corrupt:true
+            }],
+            evidence:"BOUNDED_READ_ONLY_LOCAL_OPERATION_JOURNAL_INVENTORY",
+            deletedOrReviewed:false
+          };
         case "historical.originalLiveOperationBlockers":
           return {mapCount:5,blockedCount:2,blockedMaps:[{
             mapId:"00000000-0000-4000-8000-000000007103",
@@ -3986,6 +4008,25 @@ test("Store-v1 five-map preview can succeed but later Aberration Launch journal 
     __UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?:()=>number;
   }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_ATTEMPTS__?.()??-1);
   expect(attempts).toBe(1);
+});
+
+test("original Store local journal inventory separates map-owned and unattributed logs without deletion",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  await panel.getByRole("button",{
+    name:"Helyi műveletinaplók leltára (csak olvasás)"
+  }).click();
+  const inventory=panel.getByRole("region",{
+    name:"Helyi műveletinaplók eredetének ellenőrzése"
+  });
+  await expect(inventory).toContainText("3 rekord");
+  await expect(inventory).toContainText("2 nem azonosított erőforrás");
+  await expect(inventory).toContainText("Aberration");
+  await expect(inventory).toContainText("Restart-v1");
+  await expect(inventory).toContainText("Sérült");
+  await expect(inventory).toContainText("Sem törlés");
 });
 
 test("P0 original Kova five-map live takeover reattaches partially registered originals without duplicates",async({page})=>{

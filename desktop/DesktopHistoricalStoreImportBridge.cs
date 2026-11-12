@@ -84,6 +84,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 "historical.originalBatchRegister" or
                 "historical.originalLiveBatchPreview" or
                 "historical.originalLiveOperationBlockers" or
+                "historical.operationJournalInventory" or
                 "historical.originalLiveBatchApply" or
                 "historical.originalClusterPreview" or
                 "historical.originalClusterApply"))
@@ -180,6 +181,13 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     });
                 }
 
+                if(method=="historical.operationJournalInventory")
+                {
+                    // Only local, bounded, registered-vs-unattributed journal
+                    // metadata. No Kova source/ASA/PID/RCON/INI modifications.
+                    return Ok(id,OperationJournalInventory.Inspect(
+                        cluster.Config.LocalMaps));
+                }
                 if(method=="historical.originalLiveOperationBlockers")
                 {
                     // This is a read-only diagnostic. It can locate the
@@ -847,6 +855,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     "UM-ORIGINAL-LIVE-APPLY-UNEXPECTED-VERIFICATION",
                 "historical.originalLiveOperationBlockers"=>
                     "UM-ORIGINAL-LIVE-JOURNAL-INSPECTION-FAILED",
+                "historical.operationJournalInventory"=>
+                    "UM-OPERATION-JOURNAL-INVENTORY-UNAVAILABLE",
                 _=>"UM-HISTORICAL-VERIFICATION-FAILED"
             });
         }

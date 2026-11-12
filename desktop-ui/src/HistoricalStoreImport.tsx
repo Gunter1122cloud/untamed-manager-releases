@@ -3,7 +3,7 @@ import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucid
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
   type OriginalKovaLocalMapList, type OriginalKovaImportPreview,
   type OriginalKovaBatchPreview, type OriginalKovaLiveBatchPreview,
-  type OriginalKovaLiveOperationBlockers,
+  type OriginalKovaLiveOperationBlockers, type OperationJournalInventorySnapshot,
   type OriginalKovaClusterPreview } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
@@ -17,6 +17,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [batchApproved,setBatchApproved]=useState(false);
   const [liveBatchPreview,setLiveBatchPreview]=useState<OriginalKovaLiveBatchPreview|null>(null);
   const [liveBlockers,setLiveBlockers]=useState<OriginalKovaLiveOperationBlockers|null>(null);
+  const [journalInventory,setJournalInventory]=useState<OperationJournalInventorySnapshot|null>(null);
+  const [journalInventoryBusy,setJournalInventoryBusy]=useState(false);
+  const [journalInventoryError,setJournalInventoryError]=useState("");
   const [liveControllerStopped,setLiveControllerStopped]=useState(false);
   const [liveTypedApproval,setLiveTypedApproval]=useState("");
   const [liveClockMs,setLiveClockMs]=useState(()=>Date.now());
@@ -455,6 +458,46 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         külön előellenőrzés és jóváhagyás után használhatók.
       </p>
       <section className="historical-peer-check" aria-label="Közvetlen Kova Store-v1 mapimport">
+        <div className="settings-actions">
+          <button type="button" className="secondary" disabled={journalInventoryBusy}
+            onClick={()=>{setJournalInventory(null);setJournalInventoryError("");
+              setJournalInventoryBusy(true);
+              void managerBridge.historicalOperationJournalInventory()
+                .then(setJournalInventory)
+                .catch(e=>setJournalInventoryError(
+                  e instanceof Error?e.message:"UM-OPERATION-JOURNAL-INVENTORY-UNAVAILABLE"))
+                .finally(()=>setJournalInventoryBusy(false));}}>
+            <Shield size={16}/>
+            {journalInventoryBusy?"Naplók leltározása...":"Helyi műveletinaplók leltára (csak olvasás)"}
+          </button>
+        </div>
+        {journalInventoryError&&<div role="alert" className="error-inline">
+          <AlertTriangle size={16}/>{journalInventoryError} · Naplókat nem módosítottunk.
+        </div>}
+        {journalInventory&&<div role="region" className="historical-preview"
+          aria-label="Helyi műveletinaplók eredetének ellenőrzése">
+          <h4>{journalInventory.recordCount} rekord ·
+            {" "}{journalInventory.registeredRecords} regisztrált maphoz köthető ·
+            {" "}{journalInventory.unattributedResources} nem azonosított erőforrás</h4>
+          <p className="muted small">
+            {journalInventory.pendingRecords} felülvizsgálandó rekord,
+            {" "}{journalInventory.corruptRecords} sérült rekord.
+            {journalInventory.truncated?" A leltár elérte a 256 rekordos korlátot; nem teljes.":""}
+            {" "}Az ismeretlen kulcs eredete hash alapján nem bizonyítható,
+            nem jelent automatikusan éles ASA-hibát. Sem törlés, sem
+            automatikus helyreállítás nem történik.
+          </p>
+          {journalInventory.entries.filter(e=>e.needsReview||!e.registered)
+            .slice(0,30).map((e,i)=><div key={e.journal+":"+e.resourceFingerprint+":"+i}
+              className="warning-inline">
+              <Shield size={15}/>
+              <span>{e.registered?(e.registeredMapNames??"Regisztrált map"):"Nem azonosított kulcs"}
+                {" · "}{e.journal} · {e.kind} / {e.phase}
+                {" · "}{e.resourceFingerprint}
+                {" · "}{e.changedUtc??"nincs hiteles időpont"}
+              </span>
+            </div>)}
+        </div>}
         <h3>Közvetlen átvétel a korábbi Kova-profilból</h3>
         <p className="muted small">
           Az eredeti Windows-fiók Kova Store-v1 profiljából felismeri az öt helyi mapot,

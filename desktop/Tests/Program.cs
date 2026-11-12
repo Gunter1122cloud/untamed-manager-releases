@@ -115,6 +115,7 @@ await LegacyStorePhysicalTransferTests.Run(root);
 LegacyStoreOriginalLinkTests.Run(root);
 OriginalStoreLiveBatchEvidenceTests.Run(root);
 await OriginalStoreLiveReconcileTests.Run(root);
+OperationJournalInventoryTests.Run(root);
 await OperationJournalIsolationTests.Run(root);
 await OriginalStoreApiRconAttachTests.Run(root);
 await OriginalKovaDirectImportTests.Run(root);
