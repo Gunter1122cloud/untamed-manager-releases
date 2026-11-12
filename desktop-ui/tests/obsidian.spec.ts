@@ -89,6 +89,16 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {
       __UNTAMED_RUNTIME_MISMATCH__?:()=>void;
     }).__UNTAMED_RUNTIME_MISMATCH__=()=>{mismatchRuntimePreview=true;};
+    let multihostCancelFixture=false;
+    let multihostCancelled=false;
+    let multihostCancelRequests=0;
+    (window as typeof window & {
+      __UNTAMED_MULTIHOST_CANCEL_FIXTURE__?:()=>void;
+      __UNTAMED_MULTIHOST_CANCEL_COUNT__?:()=>number;
+    }).__UNTAMED_MULTIHOST_CANCEL_FIXTURE__=()=>{multihostCancelFixture=true;};
+    (window as typeof window & {
+      __UNTAMED_MULTIHOST_CANCEL_COUNT__?:()=>number;
+    }).__UNTAMED_MULTIHOST_CANCEL_COUNT__=()=>multihostCancelRequests;
     let originalLiveFiveFixture=false;
     let originalLiveMixedFixture=false;
     let originalLiveDispatchDenied=false;
@@ -597,9 +607,24 @@ test.beforeEach(async ({ page }) => {
             serverProcessTouched:false,
             evidence:"OPERATOR_APPROVED_EXISTING_MULTIHOST_ARCHIVE_REBUILD"
           };
+        case "cluster.multiHostCancel":
+          if(!m.confirm||m.jobId!=="00000000-0000-4000-8000-000000009623"||
+             !multihostCancelFixture||multihostCancelled)
+            throw new Error("UM-MULTIHOST-CANCEL-EXPLICIT-CONFIRMATION");
+          multihostCancelled=true;multihostCancelRequests++;
+          return {jobId:m.jobId,cancelRequested:true,completed:false,
+            requiresStatusRecheck:true,productionRestoreAllowed:false,
+            rconSent:false,serverProcessTouched:false,
+            automaticRollback:false,journalDeleted:false,
+            evidence:"EXACT_OFFLINE_JOB_CANCELLATION_REQUEST_ONLY"};
         case "cluster.multiHostBackupStatus": return {
-          jobId:m.jobId,kind:"backup",state:"completed",
-          stage:"ARCHIVE_SHA256_VERIFIED_AFTER_RECOVERY",
+          jobId:m.jobId,kind:"backup",
+          state:multihostCancelFixture?
+            (multihostCancelled?"needsOperator":"running"):"completed",
+          stage:multihostCancelFixture?
+            (multihostCancelled?"RECOVERY_INTERRUPTED_RETAINED_STAGE_PRESERVED":
+              "REBUILDING_FROM_VERIFIED_OFFLINE_SOURCE"):
+              "ARCHIVE_SHA256_VERIFIED_AFTER_RECOVERY",
           artifactName:"Untamed-MultiHost-20261109-fixture",
           rollbackArtifactName:"Untamed-MultiHost-20261109-fixture.retained-abc",
           hosts:2,clusters:1,maps:10,components:151,bytes:123456789,
@@ -3369,6 +3394,39 @@ test("interrupted N-host offline archive recovery requires consent and retains o
   await expect(panel).toContainText("Megőrzött félbeszakadt archívum");
   await expect(panel).toContainText("151 fájl SHA-256 ellenőrizve");
   await expect(panel).not.toContainText("Éles restore engedélyezve");
+});
+
+test("N-host offline cancellation affects only the exact running job and retains operator review",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_MULTIHOST_CANCEL_FIXTURE__?:()=>void
+  }).__UNTAMED_MULTIHOST_CANCEL_FIXTURE__?.());
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await panel.getByRole("button",{
+    name:"Félbeszakadt offline archívum helyreállítása"
+  }).click();
+  const approval=panel.getByRole("region",{
+    name:"Félbeszakadt multi-host archívum helyreállításának jóváhagyása"
+  });
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{
+    name:"Megőrzés és ellenőrzött újraépítés indítása"
+  }).click();
+  await expect(panel).toContainText("Offline backup állapot: running");
+  const cancel=panel.getByRole("button",{
+    name:"Megszakítás kérése – csak ez az offline feladat"
+  });
+  await expect(cancel).toBeEnabled();
+  await cancel.click();
+  await expect(panel).toContainText("Megszakítási kérés elküldve");
+  await expect(panel).toContainText("nincs automatikus rollback");
+  await expect(panel).toContainText("Offline backup állapot: needsOperator");
+  await expect(cancel).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_MULTIHOST_CANCEL_COUNT__?:()=>number
+  }).__UNTAMED_MULTIHOST_CANCEL_COUNT__?.())).toBe(1);
 });
 
 test("complete local host restore staging uses typed approval and displays native SHA256 receipt",async({page})=>{
