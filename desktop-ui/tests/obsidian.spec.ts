@@ -6601,11 +6601,12 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await recovery.getByRole("button",{
     name:"Futó régi ASA ellenőrzése és Restart-napló rendezése"
   }).click();
-  await expect(page.locator(".success-inline").filter({
-    hasText:"Manager helyi naplóját"
-  })).toHaveCount(0);
+  // The receipt is authoritative; a late OLD read-only journal response
+  // must not revive the just-audited blocker.
+  await expect(page.getByText(/Az eredeti, még futó ASA PID 44117 igazolt/))
+    .toBeVisible();
+  await expect(recovery).toHaveCount(0);
   await expect(page.getByText(/Régi PID: 44117/)).toHaveCount(0);
-  await expect(page.getByText(/Az eredeti, még futó ASA PID 44117 igazolt/)).toBeVisible();
   const reviewCount=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number
   }).__UNTAMED_FRESH_RESTART_REVIEWS__?.()??-1);

@@ -18,10 +18,11 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   const [error,setError]=useState("");
   const [needsLocalReview,setNeedsLocalReview]=useState(false);
   const [durable,setDurable]=useState<AsaRestartJournalStatus|null>(null);
+  const [auditConfirmed,setAuditConfirmed]=useState(false);
   const reviewInFlight=useRef(false);
   useEffect(()=>{
     setPreview(null);setApproved(false);setError("");
-    setNeedsLocalReview(false);setDurable(null);
+    setNeedsLocalReview(false);setDurable(null);setAuditConfirmed(false);
     setMessage(latestRestart.get(mapId)??"");
   },[mapId]);
   useEffect(()=>{
@@ -119,7 +120,11 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
          saved.newRestartSucceeded||saved.serverStarted||
          saved.serverStopped||saved.rconSent)
         throw new Error("UM-ASA-RESTART-REVIEW-RECEIPT-INVALID");
-      setNeedsLocalReview(false);setStatus(null);
+      // A late read-only restartCurrent response can still describe the
+      // PRE-AUDIT journal. Once a verified native receipt confirms its
+      // exact transition, do not resurrect the stale blocker in React.
+      // Reopening the map reobserves the actual durable journal again.
+      setAuditConfirmed(true);setNeedsLocalReview(false);setStatus(null);
       setDurable(previous=>previous?{...previous,
         phase:"OperatorReviewed",needsOperatorReview:false}:previous);
       const summary="Az eredeti, még futó ASA PID "+proof.oldPid+
@@ -148,7 +153,8 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     }
   };
 
-  const showRecovery=!!(durable?.needsOperatorReview||needsLocalReview)&&
+  const showRecovery=!auditConfirmed&&
+    !!(durable?.needsOperatorReview||needsLocalReview)&&
     (durable===null||durable.belongsToMap);
   return <section className="premium-panel" aria-label="Valódi ASA normál újraindítása" style={{padding:20,marginBlock:18}}>
     <header className="premium-panel-heading">
