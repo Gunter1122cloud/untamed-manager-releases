@@ -5755,13 +5755,13 @@ test("ASA normal Stop requires approval and never force-kills or claims SaveComp
   await expect(page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"})).toBeVisible();
   await page.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toBeVisible();
-  await expect(page.getByText(/SaveWorld → új World Save Complete \+ stabil \.ark → DoExit → PID-ellenőrzés/)).toBeVisible();
+  await expect(page.getByText(/SaveWorld → új, stabil \.ark megfigyelése \(SaveComplete naplósor, ha létezik\) → DoExit → PID-ellenőrzés/)).toBeVisible();
   const confirm=page.getByRole("button",{name:"Szerver szabályos leállítása"});
   await expect(confirm).toBeDisabled();
   await page.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
   await confirm.click();
   await expect(page.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"})).toBeVisible({timeout:12000});
-  await expect(page.locator(".success-inline").filter({hasText:"független lemezmentése nincs igazolva"})).toBeVisible();
+  await expect(page.locator(".success-inline").filter({hasText:"SaveWorld/DoExit lemezmentése nincs igazolva"})).toBeVisible();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
 });
 
