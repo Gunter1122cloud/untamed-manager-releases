@@ -743,13 +743,17 @@ export type WorldBackupHistory={
 };
 export type WorldBackupPreview={
   token:string;mapId:string;mapName:string;mapKey:string;point:string|null;
-  confirmedStopped:true;willCreateProtectiveBackup:boolean;
+  confirmedStopped:true;maxFilesPerMap:number;maxBytesPerMap:number;
+  resourcePolicyCustomized:boolean;actualCopySizeRecheckedAtCreate:true;
+  willCreateProtectiveBackup:boolean;
   originalWorldRetained:boolean;storeWriterTouched:false;
   action:"BACKUP"|"RESTORE";
   evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT";
 };
 export type OriginalFiveMapBackupPreview={
   token:string;localMaps:5;worldBytes:number;mapNames:string[];
+  maxFilesPerMap:number;maxBytesPerMap:number;resourcePolicyCustomized:boolean;
+  actualCopySizeRecheckedAtCreate:true;
   originalSourcePinned:true;allMapsConfirmedStopped:true;
   requiresOperatorConfirmation:true;originalKovaFilesWritten:false;
   serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
