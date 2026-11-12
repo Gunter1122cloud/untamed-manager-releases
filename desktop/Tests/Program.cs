@@ -2465,10 +2465,23 @@ try
               custom.Arguments=="",
             "custom level cannot be applied after map identity changes");
         custom.Name=previousName;
-        var applied=await Call(customSetup.HandleAsync,"servers.initialApply",
+        // A rejected identity mismatch consumes the preview on purpose.
+        // Restoring the previous name must NOT revive a stale approval.
+        var replay=await Call(customSetup.HandleAsync,"servers.initialApply",
             new{token,confirm=true});
+        Check(IsError(replay,"UM-INITIAL-PREVIEW-EXPIRED") &&
+              custom.Arguments=="",
+            "restoring a changed map name cannot replay an invalidated first-setup approval");
+        var refreshed=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=custom.Id,sessionName="Untamed Custom",
+                gamePort=customGame,queryPort=customQuery,
+                customLevel="Atlantis_Custom_WP"});
+        IsOk(refreshed,"custom level requires a new native preview after changed identity");
+        var applied=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token=refreshed.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true});
         Check(applied.GetProperty("ok").GetBoolean(),
-            "confirmed custom level is saved through existing atomic native Manager profile");
+            "confirmed fresh custom level preview saves the atomic native Manager profile");
         var registered=cluster.Config.LocalMaps.Single(x=>x.Id==custom.Id);
         Check(registered.Arguments.StartsWith(
                 "Atlantis_Custom_WP?listen?SessionName=",StringComparison.Ordinal) &&
