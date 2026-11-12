@@ -1610,7 +1610,8 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "historical.originalList" | "historical.originalPreview" | "historical.originalRegister" |
   "historical.originalBatchPreview" | "historical.originalBatchRegister" |
   "historical.sourcePinPreview" | "historical.sourcePinApply" |
-  "historical.runtimeSettingsPreview" | "historical.runtimeSettingsApply" |
+  "historical.runtimeSettingsStatus" | "historical.runtimeSettingsPreview" |
+  "historical.runtimeSettingsApply" |
   "historical.originalLiveBatchPreview" | "historical.originalLiveOperationBlockers" | "historical.operationJournalInventory" | "historical.originalLiveBatchApply" | "historical.originalClusterPreview" | "historical.originalClusterApply" |
   "historical.pairedEvidence" | "historical.launchEvidence" | "historical.liveGuard" |
    "historical.rconStatus" | "historical.rconPreview" | "historical.rconApply" |
@@ -2215,6 +2216,11 @@ export const managerBridge = {
   historicalLiveGuard: (mapId:string) => request<HistoricalLiveGuard>("historical.liveGuard",{mapId}),
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
   historicalOriginalList: () => request<OriginalKovaLocalMapList>("historical.originalList"),
+  historicalRuntimeSettingsStatus: (mapId:string) =>
+    request<{mapId:string;mapName:string;gamePort:number;queryPort:number;
+      clusterId:string;transferRoot:string;originalSourcePinned:true;
+      peerRequiredForLocalStart:false;sharedTransferAccessVerified:false}>(
+      "historical.runtimeSettingsStatus",{mapId}),
   historicalRuntimeSettingsPreview: (mapId:string,gamePort:number,
     queryPort:number,clusterId:string,transferRoot:string) =>
     request<{token:string;mapId:string;gamePort:number;queryPort:number;
@@ -2222,10 +2228,10 @@ export const managerBridge = {
       iniMustAlreadyMatchPorts:true}>(
         "historical.runtimeSettingsPreview",
         {mapId,gamePort,queryPort,clusterId,transferRoot}),
-  historicalRuntimeSettingsApply: (token:string) =>
+  historicalRuntimeSettingsApply: (token:string,typedApproval:string) =>
     request<{mapId:string;updated:true;portAndClusterSettingsStoredInManager:true}>(
         "historical.runtimeSettingsApply",
-        {token,confirm:true,typedApproval:"OBSIDIAN MAP KONFIG"}),
+        {token,confirm:true,typedApproval}),
   historicalSourcePinPreview: () =>
     request<{token:string;verifiedLocalMaps:number;requiresExplicitApproval:true;peerStatusRequired:false}>(
       "historical.sourcePinPreview"),
