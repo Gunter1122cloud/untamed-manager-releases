@@ -1960,7 +1960,10 @@ try
         try
         {
             int downloadsBeforeRecovery=fakeRuns;
-            using var recoveredBridge=new DesktopSteamFreshInstallBridge(cluster,
+            await using var recoveryCluster=new ClusterService("steam-recovery-native",
+                Path.Combine(root,"steam-recovery-profile"),
+                _=>new ProcessCheck(false,"Synthetic stopped only",null,true));
+            using var recoveredBridge=new DesktopSteamFreshInstallBridge(recoveryCluster,
                 SyntheticSteamRunner,availableFreeBytes:_=>100L*1024*1024*1024);
             var preview=await Call(recoveredBridge.HandleAsync,
                 "steam.freshRecoverPreview",new{
@@ -1979,7 +1982,7 @@ try
                     token=approvalToken,confirm=true,typedApproval="NO"
                 });
             Check(IsError(unapproved,"UM-FRESH-RECOVERY-APPROVAL-REQUIRED") &&
-                !cluster.Config.LocalMaps.Any(m=>m.Id==recoveryMapId),
+                !recoveryCluster.Config.LocalMaps.Any(m=>m.Id==recoveryMapId),
                 "typed native consent is required before recovering a registered map");
 
             File.AppendAllText(recoveredExe,"TAMPER");
@@ -1989,7 +1992,7 @@ try
                     typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
                 });
             Check(IsError(changed,"UM-FRESH-RECOVERY-FILES-CHANGED") &&
-                !cluster.Config.LocalMaps.Any(m=>m.Id==recoveryMapId),
+                !recoveryCluster.Config.LocalMaps.Any(m=>m.Id==recoveryMapId),
                 "changed EXE invalidates a one-use recovery token without writing the Manager profile");
             File.WriteAllText(recoveredExe,"SYNTHETIC VERIFIED COMPLETED ASA EXE");
 
@@ -2006,7 +2009,7 @@ try
                     typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
                 });
             IsOk(applied,"previously downloaded ASA registered without a second download or start");
-            var recoveredMap=cluster.Config.LocalMaps.Single(m=>m.Id==recoveryMapId);
+            var recoveredMap=recoveryCluster.Config.LocalMaps.Single(m=>m.Id==recoveryMapId);
             Check(recoveredMap.Name==recoveryMap && recoveredMap.GamePort==0 &&
                   recoveredMap.QueryPort==0 && !recoveredMap.AutoStart &&
                   !recoveredMap.StartWithAsaApi &&
@@ -2020,7 +2023,7 @@ try
                     typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
                 });
             Check(IsError(replay,"UM-FRESH-RECOVERY-APPROVAL-REQUIRED") &&
-                  cluster.Config.LocalMaps.Count(m=>m.Id==recoveryMapId)==1,
+                  recoveryCluster.Config.LocalMaps.Count(m=>m.Id==recoveryMapId)==1,
                 "completed Steam recovery consent is never replayable");
             var duplicate=await Call(recoveredBridge.HandleAsync,
                 "steam.freshRecoverPreview",new{
