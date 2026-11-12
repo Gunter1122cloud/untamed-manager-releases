@@ -448,6 +448,9 @@ export type AsaLifecycleJournal = {
   phase?:string|null;kind?:string|null;changedUtc?:string|null;
   classification?:"none"|"inProgressOrInterrupted"|"unknownOutcome"|"closed"|"unverified";
   blockingCode?:string|null;recoverySupported?:boolean;
+  restartJournalExists?:boolean;restartId?:string|null;restartPhase?:string|null;
+  restartChangedUtc?:string|null;restartOldPid?:number|null;restartNewPid?:number|null;
+  restartClassification?:"unknownOutcome"|"operatorReviewed"|"closed";
   needsOperatorReview:boolean;autoResumeAllowed:false;
   storeTouched:false;evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY";
 };
@@ -455,6 +458,8 @@ export type OriginalStoreLifecycleRecoveryPreview = {
   token:string;mapId:string;mapName:string;operationId:string;
   kind:string;phase:string;pid:number;processStartedUtc:string;
   rconPort:number;expiresUtc:string;
+  restartId?:string|null;restartPhase?:string|null;restartOldPid?:number|null;
+  restartNewPid?:number|null;pairedJournals?:number;
   exactWindowsProcessVerified:true;originalStoreSessionVerified:true;
   rconListenerOwnerVerified:true;priorCommandOutcomeUnknown:true;
   previousOperationWillNotBeRetried:true;requiresTypedApproval:true;
@@ -464,6 +469,8 @@ export type OriginalStoreLifecycleRecoveryPreview = {
 export type OriginalStoreLifecycleRecoveryReceipt = {
   mapId:string;operationId:string;state:"operatorReviewed";
   previousOutcomeStillUnknown:true;originalJournalAudited:true;
+  restartJournalAudited?:boolean;pairedJournalsReviewed?:number;
+  restartMarkedSuccessful?:false;oldRunningPid?:number;
   storeBytesModified:false;processStarted:false;processStopped:false;
   rconCommandSent:false;noAutomaticRetry:true;newOperationRequiresFreshApproval:true;
   evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW";
