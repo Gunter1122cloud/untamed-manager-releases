@@ -593,7 +593,7 @@ public sealed class ObsidianWindow : Form
                             "cluster.multiHostRestoreReplacePreview" or "cluster.multiHostRestoreReplaceApply" or
                             "cluster.multiHostRestoreRecoveryList" or
                             "cluster.multiHostRestoreRecoveryPreview" or "cluster.multiHostRestoreRecoveryApply" or
-                            "cluster.multiHostRestoreStatus";
+                            "cluster.multiHostRestoreStatus" or "cluster.multiHostCancel";
                         draftRoute = name is
                             "mods.draftStart" or "mods.draftStage" or
                             "mods.draftUndo" or "mods.draftRedo" or
