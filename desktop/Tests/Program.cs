@@ -2011,6 +2011,26 @@ try
                 "changed EXE invalidates a one-use recovery token without writing the Manager profile");
             File.WriteAllText(recoveredExe,"SYNTHETIC VERIFIED COMPLETED ASA EXE");
 
+            string originalManifest=File.ReadAllText(recoveredManifest);
+            var manifestPreview=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            IsOk(manifestPreview,"unchanged binary and manifest can be re-previewed");
+            string manifestToken=manifestPreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            File.AppendAllText(recoveredManifest,"TAMPERED_MANIFEST");
+            var manifestChanged=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=manifestToken,confirm=true,
+                    typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
+                });
+            Check(IsError(manifestChanged,"UM-FRESH-RECOVERY-FILES-CHANGED") &&
+                  recoveryCluster.Config.LocalMaps.Count==0,
+                "modified Steam appmanifest invalidates previously approved recovery without Manager writes");
+            File.WriteAllText(recoveredManifest,originalManifest);
+
             var freshPreview=await Call(recoveredBridge.HandleAsync,
                 "steam.freshRecoverPreview",new{
                     mapName=recoveryMap,installRoot=recoveredRoot,
