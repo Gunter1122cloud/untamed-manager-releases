@@ -9,10 +9,13 @@ namespace UntamedManager.Core;
 public sealed record OperationJournalInventoryEntry(
     string ResourceFingerprint,string Journal,string Kind,string Phase,
     DateTimeOffset? ChangedUtc,bool Registered,string? RegisteredMapNames,
+    bool HistoricalSourceMatched,string? HistoricalMapKey,
     bool NeedsReview,bool Corrupt);
 public sealed record OperationJournalInventorySnapshot(
     int RecordCount,int RegisteredRecords,int UnattributedResources,
-    int UnattributedPendingResources,int PendingRecords,int CorruptRecords,bool Truncated,
+    int UnattributedPendingResources,int HistoricalSourceRecords,
+    int PendingRecords,int CorruptRecords,bool Truncated,
+    bool HistoricalSourceReadable,
     OperationJournalInventoryEntry[] Entries)
 {
     public string Evidence=>"BOUNDED_READ_ONLY_LOCAL_OPERATION_JOURNAL_INVENTORY";
@@ -35,7 +38,8 @@ public static class OperationJournalInventory
         new(JsonSerializerDefaults.Web);
 
     public static OperationJournalInventorySnapshot Inspect(
-        IEnumerable<LocalMap> registered)
+        IEnumerable<LocalMap> registered,
+        IReadOnlyList<LegacyStoreV1OriginalMap>? trustedOriginalSource=null)
     {
         ArgumentNullException.ThrowIfNull(registered);
         string root=UntamedOperationCoordinator.DefaultRoot;
@@ -63,6 +67,26 @@ public static class OperationJournalInventory
                 // Its own registration diagnostics remain independent.
             }
         }
+        // A verified original Kova profile can identify otherwise foreign
+        // resource hashes WITHOUT rewriting a journal or adopting a map.
+        // This is SOURCE-path correlation only, never live ASA owner proof.
+        var originalKeys=new Dictionary<string,string>(StringComparer.Ordinal);
+        if(trustedOriginalSource!=null)
+        {
+            if(trustedOriginalSource.Count!=5 ||
+               trustedOriginalSource.Select(m=>m.MapId).Distinct().Count()!=5)
+                throw new InvalidDataException("UM-JOURNAL-ORIGINAL-SOURCE-MAP-COUNT");
+            foreach(var old in trustedOriginalSource)
+            {
+                if(old==null||old.MapId==Guid.Empty||
+                   string.IsNullOrWhiteSpace(old.OriginalInstallationRoot)||
+                   string.IsNullOrWhiteSpace(old.MapKey))
+                    throw new InvalidDataException("UM-JOURNAL-ORIGINAL-SOURCE-INVALID");
+                string key=UntamedOperationCoordinator.ResourceKey(old.OriginalInstallationRoot);
+                if(!originalKeys.TryAdd(key,old.MapKey))
+                    throw new InvalidDataException("UM-JOURNAL-ORIGINAL-SOURCE-DUPLICATE");
+            }
+        }
         var entries=new List<OperationJournalInventoryEntry>();
         // The UI displays a short fingerprint, never a full installation hash.
         // Counts must nonetheless use the FULL 64-digit resource identity:
@@ -87,6 +111,7 @@ public static class OperationJournalInventory
                 if(entries.Count>=MaxRecords){truncated=true;break;}
                 owners.TryGetValue(key,out var names);
                 bool registeredMap=names is {Count:>0};
+                bool originalMatch=!registeredMap&&originalKeys.TryGetValue(key,out string? historicalName);
                 string fingerprint=key[..16]; // No path or Store identifiers.
                 try
                 {
@@ -128,6 +153,7 @@ public static class OperationJournalInventory
                     }
                     entries.Add(new(fingerprint,journal,kind,phase,updated,
                         registeredMap,registeredMap?string.Join(", ",names!):null,
+                        originalMatch,originalMatch?historicalName:null,
                         pending,false));
                 }
                 catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or
@@ -137,9 +163,10 @@ public static class OperationJournalInventory
                     // as absent, but they also must not expose raw file paths.
                     entries.Add(new(fingerprint,journal,"Unknown","Corrupt",
                         null,registeredMap,registeredMap?string.Join(", ",names!):null,
+                        originalMatch,originalMatch?historicalName:null,
                         true,true));
                 }
-                if(!registeredMap)
+                if(!registeredMap&&!originalMatch)
                 {
                     unknownKeys.Add(key);
                     if(entries[^1].NeedsReview)unknownPendingKeys.Add(key);
@@ -149,8 +176,9 @@ public static class OperationJournalInventory
         }
         return new(entries.Count,entries.Count(e=>e.Registered),
             unknownKeys.Count,unknownPendingKeys.Count,
+            entries.Count(e=>e.HistoricalSourceMatched),
             entries.Count(e=>e.NeedsReview),entries.Count(e=>e.Corrupt),
-            truncated,entries.ToArray());
+            truncated,trustedOriginalSource!=null,entries.ToArray());
     }
     private static void CheckDirectory(string path)
     {

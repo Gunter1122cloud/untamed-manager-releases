@@ -185,8 +185,25 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 {
                     // Only local, bounded, registered-vs-unattributed journal
                     // metadata. No Kova source/ASA/PID/RCON/INI modifications.
+                    LegacyStoreV1OriginalMap[]? trustedOriginal=null;
+                    try
+                    {
+                        // Existing Kova source reader verifies all original
+                        // five local IDs, launch roots and four immutable
+                        // Store-v1 source hashes, without a writer.
+                        trustedOriginal=LegacyStoreV1OriginalImport.Inspect(
+                            localLegacyDataDirectory).Maps;
+                    }
+                    catch(Exception ex) when(ex is IOException or
+                        UnauthorizedAccessException or ArgumentException or
+                        JsonException)
+                    {
+                        // An absent original Kova source is not proof that an
+                        // unmatched journal came from production or a test.
+                        // Still return the local Manager inventory honestly.
+                    }
                     return Ok(id,OperationJournalInventory.Inspect(
-                        cluster.Config.LocalMaps));
+                        cluster.Config.LocalMaps,trustedOriginal));
                 }
                 if(method=="historical.originalLiveOperationBlockers")
                 {

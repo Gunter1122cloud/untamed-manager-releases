@@ -1632,23 +1632,27 @@ test.beforeEach(async ({ page }) => {
             evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT"};
         }
         case "historical.operationJournalInventory":
-          return {recordCount:3,registeredRecords:1,unattributedResources:2,
-            unattributedPendingResources:2,
+          return {recordCount:3,registeredRecords:1,unattributedResources:1,
+            unattributedPendingResources:1,historicalSourceRecords:1,
             pendingRecords:3,corruptRecords:1,truncated:false,
+            historicalSourceReadable:true,
             entries:[{
               resourceFingerprint:"AAAABBBBCCCCDDDD",journal:"Operations-v1",
               kind:"Launch",phase:"NeedsOperator",changedUtc:"2026-11-12T09:00:00Z",
               registered:true,registeredMapNames:"Aberration",
+              historicalSourceMatched:false,historicalMapKey:null,
               needsReview:true,corrupt:false
             },{
               resourceFingerprint:"1111222233334444",journal:"Restart-v1",
               kind:"Restart",phase:"NeedsOperator",changedUtc:"2026-11-07T09:00:00Z",
               registered:false,registeredMapNames:null,
+              historicalSourceMatched:true,historicalMapKey:"Synthetic1",
               needsReview:true,corrupt:false
             },{
               resourceFingerprint:"FFFFEEEEDDDDCCCC",journal:"Operations-v1",
               kind:"Unknown",phase:"Corrupt",changedUtc:null,
               registered:false,registeredMapNames:null,
+              historicalSourceMatched:false,historicalMapKey:null,
               needsReview:true,corrupt:true
             }],
             evidence:"BOUNDED_READ_ONLY_LOCAL_OPERATION_JOURNAL_INVENTORY",
@@ -4023,8 +4027,9 @@ test("original Store local journal inventory separates map-owned and unattribute
     name:"Helyi műveletinaplók eredetének ellenőrzése"
   });
   await expect(inventory).toContainText("3 rekord");
-  await expect(inventory).toContainText("2 nem azonosított erőforrás");
-  await expect(inventory).toContainText("2 olyan");
+  await expect(inventory).toContainText("1 nem azonosított erőforrás");
+  await expect(inventory).toContainText("1 olyan");
+  await expect(inventory).toContainText("Eredeti Kova-forrás: Synthetic1");
   await expect(inventory).toContainText("Aberration");
   await expect(inventory).toContainText("Restart-v1");
   await expect(inventory).toContainText("sérült rekord");

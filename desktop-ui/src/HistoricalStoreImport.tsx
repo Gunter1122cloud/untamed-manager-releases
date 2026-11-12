@@ -479,6 +479,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <h4>{journalInventory.recordCount} rekord ·
             {" "}{journalInventory.registeredRecords} regisztrált maphoz köthető ·
             {" "}{journalInventory.unattributedResources} nem azonosított erőforrás</h4>
+          <p><b>{journalInventory.historicalSourceRecords}</b> naplóhoz
+            {" "}azonos eredeti Kova-telepítési forráskulcs tartozik
+            {journalInventory.historicalSourceReadable?" (a helyi eredeti forrás ellenőrizve).":
+              " (az eredeti Kova-forrás jelenleg nem ellenőrizhető)."}
+            Ez nem futófolyamat- vagy karakterutazási bizonyíték.</p>
           <p><b>{journalInventory.unattributedPendingResources}</b> olyan
             ismeretlen erőforrás, amelynek naplója felülvizsgálatot igényel.</p>
           <p className="muted small">
@@ -493,7 +498,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             .slice(0,30).map((e,i)=><div key={e.journal+":"+e.resourceFingerprint+":"+i}
               className="warning-inline">
               <Shield size={15}/>
-              <span>{e.registered?(e.registeredMapNames??"Regisztrált map"):"Nem azonosított kulcs"}
+              <span>{e.registered?(e.registeredMapNames??"Regisztrált map"):
+                e.historicalSourceMatched?
+                  "Eredeti Kova-forrás: "+(e.historicalMapKey??"ismeretlen map"):
+                  "Nem azonosított kulcs"}
                 {" · "}{e.journal} · {e.kind} / {e.phase}
                 {" · "}{e.resourceFingerprint}
                 {" · "}{e.changedUtc??"nincs hiteles időpont"}

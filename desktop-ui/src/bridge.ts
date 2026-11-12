@@ -1226,11 +1226,13 @@ export type OriginalKovaLiveOperationBlocker = {
 };
 export type OperationJournalInventorySnapshot = {
   recordCount:number;registeredRecords:number;unattributedResources:number;
-  unattributedPendingResources:number;pendingRecords:number;
-  corruptRecords:number;truncated:boolean;
+  unattributedPendingResources:number;historicalSourceRecords:number;
+  pendingRecords:number;corruptRecords:number;truncated:boolean;
+  historicalSourceReadable:boolean;
   entries:Array<{
     resourceFingerprint:string;journal:string;kind:string;phase:string;
     changedUtc:string|null;registered:boolean;registeredMapNames:string|null;
+    historicalSourceMatched:boolean;historicalMapKey:string|null;
     needsReview:boolean;corrupt:boolean;
   }>;
   evidence:"BOUNDED_READ_ONLY_LOCAL_OPERATION_JOURNAL_INVENTORY";

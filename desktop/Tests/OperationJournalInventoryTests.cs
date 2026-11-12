@@ -56,6 +56,30 @@ internal static class OperationJournalInventoryTests
         Check(File.ReadAllText(invalid)=="{corrupt"&&
               before.SequenceEqual(File.ReadAllBytes(localJournal)),
             "corrupt and valid original bytes are preserved after diagnostics");
+        var sources=new[]{
+            new LegacyStoreV1OriginalMap(Guid.NewGuid(),"Synthetic1",unknown,
+                7777,27015,Array.Empty<string>(),Array.Empty<string>()),
+            new LegacyStoreV1OriginalMap(Guid.NewGuid(),"Synthetic2",
+                Path.Combine(root,"old-map-2"),7778,27016,Array.Empty<string>(),Array.Empty<string>()),
+            new LegacyStoreV1OriginalMap(Guid.NewGuid(),"Synthetic3",
+                Path.Combine(root,"old-map-3"),7779,27017,Array.Empty<string>(),Array.Empty<string>()),
+            new LegacyStoreV1OriginalMap(Guid.NewGuid(),"Synthetic4",
+                Path.Combine(root,"old-map-4"),7780,27018,Array.Empty<string>(),Array.Empty<string>()),
+            new LegacyStoreV1OriginalMap(Guid.NewGuid(),"Synthetic5",
+                Path.Combine(root,"old-map-5"),7781,27019,Array.Empty<string>(),Array.Empty<string>())
+        };
+        var matched=OperationJournalInventory.Inspect(new[]{localMap},sources);
+        Check(matched.HistoricalSourceReadable&&
+              matched.HistoricalSourceRecords==1&&
+              matched.UnattributedResources==1&&
+              matched.UnattributedPendingResources==1&&
+              matched.Entries.Any(e=>e.HistoricalSourceMatched&&
+                  e.Journal=="Restart-v1"&&
+                  e.HistoricalMapKey=="Synthetic1"&&!e.Registered),
+            "verified old Kova installation hash is distinguished from an unrelated journal without importing it");
+        Check(!OperationJournalInventory.Inspect(new[]{localMap})
+              .HistoricalSourceReadable,
+            "no Kova source does not invent historical journal attribution");
 
         // Different real resource keys may share the 16-character displayed
         // fingerprint. Never undercount genuinely separate unregistered keys.
