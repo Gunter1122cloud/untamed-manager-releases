@@ -33,6 +33,16 @@ public static class SteamFreshInstallTests
                 StringComparison.OrdinalIgnoreCase) &&
             File.Exists(receipt.ServerExecutable),
             "fresh ASA download accepts an empty session name and verifies the EXE/build before port setup");
+        var completed=SteamFreshInstall.InspectCompleted(destination);
+        Check(completed!=null&&completed.MapId==mapId &&
+            completed.MapName=="The Island"&&completed.MapLevel=="TheIsland_WP"&&
+            completed.BuildId=="123456"&&completed.ServerExecutable==receipt.ServerExecutable &&
+            SteamFreshInstall.InspectIncomplete(destination)==null,
+            "Manager restart reads verified complete journal with original map GUID, without reinstall");
+        Check(File.ReadAllText(receipt.ServerExecutable).Contains("synthetic",StringComparison.OrdinalIgnoreCase) &&
+              completed!=null,
+            "read-only completed recovery leaves original verified installation bytes intact");
+
         Check(!File.Exists(Path.Combine(destination,"ShooterGame","Saved","SavedArks","TheIsland_WP.ark")) &&
             !Directory.Exists(Path.Combine(destination,"ShooterGame","Saved")),
             "new Steam install does not invent/overwrite saves, INIs or Store state");
