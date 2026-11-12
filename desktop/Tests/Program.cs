@@ -105,6 +105,7 @@ var incompleteFiveCapture=await Call(
     new DesktopStoreTravelEvidenceBridge(cluster).HandleAsync,"travel.capture");
 Check(IsError(incompleteFiveCapture,"UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"),
     "travel capture reports the exact five-local-map prerequisite without reading ASA files");
+SteamPublicBuildParsingTests.Run();
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();
