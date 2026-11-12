@@ -195,6 +195,25 @@ export function MultiHostBackupPanel(){
     finally{setBusy(false);}
   }
 
+  async function requestJobCancellation(){
+    if(busy||!jobId||status?.state==="completed"||
+       status?.state==="needsOperator")return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const receipt=await managerBridge.multiHostCancel(jobId);
+      if(receipt.jobId!==jobId||!receipt.cancelRequested||
+         receipt.completed!==false||receipt.automaticRollback!==false||
+         receipt.journalDeleted!==false)
+        throw new Error("UM-MULTIHOST-CANCEL-RECEIPT-MISMATCH");
+      setNotice("Megszakítási kérés elküldve a pontos offline feladatra. "+
+        "Ez nem igazolt leállítás: a státuszt ellenőrizni kell. "+
+        "Félbeszakadt archívum/TEMP stage esetén kézi helyreállítás szükséges; "+
+        "nincs automatikus rollback, ASA/RCON-művelet vagy naplótörlés.");
+    }catch(e){setError("A feladat megszakítási kérelmét a natív Manager elutasította ("+
+      (e instanceof Error?e.message:"UM-MULTIHOST-CANCEL-FAILED")+").");}
+    finally{setBusy(false);}
+  }
+
   const finished=status?.state==="completed"||status?.state==="needsOperator";
   const MiB=(bytes:number)=>`${(bytes/1024/1024).toFixed(1)} MiB`;
   return <section className="premium-panel uk-multihost-backup" aria-label="N-host mentés és izolált restore">
@@ -405,6 +424,10 @@ export function MultiHostBackupPanel(){
         status.stage!=="TEMP_SANDBOX_CONCURRENT_MANAGER_NO_WRITES"&&
         <p><AlertTriangle size={16}/>
           A művelet nem fejeződött be ellenőrzötten. A részleges archívum vagy TEMP stage kézi felülvizsgálatot igényel; nincs automatikus újrapróbálás.</p>}
+      {!finished&&<button className="secondary" type="button" disabled={busy}
+        onClick={()=>{void requestJobCancellation();}}>
+        Megszakítás kérése – csak ez az offline feladat
+      </button>}
       {!finished&&<button className="secondary" type="button" disabled={busy}
         onClick={()=>{const read=jobKind==="restore"?managerBridge.multiHostRestoreStatus(jobId):
           jobKind==="hoststage"?managerBridge.multiHostHostStageStatus(jobId):
