@@ -33,6 +33,10 @@ public static class UntamedWorldBackup
         bool Restored,bool OldWorldRetained,string PreviousDirectory);
 
     private const int MaxFiles=100000;
+    // Per-map offline world packages must remain bounded even when a source
+    // folder contains unexpected enormous files. The multi-host archive has
+    // its own independent resource limits.
+    public const long MaxWorldPackageBytes=2L*1024*1024*1024*1024;
     private const int MaxManifestBytes=12_000_000;
     private const int MaxCompleteMarkerBytes=16;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -116,6 +120,7 @@ public static class UntamedWorldBackup
         if(!Directory.Exists(root))
             throw new DirectoryNotFoundException("UM-BACKUP-WORLD-FOLDER-MISSING");
         var entries=new List<Entry>();
+        long scannedBytes=0;
         void Walk(string directory)
         {
             string path=Guard(directory);
@@ -127,6 +132,10 @@ public static class UntamedWorldBackup
                     throw new InvalidDataException("UM-BACKUP-LINKED-FILE-DENIED");
                 string relative=SafeRelative(Path.GetRelativePath(root,file));
                 var info=new FileInfo(file);
+                if(info.Length>MaxWorldPackageBytes ||
+                   scannedBytes>MaxWorldPackageBytes-info.Length)
+                    throw new InvalidDataException("UM-BACKUP-SIZE-LIMIT");
+                scannedBytes+=info.Length;
                 // ASA's documented -usestore mode embeds survivor/tribe data
                 // in the .ark world. Former loose .arkprofile/.arktribe files
                 // may linger after conversion and can even be empty during a
@@ -184,7 +193,14 @@ public static class UntamedWorldBackup
     }
     private static long Total(Entry[] files)
     {
-        long bytes=0;foreach(var file in files)bytes=checked(bytes+file.Bytes);
+        long bytes=0;
+        foreach(var file in files)
+        {
+            if(file.Bytes<0||file.Bytes>MaxWorldPackageBytes ||
+               bytes>MaxWorldPackageBytes-file.Bytes)
+                throw new InvalidDataException("UM-BACKUP-SIZE-LIMIT");
+            bytes+=file.Bytes;
+        }
         return bytes;
     }
     private static Point AsPoint(string id,Manifest m)=>
@@ -240,6 +256,9 @@ public static class UntamedWorldBackup
                SafeRelative(x.Relative).Length==0)||
            m.Files.Select(x=>x.Relative).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=m.Files.Length)
             throw new InvalidDataException("UM-BACKUP-MANIFEST-OWNER-MISMATCH");
+        // Reject maliciously oversized metadata before hashing any archive
+        // bytes. A valid marker does not override the source budget.
+        _=Total(m.Files);
         var actual=Scan(data,map,allowHistoricalEmptyProfiles:true);
         if(!actual.SequenceEqual(m.Files))
             throw new InvalidDataException("UM-BACKUP-DIGEST-MISMATCH");
