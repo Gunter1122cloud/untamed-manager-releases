@@ -61,6 +61,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
     public async Task<string> HandleAsync(string raw)
     {
         string? id=null;
+        string? requestedMethod=null;
         try
         {
             // JSON escaping doubles backslashes in legitimate Windows launch paths.
@@ -74,6 +75,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 return Fail(null,"UM-INVALID-MESSAGE");
             id=requestId.ToString("D");
             string? method=methodProp.GetString();
+            requestedMethod=method;
             if(method is not ("historical.localStatus" or "historical.localParity" or "historical.list" or "historical.preview" or
                 "historical.register" or "historical.pairedEvidence" or
                 "historical.launchEvidence" or "historical.liveGuard" or
@@ -835,7 +837,18 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     System.Text.RegularExpressions.RegexOptions.CultureInvariant,
                     TimeSpan.FromMilliseconds(100)))
                 return Fail(id,ex.Message);
-            return Fail(id,"UM-HISTORICAL-VERIFICATION-FAILED");
+            // A sanitized, operation-specific failure must replace the old
+            // generic error. Never disclose exception text, file paths,
+            // encrypted secrets or Store session bytes to the renderer.
+            return Fail(id,requestedMethod switch{
+                "historical.originalLiveBatchPreview"=>
+                    "UM-ORIGINAL-LIVE-PREVIEW-UNEXPECTED-VERIFICATION",
+                "historical.originalLiveBatchApply"=>
+                    "UM-ORIGINAL-LIVE-APPLY-UNEXPECTED-VERIFICATION",
+                "historical.originalLiveOperationBlockers"=>
+                    "UM-ORIGINAL-LIVE-JOURNAL-INSPECTION-FAILED",
+                _=>"UM-HISTORICAL-VERIFICATION-FAILED"
+            });
         }
     }
 

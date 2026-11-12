@@ -493,10 +493,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         {liveBlockers&&liveBlockers.blockedCount>0&&
           <div className="historical-preview" role="region"
             aria-label="Öt Store-v1 map zároló műveleti naplói">
-            <h4>Zároló naplók: {liveBlockers.blockedCount}/{liveBlockers.mapCount}</h4>
+            <h4>Zároló naplók: {liveBlockers.blockedCount} rekord / {" "}
+              {new Set(liveBlockers.blockedMaps.map(b=>b.mapId)).size} érintett map</h4>
             <p>Ez a naplóhiba nem jelenti azt, hogy az ASA leállt. Az
               újracsatlakoztatás önmagában semmilyen régi parancsot nem ismétel.</p>
-            {liveBlockers.blockedMaps.map(blocker=><div key={blocker.mapId}
+            {liveBlockers.blockedMaps.map(blocker=><div key={blocker.mapId+":"+blocker.operationId+":"+blocker.kind}
               className="warning-inline">
               <Shield size={15}/>
               <span><b>{blocker.mapName}</b> – {blocker.kind} / {blocker.phase}

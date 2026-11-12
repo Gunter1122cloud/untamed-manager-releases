@@ -1613,11 +1613,17 @@ test.beforeEach(async ({ page }) => {
             evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT"};
         }
         case "historical.originalLiveOperationBlockers":
-          return {mapCount:5,blockedCount:1,blockedMaps:[{
+          return {mapCount:5,blockedCount:2,blockedMaps:[{
             mapId:"00000000-0000-4000-8000-000000007103",
             mapName:"Aberration",kind:"Launch",phase:"NeedsOperator",
             operationId:"00000000-0000-4000-8000-000000007199",
             blockingCode:"UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE",
+            existingManagerProfile:true,supportedReviewInMapDetails:true
+          },{
+            mapId:"00000000-0000-4000-8000-000000007103",
+            mapName:"Aberration",kind:"Restart-v1",phase:"NeedsOperator",
+            operationId:"00000000-0000-4000-8000-000000007198",
+            blockingCode:"UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE",
             existingManagerProfile:true,supportedReviewInMapDetails:true
           }],allRecoveriesRequireFreshOwnerProof:true,
             noAutomaticCommandRetry:true,processStarted:false,
@@ -3950,7 +3956,10 @@ test("Store-v1 five-map preview can succeed but later Aberration Launch journal 
   });
   await expect(blockers).toContainText("Aberration");
   await expect(blockers).toContainText("Launch / NeedsOperator");
+  await expect(blockers).toContainText("Restart-v1 / NeedsOperator");
+  await expect(blockers).toContainText("2 rekord / 1 érintett map");
   await expect(blockers).toContainText("UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE");
+  await expect(blockers).toContainText("UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE");
   await expect(panel).toContainText("UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
   await expect(proof).toHaveCount(0);
   const attempts=await page.evaluate(()=>(window as typeof window & {
