@@ -222,9 +222,12 @@ public sealed class AsaManualRestartJournal
         var current=Observe();
         // An explicit restart authorization is valid ONLY while its exact
         // durable record is present in the expected in-progress phase.
-        // Missing/completed journal files cannot authorize a stale token.
+        // Missing, completed and explicitly audited OperatorReviewed
+        // records do not block a NEW independently approved normal Start.
+        // OperatorReviewed never authorizes resuming the OLD restart token.
         if(restartId==null &&
-           (current==null||current.Phase==AsaRestartPhase.Completed))return;
+           (current==null||current.Phase is
+               (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed)))return;
         if(restartId==null||current==null||current.Id!=restartId.Value||
            current.Phase!=AsaRestartPhase.Starting)
             throw new InvalidOperationException(
