@@ -152,7 +152,7 @@ test.beforeEach(async ({ page }) => {
     let storeLaunchRecoveryCalls=0;
     (window as typeof window & {__UNTAMED_STORE_LAUNCH_RECOVERY__?:()=>void})
       .__UNTAMED_STORE_LAUNCH_RECOVERY__=()=>{
-        storeLaunchRecoveryFixture=true;lifecycleInterrupted=true;
+        storeLaunchRecoveryFixture=true;lifecycleInterrupted=true;restartInterrupted=true;
         Object.assign(state.local.maps[1],{
           name:"Aberration",storeProtected:true,rconConfigured:true,
           running:true,status:"Fut",storeLifecycleState:"needsOperator"
@@ -2260,9 +2260,18 @@ test.beforeEach(async ({ page }) => {
           changedUtc:lifecycleInterrupted?"2026-11-06T11:00:00Z":null,
           classification:lifecycleInterrupted?"unknownOutcome":"closed",
           blockingCode:storeLaunchRecoveryFixture&&lifecycleInterrupted?
-            "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":null,
+            "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE":null,
+          restartJournalExists:storeLaunchRecoveryFixture,
+          restartId:storeLaunchRecoveryFixture?"00000000-0000-4000-8000-000000001627":null,
+          restartPhase:storeLaunchRecoveryFixture?
+            restartInterrupted?"NeedsOperator":"OperatorReviewed":null,
+          restartChangedUtc:storeLaunchRecoveryFixture?"2026-11-11T18:53:53Z":null,
+          restartOldPid:storeLaunchRecoveryFixture?123456:null,
+          restartNewPid:storeLaunchRecoveryFixture?0:null,
+          restartClassification:storeLaunchRecoveryFixture?
+            restartInterrupted?"unknownOutcome":"operatorReviewed":"closed",
           recoverySupported:storeLaunchRecoveryFixture&&lifecycleInterrupted&&m.mapId===two,
-          needsOperatorReview:lifecycleInterrupted,
+          needsOperatorReview:lifecycleInterrupted||storeLaunchRecoveryFixture&&restartInterrupted,
           autoResumeAllowed:false,storeTouched:false,
           evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
         };
@@ -2273,7 +2282,10 @@ test.beforeEach(async ({ page }) => {
             mapId:two,mapName:"Aberration",
             operationId:"00000000-0000-4000-8000-000000001625",
             kind:"Launch",phase:"NeedsOperator",pid:123456,
-            processStartedUtc:"2026-11-12T03:00:00Z",rconPort:37095,
+            processStartedUtc:"2026-11-12T03:00:00Z",rconPort:37045,
+            restartId:"00000000-0000-4000-8000-000000001627",
+            restartPhase:"NeedsOperator",restartOldPid:123456,
+            restartNewPid:0,pairedJournals:2,
             expiresUtc:new Date(Date.now()+180000).toISOString(),
             exactWindowsProcessVerified:true,originalStoreSessionVerified:true,
             rconListenerOwnerVerified:true,priorCommandOutcomeUnknown:true,
@@ -2286,11 +2298,13 @@ test.beforeEach(async ({ page }) => {
             m.confirm!==true||m.ackUnknownOutcome!==true||
             m.typedApproval!=="STORE-V1 NAPLÓ HELYREÁLLÍTÁS")
             throw new Error("UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED");
-          storeLaunchRecoveryCalls++;lifecycleInterrupted=false;
+          storeLaunchRecoveryCalls++;lifecycleInterrupted=false;restartInterrupted=false;
           Object.assign(state.local.maps[1],{storeLifecycleState:"running"});
           return {mapId:two,operationId:"00000000-0000-4000-8000-000000001625",
             state:"operatorReviewed",previousOutcomeStillUnknown:true,
-            originalJournalAudited:true,storeBytesModified:false,
+            originalJournalAudited:true,restartJournalAudited:true,
+            pairedJournalsReviewed:2,restartMarkedSuccessful:false,
+            oldRunningPid:123456,storeBytesModified:false,
             processStarted:false,processStopped:false,rconCommandSent:false,
             noAutomaticRetry:true,newOperationRequiresFreshApproval:true,
             evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"};
@@ -2326,7 +2340,7 @@ test.beforeEach(async ({ page }) => {
         case "servers.restartCurrent": return {
           exists:restartInterrupted,belongsToMap:true,
           phase:restartInterrupted?"NeedsOperator":null,
-          oldPid:restartInterrupted?44117:null,
+          oldPid:restartInterrupted?(storeLaunchRecoveryFixture?123456:44117):null,
           newPid:restartInterrupted?0:null,
           changedUtc:restartInterrupted?"2026-11-06T11:51:00Z":null,
           needsOperatorReview:restartInterrupted,
@@ -3685,8 +3699,13 @@ test("running Aberration Store-v1 stale Launch journal is reviewed once, never a
   await map.click();
   const locked=page.getByRole("region",{name:"Store-v1 beragadt indítás helyreállítása"});
   await expect(locked).toBeVisible();
+  await expect(locked).toContainText("Restart-v1 napló");
+  await expect(locked).toContainText("NeedsOperator");
+  await expect(locked).toContainText("régi PID 123456");
   await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeDisabled();
   await locked.getByRole("button",{name:"Helyreállítás előellenőrzése"}).click();
+  await expect(locked).toContainText("2 napló felülvizsgálata");
+  await expect(locked).toContainText("új PID 0");
   const confirm=locked.getByRole("button",{name:"Auditált helyreállítás végrehajtása"});
   await expect(confirm).toBeDisabled();
   await locked.getByRole("checkbox").check();
