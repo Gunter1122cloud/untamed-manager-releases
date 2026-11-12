@@ -371,16 +371,28 @@ public sealed class DesktopWorldBackupBridge
                         if(originalBatchJob?.State is "queued" or "running")
                             return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-BUSY");
                     var (original,maps)=RequireOriginalStoppedFive();
+                    var budget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
                     long worldBytes=0;
                     foreach(var map in maps)
-                        worldBytes=checked(worldBytes+
-                            new FileInfo(AsaSaveLayoutResolver.Resolve(map).WorldFile).Length);
+                    {
+                        long oneWorld=new FileInfo(
+                            AsaSaveLayoutResolver.Resolve(map).WorldFile).Length;
+                        // This is only a MINIMUM estimate. Additional profile,
+                        // tribe and tribute files are counted by Core at Create.
+                        if(oneWorld>budget.MaxTotalBytes)
+                            return Fail(id,"UM-BACKUP-RESOURCE-BYTE-LIMIT");
+                        worldBytes=checked(worldBytes+oneWorld);
+                    }
                     var originalBatchTicket=new OriginalBatchTicket(Guid.NewGuid(),
                         original.FourFilesSha256,original.LaunchProfileSha256,
                         maps.Select(x=>x.Id).ToArray(),DateTimeOffset.UtcNow.AddMinutes(5));
                     originalBatchPending=originalBatchTicket;
                     return Ok(id,new{
                         token=originalBatchTicket.Token,localMaps=5,worldBytes,
+                        maxFilesPerMap=budget.MaxFiles,
+                        maxBytesPerMap=budget.MaxTotalBytes,
+                        resourcePolicyCustomized=budget.Customized,
+                        actualCopySizeRecheckedAtCreate=true,
                         mapNames=maps.Select(x=>x.Name).ToArray(),
                         originalSourcePinned=true,allMapsConfirmedStopped=true,
                         requiresOperatorConfirmation=true,
@@ -523,6 +535,7 @@ public sealed class DesktopWorldBackupBridge
                     var map=Owned(mid);
                     UniqueWorldDirectory(map);
                     Stopped(map);
+                    var budget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
                     if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
                         return Fail(id,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED");
                     var key=KovaCompatibleWorldBackup.MapKey(map);
@@ -547,6 +560,8 @@ public sealed class DesktopWorldBackupBridge
                         string world=AsaSaveLayoutResolver.Resolve(map).WorldFile;
                         if(!File.Exists(world)||new FileInfo(world).Length==0)
                             return Fail(id,"UM-BACKUP-SAVED-WORLD-MISSING");
+                        if(new FileInfo(world).Length>budget.MaxTotalBytes)
+                            return Fail(id,"UM-BACKUP-RESOURCE-BYTE-LIMIT");
                     }
                     pending=new(Guid.NewGuid(),map.Id,point,map.InstallationPath,
                         map.Arguments,DateTimeOffset.UtcNow.AddMinutes(5),
@@ -555,6 +570,10 @@ public sealed class DesktopWorldBackupBridge
                         token=pending.Token,mapId=map.Id,mapName=map.Name,
                         mapKey=key,point=string.IsNullOrEmpty(point)?null:point,
                         confirmedStopped=true,
+                        maxFilesPerMap=budget.MaxFiles,
+                        maxBytesPerMap=budget.MaxTotalBytes,
+                        resourcePolicyCustomized=budget.Customized,
+                        actualCopySizeRecheckedAtCreate=true,
                         willCreateProtectiveBackup=method=="backup.restorePreview",
                         originalWorldRetained=method=="backup.restorePreview",
                         storeWriterTouched=false,
