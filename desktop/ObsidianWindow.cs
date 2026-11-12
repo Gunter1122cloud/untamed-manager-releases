@@ -42,7 +42,8 @@ public sealed class ObsidianWindow : Form
         "historical.originalList" or "historical.originalPreview" or
         "historical.originalRegister" or
         "historical.originalBatchPreview" or "historical.originalBatchRegister" or
-        "historical.originalLiveBatchPreview" or "historical.originalLiveBatchApply" or
+        "historical.originalLiveBatchPreview" or
+        "historical.originalLiveOperationBlockers" or "historical.originalLiveBatchApply" or
         "historical.originalClusterPreview" or "historical.originalClusterApply" or
         "historical.pairedEvidence" or "historical.launchEvidence" or
         "historical.liveGuard";
