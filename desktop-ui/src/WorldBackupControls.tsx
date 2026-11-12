@@ -8,6 +8,23 @@ import {managerBridge,type PublicMap,type WorldBackupCreated,
   type OriginalFiveMapBackupReceipt,type OriginalFiveMapBackupStatus,
   type OriginalFiveMapJournalRepairPreview} from "./bridge";
 
+function backupResourceError(error:unknown,fallback:string):string {
+  const code=error instanceof Error?error.message:"";
+  switch(code){
+    case "UM-BACKUP-RESOURCE-FILE-LIMIT":
+      return "A mentés fájlszáma túllépi a beállított maponkénti korlátot. "+
+        "Ellenőrizd az Obsidian backup-resource-limits-v1.json beállítását.";
+    case "UM-BACKUP-RESOURCE-BYTE-LIMIT":
+      return "A mentési adatméret meghaladja a beállított maponkénti korlátot. "+
+        "Módosítsd a helyi Manager mentési szabályzatát, vagy csökkentsd a mentési hatókört.";
+    case "UM-BACKUP-RESOURCE-POLICY-INVALID":
+    case "UM-BACKUP-RESOURCE-POLICY-NOT-FILE":
+      return "Hibás Obsidian backup-resource-limits-v1.json szabályzat; "+
+        "érvénytelen fájl esetén a mentés biztonsági okból tiltva marad.";
+    default:return fallback+(code.startsWith("UM-")?" ("+code+")":"");
+  }
+}
+
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
   const [chosen,setChosen]=useState(selectedMap??maps[0]?.id??"");
   const [history,setHistory]=useState<WorldBackupHistory|null>(null);
@@ -121,8 +138,9 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     try{
       const ticket=await managerBridge.backupPreview(requestedMap);
       if(selectedRef.current===requestedMap && ticket.mapId===requestedMap)setPending(ticket);
-    }catch{if(selectedRef.current===requestedMap)
-      setError("Mentés nem indítható: igazoltan leállított helyi map és érvényes világfájl szükséges.");}
+    }catch(e){if(selectedRef.current===requestedMap)
+      setError(backupResourceError(e,
+        "Mentés nem indítható: igazoltan leállított helyi map és érvényes világfájl szükséges."));}
     finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const create=async()=>{
@@ -135,9 +153,10 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
       setReceipt(result);
       const nextHistory=await managerBridge.backupHistory(requestedMap);
       if(selectedRef.current===requestedMap)setHistory(nextHistory);
-    }catch{
+    }catch(e){
       if(selectedRef.current===requestedMap)
-        setError("A mentés nem készült el ellenőrzötten; az esetleges .pending csomag nem állítható vissza.");
+        setError(backupResourceError(e,
+          "A mentés nem készült el ellenőrzötten; az esetleges .pending csomag nem állítható vissza."));
     }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const restorePreview=async(point:WorldBackupPoint)=>{
