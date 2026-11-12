@@ -14,6 +14,22 @@ public static class PremiumBackupWorkflowTests
     }
     public static Task Run(string root)
     {
+        // Budget checks are deterministic and do not allocate multi-TB data.
+        LocalBackupWorkflow.ValidateFileBudget(1,1);
+        LocalBackupWorkflow.ValidateFileBudget(
+            LocalBackupWorkflow.MaxSelectedFiles,
+            LocalBackupWorkflow.MaxSelectedBytes);
+        bool tooMany=false,tooLarge=false;
+        try{LocalBackupWorkflow.ValidateFileBudget(
+            LocalBackupWorkflow.MaxSelectedFiles+1,1);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-FILE-LIMIT")
+        {tooMany=true;}
+        try{LocalBackupWorkflow.ValidateFileBudget(1,
+            LocalBackupWorkflow.MaxSelectedBytes+1);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-SIZE-LIMIT")
+        {tooLarge=true;}
+        Check(tooMany&&tooLarge,
+            "offline backup file and size ceilings reject oversized sources before copying");
         string fixture=Path.Combine(root,"premium-backup-center-fixture");
         string install=Path.Combine(fixture,"mock-map");
         string saved=Path.Combine(install,"ShooterGame","Saved");
