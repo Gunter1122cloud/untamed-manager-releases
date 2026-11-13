@@ -29,6 +29,9 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   const [checked,setChecked]=useState(false);
   const [typed,setTyped]=useState("");
   const [busy,setBusy]=useState(false);
+  const [reconnecting,setReconnecting]=useState(true);
+  const [reconnectFailed,setReconnectFailed]=useState(false);
+  const [reconnectNonce,setReconnectNonce]=useState(0);
   const [ownJournalBlocked,setOwnJournalBlocked]=useState(true);
   const [job,setJob]=useState<RunningJob|null>(()=>runningJobs.get(mapId)??null);
   const [message,setMessage]=useState(()=>lastReceipts.get(mapId)??"");
@@ -49,6 +52,69 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
     return ()=>{active=false;};
   },[mapId,historical,journalBlocked]);
   const blocked=journalBlocked??ownJournalBlocked;
+  // Recover the precise job ID, bound to this local map, from the Windows
+  // bridge. Never replay Start/Stop/Restart or cache an approval token.
+  useEffect(()=>{
+    let active=true;
+    setReconnecting(true);setReconnectFailed(false);
+    const reattach=async()=>{
+      try{
+        const jobs:RunningJob[]=[];
+        if(historical){
+          const [stop,restart]=await Promise.all([
+            managerBridge.historicalGracefulStopRecovery(mapId),
+            managerBridge.historicalRestartRecovery(mapId)
+          ]);
+          if(stop.inMemoryRunning&&stop.jobId&&stop.activeJobKind==="Stop")
+            jobs.push({action:"stop",id:stop.jobId});
+          if(restart.inMemoryRunning&&restart.jobId)
+            jobs.push({action:"restart",id:restart.jobId});
+          if(stop.inMemoryRunning&&stop.activeJobKind!=="Stop")
+            throw new Error("UM-LIFECYCLE-OTHER-STORE-JOB-RUNNING");
+        }else{
+          const [stop,restart]=await Promise.all([
+            managerBridge.freshAsaStopCurrent(mapId),
+            managerBridge.freshAsaRestartCurrent(mapId)
+          ]);
+          if(stop.mapId.toLowerCase()!==mapId.toLowerCase())
+            throw new Error("UM-LIFECYCLE-STOP-MAP-MISMATCH");
+          if(stop.jobId)
+            jobs.push({action:"stop",id:stop.jobId});
+          if(restart.inMemoryJobId&&restart.inMemoryJobState)
+            jobs.push({action:"restart",id:restart.inMemoryJobId});
+          // An old completed Stop must not hide an active Restart.
+          if(jobs.length===2&&stop.active&&restart.inMemoryRunning)
+            throw new Error("UM-LIFECYCLE-CONCURRENT-JOBS");
+          if(jobs.length===2){
+            if(restart.inMemoryRunning)jobs.splice(0,1);
+            else if(stop.active)jobs.splice(1,1);
+            else jobs.splice(0,1); // most recent terminal job is inspected below
+          }
+        }
+        if(!active||!belongs(mapId))return;
+        if(jobs.length>1)throw new Error("UM-LIFECYCLE-CONCURRENT-JOBS");
+        if(jobs.length===1){
+          runningJobs.set(mapId,jobs[0]);
+          setJob(jobs[0]);
+        }else if(runningJobs.has(mapId)){
+          // A terminal job may have finished while the card was closed.
+          // Its status method reports completion without another command.
+          setJob(runningJobs.get(mapId)!);
+        }
+      }catch(e){
+        if(active&&belongs(mapId)){
+          setReconnectFailed(true);
+          setError("A helyi ASA műveleti állapot nem olvasható ("+
+            (e instanceof Error?e.message:"nem igazolt")+
+            "). Nem indítunk ellenőrizetlen párhuzamos műveletet.");
+        }
+      }finally{
+        if(active&&belongs(mapId))setReconnecting(false);
+      }
+    };
+    void reattach();
+    return ()=>{active=false;};
+  },[mapId,historical,reconnectNonce]);
   useEffect(()=>{
     setPending(null);setChecked(false);setTyped("");setError("");setMessage(lastReceipts.get(mapId)??"");
     setBusy(false);setJob(runningJobs.get(mapId)??null);
@@ -168,7 +234,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         ". Nincs automatikus ismétlés; ellenőrizd a natív naplót.");
     }finally{if(belongs(selected.mapId))setBusy(false);}
   };
-  const unavailable=busy||Boolean(job)||blocked;
+  const unavailable=busy||Boolean(job)||blocked||reconnecting||reconnectFailed;
   return <section className="uk-lifecycle-command" aria-label="Helyi map életciklus vezérlése">
     <div className="uk-lifecycle-row" role="group" aria-label={mapName+" alapvezérlők"}>
       {(["start","restart","stop","kill"] as Action[]).map(action=>{
@@ -186,6 +252,9 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         </button>;
       })}
     </div>
+    {reconnecting&&<p role="status" className="muted small">Futó ASA-művelet újracsatlakoztatása…</p>}
+    {reconnectFailed&&<button type="button" className="secondary"
+      onClick={()=>setReconnectNonce(n=>n+1)}>Műveleti állapot újraellenőrzése</button>}
     {blocked&&<p role="alert" className="warning-inline"><Shield size={15}/>
       A műveleti napló nincs igazolva vagy kézi ellenőrzést igényel. Nem indul új ASA-művelet.</p>}
     {pending&&<div role="region" className="uk-lifecycle-approval"
