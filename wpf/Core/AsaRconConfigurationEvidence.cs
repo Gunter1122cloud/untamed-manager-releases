@@ -34,7 +34,7 @@ public static class AsaRconConfigurationEvidence
                (ini.Attributes&FileAttributes.ReparsePoint)!=0)
                 return false;
             string password=SecureStore.Unprotect(map.RconPasswordProtected);
-            // Existing Kova/ASA credentials can predate the stricter
+            // Existing Legacy/ASA credentials can predate the stricter
             // fresh-server password policy. They are accepted ONLY when
             // the existing INI matches exactly (constant-time below).
             AsaInitialRconSettings.ValidateExistingAdminPassword(password);

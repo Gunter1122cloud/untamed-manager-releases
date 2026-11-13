@@ -43,7 +43,7 @@ public static class AsaInitialRconSettings
 
     /// <summary>
     /// Existing ASA ServerAdminPassword values are NOT newly generated
-    /// credentials. A historical Kova/ASA server may already use a short
+    /// credentials. A historical Legacy/ASA server may already use a short
     /// password or INI metacharacters that are valid after the first '='.
     /// Only reject values that cannot represent a single INI line; the
     /// read-only original-INI evidence must then match the exact credential
