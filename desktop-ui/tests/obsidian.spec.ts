@@ -4858,7 +4858,7 @@ test("log center rejects another map's returned local log tail",async({page})=>{
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_WRONG_LOG_TAIL_MAP__?:()=>void
   }).__UNTAMED_WRONG_LOG_TAIL_MAP__?.());
-  await page.getByRole("button",{name:"Naplóközpont"}).click();
+  await page.getByLabel("Fő navigáció").getByRole("button",{name:"Naplók"}).click();
   await expect(page.getByText(/válasz másik maphoz tartozik/)).toBeVisible();
   await expect(page.getByText("Synthetic ASA startup line")).toHaveCount(0);
 });
