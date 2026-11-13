@@ -245,6 +245,9 @@ test.beforeEach(async ({ page }) => {
       .__UNTAMED_STEAM_INTERRUPTED__=()=>{steamInterrupted=true;};
     let localBackupMap=one;
     let localBackupSaved=false;
+    let failNextBackupHistory=false;
+    (window as typeof window & {__UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?:()=>void})
+      .__UNTAMED_FAIL_NEXT_BACKUP_HISTORY__=()=>{failNextBackupHistory=true;};
     let crashRecovery=false;
     (window as typeof window & {__UNTAMED_CRASH_MARKER_TEST__?:()=>void})
       .__UNTAMED_CRASH_MARKER_TEST__=()=>{
@@ -821,7 +824,11 @@ test.beforeEach(async ({ page }) => {
           };
           }
           throw new Error("Unknown player-list map");
-        case "backup.history": return {
+        case "backup.history":
+          if(failNextBackupHistory){failNextBackupHistory=false;
+            throw new Error("UM-SYNTHETIC-BACKUP-READONLY-REFRESH-FAILED");
+          }
+          return {
           mapId:m.mapId,
           mapName:m.mapId===two?"Astraeos":"The Island",
           recoveryRequired:crashRecovery,
@@ -920,7 +927,11 @@ test.beforeEach(async ({ page }) => {
           mapName:localBackupMap===two?"Astraeos":"The Island",
           point:"00000000-0000-4000-8000-00000000b002",
           protectiveBackup:"00000000-0000-4000-8000-00000000b004",
-          restored:true,oldWorldRetained:true,worldRestoreVerified:true,
+          restored:true,oldWorldRetained:true,
+          bytesRestoredAndHashesVerified:true,
+          worldRestoreVerified:false,
+          gameClientLoadVerified:false,
+          tribeOwnershipVerified:false,characterRejoinVerified:false,
           storeWriterTouched:false,
           evidence:"VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY"
         };
@@ -3564,6 +3575,24 @@ test("Mentésközpont calls real native preview/create and displays verified cha
   await expect(page.locator(".uk-world-backup-success").getByText(/4 fájl · 1 külön profil · 1 külön tribe fájl/)).toBeVisible();
   await expect(page.getByText("1 ellenőrzött csomag")).toBeVisible();
   await page.screenshot({path:"test-results/uk-real-world-backup-1600.png",fullPage:false});
+});
+
+test("verified world backup receipt survives a failed read-only history refresh",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const picker=page.getByRole("combobox",{name:"Mentendő helyi map"});
+  await picker.selectOption(second);
+  await page.getByRole("button",{name:"Világmentés készítése"}).click();
+  await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toBeVisible();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?:()=>void
+  }).__UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?.());
+  await page.getByRole("button",{name:"Mentés indítása"}).click();
+  await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
+  await expect(page.getByText(/előzmények frissítése sikertelen/)).toBeVisible();
+  await picker.selectOption(first);
+  await picker.selectOption(second);
+  await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
 });
 
 test("old native backup previews without resource proof cannot be approved",async({page})=>{
