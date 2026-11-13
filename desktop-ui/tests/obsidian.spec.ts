@@ -6537,6 +6537,9 @@ test("fresh ASA start automatically observes RCON without retrying a failed read
     __UNTAMED_FRESH_READY_CALLS__?:()=>number
   }).__UNTAMED_FRESH_READY_CALLS__?.()??0),{timeout:12000}).toBeGreaterThan(0);
   await expect(page.getByText("ASA készenléti szint: RconAuthenticated")).toBeVisible();
+  await expect(page.getByText(/RCON-vezérlés hitelesítve és elérhető/)).toBeVisible();
+  await expect(page.getByText(/Indítás utáni ASA\/RCON-készenlét ellenőrzése/))
+    .toHaveCount(0);
   await expect(page.getByText("Várakozás vagy hiba – a natív bizonyíték nem teljes",
     {exact:true})).toBeVisible();
   await expect(page.getByText(/folyamatindítás még nem bizonyítja/)).toBeVisible();

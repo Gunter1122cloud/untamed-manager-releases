@@ -79,6 +79,18 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
             finished=true;
             break;
           }
+          // The original desktop lifecycle completes the control handoff
+          // on the first authenticated RCON response. Runtime advertising
+          // and optional API hook loading are separate facts and must not
+          // delay or falsely negate a working RCON console.
+          if(result.rconAuthenticated){
+            const controlMessage="ASA RCON-vezérlés hitelesítve és elérhető. A játék szerverhirdetése vagy az opcionális API inicializálása még nincs teljesen igazolva.";
+            setMessage(previous=>previous+" "+controlMessage);
+            recentStartReceipts.set(targetMapId,
+              (recentStartReceipts.get(targetMapId)??"")+" "+controlMessage);
+            finished=true;
+            break;
+          }
         }catch{/* During ASA startup an unavailable RCON is expected; keep the original process. */}
       }
       if(!finished && readinessGeneration.current===generation)
