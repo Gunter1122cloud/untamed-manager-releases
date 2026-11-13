@@ -10,7 +10,7 @@ namespace UntamedManager.Core;
 
 // Offline-only ASA/Store archive: 5 + 5 independently VERIFIED stopped-map
 // packages and an operator-created LOCAL COPY of the original shared transfer
-// root. There is no SQL/database, no remote operation, no Kova Store writer,
+// root. There is no SQL/database, no remote operation, no Legacy Store writer,
 // and no claim of a consistent live 10-map snapshot.
 public sealed record AsaOfflineMapInput(string Host,Guid Map,string Name,string Package);
 public sealed record AsaOfflineMap(string Host,Guid Map,string Name,
@@ -140,7 +140,7 @@ public static class OfflineAsaClusterArchive
         // This file is the original Store-v1 coordination identity, not a new
         // session. Its presence alone does NOT certify that no ASA map was writing.
         if(!result.Any(f=>f.RelativePath.Replace('\\','/').Equals(
-               ".kova-store-v1/operation.json",StringComparison.OrdinalIgnoreCase)))
+               ".legacy-store-v1/operation.json",StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("Offline copy lacks original Store operation metadata");
         return result;
     }
