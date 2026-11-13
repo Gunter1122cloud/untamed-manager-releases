@@ -3233,7 +3233,7 @@ try
         // Start/backup parser instead of substring-matching the word "store".
         string originalStopArguments=stopLabMap.Arguments;
         stopLabMap.Arguments=
-            "TheIsland_WP?listen?SessionName=\\"Untamed Store -usestore Celebration\\" -port=7798 -QueryPort=27048";
+            "TheIsland_WP?listen?SessionName=\"Untamed Store -usestore Celebration\" -port=7798 -QueryPort=27048";
         identity=new ProcessIdentity{
             Pid=44117,StartedUtc=identity.StartedUtc,
             ExecutablePath=exe,Arguments=stopLabMap.Arguments
