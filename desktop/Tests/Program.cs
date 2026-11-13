@@ -3228,6 +3228,41 @@ try
               sends==1,
             "native DoExit verifies process exit without inventing SaveComplete");
         stopLabRunning=true;
+        // An ordinary SessionName may contain Store keywords and text
+        // resembling ASA switches. Stop must agree with the common native
+        // Start/backup parser instead of substring-matching the word "store".
+        string originalStopArguments=stopLabMap.Arguments;
+        stopLabMap.Arguments=
+            "TheIsland_WP?listen?SessionName=\\"Untamed Store -usestore Celebration\\" -port=7798 -QueryPort=27048";
+        identity=new ProcessIdentity{
+            Pid=44117,StartedUtc=identity.StartedUtc,
+            ExecutablePath=exe,Arguments=stopLabMap.Arguments
+        };
+        var namedStop=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
+        IsOk(namedStop,
+            "graceful Stop accepts Store words in an ordinary quoted SessionName");
+        stopLabMap.Arguments=originalStopArguments+" -usestore";
+        var actualWriterStop=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(actualWriterStop,"UM-ASA-STOP-FAILED")&&sends==1,
+            "real -usestore switch cannot enter non-enrolled graceful Stop");
+        stopLabMap.Arguments=originalStopArguments+" -clusterid=NotAnOwnedCluster";
+        var actualClusterStop=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(actualClusterStop,"UM-ASA-STOP-FAILED")&&sends==1,
+            "real -clusterid switch cannot enter non-enrolled graceful Stop");
+        stopLabMap.Arguments=originalStopArguments;
+        stopLabMap.ApiLoaderArguments="-converttostore";
+        var actualLoaderConversionStop=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(actualLoaderConversionStop,"UM-ASA-STOP-FAILED")&&sends==1,
+            "real Loader conversion switch cannot enter non-enrolled graceful Stop");
+        stopLabMap.ApiLoaderArguments="";
+        identity=new ProcessIdentity{
+            Pid=44117,StartedUtc=identity.StartedUtc,
+            ExecutablePath=exe,Arguments=originalStopArguments
+        };
         stopLabMap.HistoricalMapKey="TheIsland_WP";
         var provenanceStop=await Call(stopBridge.HandleAsync,
             "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
