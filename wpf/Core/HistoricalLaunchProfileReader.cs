@@ -29,9 +29,9 @@ public static class HistoricalLaunchProfileReader
             throw new InvalidDataException("Historical Manager archive is incomplete");
         using var source=new MemoryStream(bytes,false);
         using var zip=new ZipArchive(source,ZipArchiveMode.Read);
-        using var launch=Read(zip,"Kova/launch-profiles-v1.json");
-        using var world=Read(zip,"Kova/cluster-store-v1.json");
-        using var cluster=Read(zip,"Kova/cluster-v1.json");
+        using var launch=Read(zip,"Legacy/launch-profiles-v1.json");
+        using var world=Read(zip,"Legacy/cluster-store-v1.json");
+        using var cluster=Read(zip,"Legacy/cluster-v1.json");
         if(Number(launch.RootElement,"version")!=1 ||
            Number(world.RootElement,"schema")!=1 ||
            Str(cluster.RootElement,"id")!=VaultProtocol.ClusterId ||

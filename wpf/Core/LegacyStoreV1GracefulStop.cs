@@ -47,7 +47,7 @@ internal static class LegacyStoreV1GracefulStop
            string.IsNullOrWhiteSpace(map.RconPasswordProtected)||
            !AsaReadyProbe.IsRegisteredServerBinary(map)||
            !AsaRconConfigurationEvidence.Matches(map)||
-           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+           LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("UM-ORIGINAL-STOP-CONFIGURATION");
         var restart=new AsaManualRestartJournal(map.InstallationPath);
         if(approvedRestartId is Guid restartId)
@@ -90,15 +90,15 @@ internal static class LegacyStoreV1GracefulStop
 
     internal static string OriginalSource(LocalMap map) =>
         ReadSource(map,Path.Combine(Environment.GetFolderPath(
-            Environment.SpecialFolder.ApplicationData),"Kova"));
+            Environment.SpecialFolder.ApplicationData),"\u004Bova"));
 
     internal static string OriginalSource(ClusterService cluster,LocalMap map)
     {
         string legacy=Path.Combine(Environment.GetFolderPath(
-            Environment.SpecialFolder.ApplicationData),"Kova");
+            Environment.SpecialFolder.ApplicationData),"\u004Bova");
         string selected=LegacyStoreV1PinnedSource.Resolve(
             cluster.Store.Root,legacy,map);
-        // ACTIVE/DONE was Kova's import/migration coordination, not a
+        // ACTIVE/DONE was Legacy's import/migration coordination, not a
         // runtime requirement for independently managed local SaveWorld/Stop.
         // A peer being offline must not invalidate a locally owned PID/RCON.
         if(!string.Equals(selected,legacy,StringComparison.OrdinalIgnoreCase))

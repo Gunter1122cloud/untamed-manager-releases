@@ -11,7 +11,7 @@ namespace UntamedManager.Core;
 /// Explicit operator-triggered inspection of the FIVE Manager-owned, durable
 /// historical SaveWorld receipts. Uses the original read-only ACTIVE/DONE
 /// source guard, including shared coordination evidence, on explicit operator
-/// request. Never writes a Kova transfer file, sends RCON, grants Store writer
+/// request. Never writes a Legacy transfer file, sends RCON, grants Store writer
 /// authority or creates a backup.
 /// "Recent" means recent local LOG witnesses, NOT current writer quiescence,
 /// an atomic cross-host snapshot, or replay-safe game character travel.

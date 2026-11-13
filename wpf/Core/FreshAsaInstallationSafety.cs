@@ -34,9 +34,9 @@ public static class FreshAsaInstallationSafety
             if(group.Length==0)return false;
             return group.All(x=>
                 !x.ObservedReadOnlyImported &&
-                !KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(x) &&
+                !LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(x) &&
                 string.IsNullOrWhiteSpace(x.HistoricalArchiveSha256) &&
-                !KovaCompatibleWorldBackup.InstallationRecoveryRequired(x));
+                !LegacyCompatibleWorldBackup.InstallationRecoveryRequired(x));
         }
         catch(Exception ex) when(ex is IOException or InvalidDataException or
             ArgumentException or UnauthorizedAccessException or NotSupportedException)

@@ -10,7 +10,7 @@ namespace UntamedManager.Core;
 
 /// <summary>
 /// Independent C# implementation of the launch-argument contract observed in
-/// the operator-supplied Kova agent.mjs. Existing Store-v1 is ACTIVE ONLY:
+/// the operator-supplied Legacy agent.mjs. Existing Store-v1 is ACTIVE ONLY:
 /// never prepare, convert, create a new session or rewrite shared metadata.
 /// This builder creates ARGUMENTS, not a process. Production launch additionally
 /// requires verified live two-peer writer ownership and ASA acceptance tests.
@@ -34,7 +34,7 @@ public static class LegacyStoreV1ActiveLaunch
 
     /// <summary>
     /// Decode original ASA INI without rewriting a single source byte.
-    /// Kova 1.8.3 accepts UTF-8 and BOM-marked UTF-16 LE/BE. Strict
+    /// Legacy 1.8.3 accepts UTF-8 and BOM-marked UTF-16 LE/BE. Strict
     /// decoding makes a damaged or mislabeled INI a preflight error,
     /// rather than silently interpreting it as a blank configuration.
     /// </summary>
@@ -83,7 +83,7 @@ public static class LegacyStoreV1ActiveLaunch
            data.GamePort==data.QueryPort)
             throw new InvalidDataException("UM-STORE-V1-PORTS");
         if(!ClusterName.IsMatch(data.ClusterId)||
-           (data.SourcePinnedClusterOnly&&data.ClusterId!="KovaCluster"))
+           (data.SourcePinnedClusterOnly&&data.ClusterId!="\u004BovaCluster"))
             throw new InvalidDataException("UM-STORE-V1-CLUSTER-IDENTITY");
         if(!ValidWindowsClusterPath(data.ClusterPath))
             throw new InvalidDataException("UM-STORE-V1-CLUSTER-PATH");
