@@ -89,7 +89,7 @@ public static class SafePluginZip
             ProcessCheck? selected=null;
             // Unconfigured local maps do not share this installation.
             // Their empty path must not disable ZIP installation for a valid
-            // unrelated Kova/ASA map.
+            // unrelated Legacy/ASA map.
             foreach(var local in cluster.Config.LocalMaps.Where(x=>
                 !string.IsNullOrWhiteSpace(x.InstallationPath)&&string.Equals(
                 FixedLocal(x.InstallationPath),install,StringComparison.OrdinalIgnoreCase)))
@@ -100,10 +100,10 @@ public static class SafePluginZip
                     throw new InvalidOperationException("All maps sharing this plugin installation must remain stopped");
                 // Only the native Windows host can supply historical
                 // independently observed stopped-family authority. The
-                // ordinary map probe cannot match Kova's empty launch argv.
+                // ordinary map probe cannot match Legacy's empty launch argv.
                 if(local.HistoricalStoreProtected&&historicalStoppedObserver==null)
                     throw new UnauthorizedAccessException(
-                        "Historical Kova plugin ZIP requires native stopped-family observer");
+                        "Historical Legacy plugin ZIP requires native stopped-family observer");
                 if(!local.HistoricalStoreProtected&&
                    UntamedWorldBackup.HasLiveOrHistoricalStore(local))
                     throw new UnauthorizedAccessException(
