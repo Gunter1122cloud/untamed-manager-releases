@@ -8,7 +8,7 @@ using UntamedManager.Core;
 
 /// <summary>
 /// Two REAL Windows child processes compete for a single synthetic offline
-/// multi-host archive path. Never loads Kova, ASA or production data.
+/// multi-host archive path. Never loads Legacy, ASA or production data.
 /// </summary>
 internal static class MultiHostArchiveProcessLeaseTests
 {

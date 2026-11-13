@@ -8,7 +8,7 @@ using UntamedManager.Core;
 
 // Separate Windows process must NEVER fall back to machine-wide ProgramData.
 // The child refuses to run without an explicit fully-qualified TEMP root.
-// No current user's Kova, ASA, RCON or Store data is opened.
+// No current user's Legacy, ASA, RCON or Store data is opened.
 internal static class OperationJournalIsolationTests
 {
     internal const string ChildSwitch="--isolated-operation-journal-test-child";

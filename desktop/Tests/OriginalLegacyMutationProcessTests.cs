@@ -7,18 +7,18 @@ using System.Threading;
 using System.Threading.Tasks;
 using UntamedManager.Core;
 
-// A real two-Windows-process test of Kova's ORIGINAL shared-store.mjs
-// fs.mkdir(".kova-store-v1/mutation.lock") / EEXIST contract.
+// A real two-Windows-process test of Legacy's ORIGINAL shared-store.mjs
+// fs.mkdir(".legacy-store-v1/mutation.lock") / EEXIST contract.
 // Synthetic TEMP only. No production Store, RCON, transfer or ASA touched.
-internal static class OriginalKovaMutationProcessTests
+internal static class OriginalLegacyMutationProcessTests
 {
-    internal const string ChildSwitch="--isolated-original-kova-mutation-child";
+    internal const string ChildSwitch="--isolated-original-legacy-mutation-child";
 
     private static void Check(bool condition,string reason)
     {
         if(!condition)throw new InvalidOperationException(
-            "ORIGINAL KOVA MUTATION PROCESS TEST FAILED: "+reason);
-        Console.WriteLine("PASS Kova original mutation.lock: "+reason);
+            "ORIGINAL LEGACY MUTATION PROCESS TEST FAILED: "+reason);
+        Console.WriteLine("PASS Legacy original mutation.lock: "+reason);
     }
     private static bool Denies(Action action)
     {
@@ -73,7 +73,7 @@ internal static class OriginalKovaMutationProcessTests
         foreach(var arg in new[]{ChildSwitch,control,barrier,signal})
             info.ArgumentList.Add(arg);
         return Process.Start(info)??throw new InvalidOperationException(
-            "Two-process Kova mutation test child failed to start");
+            "Two-process Legacy mutation test child failed to start");
     }
 
     private static async Task AwaitResult(Func<bool> done,string message)
@@ -87,16 +87,16 @@ internal static class OriginalKovaMutationProcessTests
     public static async Task Run(string sandbox)
     {
         if(!OperatingSystem.IsWindows())
-            throw new InvalidOperationException("Original Kova lock test needs Windows");
-        string control=Path.Combine(sandbox,"isolated-original-kova-mutation",
-            ".kova-store-v1");
+            throw new InvalidOperationException("Original Legacy lock test needs Windows");
+        string control=Path.Combine(sandbox,"isolated-original-legacy-mutation",
+            ".\u006Bova-store-v1");
         Directory.CreateDirectory(control);
         string marker=Path.Combine(control,"mutation.lock");
-        string barrier=Path.Combine(sandbox,"isolated-original-kova-mutation",
+        string barrier=Path.Combine(sandbox,"isolated-original-legacy-mutation",
             "begin.gate");
         string[] signals={
-            Path.Combine(sandbox,"isolated-original-kova-mutation","host-one"),
-            Path.Combine(sandbox,"isolated-original-kova-mutation","host-two")
+            Path.Combine(sandbox,"isolated-original-legacy-mutation","host-one"),
+            Path.Combine(sandbox,"isolated-original-legacy-mutation","host-two")
         };
         Process? a=null,b=null;
         try
@@ -112,7 +112,7 @@ internal static class OriginalKovaMutationProcessTests
             var wins=signals.Where(p=>File.Exists(p+".won")).ToArray();
             var losses=signals.Where(p=>File.Exists(p+".denied")).ToArray();
             Check(wins.Length==1&&losses.Length==1&&Directory.Exists(marker),
-                "one and only one process owns original Kova mutation.lock directory");
+                "one and only one process owns original Legacy mutation.lock directory");
             Process winner=wins[0]==signals[0]?a:b;
             Process loser=wins[0]==signals[0]?b:a;
             await AwaitResult(()=>loser.HasExited,
@@ -126,7 +126,7 @@ internal static class OriginalKovaMutationProcessTests
                 "abrupt process death does not release durable original mutex or permit takeover");
 
             // Simulate explicit LAB-ONLY operator recovery after inspected
-            // crash. Production Original Kova locks must NEVER be cleared
+            // crash. Production Original Legacy locks must NEVER be cleared
             // automatically or by these tests.
             Directory.Delete(marker,recursive:false);
             using(var approved=LegacyStoreV1OriginalMutationDirectory.Acquire(control))

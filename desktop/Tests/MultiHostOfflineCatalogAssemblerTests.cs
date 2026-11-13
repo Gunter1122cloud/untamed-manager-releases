@@ -9,7 +9,7 @@ using UntamedManager.Core;
 // Actual immutable file bytes: two synthetic hosts, ten maps, the SAME
 // cluster and shared Store/transfer/character/tribe/inventory/tribute data.
 // This tests the shipping archive/restore engine, not a mocked serializer.
-// No production Kova profile, UNC share, RCON or ASA process is accessed.
+// No production Legacy profile, UNC share, RCON or ASA process is accessed.
 internal static class MultiHostOfflineCatalogAssemblerTests
 {
     private static void Check(bool assertion,string text)
@@ -101,7 +101,7 @@ internal static class MultiHostOfflineCatalogAssemblerTests
             "tribute bytes original");
         Write(source,"clusters/"+cluster+"/Transfer/"+hosts[0]+"/dinos.bin",
             "tamed dino transfer bytes original");
-        // Synthetic equivalent of the inspected Kova transfer inventory:
+        // Synthetic equivalent of the inspected Legacy transfer inventory:
         // 50 payload entries, including nine extensionless 0-byte placeholders.
         // Special dot-prefixed Store files are separate, NONEMPTY payloads.
         for(int i=0;i<9;i++)
@@ -376,7 +376,7 @@ internal static class MultiHostOfflineCatalogAssemblerTests
         // Original ten map GUIDs, host owners and file bytes stay unchanged:
         // (two hosts / ten maps) -> (two hosts / eleven maps) ->
         // (three hosts / twelve maps), all in the SAME cluster ID.
-        // No Kova writer, LAN peer or live ASA session is emulated/certified.
+        // No Legacy writer, LAN peer or live ASA session is emulated/certified.
         static void CopyOfflineRoot(string from,string to)
         {
             Directory.CreateDirectory(to);

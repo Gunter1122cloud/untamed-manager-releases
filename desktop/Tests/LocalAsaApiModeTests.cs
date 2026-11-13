@@ -9,7 +9,7 @@ using UntamedManager.Core;
 /// <summary>
 /// Isolated Windows fixture exercising actual native per-map mode persistence.
 /// Builds synthetic PE64 headers in TEMP only; it never launches fake
-/// executables, touches installed ASA, RCON, Kova or network shares.
+/// executables, touches installed ASA, RCON, Legacy or network shares.
 /// </summary>
 internal static class LocalAsaApiModeTests
 {

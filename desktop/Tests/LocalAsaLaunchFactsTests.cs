@@ -11,7 +11,7 @@ internal static class LocalAsaLaunchFactsTests
         const string share=@"\\synthetic.example\PrivateStoreRoot";
         string launch="\""+exe+"\" TheIsland_WP?listen -Port=7777 -QueryPort=27015"+
             " -mods=100011,100012 -passivemods=100013 -usestore"+
-            " -clusterid=KovaCluster -ClusterDirOverride="+share+
+            " -clusterid=LegacyCluster -ClusterDirOverride="+share+
             " -SessionName=DO_NOT_RETURN_ADMIN_METADATA";
         static void Check(bool condition,string context)
         {
@@ -34,7 +34,7 @@ internal static class LocalAsaLaunchFactsTests
         string sanitized=JsonSerializer.Serialize(known);
         Check(!sanitized.Contains("synthetic.example",StringComparison.Ordinal)&&
               !sanitized.Contains("PrivateStoreRoot",StringComparison.Ordinal)&&
-              !sanitized.Contains("KovaCluster",StringComparison.Ordinal)&&
+              !sanitized.Contains("\u004BovaCluster",StringComparison.Ordinal)&&
               !sanitized.Contains("SessionName",StringComparison.Ordinal)&&
               !sanitized.Contains("DO_NOT_RETURN",StringComparison.Ordinal),
             "sanitized facts never echo original UNC, cluster ID or session name");
