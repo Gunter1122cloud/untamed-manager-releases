@@ -9,7 +9,7 @@ using UntamedManager.Core;
 namespace UntamedDesktop;
 
 /// <summary>
-/// Read-only, exact-WMI reconstruction of five already RUNNING ORIGINAL Kova
+/// Read-only, exact-WMI reconstruction of five already RUNNING ORIGINAL Legacy
 /// Store-v1 processes. No source conversion, copied Store writer, new session,
 /// RCON command, process launch or stop. Used only by the explicitly approved
 /// historical five-map import; all real Store operations keep their independent
@@ -117,7 +117,7 @@ public static class OriginalStoreLiveBatchEvidence
                 // A verified original ASA API Loader may pass map/Store flags
                 // to the child without repeating them in the child's WMI
                 // command line. Reconstruct only an EXACT parent/child pair:
-                // same installation, full original Kova loader launch,
+                // same installation, full original Legacy loader launch,
                 // original map GUID, PID ancestry and creation times.
                 // No unmatched map or unexpected child source flag is allowed.
                 matching=matchingPaths.Where(m=>
@@ -177,7 +177,7 @@ public static class OriginalStoreLiveBatchEvidence
 
         // The digest pins BOTH parents and children, full private command
         // lines, PID creation times and original source hashes. Only its
-        // SHA-256 reaches the token; raw Kova paths and arguments remain native.
+        // SHA-256 reaches the token; raw Legacy paths and arguments remain native.
         var signature=new StringBuilder(original.FourFilesSha256).Append('|')
             .Append(original.LaunchProfileSha256);
         foreach(var m in maps.OrderBy(x=>x.Id))

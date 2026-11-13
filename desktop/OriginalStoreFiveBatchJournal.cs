@@ -10,8 +10,8 @@ namespace UntamedDesktop;
 
 /// <summary>
 /// Durable Manager-profile orchestration receipt for five existing Core world
-/// backups. It is NOT a Store writer, another backup engine, a Kova metadata
-/// file or a transfer archive. No ASA/Kova path is ever accepted from WebView.
+/// backups. It is NOT a Store writer, another backup engine, a Legacy metadata
+/// file or a transfer archive. No ASA/Legacy path is ever accepted from WebView.
 /// </summary>
 internal static class OriginalStoreFiveBatchJournal
 {
@@ -73,7 +73,7 @@ internal static class OriginalStoreFiveBatchJournal
         }
     }
     // A held OS file handle is an owner-specific cross-process lease.
-    // It is NOT a Kova Store writer lock. Windows releases it after an
+    // It is NOT a Legacy Store writer lock. Windows releases it after an
     // unexpected Manager termination without deleting any journal bytes.
     internal static FileStream AcquireBatchLease(string managerProfile)
     {
@@ -154,7 +154,7 @@ internal static class OriginalStoreFiveBatchJournal
         }
     }
     // Repair is an explicit, short-lived operator action. It only quarantines
-    // corrupted MANAGER-local orchestration bytes, never a Kova or ASA file.
+    // corrupted MANAGER-local orchestration bytes, never a Legacy or ASA file.
     internal static string RawDigest(string managerProfile)
     {
         string file=Path.Combine(Folder(managerProfile),Name);

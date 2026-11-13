@@ -12,7 +12,7 @@ using UntamedDesktop;
 // Regression based on an observed 2026-11-09 offline Genesis Part 1 ASA
 // Store-index SHAPE: two valid bounded sections followed by a malformed
 // trailing header. No original player IDs, tribe IDs, original world bytes,
-// Kova metadata or private archives are committed to this repository.
+// Legacy metadata or private archives are committed to this repository.
 internal static class EmbeddedStorePartialIndexTests
 {
     [DllImport("kernel32.dll",CharSet=CharSet.Unicode,EntryPoint="CreateHardLinkW",

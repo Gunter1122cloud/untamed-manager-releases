@@ -21,12 +21,12 @@ internal static class ClusterRegistryTests
     private static Guid SyntheticMapId(int index) =>
         Guid.Parse($"00000000-0000-4000-9000-{index:D12}");
 
-    private static async Task ValidateOriginalKovaMembershipIsImmutable(string testRoot)
+    private static async Task ValidateOriginalLegacyMembershipIsImmutable(string testRoot)
     {
         // TEN original synthetic identities only. The registry checks run
         // against a disposable Manager profile; no ASA, Store or LAN access.
-        string root=Path.Combine(testRoot,"original-kova-registry-protection");
-        await using var service=new ClusterService("protected-kova-fixture",root,
+        string root=Path.Combine(testRoot,"original-legacy-registry-protection");
+        await using var service=new ClusterService("protected-legacy-fixture",root,
             _=>new ProcessCheck(false,"Synthetic test only",null,true));
         string hp=service.Config.LocalHostId;
         string ryzen=SyntheticHostId(801);
@@ -47,7 +47,7 @@ internal static class ClusterRegistryTests
                 });
             else service.Registry.RegisterRemoteMap(ryzen,originals[i],names[i]);
         }
-        var kova=service.Registry.CreateCluster("KovaCluster",
+        var legacy=service.Registry.CreateCluster("\u004BovaCluster",
             "Original Untamed Kingdom",Path.Combine(root,"original-transfer"));
         var lab=service.Registry.CreateCluster("expansion-test",
             "Independent synthetic expansion",Path.Combine(root,"test-transfer"));
@@ -56,7 +56,7 @@ internal static class ClusterRegistryTests
         // are immutable historical facts, not newly authorized transfer.
         foreach(var mapId in originals)
             service.Config.ClusterRegistry.MapAssignments.Add(
-                new ClusterMapAssignment{MapId=mapId,ClusterId=kova.ClusterId});
+                new ClusterMapAssignment{MapId=mapId,ClusterId=legacy.ClusterId});
         var initial=service.Registry.Snapshot();
         Check(initial.ClusterRegistry.MapAssignments.Count==10 &&
               initial.HostRegistry.Maps.Count==10 &&
@@ -66,17 +66,17 @@ internal static class ClusterRegistryTests
         bool pathRebindDenied=false;
         try
         {
-            service.Registry.UpdateCluster(kova.ClusterId,kova.Name,
+            service.Registry.UpdateCluster(legacy.ClusterId,legacy.Name,
                 Path.Combine(root,"unverified-replacement-transfer"));
         }
         catch(UnauthorizedAccessException){pathRebindDenied=true;}
         Check(pathRebindDenied,
-            "native registry refuses changing original Kova transfer directory");
+            "native registry refuses changing original Legacy transfer directory");
         bool nameEditDenied=false;
         try
         {
-            service.Registry.UpdateCluster(kova.ClusterId,"Renamed Historical Cluster",
-                kova.TransferDirectory);
+            service.Registry.UpdateCluster(legacy.ClusterId,"Renamed Historical Cluster",
+                legacy.TransferDirectory);
         }
         catch(UnauthorizedAccessException){nameEditDenied=true;}
         Check(nameEditDenied,
@@ -84,7 +84,7 @@ internal static class ClusterRegistryTests
         var unchangedOriginal=service.Registry.Snapshot();
         Check(unchangedOriginal.Revision==beforeProtectedEdit.Revision &&
               unchangedOriginal.ClusterRegistry.Clusters.Single(x=>
-                x.ClusterId==kova.ClusterId).TransferDirectory==kova.TransferDirectory,
+                x.ClusterId==legacy.ClusterId).TransferDirectory==legacy.TransferDirectory,
             "rejected original cluster metadata changes preserve revision and transfer path");
         var independentChange=service.Registry.UpdateCluster(lab.ClusterId,
             "Synthetic Other Cluster Updated",lab.TransferDirectory);
@@ -97,45 +97,45 @@ internal static class ClusterRegistryTests
         string originalSha=Convert.ToHexString(SHA256.HashData(bytes));
 
         var harmless=service.Registry.PreviewMapAssignments(
-            kova.ClusterId,originals);
+            legacy.ClusterId,originals);
         Check(harmless.IsValid&&harmless.Additions.Count==0&&
               harmless.Removals.Count==0&&harmless.Moves.Count==0,
-            "unchanged original Kova membership remains reviewable");
+            "unchanged original Legacy membership remains reviewable");
         var removal=service.Registry.PreviewMapAssignments(
-            kova.ClusterId,originals.Take(9));
+            legacy.ClusterId,originals.Take(9));
         Check(!removal.IsValid&&removal.Errors.Contains(
               "UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE"),
-            "removal of an original Kova map denied by native preview");
+            "removal of an original Legacy map denied by native preview");
         var move=service.Registry.PreviewMapAssignments(
             lab.ClusterId,new[]{originals[0],originals[5]});
         Check(!move.IsValid&&move.Errors.Contains(
               "UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE"),
-            "local historical and remote Kova member cannot move through generic API");
+            "local historical and remote Legacy member cannot move through generic API");
         bool applyDenied=false;
         try{service.Registry.ApplyMapAssignments(
             lab.ClusterId,new[]{originals[0]},move.BaseRevision);}
         catch(InvalidDataException){applyDenied=true;}
         Check(applyDenied,
-            "direct native membership apply also rejects protected Kova map");
+            "direct native membership apply also rejects protected Legacy map");
         Guid extra=SyntheticMapId(820);
         service.Registry.RegisterHost(third,"Third synthetic host");
         service.Registry.RegisterRemoteMap(third,extra,"Future map");
         var unauthorized=service.Registry.PreviewMapAssignments(
-            kova.ClusterId,originals.Append(extra));
+            legacy.ClusterId,originals.Append(extra));
         Check(!unauthorized.IsValid&&unauthorized.Errors.Contains(
               "UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE"),
-            "generic registration never grants an unverified eleventh map Kova Store membership");
+            "generic registration never grants an unverified eleventh map Legacy Store membership");
         var ordinary=service.Registry.PreviewMapAssignments(
             lab.ClusterId,new[]{extra});
         Check(ordinary.IsValid&&ordinary.Additions.Count==1,
-            "independent non-Kova cluster remains extensible on a third host");
+            "independent non-Legacy cluster remains extensible on a third host");
         service.Registry.ApplyMapAssignments(lab.ClusterId,new[]{extra},
             ordinary.BaseRevision);
         var after=service.Registry.Snapshot();
         Check(after.ClusterRegistry.MapAssignments.Count(x=>
-                  x.ClusterId==kova.ClusterId)==10 &&
+                  x.ClusterId==legacy.ClusterId)==10 &&
               originals.All(id=>after.ClusterRegistry.MapAssignments
-                  .Count(x=>x.MapId==id&&x.ClusterId==kova.ClusterId)==1) &&
+                  .Count(x=>x.MapId==id&&x.ClusterId==legacy.ClusterId)==1) &&
               after.HostRegistry.Hosts.Count==3 &&
               after.HostRegistry.Maps.Count==11 &&
               after.ClusterRegistry.MapAssignments.Any(x=>
@@ -146,9 +146,9 @@ internal static class ClusterRegistryTests
                   originalSha,
             "all original synthetic Store bytes remain unchanged by registry operations");
 
-        // The true cluster ID must be copied from historical Kova metadata.
+        // The true cluster ID must be copied from historical Legacy metadata.
         // A differently named source-pinned cluster has exactly the same
-        // fail-closed generic-edit and fresh-map protection as KovaCluster.
+        // fail-closed generic-edit and fresh-map protection as LegacyCluster.
         var sourceNamed=service.Registry.CreateCluster("source-import-id-42",
             "Historical source-provided ID",
             Path.Combine(root,"different-historical-transfer"));
@@ -171,7 +171,7 @@ internal static class ClusterRegistryTests
             sourceNamed.ClusterId,new[]{sourceMember,extra});
         Check(!addToSource.IsValid&&addToSource.Errors.Contains(
               "UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE"),
-            "unverified future map cannot enter a historical Store cluster with non-Kova ID");
+            "unverified future map cannot enter a historical Store cluster with non-Legacy ID");
         bool sourceApplyDenied=false;
         try{service.Registry.ApplyMapAssignments(
             sourceNamed.ClusterId,new[]{sourceMember,extra},addToSource.BaseRevision);}
@@ -446,7 +446,7 @@ internal static class ClusterRegistryTests
         Check(persisted.ClusterRegistry.MapAssignments.Count(x => x.MapId == mapIds[90]) == 1,
             "approved map assignment survives Manager restart without duplicate ownership");
 
-        await ValidateOriginalKovaMembershipIsImmutable(testRoot);
+        await ValidateOriginalLegacyMembershipIsImmutable(testRoot);
         ValidateLargeSyntheticTopology(testRoot);
     }
 
