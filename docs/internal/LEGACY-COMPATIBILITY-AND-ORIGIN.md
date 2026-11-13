@@ -1,23 +1,15 @@
-# Belső kompatibilitási és eredetnyilvántartás
+# Belső kompatibilitási és forráseredet-nyilvántartás
 
-Az Untamed Manager önálló C# implementáció. A korábban átadott Legacy 1.8.3 forrás
-`UNLICENSED` eredetű referencia; kódját és grafikai elemeit nem másoltuk a termékbe.
-A történeti auditokat és eredetmegjelölést nem töröljük a saját arculat miatt.
-Ez fejlesztői/protokoll-dokumentum, nem felhasználói márkajelzés.
+Az Obsidian Command önálló Windows ASA Manager. A korábbi Manager 1.8.3-as forráscsomagját a felhasználó a fejlesztő kifejezett engedélyével biztosította felhasználásra. Ez az engedélyről tett felhasználói nyilatkozat, nem a nyilvános tárolóban közzétett licencdokumentum.
 
-Megőrzött lemezszerződések: `LegacyCluster`, `.legacy-store-v1`, a történeti ZIP-ek
-`Legacy/` és `Ryzen-Legacy/` prefixei, valamint a korábbi saját offline archívum
-`LegacyStoreIncluded` JSON-kulcsa. A C# property neve már `VaultStoreIncluded`, de
-a JSON-kulcs explicit attribútummal változatlan. A védett régi pluginnevek
-felismerési tokenje szintén megmarad. Ezekből nem következik írójog vagy Store-konverzió.
+## Tényleges kompatibilitási szerződések
 
-Átnevezések: LegacyAuditBridge → VaultAuditBridge; LegacyAuditHost → VaultAuditHost;
-LegacyFixtureAudit → VaultFixtureAudit; LegacyProfileImporter → VaultProfileImporter;
-LegacyStoreV1CopyReader → VaultCompatibilityReader. A hozzájuk tartozó report/model
-típusok és WPF-metódusok is semleges nevet kaptak. A hét korábbi audit eredeti
-kódhelyhivatkozásai történeti állapotot dokumentálnak; az aktuális nevek a központi
-WORK-LEDGER.json nyilvántartásban szerepelnek.
+A korábbi program által a lemezre írt **eredeti** clusterazonosító, Store-v1 koordinációs mappa, helyi profilkönyvtár, történeti mentési útvonalak és JSON-kulcsok nem változtathatók meg terméknév-csere kedvéért. A C# típusnevek, belső mezőnevek, tesztek és a React–C# üzenetprotokoll összefüggnek; nem szabad globális szövegcserével átírni őket.
 
-Nincs saját Legacy nevű C# típus vagy új metódus. A kötelező protokollértékeket a
-VaultProtocol tartalmazza. Felhasználói címkék és hibanaplók Untamed-prezentációt
-használnak; a titkok és webhookok nem publikálhatók.
+Az eredeti kompatibilitási értékek forrása a meglévő `VaultProtocol` és a kapcsolódó Core-implementáció. A korábbi forrás átadásának engedélye nem jelent automatikus jogot az éles Store-állapot átírására. Az éles ASA-karakterfájlok, 0 bájtos profilok, megosztott transferadatok és eredeti gépprofilok az izolált fejlesztés során változatlanok maradnak.
+
+## Terméknév és nyilvános megjelenés
+
+A megjelenített terméknév **Obsidian Command**. Az alkalmazás neve, telepítője, README-je és kiadási leírásai nem a korábbi projekt márkanevét viselik. A kompatibilitási célú, belső kódazonosítók és lemezformátumok megtartása nem márkajelzés és nem külön alkalmazás telepítése.
+
+Az átvett forrásból csak igazoltan integrált funkció nevezhető működőnek; a kétgépes, élő karakterutazás önmagában nem igazolható egy Windows CI-futtatással.

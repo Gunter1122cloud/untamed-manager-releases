@@ -4,9 +4,9 @@ Date: 2026-11-06. Development reference only; **not permission to write live Sto
 
 ## Available evidence (not included in the repository)
 
-The public `BnB-b/Legacy` GitHub repository contains only a README that explicitly says its application source is not published. Separately, the operator-provided local archive `Legacy-Belso-Mukodes-20261103-222643.zip` contains original JavaScript source modules (including `Forras/agent/cluster.mjs`, `Forras/agent/shared-store.mjs`, `Forras/agent/agent.mjs`, `Forras/agent/owned-process.mjs`, `Forras/profile-launch.cjs`, `Forras/scheduler.cjs`) and local runtime artifacts. The actual source archive is **not vendored into this public Untamed Manager repository**. It remains an operator-supplied research reference.
+The former application's public project page did not supply the complete implementation. Separately, the operator-provided local archive an operator-provided source archive contains original JavaScript source modules (including `Forras/agent/cluster.mjs`, `Forras/agent/shared-store.mjs`, `Forras/agent/agent.mjs`, `Forras/agent/owned-process.mjs`, `Forras/profile-launch.cjs`, `Forras/scheduler.cjs`) and local runtime artifacts. The actual source archive is **not vendored into this public Untamed Manager repository**. It remains an operator-supplied research reference.
 
-The existing `LegacyManager-Fontos.zip` and `LegacyCluster-Store-v1.zip` archives additionally supply historical Store-v1 metadata. These are distinct from the original application source. The source does not embed the current live HP/Ryzen save files, nor prove cross-host runtime writer ownership on 2026-11-06.
+The existing operator-provided historical manager and Store-v1 metadata archives additionally supply historical Store-v1 metadata. These are distinct from the original application source. The source does not embed the current live HP/Ryzen save files, nor prove cross-host runtime writer ownership on 2026-11-06.
 
 ## Source-supported launch semantics
 
@@ -26,6 +26,6 @@ Regression tests verify canonical legacy launch switch form, unsafe repeat/conve
 
 ## Still necessary before active historical migration
 
-Preserve the original `LegacyCluster` wire identity and two-host paths, obtain real copied live metadata for *both* hosts with a consistent session, verify historical command provenance (not merely operator text), validate local process/loader reattach, RCON, Store transaction markers, saved world/profile/tribe hashes and a controlled real ASA two-host character travel on an isolated clone. Never auto-create or rewrite Store metadata, retry an interrupted migration, convert a second time, or declare an unverified profile travel successful.
+Preserve the actual existing on-disk cluster identity unchanged and two-host paths, obtain real copied live metadata for *both* hosts with a consistent session, verify historical command provenance (not merely operator text), validate local process/loader reattach, RCON, Store transaction markers, saved world/profile/tribe hashes and a controlled real ASA two-host character travel on an isolated clone. Never auto-create or rewrite Store metadata, retry an interrupted migration, convert a second time, or declare an unverified profile travel successful.
 
 **Current release state:** source-based compatibility work in progress, not the official ten-map production replacement.
