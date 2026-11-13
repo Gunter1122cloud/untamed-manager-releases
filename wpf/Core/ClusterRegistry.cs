@@ -469,7 +469,7 @@ public sealed class ClusterRegistryService
     // Store-v1 members or admit new maps into the original Legacy cluster.
     // That requires the separate source-pinned Store migration/peer approval.
     private static bool OriginalLegacyCluster(string? id) =>
-        string.Equals(id, "\u006Bovacluster", StringComparison.OrdinalIgnoreCase);
+        OriginalStoreRuntimeIdentity.IsOriginalClusterId(id);
 
     private ClusterMembershipPreview CreatePreview(ClusterRegistrySnapshot snapshot,
         string clusterId, Guid[] requestedMapIds)

@@ -65,7 +65,7 @@ public sealed record LegacyStoreV1PeerProof(
 
     public static LegacyStoreV1PeerProof FromCurrentUserLegacyProfile()=>
         FromLocal(Path.Combine(Environment.GetFolderPath(
-            Environment.SpecialFolder.ApplicationData),"\u004Bova"));
+            Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName));
 }
 
 public sealed record LegacyStoreV1PairObservation(

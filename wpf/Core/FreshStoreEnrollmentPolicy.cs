@@ -114,7 +114,7 @@ public static class FreshStoreEnrollmentPolicy
         if(string.IsNullOrWhiteSpace(clusterId))
             Deny("UM-FRESH-STORE-CLUSTER-NOT-SELECTED");
         string normalized=ClusterRegistrySchema.NormalizeClusterId(clusterId);
-        if(normalized.Equals("\u006Bovacluster",StringComparison.OrdinalIgnoreCase))
+        if(OriginalStoreRuntimeIdentity.IsOriginalClusterId(normalized))
             Deny("UM-FRESH-STORE-LEGACY-CLUSTER-RESERVED");
         var snapshot=cluster.Registry.Snapshot();
         // Imported historical Store clusters may have a source-pinned ID

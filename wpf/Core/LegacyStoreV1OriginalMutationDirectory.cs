@@ -41,7 +41,7 @@ internal sealed class LegacyStoreV1OriginalMutationDirectory : IDisposable
            string.IsNullOrWhiteSpace(originalCoordinationDirectory)||
            !Path.IsPathFullyQualified(originalCoordinationDirectory)||
            !Path.GetFileName(Path.TrimEndingDirectorySeparator(
-               originalCoordinationDirectory)).Equals(".\u006Bova-store-v1",
+               originalCoordinationDirectory)).Equals(OriginalStoreRuntimeIdentity.CoordinationDirectoryName,
                    StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException(
                 "UM-STORE-ORIGINAL-MUTATION-COORDINATION-INVALID");

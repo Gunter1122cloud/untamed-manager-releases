@@ -1,4 +1,5 @@
 import {useEffect,useState} from "react";
+import {isOriginalStoreClusterId} from "./originalStoreRuntime";
 import {Shield,CheckCircle2,RefreshCw,AlertTriangle} from "lucide-react";
 import {managerBridge,type FreshStoreEnrollmentStatus,type FreshStoreEnrollmentPreview,
   type RegisteredCluster} from "./bridge";
@@ -25,7 +26,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       const memberships=registry.clusterRegistry.mapAssignments.filter(x=>
         x.mapId.toLowerCase()===mapId.toLowerCase());
       const options=memberships.length===1?registry.clusterRegistry.clusters.filter(x=>
-        x.clusterId===memberships[0].clusterId&&x.clusterId!=="\u006Bovacluster"):[];
+        x.clusterId===memberships[0].clusterId&&!isOriginalStoreClusterId(x.clusterId)):[];
       setClusters(options);setSelected(options[0]?.clusterId??"");
     }).catch(()=>{
       if(active)setError("A helyi map és a clusterhozzárendelés nem igazolható. Nem történt módosítás.");
@@ -41,7 +42,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       const code=e instanceof Error?e.message:"UM-FRESH-STORE-PREFLIGHT";
       const hints:Record<string,string>={
         "UM-FRESH-STORE-LEGACY-CLUSTER-RESERVED":
-          "Az eredeti LegacyCluster nem érhető el az új, üres Store-map általános regisztrációjával. Az eredeti kétgazdás transferazonosságot külön kell igazolni; az eredeti világot nem módosítottuk.",
+          "Az eredeti történeti cluster nem érhető el az új, üres Store-map általános regisztrációjával. Az eredeti kétgazdás transferazonosságot külön kell igazolni; az eredeti világot nem módosítottuk.",
         "UM-FRESH-STORE-RCON-SETUP-REQUIRED-BEFORE-ENROLLMENT":
           "Először a map RCON fülén konfiguráld a helyi RCON-portot és jelszót, utána kérj új Store-előellenőrzést.",
         "UM-FRESH-STORE-MAP-MEMBERSHIP-REQUIRED":
@@ -88,7 +89,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
         <p className="muted small">Csak soha nem indított, mentés nélküli SteamCMD-maphoz.
           A Store-regisztráció ELŐTT készítsd el a helyi RCON/INI-beállítást a
           RCON fülön, majd a Cluster fülön rendeld hozzá egy létrehozott clusterhez.
-          A LegacyCluster és az igazolatlan többgépes megosztás továbbra is védett.</p>
+          A történeti cluster és az igazolatlan többgépes megosztás továbbra is védett.</p>
         <label><span>Jóváhagyott helyi cluster</span>
           <select aria-label="Új Store-map cluster" value={selected}
             disabled={busy||clusters.length===0}

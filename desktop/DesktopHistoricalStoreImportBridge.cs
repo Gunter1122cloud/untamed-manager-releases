@@ -63,7 +63,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         cluster=service??throw new ArgumentNullException(nameof(service));
         inspect=processInspector??(map=>new WindowsProcessInspector().InspectFamily(map));
         this.localLegacyDataDirectory=localLegacyDataDirectory??Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"\u004Bova");
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName);
     }
 
     // Import starts from the original Legacy profile; after explicit approval,
@@ -133,7 +133,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                        localMap.ObservedReadOnlyImported)
                         return Fail(id,"UM-STORE-RUNTIME-LOCAL-MAP-REQUIRED");
                     string legacy=Path.Combine(Environment.GetFolderPath(
-                        Environment.SpecialFolder.ApplicationData),"\u004Bova");
+                        Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName);
                     string current=LegacyStoreV1PinnedSource.Resolve(
                         cluster.Store.Root,legacy,localMap);
                     if(string.Equals(current,legacy,StringComparison.OrdinalIgnoreCase))
@@ -174,7 +174,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                            runtimeMap.ObservedReadOnlyImported)
                             return Fail(id,"UM-STORE-RUNTIME-LOCAL-MAP-REQUIRED");
                         string legacy=Path.Combine(Environment.GetFolderPath(
-                            Environment.SpecialFolder.ApplicationData),"\u004Bova");
+                            Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName);
                         string source=LegacyStoreV1PinnedSource.Resolve(
                             cluster.Store.Root,legacy,runtimeMap);
                         if(string.Equals(source,legacy,StringComparison.OrdinalIgnoreCase))
@@ -237,7 +237,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         return Fail(id,"UM-STORE-RUNTIME-MAP-CHANGED");
                     string original=LegacyStoreV1PinnedSource.Resolve(
                         cluster.Store.Root,Path.Combine(Environment.GetFolderPath(
-                        Environment.SpecialFolder.ApplicationData),"\u004Bova"),owned);
+                        Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName),owned);
                     LegacyStoreV1PinnedSource.RequireImmutableIdentity(owned,
                         LegacyStoreV1OriginalImport.Inspect(original));
                     using(var held=new VaultReadSnapshot())
