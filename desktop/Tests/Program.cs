@@ -57,6 +57,19 @@ static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
+// Valve's first-run SteamCMD self-update can exit nonzero before app_update.
+Check(SteamFreshInstall.NeedsSteamBootstrapRestart(8,
+      "Update complete, launching SteamCMD"),
+    "SteamCMD fresh self-update permits one bootstrap retry");
+Check(SteamFreshInstall.NeedsSteamBootstrapRestart(8,
+      "Restarting SteamCMD"),
+    "SteamCMD alternative first-run restart message recognized");
+Check(!SteamFreshInstall.NeedsSteamBootstrapRestart(0,
+      "Update complete, launching SteamCMD") &&
+      !SteamFreshInstall.NeedsSteamBootstrapRestart(1,
+      "Failed to install app '2430930' (Missing configuration)"),
+    "SteamCMD bootstrap does not retry unrelated failures or successful exit");
+
 // API Loader is optional: direct ASA with an installed but unused Loader
 // must remain observable, while persisted Loader-child relationships remain
 // guarded against misclassification or PID reuse.

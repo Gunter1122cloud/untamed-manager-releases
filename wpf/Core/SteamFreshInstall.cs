@@ -288,6 +288,62 @@ public static class SteamFreshInstall
         finally{if(File.Exists(temp))File.Delete(temp);}
     }
 
+    // The original desktop installer explicitly bootstraps Valve's SteamCMD
+    // before app_update. A fresh steamcmd.exe often self-updates and exits
+    // before it can process +app_update; do not interpret that as ASA installed.
+    internal static bool NeedsSteamBootstrapRestart(int exitCode,string output)
+    {
+        return exitCode!=0 &&
+            (output.Contains("Update complete, launching",
+                StringComparison.OrdinalIgnoreCase) ||
+             output.Contains("Restarting SteamCMD",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task BootstrapSteamCmdAsync(string steam,
+        IProgress<SteamInstallProgress>? progress,CancellationToken ct)
+    {
+        progress?.Report(new("steamcmd","SteamCMD első indítása / önfrissítésének ellenőrzése",null));
+        for(int attempt=0;attempt<2;attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            using var deadline=CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromMinutes(5));
+            var psi=new ProcessStartInfo(steam) {
+                WorkingDirectory=Path.GetDirectoryName(steam)!,
+                UseShellExecute=false,CreateNoWindow=true,
+                RedirectStandardOutput=true,RedirectStandardError=true
+            };
+            psi.ArgumentList.Add("+quit");
+            using var process=Process.Start(psi) ??
+                throw new IOException("SteamCMD bootstrap could not start");
+            var stdout=CaptureSteamOutput(process.StandardOutput,null,false,deadline.Token);
+            var stderr=CaptureSteamOutput(process.StandardError,null,true,deadline.Token);
+            try
+            {
+                await process.WaitForExitAsync(deadline.Token);
+                string first=await stdout;
+                string second=await stderr;
+                if(process.ExitCode==0)return;
+                if(attempt==0 &&
+                   NeedsSteamBootstrapRestart(process.ExitCode,first+"\n"+second))
+                {
+                    progress?.Report(new("steamcmd",
+                        "A SteamCMD saját frissítése miatt egyszer újraellenőrzés szükséges",null));
+                    continue;
+                }
+                throw new IOException("SteamCMD bootstrap did not complete successfully; the ASA download was not started");
+            }
+            catch
+            {
+                if(!process.HasExited)
+                    try{process.Kill(entireProcessTree:true);}catch{}
+                throw;
+            }
+        }
+        throw new IOException("SteamCMD bootstrap retry exhausted");
+    }
+
     /// <summary>
     /// Real SteamCMD installation is permitted only into a brand-new local root
     /// or an explicitly retried, owned incomplete root. No map is added to
@@ -386,6 +442,10 @@ public static class SteamFreshInstall
             SaveJournal(journal,new(request.MapId,root,steam,"prepared",DateTimeOffset.UtcNow,
                 request.MapName,level));
             steam=await PrepareSteamCmdAsync(steam,request.DownloadSteamCmd,progress,cancellationToken);
+            // A verified FakeSteamCMD test fixture is not Valve's executable;
+            // never launch the real bootstrap during isolated CI regression.
+            if(fakeExecutable==null)
+                await BootstrapSteamCmdAsync(steam,progress,cancellationToken);
             Directory.CreateDirectory(root);
             // Test that the exact new root is writable; never touch a historical install.
             string probe=Path.Combine(root,".untamed-write-check-"+Guid.NewGuid().ToString("N"));
