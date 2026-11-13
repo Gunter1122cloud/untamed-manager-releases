@@ -437,8 +437,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                                 "Új ASA gyermek PID és RCON ellenőrizve; játékbeli készenlét még nem":
                                 "Új ASA Windows-folyamat indult; játékbeli készenlét még nem",
                             receipt.Started.Pid);
-                        if(nativeRunner&&currentMap.StartWithAsaApi&&
-                           FreshStoreEnrollmentPolicy.IsEnrolled(currentMap))
+                        if(nativeRunner&&currentMap.StartWithAsaApi)
                             FreshStoreApiPairObserver.Begin(
                                 cluster,currentMap.Id,receipt.Started,closingToken);
                     }

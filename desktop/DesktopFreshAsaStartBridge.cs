@@ -267,8 +267,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                 var identity=launch(current.Id,true);
                 if(identity.Pid<=0 || identity.StartedUtc==default)
                     return Error(id,"UM-FRESH-START-UNVERIFIED-PROCESS");
-                if(nativeLauncher&&permit.UseApi&&
-                   FreshStoreEnrollmentPolicy.IsEnrolled(current))
+                if(nativeLauncher&&permit.UseApi)
                     FreshStoreApiPairObserver.Begin(cluster,current.Id,identity,closing.Token);
                 return Ok(id,new{
                     mapId=current.Id,mapName=current.Name,pid=identity.Pid,
