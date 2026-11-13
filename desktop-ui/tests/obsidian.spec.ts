@@ -571,6 +571,9 @@ test.beforeEach(async ({ page }) => {
     const iniToken="00000000-0000-4000-8000-000000003333";
     let iniConcurrentRebased=false;
     let wrongLogTailMap=false;
+    let wrongPluginInventoryMap=false;
+    (window as typeof window & {__UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__?:()=>void})
+      .__UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__=()=>{wrongPluginInventoryMap=true;};
     let failIniReopenAfterCreate=false;
     (window as typeof window & {__UNTAMED_WRONG_LOG_TAIL_MAP__?:()=>void})
       .__UNTAMED_WRONG_LOG_TAIL_MAP__=()=>{wrongLogTailMap=true;};
@@ -2975,7 +2978,7 @@ test.beforeEach(async ({ page }) => {
             runtimeLoadedVerified:false,filesChanged:false,
             serverOperation:false,rconSent:false,
             evidence:"LOCAL_ARKAPI_PLUGIN_FOLDER_OPENED_IN_EXPLORER"};
-        case "plugins.inventory": return {mapId:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
+        case "plugins.inventory": return {mapId:wrongPluginInventoryMap?two:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
         case "steam.installations": return {evidence:"READ_ONLY_STEAM_INSTALLATION_PREFLIGHT",installations:[{id:0,maps:["The Island","Astraeos"],executablePresent:true,installedSteamBuild:"123456",updateBlocked:true,reason:"Read-only test fixture: upgrade blocked"}]};
         case "servers.suggestPorts": return {game:7797,query:27035,rcon:37035,evidence:"PROFILE_ONLY_NO_NETWORK_PROBE"};
@@ -6697,6 +6700,19 @@ test("P0 original Store-v1 map exposes a real native stopped SteamCMD update but
   await expect(steam.getByRole("button",{name:"Frissítés előellenőrzése"}))
     .toBeVisible();
   await expect(page.getByText("Történeti Store-v1 map: automatikus vagy kézi SteamCMD-frissítést ezen az útvonalon nem engedélyezünk."))
+    .toHaveCount(0);
+});
+
+test("Plugin Center never lists another map's native plugin inventory",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__?:()=>void
+  }).__UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__?.());
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByText("UM-PLUGIN-INVENTORY-MAP-MISMATCH")).toBeVisible();
+  await expect(page.getByText("ExamplePlugin.dll")).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Plugin ZIP kiválasztása és ellenőrzése"}))
     .toHaveCount(0);
 });
 

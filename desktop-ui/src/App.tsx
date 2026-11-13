@@ -959,6 +959,8 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
   mapLocked?:boolean;onLaunchModeSaved?:()=>Promise<void>
 }) {
   const [info,setInfo]=useState<PluginInventory|null>(null);
+  const currentPluginMap=useRef(selected);
+  currentPluginMap.current=selected;
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [opening,setOpening]=useState(false);
@@ -967,18 +969,32 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
     let active=true;
     setInfo(null);setError("");setNotice("");
     if(selected)managerBridge.pluginInventory(selected)
-      .then(result=>{if(active)setInfo(result);})
-      .catch(e=>{if(active)setError(e instanceof Error?e.message:"UM-READ-UNAVAILABLE");});
+      .then(result=>{
+        if(!active)return;
+        if(result.mapId.toLowerCase()!==selected.toLowerCase()||
+           result.evidence!=="READ_ONLY_LOCAL_FILE_INVENTORY")
+          throw new Error("UM-PLUGIN-INVENTORY-MAP-MISMATCH");
+        setInfo(result);
+      })
+      .catch(e=>{
+        if(active)setError(e instanceof Error?e.message:"UM-READ-UNAVAILABLE");
+      });
     return ()=>{active=false;};
   },[selected,revision]);
   const openFolder=async()=>{
     if(!selected||opening)return;
+    const requested=selected;
     setOpening(true);setNotice("");setError("");
     try{
-      const result=await managerBridge.pluginOpenFolder(selected);
-      if(result.opened)
-        setNotice("A map saját ASA API Plugins mappája megnyílt a Windows Intézőben. A fájlok jelenléte nem igazolja az ASA-beli betöltést.");
+      const result=await managerBridge.pluginOpenFolder(requested);
+      if(currentPluginMap.current!==requested)return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         !result.opened||result.filesChanged||result.serverOperation||
+         result.rconSent||result.runtimeLoadedVerified)
+        throw new Error("UM-PLUGIN-FOLDER-RECEIPT-MAP-MISMATCH");
+      setNotice("A map saját ASA API Plugins mappája megnyílt a Windows Intézőben. A fájlok jelenléte nem igazolja az ASA-beli betöltést.");
     }catch(e){
+      if(currentPluginMap.current!==requested)return;
       const code=e instanceof Error?e.message:"UM-PLUGIN-FOLDER-EXPLORER-FAILED";
       setError(code==="UM-PLUGIN-FOLDER-MISSING"
         ?"Az ASA API Plugins mappája még nem található. Ellenőrizd a map saját ASA API telepítését; a Manager nem hoz létre üres helyettesítő mappát."
