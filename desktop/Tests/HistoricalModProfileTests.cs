@@ -8,14 +8,14 @@ using UntamedDesktop;
 using UntamedManager.Core;
 
 // Native file-picker delegates use a synthetic external JSON file in TEMP.
-// No RCON, SteamCMD, LAN writer, ASA process or production Kova data touched.
+// No RCON, SteamCMD, LAN writer, ASA process or production Legacy data touched.
 internal static class HistoricalModProfileTests
 {
     private static void Check(bool passed,string label)
     {
         if(!passed)throw new InvalidOperationException(
             "HISTORICAL MOD PROFILE FAILED: "+label);
-        Console.WriteLine("PASS original Kova portable mod profile: "+label);
+        Console.WriteLine("PASS original Legacy portable mod profile: "+label);
     }
     private static async Task<JsonElement> Call(DesktopModProfileBridge bridge,
         string method,object? args=null)
@@ -54,7 +54,7 @@ internal static class HistoricalModProfileTests
     public static async Task Run(string testRoot)
     {
         string root=Path.Combine(testRoot,"historical-mod-profile");
-        string json=Path.Combine(testRoot,"historical-kova-mod-profile-transfer.json");
+        string json=Path.Combine(testRoot,"historical-legacy-mod-profile-transfer.json");
         await using var cluster=new ClusterService("historical-mod-profile-ci",
             Path.Combine(root,"local-manager"),
             _=>new ProcessCheck(false,"legacy process arguments uncertain",null,false));
@@ -87,7 +87,7 @@ internal static class HistoricalModProfileTests
         var applied=await Call(bridge,"mods.profileImportApply",
             new{token,confirm=true});
         Check(applied.GetProperty("ok").GetBoolean(),
-            "approved portable Kova mod profile imported into Manager");
+            "approved portable Legacy mod profile imported into Manager");
         var current=cluster.Config.LocalMaps.Single(x=>x.Id==target.Id);
         Check(current.HistoricalEnabledMods.SequenceEqual(
                 new[]{"123456","234567"})&&

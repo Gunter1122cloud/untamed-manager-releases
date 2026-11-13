@@ -9,7 +9,7 @@ using UntamedDesktop;
 using UntamedManager.Core;
 
 // Actual Windows file-ID read on isolated fixed-disk test folders; only
-// original-Kova-shaped JSON bytes in this PRIVATE synthetic fixture.
+// original-Legacy-shaped JSON bytes in this PRIVATE synthetic fixture.
 // The source UNC path is deliberately fictitious and must never be opened.
 internal static class LegacyStorePhysicalTransferTests
 {
@@ -107,7 +107,7 @@ internal static class LegacyStorePhysicalTransferTests
         var report=LegacyStoreV1LocalReader.Inspect(original);
         Check(report.LocalSnapshotReady&&report.Maps.Length==5&&
               report.Maps.All(m=>m.Active&&m.Selected&&m.SessionMatches),
-            "synthetic original Kova four-file source validates without accessing a real profile");
+            "synthetic original Legacy four-file source validates without accessing a real profile");
 
         // A parseable all-zero GUID is NOT an original identity. Before this
         // regression, zero device/session/map/backup IDs could still produce a
@@ -176,7 +176,7 @@ internal static class LegacyStorePhysicalTransferTests
         var witness=LegacyStoreV1PhysicalTransferEvidence.Capture(
             original,managerA,unc=>{
                 Check(unc==fakeUnc,
-                    "original transfer UNC is obtained from four locked Kova-shape files, not a renderer-supplied path");
+                    "original transfer UNC is obtained from four locked Legacy-shape files, not a renderer-supplied path");
                 return physicalTag;
             });
         Check(witness.OriginalMetadataUnchanged&&witness.HostId==managerA&&
@@ -205,7 +205,7 @@ internal static class LegacyStorePhysicalTransferTests
               local.OriginalMapRosterTag.Length==64&&
               local.OriginalMapRosterTag.All(Uri.IsHexDigit)&&
               !local.OriginalFiveRegisteredInManager,
-            "original five GUID/level pairs are fingerprinted from original local Kova files, not presumed registered");
+            "original five GUID/level pairs are fingerprinted from original local Legacy files, not presumed registered");
         var syntheticBothEnrolled=LegacyStoreV1PairComparison.Compare(
             local with{OriginalFiveRegisteredInManager=true},
             local with{DeviceTag=Hash("other-device"),
@@ -216,7 +216,7 @@ internal static class LegacyStorePhysicalTransferTests
             "two independently registered original map rosters are historical identity proof only");
         var remote=local with{DeviceTag=Hash("other-synthetic-original-device")};
         // A three/four-host Manager cannot assume the FIRST fresh LAN peer
-        // is its original historical Kova counterpart. Only exact shared
+        // is its original historical Legacy counterpart. Only exact shared
         // session/path and distinct original device can be considered.
         LanPeerObservation Peer(string host,LegacyStoreV1PeerProof? proof,
             bool fresh=true,string? announcedHost=null)=>
@@ -246,7 +246,7 @@ internal static class LegacyStorePhysicalTransferTests
               resolved.SamePhysicalTransferDirectory&&
               resolved.OriginalPeerHostId==originalPeer&&
               !resolved.LiveWriterCertified&&!resolved.CharacterTravelVerified,
-            "three fresh Managers choose the actual historical Kova peer, not the first unrelated host");
+            "three fresh Managers choose the actual historical Legacy peer, not the first unrelated host");
         var offlineOriginal=LegacyStoreV1PairComparison.CompareAcrossPeers(
             local,new[]{
                 Peer(unrelatedHost,unrelated),
@@ -341,7 +341,7 @@ internal static class LegacyStorePhysicalTransferTests
             }))
         {
             // Native end-to-end read-only preview for a future map that
-            // must eventually join the EXISTING source-pinned Kova cluster.
+            // must eventually join the EXISTING source-pinned Legacy cluster.
             // The real profile is never used: UNC identity is injected into
             // this synthetic test only and no Store writer is opened.
             foreach(var member in members)
@@ -352,7 +352,7 @@ internal static class LegacyStorePhysicalTransferTests
                     HistoricalArchiveSha256=report.OriginalFourFilesTag
                 });
             var originalRegistered=manager.Registry.CreateCluster(
-                VaultProtocol.ClusterId,"Synthetic original Kova",fakeUnc);
+                VaultProtocol.ClusterId,"Synthetic original Legacy",fakeUnc);
             foreach(var member in members)
                 manager.Config.ClusterRegistry.MapAssignments.Add(
                     new ClusterMapAssignment{
@@ -360,17 +360,17 @@ internal static class LegacyStorePhysicalTransferTests
                         ClusterId=originalRegistered.ClusterId
                     });
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
-                "all five original GUID/level pairs plus their pinned four-file fingerprints and Kova cluster assignments match actual Manager registrations");
+                "all five original GUID/level pairs plus their pinned four-file fingerprints and Legacy cluster assignments match actual Manager registrations");
             var originalDefinition=manager.Config.ClusterRegistry.Clusters.Single(c=>
                 c.ClusterId.Equals(VaultProtocol.ClusterId,StringComparison.OrdinalIgnoreCase));
             string originalRegisteredTransfer=originalDefinition.TransferDirectory;
             originalDefinition.TransferDirectory=@"\\synthetic-foreign-peer\wrong-transfer";
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
-                "matching five assignments cannot certify a Kova cluster whose transfer UNC no longer matches the ORIGINAL source");
+                "matching five assignments cannot certify a Legacy cluster whose transfer UNC no longer matches the ORIGINAL source");
             originalDefinition.TransferDirectory=originalRegisteredTransfer;
             manager.Config.ClusterRegistry.Clusters.Remove(originalDefinition);
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
-                "orphan KovaCluster map assignments without a registered cluster definition cannot certify enrollment");
+                "orphan LegacyCluster map assignments without a registered cluster definition cannot certify enrollment");
             manager.Config.ClusterRegistry.Clusters.Add(originalDefinition);
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
                 "restored registered cluster definition and original transfer UNC recover exact five-map enrollment");
@@ -380,7 +380,7 @@ internal static class LegacyStorePhysicalTransferTests
             };
             manager.Config.ClusterRegistry.Clusters.Add(forgedDuplicate);
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
-                "duplicate KovaCluster definition with a second mismatching UNC is never accepted just because one record matches");
+                "duplicate LegacyCluster definition with a second mismatching UNC is never accepted just because one record matches");
             manager.Config.ClusterRegistry.Clusters.Remove(forgedDuplicate);
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
                 "original cluster registration recovers after synthetic duplicate is removed");
@@ -393,7 +393,7 @@ internal static class LegacyStorePhysicalTransferTests
             string originalKey=firstRegistered.HistoricalMapKey;
             firstRegistered.HistoricalMapKey="WrongLevelIdentity";
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
-                "rebound original map level under the same GUID is not registered Kova parity");
+                "rebound original map level under the same GUID is not registered Legacy parity");
             firstRegistered.HistoricalMapKey=originalKey;
             string originalRoot=firstRegistered.InstallationPath;
             firstRegistered.InstallationPath=Path.Combine(root,"wrong-original-source-root");
@@ -401,7 +401,7 @@ internal static class LegacyStorePhysicalTransferTests
                 "same original GUID and level with a DIFFERENT registered ASA installation root is not source parity");
             firstRegistered.InstallationPath=originalRoot;
             string originalTag=firstRegistered.HistoricalArchiveSha256;
-            firstRegistered.HistoricalArchiveSha256=Hash("invalid-original-kova-four-files");
+            firstRegistered.HistoricalArchiveSha256=Hash("invalid-original-legacy-four-files");
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==false,
                 "Manager registration from different four-file historical Store session is not source parity");
             firstRegistered.HistoricalArchiveSha256=originalTag;
@@ -413,7 +413,7 @@ internal static class LegacyStorePhysicalTransferTests
                 InstallationPath=Path.Combine(root,"future-map-install")
             });
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
-                "an unrelated sixth fresh map does not erase the original Kova five-map registration");
+                "an unrelated sixth fresh map does not erase the original Legacy five-map registration");
             Guid independentId=Guid.NewGuid();
             manager.AddMap(new LocalMap{
                 Id=independentId,Name="Synthetic Independent Historical Profile",
@@ -430,7 +430,7 @@ internal static class LegacyStorePhysicalTransferTests
                 "a sixth historical map claiming the SAME original source fingerprint creates ambiguous ownership and fails closed");
             independent.HistoricalArchiveSha256=Hash("independent historical four-file set");
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
-                "removing the synthetic original-source impersonation restores original roster parity without mutating Kova");
+                "removing the synthetic original-source impersonation restores original roster parity without mutating Legacy");
             manager.RemoveMap(independentId);
             Check(manager.ReadLegacyStoreV1PeerProof()?.OriginalFiveRegisteredInManager==true,
                 "removed synthetic unrelated historical map leaves the original five source assignments intact");
@@ -452,7 +452,7 @@ internal static class LegacyStorePhysicalTransferTests
                       inspected.GetProperty("blockers").EnumerateArray()
                           .Any(x=>x.GetString()=="UM-EXPANSION-FRESH-ASA-SETUP-REQUIRED") &&
                       !expansion.GetRawText().Contains(fakeUnc,StringComparison.Ordinal),
-                    "new-map Kova preflight reads exact original source and physical identity without authorizing Store enrollment");
+                    "new-map Legacy preflight reads exact original source and physical identity without authorizing Store enrollment");
 
                 var another=manager.Registry.CreateCluster("unrelated-lab",
                     "Unrelated Synthetic",Path.Combine(root,"unrelated"));
@@ -462,7 +462,7 @@ internal static class LegacyStorePhysicalTransferTests
                       !mismatch.GetProperty("data").GetProperty("localPreflightReady").GetBoolean() &&
                       mismatch.GetProperty("data").GetProperty("blockers").EnumerateArray()
                         .Any(x=>x.GetString()=="UM-EXPANSION-SOURCE-CLUSTER-ID-DIFFERS"),
-                    "another cluster ID cannot impersonate historical Kova source");
+                    "another cluster ID cannot impersonate historical Legacy source");
             }
             Check(files.Select(f=>Convert.ToHexString(
                     SHA256.HashData(File.ReadAllBytes(f))))
@@ -471,7 +471,7 @@ internal static class LegacyStorePhysicalTransferTests
                 "historical expansion preflight leaves source files and registry unchanged");
             var before=manager.ReadLegacyStoreV1PeerProof();
             Check(before?.PhysicalDirectoryTag=="",
-                "Manager never reads a Kova physical UNC file ID on startup or background polling");
+                "Manager never reads a Legacy physical UNC file ID on startup or background polling");
             reprobingManager=manager;
             var bridge=new DesktopLanSettingsBridge(manager);
             var probe=await Call(bridge,"lan.physicalStoreProbe");
@@ -562,17 +562,17 @@ internal static class LegacyStorePhysicalTransferTests
                     "wrong source-metadata approval never creates a cluster");
                 var complete=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterApply",approvalToken,
-                    "EREDETI KOVA REGISZTER");
+                    "EREDETI LEGACY REGISZTER");
                 Check(complete.GetProperty("ok").GetBoolean() &&
                       complete.GetProperty("data").GetProperty("addedCount").GetInt32()==5 &&
                       !complete.GetProperty("data").GetProperty("serverStarted").GetBoolean() &&
                       bootstrap.Registry.Snapshot().ClusterRegistry.MapAssignments.Count==5 &&
                       bootstrap.Registry.Snapshot().ClusterRegistry.Clusters.Single()
-                        .ClusterId=="kovacluster",
+                        .ClusterId=="\u006Bovacluster",
                     "explicit native commit atomically adopts five original assignments in Manager metadata only");
                 var bootstrapReplay=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterApply",approvalToken,
-                    "EREDETI KOVA REGISZTER");
+                    "EREDETI LEGACY REGISZTER");
                 Check(!bootstrapReplay.GetProperty("ok").GetBoolean(),
                     "one-use metadata approval token cannot be replayed");
                 long revision=bootstrap.Registry.Snapshot().Revision;
@@ -585,17 +585,17 @@ internal static class LegacyStorePhysicalTransferTests
                 string repeatToken=again.GetProperty("data").GetProperty("token").GetString()!;
                 var repeat=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterApply",repeatToken,
-                    "EREDETI KOVA REGISZTER");
+                    "EREDETI LEGACY REGISZTER");
                 Check(repeat.GetProperty("ok").GetBoolean() &&
                       repeat.GetProperty("data").GetProperty("addedCount").GetInt32()==0 &&
                       bootstrap.Registry.Snapshot().Revision==revision,
                     "repeat of exact original metadata does not change revision");
                 bool transferRebindBlocked=false;
-                try{bootstrap.Registry.UpdateCluster("KovaCluster",
-                    "Original Kova Store-v1",Path.Combine(root,"foreign-transfer"));}
+                try{bootstrap.Registry.UpdateCluster("\u004BovaCluster",
+                    "Original Legacy Store-v1",Path.Combine(root,"foreign-transfer"));}
                 catch(UnauthorizedAccessException){transferRebindBlocked=true;}
                 Check(transferRebindBlocked,
-                    "original Kova transfer metadata remains protected after bootstrap");
+                    "original Legacy transfer metadata remains protected after bootstrap");
             }
 
         }
@@ -609,6 +609,6 @@ internal static class LegacyStorePhysicalTransferTests
         }
         Check(files.Select(f=>Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(f))))
                 .SequenceEqual(beforeHashes),
-            "all Kova-shaped synthetic session, lock and map selections remain unchanged");
+            "all Legacy-shaped synthetic session, lock and map selections remain unchanged");
     }
 }

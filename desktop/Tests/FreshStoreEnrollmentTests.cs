@@ -166,8 +166,8 @@ internal static class FreshStoreEnrollmentTests
             manager.Registry.ApplyMapAssignments(
                 "new-local-cluster",new[]{mapId},pending.BaseRevision);
 
-            // Original Kova ID is source-provided, not always literally
-            // "KovaCluster". No generic fresh Store enrollment may create
+            // Original Legacy ID is source-provided, not always literally
+            // "\u004BovaCluster". No generic fresh Store enrollment may create
             // a second writer in ANY cluster holding historical local data.
             Guid sourceHistoricalId=Guid.Parse(
                 "11111111-2222-4333-8444-555555555556");
@@ -204,8 +204,8 @@ internal static class FreshStoreEnrollmentTests
                 manager,missingRcon,"new-local-cluster"),
                 "RCON/INI must be configured before new Store enrollment, never repaired after a first Start");
             manager.ReplaceMap(missingRcon,map);
-            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,map,"KovaCluster"),
-                "new Store map cannot enroll directly into protected historical KovaCluster");
+            Reject(()=>FreshStoreEnrollmentPolicy.Prepare(manager,map,"\u004BovaCluster"),
+                "new Store map cannot enroll directly into protected historical LegacyCluster");
             var unknownFlag=JsonSerializer.Deserialize<LocalMap>(
                 JsonSerializer.Serialize(map))!;
             unknownFlag.Arguments+=" -UnreviewedCommand=1";
@@ -283,10 +283,10 @@ internal static class FreshStoreEnrollmentTests
                       !state.GetProperty("data").GetProperty("enrolled").GetBoolean(),
                     "new empty Store native status is read-only and not yet enrolled");
                 var reserved=await Call(bridge,"freshStore.enrollmentPreview",
-                    new{mapId,clusterId="KovaCluster"});
+                    new{mapId,clusterId="\u004BovaCluster"});
                 Check(!reserved.GetProperty("ok").GetBoolean()&&
                       reserved.GetProperty("error").GetString()==
-                        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED",
+                        "UM-FRESH-STORE-LEGACY-CLUSTER-RESERVED",
                     "native enrollment reports the exact reserved historical cluster blocker without exposing UNC paths or other secrets");
                 var preview=await Call(bridge,"freshStore.enrollmentPreview",
                     new{mapId,clusterId="new-local-cluster"});
@@ -340,13 +340,13 @@ internal static class FreshStoreEnrollmentTests
                   enrolled.HistoricalMapKey==""&&
                   !enrolled.AutoStart&&
                   UntamedWorldBackup.HasLiveOrHistoricalStore(enrolled),
-                "new Store is durable and distinct from Kova archive, conversion and autostart");
+                "new Store is durable and distinct from Legacy archive, conversion and autostart");
             Check(enrolled.FreshStoreTransferFileId.Length==64,
                 "new Store enrollment durably pins the actual Windows transfer directory file ID");
             Check(AsaApiOwnedInstaller.ListCompletedRollbacks(manager,mapId).Count==0,
                 "enrolled local Store permits stopped-only API Core inspection without any transaction or world mutation");
 
-            // Loader selection for a newly enrolled (NOT historical Kova) Store
+            // Loader selection for a newly enrolled (NOT historical Legacy) Store
             // profile uses only synthetic PE headers and no real ASA process.
             using(var modeBridge=new DesktopFreshStoreLoaderModeBridge(manager))
             {
@@ -423,7 +423,7 @@ internal static class FreshStoreEnrollmentTests
             manager.ReplaceMap(aliasSwap,enrolled);
             Check(manager.Check(enrolled).ConfirmedStopped&&
                   !manager.Check(enrolled).Running,
-                "new Store map uses local native process observation, not historical Kova guard");
+                "new Store map uses local native process observation, not historical Legacy guard");
             // Start preview/approval is exercised with a synthetic launcher.
             // No ASA process is spawned, and the result deliberately does
             // not certify RCON readiness, characters, or cross-host travel.

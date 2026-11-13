@@ -41,7 +41,7 @@ internal static class HistoricalStoreWorldBackupTests
         Directory.CreateDirectory(install);
         bool independentlyStopped=false;
         await using var cluster=new ClusterService("historical-backup-test",
-            manager,_=>new ProcessCheck(false,"isolated Kova PID observer",null,
+            manager,_=>new ProcessCheck(false,"isolated Legacy PID observer",null,
                 independentlyStopped));
         var map=new LocalMap{
             Id=Guid.NewGuid(),Name="Synthetic Island",InstallationPath=install,

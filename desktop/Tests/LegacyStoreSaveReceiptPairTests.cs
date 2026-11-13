@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 using UntamedDesktop;
 using UntamedManager.Core;
 
-// The original Kova/ASA installation and UNC share are never accessed.
+// The original Legacy/ASA installation and UNC share are never accessed.
 // All five journals are new, synthetic Manager-owned files in isolated TEMP.
 internal static class LegacyStoreSaveReceiptPairTests
 {
@@ -162,7 +162,7 @@ internal static class LegacyStoreSaveReceiptPairTests
         {
             foreach(var map in mapCopies)manager.AddMap(map);
             // The test Manager's actual journal root is manager.Store.Root,
-            // so use a distinct local fixture there and leave Kova untouched.
+            // so use a distinct local fixture there and leave Legacy untouched.
             foreach(var map in mapCopies)
             {
                 var operation=Guid.NewGuid();
