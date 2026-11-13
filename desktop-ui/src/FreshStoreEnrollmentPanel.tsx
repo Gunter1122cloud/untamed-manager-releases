@@ -37,9 +37,27 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
     if(!selected||busy)return;
     reset();setBusy(true);
     try{setPreview(await managerBridge.freshStoreEnrollmentPreview(mapId,selected));}
-    catch(e){setError("Új, üres Store-map nem készíthető elő ("+
-      (e instanceof Error?e.message:"UM-FRESH-STORE-PREFLIGHT")+
-      "). Ellenőrizd a teljesen üres SteamCMD-telepítést, a leállított folyamatot és a helyi cluster tagságát.");}
+    catch(e){
+      const code=e instanceof Error?e.message:"UM-FRESH-STORE-PREFLIGHT";
+      const hints:Record<string,string>={
+        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED":
+          "Az eredeti KovaCluster nem érhető el az új, üres Store-map általános regisztrációjával. Az eredeti kétgazdás transferazonosságot külön kell igazolni; az eredeti világot nem módosítottuk.",
+        "UM-FRESH-STORE-RCON-SETUP-REQUIRED-BEFORE-ENROLLMENT":
+          "Először a map RCON fülén konfiguráld a helyi RCON-portot és jelszót, utána kérj új Store-előellenőrzést.",
+        "UM-FRESH-STORE-MAP-MEMBERSHIP-REQUIRED":
+          "A map nincs pontosan egyszer hozzárendelve a kiválasztott clusterhez. Nyisd meg a Cluster fület és mentsd a hozzárendelést.",
+        "UM-FRESH-STORE-REMOTE-TRANSFER-NOT-CERTIFIED":
+          "Többgépes Store átviteli könyvtár azonossága még nem igazolt. Az UNC-útvonal önmagában nem bizonyít közös Store-t.",
+        "UM-FRESH-STORE-NEW-STEAM-INSTALL-REQUIRED":
+          "A map nem igazoltan új, üres SteamCMD-telepítés. Meglévő mapot a külön importvarázslóval vegyél át.",
+        "UM-FRESH-STORE-EXISTING-SAVE-OR-REPARSE":
+          "A map mappájában már vannak világ-, játékos- vagy tribe-adatok, vagy nem biztonságos hivatkozás. A Manager ezeket nem konvertálja.",
+        "UM-FRESH-STORE-ASA-NOT-PROVEN-STOPPED":
+          "A map teljes ASA/Loader folyamata nem igazoltan állt le. Nem történt Store-regisztráció."
+      };
+      setError(hints[code]??("Új, üres Store-map nem készíthető elő ("+
+        code+"). A meglévő ASA és Store fájlokat nem módosítottuk."));
+    }
     finally{setBusy(false);}
   };
   const apply=async()=>{

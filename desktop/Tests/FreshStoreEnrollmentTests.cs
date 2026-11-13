@@ -282,6 +282,12 @@ internal static class FreshStoreEnrollmentTests
                 Check(state.GetProperty("ok").GetBoolean()&&
                       !state.GetProperty("data").GetProperty("enrolled").GetBoolean(),
                     "new empty Store native status is read-only and not yet enrolled");
+                var reserved=await Call(bridge,"freshStore.enrollmentPreview",
+                    new{mapId,clusterId="KovaCluster"});
+                Check(!reserved.GetProperty("ok").GetBoolean()&&
+                      reserved.GetProperty("error").GetString()==
+                        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED",
+                    "native enrollment reports the exact reserved historical cluster blocker without exposing UNC paths or other secrets");
                 var preview=await Call(bridge,"freshStore.enrollmentPreview",
                     new{mapId,clusterId="new-local-cluster"});
                 Check(preview.GetProperty("ok").GetBoolean()&&

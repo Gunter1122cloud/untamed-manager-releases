@@ -151,10 +151,9 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
             }
             finally{serial.Release();}
         }
-        catch(Exception)
+        catch(Exception failure)
         {
-            // Avoid leaking registered UNC paths, CLI values, map secrets.
-            return Fail(id,"UM-FRESH-STORE-PREFLIGHT-OR-ENROLLMENT-FAILED");
+            return Fail(id,SafeFailure(failure));
         }
     }
 
@@ -162,5 +161,17 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
         JsonSerializer.Serialize(new{id,ok=true,data},Json);
     private static string Fail(string? id,string error)=>
         JsonSerializer.Serialize(new{id,ok=false,error},Json);
+    // Return only native, invariant, non-secret preflight codes so the UI
+    // can tell a missing RCON configuration from a reserved historical
+    // cluster. Never forward arbitrary exception text containing a
+    // local/UNC path, launch arguments or DPAPI-backed credentials.
+    private static string SafeFailure(Exception failure)=>
+        failure is InvalidDataException or InvalidOperationException or
+            UnauthorizedAccessException or IOException &&
+        System.Text.RegularExpressions.Regex.IsMatch(failure.Message,
+            @"\AUM-FRESH-STORE-[A-Z0-9_-]{3,110}\z",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+            TimeSpan.FromMilliseconds(100))
+            ? failure.Message : "UM-FRESH-STORE-PREFLIGHT-OR-ENROLLMENT-FAILED";
     public void Dispose()=>serial.Dispose();
 }
