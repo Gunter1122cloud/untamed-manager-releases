@@ -3055,7 +3055,7 @@ test("original Store physical UNC probe is explicit and never grants transfer or
     "Az eredeti öt-öt GUID és mapnév tényleges Manager-regisztrációja");
   await expect(proof).toContainText("Hiányzik vagy eltér – ellenőrzés szükséges");
   await expect(proof).toContainText(
-    "Öt aktív Store-map az eredeti Kova-forrásfájlokban");
+    "Öt aktív Store-map az eredeti eredeti forrásfájlokban");
   await proof.getByRole("button",{
     name:"Helyi Store transferkönyvtár fizikai ellenőrzése"
   }).click();
@@ -3174,7 +3174,7 @@ test("multi-cluster membership filters 100+ maps, protects Store-v1 and applies 
   const membershipCheckboxes=page.locator(".cluster-registry-map-groups");
   const protectedMap=membershipCheckboxes.getByRole("checkbox",{name:/The Island/});
   await expect(protectedMap).toBeDisabled();
-  await expect(page.getByText("Kova Store-v1 védett")).toBeVisible();
+  await expect(page.getByText("eredeti Store-v1 védett")).toBeVisible();
 
   await page.getByRole("textbox",{name:"Cluster map keresése"}).fill("Local Map 4");
   const movedMap=membershipCheckboxes.getByRole("checkbox",{name:/Local Map 4/});
@@ -3189,7 +3189,7 @@ test("multi-cluster membership filters 100+ maps, protects Store-v1 and applies 
   await expect(membershipCheckboxes.getByRole("checkbox",{name:/Local Map 4/})).not.toBeChecked();
 });
 
-test("historical Kova new-map compatibility check is native, read-only and never enables writer or live travel",async({page})=>{
+test("historical korábbi Manager new-map compatibility check is native, read-only and never enables writer or live travel",async({page})=>{
   await page.goto("/?fixture=large");
   await page.getByRole("navigation",{name:"Fő navigáció"})
     .getByRole("button",{name:"Cluster",exact:true}).click();
@@ -3858,15 +3858,15 @@ test("P0 observed-only map detail never exposes lifecycle, RCON, or disk writer 
   })).toHaveCount(0);
   await expect(detail.getByRole("region",{name:"Futó helyi ASA-folyamatok"})).toBeVisible();
   const enrollment=detail.getByRole("button",{
-    name:"Kova Store-v1 mapok átvételi varázslója"
+    name:"eredeti Store-v1 mapok átvételi varázslója"
   });
   await expect(enrollment).toBeVisible();
   await enrollment.click();
   await expect(detail.getByRole("region",{
-    name:"Közvetlen Kova Store-v1 mapimport"
+    name:"Közvetlen eredeti Store-v1 mapimport"
   })).toBeVisible();
   await expect(detail.getByRole("button",{
-    name:"Öt eredeti Kova-map felismerése"
+    name:"Öt eredeti eredeti map felismerése"
   })).toBeEnabled();
   // A discovered WMI PID alone does NOT authorize write operations:
   // the real native five-map enrollment still requires its approval.
@@ -3880,7 +3880,7 @@ test("Server import actions render BEFORE the potentially long running-ASA proce
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   const observation=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const historical=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  const historical=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
   await expect(historical).toBeVisible();
   await expect(page.getByRole("button",{name:"Store-v1 import bezárása"})).toBeVisible();
   expect(await historical.evaluate(node=>{
@@ -4061,21 +4061,21 @@ test("old Store Restart-only NeedsOperator is explicitly recoverable without dec
   await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeEnabled();
 });
 
-test("P0 original live Store method denial is identified as native dispatch/build mismatch, never Kova process proof failure",async({page})=>{
+test("P0 original live Store method denial is identified as native dispatch/build mismatch, never korábbi Manager process proof failure",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(
     window as typeof window & {__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__?:()=>void}
   ).__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti eredeti map felismerése"}).click();
   await panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   }).click();
   await expect(panel).toContainText("UM-METHOD-DENIED");
   await expect(panel).toContainText("natív WebView2-dispatchere elutasította");
-  await expect(panel).toContainText("NEM Kova ACTIVE/DONE");
+  await expect(panel).toContainText("NEM korábbi Manager ACTIVE/DONE");
   await expect(panel.getByRole("region",{
     name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
   })).toHaveCount(0);
@@ -4088,8 +4088,8 @@ test("P0 live original five-map Store takeover is explicit, single-use and prese
   ).__UNTAMED_ORIGINAL_LIVE_FIVE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti eredeti map felismerése"}).click();
   const live=panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   });
@@ -4121,7 +4121,7 @@ test("P0 live original five-map Store takeover is explicit, single-use and prese
   expect(fieldAppearance.opacity).toBe(1);
   expect(fieldAppearance.foreground).not.toBe(fieldAppearance.background);
   await expect(apply).toBeDisabled();
-  await expect(blockReason).toContainText("Hiányzik a Kova-felügyelet");
+  await expect(blockReason).toContainText("Hiányzik a korábbi felügyelet");
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeDisabled();
   await expect(blockReason).toContainText("Írd be a pontos");
@@ -4143,8 +4143,8 @@ test("P0 Store-v1 expired approval disables apply and demands new native preflig
   }).__UNTAMED_ORIGINAL_LIVE_EXPIRED_ONCE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti eredeti map felismerése"}).click();
   await panel.getByRole("button",{name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"}).click();
   const proof=panel.getByRole("region",{
     name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
@@ -4172,8 +4172,8 @@ test("P0 Store-v1 lost native approval shows safe recheck, no automatic retry",a
   }).__UNTAMED_ORIGINAL_LIVE_TOKEN_LOST_ONCE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti eredeti map felismerése"}).click();
   await panel.getByRole("button",{name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"}).click();
   const proof=panel.getByRole("region",{
     name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
@@ -4196,8 +4196,8 @@ test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",
   ).__UNTAMED_ORIGINAL_LIVE_FIVE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti eredeti map felismerése"}).click();
   await panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   }).click();
@@ -4215,7 +4215,7 @@ test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",
   await input.fill("STORE-V1 FUTÓ ÁTVÉTEL");
   await expect(apply).toBeDisabled();
   await expect(proof.locator("#store-live-approval-reason")).toContainText(
-    "Hiányzik a Kova-felügyelet");
+    "Hiányzik a korábbi felügyelet");
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeEnabled();
   // Do NOT click: this test asserts the exact two-factor gate only.
@@ -4228,8 +4228,8 @@ test("Store-v1 five-map preview can succeed but later Aberration Launch journal 
   }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti eredeti map felismerése"}).click();
   await panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   }).click();
@@ -4265,7 +4265,7 @@ test("original Store local journal inventory separates map-owned and unattribute
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
   await panel.getByRole("button",{
     name:"Helyi műveletinaplók leltára (csak olvasás)"
   }).click();
@@ -4275,22 +4275,22 @@ test("original Store local journal inventory separates map-owned and unattribute
   await expect(inventory).toContainText("3 rekord");
   await expect(inventory).toContainText("1 nem azonosított erőforrás");
   await expect(inventory).toContainText("1 olyan");
-  await expect(inventory).toContainText("Eredeti Kova-forrás: Synthetic1");
+  await expect(inventory).toContainText("Eredeti eredeti forrás: Synthetic1");
   await expect(inventory).toContainText("Aberration");
   await expect(inventory).toContainText("Restart-v1");
   await expect(inventory).toContainText("sérült rekord");
   await expect(inventory).toContainText("Sem törlés");
 });
 
-test("P0 original Kova five-map live takeover reattaches partially registered originals without duplicates",async({page})=>{
+test("P0 original korábbi Manager five-map live takeover reattaches partially registered originals without duplicates",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(
     window as typeof window & {__UNTAMED_ORIGINAL_LIVE_MIXED__?:()=>void}
   ).__UNTAMED_ORIGINAL_LIVE_MIXED__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti eredeti map felismerése"}).click();
   const live=panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   });
@@ -4310,7 +4310,7 @@ test("P0 original Kova five-map live takeover reattaches partially registered or
   await expect(apply).toBeEnabled();
   await apply.click();
   await expect(approved).toHaveCount(0);
-  await expect(panel).toContainText("2 hiányzó Kova-map hozzáadva");
+  await expect(panel).toContainText("2 hiányzó eredeti map hozzáadva");
   await expect(panel).toContainText("3 már ismert futó szerver újracsatlakoztatva");
 });
 
@@ -4683,7 +4683,7 @@ test("historical Store sibling prevents missing Game.ini creation with useful vi
   const region=page.getByRole("region",{name:"Hiányzó Game.ini létrehozása"});
   await expect(region).toBeVisible();
   await region.getByRole("button",{name:"Game.ini létrehozásának előnézete"}).click();
-  await expect(page.getByRole("alert")).toContainText("történeti Kova/Store-v1 map");
+  await expect(page.getByRole("alert")).toContainText("történeti korábbi Manager/Store-v1 map");
   await expect(region.getByRole("checkbox")).toHaveCount(0);
   await expect(page.getByRole("textbox",{name:"Az eredeti fájl szerkeszthető tartalma"})).toHaveCount(0);
 });
@@ -4923,7 +4923,7 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await expect(spawn).toHaveCount(0);
 });
 
-test("new empty Store-map uses existing cluster membership, one-shot approval and distinct non-Kova UI",async({page})=>{
+test("new empty Store-map uses existing cluster membership, one-shot approval and distinct non-korábbi Manager UI",async({page})=>{
   await page.goto("/");
   await page.getByRole("navigation",{name:"Fő navigáció"})
     .getByRole("button",{name:"Szerverek",exact:true}).click();
@@ -5073,7 +5073,7 @@ test("original Store-v1 SaveWorld-only runs the real native map action without s
   const approve=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
   await expect(approve).toContainText("PID 42101");
   await expect(approve).toContainText("RCON 37145");
-  await expect(approve).toContainText("nem szükséges a távoli régi Kova peer-jelölő");
+  await expect(approve).toContainText("nem szükséges a távoli régi korábbi Manager peer-jelölő");
   const save=approve.getByRole("button",{name:"SaveWorld végrehajtása"});
   await expect(save).toBeDisabled();
   const savePhrase=approve.getByLabel("Store-v1 mentés jóváhagyó szöveg");
@@ -5442,7 +5442,7 @@ test("map header always shows four real lifecycle actions and Kill requires nati
   await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
   await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeEnabled();
 });
-test("original Kova Store maps retain four buttons but disable destructive Kill",async({page})=>{
+test("original korábbi Manager Store maps retain four buttons but disable destructive Kill",async({page})=>{
   await page.addInitScript(()=>{(window as any).__UNTAMED_PROTECT_TEST_MAP__?.();});
   await page.goto("/");
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
@@ -5820,15 +5820,15 @@ test("verified historical archive and original local four Store files show byte 
   await expect(panel.getByText("BÁJT-PONTOSAN EGYEZIK")).toHaveCount(0);
 });
 
-test("Store-v1 direct original local Kova map registration is operator-approved and preserves identity",async ({page})=>{
+test("Store-v1 direct original local korábbi Manager map registration is operator-approved and preserves identity",async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const section=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await section.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
-  await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"})).toBeVisible();
-  await section.getByRole("combobox",{name:"Közvetlen Kova-map"})
+  const section=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await section.getByRole("button",{name:"Öt eredeti eredeti map felismerése"}).click();
+  await expect(section.getByRole("combobox",{name:"Közvetlen eredeti map"})).toBeVisible();
+  await section.getByRole("combobox",{name:"Közvetlen eredeti map"})
     .selectOption("00000000-0000-4000-8000-000000009001");
   await expect(section.getByRole("spinbutton",{name:"Közvetlen Game port"}))
     .toHaveValue("7777");
@@ -5843,7 +5843,7 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   await section.getByRole("button",{
     name:"Eredeti map regisztrációjának előellenőrzése"
   }).click();
-  const confirm=section.getByRole("region",{name:"Közvetlen Kova-import jóváhagyása"});
+  const confirm=section.getByRole("region",{name:"Közvetlen eredeti import jóváhagyása"});
   await expect(confirm).toContainText("Megmarad");
   await expect(confirm).toContainText("sorrend megőrizve");
   await expect(confirm).toContainText("Változatlanok");
@@ -5851,7 +5851,7 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   await confirm.getByRole("checkbox").check();
   await confirm.getByRole("button",{name:"Eredeti map hozzáadása"}).click();
   await expect(section).toContainText("The Island felvéve az eredeti GUID-dal");
-  await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"}))
+  await expect(section.getByRole("combobox",{name:"Közvetlen eredeti map"}))
     .toHaveValue("");
 });
 
@@ -5962,11 +5962,11 @@ test("Store runtime approval refuses a native preview for another map without ap
   }).__UNTAMED_RUNTIME_CONFIG_COMMITS__?.())).toBe(0);
 });
 
-test("original Kova Cluster registry adoption requires exact typed approval and never writes Store data",async({page})=>{
+test("original korábbi Manager Cluster registry adoption requires exact typed approval and never writes Store data",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Eredeti Kova Cluster-regiszter átvétele"});
+  const panel=page.getByRole("region",{name:"Eredeti korábbi Manager Cluster-regiszter átvétele"});
   await panel.getByRole("button",{name:"Eredeti Cluster-regiszter előellenőrzése"}).click();
   const confirmation=panel.getByRole("region",{name:"Eredeti Cluster-regiszter jóváhagyása"});
   await expect(confirmation).toContainText("KovaCluster");
@@ -5990,24 +5990,24 @@ test("original Kova Cluster registry adoption requires exact typed approval and 
     .toContainText("0");
 });
 
-test("original Kova batch import requires one consent and registers all missing local maps atomically",async({page})=>{
+test("original korábbi Manager batch import requires one consent and registers all missing local maps atomically",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const section=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await section.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const section=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await section.getByRole("button",{name:"Öt eredeti eredeti map felismerése"}).click();
   await section.getByRole("button",{
     name:"Összes hiányzó helyi map átvétele egy lépésben"
   }).click();
   const approval=section.getByRole("region",{
-    name:"Összes eredeti Kova-map importálásának jóváhagyása"
+    name:"Összes eredeti eredeti map importálásának jóváhagyása"
   });
   await expect(approval).toContainText("The Island");
   await expect(approval.getByRole("button",{name:"1 map hozzáadása"})).toBeDisabled();
   await approval.getByRole("checkbox").check();
   await approval.getByRole("button",{name:"1 map hozzáadása"}).click();
   await expect(section).toContainText("1 eredeti map atomikusan felvéve");
-  await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"})).toHaveValue("");
+  await expect(section.getByRole("combobox",{name:"Közvetlen eredeti map"})).toHaveValue("");
 });
 
 test("Store-v1 historic import preserves map identity and never permits launch before real validation",async ({page})=>{
@@ -6205,7 +6205,7 @@ test("SQL-free restore always targets isolated TEMP lab and requires explicit co
   await expect(panel).toContainText("Játékbeli működés nem igazolt");
 });
 
-test("original five-map Kova backup requires one confirmed user action and uses verified per-map points",async({page})=>{
+test("original five-map korábbi Manager backup requires one confirmed user action and uses verified per-map points",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FIVE_BACKUP_FIXTURE__?:()=>void;
@@ -6298,7 +6298,7 @@ test("HP/Ryzen portable mod profiles require native selection and per-host local
   await expect(panel).toContainText("tényleges betöltését");
 });
 
-test("P0 original Kova Store-v1 mod profiles export and import from native local UI",async({page})=>{
+test("P0 original eredeti Store-v1 mod profiles export and import from native local UI",async({page})=>{
   await page.addInitScript(()=>{
     (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
       .__UNTAMED_PROTECT_TEST_MAP__?.();
@@ -6342,7 +6342,7 @@ test("Mod Center Copy To merges selected local maps only after native diff appro
   await expect(panel).toContainText("helyi map modkonfigurációja mentve");
 });
 
-test("P0 original Kova Store-v1 maps can be mod-copy sources and destinations",async({page})=>{
+test("P0 original eredeti Store-v1 maps can be mod-copy sources and destinations",async({page})=>{
   await page.addInitScript(()=>{
     (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
       .__UNTAMED_PROTECT_TEST_MAP__?.();

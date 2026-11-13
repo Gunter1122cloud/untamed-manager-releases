@@ -1293,7 +1293,7 @@ function LogsCenter({ snapshot, selected, setSelected, mapLocked=false }: {
 
 const iniCreateErrorMessages:Record<string,string>={
   "UM-INI-CREATE-FRESH-ONLY":"A kiválasztott map nem igazoltan új, helyi és Store-v1-től független ASA-telepítés. A történeti adatokhoz nem nyúltunk.",
-  "UM-INI-CREATE-SHARED-STORE":"A telepítést egy történeti Kova/Store-v1 map is használja. Új Game.ini nem hozható létre itt.",
+  "UM-INI-CREATE-SHARED-STORE":"A telepítést egy történeti korábbi Manager/Store-v1 map is használja. Új Game.ini nem hozható létre itt.",
   "UM-INI-CREATE-ALL-MAPS-STOPPED":"A közös telepítés valamelyik mapja fut vagy leállítása nem igazolt. Előbb ellenőrizd az összes helyi folyamatot.",
   "UM-INI-GAME-ALREADY-EXISTS":"A Game.ini már létezik. Nyisd meg a meglévő fájlt; a létrehozás nem írta felül.",
   "UM-INI-CREATE-LINKED-PATH":"A célmappa junction/link útvonalon található. A művelet tiltott.",
@@ -1680,8 +1680,8 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
         aria-expanded={openOriginalStoreEnrollment}
         onClick={()=>setOpenOriginalStoreEnrollment(v=>!v)}>
         {openOriginalStoreEnrollment?
-          "Kova Store-v1 átvételi varázsló bezárása":
-          "Kova Store-v1 mapok átvételi varázslója"}
+          "eredeti Store-v1 átvételi varázsló bezárása":
+          "eredeti Store-v1 mapok átvételi varázslója"}
       </button>
     </div>
     {openOriginalStoreEnrollment&&
@@ -1823,7 +1823,7 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       ?<div className="warning-inline" role="alert"><Shield size={17}/> Új Store-map: a SteamCMD-frissítés ehhez a telepítési típushoz még nem engedélyezett.</div>
       :<div>
         {map.storeProtected&&!map.freshStoreEnrolled&&
-          <div className="warning-inline"><Shield size={17}/> Eredeti Kova Store-v1: a natív SteamCMD-frissítés csak teljesen leállított helyi ASA/Loader folyamatokkal, előzetes védőmentéssel és jóváhagyással hajtható végre. A közös Store és a másik gép nem módosul.</div>}
+          <div className="warning-inline"><Shield size={17}/> Eredeti eredeti Store-v1: a natív SteamCMD-frissítés csak teljesen leállított helyi ASA/Loader folyamatokkal, előzetes védőmentéssel és jóváhagyással hajtható végre. A közös Store és a másik gép nem módosul.</div>}
         <StoppedSteamUpdate maps={[map]} fixedMapId={mapId}/>
       </div>)}
     {section==="mods" && <Mods key={mapId} snapshot={snapshot} selected={mapId} setSelected={setSelected} mapLocked/>} 

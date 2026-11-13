@@ -169,7 +169,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         token,"OBSIDIAN FORRÁS ÁTVÉTEL");
       setPinNotice(result.localMaps+
         " map eredeti konfigurációja az Obsidian saját profiljában rögzítve. "+
-        "A régi Kova-program és helyi profil nem szükséges a későbbi helyi vezérléshez. "+
+        "A régi korábbi program és helyi profil nem szükséges a későbbi helyi vezérléshez. "+
         "A clusterutazást továbbra is az ASA kezeli.");
       try{await onImported();}catch{setPinError(
         "A forrásátvétel sikerült, de a felületi frissítés nem. Ne ismételd meg a műveletet.");}
@@ -240,7 +240,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       await managerBridge.historicalRuntimeSettingsApply(token,"OBSIDIAN MAP KONFIG");
       if(epoch!==runtimeEpoch.current)return;
       setRuntimeNotice("A portok és a clusterbeállítások az Obsidian profiljába mentve. "+
-        "Sem ASA-indítás, sem RCON, sem Kova-fájlmódosítás nem történt. "+
+        "Sem ASA-indítás, sem RCON, sem korábbi Manager-fájlmódosítás nem történt. "+
         "A tényleges kétgépes utazási útvonal ellenőrzése külön feladat.");
       try{await onImported();}catch{
         setRuntimeError("A konfiguráció mentése sikerült, de a szerverlista frissítése nem.");
@@ -271,7 +271,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       setDirectQueryPort(first?String(first.queryPort):"");
     }catch(e){
       if(epoch===directEpoch.current)setDirectError(
-        "Az eredeti Kova helyi ACTIVE/DONE profil nem ellenőrizhető ("+
+        "Az eredeti korábbi Manager helyi ACTIVE/DONE profil nem ellenőrizhető ("+
         (e instanceof Error?e.message:"hibás vagy hiányzó helyi Store-metaadat")+").");
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
@@ -318,8 +318,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       catch{setDirectError("A map regisztrálva van, de a szerverlista frissítése sikertelen.");}
     }catch(e){
       if(epoch===directEpoch.current)setDirectError(
-        "A közvetlen Kova-import nem fejeződött be ("+
-        (e instanceof Error?e.message:"natív ellenőrzés")+"). Az eredeti Kova fájlok változatlanok.");
+        "A közvetlen eredeti import nem fejeződött be ("+
+        (e instanceof Error?e.message:"natív ellenőrzés")+"). Az eredeti korábbi Manager fájlok változatlanok.");
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
 
@@ -348,7 +348,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       const receipt=await managerBridge.historicalOriginalBatchRegister(token);
       if(epoch!==directEpoch.current)return;
       setDirectNotice(receipt.importedMaps+
-        " eredeti map atomikusan felvéve. A korábbi Kova-adatok érintetlenek. "+
+        " eredeti map atomikusan felvéve. A korábbi korábbi Manager-adatok érintetlenek. "+
         "A leállított import után még nincs ASA API mód igazolva: "+
         "csatlakoztasd a meglévő RCON-t, és ASA API-s maponként válaszd ki "+
         "az 'ASA API Loader mód választása' opciót az első Start előtt. "+
@@ -403,7 +403,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           code==="UM-METHOD-DENIED"?
           "A telepített Obsidian natív WebView2-dispatchere elutasította a "+
           "historical.originalLiveBatchPreview hívást (UM-METHOD-DENIED). "+
-          "Ez alkalmazásverzió-/útvonalhiba, NEM Kova ACTIVE/DONE-, PID-, "+
+          "Ez alkalmazásverzió-/útvonalhiba, NEM korábbi Manager ACTIVE/DONE-, PID-, "+
           "mod- vagy porthiba. A futó szervereket ne állítsd le; "+
           "telepíts azonos kiadásból származó React + Windows host frissítést.":
           "A futó eredeti Store-v1 szerverek natív ACTIVE/DONE, WMI/PID, "+
@@ -428,7 +428,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       const receipt=await managerBridge.historicalOriginalLiveBatchApply(
         token,true,"STORE-V1 FUTÓ ÁTVÉTEL");
       if(epoch!==directEpoch.current)return;
-      setDirectNotice(receipt.addedMaps+" hiányzó Kova-map hozzáadva, "+
+      setDirectNotice(receipt.addedMaps+" hiányzó eredeti map hozzáadva, "+
         receipt.reconnectedMaps+" már ismert futó szerver újracsatlakoztatva "+
         "az Obsidian helyi regiszterébe a régi GUID-dal és folyamat-PID-vel. "+
         "Nem indult, nem állt le ASA, és semmilyen Store-writer, session "+
@@ -498,7 +498,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     try{
       const result=await managerBridge.historicalOriginalClusterApply(
         token,"EREDETI KOVA REGISZTER");
-      setClusterNotice(result.addedCount+" eredeti map-tagság átvezetve az Obsidian Cluster-regiszterbe. A korábbi Kova-session, writer lock és karakteradatok változatlanok.");
+      setClusterNotice(result.addedCount+" eredeti map-tagság átvezetve az Obsidian Cluster-regiszterbe. A korábbi eredeti session, writer lock és karakteradatok változatlanok.");
       try{await onImported();}
       catch{setClusterError("A regiszter mentése sikeres, de a nézet frissítése meghiúsult; ne ismételd meg automatikusan.");}
     }catch(e){
@@ -561,7 +561,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     liveApprovalExpired?
       "A háromperces natív előellenőrzés lejárt vagy nem ellenőrizhető. Kérj újat.":
     !liveControllerStopped?
-      "Hiányzik a Kova-felügyelet leállításának jelölése.":
+      "Hiányzik a korábbi felügyelet leállításának jelölése.":
       liveTypedApproval!==liveApprovalPhrase?
         "Írd be a pontos jóváhagyó szöveget a látható mezőbe.":
         null;
@@ -584,7 +584,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     <div className="panel-inner">
       <p className="muted small">
         A már működő Store-v1 rendszert nem konvertáljuk újra.
-        Közvetlenül felismerheted a régi Kova-profil mapjait, vagy használhatod a korábbi
+        Közvetlenül felismerheted a régi eredeti profil mapjait, vagy használhatod a korábbi
         Manager hitelesített ZIP-másolatát a portok és modlista ellenőrzésével.
         A regisztráció nem indít szervert; a map saját Start, Stop és mentés funkciói
         külön előellenőrzés és jóváhagyás után használhatók.
@@ -594,8 +594,8 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         <p className="muted small">
           Már regisztrált korábbi mapoknál az eredeti öt helyi konfigurációfájl és az
           indítási beállítások külön jóváhagyással az Obsidian saját profiljába másolhatók.
-          A meglévő Kova-, ASA- és transferfájlokat a művelet nem módosítja.
-          Az ACTIVE/DONE Kova-migrációs jelölők nem szükségesek a későbbi helyi
+          A meglévő korábbi Manager-, ASA- és transferfájlokat a művelet nem módosítja.
+          Az ACTIVE/DONE eredeti Store-migrációs jelölők nem szükségesek a későbbi helyi
           indításhoz; kétgépes utazás csak az ASA elérhető transferkönyvtárával működhet.
         </p>
         <div className="settings-actions">
@@ -632,7 +632,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           további Game/Query portok és transferbeállítások az Obsidian profiljába
           kerülnek. A mapnak és az azonos telepítési mappát használó
           szervereknek leállított állapotban kell lenniük.
-          A régi Kova ACTIVE/DONE jelölők nem szükségesek ehhez a helyi módosításhoz.
+          A régi korábbi Manager ACTIVE/DONE jelölők nem szükségesek ehhez a helyi módosításhoz.
         </p>
         <div className="settings-actions">
           <button type="button" className="secondary" disabled={directBusy||runtimeBusy}
@@ -699,7 +699,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         {runtimeError&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{runtimeError}</div>}
         {runtimeNotice&&<div role="status" className="success-inline"><CheckCircle2 size={16}/>{runtimeNotice}</div>}
       </section>
-      <section className="historical-peer-check" aria-label="Közvetlen Kova Store-v1 mapimport">
+      <section className="historical-peer-check" aria-label="Közvetlen eredeti Store-v1 mapimport">
         <div className="settings-actions">
           <button type="button" className="secondary" disabled={journalInventoryBusy}
             onClick={()=>{setJournalInventory(null);setJournalInventoryError("");
@@ -722,9 +722,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             {" "}{journalInventory.registeredRecords} regisztrált maphoz köthető ·
             {" "}{journalInventory.unattributedResources} nem azonosított erőforrás</h4>
           <p><b>{journalInventory.historicalSourceRecords}</b> naplóhoz
-            {" "}azonos eredeti Kova-telepítési forráskulcs tartozik
+            {" "}azonos eredeti eredeti telepítési forráskulcs tartozik
             {journalInventory.historicalSourceReadable?" (a helyi eredeti forrás ellenőrizve).":
-              " (az eredeti Kova-forrás jelenleg nem ellenőrizhető)."}
+              " (az eredeti eredeti forrás jelenleg nem ellenőrizhető)."}
             Ez nem futófolyamat- vagy karakterutazási bizonyíték.</p>
           <p><b>{journalInventory.unattributedPendingResources}</b> olyan
             ismeretlen erőforrás, amelynek naplója felülvizsgálatot igényel.</p>
@@ -742,7 +742,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <Shield size={15}/>
               <span>{e.registered?(e.registeredMapNames??"Regisztrált map"):
                 e.historicalSourceMatched?
-                  "Eredeti Kova-forrás: "+(e.historicalMapKey??"ismeretlen map"):
+                  "Eredeti eredeti forrás: "+(e.historicalMapKey??"ismeretlen map"):
                   "Nem azonosított kulcs"}
                 {" · "}{e.journal} · {e.kind} / {e.phase}
                 {" · "}{e.resourceFingerprint}
@@ -750,15 +750,15 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               </span>
             </div>)}
         </div>}
-        <h3>Közvetlen átvétel a korábbi Kova-profilból</h3>
+        <h3>Közvetlen átvétel a korábbi eredeti profilból</h3>
         <p className="muted small">
-          Az eredeti Windows-fiók Kova Store-v1 profiljából felismeri az öt helyi mapot,
+          Az eredeti Windows-fiók eredeti Store-v1 profiljából felismeri az öt helyi mapot,
           a mapazonosítókat és a telepítési mappákat. Nem kell hozzá ZIP vagy kézi mappaútvonal.
           Az eredeti launch-profiles-v1.json fájlból veszi át a Game/Query portokat,
           az aktív és passzív modok pontos sorrendjét. Ha ez a fájl hiányzik,
           a korábbi Manager ZIP alapú importálása használható.
           A leállított mapokra a szokásos kötegelt import használható.
-          A leállított map indítási módja a Kova metaadatából önmagában nem
+          A leállított map indítási módja a korábbi Manager metaadatából önmagában nem
           bizonyítható, ezért import után az eredeti RCON csatlakoztatásával,
           majd maponként az „ASA API Loader mód választása” jóváhagyással
           kell beállítani a Loaderes indítást a legelső Start előtt.
@@ -769,7 +769,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         <button type="button" className="secondary"
           disabled={directBusy||registering} onClick={()=>{void loadOriginalMaps();}}>
           <Archive size={16}/>{directBusy?"Eredeti mapok ellenőrzése...":
-            "Öt eredeti Kova-map felismerése"}
+            "Öt eredeti eredeti map felismerése"}
         </button>
         {directList&&directList.maps.some(m=>!m.registered)&&
           <div className="settings-actions">
@@ -805,7 +805,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           </div>}
         {liveBatchPreview&&<div className="historical-preview" role="region"
           aria-label="Öt futó Store-v1 szerver átvételének jóváhagyása">
-          <h4>{liveBatchPreview.localMaps} eredeti, futó Kova-map átvétele</h4>
+          <h4>{liveBatchPreview.localMaps} eredeti, futó eredeti map átvétele</h4>
           <p>{liveBatchPreview.mapNames.join(", ")}</p>
           <p className="muted small">
             {liveBatchPreview.directProcesses} közvetlen ASA,
@@ -813,11 +813,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             {" "}{liveBatchPreview.alreadyRegistered} már regisztrált map újracsatlakoztatása,
             {" "}{liveBatchPreview.newlyDiscovered} még hiányzó map felvétele.
             A natív Windows azonosító, folyamatindítási idő, teljes eredeti
-            argumentumok, Kova ACTIVE/DONE session és mindkét peer forrása egyezik.
+            argumentumok, korábbi Manager ACTIVE/DONE session és mindkét peer forrása egyezik.
             Az átvétel nem hoz létre új ASA-folyamatot, nem végez Store-írást.
           </p>
           <p className="muted small">
-            A korábbi Kova Manager vezérlését előzőleg meg kell szüntetni,
+            A korábbi korábbi Manager Manager vezérlését előzőleg meg kell szüntetni,
             de a futó ASA-folyamatokat nem kell leállítani. Két Manager
             egyszerre nem vezérelheti ugyanazokat a mapokat.
           </p>
@@ -837,7 +837,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <input type="checkbox" checked={liveControllerStopped}
               disabled={directBusy}
               onChange={e=>setLiveControllerStopped(e.target.checked)}/>
-            Megerősítem, hogy a régi Kova Manager már nem felügyeli ezeket
+            Megerősítem, hogy a régi korábbi Manager Manager már nem felügyeli ezeket
             a folyamatokat. Nem állítottam le az ASA-szervereket.
           </label>
           <label className="historical-typed-confirmation" htmlFor="store-live-approval-text">
@@ -869,12 +869,12 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           </div>
         </div>}
         {batchPreview&&<div className="historical-preview" role="region"
-          aria-label="Összes eredeti Kova-map importálásának jóváhagyása">
+          aria-label="Összes eredeti eredeti map importálásának jóváhagyása">
           <h4>{batchPreview.localMaps} eredeti map egyetlen regisztrációval</h4>
           <p>{batchPreview.mapNames.join(", ")}</p>
           <p className="muted small">A natív Manager valamennyi mapot,
             telepítést, eredeti mod-sorrendet és leállított folyamatot ellenőrizte.
-            Egyetlen ConfigStore-mentést végez. Az eredeti ASA, Kova és
+            Egyetlen ConfigStore-mentést végez. Az eredeti ASA, korábbi Manager és
             Store-session adatok nem módosulnak, szerver nem indul.
             Az import még nem tudhatja bizonyítottan a leállított ASA eredeti
             indítómódját: API-s mapoknál előbb az eredeti RCON, utána a
@@ -897,7 +897,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         {directList&&<form className="historical-import-form"
           onSubmit={e=>{void previewOriginalMap(e);}}>
           <label>Átveendő helyi map
-            <select aria-label="Közvetlen Kova-map" value={directMapId}
+            <select aria-label="Közvetlen eredeti map" value={directMapId}
               disabled={directBusy||registering}
               onChange={e=>{directEpoch.current++;setDirectMapId(e.target.value);
                 const selected=directList.maps.find(m=>m.mapId===e.target.value);
@@ -931,7 +931,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           </button>
         </form>}
         {directPreview&&<div className="historical-preview" role="region"
-          aria-label="Közvetlen Kova-import jóváhagyása">
+          aria-label="Közvetlen eredeti import jóváhagyása">
           <div className="historical-preview-heading">
             <CheckCircle2 size={18}/><strong>{directPreview.mapName}</strong>
           </div>
@@ -943,7 +943,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <span>Eredeti aktív / passzív mod</span>
             <strong>{directPreview.originalEnabledMods} / {directPreview.originalPassiveMods} · sorrend megőrizve</strong>
             <span>RCON</span><strong>Import után csatlakoztatandó</strong>
-            <span>Kova világ-, session- és transferadatok</span><strong>Változatlanok</strong>
+            <span>korábbi Manager világ-, session- és transferadatok</span><strong>Változatlanok</strong>
           </div>
           <label className="historical-approval">
             <input type="checkbox" checked={directApproved}
@@ -961,10 +961,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <AlertTriangle size={16}/>{directError}</div>}
         {directNotice&&<div role="status" className="success-inline">
           <CheckCircle2 size={16}/>{directNotice}</div>}
-        <section className="historical-parity-check" aria-label="Eredeti Kova Cluster-regiszter átvétele">
+        <section className="historical-parity-check" aria-label="Eredeti korábbi Manager Cluster-regiszter átvétele">
           <h3>Eredeti 5 map hozzárendelése a Cluster-regiszterhez</h3>
           <p className="muted small">Ha az eredeti mapokat már felvetted, ezzel
-            a régi négy Kova-metaadatfájlból átvehető a pontos clusterazonosító
+            a régi négy korábbi Manager-metaadatfájlból átvehető a pontos clusterazonosító
             és az öt eredeti helyi map-tagság az Obsidian saját regiszterébe.
             Az eredeti Store-fájlok, közös transfermappa és a szerverek nem módosulnak.</p>
           <button type="button" className="secondary" disabled={clusterBusy||directBusy}
@@ -978,7 +978,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <span>Eredeti map</span><strong>{clusterPreview.fiveOriginalMaps} db</strong>
               <span>Már hozzárendelt</span><strong>{clusterPreview.alreadyAssigned}</strong>
               <span>Hozzáadandó</span><strong>{clusterPreview.missingAssignments}</strong>
-              <span>Korábbi Kova és writer lock</span><strong>Változatlan</strong>
+              <span>Korábbi korábbi Manager és writer lock</span><strong>Változatlan</strong>
             </div>
             <label className="historical-typed-confirmation">Pontos jóváhagyó szöveg
               <input type="text" aria-label="Eredeti Cluster-regiszter jóváhagyó szöveg"

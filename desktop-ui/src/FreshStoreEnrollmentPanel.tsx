@@ -81,7 +81,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       <span className="mod-tag amber">Külön jóváhagyás</span></div>
     <div className="panel-inner">
       {status?.historicalProtected?<div className="warning-inline" role="alert">
-        Eredeti Kova Store-map: az új mapos regisztráció itt tiltva.</div>:
+        Eredeti korábbi Manager Store-map: az új mapos regisztráció itt tiltva.</div>:
       status?.enrolled?<div className="success-inline" role="status">
         <CheckCircle2 size={16}/> Store-profil regisztrálva: {status.clusterId}.
         A tényleges játékbeli utazás még nem igazolt.</div>:<>
@@ -130,7 +130,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       </>}
       {notice&&<div role="status" className="success-inline"><CheckCircle2 size={16}/>{notice}</div>}
       {error&&<div role="alert" className="error-inline"><AlertTriangle size={16}/>{error}</div>}
-      <p className="muted tiny">Nem fut -converttostore, nem módosul a Kova-session vagy a cluster-átviteli fájl, és nincs automatikus indítás. Többgazdás adatvédelem külön elfogadást igényel.</p>
+      <p className="muted tiny">Nem fut -converttostore, nem módosul a eredeti session vagy a cluster-átviteli fájl, és nincs automatikus indítás. Többgazdás adatvédelem külön elfogadást igényel.</p>
     </div>
   </section>;
 }
