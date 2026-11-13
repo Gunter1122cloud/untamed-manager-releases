@@ -3343,6 +3343,64 @@ try
             Pid=44117,StartedUtc=identity.StartedUtc,
             ExecutablePath=exe,Arguments=originalRestartArgs
         };
+        // Pin a deliberate fresh Restart approval to the same full map,
+        // Game.ini, GameUserSettings.ini, ASA EXE and selected API Loader.
+        // Even one changed byte must refuse BEFORE SaveWorld/DoExit.
+        var profilePinned=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(profilePinned,"fresh Restart source snapshot can be previewed");
+        string pinnedToken=profilePinned.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        string originalStopMapName=stopLabMap.Name;
+        stopLabMap.Name+=" (externally changed)";
+        var changedProfileRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartApply",new{token=pinnedToken,confirm=true});
+        Check(IsError(changedProfileRestart,"UM-ASA-RESTART-SOURCE-CHANGED")&&
+              restartCalls==0,
+            "map profile mutation after Restart preview cannot stop original ASA");
+        stopLabMap.Name=originalStopMapName;
+
+        var iniPinned=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(iniPinned,"fresh Restart INI snapshot can be previewed");
+        string iniToken=iniPinned.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        string gameIni=Path.Combine(stopRoot,"ShooterGame","Saved","Config",
+            "WindowsServer","Game.ini");
+        bool gameIniExisted=File.Exists(gameIni);
+        byte[] oldGameIni=gameIniExisted?File.ReadAllBytes(gameIni):Array.Empty<byte>();
+        try
+        {
+            File.AppendAllText(gameIni,"\n[ServerSettings]\nProbe=changed\n");
+            var changedIniRestart=await Call(restartBridge.HandleAsync,
+                "servers.restartApply",new{token=iniToken,confirm=true});
+            Check(IsError(changedIniRestart,"UM-ASA-RESTART-SOURCE-CHANGED")&&
+                  restartCalls==0,
+                "Game.ini mutation after Restart approval cannot stop original ASA");
+        }
+        finally
+        {
+            if(gameIniExisted)File.WriteAllBytes(gameIni,oldGameIni);
+            else File.Delete(gameIni);
+        }
+
+        var binaryPinned=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(binaryPinned,"fresh Restart binary snapshot can be previewed");
+        string binaryToken=binaryPinned.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        byte[] originalStopExe=File.ReadAllBytes(exe);
+        try
+        {
+            File.AppendAllText(exe,"synthetic-change-after-approval");
+            var changedBinaryRestart=await Call(restartBridge.HandleAsync,
+                "servers.restartApply",new{token=binaryToken,confirm=true});
+            Check(IsError(changedBinaryRestart,"UM-ASA-RESTART-SOURCE-CHANGED")&&
+                  restartCalls==0,
+                "ASA EXE mutation after Restart approval cannot stop original ASA");
+        }
+        finally { File.WriteAllBytes(exe,originalStopExe); }
+
         var foreignRestart=await Call(restartBridge.HandleAsync,
             "servers.restartPreview",new{mapId=Guid.NewGuid()});
         Check(IsError(foreignRestart,"UM-MAP-NOT-OWNED")&&restartCalls==0,
