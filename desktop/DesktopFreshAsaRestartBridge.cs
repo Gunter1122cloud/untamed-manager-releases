@@ -77,7 +77,17 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     {
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if(newStore)FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
-        else FreshAsaInstallationSafety.Demand(cluster,map);
+        else
+        {
+            FreshAsaInstallationSafety.Demand(cluster,map);
+            // Reject actual Store/cluster switches BEFORE SaveWorld/DoExit.
+            // Otherwise a restart could stop the old ASA and only discover
+            // at the final Process.Start that the replacement is forbidden.
+            // Ordinary SessionName text containing "Store" is allowed.
+            if(AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
+               AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments))
+                throw new InvalidOperationException("UM-ASA-RESTART-UNENROLLED-STORE-SWITCH");
+        }
         if(map.Maintenance || !AsaReadyProbe.IsRegisteredServerBinary(map) ||
            map.RconHost!="127.0.0.1" || map.RconPort is <1024 or >65535 ||
            string.IsNullOrWhiteSpace(map.RconPasswordProtected) ||
