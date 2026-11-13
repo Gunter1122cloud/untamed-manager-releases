@@ -3,7 +3,7 @@
 **Windows x64 · .NET 10 WPF · Neon Kingdom**  
 **Only a separate Windows test machine. Do NOT install on UK-HOME-01 (HP) or UK-HOME-02 (Ryzen).**
 
-This is a consolidated release-candidate development checkpoint, **not** a production-ready replacement for the Kova Manager.
+This is a consolidated release-candidate development checkpoint, **not** a production-ready replacement for the Legacy Manager.
 
 ## Implemented, exercised by Windows CI against synthetic fixtures
 
@@ -11,9 +11,9 @@ This is a consolidated release-candidate development checkpoint, **not** a produ
 - **Release capability gate**: real ASA lifecycle (Start/Stop/Restart/Kill), live SQL restore, Store writes and live SteamCMD update are never enabled by untrusted profile settings, fake SaveWorld evidence or UI toggles. A separate local FakeAsa test binary can be launched only after verified stopped-state and map ownership checks. The RCON preview control is restricted to local **ListPlayers**.
 - **Watchdog / Recovery Center**: independently categorized failures, persistent synthetic restart event journal, no automatic duplicate launch, timeouts/cooldowns, fail-closed synthetic SaveWorld evidence, WAN-IP/DDNS read-only monitoring. No live save proof.
 - **Offline MariaDB archives**: already-exported `arkshop.sql`, `arkpermissions.sql` and `lethalquests.sql` may be imported into an isolated package, SHA-256 validated and restored **only to new temporary files**. Neither a database connection nor mysqldump is attempted. This is not proof of a consistent SQL snapshot or import.
-- **Kova synthetic-fixture audit**: copy and verify only self-created isolated TEMP fixtures. No Kova file-format parser, conversion, production Store read/write, character or tribe changes; 1:1 compatibility cannot yet be claimed.
+- **Legacy synthetic-fixture audit**: copy and verify only self-created isolated TEMP fixtures. No Legacy file-format parser, conversion, production Store read/write, character or tribe changes; 1:1 compatibility cannot yet be claimed.
 - **SteamCMD Update Center**: offline grouped shared-installation preview, Steam build manifest if present, fixed disk and available-space gates, confirmed-stopped state requirements and a durable dry-run receipt. **SteamCMD is never executed.**
-- **Plugin Center**: guarded DLL/PDB ZIP update, pre-update fully verified directory backup, manifest, SHA-based rollback preview and DLL-only rollback while preserving current config/license/database files. Restores are confined to registered local map plugin folders, never Kova-related plugins. Rollback creates its own complete preimage backup.
+- **Plugin Center**: guarded DLL/PDB ZIP update, pre-update fully verified directory backup, manifest, SHA-based rollback preview and DLL-only rollback while preserving current config/license/database files. Restores are confined to registered local map plugin folders, never Legacy-related plugins. Rollback creates its own complete preimage backup.
 - **Manager setup and preferences**: Setup Wizard with manual local map ownership, safe host-bound non-secret profile export/import; secrets, Store data and launch arguments are excluded. Imported preferences must match every registered local map identity.
 - **Windows tests**: build FakeAsa, two Manager profiles, Supervisor/Updater, GUI startup and Recovery/Setup/Data/Steam navigation, backup/Store/SQL fixture integrity, plugin ZIP integrity/rollback, Steam dry-run, portable ZIP, Setup EXE and installer health-failure rollback.
 - The existing safe Config/INI/mod assignment, CurseForge read-only metadata and local plugin inventories remain available.
@@ -21,7 +21,7 @@ This is a consolidated release-candidate development checkpoint, **not** a produ
 ## Strict restrictions — NOT implemented or NOT certified
 
 - **Actual ASA save-completion proof**: an RCON OK, log line or file timestamp cannot be treated as conclusive SaveWorld evidence. Thus normal real-world Stop/Restart and emergency Kill→Start stay disabled.
-- **KovaCluster Store compatibility**: requires supplied original Kova files, metadata and the existing two-host Store/character handling contract. Nothing has been converted, replaced or mutated.
+- **LegacyCluster Store compatibility**: requires supplied original Legacy files, metadata and the existing two-host Store/character handling contract. Nothing has been converted, replaced or mutated.
 - **Live MariaDB dump/restore**, multi-map consistent hot backups, automated timed full server backups, restoration of live characters/tribes: not validated and remain disabled.
 - **Live SteamCMD downloads/updates**, official available-version comparison, mod downloading/automatic installation and unsupported CurseForge entitlement claims: remain disabled until vendor/API and real lifecycle validation.
 - **WAN-IP-triggered server restarts and remote host commands**: deliberately disabled. The LAN peer is status-only.
@@ -33,7 +33,7 @@ A successful Windows CI run on the **exact** v1.4.0 main commit is mandatory, in
 
 ## Open work after this checkpoint
 
-1. Validate the KovaCluster Store on read-only copies from both hosts, establish a written 1:1 compatibility contract and migration-free recovery test with actual source/target examples.
+1. Validate the LegacyCluster Store on read-only copies from both hosts, establish a written 1:1 compatibility contract and migration-free recovery test with actual source/target examples.
 2. Prove genuine ASA SaveWorld completion, DoExit, API Loader process reattachment and start/stop behavior on isolated nonproduction Windows/ASA test installation.
 3. Validate MariaDB transactional export/restore with throwaway databases and failure injection, including ArkShop/Permissions/quests tables.
 4. Vendor-approved CurseForge mod download/update rights and live SteamCMD update workflow with proven save/stop and full restorable protection.

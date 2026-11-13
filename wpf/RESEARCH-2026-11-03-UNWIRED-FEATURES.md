@@ -2,10 +2,10 @@
 **Dátum:** 2026-11-03 · **Státusz:** kutatási/audit dokumentum, NEM kódjavítás és NEM production-engedély  
 **Ellenőrzött projekt:** https://github.com/Gunter1122cloud/untamed-manager-releases  
 **Utolsó igazolt működési CI:** https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/41697040819 – sikeres v1.5.0, commit 96b1ce7c6b5384b490b52b4287227b31040ea874. Az ezt követő ellenőrzött commitok képernyőkép-dokumentációk voltak.  
-**Források:** a GitHub aktuális wpf/Core, wpf/MainWindow*, wpf/Supervisor és Actions workflow kódjai; a felhasználó Kova 1.8.3 dokumentációs ZIP-je és 2026-11-02 HP/Ryzen passzív auditjai; nyilvános ASA, SteamCMD, CurseForge, MariaDB, Microsoft, GitHub, YARK, HaruHost és Cousin dokumentáció. A Kova-archívum nem nyilvános adatát nem töltöttük fel. **Sem az éles HP/Ryzen hosthoz, sem az élő Kova Store-hoz, sem MariaDB-hez nem csatlakoztunk.**
+**Források:** a GitHub aktuális wpf/Core, wpf/MainWindow*, wpf/Supervisor és Actions workflow kódjai; a felhasználó Legacy 1.8.3 dokumentációs ZIP-je és 2026-11-02 HP/Ryzen passzív auditjai; nyilvános ASA, SteamCMD, CurseForge, MariaDB, Microsoft, GitHub, YARK, HaruHost és Cousin dokumentáció. A Legacy-archívum nem nyilvános adatát nem töltöttük fel. **Sem az éles HP/Ryzen hosthoz, sem az élő Legacy Store-hoz, sem MariaDB-hez nem csatlakoztunk.**
 
 ## 0. Rövid döntés
-**NEM az a megoldás, hogy a v1.5.0 tiltott kapcsolóit bekapcsoljuk.** A termék jelenleg jó offline tesztalap, de az éles Kova-helyettesítéshez négy igazolás hiányzik: (1) Kova kétgépes Store-v1 kompatibilitási szerződés a tényleges rekordokon; (2) valós ASA mentésbefejezés + folyamatazonosság + kizárólagos vezérlési tulajdonjog; (3) atomikus többmapos, kétgépes, SQL-es mentési és visszaállítási eljárás; (4) Windows tesztgépen validált frissítés/telepítés, mielőtt prod hozzáférést adunk. A *prémium megoldás* önálló Windows Supervisor/agent + tranzakciós state machine + magyar WPF UI + bizonyítékhoz kötött kezelőszervek + auditnyom, nem a szimulációs kapuk általános feloldása.
+**NEM az a megoldás, hogy a v1.5.0 tiltott kapcsolóit bekapcsoljuk.** A termék jelenleg jó offline tesztalap, de az éles Legacy-helyettesítéshez négy igazolás hiányzik: (1) Legacy kétgépes Store-v1 kompatibilitási szerződés a tényleges rekordokon; (2) valós ASA mentésbefejezés + folyamatazonosság + kizárólagos vezérlési tulajdonjog; (3) atomikus többmapos, kétgépes, SQL-es mentési és visszaállítási eljárás; (4) Windows tesztgépen validált frissítés/telepítés, mielőtt prod hozzáférést adunk. A *prémium megoldás* önálló Windows Supervisor/agent + tranzakciós state machine + magyar WPF UI + bizonyítékhoz kötött kezelőszervek + auditnyom, nem a szimulációs kapuk általános feloldása.
 
 **Státuszmagyarázat:** K = funkció kódja létezik; B = WPF/Supervisor hívja; O = működő offline/lokális funkció; S = csak szimuláció; L = éles funkció lezárva; H = bizonyíték hiányzik. A „nem hívja” megállapítás a jelenleg ismert WPF/Supervisor hívási útvonalakra vonatkozik; tesztkódban lehet használat.
 
@@ -15,9 +15,9 @@
 |---|---|---|---|---|
 | P0 | Core/SafeLifecycle.cs – SafeLifecycle.Stop | K, tesztadapter | A WPF/Supervisor nem hívja; nincs éles implementált Stop/Restart. | LocalSession adapter + OperationCoordinator; SaveWorld bizonyíték/DoExit/process exit kísérleti validálása, egy művelet/gyökér. |
 | P0 | Core/SaveWorldValidator.cs – VerifyLiveUnavailable | K, L | A metódus mindig elutasítja az éles bizonyítékot. | Választható, dokumentált ASA/API hook alapú SaveFinished korreláció; stop utáni világállomány-integritás vizsgálata; sikertelen bizonyíték => STOP tiltva. |
-| P0 | Core/LocalStoreProbe.cs – Inspect | K, L | Nincs UI/Supervisor hívási pont; Store-séma sem igazolt. | **Olvasó** Kova-v1 parser/peer/session/lock monitor; eredeti Kova koordinációhoz soha nem írunk. |
-| P0 | Core/KovaProfileImporter.cs | K, B, H | Csak speciális lokálisan másolt v1 JSON „profiles” exportot fogad; ez önmagában nem azonos a Kova 1.8.3 saját fájljaival. A draft szándékosan inaktív; nincs valós import/apply. | Valódi fájlok szerződése szerinti read-only dekóder, forrás-staging, diff, explicit tulajdonosi jóváhagyás, továbbra sincs Store-konverzió. |
-| P0 | Core/ReleaseCapabilityGate.cs | K, B, L | RealAsaStart/Stop/Restart/Kill, LiveSteamUpdate, LiveSqlRestore és LiveKovaStoreWrite mindig tiltottak. | **Külön** típusos, igazolt élő bizonyítékok és elfogadási jogosultságok; ne egyetlen boolean kapcsoló. |
+| P0 | Core/LocalStoreProbe.cs – Inspect | K, L | Nincs UI/Supervisor hívási pont; Store-séma sem igazolt. | **Olvasó** Legacy-v1 parser/peer/session/lock monitor; eredeti Legacy koordinációhoz soha nem írunk. |
+| P0 | Core/LegacyProfileImporter.cs | K, B, H | Csak speciális lokálisan másolt v1 JSON „profiles” exportot fogad; ez önmagában nem azonos a Legacy 1.8.3 saját fájljaival. A draft szándékosan inaktív; nincs valós import/apply. | Valódi fájlok szerződése szerinti read-only dekóder, forrás-staging, diff, explicit tulajdonosi jóváhagyás, továbbra sincs Store-konverzió. |
+| P0 | Core/ReleaseCapabilityGate.cs | K, B, L | RealAsaStart/Stop/Restart/Kill, LiveSteamUpdate, LiveSqlRestore és LiveLegacyStoreWrite mindig tiltottak. | **Külön** típusos, igazolt élő bizonyítékok és elfogadási jogosultságok; ne egyetlen boolean kapcsoló. |
 | P0 | Core/RecoverySimulation.cs | K, B, S | A Recovery Center szintetikus SaveWorld/journal/exit/start után sem vezérel valós ASA-t. | Read-only watchdogból SafeLifecycle állapotgépre átvezetés CSAK izolált ASA teszt igazolása után, cooldown, maintenance, PID és loader identitás. |
 | P1 | Core/SteamCmdTestRunner.cs – RunAsync | K, teszt | A WPF/Supervisor nem hívja, csak FakeSteamCMD-t tesztel. | Külön, valódi SteamCMDUpdateWorker staged cache+install, bounded stdout/timeout, save/stop/backup gate, job lock; installer/Updater külön folyamat. |
 | P1 | Core/SteamUpdateDryRun.cs | K, B, S | Közös install preflight + szimulált receipt, de nincs Steam letöltés, telepítés. | App 2430930 build-ID lekérdezés, shared content cache, csak leállított install egyszeri update, pre_update backup és rollback. |
@@ -40,11 +40,11 @@
 |---|---|---|
 | Active/Passive/Disabled | Per-map argumentumok, tartós módváltás, globális helyi map edit, no restart | Valódi futó modváltozat és alkalmazási ACK; módosítás utáni boot-verifikáció. |
 | CurseForge | Jóváhagyott kulcs esetén read-only keresés, fájlok és függőségek | Letöltés/telepítés, author distribution opt-in, crossplay/premium entitlement bizonyítása. |
-| Pluginok | Fizikailag leállított saját mapon fájlkönyvtár ki-/bekapcsolás + SHA backup, ZIP rollback | Valós runtime load/unload igazolása, függőségek, hivatalos verziók, élő Kova coexistence és teljes owner lease. |
+| Pluginok | Fizikailag leállított saját mapon fájlkönyvtár ki-/bekapcsolás + SHA backup, ZIP rollback | Valós runtime load/unload igazolása, függőségek, hivatalos verziók, élő Legacy coexistence és teljes owner lease. |
 | JSON/INI | Stopped-state raw/strukturált editing, ETag, BOM/sorvégek, .bak és atomikus csere | Beacon-szintű spawn/loot/engram séma, új kulcsok és teljes config diff/catalog, pending-on-restart bizonyíték. |
 | Backup | Offline manifest, izolált csomag, integritás és retenciós motor | Pontos élő világ/profile/tribe + két peer Store + DB egy pontba rendezése, restore bizonyítás. |
 | Supervisor | Folyamatazonosítás + CPU/RAM + read-only scheduler | Elismert valós ASA readiness, player count, WAN upload/jitter, fagyás és kétszeres vezérlés kizárása. |
-| Kova import | Szintetikus, explicit v1 JSON másolatok fail-closed dekódolása | Eredeti Kova-format parser; a mostani **StoreCompatible=false** mindig. |
+| Legacy import | Szintetikus, explicit v1 JSON másolatok fail-closed dekódolása | Eredeti Legacy-format parser; a mostani **StoreCompatible=false** mindig. |
 | RCON | ListPlayers valódi helyi állapot alapján, egyéb parancsok biztonságos előnézete | Write/command queue és SaveWorld ACK külön helyi jog és valódi teszt után. |
 | Updater | GitHub Release polling, hash verification, külön updater és recovery | Jelenlegi v1.5.0 nincs v1.5.0 GitHub Release-ként közzétéve, így az automatikus keresés nem látja. |
 
@@ -59,10 +59,10 @@
 
 **Elfogadási teszt:** izolált valódi ASA szerver; SaveWorld közben RCON elszakad, plugin leáll, file lock, 2 egymást követő save, PID reuse, API loader más child process, három szimultán Manager indítás, áramszünet. Minden hibánál fail-closed; nem indul második ASA.
 
-### 3.2 KovaCluster Store 1:1 – P0, nem helyettesíthető általános ARK clusterrel
-**A felhasználó eredeti Kova 1.8.3 ZIP-je alapján**, a specifikációban szereplő lokális metaadatok: cluster-v1.json, cluster-store-v1.json, shared-store-device-v1.json, shared-store-lock-v1.json; közös .kova-store-v1 koordináció: operation.json, peer fájlok, optional attempted/running/cancelled/archive/mutation.lock; eredeti kétgépes állapot active/done. A peer protokoll frozen/backed/done/cancel/released státuszokat használ, session/configHash/selected/member egyeztetéssel. **NEM módosítható**: jelenlegi cluster ID, aktív Store állapot, session, peer config, lock, a karakter/tribe file-ok és nincs új convertToStore.
+### 3.2 LegacyCluster Store 1:1 – P0, nem helyettesíthető általános ARK clusterrel
+**A felhasználó eredeti Legacy 1.8.3 ZIP-je alapján**, a specifikációban szereplő lokális metaadatok: cluster-v1.json, cluster-store-v1.json, shared-store-device-v1.json, shared-store-lock-v1.json; közös .legacy-store-v1 koordináció: operation.json, peer fájlok, optional attempted/running/cancelled/archive/mutation.lock; eredeti kétgépes állapot active/done. A peer protokoll frozen/backed/done/cancel/released státuszokat használ, session/configHash/selected/member egyeztetéssel. **NEM módosítható**: jelenlegi cluster ID, aktív Store állapot, session, peer config, lock, a karakter/tribe file-ok és nincs új convertToStore.
 
-**Prémium terv:** (a) kifejezetten **read-only**, schema-v1 validáló mindkét host lokális és az SMB másolatán; (b) canonical JSON/JS szerinti configHash kompatibilitási tesztek a dokumentációval; (c) map-route ownership és két peer session+done+member+root egyeztetés; (d) külön „kétgépes átállási/restore stop-checklist”, de új session soha nem készül automatikusan; (e) Kova és új Manager közös mapra történő egyidejű aktív kontrollját blokkolni. Általános cluster backup nem elegendő. Semmilyen „Kova Store olvasható” eredmény ne jelentsen „átvehető” jogosultságot, amíg a valódi tesztmásolatok átjárhatósága nincs bizonyítva.
+**Prémium terv:** (a) kifejezetten **read-only**, schema-v1 validáló mindkét host lokális és az SMB másolatán; (b) canonical JSON/JS szerinti configHash kompatibilitási tesztek a dokumentációval; (c) map-route ownership és két peer session+done+member+root egyeztetés; (d) külön „kétgépes átállási/restore stop-checklist”, de új session soha nem készül automatikusan; (e) Legacy és új Manager közös mapra történő egyidejű aktív kontrollját blokkolni. Általános cluster backup nem elegendő. Semmilyen „Legacy Store olvasható” eredmény ne jelentsen „átvehető” jogosultságot, amíg a valódi tesztmásolatok átjárhatósága nincs bizonyítva.
 
 **Elvégzendő tesztek:** ellenőrzött host- és megosztásmásolat, valós Store állapot 5+5 mapon, hiányzó peer, megtört SMB, elérhetetlen lock, eltérő JS JSON.stringify hash, késői transfer, két különböző session, és karakter/tribe sértetlenség. Mindezt csak izoláltan; a két éles host érintetlen.
 
@@ -90,7 +90,7 @@
 ### 3.6 Backup + Restore + MariaDB – P0/P1
 **Források:** [ARK wiki Saved mentés](https://ark.wiki.gg/wiki/Server_Setup), [YARK backup](https://getyark.com/docs/backups/), [MariaDB mariadb-dump](https://mariadb.com/docs/server/clients-and-utilities/backup-restore-and-import-clients/mariadb-dump), [MariaDB mariadb-backup](https://mariadb.com/docs/server/server-usage/backup-and-restore/mariadb-backup/mariadb-backup-overview), [Microsoft VSS](https://learn.microsoft.com/en-us/windows-server/storage/file-server/volume-shadow-copy-service).
 
-**Fontos:** a ShooterGame/Saved tartalmaz világ- és profiladatokat, de az Untamed saját kétgépes Kova Store + SQL külön mentési koordinációt kíván. A Windows VSS **nem garantál alkalmazáskonzisztenciát ASA vagy MariaDB VSS writer nélkül**. MariaDB --single-transaction csak InnoDB esetén ad konzisztens snapshotot; nem elegendő MyISAM/MEMORY táblákra. A mariadb-backup fizikai online full/incremental backupot nyújt Windowsra is, de --prepare szükséges a visszaállításhoz; fizikailag általában teljes példányra jobb, három kis schema szelektív visszaállítására dokumentált mariadb-dump praktikus.
+**Fontos:** a ShooterGame/Saved tartalmaz világ- és profiladatokat, de az Untamed saját kétgépes Legacy Store + SQL külön mentési koordinációt kíván. A Windows VSS **nem garantál alkalmazáskonzisztenciát ASA vagy MariaDB VSS writer nélkül**. MariaDB --single-transaction csak InnoDB esetén ad konzisztens snapshotot; nem elegendő MyISAM/MEMORY táblákra. A mariadb-backup fizikai online full/incremental backupot nyújt Windowsra is, de --prepare szükséges a visszaállításhoz; fizikailag általában teljes példányra jobb, három kis schema szelektív visszaállítására dokumentált mariadb-dump praktikus.
 
 **Prémium terv:** explicit 2-host backup plan, manifest az összes mapról + SQL schema + Store-coordination read-only snapshot, két peer barriernél csak akkor „complete”, ha mindkét oldalon hash és ownership OK; 3-2-1 tárolás / karantén / külön retention job. Restore: **kizárólag tesztpéldányban** dry-run -> scratch profile/DB -> SHA és karakter/tribe validáció -> felhasználói jóváhagyás -> production maintenance, új pre-restore snapshot, visszaállítási marker, kontroller quorum. Verifikációra használjunk leválasztott MariaDB tesztadatbázist a tényleges motorverzióhoz igazítva; soha ne egy második éles MariaDB installt módosítsunk a build alapján.
 
@@ -107,30 +107,30 @@
 ### 3.9 Kiadás és frissítő – P1, gyorsan javítható
 **Források:** [GitHub Release API](https://docs.github.com/en/rest/releases/releases), [GitHub Actions artifactok lejárnak](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts), [Microsoft Authenticode](https://learn.microsoft.com/powershell/module/microsoft.powershell.security/get-authenticodesignature).
 
-**Bizonyított projektellentmondás:** a wpf/MainWindow.Updater.cs UpdateCenter.CheckAsync a GitHub Release-eket ellenőrzi; a .github/workflows/build-untamed-wpf.yml Release létrehozás „if: false” feltételű. A repó Release-listájában csak korábbi v1.3.1 preview a legfrissebb WPF kiadás, v1.5.0 nincs. A v1.5.0 a 41697040819-es GitHub Actions run artifactjeiben található. Következmény: a saját Updater **nem tudja** megtalálni a v1.5.0-t elérhető Release-ként. Nem a release-ellenőrzést kell megkerülni, hanem a sikeres, jóváhagyott buildet Preview Release assetként publikálni, SHA-256 digesttel és digitális kiadói aláírással, changeloggal; Stable csak explicit, valódi ASA/Kova acceptance után. Ne tartsunk Release-ként nem ellenőrzött artifactot.
+**Bizonyított projektellentmondás:** a wpf/MainWindow.Updater.cs UpdateCenter.CheckAsync a GitHub Release-eket ellenőrzi; a .github/workflows/build-untamed-wpf.yml Release létrehozás „if: false” feltételű. A repó Release-listájában csak korábbi v1.3.1 preview a legfrissebb WPF kiadás, v1.5.0 nincs. A v1.5.0 a 41697040819-es GitHub Actions run artifactjeiben található. Következmény: a saját Updater **nem tudja** megtalálni a v1.5.0-t elérhető Release-ként. Nem a release-ellenőrzést kell megkerülni, hanem a sikeres, jóváhagyott buildet Preview Release assetként publikálni, SHA-256 digesttel és digitális kiadói aláírással, changeloggal; Stable csak explicit, valódi ASA/Legacy acceptance után. Ne tartsunk Release-ként nem ellenőrzött artifactot.
 
 ### 3.10 Premium UX, Discord, telefon, licenc – P2
 **Források:** [Cousin Manager funkciók](https://asamanager.chezcousin.net/features), [HaruHost ASA](https://haruhost.com/gameservers/ark-survival-ascended/), [YARK dokumentáció](https://getyark.com/docs/), [Tailscale access grants](https://tailscale.com/docs/features/access-control/acls), [Cloudflare Workers WebCrypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/), [Discord rate limits](https://github.com/discord/discord-api-docs/blob/main/developers/topics/rate-limits.mdx).
 
 **Prémium UI terv:** egyik oldalon a 10 mapos fleet státusz és a két host egészsége, filter és search minden mod/config/INI/plugin/log listán, tartós műveleti idővonal, térbeli/folyamat-azonosság státusz, REST API felületi kapcsolók *bizonyítékokkal*. Külön per-job diff és előnézet, rollback, progress bar. Prioritás: 1) saját natív WPF; 2) csak olvasó, külön autholt mobilpanel/VPN (nem nyitott WAN RCON), később üzemeltetésre RBAC + approval; 3) Discord-status + rate-limit + szerepkör, értesítés kézbesítési ACK; 4) opcionális UPS figyelés. Licenc: Cloudflare Workers / D1 + Ed25519-aláírt időkorlátos offline token, Windows DPAPI, nincs hard-coded titok, működés leállt internettel is. A licencszerver ne legyen függősége a karaktermentések/Stop biztonsági funkcióinak.
 
-**Szellemi tulajdon:** a YARK forrás GPL-3.0 licencű. Használjuk nyilvános architekturális mintaként és dokumentációként, de ne emeljünk át kódot automatikusan a saját, más licencelésű Managerbe. A Kova eredeti kódját sem másoljuk át; szerződés alapján tiszta C# implementációt építsünk.
+**Szellemi tulajdon:** a YARK forrás GPL-3.0 licencű. Használjuk nyilvános architekturális mintaként és dokumentációként, de ne emeljünk át kódot automatikusan a saját, más licencelésű Managerbe. A Legacy eredeti kódját sem másoljuk át; szerződés alapján tiszta C# implementációt építsünk.
 
 ## 4. Konkrét elfogadási kapuk / tesztek
 
 | Kapu | Minősítés |
 |---|---|
-| A: saját üzemeltetés Kova mellett | **Csak read-only**. Sem indulás, sem scheduler/watchdog, sem shared Store-írás. A jelenlegi v1.5.0 WPF tesztmódja nem „prod shadow reader” hitelesítés nélkül. |
+| A: saját üzemeltetés Legacy mellett | **Csak read-only**. Sem indulás, sem scheduler/watchdog, sem shared Store-írás. A jelenlegi v1.5.0 WPF tesztmódja nem „prod shadow reader” hitelesítés nélkül. |
 | B: két host/Store metaadat read-only felismerés | Hiteles v1 parser, 5+5 map, mindkét peer active/done, session/configHash/lock, file unchanged SHA. Ismeretlen => blokkolt. |
 | C: mentés minden ismert adatra | Külön HOST-A/HOST-B/SQL/Store manifest, pontos hatókör, konzisztencia, checksum, elérhető restore. |
 | D: kontrollált stop/restart | Valós izolált ASA SaveWorld/DoExit + PID identitás + backup + mod/API readiness bizonyítékkal; timeout/failure esetén no kill/no double start. |
 | E: Steam/API/mod műveletek | Helyi staging, shared root lock, original Saved config untouched, rollback, official release/hash/API entitlement, játékos notice. |
-| F: automatikus watchdog/WAN/wipe | Írásos felhasználói opt-in, Kova exkluzív leváltása után, max-attempt/cooldown/maintenance/notice; két peer koordináció. |
+| F: automatikus watchdog/WAN/wipe | Írásos felhasználói opt-in, Legacy exkluzív leváltása után, max-attempt/cooldown/maintenance/notice; két peer koordináció. |
 | G: publikálható Manager | Windows test PC + GitHub Windows Actions; pontos build hash és signed Preview Release; „Stable” csak owner acceptance után. |
 
 ## 5. Ajánlott fejlesztési sorrend – max haszon / min kockázat
 
-1. **P0-1 – Kova read-only adapter** tényleges fájlokra, ownership/fencing és külön „read-only coexisting with Kova” bizonyítás. **Nem próbálunk Store-t írni.**
+1. **P0-1 – Legacy read-only adapter** tényleges fájlokra, ownership/fencing és külön „read-only coexisting with Legacy” bizonyítás. **Nem próbálunk Store-t írni.**
 2. **P0-2 – SaveWorld/DoExit adapter** izolált tesztszerverrel, valódi időzítési/hiba/megállás jelzések; SafeLifecycle/Recovery/Backup összeillesztése.
 3. **P0-3 – Kétgépes védőmentés és izolált restore** MariaDB 10.11-kompatibilis eszközökkel, valódi SQL fixture restore, karakter/profil/tribe diff.
 4. **P1-1 – GitHub Preview Release pipeline + updater** (gyors, látható eredmény, nem kell élő ASA).
@@ -142,12 +142,12 @@
 
 ## 6. További ténylegesen hiányzó / nem vizsgált inputok
 
-- Valódi, másolatból kinyert Kova 1.8.3 cluster-v1.json / store-v1.json / peer-session metaadatok egyező rekordjai titokszűréssel; jelenleg ZIP dokumentáció + régebbi passzív állapotleltár áll rendelkezésre, nem teljes kétoldali tesztcsomag működésre.
+- Valódi, másolatból kinyert Legacy 1.8.3 cluster-v1.json / store-v1.json / peer-session metaadatok egyező rekordjai titokszűréssel; jelenleg ZIP dokumentáció + régebbi passzív állapotleltár áll rendelkezésre, nem teljes kétoldali tesztcsomag működésre.
 - Tesztgépen futó valódi ASA szerver, API loader és lehetőleg csak tesztkarakter/profil; nincs kontrollált valódi SaveWorld-folyamat teszteredmény.
 - MariaDB dump külön sandbox tesztpéldányba történt importtal, tábla engine ellenőrzéssel (InnoDB/MyISAM), binlog/jogok/konzisztencia igazolással.
 - SteamCMD + CurseForge szolgáltatás tesztkulcsa/author megengedett API scope és fizetős modjogosultság forrás.
 - Saját Authenticode code-signing cert (ha valóban aláírt Setup EXE-t szeretnénk). A SHA-256 nem azonos a kiadói aláírással.
-- Kétgépes exkluzív controlling handover tervezet, Kova scheduler/watchdog letiltásának jóváhagyása, külön offline/maintenance teszt.
+- Kétgépes exkluzív controlling handover tervezet, Legacy scheduler/watchdog letiltásának jóváhagyása, külön offline/maintenance teszt.
 - Telefonos/Discord admin auth hozzáférési modell és az elérhető feladatkörök. A státuszos read-only kezdet a legbiztonságosabb.
 
 ## 7. Nyilvános forráskatalógus (2026.11.03-án ellenőrizve)
@@ -163,4 +163,4 @@
 10. Tailscale és Cloudflare WebCrypto: https://tailscale.com/docs/features/access-control/acls ; https://developers.cloudflare.com/workers/runtime-apis/web-crypto/
 11. Modcommunity ASA modlist/start, független forrás: https://github.com/modcommunity/how-to-setup-a-server-in-ark-sa
 
-**Kutatási korlát:** nem szó szerint a teljes internet ellenőrzése történt, hanem a kulcsfontosságú gyártói/hivatalos, licenc- és projektforrásoké, a felhasználó eredeti Kova-dokumentációjával kiegészítve. Nincs éles ASA vagy kétgépes Kova-kompatibilitást alátámasztó mérés. A javaslatokat nem szabad kész vagy jóváhagyott production funkcióként kommunikálni.
+**Kutatási korlát:** nem szó szerint a teljes internet ellenőrzése történt, hanem a kulcsfontosságú gyártói/hivatalos, licenc- és projektforrásoké, a felhasználó eredeti Legacy-dokumentációjával kiegészítve. Nincs éles ASA vagy kétgépes Legacy-kompatibilitást alátámasztó mérés. A javaslatokat nem szabad kész vagy jóváhagyott production funkcióként kommunikálni.

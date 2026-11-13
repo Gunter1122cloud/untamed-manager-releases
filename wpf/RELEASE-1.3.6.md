@@ -1,6 +1,6 @@
 # Untamed Kingdom ASA Manager v1.3.6 — TEST / PREVIEW
 
-**Separate Windows test PC only.** Do not install on UK-HOME-01 (HP) or UK-HOME-02 (Ryzen). This is not an operational ASA/KovaCluster replacement.
+**Separate Windows test PC only.** Do not install on UK-HOME-01 (HP) or UK-HOME-02 (Ryzen). This is not an operational ASA/LegacyCluster replacement.
 
 ## Implemented in this development cycle
 
@@ -8,7 +8,7 @@
 - Read-only multi-map backup overview for explicitly registered local maps, with per-map integrity-verified package count, corrupt/interrupted package count, verified total bytes and last verified date.
 - Existing per-map backup history now exposes actual total bytes from a successfully verified manifest.
 - Safe plugin ZIP preflight for selected local maps shows whether the map is confirmed stopped, the target plugin already exists, the DLL count and the non-binary files skipped. The actual updater revalidates its invariants independently.
-- ZIP packages targeting Kova-related plugin names are rejected at validation time. Synthetic tests cover rejection and ensure the Store stays untouched.
+- ZIP packages targeting Legacy-related plugin names are rejected at validation time. Synthetic tests cover rejection and ensure the Store stays untouched.
 
 ## Inherited from v1.3.5
 
@@ -20,13 +20,13 @@
 
 ## Required acceptance evidence
 
-All GitHub Actions Windows workflow steps must pass on the exact v1.3.6 commit, including FakeAsa, two simulated Managers, Windows GUI startup, Updater/Supervisor and installer recovery. A successful run is **not** a real ASA server or Kova transfer compatibility proof. Download a specific run's artifacts and verify SHA-256 before testing.
+All GitHub Actions Windows workflow steps must pass on the exact v1.3.6 commit, including FakeAsa, two simulated Managers, Windows GUI startup, Updater/Supervisor and installer recovery. A successful run is **not** a real ASA server or Legacy transfer compatibility proof. Download a specific run's artifacts and verify SHA-256 before testing.
 
 ## Still disabled / not claimed
 
 - Live ASA SaveWorld completion detection, automatic server Stop/Restart, WAN-IP-triggered recovery, Kill-to-Start.
 - Executing SteamCMD or downloading/installing mods or plugins without explicit guarded UI actions.
-- Live SQL backup or restore, KovaCluster Store write/conversion, live world/character restore or Store 1:1 compatibility proof.
+- Live SQL backup or restore, LegacyCluster Store write/conversion, live world/character restore or Store 1:1 compatibility proof.
 - Production release: the GitHub Release publication step remains disabled.
 
 ## Planned follow-up

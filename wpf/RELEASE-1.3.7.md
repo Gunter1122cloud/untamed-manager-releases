@@ -2,7 +2,7 @@
 
 **Separate Windows test PC / GitHub Actions only. Do not deploy to UK-HOME-01 or UK-HOME-02.**
 The project remains the original .NET 10 WPF Neon Kingdom Manager with its existing
-Supervisor, Mod Center, Plugin Center, updater and KovaCluster safeguards.
+Supervisor, Mod Center, Plugin Center, updater and LegacyCluster safeguards.
 
 ## Implemented
 
@@ -19,7 +19,7 @@ Supervisor, Mod Center, Plugin Center, updater and KovaCluster safeguards.
 - **Crash-resistant offline recovery simulation**: durable per-map journal,
   confirmed synthetic stages and safety failure states, 5-minute retry cooldown,
   three-attempts-per-hour limit, no replay/resumption of interrupted operations.
-  No real Process.Start/Kill, DoExit, RCON, SteamCMD, SQL or Kova Store writes.
+  No real Process.Start/Kill, DoExit, RCON, SteamCMD, SQL or Legacy Store writes.
 - **WAN IP and DDNS read-only monitoring**: optional user-clicked HTTP(S) checks
   with two independent IP sources, DNS lookup of untamedkingdom.ddns.net,
   confirmation via two samples separated by at least 30 seconds, mismatch alerts,
@@ -38,8 +38,8 @@ Supervisor, Mod Center, Plugin Center, updater and KovaCluster safeguards.
 - **Real ASA SaveWorld proof** is not implemented. No claim of production-safe
   SaveWorld → DoExit → Restart or live health/hang determination.
 - No live kill/restart, IP change triggered restart, SteamCMD automated update,
-  remote map control, real ASA Restore, SQL write/restore or KovaCluster Store
-  read/write/conversion. The KovaCluster Store file format is unchanged.
+  remote map control, real ASA Restore, SQL write/restore or LegacyCluster Store
+  read/write/conversion. The LegacyCluster Store file format is unchanged.
 - The offline fake successful restart cannot verify the production ASA server.
 - Cloud IP endpoints may be unreachable; no network checking occurs automatically.
 - Running this version on a real ASA host is not authorized; preview tests only.

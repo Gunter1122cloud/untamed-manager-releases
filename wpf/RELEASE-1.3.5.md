@@ -12,7 +12,7 @@
 - Synthetic HTTP tests for the CurseForge API and denied credentials.
   **Real API-key/live-catalog acceptance has not been performed.**
 - Read-only local plugin inventory: DLL names, optional file version and SHA-256.
-  Kova plugin folders are not inspected.
+  Legacy plugin folders are not inspected.
 - Read-only Steam/ASA installation preflight: groups maps sharing an install,
   checks the ASA executable and local steamapps/appmanifest_2430930.acf,
   and always keeps automatic updates blocked.
@@ -26,7 +26,7 @@
 
 - No verified live ASA SaveWorld completion adapter: Stop/Restart,
   automated updates, Kill-to-Start and IP-change recovery remain disabled.
-- No KovaCluster Store read/write, Store conversion, SQL backup/restore
+- No LegacyCluster Store read/write, Store conversion, SQL backup/restore
   or real ASA restoration. SHA-256 file integrity is not ASA consistency.
 - Only local, explicitly registered map controls. The other host remains
   authenticated and read-only.
