@@ -6,7 +6,7 @@ using System.Linq;
 namespace UntamedManager.Core;
 
 // Aggregate only explicitly registered LOCAL map backup packages.
-// Read-only integrity checks; does not access or restore ASA, Kova Store or SQL.
+// Read-only integrity checks; does not access or restore ASA, Legacy Store or SQL.
 public sealed record LocalBackupMapSummary(Guid MapId,string MapName,
     int ValidPackages,int InvalidPackages,long VerifiedBytes,
     DateTimeOffset? LatestVerifiedUtc,IReadOnlyList<LocalBackupHistoryEntry> Packages);

@@ -8,7 +8,7 @@ namespace UntamedManager.Core;
 [Flags]
 public enum LocalBackupScope { None=0, WorldAndProfiles=1, Ini=2, Plugins=4 }
 
-// File-integrity-only backup of explicitly owned local maps. Never accesses Kova Store,
+// File-integrity-only backup of explicitly owned local maps. Never accesses Legacy Store,
 // cluster shares or SQL, and never claims live ASA save consistency.
 public sealed record LocalBackupResult(string PackageDirectory, BackupManifest Manifest,
     string Consistency="File integrity verified; ASA application consistency NOT established");

@@ -6,7 +6,7 @@ using System.Linq;
 namespace UntamedManager.Core;
 
 // Safe read-only history for explicitly owned local backup packages.
-// This is not a restore facility and never reads SQL or shared Kova Store data.
+// This is not a restore facility and never reads SQL or shared Legacy Store data.
 public sealed record LocalBackupHistoryEntry(string PackageDirectory,bool Valid,
     int FileCount,DateTimeOffset? CreatedUtc,string Status,long TotalBytes=0);
 
