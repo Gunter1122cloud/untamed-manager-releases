@@ -263,28 +263,28 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                     var stagedKeys=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     var stagedPorts=new HashSet<int>();
                     var additions=new List<LocalMap>();
-                    foreach(var pinned in approved.Maps)
+                    foreach(var candidate in approved.Maps)
                     {
-                        var (running,_)=Select(observed,pinned.Pid,pinned.StartedUtc);
+                        var (running,_)=Select(observed,candidate.Pid,candidate.StartedUtc);
                         var (root,exe,key,facts)=Inspect(running,observed,
                             cluster.Config.LocalMaps);
-                        if(root!=pinned.Root||exe!=pinned.Executable||
-                           key!=pinned.MapKey||
-                           Hash(running.CommandLine!)!=pinned.CommandHash||
-                           facts.GamePort!=pinned.GamePort||
-                           facts.QueryPort!=pinned.QueryPort)
+                        if(root!=candidate.Root||exe!=candidate.Executable||
+                           key!=candidate.MapKey||
+                           Hash(running.CommandLine!)!=candidate.CommandHash||
+                           facts.GamePort!=candidate.GamePort||
+                           facts.QueryPort!=candidate.QueryPort)
                             return Denied(id,"UM-LIVE-BATCH-PROCESS-CHANGED");
-                        Unique(pinned.Name,exe,key,root,pinned.GamePort,pinned.QueryPort);
-                        if(!stagedNames.Add(pinned.Name)||
+                        Unique(candidate.Name,exe,key,root,candidate.GamePort,candidate.QueryPort);
+                        if(!stagedNames.Add(candidate.Name)||
                            !stagedKeys.Add(exe+"|"+key)||
-                           !stagedPorts.Add(pinned.GamePort)||
-                           !stagedPorts.Add(pinned.QueryPort))
+                           !stagedPorts.Add(candidate.GamePort)||
+                           !stagedPorts.Add(candidate.QueryPort))
                             return Denied(id,"UM-LIVE-BATCH-COLLISION");
                         additions.Add(new LocalMap{
-                            Id=Guid.NewGuid(),Name=pinned.Name,
+                            Id=Guid.NewGuid(),Name=candidate.Name,
                             ExecutablePath=exe,InstallationPath=root,
                             ObservedMapKey=key,ObservedReadOnlyImported=true,
-                            GamePort=pinned.GamePort,QueryPort=pinned.QueryPort,
+                            GamePort=candidate.GamePort,QueryPort=candidate.QueryPort,
                             RconPort=0,Arguments="",ApiLoaderArguments="",
                             AutoStart=false,StartWithAsaApi=false,MonitorRcon=false
                         });
