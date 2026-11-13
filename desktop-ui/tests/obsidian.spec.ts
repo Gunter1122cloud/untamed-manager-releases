@@ -6611,6 +6611,8 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   // brand-new independently approved Restart is enabled.
   await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"}))
     .toBeEnabled();
+  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+    .toBeEnabled();
   const reviewCount=await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number
   }).__UNTAMED_FRESH_RESTART_REVIEWS__?.()??-1);

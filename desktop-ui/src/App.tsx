@@ -1786,7 +1786,18 @@ function MapDetails({snapshot,mapId,onBack,setSelected,onConfigured}: {
       {historical&&<HistoricalStoreRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured}/>}
       {map.gamePort>0 && fresh && <FreshAsaStartPanel mapId={mapId} onStarted={onConfigured} onOpenRcon={()=>setSection("rcon")} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && fresh && <FreshAsaStopPanel mapId={mapId} running={map.running} onStopped={onConfigured} journalBlocked={lifecycleBlocked}/>}
-      {map.gamePort>0 && fresh && <FreshAsaRestartPanel mapId={mapId} running={map.running} onRestarted={onConfigured} journalBlocked={lifecycleBlocked}/>}
+      {map.gamePort>0 && fresh && <FreshAsaRestartPanel mapId={mapId} running={map.running}
+        onRestarted={async()=>{
+          // A successful native Restart-v1 review changes the durable
+          // journal, not the dashboard snapshot. Re-read BOTH journals
+          // before unlocking any lifecycle button; a stale parent
+          // needsOperatorReview flag must not strand an audited server.
+          // The same recheck after a normal Restart ensures that
+          // independently pending operations still fail closed.
+          setJournalsVerifiedFor("");
+          setJournalRevision(n=>n+1);
+          await onConfigured();
+        }} journalBlocked={lifecycleBlocked}/>}
       {map.gamePort>0 && (!map.storeProtected||map.freshStoreEnrolled) &&
         <FreshStoreEnrollmentPanel key={mapId} mapId={mapId} onConfigured={onConfigured}/>}
       {map.freshStoreEnrolled &&
