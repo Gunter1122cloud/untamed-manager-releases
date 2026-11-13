@@ -10,7 +10,7 @@ using UntamedDesktop;
 using UntamedManager.Core;
 
 // Real existing native world backup engine across five synthetic original
-// Store-owned maps. Does not read any original Kova user profile or UNC share.
+// Store-owned maps. Does not read any original Legacy user profile or UNC share.
 internal static class OriginalStoreFiveMapBackupTests
 {
     private static void Check(bool value,string reason)
@@ -84,7 +84,7 @@ internal static class OriginalStoreFiveMapBackupTests
                 enabled,passive));
         }
         // A sixth independent historical Store map must NOT impose a
-        // five-map capacity restriction on original Kova backup selection.
+        // five-map capacity restriction on original Legacy backup selection.
         var independent=new LocalMap{
             Id=Guid.NewGuid(),Name="Valguero",
             InstallationPath=Path.Combine(root,"independent-sixth-map"),

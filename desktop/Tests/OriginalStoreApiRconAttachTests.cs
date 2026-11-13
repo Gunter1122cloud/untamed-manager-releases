@@ -50,7 +50,7 @@ internal static class OriginalStoreApiRconAttachTests
         string ini=AsaInitialRconSettings.NewIniPath(install);
         Directory.CreateDirectory(Path.GetDirectoryName(ini)!);
         const int port=37455;
-        // Existing Kova INI may contain a short password with delimiters.
+        // Existing Legacy INI may contain a short password with delimiters.
         // This is NOT eligible for fresh-server password generation.
         const string password="K0va=;[!]";
         File.WriteAllText(ini,"[ServerSettings]\r\nRCONEnabled=True\r\n"+

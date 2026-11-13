@@ -9,7 +9,7 @@ using UntamedManager.Core;
 /// <summary>
 /// Native Core integration: partial previous Store imports + running original
 /// five-map handoff use ONE atomic Manager profile write. These are synthetic
-/// files under isolated TEMP, not real Kova, SMB, ASA, RCON or game data.
+/// files under isolated TEMP, not real Legacy, SMB, ASA, RCON or game data.
 /// Production bridge must separately prove current Windows WMI + two peers
 /// under the native cross-process installation leases.
 /// </summary>
@@ -81,7 +81,7 @@ internal static class OriginalStoreLiveReconcileTests
             live.Add(map);
         }
         await using var cluster=new ClusterService(
-            "synthetic-five-Kova-mixed",
+            "synthetic-five-Legacy-mixed",
             Path.Combine(root,"manager-profile"),
             _=>new ProcessCheck(false,"Synthetic - no real process",null,false));
         // Simulate maps imported by an OLDER release: RCON has already
