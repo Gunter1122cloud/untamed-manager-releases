@@ -16,10 +16,10 @@ public sealed record VaultProfileReport(string SourceHash,int Version,
     IReadOnlyList<VaultImportedMap> Maps,bool ReadOnly,bool StoreCompatible,
     IReadOnlyList<string> Warnings,string SourcePath);
 
-// Read-only Kova 1.8.3 profile v1 reader. Produces an inert migration
+// Read-only Legacy 1.8.3 profile v1 reader. Produces an inert migration
 // proposal, NEVER claims Store binary compatibility or starts a server.
 // Accepted input is a user-selected, locally copied JSON export; not live
-// Kova localStorage, remote SMB or Store coordination folder.
+// Legacy localStorage, remote SMB or Store coordination folder.
 public static class VaultProfileImporter
 {
     public static VaultProfileReport InspectCopy(string profileJson,string? storeJson=null)
@@ -109,7 +109,7 @@ public static class VaultProfileImporter
                 Id=new Guid(idBytes.AsSpan(0,16)),Name=row.Name,
                 InstallationPath=row.Root,
                 ExecutablePath="",ApiLoaderPath="",
-                // Never construct a launch command or copy Kova secrets.
+                // Never construct a launch command or copy Legacy secrets.
                 Arguments="",GamePort=row.GamePort,QueryPort=row.QueryPort,
                 AutoStart=false,MonitorRcon=false,Maintenance=true,
                 ModChangesPending=true,
