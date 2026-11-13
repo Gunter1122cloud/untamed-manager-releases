@@ -704,6 +704,37 @@ try
             "-clusterid=KovaCluster",@"-ClusterDirOverride=\\192.0.2.1\SyntheticCluster",
             "-usestore","-log"})&&!active.ConversionRequested,
             "original active Store-v1 source grammar preserves the exact enabled mod order with separate passive flags and forbids conversion");
+        // Kova 1.8.3 accepts UTF-8 and BOM-marked UTF-16 LE/BE
+        // GameUserSettings.ini. The historical launcher must parse these
+        // equivalently, without normalizing or rewriting original bytes.
+        static byte[] WithBom(Encoding encoding,string text)=>
+            encoding.GetPreamble().Concat(encoding.GetBytes(text)).ToArray();
+        var bomVariants=new[]{
+            Encoding.UTF8.GetBytes(safeIni),
+            WithBom(new UTF8Encoding(true,true),safeIni),
+            WithBom(new UnicodeEncoding(false,true,true),safeIni),
+            WithBom(new UnicodeEncoding(true,true,true),safeIni)
+        };
+        foreach(byte[] encoded in bomVariants)
+        {
+            string parsed=LegacyStoreV1ActiveLaunch.DecodeOriginalIni(encoded);
+            Check(parsed==safeIni &&
+                  LegacyStoreV1ActiveLaunch.Build(input with{
+                      GameUserSettingsIni=parsed
+                  }).Arguments.SequenceEqual(active.Arguments),
+                "original Store-v1 UTF-8/UTF-16 INI leaves active launch arguments unchanged");
+        }
+        bool wrongUnicodeDenied=false;
+        try{LegacyStoreV1ActiveLaunch.DecodeOriginalIni(
+            new byte[]{0xFF,0xFE,0x5B});}
+        catch(InvalidDataException){wrongUnicodeDenied=true;}
+        Check(wrongUnicodeDenied,
+            "truncated UTF-16 Store INI cannot silently bypass startup validation");
+        bool nulDenied=false;
+        try{LegacyStoreV1ActiveLaunch.DecodeOriginalIni(
+            Encoding.UTF8.GetBytes("[ServerSettings]\0Port=7777"));}
+        catch(InvalidDataException){nulDenied=true;}
+        Check(nulDenied,"binary NUL in original INI is rejected without source changes");
         void Reject(LegacyStoreV1ActiveLaunch.Input changed,string label)
         {
             bool denied=false;
