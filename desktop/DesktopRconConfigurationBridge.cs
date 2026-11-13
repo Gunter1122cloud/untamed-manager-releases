@@ -116,7 +116,7 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
 
     private static bool ExistingWorldOrStore(LocalMap map)
     {
-        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))return true;
+        if(LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map))return true;
         string folder=Path.Combine(map.InstallationPath,"ShooterGame","Saved","SavedArks");
         return Directory.Exists(folder)&&Directory.EnumerateFileSystemEntries(folder).Any();
     }

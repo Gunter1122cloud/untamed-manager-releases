@@ -36,7 +36,7 @@ public sealed class DesktopOwnedAsaKillBridge
 
     private ProcessIdentity RequireOwned(LocalMap map)
     {
-        // The historical Kova Store-v1 protocol has a separate protected
+        // The historical Legacy Store-v1 protocol has a separate protected
         // lifecycle and cannot be emergency-killed by this route.
         if(map.HistoricalStoreProtected||map.Maintenance||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||

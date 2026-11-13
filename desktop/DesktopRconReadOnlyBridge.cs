@@ -94,7 +94,7 @@ public sealed class DesktopRconReadOnlyBridge
                     catch(Exception){return Deny(id,"UM-FRESH-STORE-CLUSTER-STATE-CHANGED");}
                 }
                 if(method=="rcon.saveWorld" && !newStore &&
-                   KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
+                   LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
                     return Deny(id,"UM-HISTORICAL-STORE-LOCKED");
                 bool configured=map.RconPort is >=1 and <=65535 &&
                     !string.IsNullOrWhiteSpace(map.RconPasswordProtected);
