@@ -1226,8 +1226,16 @@ function LogsCenter({ snapshot, selected, setSelected, mapLocked=false }: {
     setResult(null); setError("");
     if (!selected) return;
     managerBridge.logTail(selected)
-      .then(data => { if (active) setResult(data); })
-      .catch(() => { if (active) setError("A regisztrált helyi ASA napló nem olvasható vagy nincs konfigurálva."); });
+      .then(data=>{
+        if(!active)return;
+        if(data.mapId.toLowerCase()!==selected.toLowerCase()||
+           data.evidence!=="SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH")
+          throw new Error("UM-LOG-OTHER-MAP");
+        setResult(data);
+      })
+      .catch(()=>{
+        if(active)setError("A helyi ASA napló nem olvasható, vagy a válasz másik maphoz tartozik. Más szerver naplóját nem jelenítjük meg.");
+      });
     return () => { active = false; };
   }, [selected, generation]);
   const filtered = useMemo(() => (result?.lines ?? []).filter(row =>

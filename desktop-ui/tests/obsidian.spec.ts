@@ -570,6 +570,12 @@ test.beforeEach(async ({ page }) => {
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
     let iniConcurrentRebased=false;
+    let wrongLogTailMap=false;
+    let failIniReopenAfterCreate=false;
+    (window as typeof window & {__UNTAMED_WRONG_LOG_TAIL_MAP__?:()=>void})
+      .__UNTAMED_WRONG_LOG_TAIL_MAP__=()=>{wrongLogTailMap=true;};
+    (window as typeof window & {__UNTAMED_FAIL_INI_REOPEN_AFTER_CREATE__?:()=>void})
+      .__UNTAMED_FAIL_INI_REOPEN_AFTER_CREATE__=()=>{failIniReopenAfterCreate=true;};
     let wrongIniOpenMap=false;
     let holdIniOpen=false;
     let releaseIniOpen:(()=>void)|null=null;
@@ -2372,6 +2378,10 @@ test.beforeEach(async ({ page }) => {
         }
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
         case "ini.open":
+          if(failIniReopenAfterCreate&&missingGameCreated){
+            failIniReopenAfterCreate=false;
+            throw new Error("UM-INI-ACCESS-DENIED");
+          }
           if(["missingGameIni","missingGameIniStore"].includes(
               new URLSearchParams(window.location.search).get("fixture")??"") &&
              m.file==="Game.ini"&&!missingGameCreated)
@@ -2969,7 +2979,7 @@ test.beforeEach(async ({ page }) => {
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
         case "steam.installations": return {evidence:"READ_ONLY_STEAM_INSTALLATION_PREFLIGHT",installations:[{id:0,maps:["The Island","Astraeos"],executablePresent:true,installedSteamBuild:"123456",updateBlocked:true,reason:"Read-only test fixture: upgrade blocked"}]};
         case "servers.suggestPorts": return {game:7797,query:27035,rcon:37035,evidence:"PROFILE_ONLY_NO_NETWORK_PROBE"};
-        case "logs.read": return {mapId:m.mapId,mapName:"The Island",lastModifiedUtc:"2026-11-05T12:00:00Z",totalBytes:1900,truncated:false,evidence:"SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH",lines:[{number:1,level:"info",content:"Synthetic ASA startup line"},{number:2,level:"error",content:"Synthetic failure detected"}]};
+        case "logs.read": return {mapId:wrongLogTailMap?two:m.mapId,mapName:"The Island",lastModifiedUtc:"2026-11-05T12:00:00Z",totalBytes:1900,truncated:false,evidence:"SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH",lines:[{number:1,level:"info",content:"Synthetic ASA startup line"},{number:2,level:"error",content:"Synthetic failure detected"}]};
         case "curseforge.categories": return {
           evidence:"OFFICIAL_ASA_CATEGORY_METADATA",
           categories:[{id:101,name:"Structures",isClass:false,parentCategoryId:0},{id:102,name:"Creatures",isClass:false,parentCategoryId:0}]
@@ -4841,6 +4851,32 @@ test("native mod draft contract stages in memory and saves only on explicit clic
   await page.getByRole("tab",{name:"Map modjai"}).click();
   await expect(page.getByRole("table",{name:"Konfigurált modlista"}).getByText("CurseForge ID: 567890")).toBeVisible();
   await expect(page.locator(".premium-mod-save-toast")).toContainText("Mentve a helyi indítási konfigurációba");
+});
+
+test("log center rejects another map's returned local log tail",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_LOG_TAIL_MAP__?:()=>void
+  }).__UNTAMED_WRONG_LOG_TAIL_MAP__?.());
+  await page.getByRole("button",{name:"Naplóközpont"}).click();
+  await expect(page.getByText(/válasz másik maphoz tartozik/)).toBeVisible();
+  await expect(page.getByText("Synthetic ASA startup line")).toHaveCount(0);
+});
+
+test("approved new Game.ini remains created when read-only editor reopen fails",async({page})=>{
+  await page.goto("/?fixture=missingGameIni");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  const create=page.getByRole("region",{name:"Hiányzó Game.ini létrehozása"});
+  await create.getByRole("button",{name:"Game.ini létrehozásának előnézete"}).click();
+  await create.getByRole("checkbox").check();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FAIL_INI_REOPEN_AFTER_CREATE__?:()=>void
+  }).__UNTAMED_FAIL_INI_REOPEN_AFTER_CREATE__?.());
+  await create.getByRole("button",{name:"Game.ini létrehozása és megnyitása"}).click();
+  await expect(page.getByText(/Game.ini ezen az igazoltan leállított mapon létrejött/)).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("újraolvasása sikertelen");
+  await expect(create.getByRole("button",{name:"Game.ini létrehozása és megnyitása"})).toHaveCount(0);
 });
 
 test("INI editor never opens another map's native INI snapshot",async({page})=>{
