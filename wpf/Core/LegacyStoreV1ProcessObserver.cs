@@ -78,7 +78,7 @@ public static class LegacyStoreV1ProcessObserver
                string.IsNullOrWhiteSpace(map.HistoricalRuntimeTransferDirectory))
                 return false;
             // After an approved Obsidian runtime edit, the saved map profile
-            // (not the old Kova peer marker) determines the exact expected
+            // (not the old Legacy peer marker) determines the exact expected
             // cluster and mod order for local PID reattachment.
             string runtimeCluster=string.IsNullOrWhiteSpace(
                 map.HistoricalRuntimeClusterId)?
@@ -459,7 +459,7 @@ public static class LegacyStoreV1ProcessObserver
                         (MinimalOriginalApiChildArguments(command,exe)||
                          // The WMI child has ArkAscendedServer.exe as its
                          // actual executable, but inherited the Loader's
-                         // exact argv[0] and original Kova launch grammar.
+                         // exact argv[0] and original Legacy launch grammar.
                          MatchesOriginalActiveCommand(command,loader,map));
                     if(!exact&&!childOnly)
                     {uncertain=true;continue;}

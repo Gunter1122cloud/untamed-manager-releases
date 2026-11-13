@@ -5,10 +5,10 @@ using System.Linq;
 namespace UntamedManager.Core;
 
 /// <summary>
-/// Original Kova/ASA configuration parity: ASA handles survivor transfers.
+/// Original Legacy/ASA configuration parity: ASA handles survivor transfers.
 /// This guard only checks source-owned map identity, launch flags and the
 /// existing physical transfer path. No upload, world restore, character
-/// handling, generated cluster ID or writes to Kova/ASA are performed.
+/// handling, generated cluster ID or writes to Legacy/ASA are performed.
 /// </summary>
 public static class LegacyStoreV1SourceLaunchParity
 {
@@ -49,7 +49,7 @@ public static class LegacyStoreV1SourceLaunchParity
         var original=RequireOriginalMap(map,source);
         // The path passed here MUST come from the verified original ACTIVE/
         // DONE two-peer Store guard, not from React or a newly created folder.
-        // Build is the exact original Kova active-phase grammar.
+        // Build is the exact original Legacy active-phase grammar.
         var expected=LegacyStoreV1ActiveLaunch.Build(new(
             original.MapKey,original.GamePort,original.QueryPort,
             original.EnabledMods,original.PassiveMods,

@@ -8,7 +8,7 @@ using System.Text;
 namespace UntamedManager.Core;
 
 /// <summary>
-/// Historical Kova's EXACT five map GUID/name selections, hashed in a
+/// Historical Legacy's EXACT five map GUID/name selections, hashed in a
 /// deterministic order. This is a passive source-vs-Manager registry check:
 /// no original UUIDs, installation paths or source bytes leave the host.
 /// Source metadata alone never certifies current registered ASA map ownership.
@@ -45,6 +45,6 @@ internal static class LegacyStoreV1RosterIdentity
                 ":"+Path.TrimEndingDirectorySeparator(
                     Path.GetFullPath(m.MapRoot)).ToUpperInvariant()));
         return Convert.ToHexString(SHA256.HashData(
-            Encoding.UTF8.GetBytes("ORIGINAL_KOVA_MAP_ROSTER_V1\n"+canonical)));
+            Encoding.UTF8.GetBytes("ORIGINAL_LEGACY_MAP_ROSTER_V1\n"+canonical)));
     }
 }

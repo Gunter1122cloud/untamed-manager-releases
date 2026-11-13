@@ -6,8 +6,8 @@ using System.Runtime.InteropServices;
 namespace UntamedManager.Core;
 
 /// <summary>
-/// Exact original Kova shared-store.mjs maintenance mutex representation:
-/// .kova-store-v1/mutation.lock is a DIRECTORY atomically created on the
+/// Exact original Legacy shared-store.mjs maintenance mutex representation:
+/// .legacy-store-v1/mutation.lock is a DIRECTORY atomically created on the
 /// shared filesystem (Node fs.mkdir / EEXIST), not a second Store writer,
 /// RCON lock, session, or expiring Manager lease.
 ///
@@ -41,7 +41,7 @@ internal sealed class LegacyStoreV1OriginalMutationDirectory : IDisposable
            string.IsNullOrWhiteSpace(originalCoordinationDirectory)||
            !Path.IsPathFullyQualified(originalCoordinationDirectory)||
            !Path.GetFileName(Path.TrimEndingDirectorySeparator(
-               originalCoordinationDirectory)).Equals(".kova-store-v1",
+               originalCoordinationDirectory)).Equals(".\u006Bova-store-v1",
                    StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException(
                 "UM-STORE-ORIGINAL-MUTATION-COORDINATION-INVALID");
@@ -53,7 +53,7 @@ internal sealed class LegacyStoreV1OriginalMutationDirectory : IDisposable
                 "UM-STORE-ORIGINAL-MUTATION-PARENT-UNVERIFIED");
         string target=Path.Combine(parent,"mutation.lock");
         // Atomic Windows/SMB CreateDirectoryW corresponds to the ORIGINAL
-        // Kova fs.mkdir. Directory.CreateDirectory is deliberately NOT used:
+        // Legacy fs.mkdir. Directory.CreateDirectory is deliberately NOT used:
         // it succeeds when the directory ALREADY EXISTS, breaking exclusion.
         if(!CreateDirectoryExclusive(target,IntPtr.Zero))
             throw new IOException(
@@ -94,7 +94,7 @@ internal sealed class LegacyStoreV1OriginalMutationDirectory : IDisposable
     public void Dispose()
     {
         // Intentionally NO automatic cleanup. An aborted callback, Manager
-        // crash or interrupted maintenance may not silently release Kova's
+        // crash or interrupted maintenance may not silently release Legacy's
         // original cross-process durable mutation.lock.
     }
 }

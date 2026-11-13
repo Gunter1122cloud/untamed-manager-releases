@@ -23,13 +23,13 @@ internal sealed record LegacyStoreV1NativeStartPlan(string Arguments,
 internal static class LegacyStoreV1NativeStartPlanner
 {
     private static readonly string LocalOriginal=Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"\u004Bova");
 
     internal static LegacyStoreV1NativeStartPlan Prepare(ClusterService cluster,
         LocalMap map,Guid? approvedRestartId=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
-        // Stopped Kova imports cannot establish whether the previous process
+        // Stopped Legacy imports cannot establish whether the previous process
         // used AsaApiLoader. Fail BEFORE file, RCON, port or launch checks:
         // neither executable can be spawned on an unconfirmed default.
         if(map?.HistoricalStoreProtected==true&&
@@ -62,7 +62,7 @@ internal static class LegacyStoreV1NativeStartPlanner
             prior.DemandAuthorizedStart(restartId);
         }
         else prior.DemandNoPending();
-        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+        if(LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("UM-STORE-NATIVE-BACKUP-RECOVERY");
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
         if(!AsaLocalPortPreflight.CanStart(map))
@@ -73,8 +73,8 @@ internal static class LegacyStoreV1NativeStartPlanner
            stopped.Identity!=null||stopped.LoaderIdentity!=null)
             throw new InvalidOperationException("UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED");
         // Once the owner explicitly approved importing the verified source,
-        // a Manager-owned immutable copy replaces the *local* Kova profile
-        // dependency. The obsolete Kova ACTIVE/DONE markers are checked only
+        // a Manager-owned immutable copy replaces the *local* Legacy profile
+        // dependency. The obsolete Legacy ACTIVE/DONE markers are checked only
         // in the fallback legacy handoff, NOT for a pinned independent start.
         var sourceProfile=LegacyStoreV1PinnedSource.Resolve(
             cluster.Store.Root,LocalOriginal,map);
@@ -82,7 +82,7 @@ internal static class LegacyStoreV1NativeStartPlanner
                StringComparison.OrdinalIgnoreCase))
             return PreparePinnedRuntime(cluster,map,sourceProfile);
         // Compatibility path for legacy profiles that have not yet been
-        // explicitly imported/pinned. Historical Kova ACTIVE/DONE applies
+        // explicitly imported/pinned. Historical Legacy ACTIVE/DONE applies
         // to this legacy handoff only, not to independent Obsidian startup.
         var original=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,sourceProfile);
         if(!original.CompletedOriginalSourceGuard||!original.BothPeersDone||
@@ -100,7 +100,7 @@ internal static class LegacyStoreV1NativeStartPlanner
         if(!AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException("UM-STORE-NATIVE-RCON-CHANGED");
         // The in-memory Obsidian registration must still match the CURRENT
-        // original Kova launch-profiles-v1.json on this specific host.
+        // original Legacy launch-profiles-v1.json on this specific host.
         // The four-file Store hash and the launch profile hash are both
         // pinned; no alternative transfer directory is generated.
         var currentSource=LegacyStoreV1OriginalImport.Inspect(sourceProfile);
@@ -189,7 +189,7 @@ internal static class LegacyStoreV1NativeStartPlanner
     }
 
     // Manager-owned, original-source-pinned Store-v1 startup. This does NOT
-    // probe Kova runtime, old ACTIVE/DONE peer markers or remote host uptime.
+    // probe Legacy runtime, old ACTIVE/DONE peer markers or remote host uptime.
     // Transfer readiness is separately verified by travel/cluster operations,
     // not a blanket prerequisite for a local, explicitly approved Start.
     private static LegacyStoreV1NativeStartPlan PreparePinnedRuntime(

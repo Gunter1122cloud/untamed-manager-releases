@@ -9,7 +9,7 @@ namespace UntamedManager.Core;
 
 /// <summary>
 /// Persistent LOCAL MANAGER receipt for a guarded historical SaveWorld-only
-/// operation. Separate from the original Kova ACTIVE/DONE, locks, transfer and
+/// operation. Separate from the original Legacy ACTIVE/DONE, locks, transfer and
 /// world files; this does not create a second backup or writer protocol.
 /// 'completed' only means a new ASA SaveComplete log + stable .ark was
 /// observed for an exact local PID/start/source guard. No fsync, single-writer
@@ -36,7 +36,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
 
     // A local operation journal must have exactly one writer across all
     // Manager PROCESSES (not merely the WebView bridge's in-process semaphore).
-    // This is not an ownership/lease claim on the ORIGINAL Kova Store share.
+    // This is not an ownership/lease claim on the ORIGINAL Legacy Store share.
     private sealed class JournalWriteLease : IDisposable
     {
         private readonly System.Threading.Mutex gate;
@@ -86,7 +86,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
         if(mapId==Guid.Empty)throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-MAP");
         string root=VaultReadSnapshot.LocalPath(managerProfileRoot,true);
         string folder=System.IO.Path.Combine(root,"historical-save-evidence-v1");
-        // This is a dedicated Manager-owned local folder, not any Kova path.
+        // This is a dedicated Manager-owned local folder, not any Legacy path.
         if(Directory.Exists(folder)&&
            (File.GetAttributes(folder)&FileAttributes.ReparsePoint)!=0)
             throw new InvalidDataException("UM-ORIGINAL-SAVE-JOURNAL-LINKED");
@@ -213,7 +213,7 @@ public static class LegacyStoreV1SaveEvidenceJournal
     /// publishing a distinct 'reviewed' phase. The native host must supply a
     /// callback that freshly proves stopped ASA and unchanged original Store
     /// source while this map's cross-process receipt mutex is owned.
-    /// No original Kova metadata, transfer files or shared locks are changed.
+    /// No original Legacy metadata, transfer files or shared locks are changed.
     /// </summary>
     internal static LegacyStoreV1SaveEvidence ReviewUncertain(
         string managerProfileRoot,Guid mapId,Guid expectedOperationId,
