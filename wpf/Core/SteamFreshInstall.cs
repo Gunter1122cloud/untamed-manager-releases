@@ -300,6 +300,15 @@ public static class SteamFreshInstall
                 StringComparison.OrdinalIgnoreCase));
     }
 
+    // A freshly bootstrapped Valve installation can report missing client
+    // configuration once before its initial download is ready. Only this
+    // exact Steam failure is eligible for the source-compatible 2 retries.
+    internal static bool IsTransientMissingSteamConfiguration(string output)=>
+        System.Text.RegularExpressions.Regex.IsMatch(output,
+            @"Failed to install app\s*'2430930'\s*\(Missing configuration\)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     private static async Task BootstrapSteamCmdAsync(string steam,
         IProgress<SteamInstallProgress>? progress,CancellationToken ct)
     {
@@ -455,43 +464,66 @@ public static class SteamFreshInstall
             SaveJournal(journal,new(request.MapId,root,steam,"mutating",DateTimeOffset.UtcNow,
                 request.MapName,level));
             progress?.Report(new("download","ASA 2430930 telepítése / ellenőrzése",null));
-            var psi=new ProcessStartInfo(fakeExecutable??steam)
+            // Valve's first-run Missing configuration condition is transient.
+            // Preserve already downloaded files and retry no more than twice.
+            // Other failures and fake test runners never receive a retry.
+            bool downloadConfirmed=false;
+            for(int attempt=0;attempt<3;attempt++)
             {
-                WorkingDirectory=Path.GetDirectoryName(steam)!,
-                UseShellExecute=false,CreateNoWindow=true,
-                RedirectStandardOutput=true,RedirectStandardError=true
-            };
-            foreach(string arg in new[]{"+force_install_dir",root,"+login","anonymous",
-                "+app_update","2430930","validate","+quit"})
-                psi.ArgumentList.Add(arg);
-            using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            deadline.CancelAfter(TimeSpan.FromHours(5));
-            if(fakeExecutable!=null)
-            {
-                psi.Environment["FAKE_STEAM_NEW_INSTALL"]="1";
-                progress?.Report(new("test","Izolált FakeSteamCMD teszt, nem éles Steam",null));
+                cancellationToken.ThrowIfCancellationRequested();
+                var psi=new ProcessStartInfo(fakeExecutable??steam)
+                {
+                    WorkingDirectory=Path.GetDirectoryName(steam)!,
+                    UseShellExecute=false,CreateNoWindow=true,
+                    RedirectStandardOutput=true,RedirectStandardError=true
+                };
+                foreach(string arg in new[]{"+force_install_dir",root,"+login","anonymous",
+                    "+app_update","2430930","validate","+quit"})
+                    psi.ArgumentList.Add(arg);
+                using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                deadline.CancelAfter(TimeSpan.FromHours(5));
+                if(fakeExecutable!=null)
+                {
+                    psi.Environment["FAKE_STEAM_NEW_INSTALL"]="1";
+                    progress?.Report(new("test","Izolált FakeSteamCMD teszt, nem éles Steam",null));
+                }
+                using var process=Process.Start(psi)??throw new IOException("SteamCMD launch failed");
+                Task<string> stdout=CaptureSteamOutput(
+                    process.StandardOutput,progress,false,deadline.Token);
+                Task<string> stderr=CaptureSteamOutput(
+                    process.StandardError,null,true,deadline.Token);
+                string output;
+                try
+                {
+                    await process.WaitForExitAsync(deadline.Token);
+                    string first=await stdout;
+                    string second=await stderr;
+                    output=first+"\n"+second;
+                }
+                catch
+                {
+                    if(!process.HasExited)
+                        try{process.Kill(entireProcessTree:true);}catch{}
+                    throw;
+                }
+                if(process.ExitCode==0 &&
+                   output.Contains("Success! App '2430930' fully installed.",
+                       StringComparison.OrdinalIgnoreCase))
+                {
+                    downloadConfirmed=true;
+                    break;
+                }
+                if(fakeExecutable!=null || attempt==2 ||
+                   !IsTransientMissingSteamConfiguration(output))
+                    throw new InvalidDataException(
+                        "SteamCMD did not confirm ASA 2430930 installation");
+                progress?.Report(new("download",
+                    "SteamCMD első indítási konfigurációja még nem kész; ellenőrzött újrapróbálás "+
+                    (attempt+1)+"/2",null));
+                await Task.Delay(TimeSpan.FromSeconds((attempt+1)*3),cancellationToken);
             }
-            using var process=Process.Start(psi)??throw new IOException("SteamCMD launch failed");
-            Task<string> stdout=CaptureSteamOutput(
-                process.StandardOutput,progress,false,deadline.Token);
-            Task<string> stderr=CaptureSteamOutput(
-                process.StandardError,null,true,deadline.Token);
-            try
-            {
-                await process.WaitForExitAsync(deadline.Token);
-                string output=await stdout;
-                _=await stderr; // untrusted log output is never persisted
-                if(output.Length>3_000_000 || process.ExitCode!=0 ||
-                   !output.Contains("Success! App '2430930' fully installed.",
-                       StringComparison.Ordinal))
-                    throw new InvalidDataException("SteamCMD did not confirm ASA 2430930 installation");
-            }
-            catch
-            {
-                if(!process.HasExited)
-                    try{process.Kill(entireProcessTree:true);}catch{}
-                throw;
-            }
+            if(!downloadConfirmed)
+                throw new InvalidDataException("SteamCMD ASA installation not confirmed");
             cancellationToken.ThrowIfCancellationRequested();
             var probeInstall=LocalAsaInstallLocator.Probe(root);
             var build=AsaSteamBuildCatalog.InstalledBuild(root);

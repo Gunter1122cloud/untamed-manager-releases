@@ -57,6 +57,15 @@ static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
+Check(SteamFreshInstall.IsTransientMissingSteamConfiguration(
+      "ERROR! Failed to install app '2430930' (Missing configuration)"),
+    "SteamCMD first-run missing configuration triggers bounded retry");
+Check(!SteamFreshInstall.IsTransientMissingSteamConfiguration(
+      "ERROR! Failed to install app '2430930' (Disk write failure)") &&
+      !SteamFreshInstall.IsTransientMissingSteamConfiguration(
+      "Failed to install app '999999' (Missing configuration)"),
+    "SteamCMD never retries unrelated app IDs or disk failures");
+
 // Valve's first-run SteamCMD self-update can exit nonzero before app_update.
 Check(SteamFreshInstall.NeedsSteamBootstrapRestart(8,
       "Update complete, launching SteamCMD"),
