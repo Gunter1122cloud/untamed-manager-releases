@@ -3595,6 +3595,28 @@ test("verified world backup receipt survives a failed read-only history refresh"
   await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
 });
 
+test("verified restore receipt survives read-only history failure without replay",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const picker=page.getByRole("combobox",{name:"Mentendő helyi map"});
+  await picker.selectOption(second);
+  await page.getByRole("button",{name:"Világmentés készítése"}).click();
+  await page.getByRole("button",{name:"Mentés indítása"}).click();
+  await expect(page.getByRole("button",{name:"Visszaállítás"}).first()).toBeEnabled();
+  await page.getByRole("button",{name:"Visszaállítás"}).first().click();
+  const approval=page.getByRole("region",{name:"Védett világvisszaállítás"});
+  await approval.getByRole("textbox",{name:"Visszaállítás mapnév megerősítés"}).fill("Astraeos");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?:()=>void
+  }).__UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?.());
+  await approval.getByRole("button",{name:"Védett visszaállítás"}).click();
+  await expect(page.getByText("A visszaállított fájlok SHA-256 szerint egyeznek; ASA játékbeli betöltés még nincs igazolva.")).toBeVisible();
+  await expect(page.getByText(/mentéslista frissítése sikertelen/)).toBeVisible();
+  await picker.selectOption(first);
+  await picker.selectOption(second);
+  await expect(page.getByText("A visszaállított fájlok SHA-256 szerint egyeznek; ASA játékbeli betöltés még nincs igazolva.")).toBeVisible();
+});
+
 test("old native backup previews without resource proof cannot be approved",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
