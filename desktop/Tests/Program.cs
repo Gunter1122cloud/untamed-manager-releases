@@ -4316,8 +4316,8 @@ try
         string ryzen=Path.Combine(archiveLab,"RYZEN-copies");
         string transfer=Path.Combine(archiveLab,"transfer-copy");
         Directory.CreateDirectory(hp);Directory.CreateDirectory(ryzen);
-        Directory.CreateDirectory(Path.Combine(transfer,".legacy-store-v1"));
-        File.WriteAllText(Path.Combine(transfer,".legacy-store-v1","operation.json"),
+        Directory.CreateDirectory(Path.Combine(transfer,OriginalStoreRuntimeIdentity.CoordinationDirectoryName));
+        File.WriteAllText(Path.Combine(transfer,OriginalStoreRuntimeIdentity.CoordinationDirectoryName,"operation.json"),
             "{\"schema\":1,\"session\":\"synthetic-only\"}");
         File.WriteAllBytes(Path.Combine(transfer,"old-zero.arkprofile"),Array.Empty<byte>());
         Guid[] ids=new Guid[10];
