@@ -119,6 +119,15 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {
       __UNTAMED_RUNTIME_MISMATCH__?:()=>void;
     }).__UNTAMED_RUNTIME_MISMATCH__=()=>{mismatchRuntimePreview=true;};
+    let mismatchedMultiHostBackupStatus=false;
+    let mismatchedOfflineArchiveStatus=false;
+    let mismatchedOfflineRestoreStatus=false;
+    (window as typeof window & {__UNTAMED_WRONG_MULTIHOST_JOB__?:()=>void})
+      .__UNTAMED_WRONG_MULTIHOST_JOB__=()=>{mismatchedMultiHostBackupStatus=true;};
+    (window as typeof window & {__UNTAMED_WRONG_OFFLINE_ARCHIVE_JOB__?:()=>void})
+      .__UNTAMED_WRONG_OFFLINE_ARCHIVE_JOB__=()=>{mismatchedOfflineArchiveStatus=true;};
+    (window as typeof window & {__UNTAMED_WRONG_OFFLINE_RESTORE_JOB__?:()=>void})
+      .__UNTAMED_WRONG_OFFLINE_RESTORE_JOB__=()=>{mismatchedOfflineRestoreStatus=true;};
     let multihostCancelFixture=false;
     let multihostCancelled=false;
     let multihostCancelRequests=0;
@@ -683,7 +692,8 @@ test.beforeEach(async ({ page }) => {
             automaticRollback:false,journalDeleted:false,
             evidence:"EXACT_OFFLINE_JOB_CANCELLATION_REQUEST_ONLY"};
         case "cluster.multiHostBackupStatus": return {
-          jobId:m.jobId,kind:"backup",
+          jobId:mismatchedMultiHostBackupStatus?
+            "00000000-0000-4000-8000-000000009699":m.jobId,kind:"backup",
           state:multihostCancelFixture?
             (multihostCancelled?"needsOperator":"running"):"completed",
           stage:multihostCancelFixture?
@@ -2380,7 +2390,9 @@ test.beforeEach(async ({ page }) => {
         case "cluster.restoreLabStatus":
           if(m.jobId!==restoreLabJob||!restoreLabApproved)
             throw new Error("UM-ASARESTORE-JOB-UNKNOWN");
-          return {jobId:restoreLabJob,state:"completed",stage:"LAB_FILE_HASHES_VERIFIED",
+          return {jobId:mismatchedOfflineRestoreStatus?
+              "00000000-0000-4000-8000-000000001269":restoreLabJob,
+            state:"completed",stage:"LAB_FILE_HASHES_VERIFIED",
             labName:"Untamed-AsaRestore-Lab-synthetic",maps:10,files:12,
             changedUtc:"2026-11-07T00:00:00Z",
             gameplayRestoredVerified:false,storeWriterVerified:false,
@@ -2405,7 +2417,9 @@ test.beforeEach(async ({ page }) => {
         case "cluster.offlineStatus":
           if(m.jobId!==offlineArchiveJob || !offlineArchiveApproved)
             throw new Error("UM-CLUSTER-ARCHIVE-JOB-NOT-FOUND");
-          return {jobId:offlineArchiveJob,state:"completed",code:"SHA256_VERIFIED",
+          return {jobId:mismatchedOfflineArchiveStatus?
+              "00000000-0000-4000-8000-000000001269":offlineArchiveJob,
+            state:"completed",code:"SHA256_VERIFIED",
             archiveName:"Untamed-ASA-Offline-synthetic",verifiedMaps:10,transferFiles:3,
             configurationFiles:20,
             changedUtc:"2026-11-06T22:00:00Z",liveConsistencyCertified:false,
@@ -6546,6 +6560,56 @@ test("five-map backup refuses mismatched native resource-policy response",async(
     name:"Eredeti Store-v1 ötmapos mentés jóváhagyása"
   })).toHaveCount(0);
   await expect(section).toContainText("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
+});
+
+test("offline archive rejects completed SHA-256 receipts belonging to a different job",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_OFFLINE_ARCHIVE_JOB__?:()=>void
+  }).__UNTAMED_WRONG_OFFLINE_ARCHIVE_JOB__?.());
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const panel=page.getByRole("region",{name:"SQL-mentes clusterarchívum"});
+  await panel.getByRole("button",{name:"A négy offline mappa kiválasztása"}).click();
+  const prepared=panel.getByRole("region",{name:"SQL-mentes clusterarchívum előnézete"});
+  await prepared.getByRole("checkbox").check();
+  await prepared.getByRole("button",{name:"Offline archívum készítése"}).click();
+  await expect(panel).toContainText("nem a kiválasztott feladathoz tartozik");
+  await expect(panel).not.toContainText("10 map, 3 transferállomány és");
+});
+
+test("multi-host backup rejects another job's completed receipt without enabling restore",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_MULTIHOST_JOB__?:()=>void
+  }).__UNTAMED_WRONG_MULTIHOST_JOB__?.());
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await panel.getByRole("button",{name:"Félbeszakadt offline archívum helyreállítása"}).click();
+  const approval=panel.getByRole("region",{
+    name:"Félbeszakadt multi-host archívum helyreállításának jóváhagyása"
+  });
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{
+    name:"Megőrzés és ellenőrzött újraépítés indítása"
+  }).click();
+  await expect(panel).toContainText("másik feladathoz tartozik");
+  await expect(panel).not.toContainText("151 fájl SHA-256 ellenőrizve");
+});
+
+test("offline restore rejects another job's apparent completed hash verification",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_OFFLINE_RESTORE_JOB__?:()=>void
+  }).__UNTAMED_WRONG_OFFLINE_RESTORE_JOB__?.());
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const panel=page.getByRole("region",{name:"SQL-mentes próba-visszaállítás"});
+  await panel.getByRole("button",{name:"Offline archívum kiválasztása"}).click();
+  const approval=panel.getByRole("region",{name:"Próba-visszaállítás jóváhagyása"});
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"Próba-visszaállítás jóváhagyása"}).click();
+  await expect(panel).toContainText("másik feladathoz tartozik");
+  await expect(panel).not.toContainText("12 világfájl SHA-256 ellenőrizve");
 });
 
 test("SQL-free offline cluster archive requires four native folders and explicit approval",async ({page})=>{
