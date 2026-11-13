@@ -1,4 +1,4 @@
-import {useEffect,useState,type FormEvent} from "react";
+import {useEffect,useRef,useState,type FormEvent} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Shield,RadioTower} from "lucide-react";
 import {managerBridge,type HistoricalRconPreview,type HistoricalRconStatus} from "./bridge";
 
@@ -11,6 +11,7 @@ import {managerBridge,type HistoricalRconPreview,type HistoricalRconStatus} from
 export function HistoricalRconAttach({mapId,onConfigured}:{
   mapId:string;onConfigured:()=>Promise<void>
 }){
+  const mapGeneration=useRef(0);
   const [status,setStatus]=useState<HistoricalRconStatus|null>(null);
   const [port,setPort]=useState("");
   const [password,setPassword]=useState("");
@@ -21,11 +22,12 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
-    setStatus(null);setPort("");setPreview(null);setPassword("");setError("");setNotice("");
+    ++mapGeneration.current;
+    setStatus(null);setPort("");setPreview(null);setPassword("");setConfirm(false);setBusy(false);setError("");setNotice("");
     managerBridge.historicalRconStatus(mapId).then(v=>{
       if(active){setStatus(v);setPort(v.suggestedPort>0?String(v.suggestedPort):"");}
     }).catch(()=>{if(active)setError("Az eredeti Store-v1 RCON-beállítás állapota nem olvasható.");});
-    return ()=>{active=false;};
+    return ()=>{active=false;++mapGeneration.current;};
   },[mapId]);
   const edit=()=>{setPreview(null);setConfirm(false);setNotice("");setError("");};
   const inspect=async(event:FormEvent)=>{
@@ -35,11 +37,14 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       setError("Adj meg érvényes RCON-portot és az eredeti GameUserSettings.ini jelszavát.");
       return;
     }
+    const generation=mapGeneration.current;
     setBusy(true);setError("");setNotice("");setPreview(null);setConfirm(false);
     try{
       const result=await managerBridge.historicalRconPreview(mapId,parsed,password);
+      if(mapGeneration.current!==generation)return;
       setPassword("");setPreview(result);
     }catch(cause){
+      if(mapGeneration.current!==generation)return;
       setPassword("");
       const code=cause instanceof Error?cause.message:"";
       setError(code==="UM-HISTORICAL-RCON-EXISTING-PASSWORD-INVALID"
@@ -51,32 +56,37 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
         :code==="UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED"
         ?"Az ASA API Loader mögötti eredeti szerverfolyamat vagy a TCP-port tulajdonosa nem igazolható. Nem történt RCON-csatolás."
         :"A natív RCON-ellenőrzés nem sikerült. Az eredeti ASA/korábbi Manager-fájlok érintetlenek; ellenőrizd a maphoz tartozó futó ASA-folyamatot és RCON-beállítást.");
-    }finally{setBusy(false);}
+    }finally{if(mapGeneration.current===generation)setBusy(false);}
   };
   const attach=async()=>{
     if(!preview||!confirm||busy)return;
+    const generation=mapGeneration.current;
     setBusy(true);setError("");setNotice("");
     const token=preview.token;setPreview(null);setConfirm(false);
     let committed=false;
     try{
       const receipt=await managerBridge.historicalRconApply(token);
       committed=true;
+      if(mapGeneration.current!==generation)return;
       // The native DPAPI profile is already committed. A failed subsequent
       // status/refresh MUST NOT disguise that commit as a failed attach and
       // tempt the operator to repeat a single-use mutation.
       setNotice("Az eredeti RCON-profil a helyi Managerbe elmentve (TCP "+
         receipt.rconPort+"). Az ASA és a Store-fájlok nem módosultak.");
       try{
-        setStatus(await managerBridge.historicalRconStatus(mapId));
+        const current=await managerBridge.historicalRconStatus(mapId);
+        if(mapGeneration.current!==generation)return;
+        setStatus(current);
         await onConfigured();
       }catch{
+        if(mapGeneration.current!==generation)return;
         setNotice("Az eredeti RCON-profil elmentve (TCP "+receipt.rconPort+
           "), de a felület frissítése sikertelen. Újraküldés helyett "+
           "frissítsd a maplistát. Az ASA és a Store-fájlok nem módosultak.");
       }
     }catch{
-      if(!committed)setError("Az eredeti RCON-kapcsolat átvétele nem fejezhető be, vagy a profil közben megváltozott. Ellenőrizd az aktuális állapotot.");
-    }finally{setBusy(false);}
+      if(mapGeneration.current===generation && !committed)setError("Az eredeti RCON-kapcsolat átvétele nem fejezhető be, vagy a profil közben megváltozott. Ellenőrizd az aktuális állapotot.");
+    }finally{if(mapGeneration.current===generation)setBusy(false);}
   };
   return <section className="glass panel historical-rcon-attach"
       aria-label="Történeti Store-v1 RCON csatlakoztatás">
