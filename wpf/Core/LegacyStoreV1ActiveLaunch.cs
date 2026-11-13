@@ -31,6 +31,46 @@ public static class LegacyStoreV1ActiveLaunch
         int QueryPort,string[] ModOrder,string[] PassiveModOrder,
         string StoreMode,bool ConversionRequested,string Evidence);
 
+    /// <summary>
+    /// Decode original ASA INI without rewriting a single source byte.
+    /// Kova 1.8.3 accepts UTF-8 and BOM-marked UTF-16 LE/BE. Strict
+    /// decoding makes a damaged or mislabeled INI a preflight error,
+    /// rather than silently interpreting it as a blank configuration.
+    /// </summary>
+    public static string DecodeOriginalIni(byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        try
+        {
+            Encoding encoding;
+            int skip=0;
+            if(bytes.Length>=3&&bytes[0]==0xEF&&bytes[1]==0xBB&&bytes[2]==0xBF)
+            {
+                encoding=new UTF8Encoding(false,true);
+                skip=3;
+            }
+            else if(bytes.Length>=2&&bytes[0]==0xFF&&bytes[1]==0xFE)
+            {
+                encoding=new UnicodeEncoding(false,false,true);
+                skip=2;
+            }
+            else if(bytes.Length>=2&&bytes[0]==0xFE&&bytes[1]==0xFF)
+            {
+                encoding=new UnicodeEncoding(true,false,true);
+                skip=2;
+            }
+            else encoding=new UTF8Encoding(false,true);
+            string decoded=encoding.GetString(bytes,skip,bytes.Length-skip);
+            if(decoded.IndexOf('\\0')>=0)
+                throw new InvalidDataException("UM-STORE-NATIVE-INI-NUL");
+            return decoded;
+        }
+        catch(DecoderFallbackException ex)
+        {
+            throw new InvalidDataException("UM-STORE-NATIVE-INI-ENCODING",ex);
+        }
+    }
+
     public static Result Build(Input data)
     {
         ArgumentNullException.ThrowIfNull(data);
