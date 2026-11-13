@@ -63,6 +63,7 @@ jobs:
           & git grep -I -n -i -F -- $obsolete -- . ':!previews/*.b64.txt'
           if ($LASTEXITCODE -eq 0) { throw "Obsolete project branding found in source" }
           if ($LASTEXITCODE -ne 1) { throw "Source branding scan was not completed" }
+          $global:LASTEXITCODE = 0  # git grep returns 1 for the expected clean tree
       - name: Guard against retired WPF SQL GUI and accidental Core deletion
         shell: pwsh
         run: |
