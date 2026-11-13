@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Shield, LockKeyhole } from "lucide-react";
 import { managerBridge, type HistoricalStoreList, type HistoricalStorePreview, type HistoricalPairEvidence, type HistoricalLocalStoreStatus, type HistoricalLocalStoreParity, type HistoricalLaunchEvidence, type HistoricalLiveGuard,
-  type OriginalKovaLocalMapList, type OriginalKovaImportPreview,
-  type OriginalKovaBatchPreview, type OriginalKovaLiveBatchPreview,
-  type OriginalKovaLiveOperationBlockers, type OperationJournalInventorySnapshot,
-  type OriginalKovaClusterPreview } from "./bridge";
+  type OriginalLegacyLocalMapList, type OriginalLegacyImportPreview,
+  type OriginalLegacyBatchPreview, type OriginalLegacyLiveBatchPreview,
+  type OriginalLegacyLiveOperationBlockers, type OperationJournalInventorySnapshot,
+  type OriginalLegacyClusterPreview } from "./bridge";
 
 export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void>}) {
   const [archive,setArchive]=useState("");
-  const [directList,setDirectList]=useState<OriginalKovaLocalMapList|null>(null);
+  const [directList,setDirectList]=useState<OriginalLegacyLocalMapList|null>(null);
   const [pinPreview,setPinPreview]=useState<{token:string;verifiedLocalMaps:number}|null>(null);
   const [pinPhrase,setPinPhrase]=useState("");
   const [pinBusy,setPinBusy]=useState(false);
@@ -39,11 +39,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
   const [directMapId,setDirectMapId]=useState("");
   const [directGamePort,setDirectGamePort]=useState("");
   const [directQueryPort,setDirectQueryPort]=useState("");
-  const [directPreview,setDirectPreview]=useState<OriginalKovaImportPreview|null>(null);
-  const [batchPreview,setBatchPreview]=useState<OriginalKovaBatchPreview|null>(null);
+  const [directPreview,setDirectPreview]=useState<OriginalLegacyImportPreview|null>(null);
+  const [batchPreview,setBatchPreview]=useState<OriginalLegacyBatchPreview|null>(null);
   const [batchApproved,setBatchApproved]=useState(false);
-  const [liveBatchPreview,setLiveBatchPreview]=useState<OriginalKovaLiveBatchPreview|null>(null);
-  const [liveBlockers,setLiveBlockers]=useState<OriginalKovaLiveOperationBlockers|null>(null);
+  const [liveBatchPreview,setLiveBatchPreview]=useState<OriginalLegacyLiveBatchPreview|null>(null);
+  const [liveBlockers,setLiveBlockers]=useState<OriginalLegacyLiveOperationBlockers|null>(null);
   const [journalInventory,setJournalInventory]=useState<OperationJournalInventorySnapshot|null>(null);
   const [journalInventoryBusy,setJournalInventoryBusy]=useState(false);
   const [journalInventoryError,setJournalInventoryError]=useState("");
@@ -58,7 +58,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     const ticker=window.setInterval(()=>setLiveClockMs(Date.now()),1000);
     return ()=>window.clearInterval(ticker);
   },[liveBatchPreview]);
-  const [clusterPreview,setClusterPreview]=useState<OriginalKovaClusterPreview|null>(null);
+  const [clusterPreview,setClusterPreview]=useState<OriginalLegacyClusterPreview|null>(null);
   const [clusterApproval,setClusterApproval]=useState("");
   const [clusterBusy,setClusterBusy]=useState(false);
   const [clusterError,setClusterError]=useState("");
@@ -491,13 +491,13 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     finally{setClusterBusy(false);}
   };
   const applyOriginalCluster=async()=>{
-    if(clusterBusy||!clusterPreview||clusterApproval!=="EREDETI KOVA REGISZTER")return;
+    if(clusterBusy||!clusterPreview||clusterApproval!=="EREDETI LEGACY REGISZTER")return;
     const token=clusterPreview.token;
     setClusterBusy(true);setClusterError("");setClusterNotice("");
     setClusterPreview(null);setClusterApproval("");
     try{
       const result=await managerBridge.historicalOriginalClusterApply(
-        token,"EREDETI KOVA REGISZTER");
+        token,"EREDETI LEGACY REGISZTER");
       setClusterNotice(result.addedCount+" eredeti map-tagság átvezetve az Obsidian Cluster-regiszterbe. A korábbi eredeti session, writer lock és karakteradatok változatlanok.");
       try{await onImported();}
       catch{setClusterError("A regiszter mentése sikeres, de a nézet frissítése meghiúsult; ne ismételd meg automatikusan.");}
@@ -985,10 +985,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
                 value={clusterApproval} disabled={clusterBusy} autoComplete="off"
                 spellCheck={false}
                 onChange={e=>setClusterApproval(e.target.value)}
-                placeholder="EREDETI KOVA REGISZTER"/>
+                placeholder="EREDETI LEGACY REGISZTER"/>
             </label>
             <button type="button" className="primary"
-              disabled={clusterBusy||clusterApproval!=="EREDETI KOVA REGISZTER"}
+              disabled={clusterBusy||clusterApproval!=="EREDETI LEGACY REGISZTER"}
               onClick={()=>{void applyOriginalCluster();}}>
               Eredeti map-tagság rögzítése
             </button>
