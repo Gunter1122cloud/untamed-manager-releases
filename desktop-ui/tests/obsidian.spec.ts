@@ -572,6 +572,9 @@ test.beforeEach(async ({ page }) => {
     let iniConcurrentRebased=false;
     let wrongLogTailMap=false;
     let wrongPluginInventoryMap=false;
+    let wrongPluginOpenMap=false;
+    (window as typeof window & {__UNTAMED_WRONG_PLUGIN_FOLDER_MAP__?:()=>void})
+      .__UNTAMED_WRONG_PLUGIN_FOLDER_MAP__=()=>{wrongPluginOpenMap=true;};
     (window as typeof window & {__UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__?:()=>void})
       .__UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__=()=>{wrongPluginInventoryMap=true;};
     let failIniReopenAfterCreate=false;
@@ -2974,7 +2977,7 @@ test.beforeEach(async ({ page }) => {
             backupCreated:true,requiresRestart:true,runtimeLoadedVerified:false,
             evidence:"VERIFIED_LOCAL_PLUGIN_DIRECTORY_TOGGLE"};
         case "plugins.openFolder":
-          return {mapId:m.mapId,opened:true,
+          return {mapId:wrongPluginOpenMap?two:m.mapId,opened:true,
             runtimeLoadedVerified:false,filesChanged:false,
             serverOperation:false,rconSent:false,
             evidence:"LOCAL_ARKAPI_PLUGIN_FOLDER_OPENED_IN_EXPLORER"};
@@ -6714,6 +6717,18 @@ test("Plugin Center never lists another map's native plugin inventory",async({pa
   await expect(page.getByText("ExamplePlugin.dll")).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Plugin ZIP kiválasztása és ellenőrzése"}))
     .toHaveCount(0);
+});
+
+test("Plugin Center refuses cross-map Explorer receipt and does not claim the wrong folder opened",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_PLUGIN_FOLDER_MAP__?:()=>void
+  }).__UNTAMED_WRONG_PLUGIN_FOLDER_MAP__?.());
+  await page.getByRole("button",{name:"Pluginmappa megnyitása"}).click();
+  await expect(page.getByText("UM-PLUGIN-FOLDER-RECEIPT-MAP-MISMATCH")).toBeVisible();
+  await expect(page.getByText(/Plugins mappája megnyílt/)).toHaveCount(0);
 });
 
 test("each map Plugin Center opens only its owned local plugin folder with manual files inventory",async({page})=>{
