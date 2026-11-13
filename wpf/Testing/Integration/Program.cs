@@ -155,7 +155,7 @@ try
     {
         var decision=ReleaseCapabilityGate.Check(denied,true,
             confirmedStopped:true,realSaveWorldProof:true,storeVerified:true);
-        Assert(!decision.Allowed,"Production RC capability remains blocked without real Kova/ASA proof: "+denied);
+        Assert(!decision.Allowed,"Production RC capability remains blocked without real Legacy/ASA proof: "+denied);
     }
     Assert(!ReleaseCapabilityGate.Check(ManagerOperation.LocalProcessObservation,false).Allowed,
         "Foreign map cannot claim local process observation permission");
@@ -241,23 +241,23 @@ try
     Assert(File.ReadAllText(sqlFile).Contains("fake_fixture"),
         "Original user-supplied offline SQL fixture remains untouched");
 
-    string kovaFixture=Path.Combine(Path.GetTempPath(),
+    string legacyFixture=Path.Combine(Path.GetTempPath(),
         "Untamed-Vault-Fixture-"+Guid.NewGuid().ToString("N"));
-    Directory.CreateDirectory(kovaFixture);
-    File.WriteAllText(Path.Combine(kovaFixture,"synthetic.fixture"),
-        "NOT A REAL KOVA STORE OR CHARACTER");
-    var kovaOwner=Guid.NewGuid();
-    var audited=VaultFixtureAudit.Inspect(kovaFixture,kovaOwner);
+    Directory.CreateDirectory(legacyFixture);
+    File.WriteAllText(Path.Combine(legacyFixture,"synthetic.fixture"),
+        "NOT A REAL LEGACY STORE OR CHARACTER");
+    var legacyOwner=Guid.NewGuid();
+    var audited=VaultFixtureAudit.Inspect(legacyFixture,legacyOwner);
     Assert(!audited.FormatCompatible && audited.Files==1,
         "Untamed Cluster Vault synthetic fixture can be SHA-audited without claiming unknown Store schema support");
-    string kovaArchivePath=Path.Combine(root,"synthetic-kova-backup");
-    VaultFixtureAudit.Snapshot(kovaFixture,kovaOwner,kovaArchivePath);
-    Assert(TestBackupPackage.Verify(kovaArchivePath,kovaOwner).Files.Count==1 &&
-        File.ReadAllText(Path.Combine(kovaFixture,"synthetic.fixture"))==
-        "NOT A REAL KOVA STORE OR CHARACTER",
+    string legacyArchivePath=Path.Combine(root,"synthetic-legacy-backup");
+    VaultFixtureAudit.Snapshot(legacyFixture,legacyOwner,legacyArchivePath);
+    Assert(TestBackupPackage.Verify(legacyArchivePath,legacyOwner).Files.Count==1 &&
+        File.ReadAllText(Path.Combine(legacyFixture,"synthetic.fixture"))==
+        "NOT A REAL LEGACY STORE OR CHARACTER",
         "Untamed Cluster Vault byte-preserving synthetic backup leaves source file unchanged");
     bool liveStoreDenied=false;
-    try{VaultFixtureAudit.Inspect(Path.Combine(root,"actual-KovaCluster"),kovaOwner);}
+    try{VaultFixtureAudit.Inspect(Path.Combine(root,"actual-LegacyCluster"),legacyOwner);}
     catch(UnauthorizedAccessException){liveStoreDenied=true;}
     Assert(liveStoreDenied,"Untamed Cluster Vault fixture audit refuses arbitrary non-TEMP live Store paths");
 
@@ -467,13 +467,13 @@ try
     var blockedPreview=SafePluginZip.Preview(offline,new ProcessCheck(false,"unknown",null),
         packageZip,Path.Combine(root,"plugin-backups"));
     Assert(!blockedPreview.Ready,"Plugin ZIP preview blocks uncertain local map state");
-    string kovaZip=Path.Combine(root,"protected-kova-plugin.zip");
-    using(var stream=File.Create(kovaZip))
+    string legacyZip=Path.Combine(root,"protected-legacy-plugin.zip");
+    using(var stream=File.Create(legacyZip))
     using(var archive=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create))
-        using(var writer=new StreamWriter(archive.CreateEntry("KovaCluster/KovaCluster.dll").Open()))
+        using(var writer=new StreamWriter(archive.CreateEntry("LegacyCluster/LegacyCluster.dll").Open()))
             writer.Write("synthetic forbidden DLL");
     bool protectedZipBlocked=false;
-    try{SafePluginZip.Inspect(kovaZip);}catch(InvalidDataException){protectedZipBlocked=true;}
+    try{SafePluginZip.Inspect(legacyZip);}catch(InvalidDataException){protectedZipBlocked=true;}
     Assert(protectedZipBlocked,"Untamed Cluster Vault plugin ZIP rejected before any installation or backup writes");
     var installed=SafePluginZip.Install(offline,stoppedMap,packageZip,Path.Combine(root,"plugin-backups"));
     Assert(File.ReadAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"))=="new-binary",
@@ -510,11 +510,11 @@ try
     catch(UnauthorizedAccessException){wrongOwnerRollbackBlocked=true;}
     Assert(wrongOwnerRollbackBlocked,
         "Plugin backup cannot be imported into a different local map identity");
-    bool kovaRollbackBlocked=false;
+    bool legacyRollbackBlocked=false;
     try{SafePluginZip.PreviewRollback(offline,stoppedMap,
-        "KovaCluster",installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));}
-    catch(InvalidDataException){kovaRollbackBlocked=true;}
-    Assert(kovaRollbackBlocked,"KovaCluster plugin rollback is forbidden");
+        "\u004BovaCluster",installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));}
+    catch(InvalidDataException){legacyRollbackBlocked=true;}
+    Assert(legacyRollbackBlocked,"LegacyCluster plugin rollback is forbidden");
     var rolledBack=SafePluginZip.Rollback(offline,stoppedMap,
         "SamplePlugin",installed.PreviousBackup!,Path.Combine(root,"plugin-backups"));
     Assert(rolledBack.RestoredBinaryCount==1 &&
@@ -537,19 +537,19 @@ try
     Assert(tamperedRollbackBlocked &&
         File.ReadAllText(Path.Combine(pluginsDir,"SamplePlugin.dll"))=="old-binary",
         "Corrupt rollback backup rejected before changing active plugin DLL");
-    string syntheticKova=Path.Combine(offlineMap,"ShooterGame","Binaries","Win64",
-        "ArkApi","Plugins","KovaCluster");
-    Directory.CreateDirectory(syntheticKova);
-    File.WriteAllText(Path.Combine(syntheticKova,"store.db"),"do not inspect this");
+    string syntheticLegacy=Path.Combine(offlineMap,"ShooterGame","Binaries","Win64",
+        "ArkApi","Plugins","\u004BovaCluster");
+    Directory.CreateDirectory(syntheticLegacy);
+    File.WriteAllText(Path.Combine(syntheticLegacy,"store.db"),"do not inspect this");
     var localInventory=LocalPluginInventory.Scan(offline);
     Assert(localInventory.Any(p=>p.PluginName=="SamplePlugin" && !p.Protected &&
         p.Binaries.Single().Sha256==Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(
                 File.ReadAllBytes(Path.Combine(pluginsDir,"SamplePlugin.dll"))))),
         "Local plugin inventory reports verified DLL hashes without config reads");
-    Assert(localInventory.Any(p=>p.PluginName=="KovaCluster" &&
+    Assert(localInventory.Any(p=>p.PluginName=="\u004BovaCluster" &&
         p.Protected && p.Binaries.Count==0) &&
-        File.ReadAllText(Path.Combine(syntheticKova,"store.db"))=="do not inspect this",
+        File.ReadAllText(Path.Combine(syntheticLegacy,"store.db"))=="do not inspect this",
         "Untamed Cluster Vault plugin is protected and store files remain unchanged");
 
     string sharedAsa=Path.Combine(root,"shared-asa");
@@ -719,9 +719,9 @@ try
     bool incomplete=false;
     try { TestBackupPackage.Verify(package,backupOwner); } catch(InvalidDataException) { incomplete=true; }
     Assert(incomplete,"Uncommitted backup rejected");
-    Assert(!LocalStoreProbe.Inspect(Path.Combine(root,"missing-store"),"KovaCluster","-usestore").Safe,"Unavailable Store blocks operations");
-    Assert(!LocalStoreProbe.Inspect(packageSource,"KovaCluster","-usestore").Safe,"Unknown Store metadata fails closed");
-    Assert(!LocalStoreProbe.Inspect(packageSource,"KovaCluster","-usestore -converttostore").Safe,"Store conversion is rejected");
+    Assert(!LocalStoreProbe.Inspect(Path.Combine(root,"missing-store"),"\u004BovaCluster","-usestore").Safe,"Unavailable Store blocks operations");
+    Assert(!LocalStoreProbe.Inspect(packageSource,"\u004BovaCluster","-usestore").Safe,"Unknown Store metadata fails closed");
+    Assert(!LocalStoreProbe.Inspect(packageSource,"\u004BovaCluster","-usestore -converttostore").Safe,"Store conversion is rejected");
     foreach(var mode in new[]{"success","no-save-proof","rcon-failure","timeout","exit-timeout","unknown-exit"})
     {
         var session=new LifecycleFixture(mode);

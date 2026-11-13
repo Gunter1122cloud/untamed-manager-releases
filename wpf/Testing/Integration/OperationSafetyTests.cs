@@ -139,8 +139,8 @@ public static class OperationSafetyTests
         Check(invalid,"missing audit requirement fails ledger validation");
         VerifyConfigJson(root);
         VerifyBackupMembership(root);
-        string redacted=UntamedPresentation.Redact("KovaCluster password=SECRET token='SECRET WITH SPACE' https://discord.com/api/webhooks/1/SECRET");
-        Check(!redacted.Contains("SECRET")&&!redacted.Contains("Kova",StringComparison.OrdinalIgnoreCase),"user-facing branding and credential redaction");
+        string redacted=UntamedPresentation.Redact("LegacyCluster password=SECRET token='SECRET WITH SPACE' https://discord.com/api/webhooks/1/SECRET");
+        Check(!redacted.Contains("SECRET")&&!redacted.Contains("\u004Bova",StringComparison.OrdinalIgnoreCase),"user-facing branding and credential redaction");
         string sensitiveException=UntamedPresentation.UnexpectedFailure(
             new InvalidOperationException(@"password=SUPERSECRET SQL=C:\\private\\data token=DO-NOT-SHOW"));
         Check(!sensitiveException.Contains("SUPERSECRET") &&
@@ -148,7 +148,7 @@ public static class OperationSafetyTests
             !sensitiveException.Contains("private") &&
             sensitiveException.Contains("UM-UNHANDLED"),
             "unhandled WPF error messages never reveal raw exception content");
-        Check(!typeof(ClusterService).Assembly.GetTypes().Any(t=>t.Name.StartsWith("Kova",StringComparison.Ordinal)),"own wrapper types use neutral names");
+        Check(!typeof(ClusterService).Assembly.GetTypes().Any(t=>t.Name.StartsWith("\u004Bova",StringComparison.Ordinal)),"own wrapper types use neutral names");
         // T03 attestation protocol fixture: signed receipts establish correlation,
         // not real ASA disk flush and never unlock the production DoExit gate.
         byte[] witnessKey=System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);

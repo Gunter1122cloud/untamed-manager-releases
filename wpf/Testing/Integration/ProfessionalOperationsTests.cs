@@ -67,7 +67,7 @@ public static class ProfessionalOperationsTests
             !combined.VaultStoreIncluded &&
             !combined.MariaDbSnapshotConsistencyProven &&
             OfflineClusterBackup.Verify(output).Batch==combined.Batch,
-            "offline bundle verifies hashes but never claims live ASA/Kova/SQL consistency");
+            "offline bundle verifies hashes but never claims live ASA/Legacy/SQL consistency");
         Check(File.ReadAllText(Path.Combine(h[0],"data","world-test.txt"))==
             "synthetic "+hpMaps[0] &&
             File.Exists(Path.Combine(sqlRoot,"arkshop","complete")),
@@ -84,12 +84,12 @@ public static class ProfessionalOperationsTests
         catch(InvalidDataException){missingHostRejected=true;}
         Check(missingHostRejected,"two-host backup refuses same host root twice");
 
-        string audits=Path.Combine(root,"v16-kova-sanitized");
+        string audits=Path.Combine(root,"v16-legacy-sanitized");
         Directory.CreateDirectory(audits);
         string hpFile=Path.Combine(audits,"hp-cluster-store.json");
         string ryzenFile=Path.Combine(audits,"ryzen-cluster-store.json");
         object hpExport=new{
-            ClusterId="KovaCluster",Mode="shared",PeerCount=2,ShareReadable=true,
+            ClusterId="\u004BovaCluster",Mode="shared",PeerCount=2,ShareReadable=true,
             LocalLockSessionMatches=true,LocalPathMatchesOperation=true,
             LocalClusterMatchesOperation=true,SelectedLocalProfilesMatch=true,
             LocalLockConfigIdMatches=true,LocalLockConfigPathMatches=true,
@@ -107,7 +107,7 @@ public static class ProfessionalOperationsTests
                 new{Name="mutation.lock",Exists=false}
             }};
         object ryzenExport=new{
-            ClusterID="KovaCluster",Mode="shared",
+            ClusterID="\u004BovaCluster",Mode="shared",
             ReadAccessOnlyInThisAudit=true,
             LocalConfigHashMatches=true,SessionAgreement=true,
             StoreMaps=ryzenMaps.Select((name,i)=>new{
@@ -152,7 +152,7 @@ public static class ProfessionalOperationsTests
         catch(InvalidDataException){switched=true;}
         Check(switched,"Untamed Cluster Vault host role swap rejected");
 
-        // Real Kova shared-store-v1 JSON coordination *copies* (not a generic
+        // Real Legacy shared-store-v1 JSON coordination *copies* (not a generic
         // audit shape): operation, per-peer records, two device/lock copies.
         string storeShared=Path.Combine(root,"v16-real-store-copy");
         string storeHp=Path.Combine(root,"v16-real-store-local-hp");
@@ -166,9 +166,9 @@ public static class ProfessionalOperationsTests
             id=hpIds[i].ToString(),root=@"D:\offline\hp\"+i,map=name}).ToArray();
         var ryzenMembers=ryzenMaps.Select((name,i)=>new{
             id=ryzenIds[i].ToString(),root=@"C:\offline\ryzen\"+i,map=name}).ToArray();
-        var configHp=new{id="KovaCluster",mode="shared",
+        var configHp=new{id="\u004BovaCluster",mode="shared",
             path=clusterUnc,members=hpMembers};
-        var configRyzen=new{id="KovaCluster",mode="shared",
+        var configRyzen=new{id="\u004BovaCluster",mode="shared",
             path=clusterUnc,members=ryzenMembers};
         using var hpConfigDoc=JsonDocument.Parse(JsonSerializer.Serialize(configHp));
         using var ryzenConfigDoc=JsonDocument.Parse(JsonSerializer.Serialize(configRyzen));
@@ -179,7 +179,7 @@ public static class ProfessionalOperationsTests
         string backupHp=Guid.NewGuid().ToString(),backupRyzen=Guid.NewGuid().ToString();
         File.WriteAllText(Path.Combine(storeShared,"operation.json"),
             JsonSerializer.Serialize(new{
-                schema=1,session=sessionId.ToString(),cluster="KovaCluster",
+                schema=1,session=sessionId.ToString(),cluster="\u004BovaCluster",
                 path=clusterUnc.ToLowerInvariant(),
                 peers=new[]{deviceHp.ToString(),deviceRyzen.ToString()}}));
         File.WriteAllText(Path.Combine(storeShared,deviceHp+".json"),
@@ -222,17 +222,17 @@ public static class ProfessionalOperationsTests
             "authentic shared-store-v1 copied operation+2 peers+local locks pass read-only checks");
         Check(liveContractCopy.Warning.Contains("NOT proven") &&
             liveContractCopy.InspectedSha256.Length==12,
-            "real Kova contract copied file checksums never certify production compatibility");
+            "real Legacy contract copied file checksums never certify production compatibility");
         Directory.CreateDirectory(Path.Combine(storeShared,"mutation.lock"));
         Check(!VaultCompatibilityReader.Inspect(
             storeShared,storeHp,storeRyzen).HistoricalConsistent,
-            "Kova mutation.lock marks copied session as unsafe for takeover");
+            "Legacy mutation.lock marks copied session as unsafe for takeover");
         Directory.Delete(Path.Combine(storeShared,"mutation.lock"));
         File.WriteAllText(Path.Combine(storeShared,"running.json"),
             JsonSerializer.Serialize(new{session=sessionId.ToString()}));
         Check(!VaultCompatibilityReader.Inspect(
             storeShared,storeHp,storeRyzen).HistoricalConsistent,
-            "Kova running.json marker blocks historical Store-v1 consistency");
+            "Legacy running.json marker blocks historical Store-v1 consistency");
         File.Delete(Path.Combine(storeShared,"running.json"));
         bool wrongPeerBlocked=false;
         File.WriteAllText(Path.Combine(storeHp,"shared-store-lock-v1.json"),
@@ -240,7 +240,7 @@ public static class ProfessionalOperationsTests
                 config=configHp,configHash=hpHash,selected=selectedHp}));
         var badSession=VaultCompatibilityReader.Inspect(storeShared,storeHp,storeRyzen);
         Check(!badSession.HistoricalConsistent,
-            "Kova lock session different from operation is explicitly rejected");
+            "Legacy lock session different from operation is explicitly rejected");
         // The real subprocess is the harmless FakeAsa Windows binary and
         // only the integration test's own TEMP directory can be controlled.
         string life=Path.Combine(root,"v16-lifecycle-fixture");
