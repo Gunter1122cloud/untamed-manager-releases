@@ -8,11 +8,11 @@ using System.Text.Json;
 namespace UntamedManager.Core;
 
 /// <summary>
-/// The original Kova five-map source is needed for initial evidence, not as a
+/// The original Legacy five-map source is needed for initial evidence, not as a
 /// permanent running dependency. On an explicitly approved native import,
 /// copy the five immutable metadata/launch files into the Manager's OWN local
-/// profile. No ASA world, shared Store/transfer, lock or Kova file is written.
-/// ACTIVE/DONE belongs to the historical Kova conversion/handoff protocol,\n/// not to ordinary local ASA startup after the immutable source is pinned.
+/// profile. No ASA world, shared Store/transfer, lock or Legacy file is written.
+/// ACTIVE/DONE belongs to the historical Legacy conversion/handoff protocol,\n/// not to ordinary local ASA startup after the immutable source is pinned.
 /// </summary>
 public static class LegacyStoreV1PinnedSource
 {
@@ -58,29 +58,29 @@ public static class LegacyStoreV1PinnedSource
     /// For already-approved imports and read-only diagnostics. This validates
     /// the Manager copy, but only Resolve(map) binds it to a concrete map.
     /// </summary>
-    public static string PreferredProfile(string managerProfileRoot,string originalKovaProfile)
+    public static string PreferredProfile(string managerProfileRoot,string originalLegacyProfile)
     {
         string pinned=DirectoryFor(managerProfileRoot);
         if(!Directory.Exists(pinned))
         {
             if(File.Exists(pinned))
                 throw new InvalidDataException("UM-STORE-PIN-NOT-A-DIRECTORY");
-            return originalKovaProfile;
+            return originalLegacyProfile;
         }
         _=VerifyPinned(pinned);
         return pinned;
     }
 
     /// <summary>
-    /// A corrupt Manager-owned pin NEVER falls back silently to Kova. Without
-    /// a pin, earlier installations continue using their original Kova source.
+    /// A corrupt Manager-owned pin NEVER falls back silently to Legacy. Without
+    /// a pin, earlier installations continue using their original Legacy source.
     /// </summary>
-    public static string Resolve(string managerProfileRoot,string originalKovaProfile,
+    public static string Resolve(string managerProfileRoot,string originalLegacyProfile,
         LocalMap map)
     {
-        string pinned=PreferredProfile(managerProfileRoot,originalKovaProfile);
-        if(string.Equals(pinned,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
-            return originalKovaProfile;
+        string pinned=PreferredProfile(managerProfileRoot,originalLegacyProfile);
+        if(string.Equals(pinned,originalLegacyProfile,StringComparison.OrdinalIgnoreCase))
+            return originalLegacyProfile;
         var proof=VerifyPinned(pinned);
         if(!string.Equals(map.HistoricalArchiveSha256,proof.FourFileHash,
                StringComparison.Ordinal))
@@ -91,7 +91,7 @@ public static class LegacyStoreV1PinnedSource
 
     /// <summary>
     /// Is the complete approved original metadata pinned locally to this
-    /// concrete map? Never consult the retired Kova ACTIVE/DONE peer markers.
+    /// concrete map? Never consult the retired Legacy ACTIVE/DONE peer markers.
     /// A corrupt, half-copied or wrong-map pin fails closed.
     /// </summary>
     public static bool HasApprovedLocalSource(string managerProfileRoot,LocalMap map)
@@ -159,14 +159,14 @@ public static class LegacyStoreV1PinnedSource
     /// <summary>
     /// Unchanging native-operation source proof for LOCAL SaveWorld/Stop/RCON
     /// against an owned map, without requiring the other ASA host or the
-    /// obsolete Kova ACTIVE/DONE coordination files. It is NOT a proof that
+    /// obsolete Legacy ACTIVE/DONE coordination files. It is NOT a proof that
     /// cluster transfer is currently available.
     /// </summary>
     public static string RuntimeFingerprint(string managerProfileRoot,
-        string originalKovaProfile,LocalMap map)
+        string originalLegacyProfile,LocalMap map)
     {
-        string selected=Resolve(managerProfileRoot,originalKovaProfile,map);
-        if(string.Equals(selected,originalKovaProfile,StringComparison.OrdinalIgnoreCase))
+        string selected=Resolve(managerProfileRoot,originalLegacyProfile,map);
+        if(string.Equals(selected,originalLegacyProfile,StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("UM-STORE-PIN-NOT-YET-APPROVED");
         var source=LegacyStoreV1OriginalImport.Inspect(selected);
         var cluster=ReadOriginalCluster(selected);
@@ -214,10 +214,10 @@ public static class LegacyStoreV1PinnedSource
     /// here; neither an untrusted WebView path nor a replacement cluster id
     /// can supply them.
     /// </summary>
-    public static void Capture(string originalKovaProfile,string managerProfileRoot,
+    public static void Capture(string originalLegacyProfile,string managerProfileRoot,
         string approvedFourFileHash,string approvedLaunchHash)
     {
-        string source=VaultReadSnapshot.LocalPath(originalKovaProfile,true);
+        string source=VaultReadSnapshot.LocalPath(originalLegacyProfile,true);
         string manager=VaultReadSnapshot.LocalPath(managerProfileRoot,true);
         string existingPin=DirectoryFor(manager);
         if(string.Equals(source,existingPin,StringComparison.OrdinalIgnoreCase))
@@ -287,7 +287,7 @@ public static class LegacyStoreV1PinnedSource
         finally
         {
             // Only this randomly named Manager-owned staging folder can be
-            // removed; original Kova/ASA/shared transfer files are untouched.
+            // removed; original Legacy/ASA/shared transfer files are untouched.
             if(Directory.Exists(stage))Directory.Delete(stage,true);
         }
     }
