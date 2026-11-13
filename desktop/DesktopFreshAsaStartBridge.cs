@@ -39,7 +39,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         launch=starter??((mapId,approved)=>cluster.LaunchFreshAsa(mapId,approved));
     }
 
-    private static string IniFingerprint(LocalMap map)
+    internal static string IniFingerprint(LocalMap map)
     {
         // Fresh-start approval is bound to the actual on-disk ASA INI bytes,
         // including unknown mod sections. Hash only the two small config
