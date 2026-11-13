@@ -394,7 +394,12 @@ public sealed partial class WindowsProcessInspector
             int i = prefix.IndexOf('"',1);
             if (i < 0) return false;
             string actualExe = prefix.Substring(1,i-1);
-            if (!StringComparer.OrdinalIgnoreCase.Equals(Path.GetFullPath(actualExe), exe)) return false;
+            // WMI may retain redundant separators in a quoted process command
+            // while a registered profile uses the canonical absolute path.
+            // Compare canonical paths on BOTH sides; never infer that a
+            // known sibling ASA process is an unknown process.
+            if (!StringComparer.OrdinalIgnoreCase.Equals(
+                Path.GetFullPath(actualExe), Path.GetFullPath(exe))) return false;
             prefix=prefix.Substring(i+1).Trim();
         }
         else
