@@ -61,7 +61,7 @@ public static class LegacyStoreV1ActiveLaunch
             }
             else encoding=new UTF8Encoding(false,true);
             string decoded=encoding.GetString(bytes,skip,bytes.Length-skip);
-            if(decoded.IndexOf('\\0')>=0)
+            if(decoded.IndexOf('\0')>=0)
                 throw new InvalidDataException("UM-STORE-NATIVE-INI-NUL");
             return decoded;
         }
