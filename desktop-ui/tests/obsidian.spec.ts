@@ -2372,11 +2372,6 @@ test.beforeEach(async ({ page }) => {
         }
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
         case "ini.open":
-          if(holdIniOpen){
-            holdIniOpen=false;
-            await new Promise<void>(resolve=>{releaseIniOpen=resolve;});
-            releaseIniOpen=null;
-          }
           if(["missingGameIni","missingGameIniStore"].includes(
               new URLSearchParams(window.location.search).get("fixture")??"") &&
              m.file==="Game.ini"&&!missingGameCreated)
@@ -3026,7 +3021,7 @@ test.beforeEach(async ({ page }) => {
       chrome: { webview: {
         addEventListener: (_name: string, fn: Handler) => { handlers.push(fn); },
         postMessage: (msg: {id:string;method:string}) => {
-          queueMicrotask(() => {
+          const dispatch=()=>queueMicrotask(() => {
             try {
               const data = answers(msg);
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:true,data} }));
@@ -3052,6 +3047,12 @@ test.beforeEach(async ({ page }) => {
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
             }
           });
+          if(msg.method==="ini.open"&&holdIniOpen){
+            // Hold the native bridge reply (not the synchronous switch).
+            // A file change must discard its subsequent old-file response.
+            holdIniOpen=false;
+            releaseIniOpen=()=>{releaseIniOpen=null;dispatch();};
+          }else dispatch();
         }
       }}
     });
