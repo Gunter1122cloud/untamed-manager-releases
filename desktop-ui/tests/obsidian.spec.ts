@@ -64,6 +64,8 @@ test.beforeEach(async ({ page }) => {
         });
       };
     let lifecycleStopHeld=false;
+    let lifecycleStopIssued=false;
+    let lifecycleRestartIssued=false;
     (window as typeof window & {__UNTAMED_HOLD_LOCAL_STOP__?:()=>void;
       __UNTAMED_RELEASE_LOCAL_STOP__?:()=>void;}).__UNTAMED_HOLD_LOCAL_STOP__=()=>{lifecycleStopHeld=true;};
     (window as typeof window & {__UNTAMED_RELEASE_LOCAL_STOP__?:()=>void;})
@@ -2585,6 +2587,10 @@ test.beforeEach(async ({ page }) => {
             readyCertified:false,requiresRconReadiness:true,storeTouched:false,
             evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"};
         case "servers.restartCurrent": return {
+          inMemoryJobId:lifecycleRestartIssued?
+            "00000000-0000-4000-8000-000000009777":null,
+          inMemoryJobState:lifecycleRestartIssued?"completed":null,
+          inMemoryRunning:false,
           exists:restartInterrupted,belongsToMap:true,
           phase:restartInterrupted?"NeedsOperator":null,
           oldPid:restartInterrupted?(storeLaunchRecoveryFixture?123456:44117):null,
@@ -2625,6 +2631,7 @@ test.beforeEach(async ({ page }) => {
         };
         case "servers.restartApply":
           if(!m.confirm)throw new Error("Approval required");
+          lifecycleRestartIssued=true;
           return {jobId:"00000000-0000-4000-8000-000000009777",
             started:true,autoRetry:false,killPerformed:false,
             storeTouched:false,evidence:"REAL_LOCAL_ASA_RESTART_JOB_QUEUED"};
@@ -2664,9 +2671,17 @@ test.beforeEach(async ({ page }) => {
         };
         case "servers.gracefulStopApply":
           if(!m.confirm)throw new Error("Approval required");
+          lifecycleStopIssued=true;
           return {jobId:"00000000-0000-4000-8000-000000009555",
             started:true,killPerformed:false,autoRestart:false,
             evidence:"REAL_LOCAL_GRACEFUL_STOP_JOB_QUEUED"};
+        case "servers.gracefulStopCurrent": return {
+          mapId:m.mapId,
+          jobId:lifecycleStopIssued?"00000000-0000-4000-8000-000000009555":null,
+          state:lifecycleStopIssued?(lifecycleStopHeld?"running":"completed"):null,
+          active:lifecycleStopIssued&&lifecycleStopHeld,
+          evidence:"LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
+        };
         case "servers.gracefulStopStatus": return {
           jobId:"00000000-0000-4000-8000-000000009555",
           state:lifecycleStopHeld?"running":"completed",step:"Windows process verified stopped",
