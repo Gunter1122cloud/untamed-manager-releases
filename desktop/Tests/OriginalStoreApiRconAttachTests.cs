@@ -107,7 +107,7 @@ internal static class OriginalStoreApiRconAttachTests
               !nativeExisting.GetRawText().Contains(password,StringComparison.Ordinal) &&
               File.ReadAllBytes(ini).SequenceEqual(iniBefore),
             "local ASA INI can supply existing credential to one-shot preview without exposing secret or editing source");
-        File.AppendAllText(ini,"[ServerSettings]\\r\\nRCONPort="+port+"\\r\\n");
+        File.AppendAllText(ini,"[ServerSettings]\r\nRCONPort="+port+"\r\n");
         var ambiguousExisting=await Call(bridge,"historical.rconExistingPreview",
             new{mapId=map.Id});
         Check(!ambiguousExisting.GetProperty("ok").GetBoolean() &&
