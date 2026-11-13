@@ -152,10 +152,10 @@ export function LanSettingsPanel(){
           <span>{status.originalStorePair.copiedMetadataPairMatches?"Történeti metaadatok egyeznek":"További ellenőrzés szükséges"}</span></div>
         <p className="muted small">{
           status.originalStorePair.originalPeerHostId
-            ? "Eredeti korábbi Manager partner: "+(status.peers.find(p=>
+            ? "Eredeti korábbi kezelőalkalmazás partner: "+(status.peers.find(p=>
                 p.hostId.replace(/-/g,"").toLowerCase()===
                 status.originalStorePair.originalPeerHostId.toLowerCase())?.hostName??"ismeretlen Manager")
-            : "Eredeti korábbi Manager partner: még nem azonosítható ("
+            : "Eredeti korábbi kezelőalkalmazás partner: még nem azonosítható ("
               +status.originalStorePair.statusCode+")"
         }. Az egyezés kizárólag történeti metaadat, nem élő Store-writer vagy karakterutazási bizonyíték.</p>
         <div className="lan-store-grid">
@@ -171,7 +171,7 @@ export function LanSettingsPanel(){
               "Mindkét oldali korábbi naplóbizonylat egyező előfeltételekkel" :
               "Nincs kétoldali friss történeti bizonyíték – tiltva"}</b></div>
           <div><span>Külön gazdagépazonosítók</span><b>{status.originalStorePair.distinctDeviceIds?"Igazolt":"Nem igazolt"}</b></div>
-          <div><span>Öt aktív Store-map az eredeti eredeti forrásfájlokban</span><b>{status.originalStorePair.bothHaveFiveActiveMaps?"Igazolt":"Nem igazolt"}</b></div>
+          <div><span>Öt aktív Store-map az eredeti forrásfájlokban</span><b>{status.originalStorePair.bothHaveFiveActiveMaps?"Igazolt":"Nem igazolt"}</b></div>
           <div><span>Az eredeti öt-öt GUID és mapnév tényleges Manager-regisztrációja</span>
             <b>{status.originalStorePair.bothOriginalFiveRegisteredInManagers?
               "Mindkét Managerben igazolt":"Hiányzik vagy eltér – ellenőrzés szükséges"}</b></div>
@@ -187,7 +187,7 @@ export function LanSettingsPanel(){
           </button>
         </div>
         <p className="muted small">Az UNC név egyezése nem bizonyít azonos fizikai könyvtárat.
-          A gomb az eredeti négy korábbi Manager metaadatfájlt változtatás nélkül olvassa,
+          A gomb az eredeti négy korábbi kezelőalkalmazás metaadatfájlt változtatás nélkül olvassa,
           és az UNC könyvtár Windows kötet-/fájlazonosítóját ellenőrzi.
           Mindkét gépen külön kell elindítani. A rövid életű lenyomat csak
           a hitelesített LAN státuszban utazik; írás, új session, locktörlés,

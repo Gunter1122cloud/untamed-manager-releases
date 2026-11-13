@@ -256,7 +256,7 @@ export function StoreTravelWorkbench(){
     <section className="uk-travel-hero">
       <div className="uk-travel-hero-icon"><ShieldCheck size={33}/></div>
       <div><span>VÉDETT · CSAK OLVASÁS</span>
-        <h2>Az eredeti ASA/korábbi Manager konfiguráció marad érvényben.</h2>
+        <h2>Az eredeti ASA/korábbi kezelőalkalmazás konfiguráció marad érvényben.</h2>
         <p>A natív indítás ellenőrzi a eredeti clusterazonosítót, az eredeti közös
           transferkönyvtárat, a maponkénti portokat, mod-sorrendet, egyszeri
           -usestore kapcsolót és a meglévő INI-k változatlanságát.
@@ -269,7 +269,7 @@ export function StoreTravelWorkbench(){
         <ShieldCheck size={19}/>
         <strong>ASA NATÍV TRANSFER – KONFIGURÁCIÓMEGŐRZÉS A MANAGERBEN</strong>
       </div>
-      <p>Mind a tíz eredeti map a saját korábbi Manager-indítási forrásából kapja a
+      <p>Mind a tíz eredeti map a saját korábbi kezelőalkalmazás-indítási forrásából kapja a
         eredeti clusterazonosítót, az eredeti közös ClusterDirOverride útvonalat
         és a Store-v1 kapcsolókat. A Manager nem hoz létre külön
         karaktermozgatási vagy automatikus helyreállítási rendszert.
