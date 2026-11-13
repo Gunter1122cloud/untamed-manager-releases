@@ -1447,7 +1447,7 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
         if(fresh.mapId.toLowerCase()!==requested.toLowerCase()||fresh.file!==name)
           throw new Error("UM-INI-OPEN-OTHER-MAP");
         setOpened(fresh);setContent(fresh.content);
-        setNotice("A Game.ini létrejött, és az ETag-védett szerkesztő megnyitotta.");
+        setNotice("A hiányzó Game.ini kizárólag ezen az igazoltan leállított új mapon jött létre. A fájlt az ETag-védett szerkesztő már megnyitotta.");
       }catch{
         if(belongs(requested,name,epoch))
           setError("A Game.ini létrejött, de az újraolvasása sikertelen. Ne ismételd meg a létrehozást; csak nyisd meg a fájlt.");
