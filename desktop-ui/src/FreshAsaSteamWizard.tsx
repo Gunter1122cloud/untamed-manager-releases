@@ -10,7 +10,7 @@ const mapNames = [
 
 // Unapproved SteamCMD wizard choices are transient UI drafts. Preserve
 // navigation between tabs without ever persisting them to a server, profile,
-// localStorage or an ASA/Kova file. Native SteamCMD job ID, not this draft,
+// localStorage or an ASA/korábbi Manager file. Native SteamCMD job ID, not this draft,
 // remains authoritative once an actual installation starts.
 type SteamWizardDraft=Partial<{
   mapName:string;customMapName:string;customLevel:string;
@@ -480,7 +480,7 @@ export function FreshAsaSteamWizard({
         <h3>2. Első konfiguráció – natív jóváhagyással</h3>
         <p className="muted small">A szervernév, Game/Query UDP-portok és az egyedi map
           azonosítója itt állítható be. Ez nem indít ASA-folyamatot, és nem
-          nyúl a Kova Store-v1 karakteradatokhoz.</p>
+          nyúl a eredeti Store-v1 karakteradatokhoz.</p>
         {!firstConfigurationSaved&&<InitialMapSetup
           mapId={registeredMapId||job.mapId!}
           onConfigured={async()=>{setFirstConfigurationSaved(true);

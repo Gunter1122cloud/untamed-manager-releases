@@ -83,7 +83,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
     setChecked(false);setTyped("");
     try{
       if(action==="kill"&&historical){
-        setError("Az eredeti Kova Store-v1 map kényszerített Kill művelete itt tiltott: a közös writer és a karakteradatok megsérülhetnek. Használd a natív SaveWorld/DoExit leállítást.");
+        setError("Az eredeti eredeti Store-v1 map kényszerített Kill művelete itt tiltott: a közös writer és a karakteradatok megsérülhetnek. Használd a natív SaveWorld/DoExit leállítást.");
         return;
       }
       const data=action==="start"

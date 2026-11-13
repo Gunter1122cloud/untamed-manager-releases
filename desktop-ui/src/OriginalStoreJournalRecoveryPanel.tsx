@@ -29,7 +29,7 @@ export function OriginalStoreJournalRecoveryPanel({mapId,journal,onRecovered}:{
     setBusy(true);setError("");setVerifiedPid(null);
     try{
       // Preview performs the same strict native preflight as the old
-      // separate step; it sends no commands or writes to original Kova.
+      // separate step; it sends no commands or writes to original korábbi Manager.
       const proof=await managerBridge.originalStoreLifecycleRecoveryPreview(mapId);
       if(currentMap.current!==mapId)return;
       if(!proof.token||proof.pid<=0||

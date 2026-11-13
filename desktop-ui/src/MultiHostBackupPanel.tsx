@@ -165,7 +165,7 @@ export function MultiHostBackupPanel(){
     try{
       const started=await managerBridge.multiHostBackupApply(backupPreview.token);
       setJobId(started.jobId);setJobKind("backup");setBackupPreview(null);setApproved(false);
-      setNotice("Az elkülönített offline másolatok archiválása elindult. A futó ASA/Kova és a Store-v1 források nem módosulnak.");
+      setNotice("Az elkülönített offline másolatok archiválása elindult. A futó ASA/korábbi Manager és a Store-v1 források nem módosulnak.");
     }catch{setError("A natív Manager elutasította a mentés-jóváhagyást vagy a registry időközben megváltozott.");}
     finally{setBusy(false);}
   }
@@ -280,7 +280,7 @@ export function MultiHostBackupPanel(){
       <p><b>Korábbi állapot nem törlődik:</b> a teljes .incomplete könyvtár megőrzött
         másolatba kerül. A változatlan offline host-, Store-, világ- és transferfájlokból
         új teljes archívum készül a már működő motorral. Ez nem automatikus folytatás
-        és nem érinti a futó ASA-t vagy az eredeti Kova-adatokat.</p>
+        és nem érinti a futó ASA-t vagy az eredeti korábbi Manager-adatokat.</p>
       <label><input type="checkbox" checked={backupRecoveryApproved}
         disabled={busy} onChange={e=>setBackupRecoveryApproved(e.target.checked)}/>
         Jóváhagyom a naplóval ellenőrzött régi részleges archívum megtartását
@@ -306,7 +306,7 @@ export function MultiHostBackupPanel(){
       <p>A meglévő teljes N-host archívum igazolt TEMP restore fájljaiból készül
         el a helyi host teljes map-, profil-, tribe-, inventory-, tribute-,
         dino-, INI-, mod-, plugin- és Store/transfer tesztcsomagja.</p>
-      <p><b>Nem történik éles restore:</b> nincs ASA vagy Kova írás, nincs
+      <p><b>Nem történik éles restore:</b> nincs ASA vagy korábbi Manager írás, nincs
         távoli host-művelet, és nem kap jogot a Store writer újranyitására.</p>
       <label><input type="checkbox" disabled={busy} checked={hostStageApproved}
         onChange={e=>setHostStageApproved(e.target.checked)}/>
