@@ -1,5 +1,4 @@
 import {useEffect,useState} from "react";
-import {isOriginalStoreClusterId} from "./originalStoreRuntime";
 import {Shield,CheckCircle2,RefreshCw,AlertTriangle} from "lucide-react";
 import {managerBridge,type FreshStoreEnrollmentStatus,type FreshStoreEnrollmentPreview,
   type RegisteredCluster} from "./bridge";
@@ -26,7 +25,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       const memberships=registry.clusterRegistry.mapAssignments.filter(x=>
         x.mapId.toLowerCase()===mapId.toLowerCase());
       const options=memberships.length===1?registry.clusterRegistry.clusters.filter(x=>
-        x.clusterId===memberships[0].clusterId&&!isOriginalStoreClusterId(x.clusterId)):[];
+        x.clusterId===memberships[0].clusterId&&x.clusterId.toLowerCase()!=="kovacluster"):[];
       setClusters(options);setSelected(options[0]?.clusterId??"");
     }).catch(()=>{
       if(active)setError("A helyi map és a clusterhozzárendelés nem igazolható. Nem történt módosítás.");

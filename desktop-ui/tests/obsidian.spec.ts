@@ -1452,7 +1452,7 @@ test.beforeEach(async ({ page }) => {
         }
         case "historical.originalClusterApply": {
           if(!sourceKovaClusterToken||m.token!==sourceKovaClusterToken||
-             m.confirm!==true||m.typedApproval!=="EREDETI KOVA REGISZTER")
+             m.confirm!==true||m.typedApproval!=="EREDETI STORE REGISZTER")
             throw new Error("UM-ORIGINAL-CLUSTER-APPROVAL-REQUIRED");
           sourceKovaClusterToken="";sourceKovaClusterApplies++;
           const missing=sourceKovaClusterAssigned?0:5;
@@ -5977,7 +5977,7 @@ test("original korábbi Manager Cluster registry adoption requires exact typed a
     .fill("EREDETI KOVA");
   await expect(approval).toBeDisabled();
   await confirmation.getByRole("textbox",{name:"Eredeti Cluster-regiszter jóváhagyó szöveg"})
-    .fill("EREDETI KOVA REGISZTER");
+    .fill("EREDETI STORE REGISZTER");
   await expect(approval).toBeEnabled();
   await approval.click();
   await expect(panel).toContainText("5 eredeti map-tagság átvezetve");
