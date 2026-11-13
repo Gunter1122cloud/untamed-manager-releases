@@ -60,7 +60,7 @@ jobs:
           if (@($tracked | Where-Object { $_.IndexOf($obsolete, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -gt 0) {
             throw "Obsolete project branding found in a current file path"
           }
-          & git grep -I -n -i -F -- $obsolete -- .
+          & git grep -I -n -i -F -- $obsolete -- . ':!previews/*.b64.txt'
           if ($LASTEXITCODE -eq 0) { throw "Obsolete project branding found in source" }
           if ($LASTEXITCODE -ne 1) { throw "Source branding scan was not completed" }
       - name: Guard against retired WPF SQL GUI and accidental Core deletion

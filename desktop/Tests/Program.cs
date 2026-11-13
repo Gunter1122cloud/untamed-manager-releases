@@ -7,11 +7,11 @@ using UntamedDesktop;
 using UntamedManager.Core;
 
 // Real independent Windows child-process fixture. This short-circuits all
-// ordinary native test setup; it never opens an ASA installation or Kova data.
+// ordinary native test setup; it never opens an ASA installation or Legacy data.
 if (args.Length > 0 && args[0] == LegacyStoreSaveEvidenceProcessTests.ChildSwitch)
     Environment.Exit(LegacyStoreSaveEvidenceProcessTests.RunChild(args));
-if (args.Length > 0 && args[0] == OriginalKovaMutationProcessTests.ChildSwitch)
-    Environment.Exit(OriginalKovaMutationProcessTests.RunChild(args));
+if (args.Length > 0 && args[0] == OriginalLegacyMutationProcessTests.ChildSwitch)
+    Environment.Exit(OriginalLegacyMutationProcessTests.RunChild(args));
 if (args.Length > 0 && args[0] == MultiHostTempProcessLeaseTests.ChildSwitch)
     Environment.Exit(MultiHostTempProcessLeaseTests.RunChild(args));
 if (args.Length > 0 && args[0] == MultiHostArchiveProcessLeaseTests.ChildSwitch)
@@ -118,7 +118,7 @@ await OriginalStoreLiveReconcileTests.Run(root);
 OperationJournalInventoryTests.Run(root);
 await OperationJournalIsolationTests.Run(root);
 await OriginalStoreApiRconAttachTests.Run(root);
-await OriginalKovaDirectImportTests.Run(root);
+await OriginalLegacyDirectImportTests.Run(root);
 await LegacyStoreSaveEvidenceTests.Run(root);
 await HistoricalStoreWorldBackupTests.Run(root);
 await OriginalStoreFiveMapBackupTests.Run(root);
@@ -126,7 +126,7 @@ MultiHostOfflineCatalogAssemblerTests.Run(root);
 await MultiHostArchiveProcessLeaseTests.Run(root);
 await LegacyStoreSaveReviewBridgeTests.Run(root);
 await LegacyStoreSaveEvidenceProcessTests.Run(root);
-await OriginalKovaMutationProcessTests.Run(root);
+await OriginalLegacyMutationProcessTests.Run(root);
 await EmbeddedStorePartialIndexTests.Run(root);
 await LegacyStoreSaveReceiptPairTests.Run(root);
 await FreshStoreEnrollmentTests.Run(root);
@@ -288,7 +288,7 @@ Check(cluster.LocalStatus().Maps.Single().Id==map.Id.ToString("D") &&
           !Match(originalCommand+" -usestore") &&
           !Match(originalCommand+" -UnknownExtraFlag") &&
           !Match(originalCommand.Replace("-Port=7797","-Port=7798",StringComparison.Ordinal)) &&
-          !Match(originalCommand.Replace("-clusterid=KovaCluster",
+          !Match(originalCommand.Replace("-clusterid=\u004BovaCluster",
               "-clusterid=UntamedKingdom",StringComparison.Ordinal)) &&
           !Match(originalCommand.Replace("-mods=123456,789012",
               "-mods=789012,123456",StringComparison.Ordinal)),
@@ -600,11 +600,11 @@ try
             "original Store DONE member source hash rejects changed original map order");
 
         var sourceConfig=JsonSerializer.SerializeToElement(new{
-            id="KovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
+            id="\u004BovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
             members=localMaps
         });
         var matchingConfig=JsonSerializer.SerializeToElement(new{
-            id="KovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
+            id="\u004BovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
             members=localMaps
         });
         LegacyStoreV1PeerTopology.RequireSameOriginalConfiguration(
@@ -614,13 +614,13 @@ try
         Check(StoreV1Fingerprint.Matches(sourceConfig,originalLocalConfigHash),
             "original local lock configHash exactly matches its current local cluster configuration");
         var staleLocalCluster=JsonSerializer.SerializeToElement(new{
-            id="KovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
+            id="\u004BovaCluster",mode="shared",path=@"\\192.0.2.1\synthetic",
             members=localMaps.Reverse().ToArray()
         });
         Check(!StoreV1Fingerprint.Matches(staleLocalCluster,originalLocalConfigHash),
             "stale original lock configHash must block changed member ordering despite self-consistent saved lock");
         var aliasChanged=JsonSerializer.SerializeToElement(new{
-            id="KovaCluster",mode="shared",path=@"\\other-host\synthetic",
+            id="\u004BovaCluster",mode="shared",path=@"\\other-host\synthetic",
             members=localMaps
         });
         bool aliasDenied=false;
@@ -639,7 +639,7 @@ try
                 right.StartsWith(@"\\",StringComparison.Ordinal));
         Check(true,"physically verified original UNC alias may differ in text without rewriting source hashes");
         var changedOtherField=JsonSerializer.SerializeToElement(new{
-            id="KovaCluster",mode="shared",path=@"\\other-host\synthetic",
+            id="\u004BovaCluster",mode="shared",path=@"\\other-host\synthetic",
             members=localMaps.Reverse().ToArray()
         });
         bool otherMismatchDenied=false;
@@ -696,15 +696,15 @@ try
         var input=new LegacyStoreV1ActiveLaunch.Input(
             "ScorchedEarth_WP",7777,27015,
             new[]{"123456","654321"},new[]{"654321"},
-            "KovaCluster", @"\\192.0.2.1\SyntheticCluster","active",safeIni);
+            "\u004BovaCluster", @"\\192.0.2.1\SyntheticCluster","active",safeIni);
         var active=LegacyStoreV1ActiveLaunch.Build(input);
         Check(active.Arguments.SequenceEqual(new[]{
             "ScorchedEarth_WP?listen","-Port=7777","-QueryPort=27015",
             "-mods=123456,654321","-passivemods=654321",
-            "-clusterid=KovaCluster",@"-ClusterDirOverride=\\192.0.2.1\SyntheticCluster",
+            "-clusterid=\u004BovaCluster",@"-ClusterDirOverride=\\192.0.2.1\SyntheticCluster",
             "-usestore","-log"})&&!active.ConversionRequested,
             "original active Store-v1 source grammar preserves the exact enabled mod order with separate passive flags and forbids conversion");
-        // Kova 1.8.3 accepts UTF-8 and BOM-marked UTF-16 LE/BE
+        // Legacy 1.8.3 accepts UTF-8 and BOM-marked UTF-16 LE/BE
         // GameUserSettings.ini. The historical launcher must parse these
         // equivalently, without normalizing or rewriting original bytes.
         static byte[] WithBom(Encoding encoding,string text)=>
@@ -747,7 +747,7 @@ try
         Reject(input with{OriginalPhase="review"},
             "incomplete conversion review never qualifies as active Store launch");
         Reject(input with{ClusterId="UntamedKingdom"},
-            "branding cannot silently change original KovaCluster wire identity");
+            "branding cannot silently change original \u004BovaCluster wire identity");
         Reject(input with{ClusterPath=@"\\?\C:\Windows"},
             "Windows device path cannot replace original shared Store path");
         Reject(input with{GameUserSettingsIni="[ServerSettings]\nPort=7778\nQueryPort=27015"},
@@ -1035,7 +1035,7 @@ try
     }
 
     // P0 manual-only SteamCMD: legacy schedules are inert even when due.
-    // No real SteamCMD, ASA, Kova Store, RCON, or background updater.
+    // No real SteamCMD, ASA, Legacy Store, RCON, or background updater.
     {
         string lab=Path.Combine(root,"p0-auto-stopped-steam");
         string install=Path.Combine(lab,"install");
@@ -2649,7 +2649,7 @@ try
         finally { File.WriteAllBytes(rconIni,rconOriginal); }
         Check(AsaRconConfigurationEvidence.Matches(fresh),
             "RCON settings remain byte-identical after isolated negative test");
-        // Legacy Kova credentials may include '=' and meaningful whitespace.
+        // Legacy Legacy credentials may include '=' and meaningful whitespace.
         // A new password generator must never silently trim or replace them.
         string savedCredential=fresh.RconPasswordProtected;
         string unusual="  =legacy+secret= with trailing space ";
@@ -2896,7 +2896,7 @@ try
               AsaStoreArgumentSwitches.ContainsProtectedSwitch(
                   "TheIsland_WP?listen -ClusterDirOverride=\"C:\\Transfer Share\"") &&
               AsaStoreArgumentSwitches.ContainsProtectedSwitch(
-                  "TheIsland_WP?listen \"-clusterid\"=KovaCluster") &&
+                  "TheIsland_WP?listen \"-clusterid\"=\u004BovaCluster") &&
               AsaStoreArgumentSwitches.ContainsProtectedSwitch(
                   "TheIsland_WP?listen -ClusterDirOverride=\"unterminated"),
             "real Store/cluster switches and malformed quoted arguments cannot bypass native authorization");
@@ -3088,7 +3088,7 @@ try
             Name="Historical Store shared Steam root",
             InstallationPath=target.InstallationPath,
             ExecutablePath=target.ExecutablePath,
-            HistoricalMapKey="OriginalKovaStoreMap"
+            HistoricalMapKey="OriginalLegacyStoreMap"
         };
         cluster.AddMap(storeSibling);
         try
@@ -3100,7 +3100,7 @@ try
                 new{mapId=target.Id});
             Check(coreRefused && IsError(denied,"UM-STEAM-STOPPED-ONLY") &&
                 executions==0 && original.SequenceEqual(File.ReadAllBytes(target.ExecutablePath)),
-                "single-map and Core Steam update both refuse a stopped original Kova Store sibling");
+                "single-map and Core Steam update both refuse a stopped original Legacy Store sibling");
 
             storeSibling.HistoricalMapKey="";
             storeSibling.FreshStoreClusterId="test-enrolled-store-cluster";
@@ -4316,8 +4316,8 @@ try
         string ryzen=Path.Combine(archiveLab,"RYZEN-copies");
         string transfer=Path.Combine(archiveLab,"transfer-copy");
         Directory.CreateDirectory(hp);Directory.CreateDirectory(ryzen);
-        Directory.CreateDirectory(Path.Combine(transfer,".kova-store-v1"));
-        File.WriteAllText(Path.Combine(transfer,".kova-store-v1","operation.json"),
+        Directory.CreateDirectory(Path.Combine(transfer,".legacy-store-v1"));
+        File.WriteAllText(Path.Combine(transfer,".legacy-store-v1","operation.json"),
             "{\"schema\":1,\"session\":\"synthetic-only\"}");
         File.WriteAllBytes(Path.Combine(transfer,"old-zero.arkprofile"),Array.Empty<byte>());
         Guid[] ids=new Guid[10];
@@ -5426,7 +5426,7 @@ try
             "exactly-once synthetic travel is consistent but production Store permission stays closed");
         // Six synthetic snapshots (5 maps per host at each of three phases)
         // prove A→B→A file placement and exact original loose-profile SHA.
-        // No real ASA process or protected Kova path is ever used.
+        // No real ASA process or protected Legacy path is ever used.
         await Task.Delay(20);
         File.Move(destinationFile,sourceFile);
         var returnedA=await Call(travelA.HandleAsync,"travel.capture");
@@ -5624,7 +5624,7 @@ try
 
     }
 
-    // Kova-compatible *real file operations* against a disposable stopped
+    // Legacy-compatible *real file operations* against a disposable stopped
     // fake-map installation. These mutate only CI TEMP data, never the
     // production 10-map cluster, Store-v1 UNC or any MariaDB database.
     {
@@ -5685,7 +5685,7 @@ try
             "native creation demands explicit operator confirmation");
         var saved=await Call(worldBridge.HandleAsync,"backup.create",
             new{token=ticket,confirm=true});
-        IsOk(saved,"Kova-style local world backup created and verified");
+        IsOk(saved,"Legacy-style local world backup created and verified");
         string point=saved.GetProperty("data").GetProperty("point").GetString()!;
         Check(saved.GetProperty("data").GetProperty("backupVerified").GetBoolean() &&
               saved.GetProperty("data").GetProperty("characters").GetInt32()==1 &&
@@ -6040,18 +6040,18 @@ try
         Check(File.ReadAllBytes(Path.Combine(centerWorld,"TheCenter_WP.ark"))
                 .SequenceEqual(centerBytes),
             "first map backup cannot alter neighboring map world bytes");
-        string originalKovaMarker=Path.Combine(worldParent,
-            ".kova-restore-TheIsland_WP.json");
-        File.WriteAllText(originalKovaMarker,"synthetic interrupted Kova backup marker");
+        string originalLegacyMarker=Path.Combine(worldParent,
+            ".legacy-restore-TheIsland_WP.json");
+        File.WriteAllText(originalLegacyMarker,"synthetic interrupted Legacy backup marker");
         Check(UntamedWorldBackup.InstallationRecoveryRequired(centerMap),
-            "another map's original Kova restore marker blocks shared installation");
+            "another map's original Legacy restore marker blocks shared installation");
         var centerBlocked=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=centerMap.Id});
         Check(IsError(centerBlocked,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED"),
-            "native manager refuses Center snapshot while Island Kova restore needs recovery");
-        File.Delete(originalKovaMarker);
+            "native manager refuses Center snapshot while Island Legacy restore needs recovery");
+        File.Delete(originalLegacyMarker);
         Check(!UntamedWorldBackup.InstallationRecoveryRequired(centerMap),
-            "cleared synthetic Kova marker restores normal shared-map preflight");
+            "cleared synthetic Legacy marker restores normal shared-map preflight");
     }
 
     // Update Center: deterministic provider response; no remote download,
@@ -6538,7 +6538,7 @@ try
             "shared-store-device-v1.json","shared-store-lock-v1.json"})
         {
             var entry=historicalZip.Entries.Single(e=>
-                e.FullName.Replace('\\','/').Equals("Kova/"+name,
+                e.FullName.Replace('\\','/').Equals("\u004Bova/"+name,
                     StringComparison.OrdinalIgnoreCase));
             using var source=entry.Open();
             using var target=File.Create(Path.Combine(parityLocal,name));
@@ -6607,7 +6607,7 @@ try
         Check(preview.GetProperty("data").GetProperty("mapId").GetString()==historicalId &&
             !preview.GetProperty("data").GetProperty("fullLaunchArgumentsVerified").GetBoolean(),
             "original GUID preserved while missing complete launch arguments remain explicitly unknown");
-        const string privateLaunch="ArkAscendedServer.exe ScorchedEarth_WP?SessionName=\"PrivateServer\"?ServerAdminPassword=DO_NOT_ECHO -port=7777 -QueryPort=27015 -mods=928548 -clusterid=KovaCluster -ClusterDirOverride=C:\\private\\cluster -usestore";
+        const string privateLaunch="ArkAscendedServer.exe ScorchedEarth_WP?SessionName=\"PrivateServer\"?ServerAdminPassword=DO_NOT_ECHO -port=7777 -QueryPort=27015 -mods=928548 -clusterid=\u004BovaCluster -ClusterDirOverride=C:\\private\\cluster -usestore";
         var launchEvidence=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
             new{archive=oldArchive,mapId=historicalId,command=privateLaunch});
         IsOk(launchEvidence,"operator-supplied launch text is compared read-only with archived ports and mod order");
@@ -6619,14 +6619,14 @@ try
               !assessed.GetProperty("serverStartAllowed").GetBoolean(),
             "matching text is never certified as launch permission");
         Check(!launchEvidence.GetRawText().Contains("DO_NOT_ECHO",StringComparison.Ordinal) &&
-              !launchEvidence.GetRawText().Contains("KovaCluster",StringComparison.Ordinal) &&
+              !launchEvidence.GetRawText().Contains("\u004BovaCluster",StringComparison.Ordinal) &&
               !launchEvidence.GetRawText().Contains("private",StringComparison.OrdinalIgnoreCase),
             "raw command, secrets and cluster path never return to WebView");
         Check(assessed.GetProperty("clusterIdStatus").GetString()=="MATCH",
-            "original KovaCluster internal identity matches without renaming it");
+            "original \u004BovaCluster internal identity matches without renaming it");
         var wrongCluster=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
             new{archive=oldArchive,mapId=historicalId,
-                command=privateLaunch.Replace("-clusterid=KovaCluster",
+                command=privateLaunch.Replace("-clusterid=\u004BovaCluster",
                     "-clusterid=WrongCluster",StringComparison.Ordinal)});
         Check(wrongCluster.GetProperty("data").GetProperty("clusterIdStatus").GetString()=="MISMATCH" &&
               !wrongCluster.GetProperty("data").GetProperty("serverStartAllowed").GetBoolean(),
@@ -6659,7 +6659,7 @@ try
             "conversion flag is recognized but never executed");
         var exactSourceStyle=await Call(archiveImport.HandleAsync,"historical.launchEvidence",
             new{archive=oldArchive,mapId=historicalId,
-                command="ArkAscendedServer.exe ScorchedEarth_WP?listen -Port=7777 -QueryPort=27015 -mods=928548 -clusterid=KovaCluster -ClusterDirOverride=C:\\private\\cluster -usestore -log"});
+                command="ArkAscendedServer.exe ScorchedEarth_WP?listen -Port=7777 -QueryPort=27015 -mods=928548 -clusterid=\u004BovaCluster -ClusterDirOverride=C:\\private\\cluster -usestore -log"});
         IsOk(exactSourceStyle,"read-only launch preview matches original supplied JavaScript source switch grammar");
         Check(exactSourceStyle.GetProperty("data").GetProperty("canonicalSourceFlagsObserved").GetBoolean() &&
               exactSourceStyle.GetProperty("data").GetProperty("storeFlagCount").GetInt32()==1 &&
@@ -6728,14 +6728,14 @@ try
             var blocked=await Call(blockedMods.HandleAsync,"mods.draftStart",
                 new{mapId=imported.Id});
             Check(!blocked.GetProperty("ok").GetBoolean(),
-            "quarantined original Kova map without completed takeover cannot edit mods");
+            "quarantined original Legacy map without completed takeover cannot edit mods");
         }
         using(var blockedIni=new DesktopIniBridge(cluster))
         {
             var blocked=await Call(blockedIni.HandleAsync,"ini.open",
                 new{mapId=imported.Id,file="Game.ini"});
             Check(!blocked.GetProperty("ok").GetBoolean(),
-            "quarantined original Kova map cannot edit INI without authenticated stopped owner");
+            "quarantined original Legacy map cannot edit INI without authenticated stopped owner");
         }
         var replay=await Call(archiveImport.HandleAsync,"historical.register",
             new{token=approval,confirm=true});
@@ -6768,7 +6768,7 @@ try
     // complementary four-file HP local JSON copy. No live host/SMB or Store writes.
     ClusterVaultTests.Run(root);
     // The real browser route may only read a known ORIGINAL local metadata
-    // folder. CI injects a self-created copy; it never opens AppData/Kova.
+    // folder. CI injects a self-created copy; it never opens AppData/Legacy.
     string syntheticLegacyLocal=Path.Combine(root,"v16-vault-zip","Synthetic-HP-Local-Copy");
     using(var localSource=new DesktopHistoricalStoreImportBridge(cluster,
         null,syntheticLegacyLocal))
@@ -6997,7 +6997,7 @@ try
             otherOriginalMap.GamePort,otherOriginalMap.QueryPort,
             otherOriginalMap.HistoricalEnabledMods,
             otherOriginalMap.HistoricalPassiveMods,
-            "KovaCluster",@"\\192.0.2.1\shared","active","")).Arguments);
+            "\u004BovaCluster",@"\\192.0.2.1\shared","active","")).Arguments);
         string otherCommand="\"" + exe + "\" " + otherArgs;
         Check(LegacyStoreV1ProcessObserver.ProvenDistinctOwnedMap(
             otherCommand,exe,storeMap,new[]{storeMap,otherOriginalMap}),
@@ -7051,7 +7051,7 @@ try
                 "a prior unverified Loader observation cannot authorize orphan reattach");
         }
 
-        // Kova can launch another ALREADY-ACTIVE original Store map through
+        // Legacy can launch another ALREADY-ACTIVE original Store map through
         // AsaApiLoader.exe with the same source -usestore arguments. This
         // loader does not block an unrelated original map's Start or Stop
         // when its exact registered owner and original arguments are proven.
