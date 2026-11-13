@@ -5,7 +5,7 @@ import {managerBridge,type AsaApiCoreRelease,type AsaApiCorePreview,type AsaApiC
 /**
  * Official upstream ASA API CORE updater. Trusted native bridge owns HTTPS,
  * ZIP bytes, on-disk backups, process checks and transaction journal.
- * The React UI never sees a filesystem path, token or secret from Kova Store.
+ * The React UI never sees a filesystem path, token or secret from korábbi Manager Store.
  */
 export function AsaApiCoreInstaller({mapId,onInstalled}:{
   mapId:string;onInstalled:()=>void

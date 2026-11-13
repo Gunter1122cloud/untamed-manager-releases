@@ -160,7 +160,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     <header className="premium-panel-heading">
       <h2><RotateCcw size={19}/> ASA normál újraindítása</h2>
     </header>
-    <p>A C# Manager a régi szerveren új, stabil .ark mentési bizonyítékot figyel, naplójelzéssel, ha az ASA naplózza. DoExit és a régi PID megszűnése után egyszer indítja el az új folyamatot. ASA API módban a Loader gyermekének és az RCON tulajdonosának ellenőrzése is szükséges. Csak saját, helyi normál vagy újonnan regisztrált Store-mapokhoz; a történeti Kova Store-mapok külön védett műveleteket használnak.</p>
+    <p>A C# Manager a régi szerveren új, stabil .ark mentési bizonyítékot figyel, naplójelzéssel, ha az ASA naplózza. DoExit és a régi PID megszűnése után egyszer indítja el az új folyamatot. ASA API módban a Loader gyermekének és az RCON tulajdonosának ellenőrzése is szükséges. Csak saját, helyi normál vagy újonnan regisztrált Store-mapokhoz; a történeti korábbi Manager Store-mapok külön védett műveleteket használnak.</p>
     <button type="button" className="secondary"
       disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview}
       onClick={()=>{void check();}}><RefreshCw size={16}/> Újraindítás előellenőrzése</button>
