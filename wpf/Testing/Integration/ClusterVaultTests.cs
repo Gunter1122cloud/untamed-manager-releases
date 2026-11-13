@@ -38,37 +38,37 @@ public static class ClusterVaultTests
             id=idsHp[i],map,root=@"D:\synthetic\h"+i}).ToArray();
         var membersRyzen=mapRyzen.Select((map,i)=>new {
             id=idsRyzen[i],map,root=@"C:\synthetic\r"+i}).ToArray();
-        var configHp=new {id="KovaCluster",mode="shared",path=sharedPath,
+        var configHp=new {id="\u004BovaCluster",mode="shared",path=sharedPath,
             backupPath=@"D:\synthetic\backup",members=membersHp};
-        var configRyzen=new {id="KovaCluster",mode="shared",path=sharedPath,
+        var configRyzen=new {id="\u004BovaCluster",mode="shared",path=sharedPath,
             backupPath=@"C:\synthetic\backup",members=membersRyzen};
         string ConfigHash<T>(T value)=>Convert.ToHexString(SHA256.HashData(
             JsonSerializer.SerializeToUtf8Bytes(value,Compact))).ToLowerInvariant();
         string hHash=ConfigHash(configHp),rHash=ConfigHash(configRyzen);
         var items=new Dictionary<string,string>{
-            ["Ryzen-Kova/cluster-v1.json"]=JsonSerializer.Serialize(configRyzen,Compact),
-            ["Ryzen-Kova/shared-store-device-v1.json"]=JsonSerializer.Serialize(
+            ["Ryzen-Legacy/cluster-v1.json"]=JsonSerializer.Serialize(configRyzen,Compact),
+            ["Ryzen-Legacy/shared-store-device-v1.json"]=JsonSerializer.Serialize(
                 new{schema=1,id=deviceRyzen},Compact),
-            ["Ryzen-Kova/shared-store-lock-v1.json"]=JsonSerializer.Serialize(
+            ["Ryzen-Legacy/shared-store-lock-v1.json"]=JsonSerializer.Serialize(
                 new{schema=1,session,config=configRyzen,configHash=rHash,
                     selected=idsRyzen},Compact),
-            ["Ryzen-Kova/cluster-store-v1.json"]=JsonSerializer.Serialize(new{
+            ["Ryzen-Legacy/cluster-store-v1.json"]=JsonSerializer.Serialize(new{
                 schema=1,maps=idsRyzen.Select((id,i)=>(id,i)).ToDictionary(x=>x.id,
                     x=>(object)new{root=membersRyzen[x.i].root,map=membersRyzen[x.i].map,
                         phase="active",backupId,sharedSession=session,
                         preparedAt="2026-11-03T18:00:00Z"})},Compact),
-            ["SHARED/.kova-store-v1/operation.json"]=JsonSerializer.Serialize(
-                new{schema=1,session,cluster="KovaCluster",path=sharedPath,
+            ["SHARED/.legacy-store-v1/operation.json"]=JsonSerializer.Serialize(
+                new{schema=1,session,cluster="\u004BovaCluster",path=sharedPath,
                     peers=new[]{deviceHp,deviceRyzen}},Compact),
-            ["SHARED/.kova-store-v1/"+deviceHp+".json"]=JsonSerializer.Serialize(
+            ["SHARED/.legacy-store-v1/"+deviceHp+".json"]=JsonSerializer.Serialize(
                 new{session,id=deviceHp,phase="done",config=configHp,configHash=hHash,
                     members=membersHp,selected=idsHp,
                     backup=new{id=hpBackupId}},Compact),
-            ["SHARED/.kova-store-v1/"+deviceRyzen+".json"]=JsonSerializer.Serialize(
+            ["SHARED/.legacy-store-v1/"+deviceRyzen+".json"]=JsonSerializer.Serialize(
                 new{session,id=deviceRyzen,phase="done",config=configRyzen,configHash=rHash,
                     members=membersRyzen,selected=idsRyzen,
                     backup=new{id=backupId}},Compact),
-            ["SHARED/.kova-store-v1/attempted.json"]=JsonSerializer.Serialize(
+            ["SHARED/.legacy-store-v1/attempted.json"]=JsonSerializer.Serialize(
                 new{session},Compact)
         };
         string CreateArchive(string name,Dictionary<string,string> entries)
@@ -134,7 +134,7 @@ public static class ClusterVaultTests
             "cluster-v1.json","cluster-store-v1.json",
             "shared-store-device-v1.json","shared-store-lock-v1.json"})
             File.WriteAllText(Path.Combine(copiedRyzen,sourceName),
-                items["Ryzen-Kova/"+sourceName],new UTF8Encoding(false));
+                items["Ryzen-Legacy/"+sourceName],new UTF8Encoding(false));
         var hpPeer=LegacyStoreV1PeerProof.FromLocal(copiedLocal);
         var ryzenPeer=LegacyStoreV1PeerProof.FromLocal(copiedRyzen);
         var historicalPair=LegacyStoreV1PairComparison.Compare(hpPeer,ryzenPeer,true);
@@ -229,7 +229,7 @@ public static class ClusterVaultTests
         Assert(result.MapNames.Distinct(StringComparer.OrdinalIgnoreCase).Count()==10,
             "Unique 5+5 map inventory is preserved across both hosts");
         var tampered=new Dictionary<string,string>(items);
-        tampered["SHARED/.kova-store-v1/operation.json"]+=" ";
+        tampered["SHARED/.legacy-store-v1/operation.json"]+=" ";
         string badZip=CreateArchive("tampered-consistent.zip",tampered);
         // This archive's *internal* inventory is consistent; session is still
         // parsable. A separate test below corrupts ZIP bytes after creation.
@@ -238,24 +238,24 @@ public static class ClusterVaultTests
         // A missing required field should always be rejected, regardless of
         // whether the internally provided SHA-256 list is re-created.
         var missing=new Dictionary<string,string>(items);
-        missing.Remove("SHARED/.kova-store-v1/attempted.json");
+        missing.Remove("SHARED/.legacy-store-v1/attempted.json");
         string missingZip=CreateArchive("missing.json.zip",missing);
         bool missingRefused=false;
         try{missingRefused=!ClusterVaultArchiveInspector.Inspect(missingZip).SessionConsistent;}
         catch(InvalidDataException){missingRefused=true;}
         Assert(missingRefused,"Incomplete Vault ZIP is rejected");
         var malicious=new Dictionary<string,string>(items);
-        malicious["SHARED/.kova-store-v1/operation.json"]=
-            malicious["SHARED/.kova-store-v1/operation.json"].Replace(
-                "KovaCluster","UnknownCluster",StringComparison.Ordinal);
+        malicious["SHARED/.legacy-store-v1/operation.json"]=
+            malicious["SHARED/.legacy-store-v1/operation.json"].Replace(
+                "\u004BovaCluster","UnknownCluster",StringComparison.Ordinal);
         string wrongSchema=CreateArchive("unknown-contract.zip",malicious);
         bool mismatchRefused=false;
         try{ClusterVaultArchiveInspector.Inspect(wrongSchema);}
         catch(InvalidDataException){mismatchRefused=true;}
         Assert(mismatchRefused,"Unsupported source schema cannot be relabeled as a valid Vault");
         var peerError=new Dictionary<string,string>(items);
-        peerError["SHARED/.kova-store-v1/"+deviceRyzen+".json"]=
-            peerError["SHARED/.kova-store-v1/"+deviceRyzen+".json"].Replace(
+        peerError["SHARED/.legacy-store-v1/"+deviceRyzen+".json"]=
+            peerError["SHARED/.legacy-store-v1/"+deviceRyzen+".json"].Replace(
                 rHash,new string('0',64),StringComparison.Ordinal);
         string corruptedPeer=CreateArchive("wrong-peer-hash.zip",peerError);
         var warning=ClusterVaultArchiveInspector.Inspect(corruptedPeer);
