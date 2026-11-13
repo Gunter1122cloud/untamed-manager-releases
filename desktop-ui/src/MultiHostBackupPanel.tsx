@@ -1,4 +1,4 @@
-import {useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import {AlertTriangle,Archive,CheckCircle2,FolderOpen,HardDriveDownload,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type MultiHostClusterBackupPreview,
   type MultiHostClusterRestorePreview,type MultiHostClusterBackupStatus,
@@ -27,19 +27,35 @@ export function MultiHostBackupPanel(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  const currentJob=useRef(jobId);
+  currentJob.current=jobId;
 
   useEffect(()=>{
-    if(!jobId||status?.state==="completed"||status?.state==="needsOperator")return;
+    if(!jobId||!jobKind||
+       status?.state==="completed"||status?.state==="needsOperator")return;
+    let active=true,inFlight=false;
     const poll=()=>{
+      if(!active||inFlight||currentJob.current!==jobId)return;
+      inFlight=true;
       const read=jobKind==="restore"?
         managerBridge.multiHostRestoreStatus(jobId):
         jobKind==="hoststage"?managerBridge.multiHostHostStageStatus(jobId):
         managerBridge.multiHostBackupStatus(jobId);
-      void read.then(setStatus).catch(()=>setError("A művelet állapota nem olvasható; az archívumot ne használd ellenőrzés nélkül."));
+      void read.then(reply=>{
+        if(!active||currentJob.current!==jobId)return;
+        if(reply.jobId!==jobId||reply.kind!==jobKind){
+          setError("A mentés/visszaállítás eredménye másik feladathoz tartozik. Nem tekinthető igazoltnak.");
+          return;
+        }
+        setStatus(reply);
+      }).catch(()=>{
+        if(active&&currentJob.current===jobId)
+          setError("A művelet állapota nem olvasható; az archívumot ne használd ellenőrzés nélkül.");
+      }).finally(()=>{inFlight=false;});
     };
     poll();
     const timer=window.setInterval(poll,1500);
-    return ()=>window.clearInterval(timer);
+    return ()=>{active=false;window.clearInterval(timer);};
   },[jobId,jobKind,status?.state]);
 
   async function previewHostStage(){
