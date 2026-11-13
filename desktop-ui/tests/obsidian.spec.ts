@@ -312,6 +312,12 @@ test.beforeEach(async ({ page }) => {
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
     const historicalStartToken="00000000-0000-4000-8000-000000001698";
     let historicalActiveStarted=false;
+    let failOneHistoricalStartStatus=false;
+    (window as typeof window & {
+      __UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?:()=>void;
+    }).__UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__=()=>{
+      failOneHistoricalStartStatus=true;
+    };
     let historicalApiEnabled=false;
     let historicalApiPreviewRequested:boolean|null=null;
     const historicalApiToken="00000000-0000-4000-8000-000000009914";
@@ -1053,7 +1059,12 @@ test.beforeEach(async ({ page }) => {
             originalStoreTouched:false,iniModified:false,serverStarted:false,
             evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED"};
         }
-        case "historical.activeStartStatus": return {
+        case "historical.activeStartStatus":
+          if(failOneHistoricalStartStatus){
+            failOneHistoricalStartStatus=false;
+            throw new Error("UM-SYNTHETIC-READONLY-START-STATUS-FAILED");
+          }
+          return {
           mapId:two,mapName:"Astraeos",running:historicalActiveStarted,
           confirmedStopped:!historicalActiveStarted,
           requestedMode:historicalApiEnabled?"asaApiLoader":"directAsa",
@@ -5022,6 +5033,28 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await expect(historic.getByText(/Indítás utáni Store-v1 ASA\/RCON ellenőrzés/)).toHaveCount(0);
   await expect(historic.getByText(/Nincs automatikus Start\/Restart/)).toBeVisible();
   await expect(spawn).toHaveCount(0);
+});
+
+test("Store-v1 Start native success is not reported as a failed Start after read-only status failure",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_API_MODE_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_API_MODE_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
+  const check=panel.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
+  await expect(check).toBeEnabled();
+  await check.click();
+  const approval=panel.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
+  await approval.locator('input[id="historical-start-phrase"]').fill("STORE-V1 ACTIVE START");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?:()=>void
+  }).__UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?.());
+  await approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"}).click();
+  await expect(panel).toContainText("valódi Windows ASA PID: 42101");
+  await expect(panel).toContainText("ASA indítási visszaigazolása megvan");
+  await expect(panel).not.toContainText("Az indítás eredménye nem igazolható");
 });
 
 test("new empty Store-map uses existing cluster membership, one-shot approval and distinct non-korábbi Manager UI",async({page})=>{
