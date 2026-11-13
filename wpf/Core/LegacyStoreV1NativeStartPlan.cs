@@ -110,10 +110,10 @@ internal static class LegacyStoreV1NativeStartPlanner
             originalMap.MapKey,originalMap.GamePort,originalMap.QueryPort,
             originalMap.EnabledMods,originalMap.PassiveMods,
             VaultProtocol.ClusterId,original.VerifiedOriginalSharedPath,
-            "active",Encoding.UTF8.GetString(ini)));
+            "active",LegacyStoreV1ActiveLaunch.DecodeOriginalIni(ini)));
         LegacyStoreV1SourceLaunchParity.RequireAsaLaunchArguments(
             map,currentSource,original.VerifiedOriginalSharedPath,
-            Encoding.UTF8.GetString(ini),plan.Arguments);
+            LegacyStoreV1ActiveLaunch.DecodeOriginalIni(ini),plan.Arguments);
         if(plan.ConversionRequested||plan.StoreMode!="active"||
            plan.Arguments.Count(x=>x.Equals("-usestore",
                StringComparison.OrdinalIgnoreCase))!=1)
@@ -212,7 +212,7 @@ internal static class LegacyStoreV1NativeStartPlanner
         byte[] ini=held.Read(AsaInitialRconSettings.NewIniPath(map.InstallationPath),131072);
         if(!AsaRconConfigurationEvidence.Matches(map))
             throw new InvalidDataException("UM-STORE-RUNTIME-RCON-INI-MISMATCH");
-        string iniText=Encoding.UTF8.GetString(ini);
+        string iniText=LegacyStoreV1ActiveLaunch.DecodeOriginalIni(ini);
         var built=LegacyStoreV1ActiveLaunch.Build(new(
             map.HistoricalMapKey,map.GamePort,map.QueryPort,
             currentMods.EnabledOrder.ToArray(),currentMods.Passive.ToArray(),
