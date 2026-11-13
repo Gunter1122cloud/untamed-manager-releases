@@ -22,13 +22,21 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   const reviewInFlight=useRef(false);
   useEffect(()=>{
     setPreview(null);setApproved(false);setError("");
+    setJobId(null);setStatus(null);
     setNeedsLocalReview(false);setDurable(null);setAuditConfirmed(false);
     setMessage(latestRestart.get(mapId)??"");
   },[mapId]);
   useEffect(()=>{
     let active=true;
     managerBridge.freshAsaRestartCurrent(mapId)
-      .then(current=>{if(active)setDurable(current);})
+      .then(current=>{
+        if(!active)return;
+        setDurable(current);
+        // The Windows process retains an already accepted Restart after the
+        // operator changes pages. Follow that ID; never issue a new command.
+        if(current.inMemoryJobId&&current.inMemoryJobState)
+          setJobId(current.inMemoryJobId);
+      })
       .catch(()=>{/* A failure is never interpreted as a completed journal. */});
     return ()=>{active=false;};
   },[mapId,needsLocalReview]);
@@ -153,7 +161,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     }
   };
 
-  const showRecovery=!auditConfirmed&&
+  const showRecovery=!jobId&&!auditConfirmed&&
     !!(durable?.needsOperatorReview||needsLocalReview)&&
     (durable===null||durable.belongsToMap);
   return <section className="premium-panel" aria-label="Valódi ASA normál újraindítása" style={{padding:20,marginBlock:18}}>
