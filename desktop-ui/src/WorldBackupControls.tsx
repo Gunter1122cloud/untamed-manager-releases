@@ -224,7 +224,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     setBusy(true);setError("");
     try{
       const result=await managerBridge.backupRestore(token,confirmName);
-      if(result.mapId!==requestedMap || !result.restored || !result.worldRestoreVerified)
+      if(result.mapId!==requestedMap || !result.restored || !result.bytesRestoredAndHashesVerified || !result.oldWorldRetained)
         throw new Error("UM-BACKUP-RESTORE-RECEIPT-INVALID");
       retainWorldReceipt(requestedMap,result);
       if(selectedRef.current!==requestedMap)return;
@@ -236,7 +236,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
         if(selectedRef.current===requestedMap)setHistory(nextHistory);
       }catch{
         if(selectedRef.current===requestedMap)
-          setError("A világ visszaállítása sikeres és ellenőrzött, de a mentéslista frissítése sikertelen. A Restore műveletet ne ismételd meg.");
+          setError("A világfájlok visszaállítása és SHA-256 ellenőrzése sikeres, de a mentéslista frissítése sikertelen. Az ASA-beli betöltés még nem igazolt; a Restore műveletet ne ismételd meg.");
       }
     }catch{
       if(selectedRef.current===requestedMap)
