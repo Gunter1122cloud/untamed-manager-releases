@@ -396,12 +396,12 @@ test.beforeEach(async ({ page }) => {
     const freshStoreToken="00000000-0000-4000-8000-000000009891";
     let clusterApproval="";
     let clusterPending:{clusterId:string;mapIds:string[];preview:any}|null=null;
-    let sourceKovaClusterToken="";
-    let sourceKovaClusterAssigned=false;
-    let sourceKovaClusterApplies=0;
+    let sourceLegacyClusterToken="";
+    let sourceLegacyClusterAssigned=false;
+    let sourceLegacyClusterApplies=0;
     (window as typeof window & {
-      __UNTAMED_KOVA_REGISTRY_APPLIES__?:()=>number
-    }).__UNTAMED_KOVA_REGISTRY_APPLIES__=()=>sourceKovaClusterApplies;
+      __UNTAMED_LEGACY_REGISTRY_APPLIES__?:()=>number
+    }).__UNTAMED_LEGACY_REGISTRY_APPLIES__=()=>sourceLegacyClusterApplies;
     const peerRows=()=>Array.isArray(state.remotes)?state.remotes:(state.remote?[state.remote]:[]);
     const allFixtureMaps=()=>[
       ...state.local.maps.map(map=>({map,hostId:state.local.hostId,hostName:state.local.hostName,local:true})),
@@ -836,7 +836,7 @@ test.beforeEach(async ({ page }) => {
               "Scorched Earth","Extinction"],
             originalSourcePinned:true,allMapsConfirmedStopped:true,
             requiresOperatorConfirmation:true,
-            originalKovaFilesWritten:false,serverStarted:false,
+            originalLegacyFilesWritten:false,serverStarted:false,
             sharedTransferIncluded:false,otherHostIncluded:false,
             evidence:"EXISTING_SHA256_WORLD_ENGINE_ORIGINAL_FIVE_MAP_PREFLIGHT"
           };
@@ -846,7 +846,7 @@ test.beforeEach(async ({ page }) => {
           originalFiveBackupCopies++;
           return {jobId:"00000000-0000-4000-8000-00000000b053",
             started:true,localMaps:5,
-            originalKovaFilesWritten:false,serverStarted:false,
+            originalLegacyFilesWritten:false,serverStarted:false,
             sharedTransferIncluded:false,otherHostIncluded:false,
             evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_JOB_QUEUED"
           };
@@ -861,7 +861,7 @@ test.beforeEach(async ({ page }) => {
                 point:"00000000-0000-4000-8000-00000000b052",
                 files:4,bytes:4096})),
             totalBytes:20480,allFiveVerified:true,
-            originalKovaFilesWritten:false,serverStarted:false,
+            originalLegacyFilesWritten:false,serverStarted:false,
             sharedTransferIncluded:false,otherHostIncluded:false,
             evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM"
           };
@@ -912,7 +912,7 @@ test.beforeEach(async ({ page }) => {
           protectiveBackup:"00000000-0000-4000-8000-00000000b004",
           restored:true,oldWorldRetained:true,worldRestoreVerified:true,
           storeWriterTouched:false,
-          evidence:"VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY"
+          evidence:"VERIFIED_STOPPED_MAP_LEGACY_STYLE_RESTORE_WITH_PROTECTIVE_COPY"
         };
         case "updates.status": return {
           repository:"Gunter1122cloud/untamed-manager-releases",
@@ -958,7 +958,7 @@ test.beforeEach(async ({ page }) => {
         case "historical.launchEvidence": return {
           mapStatus:"MENTIONED",gamePortStatus:"MATCH",queryPortStatus:"MATCH",
           modOrderStatus:"MATCH",passiveModOrderStatus:"MATCH",clusterIdPresent:!!m.command?.includes("-clusterid="),
-          clusterIdStatus:m.command?.includes("-clusterid=KovaCluster")?"MATCH":"MISMATCH",
+          clusterIdStatus:m.command?.includes("-clusterid=LegacyCluster")?"MATCH":"MISMATCH",
           clusterPathPresent:!!m.command?.includes("-ClusterDirOverride="),clusterPathVerified:false,
           useStorePresent:true,
           storeFlagCount:(m.command?.match(/-usestore(?=\\s|$)/gi)||[]).length,
@@ -1391,14 +1391,14 @@ test.beforeEach(async ({ page }) => {
              sourcePinCommits>0)
             throw new Error("UM-STORE-SOURCE-PIN-APPROVAL-REQUIRED");
           sourcePinCommits++;
-          return {pinned:true,localMaps:1,originalKovaRequiredAfterPin:false,
-            kovaFilesWritten:false,asaFilesWritten:false,rconUsed:false,
+          return {pinned:true,localMaps:1,originalLegacyRequiredAfterPin:false,
+            legacyFilesWritten:false,asaFilesWritten:false,rconUsed:false,
             evidence:"IMMUTABLE_SOURCE_PINNED_IN_OBSIDIAN_MANAGER_PROFILE"};
         case "historical.runtimeSettingsStatus":
           if(sourcePinCommits<1||m.mapId!=="00000000-0000-4000-8000-000000009001")
             throw new Error("UM-STORE-RUNTIME-SOURCE-PIN-REQUIRED");
           return {mapId:m.mapId,mapName:"The Island",gamePort:7777,queryPort:27015,
-            clusterId:"KovaCluster",transferRoot:"D:\\Synthetic\\OriginalCluster",
+            clusterId:"\u004BovaCluster",transferRoot:"D:\\Synthetic\\OriginalCluster",
             originalSourcePinned:true,peerRequiredForLocalStart:false,
             sharedTransferAccessVerified:false};
         case "historical.runtimeSettingsPreview":
@@ -1417,11 +1417,11 @@ test.beforeEach(async ({ page }) => {
           runtimeConfigCommits++;
           return {mapId:"00000000-0000-4000-8000-000000009001",
             updated:true,portAndClusterSettingsStoredInManager:true,
-            kovaFilesWritten:false,asaFilesWritten:false,
+            legacyFilesWritten:false,asaFilesWritten:false,
             noServerStarted:true,noRconSent:true};
         case "historical.originalList": return {
           sourceVerified:true,originalFourFilesUnchanged:true,
-          evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
+          evidence:"ORIGINAL_LEGACY_FIVE_LOCAL_MAPS_READ_ONLY",
           maps:originalLiveFiveFixture?[
             ["TheIsland_WP","The Island"],["Extinction_WP","Extinction"],
             ["Valguero_WP","Valguero"],["Astraeos_WP","Astraeos"],
@@ -1439,11 +1439,11 @@ test.beforeEach(async ({ page }) => {
             enabledMods:22,passiveMods:3,registered:sourcePinCommits>0}]
         };
         case "historical.originalClusterPreview": {
-          sourceKovaClusterToken="00000000-0000-4000-8000-000000009555";
+          sourceLegacyClusterToken="00000000-0000-4000-8000-000000009555";
           return {
-            token:sourceKovaClusterToken,clusterId:"KovaCluster",
-            fiveOriginalMaps:5,alreadyAssigned:sourceKovaClusterAssigned?5:0,
-            missingAssignments:sourceKovaClusterAssigned?0:5,
+            token:sourceLegacyClusterToken,clusterId:"\u004BovaCluster",
+            fiveOriginalMaps:5,alreadyAssigned:sourceLegacyClusterAssigned?5:0,
+            missingAssignments:sourceLegacyClusterAssigned?0:5,
             registryRevision:clusterRevision,sourceIdentityPreserved:true,
             originalStoreFilesWritten:false,asaProcessTouched:false,
             writerSessionLockTouched:false,requiresExactApproval:true,
@@ -1451,15 +1451,15 @@ test.beforeEach(async ({ page }) => {
           };
         }
         case "historical.originalClusterApply": {
-          if(!sourceKovaClusterToken||m.token!==sourceKovaClusterToken||
-             m.confirm!==true||m.typedApproval!=="EREDETI KOVA REGISZTER")
+          if(!sourceLegacyClusterToken||m.token!==sourceLegacyClusterToken||
+             m.confirm!==true||m.typedApproval!=="EREDETI LEGACY REGISZTER")
             throw new Error("UM-ORIGINAL-CLUSTER-APPROVAL-REQUIRED");
-          sourceKovaClusterToken="";sourceKovaClusterApplies++;
-          const missing=sourceKovaClusterAssigned?0:5;
-          sourceKovaClusterAssigned=true;
+          sourceLegacyClusterToken="";sourceLegacyClusterApplies++;
+          const missing=sourceLegacyClusterAssigned?0:5;
+          sourceLegacyClusterAssigned=true;
           if(missing)clusterRevision++;
           return {
-            clusterId:"kovacluster",revision:clusterRevision,
+            clusterId:"\u006Bovacluster",revision:clusterRevision,
             addedCount:missing,removedCount:0,movedCount:0,
             originalFilesWritten:false,transferFilesWritten:false,
             storeWriterTouched:false,serverStarted:false,
@@ -1471,7 +1471,7 @@ test.beforeEach(async ({ page }) => {
           localMaps:1,mapNames:["The Island"],
           sourceIdentityPreserved:true,originalFilesWritten:false,
           processTouched:false,requiresExplicitApproval:true,
-          evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_PREVIEW"
+          evidence:"ORIGINAL_LEGACY_ATOMIC_LOCAL_BATCH_PREVIEW"
         };
         case "historical.originalBatchRegister":
           state.local.maps.push({
@@ -1483,7 +1483,7 @@ test.beforeEach(async ({ page }) => {
             importedMaps:1,mapIds:["00000000-0000-4000-8000-000000009001"],
             sourceIdentityPreserved:true,originalFilesWritten:false,
             serverStarted:false,requiresOriginalRconAttach:true,
-            evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED"
+            evidence:"ORIGINAL_LEGACY_ATOMIC_LOCAL_BATCH_REGISTERED"
           };
         case "historical.originalPreview": return {
           token:"00000000-0000-4000-8000-000000009002",
@@ -1493,7 +1493,7 @@ test.beforeEach(async ({ page }) => {
           originalLaunchProfileVerified:true,
           originalIdsPreserved:true,originalFilesWritten:false,
           serverStarted:false,requiresOriginalRconAttach:true,
-          evidence:"ORIGINAL_KOVA_DIRECT_IMPORT_PREVIEW"
+          evidence:"ORIGINAL_LEGACY_DIRECT_IMPORT_PREVIEW"
         };
         case "historical.originalRegister":
           state.local.maps.push({
@@ -1505,7 +1505,7 @@ test.beforeEach(async ({ page }) => {
             originalFilesWritten:false,serverStarted:false,
             requiresOriginalRconAttach:true,originalLaunchProfileVerified:true,
             requiresExactModOrderVerification:false,
-            evidence:"ORIGINAL_KOVA_DIRECT_LOCAL_MAP_REGISTERED"};
+            evidence:"ORIGINAL_LEGACY_DIRECT_LOCAL_MAP_REGISTERED"};
         case "historical.list": return {
           sourceVerified:true,completeLaunchArguments:false,liveStoreVerified:false,
           allowServerStart:false,evidence:"HISTORICAL_LOCAL_ARCHIVE_READ_ONLY",
@@ -1586,7 +1586,7 @@ test.beforeEach(async ({ page }) => {
           return {jobId:"00000000-0000-4000-8000-000000001907",
             mapId:"00000000-0000-4000-8000-000000001908",
             mapName:"Valguero",needsConfiguration:true,serverStarted:false,
-            filesDownloadedAgain:false,kovaFilesWritten:false,
+            filesDownloadedAgain:false,legacyFilesWritten:false,
             evidence:"COMPLETED_STEAMCMD_RECOVERED_MANAGER_REGISTRATION_ONLY"};
         case "steam.freshCancel": return {cancelRequested:true};
         case "steam.freshDiscard": return {discarded:true};
@@ -2157,7 +2157,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-EXPANSION-NOT-LOCAL");
           return {
             mapId:m.mapId,mapName:current.map.name,
-            requestedClusterId:m.clusterId||"",sourceClusterId:"kovacluster",
+            requestedClusterId:m.clusterId||"",sourceClusterId:"\u006Bovacluster",
             originalSourceVerified:true,originalFivePreserved:true,
             samePhysicalTransferDirectory:true,nativeLocalSetupVerified:false,
             localPreflightReady:false,sourceEvidenceTag:"A".repeat(64),
@@ -5969,21 +5969,21 @@ test("original korábbi Manager Cluster registry adoption requires exact typed a
   const panel=page.getByRole("region",{name:"Eredeti korábbi Manager Cluster-regiszter átvétele"});
   await panel.getByRole("button",{name:"Eredeti Cluster-regiszter előellenőrzése"}).click();
   const confirmation=panel.getByRole("region",{name:"Eredeti Cluster-regiszter jóváhagyása"});
-  await expect(confirmation).toContainText("KovaCluster");
+  await expect(confirmation).toContainText("\u004BovaCluster");
   await expect(confirmation).toContainText("Hozzáadandó");
   const approval=confirmation.getByRole("button",{name:"Eredeti map-tagság rögzítése"});
   await expect(approval).toBeDisabled();
   await confirmation.getByRole("textbox",{name:"Eredeti Cluster-regiszter jóváhagyó szöveg"})
-    .fill("EREDETI KOVA");
+    .fill("EREDETI LEGACY");
   await expect(approval).toBeDisabled();
   await confirmation.getByRole("textbox",{name:"Eredeti Cluster-regiszter jóváhagyó szöveg"})
-    .fill("EREDETI KOVA REGISZTER");
+    .fill("EREDETI LEGACY REGISZTER");
   await expect(approval).toBeEnabled();
   await approval.click();
   await expect(panel).toContainText("5 eredeti map-tagság átvezetve");
   expect(await page.evaluate(()=>(window as typeof window & {
-    __UNTAMED_KOVA_REGISTRY_APPLIES__?:()=>number
-  }).__UNTAMED_KOVA_REGISTRY_APPLIES__?.())).toBe(1);
+    __UNTAMED_LEGACY_REGISTRY_APPLIES__?:()=>number
+  }).__UNTAMED_LEGACY_REGISTRY_APPLIES__?.())).toBe(1);
   await expect(confirmation).toHaveCount(0);
   await panel.getByRole("button",{name:"Eredeti Cluster-regiszter előellenőrzése"}).click();
   await expect(panel.getByRole("region",{name:"Eredeti Cluster-regiszter jóváhagyása"}))
@@ -6016,7 +6016,7 @@ test("Store-v1 historic import preserves map identity and never permits launch b
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
   await expect(page.getByText(/Untamed Store-v1 · meglévő map átvétele/)).toBeVisible();
-  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
+  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\LegacyManager-Fontos.zip");
   await page.getByRole("button",{name:"Archívum ellenőrzése"}).click();
   await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeVisible();
   await page.getByRole("textbox",{name:"Korábbi ASA map mappája"}).fill("C:\\ASA\\TestExistingMap");
@@ -6052,7 +6052,7 @@ test("Store-v1 ignores stale preview replies after the ASA root changes",async (
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
+  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\LegacyManager-Fontos.zip");
   await page.getByRole("button",{name:"Archívum ellenőrzése"}).click();
   await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeVisible();
   await page.getByRole("textbox",{name:"Korábbi ASA map mappája"}).fill("C:\\ASA\\Original");
@@ -6082,7 +6082,7 @@ test("Store-v1 registration locks source inputs until native receipt",async ({pa
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
+  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\LegacyManager-Fontos.zip");
   await page.getByRole("button",{name:"Archívum ellenőrzése"}).click();
   await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeVisible();
   await page.getByRole("textbox",{name:"Korábbi ASA map mappája"}).fill("C:\\ASA\\TestExistingMap");
@@ -6113,7 +6113,7 @@ test("Store-v1 original ASA launch text stays read-only and redacted",async ({pa
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\KovaManager-Fontos.zip");
+  await page.getByRole("textbox",{name:"Korábbi Manager archívum"}).fill("C:\\Backups\\LegacyManager-Fontos.zip");
   await page.getByRole("button",{name:"Archívum ellenőrzése"}).click();
   await expect(page.getByRole("combobox",{name:"Archivált Store-v1 map"})).toBeVisible();
   const secret="SYNTHETIC_PRIVATE_ADMIN_SECRET";
