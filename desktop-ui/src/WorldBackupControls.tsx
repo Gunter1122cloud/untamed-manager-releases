@@ -255,7 +255,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
       if(!verifiedBackupBudget(candidate))
         throw new Error("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
       if(candidate.localMaps!==5||!candidate.originalSourcePinned||
-         !candidate.allMapsConfirmedStopped||candidate.originalLegacyFilesWritten||
+         !candidate.allMapsConfirmedStopped||candidate.originalKovaFilesWritten||
          candidate.serverStarted||candidate.sharedTransferIncluded||
          candidate.otherHostIncluded)
         throw new Error("Eredeti helyi Store-forrás nem érvényes");
@@ -275,7 +275,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     try{
       const started=await managerBridge.backupOriginalFiveCreate(token);
       if(!started.started||started.localMaps!==5||
-         started.originalLegacyFilesWritten||started.serverStarted||
+         started.originalKovaFilesWritten||started.serverStarted||
          started.sharedTransferIncluded||started.otherHostIncluded)
         throw new Error("A natív ötmapos mentési feladatot nem sikerült elindítani");
       const status=await managerBridge.backupOriginalFiveStatus(started.jobId);

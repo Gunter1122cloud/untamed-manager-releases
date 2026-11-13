@@ -21,11 +21,11 @@ string Fingerprint(string value)
 {
     using var doc=JsonDocument.Parse(value);return StoreV1Fingerprint.Compute(doc.RootElement);
 }
-string shared="SHARED/.legacy-store-v1/";
+string shared="SHARED/.kova-store-v1/";
 string session=Guid.NewGuid().ToString();
 string[] peers={Guid.NewGuid().ToString(),Guid.NewGuid().ToString()};
 var original=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
-original[shared+"operation.json"]=Serialize(new{schema=1,session,cluster="\u004BovaCluster",
+original[shared+"operation.json"]=Serialize(new{schema=1,session,cluster="KovaCluster",
     path=@"\\192.0.2.1\test-only",peers});
 original[shared+"attempted.json"]=Serialize(new{session});
 for(int host=0;host<2;host++)
@@ -33,7 +33,7 @@ for(int host=0;host<2;host++)
     var members=Enumerable.Range(0,5).Select(i=>new{id=Guid.NewGuid().ToString(),
         root=@"D:\synthetic\host"+host+"\\map"+i,map="Map_"+host+"_"+i}).ToArray();
     var selected=members.Select(m=>m.id).ToArray();
-    var config=new{id="\u004BovaCluster",mode="shared",path=@"\\192.0.2.1\test-only",
+    var config=new{id="KovaCluster",mode="shared",path=@"\\192.0.2.1\test-only",
         backupPath=@"D:\synthetic\backups",members};
     string hash=Fingerprint(Serialize(config)),backup=Guid.NewGuid().ToString();
     original[shared+peers[host]+".json"]=Serialize(new{session,id=peers[host],phase="done",

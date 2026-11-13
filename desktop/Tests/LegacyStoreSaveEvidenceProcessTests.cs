@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using UntamedManager.Core;
 
 // Real two-process regression on the MANAGER-OWNED LOCAL receipt, not on any
-// Legacy original, shared Store writer, world, player or production ASA process.
+// Kova original, shared Store writer, world, player or production ASA process.
 internal static class LegacyStoreSaveEvidenceProcessTests
 {
     internal const string ChildSwitch="--isolated-store-save-journal-child";

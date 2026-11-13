@@ -61,7 +61,7 @@ public static class SteamStoppedMapUpdater
             }
             owners++;
             bool original=sibling.HistoricalStoreProtected;
-            // Only the registered original Legacy import may opt into native
+            // Only the registered original Kova import may opt into native
             // offline Steam maintenance. No other Store profile or synthetic
             // observer can acquire this capability from a React request.
             if(original)
@@ -87,10 +87,10 @@ public static class SteamStoppedMapUpdater
                !string.IsNullOrWhiteSpace(sibling.StoreTestRoot)||
                !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId)||
                !string.IsNullOrWhiteSpace(sibling.FreshStoreTransferDirectory)||
-               LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling))
+               KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling))
                 throw new UnauthorizedAccessException(
                     "UM-STEAM-SHARED-STORE-OR-RECOVERY-PROTECTED");
-            if(LegacyCompatibleWorldBackup.InstallationRecoveryRequired(sibling))
+            if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(sibling))
                 throw new UnauthorizedAccessException(
                     "UM-STEAM-RECOVERY-MUST-COMPLETE-FIRST");
             var current=original?
@@ -112,7 +112,7 @@ public static class SteamStoppedMapUpdater
             timeout,null,progress,false,ct);
 
     // The trusted native Windows host supplies this independently observed
-    // original Legacy stopped-family check; no renderer/RCON flag can impersonate
+    // original Kova stopped-family check; no renderer/RCON flag can impersonate
     // it. The existing backup, SteamCMD execution, queue, file hashes and
     // recovery journal remain the same as normal ASA maintenance.
     public static Task<Receipt> UpdateOriginalStoppedAsync(

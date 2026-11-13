@@ -74,7 +74,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
     private bool Eligible(LocalMap map)
     {
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
-        if((!newStore&&(LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
+        if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
            AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
            AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments)))||
@@ -98,7 +98,7 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         if(string.IsNullOrWhiteSpace(
             AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)))
             return false;
-        if(LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
+        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             return false;
         if(newStore)
         {

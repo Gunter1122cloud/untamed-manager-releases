@@ -14,7 +14,7 @@ public partial class MainWindow
 {
     // Offline-only: existing SHA-verified 5+5 stopped-map backup packages and
     // the operator's SEPARATE COPY of the original Store/transfer directory.
-    // No SQL, no Legacy session creation, no server stop/start, no UNC writer.
+    // No SQL, no Kova session creation, no server stop/start, no UNC writer.
     private void ShowOfflineClusterBackupWizard()
     {
         TextBox Folder()=>new(){Height=34,IsReadOnly=true,

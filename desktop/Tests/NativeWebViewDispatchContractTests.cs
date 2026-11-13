@@ -10,7 +10,7 @@ using UntamedDesktop;
 /// CI-wide audit of the REAL React -> WebView2 host -> native bridge method
 /// contract. This deliberately reads the checked-out production sources,
 /// not a hand-maintained, easily stale "test" allowlist. Never sends RCON,
-/// starts/stops ASA, writes Legacy data, or calls mutating RPCs.
+/// starts/stops ASA, writes Kova data, or calls mutating RPCs.
 /// </summary>
 internal static class NativeWebViewDispatchContractTests
 {
@@ -112,7 +112,7 @@ internal static class NativeWebViewDispatchContractTests
         var unroutedHistorical=historicalAllowed.Where(m=>
             !ObsidianWindow.IsHistoricalStoreMethod(m)).ToArray();
         Check(unroutedHistorical.Length==0,
-            "all original Legacy native methods are forwarded, including live 5-map preview/apply: "+
+            "all original Kova native methods are forwarded, including live 5-map preview/apply: "+
             string.Join(", ",unroutedHistorical));
         Check(ObsidianWindow.IsHistoricalStoreMethod(
             "historical.operationJournalInventory")&&

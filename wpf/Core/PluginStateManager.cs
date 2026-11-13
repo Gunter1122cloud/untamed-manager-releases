@@ -80,7 +80,7 @@ public static class PluginStateManager
                     member.Name+" · nem szerkeszthető vagy aktív ASA/Loader.",shared.Length);
             if(member.HistoricalStoreProtected&&historicalStoppedObserver==null)
                 return new(mapId,match.Name,enabled,false,
-                    member.Name+" · történeti Legacy map: natív leállítási igazolás szükséges.",shared.Length);
+                    member.Name+" · történeti Kova map: natív leállítási igazolás szükséges.",shared.Length);
             // Generic ClusterService.Check intentionally reports historical
             // Store as uncertain because the original launch argv is empty.
             // Use only the Windows native process-family observer provided
@@ -119,7 +119,7 @@ public static class PluginStateManager
                 var latest=InspectLocalToggle(cluster,mapId,permit.Plugin,enabled,
                     historicalStoppedUnderLockObserver??historicalStoppedObserver);
                 if(!latest.Allowed)throw new InvalidOperationException(latest.Reason);
-                // Historical Legacy profiles need an independent exact OS/Loader
+                // Historical Kova profiles need an independent exact OS/Loader
                 // stopped-family check UNDER the native plugin mutation lock.
                 // A UI preflight from before lock acquisition is not sufficient.
                 verifyUnderOperationLock?.Invoke();

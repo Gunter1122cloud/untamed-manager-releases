@@ -8,15 +8,15 @@ using System.Threading.Tasks;
 using UntamedDesktop;
 using UntamedManager.Core;
 
-// Isolated synthetic original Legacy installation: tests actual native file
+// Isolated synthetic original Kova installation: tests actual native file
 // replacement and backup. Never launches ASA, uses RCON, or opens a Store writer.
 internal static class HistoricalPluginZipTests
 {
     private static void Check(bool yes,string why)
     {
         if(!yes)throw new InvalidOperationException(
-            "ORIGINAL LEGACY PLUGIN ZIP TEST FAILED: "+why);
-        Console.WriteLine("PASS original Legacy offline plugin ZIP: "+why);
+            "ORIGINAL KOVA PLUGIN ZIP TEST FAILED: "+why);
+        Console.WriteLine("PASS original Kova offline plugin ZIP: "+why);
     }
     private static async Task<JsonElement> Call(DesktopPluginZipBridge bridge,
         string method,object? args=null)
@@ -36,7 +36,7 @@ internal static class HistoricalPluginZipTests
 
     public static async Task Run(string root)
     {
-        string install=Path.Combine(root,"original-legacy-offline-plugin-zip-install");
+        string install=Path.Combine(root,"original-kova-offline-plugin-zip-install");
         string bin=Path.Combine(install,"ShooterGame","Binaries","Win64");
         string server=Path.Combine(bin,"ArkAscendedServer.exe");
         string plugin=Path.Combine(bin,"ArkApi","Plugins","ExampleSamplePlugin");
@@ -51,7 +51,7 @@ internal static class HistoricalPluginZipTests
         string externalStore=Path.Combine(root,"original-store-v1-untouched.marker");
         File.WriteAllText(externalStore,"STORE-DO-NOT-WRITE");
 
-        string archive=Path.Combine(root,"example-legacy-upgrade.zip");
+        string archive=Path.Combine(root,"example-kova-upgrade.zip");
         using(var stream=File.Create(archive))
         using(var zip=new ZipArchive(stream,ZipArchiveMode.Create))
         {
@@ -101,7 +101,7 @@ internal static class HistoricalPluginZipTests
             preview.GetRawText());
         string one=preview.GetProperty("data").GetProperty("token").GetString()!;
         // A synthetic ProcessCheck cannot impersonate the separate native
-        // WMI observer for a protected Legacy map. Change a real Manager
+        // WMI observer for a protected Kova map. Change a real Manager
         // maintenance gate after preview to exercise fail-closed apply.
         map.Maintenance=true;
         var stopped=await Call(bridge,"plugins.zipApply",new{token=one,confirm=true});
@@ -114,7 +114,7 @@ internal static class HistoricalPluginZipTests
         var applied=await Call(bridge,"plugins.zipApply",new{token,confirm=true});
         Check(applied.GetProperty("ok").GetBoolean()&&
               applied.GetProperty("data").GetProperty("backupCreated").GetBoolean(),
-            "original Legacy plugin DLL is replaced with real native backup");
+            "original Kova plugin DLL is replaced with real native backup");
         Check(File.ReadAllBytes(dll).SequenceEqual(
                 new byte[]{0x4d,0x5a,0x02,0x03,0x04})&&
               File.ReadAllText(config)=="{\"storeSetting\":true}"&&
@@ -128,7 +128,7 @@ internal static class HistoricalPluginZipTests
         var rollback=await Call(bridge,"plugins.zipRollbackSelect",new{mapId=map.Id});
         Check(rollback.GetProperty("ok").GetBoolean()&&
               rollback.GetProperty("data").GetProperty("binaryCount").GetInt32()==1,
-            "original Legacy native rollback selects the verified previous plugin ZIP backup: "+
+            "original Kova native rollback selects the verified previous plugin ZIP backup: "+
             rollback.GetRawText());
         string restoreToken=rollback.GetProperty("data")
             .GetProperty("token").GetString()!;
@@ -136,7 +136,7 @@ internal static class HistoricalPluginZipTests
             new{token=restoreToken,confirm=true});
         Check(undone.GetProperty("ok").GetBoolean()&&
               undone.GetProperty("data").GetProperty("protectiveBackupCreated").GetBoolean(),
-            "actual stopped original Legacy plugin DLL rollback creates another protection snapshot: "+
+            "actual stopped original Kova plugin DLL rollback creates another protection snapshot: "+
             undone.GetRawText());
         Check(File.ReadAllBytes(dll).SequenceEqual(new byte[]{0x4d,0x5a,1,1})&&
               File.ReadAllText(config)=="{\"storeSetting\":true}"&&

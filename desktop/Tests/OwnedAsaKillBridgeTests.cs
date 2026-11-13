@@ -75,6 +75,6 @@ internal static class OwnedAsaKillBridgeTests
         var protectedMap=await Call(bridge,"servers.ownedKillPreview",
             new{mapId=map.Id});
         Check(!protectedMap.GetProperty("ok").GetBoolean()&&kills==1,
-            "original Legacy Store-v1 map remains blocked from emergency Kill");
+            "original Kova Store-v1 map remains blocked from emergency Kill");
     }
 }

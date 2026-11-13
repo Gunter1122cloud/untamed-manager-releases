@@ -9,7 +9,7 @@ using UntamedManager.Core;
 namespace UntamedDesktop;
 
 /// <summary>
-/// Local new-Store ASA API Loader mode switch. No historical Legacy map, command
+/// Local new-Store ASA API Loader mode switch. No historical Kova map, command
 /// line, transfer writer, live process, or remote host can enter this route.
 /// A selected mode is configuration ONLY: no server spawn, RCON or cache write.
 /// </summary>

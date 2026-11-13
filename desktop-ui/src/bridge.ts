@@ -772,13 +772,13 @@ export type OriginalFiveMapBackupPreview={
   maxFilesPerMap:number;maxBytesPerMap:number;resourcePolicyCustomized:boolean;
   actualCopySizeRecheckedAtCreate:true;
   originalSourcePinned:true;allMapsConfirmedStopped:true;
-  requiresOperatorConfirmation:true;originalLegacyFilesWritten:false;
+  requiresOperatorConfirmation:true;originalKovaFilesWritten:false;
   serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
   evidence:"EXISTING_SHA256_WORLD_ENGINE_ORIGINAL_FIVE_MAP_PREFLIGHT";
 };
 export type OriginalFiveMapBackupStarted={
   jobId:string;started:true;localMaps:5;
-  originalLegacyFilesWritten:false;serverStarted:false;
+  originalKovaFilesWritten:false;serverStarted:false;
   sharedTransferIncluded:false;otherHostIncluded:false;
   evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_JOB_QUEUED";
 };
@@ -786,17 +786,17 @@ export type OriginalFiveMapBackupStatus={
   jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
   step:string;changedUtc:string;localMaps:5;completedMaps:number;
   points:{mapId:string;mapName:string;point:string;files:number;bytes:number}[];
-  totalBytes:number;allFiveVerified:boolean;originalLegacyFilesWritten:false;
+  totalBytes:number;allFiveVerified:boolean;originalKovaFilesWritten:false;
   serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
   evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM";
 };
 export type OriginalFiveMapJournalRepairPreview={
   token:string;localMaps:5;confirmedStopped:true;originalSourcePinned:true;
   requiresTypedApproval:true;repairScope:"MANAGER_LOCAL_BATCH_JOURNAL_QUARANTINE_ONLY";
-  originalLegacyFilesWritten:false;serverStarted:false;
+  originalKovaFilesWritten:false;serverStarted:false;
 };
 export type OriginalFiveMapJournalRepairReceipt={
-  reviewed:true;quarantined:true;originalLegacyFilesWritten:false;
+  reviewed:true;quarantined:true;originalKovaFilesWritten:false;
   serverStarted:false;oldBackupPackagesPreserved:true;
   nextBackupRequiresNewApproval:true;
   evidence:"MANAGER_LOCAL_CORRUPT_BATCH_JOURNAL_OPERATOR_QUARANTINE";
@@ -804,7 +804,7 @@ export type OriginalFiveMapJournalRepairReceipt={
 export type OriginalFiveMapBackupReceipt={
   localMaps:5;
   points:{mapId:string;mapName:string;point:string;files:number;bytes:number}[];
-  totalBytes:number;allFiveVerified:true;originalLegacyFilesWritten:false;
+  totalBytes:number;allFiveVerified:true;originalKovaFilesWritten:false;
   serverStarted:false;sharedTransferIncluded:false;otherHostIncluded:false;
   evidence:"FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM";
 };
@@ -821,7 +821,7 @@ export type WorldBackupRestored={
   worldRestoreVerified:false;gameClientLoadVerified:false;
   tribeOwnershipVerified:false;characterRejoinVerified:false;
   storeWriterTouched:false;
-  evidence:"VERIFIED_STOPPED_MAP_LEGACY_STYLE_RESTORE_WITH_PROTECTIVE_COPY";
+  evidence:"VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY";
 };
 
 export type BackupOverview = {
@@ -1226,26 +1226,26 @@ export type HistoricalPairEvidence = {
   evidence:"PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION";
 };
 
-export type OriginalLegacyLocalMapList = {
+export type OriginalKovaLocalMapList = {
   sourceVerified:true;originalFourFilesUnchanged:true;
   maps:Array<{mapId:string;mapKey:string;name:string;
     folderName:string;gamePort:number;queryPort:number;
     enabledMods:number;passiveMods:number;registered:boolean}>;
-  evidence:"ORIGINAL_LEGACY_FIVE_LOCAL_MAPS_READ_ONLY";
+  evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY";
 };
-export type OriginalLegacyBatchPreview = {
+export type OriginalKovaBatchPreview = {
   token:string;localMaps:number;mapNames:string[];
   sourceIdentityPreserved:true;originalFilesWritten:false;
   processTouched:false;requiresExplicitApproval:true;
-  evidence:"ORIGINAL_LEGACY_ATOMIC_LOCAL_BATCH_PREVIEW";
+  evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_PREVIEW";
 };
-export type OriginalLegacyBatchReceipt = {
+export type OriginalKovaBatchReceipt = {
   importedMaps:number;mapIds:string[];sourceIdentityPreserved:true;
   originalFilesWritten:false;serverStarted:false;
   requiresOriginalRconAttach:true;
-  evidence:"ORIGINAL_LEGACY_ATOMIC_LOCAL_BATCH_REGISTERED";
+  evidence:"ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED";
 };
-export type OriginalLegacyLiveBatchPreview = {
+export type OriginalKovaLiveBatchPreview = {
   token:string;expiresUtc:string;localMaps:number;mapNames:string[];runningProcesses:number;
   directProcesses:number;apiLoaderPairs:number;
   alreadyRegistered:number;newlyDiscovered:number;
@@ -1254,7 +1254,7 @@ export type OriginalLegacyLiveBatchPreview = {
   requiresExternalControllerStopped:true;requiresTypedApproval:true;
   evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT";
 };
-export type OriginalLegacyLiveOperationBlocker = {
+export type OriginalKovaLiveOperationBlocker = {
   mapId:string;mapName:string;kind:string;phase:string;
   operationId:string;blockingCode:string;existingManagerProfile:boolean;
   supportedReviewInMapDetails:boolean;
@@ -1273,14 +1273,14 @@ export type OperationJournalInventorySnapshot = {
   evidence:"BOUNDED_READ_ONLY_LOCAL_OPERATION_JOURNAL_INVENTORY";
   deletedOrReviewed:false;
 };
-export type OriginalLegacyLiveOperationBlockers = {
+export type OriginalKovaLiveOperationBlockers = {
   mapCount:number;blockedCount:number;
-  blockedMaps:OriginalLegacyLiveOperationBlocker[];
+  blockedMaps:OriginalKovaLiveOperationBlocker[];
   allRecoveriesRequireFreshOwnerProof:true;
   noAutomaticCommandRetry:true;processStarted:false;processStopped:false;
   evidence:"ORIGINAL_FIVE_RUNNING_MAP_DURABLE_JOURNAL_BLOCKERS_READ_ONLY";
 };
-export type OriginalLegacyLiveBatchReceipt = {
+export type OriginalKovaLiveBatchReceipt = {
   importedMaps:number;addedMaps:number;reconnectedMaps:number;
   unchangedMaps:number;mapIds:string[];apiLoaderPairs:number;
   managerProfileOnly:true;originalStoreFilesWritten:false;
@@ -1288,34 +1288,34 @@ export type OriginalLegacyLiveBatchReceipt = {
   storeWriterAuthorizedByImport:false;requiresOriginalRconAttach:true;
   evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_MAPS_REGISTERED_NO_ASA_MUTATION";
 };
-export type OriginalLegacyClusterPreview = {
+export type OriginalKovaClusterPreview = {
   token:string;clusterId:string;fiveOriginalMaps:5;alreadyAssigned:number;
   missingAssignments:number;registryRevision:number;sourceIdentityPreserved:true;
   originalStoreFilesWritten:false;asaProcessTouched:false;
   writerSessionLockTouched:false;requiresExactApproval:true;
   evidence:"ORIGINAL_FIVE_MAP_METADATA_BOOTSTRAP_PREVIEW_ONLY";
 };
-export type OriginalLegacyClusterReceipt = {
+export type OriginalKovaClusterReceipt = {
   clusterId:string;revision:number;addedCount:number;
   removedCount:number;movedCount:number;originalFilesWritten:false;
   transferFilesWritten:false;storeWriterTouched:false;serverStarted:false;
   evidence:"ORIGINAL_FIVE_MAP_MANAGER_REGISTRY_METADATA_ONLY";
 };
-export type OriginalLegacyImportPreview = {
+export type OriginalKovaImportPreview = {
   token:string;mapId:string;mapName:string;folderName:string;
   gamePort:number;queryPort:number;
   originalEnabledMods:number;originalPassiveMods:number;
   originalLaunchProfileVerified:true;originalIdsPreserved:true;
   originalFilesWritten:false;serverStarted:false;
   requiresOriginalRconAttach:true;
-  evidence:"ORIGINAL_LEGACY_DIRECT_IMPORT_PREVIEW";
+  evidence:"ORIGINAL_KOVA_DIRECT_IMPORT_PREVIEW";
 };
-export type OriginalLegacyImportReceipt = {
+export type OriginalKovaImportReceipt = {
   mapId:string;mapName:string;registered:true;originalIdsPreserved:true;
   originalFilesWritten:false;serverStarted:false;
   requiresOriginalRconAttach:true;originalLaunchProfileVerified:true;
   requiresExactModOrderVerification:false;
-  evidence:"ORIGINAL_LEGACY_DIRECT_LOCAL_MAP_REGISTERED";
+  evidence:"ORIGINAL_KOVA_DIRECT_LOCAL_MAP_REGISTERED";
 };
 
 export type HistoricalStoreList = {
@@ -2153,7 +2153,7 @@ export const managerBridge = {
       "steam.freshRecoverPreview",{mapName,installRoot,customLevel}),
   freshRecoverRegister: (token:string,typedApproval:string) =>
     request<FreshInstallReceipt & {jobId:string;filesDownloadedAgain:false;
-      legacyFilesWritten:false}>(
+      kovaFilesWritten:false}>(
       "steam.freshRecoverRegister",{token,typedApproval,confirm:true}),
   initialStatus: (mapId:string) =>
     request<InitialMapStatus>("servers.initialStatus", {mapId}),
@@ -2262,7 +2262,7 @@ export const managerBridge = {
   historicalLocalStatus: () => request<HistoricalLocalStoreStatus>("historical.localStatus"),
   historicalLiveGuard: (mapId:string) => request<HistoricalLiveGuard>("historical.liveGuard",{mapId}),
   historicalLocalParity: (archive:string) => request<HistoricalLocalStoreParity>("historical.localParity",{archive}),
-  historicalOriginalList: () => request<OriginalLegacyLocalMapList>("historical.originalList"),
+  historicalOriginalList: () => request<OriginalKovaLocalMapList>("historical.originalList"),
   historicalRuntimeSettingsStatus: (mapId:string) =>
     request<{mapId:string;mapName:string;gamePort:number;queryPort:number;
       clusterId:string;transferRoot:string;originalSourcePinned:true;
@@ -2283,32 +2283,32 @@ export const managerBridge = {
     request<{token:string;verifiedLocalMaps:number;requiresExplicitApproval:true;peerStatusRequired:false}>(
       "historical.sourcePinPreview"),
   historicalSourcePinApply: (token:string,typedApproval:string) =>
-    request<{pinned:true;localMaps:number;originalLegacyRequiredAfterPin:false}>(
+    request<{pinned:true;localMaps:number;originalKovaRequiredAfterPin:false}>(
       "historical.sourcePinApply",{token,typedApproval,confirm:true}),
   historicalOriginalBatchPreview: () =>
-    request<OriginalLegacyBatchPreview>("historical.originalBatchPreview"),
+    request<OriginalKovaBatchPreview>("historical.originalBatchPreview"),
   historicalOriginalBatchRegister: (token:string) =>
-    request<OriginalLegacyBatchReceipt>("historical.originalBatchRegister",{token,confirm:true}),
+    request<OriginalKovaBatchReceipt>("historical.originalBatchRegister",{token,confirm:true}),
   historicalOriginalLiveBatchPreview: () =>
-    request<OriginalLegacyLiveBatchPreview>("historical.originalLiveBatchPreview"),
+    request<OriginalKovaLiveBatchPreview>("historical.originalLiveBatchPreview"),
   historicalOriginalLiveOperationBlockers: () =>
-    request<OriginalLegacyLiveOperationBlockers>("historical.originalLiveOperationBlockers"),
+    request<OriginalKovaLiveOperationBlockers>("historical.originalLiveOperationBlockers"),
   historicalOperationJournalInventory: () =>
     request<OperationJournalInventorySnapshot>("historical.operationJournalInventory"),
   historicalOriginalLiveBatchApply: (token:string,externalControllerStopped:boolean,typedApproval:string) =>
-    request<OriginalLegacyLiveBatchReceipt>("historical.originalLiveBatchApply",{
+    request<OriginalKovaLiveBatchReceipt>("historical.originalLiveBatchApply",{
       token,externalControllerStopped,typedApproval,confirm:true
     }),
   historicalOriginalClusterPreview: () =>
-    request<OriginalLegacyClusterPreview>("historical.originalClusterPreview"),
+    request<OriginalKovaClusterPreview>("historical.originalClusterPreview"),
   historicalOriginalClusterApply: (token:string,typedApproval:string) =>
-    request<OriginalLegacyClusterReceipt>("historical.originalClusterApply",{
+    request<OriginalKovaClusterReceipt>("historical.originalClusterApply",{
       token,confirm:true,typedApproval
     }),
   historicalOriginalPreview: (mapId:string,gamePort:number,queryPort:number) =>
-    request<OriginalLegacyImportPreview>("historical.originalPreview",{mapId,gamePort,queryPort}),
+    request<OriginalKovaImportPreview>("historical.originalPreview",{mapId,gamePort,queryPort}),
   historicalOriginalRegister: (token:string) =>
-    request<OriginalLegacyImportReceipt>("historical.originalRegister",{token,confirm:true}),
+    request<OriginalKovaImportReceipt>("historical.originalRegister",{token,confirm:true}),
   historicalList: (archive:string) => request<HistoricalStoreList>("historical.list", {archive}),
   historicalPreview: (archive:string, mapId:string, root:string) =>
     request<HistoricalStorePreview>("historical.preview", {archive,mapId,root}),

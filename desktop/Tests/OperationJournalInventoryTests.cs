@@ -76,10 +76,10 @@ internal static class OperationJournalInventoryTests
               matched.Entries.Any(e=>e.HistoricalSourceMatched&&
                   e.Journal=="Restart-v1"&&
                   e.HistoricalMapKey=="Synthetic1"&&!e.Registered),
-            "verified old Legacy installation hash is distinguished from an unrelated journal without importing it");
+            "verified old Kova installation hash is distinguished from an unrelated journal without importing it");
         Check(!OperationJournalInventory.Inspect(new[]{localMap})
               .HistoricalSourceReadable,
-            "no Legacy source does not invent historical journal attribution");
+            "no Kova source does not invent historical journal attribution");
         var sharedSources=sources.ToArray();
         sharedSources[1]=sharedSources[1] with {
             OriginalInstallationRoot=unknown
@@ -88,7 +88,7 @@ internal static class OperationJournalInventoryTests
         Check(shared.HistoricalSourceRecords==1&&
               shared.Entries.Any(e=>e.HistoricalSourceMatched&&
                   e.HistoricalMapKey=="Synthetic1, Synthetic2"),
-            "two original Legacy map IDs sharing one installation retain both names without inventing two journal resources");
+            "two original Kova map IDs sharing one installation retain both names without inventing two journal resources");
 
         // Different real resource keys may share the 16-character displayed
         // fingerprint. Never undercount genuinely separate unregistered keys.

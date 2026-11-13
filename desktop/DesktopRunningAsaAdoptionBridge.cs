@@ -16,7 +16,7 @@ namespace UntamedDesktop;
 /// Explicit two-step take-over of an already registered, running, NON-STORE
 /// ASA process. Preview is read-only; apply only persists Manager configuration.
 /// The Core independently checks the real Windows process under a machine-wide
-/// installation lock. Historical Legacy Store, loader processes and ambiguous
+/// installation lock. Historical Kova Store, loader processes and ambiguous
 /// identities cannot use this path. No RCON, SaveWorld or process mutation here.
 /// </summary>
 public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
@@ -121,8 +121,8 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
             StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("UM-ADOPT-SENSITIVE-LAUNCH");
         if(!AsaReadyProbe.IsRegisteredServerBinary(map) ||
-           LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
-           LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
+           KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidDataException("UM-ADOPT-STORE-OR-RECOVERY-LOCKED");
         return(map,server,args);
     }

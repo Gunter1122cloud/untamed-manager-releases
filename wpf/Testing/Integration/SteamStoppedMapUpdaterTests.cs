@@ -69,7 +69,7 @@ public static class SteamStoppedMapUpdaterTests
             GamePort=7777,QueryPort=27015,RconPort=37015
         };
         manager.AddMap(map);
-        string storeSentinel=Path.Combine(test,"legacy-store-v1-external-stays-unchanged.txt");
+        string storeSentinel=Path.Combine(test,"kova-store-v1-external-stays-unchanged.txt");
         File.WriteAllText(storeSentinel,"NO_STORE_V1_WRITES");
         var receipt=await SteamStoppedMapUpdater.RunFakeFixtureAsync(manager,map,
             fakeSteamPath,fakeSteam,1024L*1024*1024,TimeSpan.FromMinutes(2));

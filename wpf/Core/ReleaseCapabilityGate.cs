@@ -6,7 +6,7 @@ using System.Linq;
 namespace UntamedManager.Core;
 
 // The release-candidate UI must NEVER turn a simulated proof into permission
-// to mutate real ASA, LegacyCluster or MariaDB instances.
+// to mutate real ASA, KovaCluster or MariaDB instances.
 public enum ManagerOperation
 {
     LocalProcessObservation, LocalReadOnlyRcon, LiveWorldSave, OfflineConfiguration,

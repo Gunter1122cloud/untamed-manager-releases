@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using UntamedDesktop;
 using UntamedManager.Core;
 
-// Fully isolated native bridge regression: no live Legacy path, shared SMB,
+// Fully isolated native bridge regression: no live Kova path, shared SMB,
 // server binary, user RCON or production ASA process is ever accessed.
 internal static class LegacyStoreSaveReviewBridgeTests
 {

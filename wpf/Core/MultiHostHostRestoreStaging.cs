@@ -12,7 +12,7 @@ namespace UntamedManager.Core;
 /// <summary>
 /// Real, byte-verified host-scoped restore staging from the EXISTING verified
 /// N-host TEMP sandbox. It does not implement a second backup/archive format,
-/// Legacy Store writer or automatic cutover. Creates fresh, never-overwritten
+/// Kova Store writer or automatic cutover. Creates fresh, never-overwritten
 /// deployment inspection packages on fixed local disks only.
 /// </summary>
 public static class MultiHostHostRestoreStaging

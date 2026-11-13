@@ -9,7 +9,7 @@ namespace UntamedManager.Core;
 
 // Real SHA-verified ARCHIVE COPYING from ten previously produced, stopped-map
 // offline backup packages + three previously exported offline SQL packages.
-// This is *not* a two-host live/consistent backup, and NEVER touches Legacy Store.
+// This is *not* a two-host live/consistent backup, and NEVER touches Kova Store.
 // Can run on a separate Windows test PC after the 13 inputs have been copied there.
 public sealed record OfflineMapBackupInput(string Host,Guid Map,string Name,string Package);
 public sealed record OfflineSqlBackupInput(string Database,Guid Owner,string Package);
@@ -20,12 +20,12 @@ public sealed record OfflineClusterBackupMember(string Host,Guid Owner,string Na
 public sealed record OfflineClusterBackupManifest(
     int Schema,Guid Batch,DateTimeOffset CreatedUtc,
     OfflineClusterBackupMember[] Items,bool RealAsaConsistencyProven,
-    [property:System.Text.Json.Serialization.JsonPropertyName("LegacyStoreIncluded")]
+    [property:System.Text.Json.Serialization.JsonPropertyName("KovaStoreIncluded")]
     bool VaultStoreIncluded,bool MariaDbSnapshotConsistencyProven,string Disclaimer);
 public static class OfflineClusterBackup
 {
     // Four-folder Windows wizard: select previously copied, independently
-    // verified packages without editing JSON, credentials or Legacy Store files.
+    // verified packages without editing JSON, credentials or Kova Store files.
     // Folder convention: HP/<five package dirs>, RYZEN/<five package dirs>,
     // SQL/arkshop, SQL/arkpermissions, SQL/lethalquests.
     public static OfflineClusterBackupManifest BuildFromFolders(

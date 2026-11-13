@@ -235,7 +235,7 @@ public sealed class DesktopReadOnlyBridge : IAsyncDisposable
                         var config = _cluster.Config.LocalMaps.FirstOrDefault(x =>
                             MatchesPublishedMapId(x.Id,m.Id));
                         bool protectedStore = config != null &&
-                            LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(config);
+                            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(config);
                         bool historicalStore = config?.HistoricalStoreProtected==true;
                         return new {
                             id = m.Id, name = m.Name, running = m.Running,

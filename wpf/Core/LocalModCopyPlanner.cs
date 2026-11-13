@@ -40,7 +40,7 @@ public static class LocalModCopyPlanner
                !string.IsNullOrWhiteSpace(map.Arguments) ||
                !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))))
             throw new UnauthorizedAccessException(
-                "Mod copy requires an owned local map or imported original Legacy profile");
+                "Mod copy requires an owned local map or imported original Kova profile");
         // The shared Store writer belongs to ASA and the existing legacy coordinator.
         // This module never touches files outside Manager config.
         _=ModStateController.Read(map);

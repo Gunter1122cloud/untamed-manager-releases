@@ -106,7 +106,7 @@ public sealed class DesktopModDraftBridge : IDisposable
                 else if(method=="mods.draftSave")
                 {
                     if(!current.Session.IsDirty)return Error(id,"UM-NO-CHANGES");
-                    // Historical Legacy profiles are editable only offline and
+                    // Historical Kova profiles are editable only offline and
                     // only for local -mods/-passivemods; the Core preserves
                     // the original Store and Loader launch arguments.
                     if(map.HistoricalStoreProtected)

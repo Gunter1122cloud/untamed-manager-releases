@@ -22,8 +22,8 @@ public sealed class DesktopMapMaintenanceBridge
     private static bool Protected(LocalMap map) =>
         map.HistoricalStoreProtected || map.ObservedReadOnlyImported ||
         !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
-        LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
-        LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map);
+        KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
+        KovaCompatibleWorldBackup.InstallationRecoveryRequired(map);
 
     private bool CanEdit(LocalMap map)
     {

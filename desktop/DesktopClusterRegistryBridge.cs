@@ -33,7 +33,7 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
     {
         cluster = owner ?? throw new ArgumentNullException(nameof(owner));
         this.originalLegacyProfile=originalLegacyProfile??Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"\u004Bova");
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
         // Test-only injection is used with disposable local fixtures. In the
         // shipped Windows host this calls the REAL filesystem identity probe.
         samePhysicalTransferDirectory=verifiedTransferIdentity??((a,b)=>
@@ -139,7 +139,7 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
 
     /// <summary>
     /// Real, on-demand, read-only first step for a FUTURE map joining the
-    /// ORIGINAL shared Legacy cluster. This never assigns Store membership,
+    /// ORIGINAL shared Kova cluster. This never assigns Store membership,
     /// changes launch flags, opens a Store writer or grants character travel.
     /// Only a separately implemented peer-verified transaction may do that.
     /// </summary>
@@ -163,7 +163,7 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
         if(map.HistoricalStoreProtected ||
            !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256) ||
            !string.IsNullOrWhiteSpace(map.FreshStoreClusterId) ||
-           LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
+           KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
             warnings.Add("UM-EXPANSION-CANDIDATE-NOT-NEW");
         bool localSetupVerified=false;
         try
@@ -221,8 +221,8 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
         }
         try
         {
-            // Once the Legacy source has been explicitly captured into
-            // Obsidian, never require the retired Legacy install merely to
+            // Once the Kova source has been explicitly captured into
+            // Obsidian, never require the retired Kova install merely to
             // preview a future map. A corrupt pinned source fails closed
             // instead of silently falling back to stale legacy data.
             string authoritativeSource=LegacyStoreV1PinnedSource.PreferredProfile(
@@ -302,7 +302,7 @@ public sealed class DesktopClusterRegistryBridge : IDisposable
         if(cluster.Registry.Snapshot().Revision!=initial.Revision)
             warnings.Add("UM-EXPANSION-REGISTRY-CHANGED");
         // Deliberate fail-closed gate: local readiness is NOT permission to
-        // enter original Legacy Store. Peer-authenticated writer/session/lock
+        // enter original Kova Store. Peer-authenticated writer/session/lock
         // extension has not yet been certified, including A->B->A travel.
         return new{
             mapId,mapName=map.Name,requestedClusterId=selected,

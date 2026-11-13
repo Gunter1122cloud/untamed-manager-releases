@@ -9,7 +9,7 @@ using System.Text.Json;
 namespace UntamedManager.Core;
 
 /// <summary>
-/// Local-only, source-pinned discovery of the ORIGINAL five maps in a Legacy
+/// Local-only, source-pinned discovery of the ORIGINAL five maps in a Kova
 /// ACTIVE/DONE profile, INCLUDING their original launch port/mod-order source.
 /// No caller-chosen UNC path, Store writer or conversion. The five source
 /// files are held read-only across both original metadata inspections.
@@ -63,7 +63,7 @@ public static class LegacyStoreV1OriginalImport
                     System.Globalization.CultureInfo.InvariantCulture),
                 _=>""
             };
-            // Legacy 1.8.3 profileLaunch permits 1–12 ASCII decimal digits.
+            // Kova 1.8.3 profileLaunch permits 1–12 ASCII decimal digits.
             // Do not reject valid short original IDs during Store-v1 import.
             if(text.Length is <1 or >12||!text.All(char.IsAsciiDigit)||
                mods.Contains(text,StringComparer.Ordinal))
@@ -81,7 +81,7 @@ public static class LegacyStoreV1OriginalImport
         foreach(string name in Names)
             files.Add(name,held.Read(Path.Combine(root,name),1_048_576));
         // Direct Start must NEVER invent mod order from an empty list. The
-        // original Legacy launch profile is the source of Game/Query and mod
+        // original Kova launch profile is the source of Game/Query and mod
         // order; if missing, the ZIP-backed importer remains the alternative.
         byte[] launchBytes=held.Read(Path.Combine(root,"launch-profiles-v1.json"),
             1_048_576);

@@ -5,7 +5,7 @@ using UntamedDesktop;
 using UntamedManager.Core;
 
 // Windows native WMI-only test; all files live in isolated TEMP.
-// Does not spawn an ASA process or contact any live Legacy installation.
+// Does not spawn an ASA process or contact any live Kova installation.
 internal static class HistoricalLocalConfigGuardTests
 {
     private static void Check(bool ok,string reason)

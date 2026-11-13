@@ -4,8 +4,8 @@ using System.Runtime.InteropServices;
 using System.Linq;
 using UntamedManager.Core;
 
-// Native NTFS/Windows hard-link regression for the ORIGINAL Legacy source
-// read() nlink==1 guard. All paths are isolated under test TEMP; no Legacy,
+// Native NTFS/Windows hard-link regression for the ORIGINAL Kova source
+// read() nlink==1 guard. All paths are isolated under test TEMP; no Kova,
 // live ASA, shared transfer root, original writer or RCON is accessed.
 internal static class LegacyStoreOriginalLinkTests
 {
@@ -17,8 +17,8 @@ internal static class LegacyStoreOriginalLinkTests
     private static void Check(bool pass,string reason)
     {
         if(!pass)throw new InvalidOperationException(
-            "ORIGINAL LEGACY SHARED LINK REGRESSION FAILED: "+reason);
-        Console.WriteLine("PASS original Legacy shared file links: "+reason);
+            "ORIGINAL KOVA SHARED LINK REGRESSION FAILED: "+reason);
+        Console.WriteLine("PASS original Kova shared file links: "+reason);
     }
     private static bool Denies(Action operation)
     {
@@ -30,7 +30,7 @@ internal static class LegacyStoreOriginalLinkTests
     {
         if(!OperatingSystem.IsWindows())
             throw new InvalidOperationException("NTFS file-link test requires Windows");
-        string folder=Path.Combine(root,"isolated-legacy-source-hardlink");
+        string folder=Path.Combine(root,"isolated-kova-source-hardlink");
         Directory.CreateDirectory(folder);
         string original=Path.Combine(folder,"operation.json");
         string link=Path.Combine(folder,"aliased-operation.json");

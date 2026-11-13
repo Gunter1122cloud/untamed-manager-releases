@@ -8,7 +8,7 @@ using UntamedDesktop;
 using UntamedManager.Core;
 
 // File-changing native plugin enable/disable against isolated historical
-// Legacy-shaped TEMP install; no ASA process, Store, RCON or SQL mutation.
+// Kova-shaped TEMP install; no ASA process, Store, RCON or SQL mutation.
 internal static class HistoricalPluginToggleTests
 {
     private static void Check(bool yes,string label)
@@ -90,12 +90,12 @@ internal static class HistoricalPluginToggleTests
         });
         Check(preview.GetProperty("ok").GetBoolean()&&
               preview.GetProperty("data").GetProperty("allowed").GetBoolean(),
-            "native original Legacy plugin preview is executable despite uncertain generic Check");
+            "native original Kova plugin preview is executable despite uncertain generic Check");
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
         var applied=await Call(bridge,"plugins.toggleApply",new{token,confirm=true});
         Check(applied.GetProperty("ok").GetBoolean()&&
               applied.GetProperty("data").GetProperty("backupCreated").GetBoolean(),
-            "original Legacy plugin folder disabled with verified on-disk backup");
+            "original Kova plugin folder disabled with verified on-disk backup");
         Check(!Directory.Exists(active)&&Directory.Exists(disabled)&&
               File.ReadAllText(Path.Combine(disabled,"config.json"))=="{\"enabled\":true}"&&
               File.ReadAllText(Path.Combine(disabled,"license.key"))=="KEEP-ORIGINAL-LICENSE",

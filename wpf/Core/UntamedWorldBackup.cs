@@ -1,7 +1,7 @@
 // Legacy source identifier is a compile-time alias only; the public type,
  // binary metadata, UI, and new APIs use the Untamed name. Historical on-disk
  // data contracts are unchanged.
-global using LegacyCompatibleWorldBackup = UntamedManager.Core.UntamedWorldBackup;
+global using KovaCompatibleWorldBackup = UntamedManager.Core.UntamedWorldBackup;
 
 using System;
 using System.Collections.Generic;
@@ -14,7 +14,7 @@ using System.Text.Json;
 namespace UntamedManager.Core;
 
 /// <summary>
-/// Per-map, stopped-server world backup/restore. Mirrors the proven Legacy pattern:
+/// Per-map, stopped-server world backup/restore. Mirrors the proven Kova pattern:
 /// exact SavedArks/map folder, checked SHA-256 copy, incomplete staging, atomic
 /// publish; restore takes a second protective backup and retains the old folder.
 /// This is independent of the original shared Store-v1 writer and MariaDB.
@@ -271,10 +271,10 @@ public static class UntamedWorldBackup
         string saved=Guard(Path.Combine(root,"ShooterGame","Saved","SavedArks"));
         if(!Directory.Exists(saved))return false;
         // Never restart a shared SteamCMD process family while any map in
-        // the installation has a Legacy or Untamed interrupted atomic swap.
+        // the installation has a Kova or Untamed interrupted atomic swap.
         return Directory.EnumerateFiles(saved,".untamed-restore-*.json",
                    SearchOption.TopDirectoryOnly).Any() ||
-               Directory.EnumerateFiles(saved,".legacy-restore-*.json",
+               Directory.EnumerateFiles(saved,".kova-restore-*.json",
                    SearchOption.TopDirectoryOnly).Any();
     }
     public static bool RecoveryRequired(LocalMap map)
@@ -454,7 +454,7 @@ public static class UntamedWorldBackup
             beforeSwap?.Invoke();
             // Crash during the swap must leave a NEEDS_OPERATOR journal.
             lease.MarkMutationStarted();
-            // Durable recovery marker precedes every rename, exactly like Legacy.
+            // Durable recovery marker precedes every rename, exactly like Kova.
             WriteDurable(marker,JsonSerializer.Serialize(new{
                 schema=1,owner=map.Id,map=key,point,protective=protective.Id,
                 world,stage,old,utc=DateTimeOffset.UtcNow

@@ -10,7 +10,7 @@ namespace UntamedDesktop;
 
 /// <summary>
 /// Per-map ASA API opt-in for ordinary, locally owned non-Store ASA maps.
-/// Historical Legacy and new Store maps retain their own existing native
+/// Historical Kova and new Store maps retain their own existing native
 /// approval bridges. This bridge changes only the Manager launch profile;
 /// it never starts/stops ASA, edits INI, plugins or Store/session files.
 /// </summary>
@@ -51,8 +51,8 @@ public sealed class DesktopLocalAsaApiModeBridge : IDisposable
            !string.IsNullOrWhiteSpace(map.FreshStoreClusterId)||
            !string.IsNullOrWhiteSpace(map.FreshStoreTransferDirectory)||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
-           LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
-           LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
+           KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new UnauthorizedAccessException("UM-LOCAL-API-STORE-PROTECTED");
 
         if(string.IsNullOrWhiteSpace(map.InstallationPath)||

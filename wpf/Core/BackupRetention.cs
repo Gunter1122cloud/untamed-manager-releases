@@ -12,7 +12,7 @@ public sealed record RetentionChoice(RetainedBackup Backup,bool Eligible,string 
 public sealed record RetentionPlan(IReadOnlyList<RetentionChoice> Items,
     long EstimatedReclaimBytes,int Candidates);
 
-// Never touch live ASA SavedArks, Legacy Store, SQL or another task's points.
+// Never touch live ASA SavedArks, Kova Store, SQL or another task's points.
 // Retention only moves separately managed, SHA-verified backup packages into a
 // distinct quarantine; irreversible deletion is a separate manual operation.
 public static class BackupRetention

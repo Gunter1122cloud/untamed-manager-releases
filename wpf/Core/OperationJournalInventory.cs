@@ -26,7 +26,7 @@ public sealed record OperationJournalInventorySnapshot(
 /// Machine-local, READ-ONLY journal inventory. Its purpose is to distinguish
 /// registered-map records from unknown resource hashes without pretending
 /// the SHA-256 installation key can be reversed into an origin or PID.
-/// Never performs a review, removes a journal or accesses ASA/Legacy data.
+/// Never performs a review, removes a journal or accesses ASA/Kova data.
 /// </summary>
 public static class OperationJournalInventory
 {
@@ -67,10 +67,10 @@ public static class OperationJournalInventory
                 // Its own registration diagnostics remain independent.
             }
         }
-        // A verified original Legacy profile can identify otherwise foreign
+        // A verified original Kova profile can identify otherwise foreign
         // resource hashes WITHOUT rewriting a journal or adopting a map.
         // This is SOURCE-path correlation only, never live ASA owner proof.
-        // Original Legacy maps may legitimately share one binary installation:
+        // Original Kova maps may legitimately share one binary installation:
         // the operation journal is installation-keyed, so retain every
         // verified source map name for the same resource key.
         var originalKeys=new Dictionary<string,List<string>>(StringComparer.Ordinal);

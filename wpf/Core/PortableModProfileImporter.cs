@@ -30,7 +30,7 @@ public static class PortableModProfileImporter
                !string.IsNullOrWhiteSpace(map.Arguments)||
                !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))))
             throw new UnauthorizedAccessException(
-                "Mod profile import requires a local owned or imported original Legacy map");
+                "Mod profile import requires a local owned or imported original Kova map");
         _=ModStateController.Read(map);
     }
     public static PortableModImportPlan Preview(ClusterService cluster,

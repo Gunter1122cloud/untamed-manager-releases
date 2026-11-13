@@ -75,7 +75,7 @@ public sealed class DesktopPluginZipBridge : IDisposable
     {
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
         if(map.ObservedReadOnlyImported||map.Maintenance||
-           (!map.HistoricalStoreProtected&&LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map)))
+           (!map.HistoricalStoreProtected&&KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)))
             throw new InvalidOperationException("UM-PLUGIN-STORE-PROTECTED");
         string root=Path.GetFullPath(map.InstallationPath);
         var siblings=cluster.Config.LocalMaps.Where(m=>
@@ -91,7 +91,7 @@ public sealed class DesktopPluginZipBridge : IDisposable
             if(sibling.ObservedReadOnlyImported||sibling.Maintenance||
                generic.Running||generic.Identity!=null||generic.LoaderIdentity!=null||
                (!sibling.HistoricalStoreProtected&&
-                LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling)))
+                KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling)))
                 throw new InvalidOperationException("UM-PLUGIN-SHARED-INSTALLATION-ACTIVE");
             var process=sibling.HistoricalStoreProtected?
                 HistoricalLocalConfigGuard.DemandStopped(cluster,sibling):generic;

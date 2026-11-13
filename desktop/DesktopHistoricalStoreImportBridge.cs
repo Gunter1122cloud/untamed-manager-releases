@@ -18,7 +18,7 @@ namespace UntamedDesktop;
 /// roots, UDP ports and mod IDs, but NOT the complete runtime command line
 /// (session name, RCON, cluster params, loader args). Therefore registration
 /// is intentionally quarantined. It never starts, edits, converts, deletes,
-/// restores or rewrites Legacy/ASA/Store files.
+/// restores or rewrites Kova/ASA/Store files.
 /// </summary>
 public sealed class DesktopHistoricalStoreImportBridge : IDisposable
 {
@@ -63,10 +63,10 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         cluster=service??throw new ArgumentNullException(nameof(service));
         inspect=processInspector??(map=>new WindowsProcessInspector().InspectFamily(map));
         this.localLegacyDataDirectory=localLegacyDataDirectory??Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName);
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
     }
 
-    // Import starts from the original Legacy profile; after explicit approval,
+    // Import starts from the original Kova profile; after explicit approval,
     // the verified Manager pin is authoritative for subsequent local reads.
     // Every live shared peer/session check still runs against the real UNC.
     private string PreferredSource()=>LegacyStoreV1PinnedSource.PreferredProfile(
@@ -133,7 +133,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                        localMap.ObservedReadOnlyImported)
                         return Fail(id,"UM-STORE-RUNTIME-LOCAL-MAP-REQUIRED");
                     string legacy=Path.Combine(Environment.GetFolderPath(
-                        Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName);
+                        Environment.SpecialFolder.ApplicationData),"Kova");
                     string current=LegacyStoreV1PinnedSource.Resolve(
                         cluster.Store.Root,legacy,localMap);
                     if(string.Equals(current,legacy,StringComparison.OrdinalIgnoreCase))
@@ -174,7 +174,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                            runtimeMap.ObservedReadOnlyImported)
                             return Fail(id,"UM-STORE-RUNTIME-LOCAL-MAP-REQUIRED");
                         string legacy=Path.Combine(Environment.GetFolderPath(
-                            Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName);
+                            Environment.SpecialFolder.ApplicationData),"Kova");
                         string source=LegacyStoreV1PinnedSource.Resolve(
                             cluster.Store.Root,legacy,runtimeMap);
                         if(string.Equals(source,legacy,StringComparison.OrdinalIgnoreCase))
@@ -237,7 +237,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         return Fail(id,"UM-STORE-RUNTIME-MAP-CHANGED");
                     string original=LegacyStoreV1PinnedSource.Resolve(
                         cluster.Store.Root,Path.Combine(Environment.GetFolderPath(
-                        Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName),owned);
+                        Environment.SpecialFolder.ApplicationData),"Kova"),owned);
                     LegacyStoreV1PinnedSource.RequireImmutableIdentity(owned,
                         LegacyStoreV1OriginalImport.Inspect(original));
                     using(var held=new VaultReadSnapshot())
@@ -269,7 +269,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     return Ok(id,new{
                         mapId=runtimeStage.MapId,updated=true,
                         portAndClusterSettingsStoredInManager=true,
-                        legacyFilesWritten=false,asaFilesWritten=false,
+                        kovaFilesWritten=false,asaFilesWritten=false,
                         noServerStarted=true,noRconSent=true,
                         requiresManualAsaTransferVerification=true,
                         evidence="OBSIDIAN_APPROVED_OFFLINE_RUNTIME_SETTINGS_APPLIED"
@@ -279,7 +279,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 {
                     // Existing imported maps may predate Obsidian-owned source
                     // snapshots. Pin once, explicitly, without touching ASA,
-                    // Legacy or the shared transfer directory.
+                    // Kova or the shared transfer directory.
                     var current=LegacyStoreV1PinnedSource.PreferredProfile(
                         cluster.Store.Root,localLegacyDataDirectory);
                     if(!string.Equals(current,localLegacyDataDirectory,
@@ -332,8 +332,8 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         cluster.Store.Root,stage.FourHash,stage.LaunchHash);
                     return Ok(id,new{
                         pinned=true,localMaps=current.Length,
-                        originalLegacyRequiredAfterPin=false,
-                        legacyFilesWritten=false,asaFilesWritten=false,
+                        originalKovaRequiredAfterPin=false,
+                        kovaFilesWritten=false,asaFilesWritten=false,
                         rconUsed=false,serverStarted=false,
                         sharedMarkersModified=false,
                         evidence="IMMUTABLE_SOURCE_PINNED_IN_OBSIDIAN_MANAGER_PROFILE"
@@ -343,7 +343,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 if(method=="historical.originalClusterPreview")
                 {
                     // Four source files are stable-handle read ONLY; no ASA,
-                    // SMB writer, original Legacy metadata or process mutation.
+                    // SMB writer, original Kova metadata or process mutation.
                     using var held=new VaultReadSnapshot();
                     var source=HistoricalClusterSource(held);
                     var registry=cluster.Registry.Snapshot();
@@ -388,7 +388,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     if(!GuidField(data,"token",out var token)||
                        !BoolField(data,"confirm",out var originalClusterApproved)||!originalClusterApproved||
                        !TextField(data,"typedApproval",60,out var approval)||
-                       !string.Equals(approval,"EREDETI LEGACY REGISZTER",StringComparison.Ordinal)||
+                       !string.Equals(approval,"EREDETI KOVA REGISZTER",StringComparison.Ordinal)||
                        pendingOriginalCluster==null||
                        pendingOriginalCluster.Token!=token)
                         return Fail(id,"UM-ORIGINAL-CLUSTER-APPROVAL-REQUIRED");
@@ -421,11 +421,11 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 if(method=="historical.operationJournalInventory")
                 {
                     // Only local, bounded, registered-vs-unattributed journal
-                    // metadata. No Legacy source/ASA/PID/RCON/INI modifications.
+                    // metadata. No Kova source/ASA/PID/RCON/INI modifications.
                     LegacyStoreV1OriginalMap[]? trustedOriginal=null;
                     try
                     {
-                        // Existing Legacy source reader verifies all original
+                        // Existing Kova source reader verifies all original
                         // five local IDs, launch roots and four immutable
                         // Store-v1 source hashes, without a writer.
                         trustedOriginal=LegacyStoreV1OriginalImport.Inspect(
@@ -435,7 +435,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         UnauthorizedAccessException or ArgumentException or
                         JsonException)
                     {
-                        // An absent original Legacy source is not proof that an
+                        // An absent original Kova source is not proof that an
                         // unmatched journal came from production or a test.
                         // Still return the local Manager inventory honestly.
                     }
@@ -524,7 +524,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     // Under those locks the Core calls back for a SECOND
                     // complete original source + real Windows PID/parent
                     // inspection. Only the Manager registry is updated in
-                    // a single ConfigStore CAS. All original Legacy/ASA and
+                    // a single ConfigStore CAS. All original Kova/ASA and
                     // two-host transfer bytes remain untouched.
                     LegacyStoreV1PinnedSource.Capture(PreferredSource(),
                         cluster.Store.Root,approved.FourFilesHash,approved.LaunchHash);
@@ -597,7 +597,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         mapNames=remaining.Select(m=>MapName(m.MapKey)).ToArray(),
                         sourceIdentityPreserved=true,originalFilesWritten=false,
                         processTouched=false,requiresExplicitApproval=true,
-                        evidence="ORIGINAL_LEGACY_ATOMIC_LOCAL_BATCH_PREVIEW"
+                        evidence="ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_PREVIEW"
                     });
                 }
                 if(method=="historical.originalBatchRegister")
@@ -669,7 +669,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         mapIds=additions.Select(m=>m.Id).ToArray(),
                         sourceIdentityPreserved=true,originalFilesWritten=false,
                         serverStarted=false,requiresOriginalRconAttach=true,
-                        evidence="ORIGINAL_LEGACY_ATOMIC_LOCAL_BATCH_REGISTERED"
+                        evidence="ORIGINAL_KOVA_ATOMIC_LOCAL_BATCH_REGISTERED"
                     });
                 }
 
@@ -688,7 +688,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                             passiveMods=m.PassiveMods.Length,
                             registered=cluster.Config.LocalMaps.Any(x=>x.Id==m.MapId)
                         }).ToArray(),
-                        evidence="ORIGINAL_LEGACY_FIVE_LOCAL_MAPS_READ_ONLY"
+                        evidence="ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY"
                     });
                 }
                 if(method=="historical.originalPreview")
@@ -733,7 +733,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         originalLaunchProfileVerified=true,
                         originalIdsPreserved=true,originalFilesWritten=false,
                         serverStarted=false,requiresOriginalRconAttach=true,
-                        evidence="ORIGINAL_LEGACY_DIRECT_IMPORT_PREVIEW"
+                        evidence="ORIGINAL_KOVA_DIRECT_IMPORT_PREVIEW"
                     });
                 }
                 if(method=="historical.originalRegister")
@@ -771,7 +771,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                        state.Identity!=null||state.LoaderIdentity!=null)
                         return Fail(id,"UM-HISTORICAL-STOP-REQUIRED");
                     // Register ONLY in Obsidian's own ConfigStore. No original
-                    // Legacy file, shared session, world or transfer byte changes.
+                    // Kova file, shared session, world or transfer byte changes.
                     LegacyStoreV1PinnedSource.Capture(PreferredSource(),
                         cluster.Store.Root,directApproval.FourFilesHash,
                         directApproval.LaunchProfileHash);
@@ -796,7 +796,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                         requiresOriginalRconAttach=true,
                         originalLaunchProfileVerified=true,
                         requiresExactModOrderVerification=false,
-                        evidence="ORIGINAL_LEGACY_DIRECT_LOCAL_MAP_REGISTERED"
+                        evidence="ORIGINAL_KOVA_DIRECT_LOCAL_MAP_REGISTERED"
                     });
                 }
 
@@ -831,7 +831,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                 if(method=="historical.liveGuard")
                 {
                     // Explicit user-initiated read-only verification of the
-                    // ORIGINAL Legacy local metadata and the configured UNC
+                    // ORIGINAL Kova local metadata and the configured UNC
                     // coordination directory. No path can be supplied by UI.
                     if(!GuidField(data,"mapId",out var liveMapId))
                         return Fail(id,"UM-HISTORICAL-LIVE-MAP-REQUIRED");
@@ -1096,7 +1096,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         {
             // Allow only bounded, known machine-readable reasons. Raw native
             // messages can contain local paths, private Store fields or secrets.
-            // A prior NeedsOperator lease is NOT a Legacy source failure.
+            // A prior NeedsOperator lease is NOT a Kova source failure.
             if(ex.Message=="UNTAMED_OPERATION_NEEDS_OPERATOR")
                 return Fail(id,"UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
             if(ex.Message=="UNTAMED_OPERATION_BUSY")
@@ -1250,7 +1250,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         var original=LegacyStoreV1OriginalImport.Inspect(PreferredSource());
         // Original five-map identity is mandatory, but a partly registered
         // Obsidian must be able to recover the OTHER maps without deleting
-        // previously imported Legacy profiles. Core validates any existing
+        // previously imported Kova profiles. Core validates any existing
         // owner against original GUID, root, map, exact mod order and ports.
         var observed=OriginalStoreLiveBatchEvidence.Classify(original,
             LocalRunningAsaDiscovery.ReadSamples());
@@ -1362,7 +1362,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         using var fs=new FileStream(archive,FileMode.Open,FileAccess.Read,FileShare.Read);
         using var zip=new ZipArchive(fs,ZipArchiveMode.Read);
         var entries=zip.Entries.Where(x=>x.FullName.Replace('\\','/')
-            .Equals("Legacy/launch-profiles-v1.json",StringComparison.OrdinalIgnoreCase)).ToArray();
+            .Equals("Kova/launch-profiles-v1.json",StringComparison.OrdinalIgnoreCase)).ToArray();
         if(entries.Length!=1||entries[0].Length is < 20 or > 500_000)
             throw new InvalidDataException("Historical launch entry missing or ambiguous");
         using var stream=entries[0].Open();

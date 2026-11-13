@@ -75,8 +75,8 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
         // The production host never supplies either isolated fixture hook.
         safeMap=isolatedPreflight??(map=>
             FreshAsaInstallationSafety.IsProvenFresh(cluster,map) &&
-            !map.Maintenance && !LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map) &&
-            !LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map) &&
+            !map.Maintenance && !KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) &&
+            !KovaCompatibleWorldBackup.InstallationRecoveryRequired(map) &&
             AsaReadyProbe.IsRegisteredServerBinary(map) &&
             map.RconHost=="127.0.0.1" && map.RconPort is >=1024 and <=65535 &&
             !string.IsNullOrWhiteSpace(map.RconPasswordProtected) &&
@@ -226,7 +226,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
            (frequency=="Interval"&&intervalMinutes is <15 or >10080))
             throw new InvalidDataException("UM-ASA-SCHEDULE-FIELDS");
         var map=Owned(mapId);
-        if(LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
+        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
            !safeMap(map))
             throw new UnauthorizedAccessException("UM-ASA-SCHEDULE-PREFLIGHT-DENIED");
@@ -326,7 +326,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                     jobs=Snapshot().Where(x=>x.MapId==mapId).Select(Data).ToArray(),
                     history=History(mapId).Select(HistoryData).ToArray(),
                     restartConflicts=RestartConflicts(mapId),
-                    protectedStore=LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(Owned(mapId)),
+                    protectedStore=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(Owned(mapId)),
                     autoUpdateAvailable=false,
                     remoteExecutionAllowed=false
                 }));
@@ -500,7 +500,7 @@ public sealed class DesktopScheduledAsaOperationsSupervisor : IDisposable
                         x.MapId==observed.MapId&&x.Kind==observed.Kind&&
                         x.Enabled&&x.Fingerprint==observed.Fingerprint&&
                         x.LastClaimedUtc==now&&x.LastStatus=="claimed-no-auto-retry"));
-                    if(stillApproved&&!LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map)&&
+                    if(stillApproved&&!KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)&&
                        string.IsNullOrWhiteSpace(map.StoreTestRoot)&&
                        safeMap(map)&&Fingerprint(map)==observed.Fingerprint)
                     {

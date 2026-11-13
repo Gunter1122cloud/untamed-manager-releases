@@ -101,7 +101,7 @@ public static class LocalRunningAsaDiscovery
 
     private static bool PossibleLoaderProfile(LocalMap map,string? path)
     {
-        // Original Legacy may have been launched through ASA API before Obsidian
+        // Original Kova may have been launched through ASA API before Obsidian
         // registered the StartWithAsaApi switch. Discovery must not hide that
         // loader, but it also must not turn the observation into authority.
         if(SamePath(map.ApiLoaderPath,path))return true;

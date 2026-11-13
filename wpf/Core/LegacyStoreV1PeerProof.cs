@@ -65,7 +65,7 @@ public sealed record LegacyStoreV1PeerProof(
 
     public static LegacyStoreV1PeerProof FromCurrentUserLegacyProfile()=>
         FromLocal(Path.Combine(Environment.GetFolderPath(
-            Environment.SpecialFolder.ApplicationData),OriginalStoreRuntimeIdentity.ProfileDirectoryName));
+            Environment.SpecialFolder.ApplicationData),"Kova"));
 }
 
 public sealed record LegacyStoreV1PairObservation(
@@ -79,7 +79,7 @@ public sealed record LegacyStoreV1PairObservation(
     public bool SamePhysicalTransferDirectory {get;init;}
     public bool BothHistoricalLocalSaveWitnessesFresh {get;init;}
     public bool BothHaveFiveRecentHistoricalLocalSaveReceipts {get;init;}
-    // Authenticated Manager host identity, NOT original Legacy device/session.
+    // Authenticated Manager host identity, NOT original Kova device/session.
     // Only populated if exactly one fresh N-host peer matches original
     // Store metadata. Multiple possible owners must fail closed.
     public string OriginalPeerHostId {get;init;}="";
@@ -96,7 +96,7 @@ public static class LegacyStoreV1PairComparison
     /// <summary>
     /// N-host LAN views cannot use RemoteSnapshot (the FIRST online host):
     /// after adding a third, unrelated Manager it may precede the original
-    /// Legacy second peer in configuration order. Choose one and only one
+    /// Kova second peer in configuration order. Choose one and only one
     /// authenticated/fresh Manager that matches the ORIGINAL five-map,
     /// shared-session, shared-path, distinct-device evidence instead.
     /// This is historical read-only metadata matching, never writer proof.

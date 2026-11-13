@@ -65,7 +65,7 @@ internal static class LocalRunningAsaDiscoveryTests
               .Single().MatchState=="unverified",
             "executable mismatch in a command line denies profile match");
         var importedButNotAdopted=new LocalMap{
-            Id=Guid.NewGuid(),Name="Legacy historical loader not adopted",
+            Id=Guid.NewGuid(),Name="Kova historical loader not adopted",
             HistoricalMapKey="TheIsland_WP",HistoricalStoreProtected=true,
             ExecutablePath=server,InstallationPath=original.InstallationPath,
             StartWithAsaApi=false,ApiLoaderPath=""
@@ -74,7 +74,7 @@ internal static class LocalRunningAsaDiscoveryTests
             new[]{sample[0]},new[]{importedButNotAdopted}).Single();
         Check(passive.MatchState=="profileCandidate"&&!passive.Controllable&&
               !passive.StoreWriteAuthorized,
-            "original Legacy API loader is discovered even before Manager API opt-in, without ownership");
+            "original Kova API loader is discovered even before Manager API opt-in, without ownership");
 
         var duplicate=new LocalMap{
             Id=Guid.NewGuid(),Name="Duplicate synthetic profile",

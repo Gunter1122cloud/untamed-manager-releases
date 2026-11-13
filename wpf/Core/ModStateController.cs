@@ -81,7 +81,7 @@ public static class ModStateController
     private static string EffectiveModArguments(LocalMap map)
     {
         if(!map.HistoricalStoreProtected)return map.Arguments??"";
-        // Imported original Legacy profiles keep raw launch arguments blank.
+        // Imported original Kova profiles keep raw launch arguments blank.
         // The native Start planner consumes these original lists instead.
         string[] enabled=CheckList(map.HistoricalEnabledMods??new());
         string[] passive=CheckList(map.HistoricalPassiveMods??new());
@@ -219,7 +219,7 @@ public static class ModStateController
     }
 
     // Compare the exact non-mod launch tokens (including -usestore,
-    // -clusterid and -ClusterDirOverride) before permitting a Legacy mod edit.
+    // -clusterid and -ClusterDirOverride) before permitting a Kova mod edit.
     // We ignore only whitespace created where mod switches were removed.
     private static string NonModArguments(string args)
     {
@@ -270,7 +270,7 @@ public static class ModStateController
                     if(string.IsNullOrWhiteSpace(map.HistoricalMapKey)||
                        string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
                        map.HistoricalArchiveSha256.Length!=64)
-                        throw new UnauthorizedAccessException("Original Legacy map identity missing");
+                        throw new UnauthorizedAccessException("Original Kova map identity missing");
                     new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
                     var folder=Path.GetFullPath(map.InstallationPath);
                     foreach(var sibling in cluster.Config.LocalMaps.Where(m=>
@@ -282,7 +282,7 @@ public static class ModStateController
                         if(generic.Running||generic.Identity!=null||
                            generic.LoaderIdentity!=null)
                             throw new InvalidOperationException(
-                                "Original Legacy mod edit cannot modify a running ASA/Loader process");
+                                "Original Kova mod edit cannot modify a running ASA/Loader process");
                         var state=sibling.HistoricalStoreProtected?
                             LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
                                 sibling,cluster.Config.LocalMaps):generic;
@@ -290,7 +290,7 @@ public static class ModStateController
                            state.Running||!state.ConfirmedStopped||
                            state.Identity!=null||state.LoaderIdentity!=null)
                             throw new InvalidOperationException(
-                                "Original Legacy mod edit requires all local ASA/Loader processes stopped");
+                                "Original Kova mod edit requires all local ASA/Loader processes stopped");
                     }
                 }
                 if(!originals.ContainsKey(map.Id))
@@ -315,10 +315,10 @@ public static class ModStateController
                 if(map.HistoricalStoreProtected&&
                    !string.Equals(NonModArguments(map.Arguments),
                        NonModArguments(preview.NewArguments),StringComparison.Ordinal))
-                    throw new InvalidDataException("Legacy Store-v1 launch flags changed outside mod switches");
+                    throw new InvalidDataException("Kova Store-v1 launch flags changed outside mod switches");
                 if(map.HistoricalStoreProtected)
                 {
-                    // Update the EXACT fields consumed by the real Legacy native
+                    // Update the EXACT fields consumed by the real Kova native
                     // Start planner. Never add -mods to raw Store args at rest.
                     map.HistoricalEnabledMods=preview.Updated.EnabledOrder.ToList();
                     map.HistoricalPassiveMods=preview.Updated.Passive.ToList();

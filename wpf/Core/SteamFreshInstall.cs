@@ -129,7 +129,7 @@ public static class SteamFreshInstall
     /// <summary>
     /// Recover a verified but not-yet-registered new ASA installation after
     /// the Windows Manager exited. This performs READS ONLY. It never runs
-    /// SteamCMD, creates a map, edits an INI or touches the old Legacy cluster.
+    /// SteamCMD, creates a map, edits an INI or touches the old Kova cluster.
     /// Registration must still be explicitly approved in the native bridge.
     /// A prepared/mutating journal is NOT a completed install.
     /// </summary>

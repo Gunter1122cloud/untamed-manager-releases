@@ -11,7 +11,7 @@ namespace UntamedManager.Core;
 /// <summary>
 /// Enrollment of an *unused* locally installed ASA SteamCMD map into a
 /// versioned Obsidian cluster. Never migrates an existing world and NEVER
-/// writes an original Legacy ACTIVE/DONE journal, session or transfer file.
+/// writes an original Kova ACTIVE/DONE journal, session or transfer file.
 /// Transfer metadata is taken only from the already approved ClusterRegistry.
 /// Multi-host transfer identity requires a separate peer-backed certificate
 /// and is deliberately not inferred from one machine's UNC path.
@@ -114,11 +114,11 @@ public static class FreshStoreEnrollmentPolicy
         if(string.IsNullOrWhiteSpace(clusterId))
             Deny("UM-FRESH-STORE-CLUSTER-NOT-SELECTED");
         string normalized=ClusterRegistrySchema.NormalizeClusterId(clusterId);
-        if(OriginalStoreRuntimeIdentity.IsOriginalClusterId(normalized))
-            Deny("UM-FRESH-STORE-LEGACY-CLUSTER-RESERVED");
+        if(normalized.Equals("kovacluster",StringComparison.OrdinalIgnoreCase))
+            Deny("UM-FRESH-STORE-KOVA-CLUSTER-RESERVED");
         var snapshot=cluster.Registry.Snapshot();
         // Imported historical Store clusters may have a source-pinned ID
-        // different from the conventional "\u004BovaCluster" label. A fresh
+        // different from the conventional "KovaCluster" label. A fresh
         // Store writer must never enroll through this generic new-cluster
         // path when ANY member is historical.
         if(snapshot.ClusterRegistry.MapAssignments.Any(a=>
@@ -155,7 +155,7 @@ public static class FreshStoreEnrollmentPolicy
         ArgumentNullException.ThrowIfNull(map);
         if(!cluster.Config.LocalMaps.Contains(map)||map.Id==Guid.Empty||
            map.HistoricalStoreProtected||IsEnrolled(map)||
-           LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
+           KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
            !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256)||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
            map.Maintenance||map.AutoStart||
@@ -165,7 +165,7 @@ public static class FreshStoreEnrollmentPolicy
             Deny("UM-FRESH-STORE-UNUSED-LOCAL-MAP-ONLY");
         if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
            !FreshAsaInstallationSafety.IsProvenFresh(cluster,map)||
-           LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             Deny("UM-FRESH-STORE-NEW-STEAM-INSTALL-REQUIRED");
         // The existing one-time local RCON setup must be completed BEFORE
         // enrollment. After enrollment, the fresh-only INI bootstrap route
@@ -261,7 +261,7 @@ public static class FreshStoreEnrollmentPolicy
             Deny("UM-FRESH-STORE-CONVERSION-OR-PROFILE-CHANGED");
         ValidateBaseArguments(map,args[..^suffix.Length]);
         if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
-           LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             Deny("UM-FRESH-STORE-LOCAL-EXE-OR-RECOVERY-INVALID");
         var root=Path.GetFullPath(map.InstallationPath);
         if(cluster.Config.LocalMaps.Any(x=>x.Id!=map.Id&&

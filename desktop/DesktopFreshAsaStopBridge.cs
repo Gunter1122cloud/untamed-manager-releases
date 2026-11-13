@@ -61,7 +61,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     private ProcessIdentity Require(LocalMap map)
     {
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
-        if((!newStore&&(LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
+        if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
            AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
            AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments)))||

@@ -31,8 +31,8 @@ public static class OfflineAsaOnlyReleaseTests
         string hp=Path.Combine(baseDir,"HP"),ryzen=Path.Combine(baseDir,"Ryzen");
         string transfer=Path.Combine(baseDir,"transfer-copy");
         Directory.CreateDirectory(hp);Directory.CreateDirectory(ryzen);
-        Directory.CreateDirectory(Path.Combine(transfer,".\u006Bova-store-v1"));
-        File.WriteAllText(Path.Combine(transfer,".\u006Bova-store-v1","operation.json"),
+        Directory.CreateDirectory(Path.Combine(transfer,".kova-store-v1"));
+        File.WriteAllText(Path.Combine(transfer,".kova-store-v1","operation.json"),
             "{\"schema\":1,\"source\":\"synthetic-test-only\"}");
         File.WriteAllBytes(Path.Combine(transfer,"zero-legacy.arkprofile"),
             Array.Empty<byte>());
@@ -78,7 +78,7 @@ public static class OfflineAsaOnlyReleaseTests
         try{OfflineAsaRestoreLab.VerifyLab(restore);}
         catch(InvalidDataException){refused=true;}
         Check(refused,"corrupted world after lab restore is detected");
-        string transferMeta=Path.Combine(package,"TRANSFER",".\u006Bova-store-v1","operation.json");
+        string transferMeta=Path.Combine(package,"TRANSFER",".kova-store-v1","operation.json");
         File.AppendAllText(transferMeta,"-CORRUPT");
         refused=false;
         try{OfflineAsaClusterArchive.Verify(package);}

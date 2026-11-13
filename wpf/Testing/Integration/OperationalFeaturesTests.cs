@@ -288,37 +288,37 @@ public static class OperationalFeaturesTests
             Directory.Exists(recent)&&File.Exists(Path.Combine(backupSrc,"save.txt")),
             "old verified backup moved to quarantine without deleting original or newest point");
 
-        string legacyExport=Path.Combine(root,"legacy-manager-copy.json");
-        string storeCopy=Path.Combine(root,"legacy-store-copy.json");
-        var legacySource=new{
+        string kovaExport=Path.Combine(root,"kova-manager-copy.json");
+        string storeCopy=Path.Combine(root,"kova-store-copy.json");
+        var kovaSource=new{
             version=1,profiles=new[]{new{
                 id="local-test",localManaged=true,installPath=install,
                 map="The Island",mapId="TheIsland_WP",gamePort=7777,queryPort=27015,
                 mods=new[]{new {id=928548,mode="active"},
                     new {id=930170,mode="passive"}}}}};
-        File.WriteAllText(legacyExport,JsonSerializer.Serialize(legacySource));
+        File.WriteAllText(kovaExport,JsonSerializer.Serialize(kovaSource));
         File.WriteAllText(storeCopy,JsonSerializer.Serialize(new{
             schema=1,maps=new Dictionary<string,object>{
                 ["local-test"]=new{phase="active",root=install,map="TheIsland_WP",
                     backupId="synthetic-backup",preparedAt="2026-10-20T00:00:00Z"}
             }}));
-        string originalLegacy=File.ReadAllText(legacyExport);
-        var importer=VaultProfileImporter.InspectCopy(legacyExport,storeCopy);
+        string originalKova=File.ReadAllText(kovaExport);
+        var importer=VaultProfileImporter.InspectCopy(kovaExport,storeCopy);
         var inert=VaultProfileImporter.BuildInertLocalDraft(importer,Guid.NewGuid().ToString("N"));
         Check(importer.Maps.Count==1 && importer.Maps[0].StorePhase=="active" &&
             !importer.StoreCompatible && inert.LocalMaps.Single().Maintenance &&
             !inert.LocalMaps.Single().AutoStart &&
             string.IsNullOrEmpty(inert.LocalMaps.Single().ExecutablePath),
             "Untamed Cluster Vault profile v1 + Store-v1 copy produces maintenance-only inert no-launch draft");
-        Check(File.ReadAllText(legacyExport)==originalLegacy &&
+        Check(File.ReadAllText(kovaExport)==originalKova &&
             inert.LocalMaps.Single().DisabledModIds.Count==2,
             "Untamed Cluster Vault copies remain unmodified and no executable or Store conversion is imported");
-        bool duplicateLegacy=false;
-        File.WriteAllText(legacyExport,JsonSerializer.Serialize(new{
-            version=1,profiles=new[]{legacySource.profiles[0],legacySource.profiles[0]}}));
-        try{VaultProfileImporter.InspectCopy(legacyExport);}
-        catch(InvalidDataException){duplicateLegacy=true;}
-        Check(duplicateLegacy,"Untamed Cluster Vault duplicate server roots and profile IDs blocked");
+        bool duplicateKova=false;
+        File.WriteAllText(kovaExport,JsonSerializer.Serialize(new{
+            version=1,profiles=new[]{kovaSource.profiles[0],kovaSource.profiles[0]}}));
+        try{VaultProfileImporter.InspectCopy(kovaExport);}
+        catch(InvalidDataException){duplicateKova=true;}
+        Check(duplicateKova,"Untamed Cluster Vault duplicate server roots and profile IDs blocked");
 
         var files=new CurseForgeFilesResult(928548,
             new[]{

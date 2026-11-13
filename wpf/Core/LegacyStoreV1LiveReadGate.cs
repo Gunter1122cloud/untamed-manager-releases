@@ -66,7 +66,7 @@ public static class LegacyStoreV1LiveReadGate
             throw new InvalidDataException("UM-STORE-LIVE-SHARE-UNSAFE");
         return s.TrimEnd('\\');
     }
-    // The original Legacy shared-store.mjs read() rejects a shared Store
+    // The original Kova shared-store.mjs read() rejects a shared Store
     // coordination JSON file unless stat.nlink==1. Merely checking the
     // ReparsePoint attribute misses ordinary NTFS hard links. This handle
     // check preserves that exact original source safety rule.
@@ -128,7 +128,7 @@ public static class LegacyStoreV1LiveReadGate
     }
 
     /// <summary>
-    /// Explicit operator-initiated probe against the existing ORIGINAL Legacy
+    /// Explicit operator-initiated probe against the existing ORIGINAL Kova
     /// local profile and its configured UNC root. No other remote URI or
     /// path can be supplied by WebView2. Never used by periodic dashboard.
     /// </summary>
@@ -175,7 +175,7 @@ public static class LegacyStoreV1LiveReadGate
            // a different active map list under the same source session.
            !StoreV1Fingerprint.Matches(cluster,Text(localLock,"configHash")))
             throw new InvalidDataException("UM-STORE-LIVE-LOCAL-LOCK-MISMATCH");
-        string share=Path.Combine(path,".\u006Bova-store-v1");
+        string share=Path.Combine(path,".kova-store-v1");
         if(!Directory.Exists(share)||
            (File.GetAttributes(share)&FileAttributes.ReparsePoint)!=0)
             throw new InvalidDataException("UM-STORE-LIVE-SHARED-DIRECTORY-INVALID");

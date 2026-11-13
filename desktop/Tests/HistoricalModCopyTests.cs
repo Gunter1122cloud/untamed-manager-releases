@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using UntamedDesktop;
 using UntamedManager.Core;
 
-// Real manager-profile mutations on isolated synthetic original Legacy maps.
+// Real manager-profile mutations on isolated synthetic original Kova maps.
 // Neither SteamCMD, RCON nor an ASA executable is ever started.
 internal static class HistoricalModCopyTests
 {
@@ -15,7 +15,7 @@ internal static class HistoricalModCopyTests
     {
         if(!ok)throw new InvalidOperationException(
             "HISTORICAL MOD COPY FAILED: "+label);
-        Console.WriteLine("PASS original Legacy multi-map mod sync: "+label);
+        Console.WriteLine("PASS original Kova multi-map mod sync: "+label);
     }
 
     private static async Task<JsonElement> Call(DesktopModCopyBridge bridge,
@@ -101,7 +101,7 @@ internal static class HistoricalModCopyTests
         Check(installed.Arguments==""&&installed.ApiLoaderArguments==""&&
               installed.HistoricalMapKey=="TheCenter_WP"&&
               installed.HistoricalArchiveSha256==new string('D',64),
-            "no raw Legacy Store launch flags or identity modified by mod copy");
+            "no raw Kova Store launch flags or identity modified by mod copy");
         var replay=await Call(bridge,"mods.copyApply",new{token,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
             "approved copy token cannot be replayed");

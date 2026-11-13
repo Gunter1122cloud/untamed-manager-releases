@@ -19,7 +19,7 @@ namespace UntamedDesktop;
 public sealed class DesktopHistoricalActiveStartBridge : IDisposable
 {
     // Only literal native safety codes are returned to WebView. Never forward
-    // exception details, paths, credentials or original Legacy source records.
+    // exception details, paths, credentials or original Kova source records.
     private static readonly HashSet<string> SafeStartErrors = new(StringComparer.Ordinal)
     {
         "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED",
@@ -111,7 +111,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
     private bool PhysicalModePreflight(LocalMap map,bool useApi)
     {
         if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
-           LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
+           KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
             return false;
         new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
         var existing=cluster.Operations.Observe(map.InstallationPath);

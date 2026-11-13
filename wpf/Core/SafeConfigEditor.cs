@@ -25,7 +25,7 @@ public sealed record ConfigSnapshot(string Path,ConfigKind Kind,string Sha256,st
 public sealed record ConfigPreview(string File,string OldSha256,string NewSha256,
     int OldLines,int NewLines,bool Changed,bool Valid,string Description);
 
-// Deliberately a local stopped/test-profile editor. No Legacy Store, UNC,
+// Deliberately a local stopped/test-profile editor. No Kova Store, UNC,
 // junction, symlink or remote profile may enter the replacement path.
 public static class SafeConfigEditor
 {
@@ -239,7 +239,7 @@ public static class SafeConfigEditor
            new DriveInfo(Path.GetPathRoot(r)!).DriveType!=DriveType.Fixed)
             throw new UnauthorizedAccessException("Config must be inside registered local map root");
         if(p.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase) ||
-           p.Contains(OriginalStoreRuntimeIdentity.CoordinationDirectoryName[..^3],StringComparison.OrdinalIgnoreCase) ||
+           p.Contains(".kova-store",StringComparison.OrdinalIgnoreCase) ||
            p.Contains("ClusterRoot",StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("Untamed Cluster Vault metadata/config modification prohibited");
         for(var d=new DirectoryInfo(Path.GetDirectoryName(p)!);d!=null;d=d.Parent)

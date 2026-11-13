@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using UntamedManager.Core;
 
 // Native Windows regression for the additional MANAGER-LOCAL SaveComplete
-// witness. No real ASA executable/RCON, Legacy original directory, or Store
+// witness. No real ASA executable/RCON, Kova original directory, or Store
 // writer is accessed. Snapshot/restore/backup engines are unchanged.
 internal static class LegacyStoreSaveEvidenceTests
 {
@@ -34,7 +34,7 @@ internal static class LegacyStoreSaveEvidenceTests
         var started=DateTimeOffset.UtcNow.AddMinutes(-4);
         const string sourceSha="AABBCCDDEEFF00112233445566778899"+
             "00112233445566778899AABBCCDDEEFF";
-        string immutableOriginal=Path.Combine(root,"Legacy-shaped-unchanged-original.bin");
+        string immutableOriginal=Path.Combine(root,"Kova-shaped-unchanged-original.bin");
         byte[] original=SHA256.HashData(Guid.NewGuid().ToByteArray());
         File.WriteAllBytes(immutableOriginal,original);
 
@@ -113,9 +113,9 @@ internal static class LegacyStoreSaveEvidenceTests
                   Guid.NewGuid(),id,pid,started,sourceSha)),
             "interrupted SaveWorld stays NeedsOperator across Manager restart; no automatic retry");
         Check(File.ReadAllBytes(immutableOriginal).SequenceEqual(original),
-            "local receipt lifecycle leaves original Legacy-shaped bytes unchanged");
+            "local receipt lifecycle leaves original Kova-shaped bytes unchanged");
 
-        // Real Windows local coordinator + receipt review. No Legacy share or
+        // Real Windows local coordinator + receipt review. No Kova share or
         // real server process is involved. A crashed Backup journal and its
         // uncertain SaveWorld receipt must BOTH be explicitly reviewed.
         string installation=Path.Combine(root,"synthetic-installation");
@@ -166,7 +166,7 @@ internal static class LegacyStoreSaveEvidenceTests
               File.ReadAllBytes(receiptArchive).SequenceEqual(previousReceipt),
             "a NEW separately approved SaveWorld may begin without erasing old uncertain evidence");
         Check(File.ReadAllBytes(immutableOriginal).SequenceEqual(original),
-            "operator journal recovery never touches original Legacy-shaped bytes");
+            "operator journal recovery never touches original Kova-shaped bytes");
         return Task.CompletedTask;
     }
 }

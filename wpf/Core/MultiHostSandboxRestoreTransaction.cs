@@ -101,7 +101,7 @@ public static class MultiHostSandboxRestoreTransaction
     // also removes this adjacent lock file: no permanent stale ownership or
     // manual lock-file deletion after a crash. A distinct Manager process
     // cannot enter the same TEMP replacement/rollback transaction concurrently.
-    // This lease NEVER grants live ASA/Store access or ownership of a Legacy lock.
+    // This lease NEVER grants live ASA/Store access or ownership of a Kova lock.
     private static FileStream AcquireMutationLease(string target)
     {
         string path = MutationLeasePath(target);

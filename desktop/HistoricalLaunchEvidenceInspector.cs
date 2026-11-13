@@ -54,7 +54,7 @@ public static class HistoricalLaunchEvidenceInspector
         var cluster=Values(source,"clusterid");
         // Verified Untamed Kingdom Store-v1 internal identity. Never rename this
         // to the product/display name while retaining historical data.
-        const string historicalClusterId="\u004BovaCluster";
+        const string historicalClusterId="KovaCluster";
         string clusterStatus=cluster.Length==0?"UNKNOWN":
             cluster.Length!=1?"CONFLICT":
             string.Equals(cluster[0],historicalClusterId,StringComparison.Ordinal)?"MATCH":"MISMATCH";

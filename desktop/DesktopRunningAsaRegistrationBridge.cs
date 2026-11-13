@@ -85,7 +85,7 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
         var facts=LocalAsaLaunchFacts.Parse(server.CommandLine,server.ExecutablePath);
         if(!facts.ArgumentsValidated)
             throw new InvalidDataException("UM-LIVE-ARGUMENTS-UNVERIFIED");
-        // This path cannot bypass original Legacy Store identity/session proofs.
+        // This path cannot bypass original Kova Store identity/session proofs.
         // A duplicate -usestore can make a cardinality-based telemetry flag
         // false. Reject ANY sensitive switch spelling before profile writes.
         var sanitizedArgs=LocalRunningAsaDiscovery.CommandArguments(

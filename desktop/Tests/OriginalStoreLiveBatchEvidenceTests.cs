@@ -6,9 +6,9 @@ using UntamedDesktop;
 using UntamedManager.Core;
 
 /// <summary>
-/// Exact original Legacy five-map running import regression in isolated TEMP.
+/// Exact original Kova five-map running import regression in isolated TEMP.
 /// Pure WMI sample classification; no real ASA, UNC, RCON, Store writer, or
-/// Legacy source is accessed. The production bridge separately re-reads real
+/// Kova source is accessed. The production bridge separately re-reads real
 /// Windows WMI and BOTH original shared DONE peers before registration.
 /// </summary>
 internal static class OriginalStoreLiveBatchEvidenceTests
@@ -107,10 +107,10 @@ internal static class OriginalStoreLiveBatchEvidenceTests
                 StartedUtc=x.StartedUtc!.Value.AddSeconds(8)}:x).ToArray());
         Check(replay.ProcessSha256!=good.ProcessSha256,
             "PID creation-time change invalidates native approval fingerprint");
-        // Simulate the UK-HOME-02 topology: all five Legacy maps are ACTIVE,
+        // Simulate the UK-HOME-02 topology: all five Kova maps are ACTIVE,
         // every child is a real ASA process started by its exact full-argument
         // ASA API Loader, but the child itself has only benign WMI flags.
-        // No real Legacy/ASA process, share, writer or RCON is touched.
+        // No real Kova/ASA process, share, writer or RCON is touched.
         var apiOnly=new List<LocalRunningAsaDiscovery.Sample>();
         for(int i=0;i<maps.Count;i++)
         {
