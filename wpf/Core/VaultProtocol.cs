@@ -4,9 +4,9 @@ namespace UntamedManager.Core;
 // byte-identical. Origin/licensing history is recorded in docs/internal/.
 internal static class VaultProtocol
 {
-    public const string ClusterId="\u004BovaCluster";
-    public const string ArchiveCoordinationPrefix="SHARED/.legacy-store-v1/";
-    public const string HistoricalManagerPrefix="Legacy/";
-    public const string HistoricalLocalPrefix="Ryzen-Legacy/";
-    public const string ProtectedNameToken="\u004Bova";
+    public const string ClusterId=OriginalStoreRuntimeIdentity.ClusterId;
+    public const string ArchiveCoordinationPrefix="SHARED/"+OriginalStoreRuntimeIdentity.CoordinationDirectoryName+"/";
+    public const string HistoricalManagerPrefix=OriginalStoreRuntimeIdentity.ProfileDirectoryName+"/";
+    public const string HistoricalLocalPrefix="Ryzen-"+OriginalStoreRuntimeIdentity.ProfileDirectoryName+"/";
+    public const string ProtectedNameToken=OriginalStoreRuntimeIdentity.ProfileDirectoryName;
 }

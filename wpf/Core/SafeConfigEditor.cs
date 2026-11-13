@@ -239,7 +239,7 @@ public static class SafeConfigEditor
            new DriveInfo(Path.GetPathRoot(r)!).DriveType!=DriveType.Fixed)
             throw new UnauthorizedAccessException("Config must be inside registered local map root");
         if(p.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase) ||
-           p.Contains(".legacy-store",StringComparison.OrdinalIgnoreCase) ||
+           p.Contains(OriginalStoreRuntimeIdentity.CoordinationDirectoryName[..^3],StringComparison.OrdinalIgnoreCase) ||
            p.Contains("ClusterRoot",StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("Untamed Cluster Vault metadata/config modification prohibited");
         for(var d=new DirectoryInfo(Path.GetDirectoryName(p)!);d!=null;d=d.Parent)
