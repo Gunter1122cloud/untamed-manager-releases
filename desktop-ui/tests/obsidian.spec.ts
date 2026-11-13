@@ -65,7 +65,25 @@ test.beforeEach(async ({ page }) => {
       };
     let lifecycleStopHeld=false;
     let lifecycleStopIssued=false;
+    let lifecycleStopApplies=0;
     let lifecycleRestartIssued=false;
+    let lifecycleRestartHeld=false;
+    let lifecycleRestartApplies=0;
+    (window as typeof window & {
+      __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number;
+      __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number;
+      __UNTAMED_HOLD_LOCAL_RESTART__?:()=>void;
+      __UNTAMED_RELEASE_LOCAL_RESTART__?:()=>void;
+    }).__UNTAMED_LOCAL_STOP_APPLIES__=()=>lifecycleStopApplies;
+    (window as typeof window & {
+      __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number;
+    }).__UNTAMED_LOCAL_RESTART_APPLIES__=()=>lifecycleRestartApplies;
+    (window as typeof window & {
+      __UNTAMED_HOLD_LOCAL_RESTART__?:()=>void;
+    }).__UNTAMED_HOLD_LOCAL_RESTART__=()=>{lifecycleRestartHeld=true;};
+    (window as typeof window & {
+      __UNTAMED_RELEASE_LOCAL_RESTART__?:()=>void;
+    }).__UNTAMED_RELEASE_LOCAL_RESTART__=()=>{lifecycleRestartHeld=false;};
     (window as typeof window & {__UNTAMED_HOLD_LOCAL_STOP__?:()=>void;
       __UNTAMED_RELEASE_LOCAL_STOP__?:()=>void;}).__UNTAMED_HOLD_LOCAL_STOP__=()=>{lifecycleStopHeld=true;};
     (window as typeof window & {__UNTAMED_RELEASE_LOCAL_STOP__?:()=>void;})
@@ -2600,8 +2618,9 @@ test.beforeEach(async ({ page }) => {
         case "servers.restartCurrent": return {
           inMemoryJobId:lifecycleRestartIssued?
             "00000000-0000-4000-8000-000000009777":null,
-          inMemoryJobState:lifecycleRestartIssued?"completed":null,
-          inMemoryRunning:false,
+          inMemoryJobState:lifecycleRestartIssued?
+            (lifecycleRestartHeld?"running":"completed"):null,
+          inMemoryRunning:lifecycleRestartIssued&&lifecycleRestartHeld,
           exists:restartInterrupted,belongsToMap:true,
           phase:restartInterrupted?"NeedsOperator":null,
           oldPid:restartInterrupted?(storeLaunchRecoveryFixture?123456:44117):null,
@@ -2643,12 +2662,13 @@ test.beforeEach(async ({ page }) => {
         case "servers.restartApply":
           if(!m.confirm)throw new Error("Approval required");
           lifecycleRestartIssued=true;
+          lifecycleRestartApplies++;
           return {jobId:"00000000-0000-4000-8000-000000009777",
             started:true,autoRetry:false,killPerformed:false,
             storeTouched:false,evidence:"REAL_LOCAL_ASA_RESTART_JOB_QUEUED"};
         case "servers.restartStatus": return {
           jobId:"00000000-0000-4000-8000-000000009777",
-          state:"completed",stage:"New Windows process started; readiness unverified",
+          state:lifecycleRestartHeld?"running":"completed",stage:"New Windows process started; readiness unverified",
           oldPid:44117,newPid:44118,changedUtc:"2026-11-06T11:30:00Z",
           saveCompleteProven:false,readinessCertified:false,
           killPerformed:false,storeTouched:false,autoRetry:false
@@ -2683,6 +2703,7 @@ test.beforeEach(async ({ page }) => {
         case "servers.gracefulStopApply":
           if(!m.confirm)throw new Error("Approval required");
           lifecycleStopIssued=true;
+          lifecycleStopApplies++;
           return {jobId:"00000000-0000-4000-8000-000000009555",
             started:true,killPerformed:false,autoRestart:false,
             evidence:"REAL_LOCAL_GRACEFUL_STOP_JOB_QUEUED"};
@@ -6690,6 +6711,68 @@ test("ASA normal Stop requires approval and never force-kills or claims SaveComp
   await expect(page.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"})).toBeVisible({timeout:12000});
   await expect(page.locator(".success-inline").filter({hasText:"SaveWorld/DoExit lemezmentése nincs igazolva"})).toBeVisible();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
+});
+
+test("fresh Stop reattaches the exact in-memory job after map navigation without redispatch",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_LOCAL_STOP__?:()=>void
+  }).__UNTAMED_HOLD_LOCAL_STOP__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
+  await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
+  await expect(panel).toContainText("Leállítás: running");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const resumed=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  await expect(resumed).toContainText("Leállítás: running");
+  await expect(resumed.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
+  const before=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number
+  }).__UNTAMED_LOCAL_STOP_APPLIES__?.());
+  expect(before).toBe(1);
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_LOCAL_STOP__?:()=>void
+  }).__UNTAMED_RELEASE_LOCAL_STOP__?.());
+  await expect(resumed).toContainText("SaveWorld/DoExit lemezmentése nincs igazolva",{timeout:15000});
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number
+  }).__UNTAMED_LOCAL_STOP_APPLIES__?.())).toBe(1);
+});
+
+test("fresh Restart reattaches a running native job without restarting it twice",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_LOCAL_RESTART__?:()=>void
+  }).__UNTAMED_HOLD_LOCAL_RESTART__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
+  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
+  await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
+  await expect(panel).toContainText("Újraindítás: running");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const resumed=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
+  await expect(resumed).toContainText("Újraindítás: running");
+  await expect(resumed.getByRole("button",{name:"Újraindítás előellenőrzése"})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_LOCAL_RESTART__?:()=>void
+  }).__UNTAMED_RELEASE_LOCAL_RESTART__?.());
+  await expect(resumed).toContainText("44117 → 44118",{timeout:15000});
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"}))
+    .toContainText("44117 → 44118");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number
+  }).__UNTAMED_LOCAL_RESTART_APPLIES__?.())).toBe(1);
 });
 
 test("interrupted lifecycle journal disables fresh ASA Start and Stop in map Overview",async({page})=>{
