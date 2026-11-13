@@ -2393,7 +2393,7 @@ test.beforeEach(async ({ page }) => {
           return {mapId:one,file:"Game.ini",created:true,bytes:38,
             originalStoreTouched:false,
             evidence:"FRESH_GAME_INI_DURABLE_CREATE_NEW_VERIFIED"};
-        case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
+        case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:iniConcurrentRebased?"CCDD22":"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
         case "ini.rebasePreview": {
           if(new URLSearchParams(window.location.search).get("fixture")!=="iniConcurrent")
             throw new Error("UM-METHOD-DENIED");
