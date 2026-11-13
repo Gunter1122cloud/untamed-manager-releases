@@ -142,7 +142,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         const receipt=selected.action==="start"
           ?"ASA-indítás elküldve. A folyamat és az RCON készenléte külön ellenőrizendő."
           :("confirmedStopped" in started&&started.confirmedStopped)
-            ?"A kiválasztott helyi ASA PID megszűnt. A Kill nem mentette a világot."
+            ?"Kizárólag a bizonyított helyi ASA PID megszűnt. A Kill nem mentette a világot."
             :"A Kill után a folyamat megszűnése nem igazolt; ne ismételd meg vakon.";
         lastReceipts.set(selected.mapId,receipt);
         if(belongs(selected.mapId)){
