@@ -310,6 +310,24 @@ internal static class FreshStoreEnrollmentTests
             }
             var enrolled=manager.Config.LocalMaps.Single(x=>x.Id==mapId);
             FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
+            // The exact installed Store profile can use natural ASA
+            // SessionName text containing "ConvertToStore". Only actual
+            // startup flags may cause a native conversion denial.
+            string enrolledArgs=enrolled.Arguments;
+            try
+            {
+                enrolled.Arguments=enrolledArgs.Replace("Synthetic Store Map",
+                    "ConvertToStore Celebration",StringComparison.Ordinal);
+                FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
+                Check(AsaStoreArgumentSwitches.ContainsStoreWriter(enrolled.Arguments) &&
+                      !AsaStoreArgumentSwitches.ContainsConversion(enrolled.Arguments),
+                    "ordinary ConvertToStore server title does not lock an approved fresh Store writer");
+                enrolled.Arguments=enrolledArgs.Replace(" -usestore",
+                    " -converttostore -usestore",StringComparison.Ordinal);
+                Reject(()=>FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled),
+                    "actual Store conversion switch remains forbidden for an already enrolled local writer");
+            }
+            finally { enrolled.Arguments=enrolledArgs; }
             Check(enrolled.FreshStoreClusterId=="new-local-cluster"&&
                   enrolled.Arguments.EndsWith(" -usestore",StringComparison.Ordinal)&&
                   enrolled.HistoricalArchiveSha256==""&&

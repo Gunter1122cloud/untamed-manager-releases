@@ -6620,7 +6620,11 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toHaveCount(0);
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
+  // A journal for the FIRST installation must never leave a DIFFERENT
+  // independent local map disabled after native audit. Actual Start still
+  // has its separate OS/INI/Store preflight on click.
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeEnabled();
 });
 
 test("CurseForge cart survives searches and uses native draft preview before a single save",async({page})=>{

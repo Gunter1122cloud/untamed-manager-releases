@@ -257,8 +257,7 @@ public static class FreshStoreEnrollmentPolicy
             " -ClusterDirOverride="+argPath+" -usestore";
         string args=map.Arguments;
         if(!args.EndsWith(suffix,StringComparison.Ordinal)||
-           args.Contains("converttostore",StringComparison.OrdinalIgnoreCase)||
-           args.Contains("convertfromstore",StringComparison.OrdinalIgnoreCase))
+           AsaStoreArgumentSwitches.ContainsConversion(args))
             Deny("UM-FRESH-STORE-CONVERSION-OR-PROFILE-CHANGED");
         ValidateBaseArguments(map,args[..^suffix.Length]);
         if(!AsaReadyProbe.IsRegisteredServerBinary(map)||
