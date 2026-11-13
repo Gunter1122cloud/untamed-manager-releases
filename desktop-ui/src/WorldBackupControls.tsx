@@ -294,7 +294,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     }catch(e){
       setOriginalFiveError("Az eredeti ötmapos mentés nem készíthető elő. "+
         "Mind az öt importált mapnak igazoltan leállítva kell lennie, "+
-        "változatlan korábbi Manager metaadatokkal és érvényes világfájlokkal. "+
+        "változatlan korábbi kezelőalkalmazás metaadatokkal és érvényes világfájlokkal. "+
         (e instanceof Error?e.message:""));
     }finally{setOriginalFiveBusy(false);}
   };
@@ -401,7 +401,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
                 <p>{originalFiveJob.points.map(p=>p.mapName).join(", ")}</p>}
               {originalFiveJob.state==="needsOperator"&&
                 <p role="alert">A már sikeres mapmentések megmaradtak a helyi előzményekben.
-                  A korábbi Manager Store/session/transfer fájlok változatlanok.
+                  A korábbi kezelőalkalmazás Store/session/transfer fájlok változatlanok.
                   Ellenőrizd a mapok leállított állapotát és a mentési előzményeket.</p>}
               {originalFiveJob.step==="journal-integrity-repair-required"&&
                 <button type="button" className="secondary" disabled={repairBusy}
@@ -413,7 +413,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             aria-label="Sérült mentési napló jóváhagyása"
             className="uk-world-backup-confirm">
               <p><b>Csak a Manager saját sérült műveleti naplójának
-                elkülönítése.</b> Az eredeti ASA/korábbi Manager világ, karakter, session,
+                elkülönítése.</b> Az eredeti ASA/korábbi kezelőalkalmazás világ, karakter, session,
                 lock és transfer változatlan marad. Eltérő korábbi mentési
                 pontok nem kerülnek törlésre.</p>
               <label>Jóváhagyás szövege: REVIEW FIVE BACKUPS

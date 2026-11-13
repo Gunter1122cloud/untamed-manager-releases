@@ -6,7 +6,7 @@ import {managerBridge,type HistoricalActiveStartPreview,
 /**
  * Starts a preserved historical Store-v1 ASA map with native source,
  * INI/port/process checks and explicit typed approval. A pinned Obsidian
- * source does not depend on another host's obsolete korábbi Manager ACTIVE/DONE marker.
+ * source does not depend on another host's obsolete korábbi kezelőalkalmazás ACTIVE/DONE marker.
  * No WebView-supplied launch arguments or original paths.
  */
 export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
@@ -144,7 +144,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         "UM-STORE-PIN-OWNER-CHANGED":"A map tulajdonosa vagy forrásazonossága eltér az átvett Store-v1 profiltól. Indítás letiltva.",
         "UM-STORE-PIN-MAP-ROOT-CHANGED":"Az eredeti map telepítési gyökere eltér a megőrzött forrástól. Ellenőrizd a jóváhagyott helyi profilt.",
         "UM-STORE-PIN-CLUSTER-METADATA":"Az eredeti runtime clusterazonosító vagy átviteli útvonal nem olvasható a megőrzött forrásból.",
-        "UM-STORE-PIN-NOT-YET-APPROVED":"Az eredeti eredeti forrás még nem került jóváhagyottan az Obsidian saját profiljába; előbb az átvételt kell véglegesíteni."
+        "UM-STORE-PIN-NOT-YET-APPROVED":"Az eredeti forrás még nem került jóváhagyottan az Obsidian saját profiljába; előbb az átvételt kell véglegesíteni."
       };
       setError(errors[code]??"A Store-v1 map indítási előellenőrzése nem sikerült. Ellenőrizd a helyi naplót és folyamatállapotot; ASA nem indult.");
     }finally{if(belongs(requested,generation))setBusy(false);}
@@ -205,7 +205,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         indítja. A natív Windows réteg minden indítás előtt ellenőrzi a map
         azonosságát, az ASA/RCON INI-t, a portokat és a leállított folyamatot.
         Az Obsidianba jóváhagyottan átvett map helyi indítása nem igényli a másik
-        host régi korábbi Manager ACTIVE/DONE-jelölőjét; a tényleges clusterutazás külön bizonyítandó.</p>
+        host korábbi kezelőalkalmazás ACTIVE/DONE-jelölőjét; a tényleges clusterutazás külön bizonyítandó.</p>
       <div className="details-line"><span>Kiválasztott indítás</span>
         <b>{state?.launchModeApprovalRequired?
           "Még nem jóváhagyott · indítás tiltva":

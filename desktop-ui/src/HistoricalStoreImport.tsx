@@ -240,7 +240,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       await managerBridge.historicalRuntimeSettingsApply(token,"OBSIDIAN MAP KONFIG");
       if(epoch!==runtimeEpoch.current)return;
       setRuntimeNotice("A portok és a clusterbeállítások az Obsidian profiljába mentve. "+
-        "Sem ASA-indítás, sem RCON, sem korábbi Manager-fájlmódosítás nem történt. "+
+        "Sem ASA-indítás, sem RCON, sem korábbi kezelőalkalmazás-fájlmódosítás nem történt. "+
         "A tényleges kétgépes utazási útvonal ellenőrzése külön feladat.");
       try{await onImported();}catch{
         setRuntimeError("A konfiguráció mentése sikerült, de a szerverlista frissítése nem.");
@@ -271,7 +271,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       setDirectQueryPort(first?String(first.queryPort):"");
     }catch(e){
       if(epoch===directEpoch.current)setDirectError(
-        "Az eredeti korábbi Manager helyi ACTIVE/DONE profil nem ellenőrizhető ("+
+        "Az eredeti korábbi kezelőalkalmazás helyi ACTIVE/DONE profil nem ellenőrizhető ("+
         (e instanceof Error?e.message:"hibás vagy hiányzó helyi Store-metaadat")+").");
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
@@ -319,7 +319,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }catch(e){
       if(epoch===directEpoch.current)setDirectError(
         "A közvetlen eredeti import nem fejeződött be ("+
-        (e instanceof Error?e.message:"natív ellenőrzés")+"). Az eredeti korábbi Manager fájlok változatlanok.");
+        (e instanceof Error?e.message:"natív ellenőrzés")+"). Az eredeti korábbi kezelőalkalmazás fájlok változatlanok.");
     }finally{if(epoch===directEpoch.current)setDirectBusy(false);}
   };
 
@@ -348,7 +348,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
       const receipt=await managerBridge.historicalOriginalBatchRegister(token);
       if(epoch!==directEpoch.current)return;
       setDirectNotice(receipt.importedMaps+
-        " eredeti map atomikusan felvéve. A korábbi korábbi Manager-adatok érintetlenek. "+
+        " eredeti map atomikusan felvéve. A korábbi kezelőalkalmazás-adatok érintetlenek. "+
         "A leállított import után még nincs ASA API mód igazolva: "+
         "csatlakoztasd a meglévő RCON-t, és ASA API-s maponként válaszd ki "+
         "az 'ASA API Loader mód választása' opciót az első Start előtt. "+
@@ -403,7 +403,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           code==="UM-METHOD-DENIED"?
           "A telepített Obsidian natív WebView2-dispatchere elutasította a "+
           "historical.originalLiveBatchPreview hívást (UM-METHOD-DENIED). "+
-          "Ez alkalmazásverzió-/útvonalhiba, NEM korábbi Manager ACTIVE/DONE-, PID-, "+
+          "Ez alkalmazásverzió-/útvonalhiba, NEM korábbi kezelőalkalmazás ACTIVE/DONE-, PID-, "+
           "mod- vagy porthiba. A futó szervereket ne állítsd le; "+
           "telepíts azonos kiadásból származó React + Windows host frissítést.":
           "A futó eredeti Store-v1 szerverek natív ACTIVE/DONE, WMI/PID, "+
@@ -545,7 +545,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
     }catch(e){
       if(epoch===parityEpoch.current)setParityError(
         e instanceof Error&&e.message==="UM-STORE-PARITY-LOCAL-MISSING"?
-          "A korábbi Manager helyi Store-mappája nem található ezen a gépen.":
+          "A korábbi kezelőalkalmazás helyi Store-mappája nem található ezen a gépen.":
           "A négy fájl egyezősége nem ellenőrizhető. Az eredeti fájlok változatlanok maradtak.");
     }finally{if(epoch===parityEpoch.current)setParityBusy(false);}
   };
@@ -594,7 +594,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         <p className="muted small">
           Már regisztrált korábbi mapoknál az eredeti öt helyi konfigurációfájl és az
           indítási beállítások külön jóváhagyással az Obsidian saját profiljába másolhatók.
-          A meglévő korábbi Manager-, ASA- és transferfájlokat a művelet nem módosítja.
+          A meglévő korábbi kezelőalkalmazás-, ASA- és transferfájlokat a művelet nem módosítja.
           Az ACTIVE/DONE eredeti Store-migrációs jelölők nem szükségesek a későbbi helyi
           indításhoz; kétgépes utazás csak az ASA elérhető transferkönyvtárával működhet.
         </p>
@@ -632,7 +632,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           további Game/Query portok és transferbeállítások az Obsidian profiljába
           kerülnek. A mapnak és az azonos telepítési mappát használó
           szervereknek leállított állapotban kell lenniük.
-          A régi korábbi Manager ACTIVE/DONE jelölők nem szükségesek ehhez a helyi módosításhoz.
+          A korábbi kezelőalkalmazás ACTIVE/DONE jelölők nem szükségesek ehhez a helyi módosításhoz.
         </p>
         <div className="settings-actions">
           <button type="button" className="secondary" disabled={directBusy||runtimeBusy}
@@ -722,9 +722,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             {" "}{journalInventory.registeredRecords} regisztrált maphoz köthető ·
             {" "}{journalInventory.unattributedResources} nem azonosított erőforrás</h4>
           <p><b>{journalInventory.historicalSourceRecords}</b> naplóhoz
-            {" "}azonos eredeti eredeti telepítési forráskulcs tartozik
+            {" "}azonos eredeti telepítési forráskulcs tartozik
             {journalInventory.historicalSourceReadable?" (a helyi eredeti forrás ellenőrizve).":
-              " (az eredeti eredeti forrás jelenleg nem ellenőrizhető)."}
+              " (az eredeti forrás jelenleg nem ellenőrizhető)."}
             Ez nem futófolyamat- vagy karakterutazási bizonyíték.</p>
           <p><b>{journalInventory.unattributedPendingResources}</b> olyan
             ismeretlen erőforrás, amelynek naplója felülvizsgálatot igényel.</p>
@@ -742,7 +742,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <Shield size={15}/>
               <span>{e.registered?(e.registeredMapNames??"Regisztrált map"):
                 e.historicalSourceMatched?
-                  "Eredeti eredeti forrás: "+(e.historicalMapKey??"ismeretlen map"):
+                  "Eredeti forrás: "+(e.historicalMapKey??"ismeretlen map"):
                   "Nem azonosított kulcs"}
                 {" · "}{e.journal} · {e.kind} / {e.phase}
                 {" · "}{e.resourceFingerprint}
@@ -756,9 +756,9 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           a mapazonosítókat és a telepítési mappákat. Nem kell hozzá ZIP vagy kézi mappaútvonal.
           Az eredeti launch-profiles-v1.json fájlból veszi át a Game/Query portokat,
           az aktív és passzív modok pontos sorrendjét. Ha ez a fájl hiányzik,
-          a korábbi Manager ZIP alapú importálása használható.
+          a korábbi kezelőalkalmazás ZIP alapú importálása használható.
           A leállított mapokra a szokásos kötegelt import használható.
-          A leállított map indítási módja a korábbi Manager metaadatából önmagában nem
+          A leállított map indítási módja a korábbi kezelőalkalmazás metaadatából önmagában nem
           bizonyítható, ezért import után az eredeti RCON csatlakoztatásával,
           majd maponként az „ASA API Loader mód választása” jóváhagyással
           kell beállítani a Loaderes indítást a legelső Start előtt.
@@ -769,7 +769,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         <button type="button" className="secondary"
           disabled={directBusy||registering} onClick={()=>{void loadOriginalMaps();}}>
           <Archive size={16}/>{directBusy?"Eredeti mapok ellenőrzése...":
-            "Öt eredeti eredeti map felismerése"}
+            "Öt eredeti map felismerése"}
         </button>
         {directList&&directList.maps.some(m=>!m.registered)&&
           <div className="settings-actions">
@@ -813,11 +813,11 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             {" "}{liveBatchPreview.alreadyRegistered} már regisztrált map újracsatlakoztatása,
             {" "}{liveBatchPreview.newlyDiscovered} még hiányzó map felvétele.
             A natív Windows azonosító, folyamatindítási idő, teljes eredeti
-            argumentumok, korábbi Manager ACTIVE/DONE session és mindkét peer forrása egyezik.
+            argumentumok, korábbi kezelőalkalmazás ACTIVE/DONE session és mindkét peer forrása egyezik.
             Az átvétel nem hoz létre új ASA-folyamatot, nem végez Store-írást.
           </p>
           <p className="muted small">
-            A korábbi korábbi Manager Manager vezérlését előzőleg meg kell szüntetni,
+            A korábbi kezelőalkalmazás vezérlését előzőleg meg kell szüntetni,
             de a futó ASA-folyamatokat nem kell leállítani. Két Manager
             egyszerre nem vezérelheti ugyanazokat a mapokat.
           </p>
@@ -837,7 +837,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <input type="checkbox" checked={liveControllerStopped}
               disabled={directBusy}
               onChange={e=>setLiveControllerStopped(e.target.checked)}/>
-            Megerősítem, hogy a régi korábbi Manager Manager már nem felügyeli ezeket
+            Megerősítem, hogy a korábbi kezelőalkalmazás már nem felügyeli ezeket
             a folyamatokat. Nem állítottam le az ASA-szervereket.
           </label>
           <label className="historical-typed-confirmation" htmlFor="store-live-approval-text">
@@ -869,12 +869,12 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           </div>
         </div>}
         {batchPreview&&<div className="historical-preview" role="region"
-          aria-label="Összes eredeti eredeti map importálásának jóváhagyása">
+          aria-label="Összes eredeti map importálásának jóváhagyása">
           <h4>{batchPreview.localMaps} eredeti map egyetlen regisztrációval</h4>
           <p>{batchPreview.mapNames.join(", ")}</p>
           <p className="muted small">A natív Manager valamennyi mapot,
             telepítést, eredeti mod-sorrendet és leállított folyamatot ellenőrizte.
-            Egyetlen ConfigStore-mentést végez. Az eredeti ASA, korábbi Manager és
+            Egyetlen ConfigStore-mentést végez. Az eredeti ASA, korábbi kezelőalkalmazás és
             Store-session adatok nem módosulnak, szerver nem indul.
             Az import még nem tudhatja bizonyítottan a leállított ASA eredeti
             indítómódját: API-s mapoknál előbb az eredeti RCON, utána a
@@ -943,7 +943,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
             <span>Eredeti aktív / passzív mod</span>
             <strong>{directPreview.originalEnabledMods} / {directPreview.originalPassiveMods} · sorrend megőrizve</strong>
             <span>RCON</span><strong>Import után csatlakoztatandó</strong>
-            <span>korábbi Manager világ-, session- és transferadatok</span><strong>Változatlanok</strong>
+            <span>korábbi kezelőalkalmazás világ-, session- és transferadatok</span><strong>Változatlanok</strong>
           </div>
           <label className="historical-approval">
             <input type="checkbox" checked={directApproved}
@@ -961,10 +961,10 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
           <AlertTriangle size={16}/>{directError}</div>}
         {directNotice&&<div role="status" className="success-inline">
           <CheckCircle2 size={16}/>{directNotice}</div>}
-        <section className="historical-parity-check" aria-label="Eredeti korábbi Manager Cluster-regiszter átvétele">
+        <section className="historical-parity-check" aria-label="Eredeti korábbi kezelőalkalmazás Cluster-regiszter átvétele">
           <h3>Eredeti 5 map hozzárendelése a Cluster-regiszterhez</h3>
           <p className="muted small">Ha az eredeti mapokat már felvetted, ezzel
-            a régi négy korábbi Manager-metaadatfájlból átvehető a pontos clusterazonosító
+            a régi négy korábbi kezelőalkalmazás-metaadatfájlból átvehető a pontos clusterazonosító
             és az öt eredeti helyi map-tagság az Obsidian saját regiszterébe.
             Az eredeti Store-fájlok, közös transfermappa és a szerverek nem módosulnak.</p>
           <button type="button" className="secondary" disabled={clusterBusy||directBusy}
@@ -978,7 +978,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
               <span>Eredeti map</span><strong>{clusterPreview.fiveOriginalMaps} db</strong>
               <span>Már hozzárendelt</span><strong>{clusterPreview.alreadyAssigned}</strong>
               <span>Hozzáadandó</span><strong>{clusterPreview.missingAssignments}</strong>
-              <span>Korábbi korábbi Manager és writer lock</span><strong>Változatlan</strong>
+              <span>Korábbi korábbi kezelőalkalmazás és writer lock</span><strong>Változatlan</strong>
             </div>
             <label className="historical-typed-confirmation">Pontos jóváhagyó szöveg
               <input type="text" aria-label="Eredeti Cluster-regiszter jóváhagyó szöveg"
