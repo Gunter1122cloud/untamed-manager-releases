@@ -54,7 +54,7 @@ public static class AsaGracefulStop
         var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId)
             ??throw new UnauthorizedAccessException("Local ASA map is not registered");
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
-        if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
+        if((!newStore&&(LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
             !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
             (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
                 StringComparison.OrdinalIgnoreCase)))||

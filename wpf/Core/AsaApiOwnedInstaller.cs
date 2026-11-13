@@ -53,7 +53,7 @@ public static class AsaApiOwnedInstaller
         return full;
     }
     // An enrolled Store map requires stronger ownership and transfer proof
-    // than a fresh non-Store install. The original Kova profiles remain denied.
+    // than a fresh non-Store install. The original Legacy profiles remain denied.
     private static void DemandSafeOwnedMap(ClusterService cluster,LocalMap map)
     {
         if(map.Maintenance||map.HistoricalStoreProtected)
