@@ -35,8 +35,8 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
     private static bool SafeMap(LocalMap m)=>
         !m.HistoricalStoreProtected && !m.ObservedReadOnlyImported && !m.Maintenance &&
         m.GamePort>0 && m.QueryPort>0 && !string.IsNullOrWhiteSpace(m.Arguments) &&
-        !m.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase) &&
-        !m.Arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase) &&
+        !AsaStoreArgumentSwitches.ContainsProtectedSwitch(m.Arguments) &&
+        !AsaStoreArgumentSwitches.ContainsProtectedSwitch(m.ApiLoaderArguments) &&
         !m.Arguments.Contains("RCONPort",StringComparison.OrdinalIgnoreCase) &&
         !m.Arguments.Contains("ServerAdminPassword",StringComparison.OrdinalIgnoreCase) &&
         string.IsNullOrWhiteSpace(m.StoreTestRoot) &&
