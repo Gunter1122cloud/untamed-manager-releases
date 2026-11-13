@@ -85,14 +85,14 @@ Check(!SteamFreshInstall.NeedsSteamBootstrapRestart(0,
 {
     var time=DateTimeOffset.UtcNow;
     var direct=new ObservedProcess(44117,0,time,
-        @"C:\\ASA\\ShooterGame\\Binaries\\Win64\\ArkAscendedServer.exe",
+        @"C:\ASA\ShooterGame\Binaries\Win64\ArkAscendedServer.exe",
         "TheIsland_WP?listen -Port=7777 -QueryPort=27015");
     var saved=new ProcessIdentity{
         Pid=direct.Pid,StartedUtc=direct.StartedUtc,
         ExecutablePath=direct.ExecutablePath,Arguments=direct.Arguments};
     var oldLoader=new ProcessIdentity{
         Pid=44116,StartedUtc=time.AddSeconds(-1),
-        ExecutablePath=@"C:\\ASA\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe",
+        ExecutablePath=@"C:\ASA\ShooterGame\Binaries\Win64\AsaApiLoader.exe",
         Arguments=direct.Arguments};
     Check(ProcessFamily.IsVerifiedDirectServer(direct,null,null,false,
           direct.ExecutablePath,direct.Arguments),
