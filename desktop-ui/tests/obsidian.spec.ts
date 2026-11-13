@@ -196,6 +196,9 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_STEAM_BATCH_APPLIES__?:()=>number})
       .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
     let freshStarted=false;
+    let freshReadinessCalls=0;
+    (window as typeof window & {__UNTAMED_FRESH_READY_CALLS__?:()=>number})
+      .__UNTAMED_FRESH_READY_CALLS__=()=>freshReadinessCalls;
     let freshStartInvalidated=false;
     (window as typeof window & {__UNTAMED_FRESH_START_CHANGED__?:()=>void})
       .__UNTAMED_FRESH_START_CHANGED__=()=>{freshStartInvalidated=true;};
@@ -2557,7 +2560,9 @@ test.beforeEach(async ({ page }) => {
           confirmedStopped:true,serverStarted:false,
           evidence:"FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
         };
-        case "servers.freshReadiness": return {
+        case "servers.freshReadiness":
+          freshReadinessCalls++;
+          return {
           mapId:m.mapId,mapName:"Astraeos",stage:"RconAuthenticated",
           observedUtc:"2026-11-06T11:00:00Z",loaderObserved:false,
           apiRequired:false,apiInitialized:false,joinAdvertised:false,
@@ -6515,6 +6520,26 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await expect(page.getByText("Várakozás vagy hiba – a natív bizonyíték nem teljes", {exact:true})).toBeVisible();
   await expect(page.getByText(/A szerverhirdetés és RCON még nem bizonyítja/)).toBeVisible();
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
+});
+
+test("fresh ASA start automatically observes RCON without retrying a failed readiness proof",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
+  await expect(page.getByText(/Indítás utáni ASA\/RCON-készenlét ellenőrzése/))
+    .toBeVisible();
+  // No manual readiness button is clicked: the source-compatible startup
+  // handoff itself checks the already spawned process and local RCON.
+  await expect.poll(()=>page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_READY_CALLS__?:()=>number
+  }).__UNTAMED_FRESH_READY_CALLS__?.()??0),{timeout:12000}).toBeGreaterThan(0);
+  await expect(page.getByText("ASA készenléti szint: RconAuthenticated")).toBeVisible();
+  await expect(page.getByText("Várakozás vagy hiba – a natív bizonyíték nem teljes",
+    {exact:true})).toBeVisible();
+  await expect(page.getByText(/folyamatindítás még nem bizonyítja/)).toBeVisible();
 });
 
 test("changed ASA binary after preview surfaces exact reapproval without auto-start",async({page})=>{
