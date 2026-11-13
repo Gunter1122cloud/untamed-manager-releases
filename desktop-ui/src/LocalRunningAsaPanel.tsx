@@ -168,7 +168,7 @@ export function LocalRunningAsaPanel({onRegistered}:{
   },[inspect]);
 
   const prepareAll=async()=>{
-    if(bulkBusy||!snapshot?.fresh)return;
+    if(bulkBusy||!snapshot||snapshot.fresh===false)return;
     setBulkBusy(true);setBulkApproved(false);setBulkPreview(null);
     setBulkError("");setBulkNotice("");
     try{
@@ -225,7 +225,7 @@ export function LocalRunningAsaPanel({onRegistered}:{
         Az ismeretlen PID megfigyelés, nem tulajdonjog vagy Store-v1 írási engedély.</p>
       <div className="settings-actions">
         <button type="button" className="secondary"
-          disabled={loading||bulkBusy||snapshot?.fresh!==true||!!bulkPreview}
+          disabled={loading||bulkBusy||!snapshot||snapshot.fresh===false||!!bulkPreview}
           onClick={()=>{void prepareAll();}}>
           <Shield size={16}/> Összes azonosított nem-Store ASA importálása
         </button>
