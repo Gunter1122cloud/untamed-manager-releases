@@ -84,8 +84,10 @@ static bool IsError(JsonElement value,string code)=>
     Check(!ProcessFamily.IsVerifiedDirectServer(direct,saved,null,true,
           direct.ExecutablePath,direct.Arguments),
         "API-enabled map cannot bypass Loader parent check");
-    Check(!ProcessFamily.IsVerifiedDirectServer(direct,saved with {
-          StartedUtc=time.AddMinutes(-2)},null,false,
+    Check(!ProcessFamily.IsVerifiedDirectServer(direct,new ProcessIdentity{
+          Pid=saved.Pid,StartedUtc=time.AddMinutes(-2),
+          ExecutablePath=saved.ExecutablePath,Arguments=saved.Arguments
+          },null,false,
           direct.ExecutablePath,direct.Arguments),
         "direct ASA rejects reused PID with changed process start time");
     Check(!ProcessFamily.IsVerifiedDirectServer(direct,saved,null,false,
