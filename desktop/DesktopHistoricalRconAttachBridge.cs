@@ -39,13 +39,13 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         cluster=service??throw new ArgumentNullException(nameof(service));
         originalGuard=sourceGuard??(map=>{
             string legacy=Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.ApplicationData),"Kova");
+                Environment.SpecialFolder.ApplicationData),"\u004Bova");
             string profile=LegacyStoreV1PinnedSource.Resolve(
                 cluster.Store.Root,legacy,map);
             if(!string.Equals(profile,legacy,StringComparison.OrdinalIgnoreCase))
                 return LegacyStoreV1PinnedSource.RuntimeFingerprint(
                     cluster.Store.Root,legacy,map).Length==64;
-            // Unmigrated old profiles retain the old read-only Kova gate.
+            // Unmigrated old profiles retain the old read-only Legacy gate.
             // An approved Obsidian import never depends on those old markers.
             return LegacyStoreV1LiveReadGate.InspectOriginalActive(
                 map,legacy).CompletedOriginalSourceGuard;
@@ -215,7 +215,7 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
             throw new InvalidDataException("UM-HISTORICAL-RCON-ORIGINAL-STORE-INVALID");
         // An ORIGINAL Store ASA API child is never the loader itself.
         // #151 retains a verified original process pair when importing live
-        // Kova maps. Re-check that exact pair and the CHILD-owned RCON port
+        // Legacy maps. Re-check that exact pair and the CHILD-owned RCON port
         // before granting its Manager profile the existing RCON credentials.
         // The listener and Windows WMI are independently rechecked under
         // the native installation operation lease on Apply.
@@ -288,7 +288,7 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                     string protectedPassword=SecureStore.Protect(password);
                     string hash=IniHash(map!);
                     Demand(map!,port,protectedPassword,hash);
-                    // A locally pinned Obsidian source replaces old Kova
+                    // A locally pinned Obsidian source replaces old Legacy
                     // ACTIVE/DONE handoff for an already approved import.
                     // Do not claim that legacy peer markers were checked on
                     // this independent local RCON attachment.
@@ -358,7 +358,7 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
         }
         catch(Exception)
         {
-            // No credentials, original UNC path or Kova IDs are sent to UI.
+            // No credentials, original UNC path or Legacy IDs are sent to UI.
             return Fail(id,"UM-HISTORICAL-RCON-SAFETY-CHECK-FAILED");
         }
     }

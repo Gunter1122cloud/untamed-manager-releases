@@ -40,7 +40,7 @@ public sealed class DesktopHistoricalRconReadOnlyBridge : IDisposable
         inspect=processInspector??(map=>LegacyStoreV1ProcessObserver.Observe(
             map,cluster.Config.LocalMaps));
         // After a verified Obsidian source import, local RCON reads bind
-        // to that Manager-owned source, not a retired Kova profile or a
+        // to that Manager-owned source, not a retired Legacy profile or a
         // switched-off peer's old ACTIVE/DONE marker. Unmigrated profiles
         // retain their original strict handoff check.
         sourceEpoch=sourceEpochProof??(

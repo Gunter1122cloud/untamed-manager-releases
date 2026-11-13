@@ -135,7 +135,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             if(currentJob!=null&&currentJob.MapId==reviewedMapId&&
                currentJob.State is "queued" or "running")return false;
         // Paired local Stop/Restart journal review needs the exact same
-        // owned-map source fingerprint, NOT a fresh Kova peer DONE marker.
+        // owned-map source fingerprint, NOT a fresh Legacy peer DONE marker.
         // No SaveWorld/DoExit command is replayed in this read-only review.
         string source=LegacyStoreV1GracefulStop.OriginalSource(
             cluster,reviewedMap);
@@ -166,7 +166,7 @@ public sealed class DesktopHistoricalGracefulStopBridge : IDisposable
             cluster.Store.Root,mapId);
         // Never accept a successful *previous* operation journal as a
         // substitute for the pending SaveComplete receipt. This is a
-        // second, Manager-local crash-recovery signal, not Kova ownership.
+        // second, Manager-local crash-recovery signal, not Legacy ownership.
         bool pendingSaveEvidence=saveEvidence?.Phase is "prepared" or "needsOperator";
         bool blocked=operationBlocked||restartPending||pendingSaveEvidence;
         bool needsOperator=pendingSaveEvidence||(journal!=null&&(
