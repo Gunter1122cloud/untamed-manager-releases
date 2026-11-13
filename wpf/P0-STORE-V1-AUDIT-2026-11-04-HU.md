@@ -6,7 +6,7 @@ Ez az első P0 fejlesztési szakasz, nem a teljes master roadmap lezárása.
 
 ## Éles gépen alkalmazott korlátok
 
-Az éles Kova/ASA/MariaDB nem tesztcél. Nincs folyamatvezérlés, RCON-küldés,
+Az éles Legacy/ASA/MariaDB nem tesztcél. Nincs folyamatvezérlés, RCON-küldés,
 SQL-kapcsolat, megosztáselérés, telepítés, Store-írás vagy locktörlés.
 A helyi teszt csak a felhasználó korábban elkészített ZIP-jeit olvassa.
 Hordozható .NET SDK a külön munkamappában; nincs rendszertelepítő.
@@ -33,7 +33,7 @@ A privát ZIP-ek és tartalmuk nem kerülnek commitba vagy CI-artifactba.
 |---|---|---|
 | StoreV1Fingerprint | IMPLEMENTED; közös validator és Migration Vault | JS mezősorrend, UTF-8, indexkulcs, eltérő hash; ismeretlen numerikus config fail-closed |
 | ClusterVaultArchiveInspector | READ_ONLY; meglévő WPF Vault ZIP oldal | Szintetikus teljes 5+5 és részleges minták, privát Store ZIP helyben |
-| KovaStoreV1CopyReader | READ_ONLY; meglévő közös munkamenet WPF oldal | Ugyanaz az InspectFiles validator; mindkét helyi host szükséges |
+| LegacyStoreV1CopyReader | READ_ONLY; meglévő közös munkamenet WPF oldal | Ugyanaz az InspectFiles validator; mindkét helyi host szükséges |
 | UntamedManagerArchiveInspector | READ_ONLY; Migration Vault | Közös biztonságos ZIP-olvasó és Store-validator; régi diagnosztikai mezők megmaradnak |
 | HistoricalLaunchProfileReader | READ_ONLY; történeti profil-előnézet | Az ellenőrzés és profilolvasás idején ugyanaz a zárolt forrás; nincs import vagy indítás |
 | Supervisor | A P0 Store-validatornak nincs automatikus hívója | Szándékosan nincs új éles megfigyelés vagy művelet |
@@ -87,7 +87,7 @@ A workflow codex ágakon is fut; release továbbra is csak a korábbi szigorú m
   majd harmadik gépes valódi ASA SaveComplete/transfer és konzisztens backup/restore tesztterv.
 
 A masterben felsorolt további dokumentumok önálló bemenetként nem voltak jelen:
-Kova-Teljes-Dokumentacio ZIP, TELJES-KEZELOFELULET-TERV-HU.md,
+Legacy-Teljes-Dokumentacio ZIP, TELJES-KEZELOFELULET-TERV-HU.md,
 Kutatas-es-Adatigeny, Belso_Mukodes_Forras_Audit, Megvalositasi_Terv_Vegleges,
 Teljes_61_Muvelet_Fejesztesi_Lefedettseg. A repó korábbi összefoglalói nem helyettesítik ezeket.
 A 61 művelet és 44 modul teljes, végrehajtással igazolt auditja nincs ezzel a P0 PR-rel lezárva.
