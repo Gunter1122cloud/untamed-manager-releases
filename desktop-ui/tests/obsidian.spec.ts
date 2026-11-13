@@ -63,6 +63,11 @@ test.beforeEach(async ({ page }) => {
           observedRuntimeState:"observedRunning"
         });
       };
+    let lifecycleStopHeld=false;
+    (window as typeof window & {__UNTAMED_HOLD_LOCAL_STOP__?:()=>void;
+      __UNTAMED_RELEASE_LOCAL_STOP__?:()=>void;}).__UNTAMED_HOLD_LOCAL_STOP__=()=>{lifecycleStopHeld=true;};
+    (window as typeof window & {__UNTAMED_RELEASE_LOCAL_STOP__?:()=>void;})
+      .__UNTAMED_RELEASE_LOCAL_STOP__=()=>{lifecycleStopHeld=false;};
     let freshId = "";
     let nativeFreshRegisteredResume=false;
     const resumeMapId="00000000-0000-4000-8000-000000008881";
@@ -2664,7 +2669,7 @@ test.beforeEach(async ({ page }) => {
             evidence:"REAL_LOCAL_GRACEFUL_STOP_JOB_QUEUED"};
         case "servers.gracefulStopStatus": return {
           jobId:"00000000-0000-4000-8000-000000009555",
-          state:"completed",step:"Windows process verified stopped",
+          state:lifecycleStopHeld?"running":"completed",step:"Windows process verified stopped",
           changedUtc:"2026-11-06T11:00:00Z",confirmedStopped:true,
           saveCompleteProven:false,killPerformed:false,
           restartPerformed:false,storeTouched:false
@@ -5450,6 +5455,43 @@ test("map header always shows four real lifecycle actions and Kill requires nati
   await apply.click();
   await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
   await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeEnabled();
+});
+test("ASA Stop job remains linked to the correct map across navigation without replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_LOCAL_STOP__?:()=>void
+  }).__UNTAMED_HOLD_LOCAL_STOP__?.());
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  await bar.getByRole("button",{name:"Leállítás",exact:true}).click();
+  const approval=bar.getByRole("region",{name:"Leállítás jóváhagyása"});
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"Művelet végrehajtása"}).click();
+  await expect(bar).toContainText("folyamatban");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  const resumed=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  await expect(resumed).toContainText("folyamatban");
+  await expect(resumed.getByRole("button",{name:"Leállítás",exact:true})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_LOCAL_STOP__?:()=>void
+  }).__UNTAMED_RELEASE_LOCAL_STOP__?.());
+  await expect(resumed).toContainText("művelet befejeződött",{timeout:15000});
+});
+
+test("ASA Kill approval cannot carry over to another map",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  await bar.getByRole("button",{name:"Kill",exact:true}).click();
+  await expect(bar.getByRole("region",{name:"Kill jóváhagyása"})).toBeVisible();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Kill",exact:true})).toBeEnabled();
 });
 test("original korábbi Manager Store maps retain four buttons but disable destructive Kill",async({page})=>{
   await page.addInitScript(()=>{(window as any).__UNTAMED_PROTECT_TEST_MAP__?.();});
