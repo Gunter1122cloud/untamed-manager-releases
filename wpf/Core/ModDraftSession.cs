@@ -9,7 +9,7 @@ namespace UntamedManager.Core;
 // captures only the local Manager launch-mod fields, never Store or ASA data.
 public sealed record ModEditBaseline(string Arguments,string[] DisabledIds,bool Pending)
 {
-    // The historical Kova start planner reads the original Store map's
+    // The historical Legacy start planner reads the original Store map's
     // dedicated mod fields; it must NEVER synthesize or persist Arguments.
     public bool HistoricalStoreProtected {get;init;}
     public string[] HistoricalEnabledMods {get;init;}=Array.Empty<string>();

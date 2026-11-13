@@ -28,7 +28,7 @@ public static class LocalPluginInventory
                 throw new InvalidDataException("Linked plugin directory rejected");
             if(plugin.Name.StartsWith(".untamed-",StringComparison.OrdinalIgnoreCase))
                 continue;
-            // Do not inspect Kova plugins beyond their folder name: the Store remains protected.
+            // Do not inspect Legacy plugins beyond their folder name: the Store remains protected.
             if(plugin.Name.Contains(VaultProtocol.ProtectedNameToken,StringComparison.OrdinalIgnoreCase))
             {
                 output.Add(new(plugin.Name,Array.Empty<PluginBinaryInfo>(),true));

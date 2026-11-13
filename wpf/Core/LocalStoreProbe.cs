@@ -25,7 +25,7 @@ public static class LocalStoreProbe
                 arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase))
                 return new(false,"Cluster ID or Store launch parameters are unsafe");
             if(!Directory.Exists(full))return new(false,"Store test copy unavailable");
-            // Actual Kova metadata schema has not been supplied or validated. Never invent compatibility.
+            // Actual Legacy metadata schema has not been supplied or validated. Never invent compatibility.
             return new(false,"Store reachable; metadata schema unverified. Dangerous operations blocked");
         }
         catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or ArgumentException)
