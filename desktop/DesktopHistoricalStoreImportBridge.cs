@@ -61,7 +61,11 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
         string? localLegacyDataDirectory=null)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
-        inspect=processInspector??(map=>new WindowsProcessInspector().InspectFamily(map));
+        // An installed host can own multiple map profiles in one ASA binary
+        // directory; identify each registered sibling instead of treating
+        // its Windows process as an unknown conflict with the selected map.
+        inspect=processInspector??(map=>new WindowsProcessInspector().InspectFamily(
+            map,cluster.Config.LocalMaps));
         this.localLegacyDataDirectory=localLegacyDataDirectory??Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Kova");
     }
