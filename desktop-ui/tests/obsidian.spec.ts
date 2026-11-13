@@ -303,6 +303,15 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_FIVE_BACKUP_COPIES__?:()=>number})
       .__UNTAMED_FIVE_BACKUP_COPIES__=()=>originalFiveBackupCopies;
     let historicalRconAttached=false;
+    let wrongHistoricalAdminPreviewMap=false;
+    let wrongHistoricalRconReadMap=false;
+    (window as typeof window & {
+      __UNTAMED_BAD_STORE_RCON_MAP__?:()=>void;
+      __UNTAMED_BAD_STORE_ADMIN_MAP__?:()=>void;
+    }).__UNTAMED_BAD_STORE_RCON_MAP__=()=>{wrongHistoricalRconReadMap=true;};
+    (window as typeof window & {
+      __UNTAMED_BAD_STORE_ADMIN_MAP__?:()=>void;
+    }).__UNTAMED_BAD_STORE_ADMIN_MAP__=()=>{wrongHistoricalAdminPreviewMap=true;};
     let historicalRconFailStatusAfterApply=false;
     (window as typeof window & {
       __UNTAMED_HISTORICAL_RCON_FAIL_REFRESH__?:()=>void;
@@ -1152,7 +1161,8 @@ test.beforeEach(async ({ page }) => {
             act==="serverChat"?"ServerChat "+m.message:
             act==="wildWipe"?"DestroyWildDinos":m.message;
           historicalAdminPending=true;
-          return {token:historicalAdminToken,mapId:two,mapName:"Astraeos",
+          return {token:historicalAdminToken,
+            mapId:wrongHistoricalAdminPreviewMap?one:two,mapName:"Astraeos",
             action:act,command:historicalAdminCommand,
             approvalWord:act==="wildWipe"?"STORE-V1 DINÓTÖRLÉS":"STORE-V1 ADMIN",
             dangerous:act==="wildWipe"||act==="custom",
@@ -1195,7 +1205,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("Original Store PID/source/RCON owner not verified");
           const command=m.method==="historical.rconPlayers"?"ListPlayers":
             m.method==="historical.rconGameLog"?"GetGameLog":"GetChat";
-          return {mapId:two,mapName:"Astraeos",command,
+          return {mapId:wrongHistoricalRconReadMap?one:two,mapName:"Astraeos",command,
             response:"Synthetic original ASA "+command,observedUtc:"2026-11-07T17:00:00Z",
             readOnly:true,storeTouched:false,saveCompleteProven:false,
             evidence:"ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON"};
@@ -5190,6 +5200,45 @@ test("original Store-v1 admin RCON requires exact one-time native approval and e
   await sendWipe.click();
   await expect(panel.getByText(/Egyszeri RCON-parancs elküldve: DestroyWildDinos/))
     .toBeVisible();
+});
+
+test("Store admin RCON rejects a preview bound to another map without offering Apply",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_BAD_STORE_ADMIN_MAP__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_BAD_STORE_ADMIN_MAP__?:()=>void;
+  }).__UNTAMED_BAD_STORE_ADMIN_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"});
+  await panel.getByLabel("Küldendő üzenet").fill("This must not be sent");
+  await panel.getByRole("button",{name:"Eredeti adminparancs ellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"Store-v1 adminparancs végső jóváhagyása"})).toHaveCount(0);
+  await expect(panel.getByText(/map admin RCON előellenőrzése/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Adminparancs egyszeri elküldése"})).toHaveCount(0);
+});
+
+test("Store read-only RCON rejects a different map's response instead of showing players or chat",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 RCON konzol"});
+  await expect(panel.getByRole("button",{name:"Játékoslista lekérdezése"})).toBeEnabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_BAD_STORE_RCON_MAP__?:()=>void
+  }).__UNTAMED_BAD_STORE_RCON_MAP__?.());
+  await panel.getByRole("button",{name:"Játékoslista lekérdezése"}).click();
+  await expect(panel.getByRole("region",{name:"Eredeti Store-v1 RCON válasz"})).toHaveCount(0);
+  await expect(panel).toContainText("válasz mapazonossága");
+  await expect(panel.getByRole("button",{name:"Játékoslista lekérdezése"})).toBeDisabled();
 });
 
 test("original Store-v1 SaveWorld-only runs the real native map action without stopping ASA",async({page})=>{
