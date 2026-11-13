@@ -222,7 +222,7 @@ public sealed class DesktopOperationsCenterBridge
 
     private object Describe(LocalMap map,DateTimeOffset now)
     {
-        bool storeProtected=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
+        bool storeProtected=LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
         ProcessCheck state;
         try
         {

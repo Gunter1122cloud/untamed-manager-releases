@@ -11,7 +11,7 @@ namespace UntamedDesktop;
 /// <summary>
 /// Operator-driven COPY-ONLY restore test of an already verified ASA-only
 /// cluster archive. The target is always an auto-generated TEMP lab folder,
-/// never an ASA installation or Kova/Store directory.
+/// never an ASA installation or Legacy/Store directory.
 /// </summary>
 public sealed class DesktopOfflineAsaRestoreBridge : IDisposable
 {

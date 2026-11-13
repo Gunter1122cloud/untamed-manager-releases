@@ -252,7 +252,7 @@ public sealed class DesktopMultiHostClusterBackupBridge : IDisposable
                     string? sandbox=pickFolder("Válaszd ki a KORÁBBAN ellenőrzötten elkészült TEMP többgépes restore sandboxot");
                     if(string.IsNullOrWhiteSpace(sandbox))
                         return Fail(id,"UM-HOSTRESTORE-CANCELLED");
-                    string? parent=pickFolder("Válassz külön, ÜRES cél szülőmappát a HELYI host offline restore állományához – ne éles ASA/Kova telepítést");
+                    string? parent=pickFolder("Válassz külön, ÜRES cél szülőmappát a HELYI host offline restore állományához – ne éles ASA/Legacy telepítést");
                     if(string.IsNullOrWhiteSpace(parent))
                         return Fail(id,"UM-HOSTRESTORE-CANCELLED");
                     var registry=cluster.Registry.Snapshot();

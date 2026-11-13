@@ -140,7 +140,7 @@ public sealed class DesktopOfflineAsaArchiveBridge : IDisposable
                             StringComparison.OrdinalIgnoreCase));
                     if(HostMapCount(hp)!=5||HostMapCount(ryzen)!=5||
                        hpConfig!=ryzenConfig ||
-                       !File.Exists(Path.Combine(transfer,".kova-store-v1","operation.json")))
+                       !File.Exists(Path.Combine(transfer,".\u006Bova-store-v1","operation.json")))
                         return Fail(id,"UM-CLUSTER-ARCHIVE-COPY-INCOMPLETE");
                     var token=Guid.NewGuid();
                     pending=new(token,hp,ryzen,transfer,parent,DateTimeOffset.UtcNow);

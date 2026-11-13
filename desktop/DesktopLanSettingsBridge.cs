@@ -60,7 +60,7 @@ public sealed class DesktopLanSettingsBridge
     private object Status()
     {
         var observations=cluster.PeerObservations;
-        // Select the exact original Kova peer among ALL authenticated N-host
+        // Select the exact original Legacy peer among ALL authenticated N-host
         // observations. The first connected host may be an unrelated new
         // machine; it must not replace the historical 5+5 partner.
         var pair=LegacyStoreV1PairComparison.CompareAcrossPeers(
@@ -144,7 +144,7 @@ public sealed class DesktopLanSettingsBridge
                         observedUtc=witness.ObservedUtc,
                         originalMetadataUnchanged=witness.OriginalMetadataUnchanged,
                         // The fingerprint travels in the encrypted LAN status,
-                        // never raw original UNC names or Kova session IDs.
+                        // never raw original UNC names or Legacy session IDs.
                         rawUncPathReturned=false,originalStoreFilesWritten=false,
                         liveStoreWriterCertified=false,
                         productionRestoreAllowed=false,
