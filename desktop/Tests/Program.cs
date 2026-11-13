@@ -3349,6 +3349,17 @@ try
                     },listenerOwner:Owner);
                 return receipt;
             });
+        var missingStopCurrent=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=Guid.NewGuid()});
+        Check(IsError(missingStopCurrent,"UM-MAP-NOT-OWNED"),
+            "Stop-current refuses unknown and remote map identities");
+        var idleStopCurrent=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=stopLabMap.Id});
+        IsOk(idleStopCurrent,"idle map Stop-current is read-only and allowed");
+        Check(!idleStopCurrent.GetProperty("data").GetProperty("active").GetBoolean()&&
+              idleStopCurrent.GetProperty("data").GetProperty("jobId").ValueKind==
+                  JsonValueKind.Null&&sends==0,
+            "idle Stop-current never invents a job or sends RCON");
         var unknown=await Call(stopBridge.HandleAsync,"servers.gracefulStopPreview",
             new{mapId=Guid.NewGuid()});
         Check(IsError(unknown,"UM-MAP-NOT-OWNED")&&sends==0,
@@ -3365,6 +3376,11 @@ try
             new{token,confirm=true});
         IsOk(started,"graceful Stop begins without blocking WebView2");
         string job=started.GetProperty("data").GetProperty("jobId").GetString()!;
+        var runningStopCurrent=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=stopLabMap.Id});
+        IsOk(runningStopCurrent,"Stop-current reattaches to the exact map's existing job");
+        Check(runningStopCurrent.GetProperty("data").GetProperty("jobId").GetString()==job,
+            "Stop-current only exposes the original one-shot Stop ID");
         var replay=await Call(stopBridge.HandleAsync,"servers.gracefulStopApply",
             new{token,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
@@ -3377,6 +3393,12 @@ try
             await Task.Delay(35);
         }
         IsOk(result,"native graceful stop job status remains readable");
+        var finishedStopCurrent=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=stopLabMap.Id});
+        IsOk(finishedStopCurrent,"finished Stop-current remains observable without dispatch");
+        Check(finishedStopCurrent.GetProperty("data").GetProperty("jobId").GetString()==job &&
+              !finishedStopCurrent.GetProperty("data").GetProperty("active").GetBoolean(),
+            "completed Stop is not replayed and remains bound to its map");
         Check(result.GetProperty("data").GetProperty("state").GetString()=="completed" &&
               result.GetProperty("data").GetProperty("confirmedStopped").GetBoolean() &&
               !result.GetProperty("data").GetProperty("saveCompleteProven").GetBoolean() &&
@@ -3575,6 +3597,12 @@ try
         IsOk(restartStarted,"one-shot restart dispatches native coordinator");
         string restartJob=restartStarted.GetProperty("data")
             .GetProperty("jobId").GetString()!;
+        var currentRestartJob=await Call(restartBridge.HandleAsync,
+            "servers.restartCurrent",new{mapId=stopLabMap.Id});
+        IsOk(currentRestartJob,"Restart-current identifies accepted job after page change");
+        Check(currentRestartJob.GetProperty("data")
+                .GetProperty("inMemoryJobId").GetString()==restartJob,
+            "Restart-current binds exactly one existing job to the local map");
         var doubleRestart=await Call(restartBridge.HandleAsync,
             "servers.restartApply",new{token=restartToken,confirm=true});
         Check(!doubleRestart.GetProperty("ok").GetBoolean(),
