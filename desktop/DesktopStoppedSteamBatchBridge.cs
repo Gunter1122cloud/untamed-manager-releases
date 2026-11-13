@@ -127,7 +127,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                !string.IsNullOrWhiteSpace(local.FreshStoreClusterId) ||
                !string.IsNullOrWhiteSpace(local.FreshStoreTransferDirectory) ||
                !string.IsNullOrWhiteSpace(local.StoreTestRoot) ||
-               KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(local) ||
+               LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(local) ||
                !AsaReadyProbe.IsRegisteredServerBinary(local))
                 throw new UnauthorizedAccessException("UM-STEAM-BATCH-PROTECTED");
             var process=cluster.Check(local);
@@ -177,7 +177,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                    !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId)||
                    !string.IsNullOrWhiteSpace(sibling.FreshStoreTransferDirectory)||
                    !string.IsNullOrWhiteSpace(sibling.StoreTestRoot)||
-                   KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling))
+                   LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(sibling))
                     throw new InvalidOperationException(
                         "UM-STEAM-BATCH-SHARED-INSTALL-BLOCKED");
             }

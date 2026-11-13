@@ -7,7 +7,7 @@ namespace UntamedDesktop;
 
 /// <summary>
 /// Authorizes only OFFLINE, LOCAL, INSTALLATION-SCOPED configuration edits
-/// for an already imported original Kova map. Never grants Store writer,
+/// for an already imported original Legacy map. Never grants Store writer,
 /// travel, SteamCMD or lifecycle ownership. Called again under native file
 /// transaction locks before each mutating operation.
 /// </summary>
@@ -70,7 +70,7 @@ public static class HistoricalLocalConfigGuard
                 throw new UnauthorizedAccessException("UM-HISTORICAL-CONFIG-OTHER-MANAGER");
             var generic=cluster.Check(other);
             // Never discard a known running/reattached PID just because
-            // a second observer returned "stopped". The legacy Kova profile
+            // a second observer returned "stopped". The legacy Legacy profile
             // intentionally has EMPTY argv, so the generic observer may also
             // be uncertain even when the exact native process-family check
             // proves that the registered historical map is stopped.

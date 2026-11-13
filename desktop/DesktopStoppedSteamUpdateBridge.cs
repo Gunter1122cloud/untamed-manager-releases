@@ -67,7 +67,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
 
     private bool Stopped(LocalMap map)
     {
-        // An imported original Kova map uses the exact independent Windows
+        // An imported original Legacy map uses the exact independent Windows
         // ASA/Loader stopped-family observer; normal maps retain the same
         // existing Core updater. No Store session or writer is touched.
         try
@@ -190,8 +190,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             !string.IsNullOrWhiteSpace(m.FreshStoreClusterId)||
                             !string.IsNullOrWhiteSpace(m.FreshStoreTransferDirectory)||
                             !string.IsNullOrWhiteSpace(m.StoreTestRoot)||
-                            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(m)))||
-                        KovaCompatibleWorldBackup.InstallationRecoveryRequired(m));
+                            LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(m)))||
+                        LegacyCompatibleWorldBackup.InstallationRecoveryRequired(m));
                     bool safeInstallation=Stopped(owned);
                     return Ok(id,new{
                         mapId=owned.Id,mapName=owned.Name,installRoot=root,

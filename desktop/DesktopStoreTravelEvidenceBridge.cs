@@ -15,7 +15,7 @@ namespace UntamedDesktop;
 /// <summary>
 /// Operator-driven, read-only two-host character travel evidence for the
 /// existing five-plus-five Untamed cluster. Never reads the player data into
-/// the renderer, opens Kova's Store writer, or creates/modifies ASA save files.
+/// the renderer, opens Legacy's Store writer, or creates/modifies ASA save files.
 /// The result proves only hashes/placement across four quiescent snapshots.
 /// </summary>
 public sealed class DesktopStoreTravelEvidenceBridge
@@ -73,7 +73,7 @@ public sealed class DesktopStoreTravelEvidenceBridge
         // records inside the world .ark. Loose profiles may be stale or empty.
         // We inspect world existence/size/stability WITHOUT hashing the huge
         // world (the manager must remain low I/O on live hardware).
-        bool storeMode=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
+        bool storeMode=LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map);
         // Never hash or enumerate loose player/tribe files while ASA is
         // running, its loader remains alive or its stopped identity is
         // uncertain. A snapshot taken during a world save can look stable

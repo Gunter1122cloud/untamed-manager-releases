@@ -10,10 +10,10 @@ using UntamedManager.Core;
 namespace UntamedDesktop;
 
 /// <summary>
-/// Real native per-map Kova-style backup and rollback restore. The WebView can
+/// Real native per-map Legacy-style backup and rollback restore. The WebView can
 /// select only locally registered map/verified backup IDs; it cannot provide a
 /// source/destination path, run an arbitrary file operation or touch the shared
-/// Kova Store-v1 writer. Archive byte verification and OS process checks live
+/// Legacy Store-v1 writer. Archive byte verification and OS process checks live
 /// in Core; the renderer can never "confirm" an unsafe state away.
 /// </summary>
 public sealed class DesktopWorldBackupBridge
@@ -100,7 +100,7 @@ public sealed class DesktopWorldBackupBridge
     {
         this.cluster=cluster??throw new ArgumentNullException(nameof(cluster));
         // Historical Store-v1 imports deliberately retain empty Arguments.
-        // The generic fresh-map family inspector can misidentify an old Kova
+        // The generic fresh-map family inspector can misidentify an old Legacy
         // process as stopped. Use the dedicated original ASA/Loader observer
         // for every manual backup preflight and immediately before copy.
         inspect=processInspector??(map=>map.HistoricalStoreProtected?
@@ -109,15 +109,15 @@ public sealed class DesktopWorldBackupBridge
         scheduled=scheduledBackups;
         originalSelection=originalSelectionProvider??(()=>{
             // After an explicitly approved import the independent Obsidian
-            // source is authoritative. The old Kova profile is used only for
+            // source is authoritative. The old Legacy profile is used only for
             // migration of pre-pin installations.
             string legacy=Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.ApplicationData),"Kova");
+                Environment.SpecialFolder.ApplicationData),"\u004Bova");
             string profile=LegacyStoreV1PinnedSource.PreferredProfile(
                 cluster.Store.Root,legacy);
             return LegacyStoreV1OriginalImport.Inspect(profile);
         });
-        // Read only Manager-owned orchestration metadata; never original Kova
+        // Read only Manager-owned orchestration metadata; never original Legacy
         // world, shared session, lock or transfer files at bridge creation.
         LoadOriginalBatch();
     }
@@ -136,10 +136,10 @@ public sealed class DesktopWorldBackupBridge
     }
     private void UniqueWorldDirectory(LocalMap map)=>
         AsaSaveLayoutResolver.DemandUniqueOwner(map,cluster.Config.LocalMaps);
-    // EXACT historical 5-map Kova ownership is a special legacy source.
+    // EXACT historical 5-map Legacy ownership is a special legacy source.
     // The overall Manager still supports N hosts and arbitrary map counts.
     // This only aggregates existing per-map SHA-256 backup operations and
-    // never touches the shared Kova Store-v1 writer or creates another engine.
+    // never touches the shared Legacy Store-v1 writer or creates another engine.
     private (LegacyStoreV1OriginalLocalSelection Source,LocalMap[] Maps)
         RequireOriginalStoppedFive()
     {
@@ -149,7 +149,7 @@ public sealed class DesktopWorldBackupBridge
            source.LaunchProfileSha256.Length!=64||
            source.Maps.Select(x=>x.MapId).Distinct().Count()!=5)
             throw new InvalidDataException("UM-BACKUP-ORIGINAL-FIVE-SOURCE-MISSING");
-        // A historical Kova import is a five-map selection, NOT a five-map
+        // A historical Legacy import is a five-map selection, NOT a five-map
         // capacity limit for the Manager. Additional independent Store maps
         // must not hide or prevent backups of these five original GUIDs.
         var historical=source.Maps.Select(sourceMap=>
@@ -169,7 +169,7 @@ public sealed class DesktopWorldBackupBridge
             LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
             // On older unpinned installs, retain strict legacy launch parity.
             string legacy=Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.ApplicationData),"Kova");
+                Environment.SpecialFolder.ApplicationData),"\u004Bova");
             if(string.Equals(LegacyStoreV1PinnedSource.PreferredProfile(
                     cluster.Store.Root,legacy),legacy,
                     StringComparison.OrdinalIgnoreCase) &&
@@ -183,7 +183,7 @@ public sealed class DesktopWorldBackupBridge
                 throw new InvalidDataException("UM-BACKUP-ORIGINAL-DUPLICATE-ROOT");
             UniqueWorldDirectory(map);
             Stopped(map);
-            if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+            if(LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
                 throw new InvalidOperationException("UM-BACKUP-ORIGINAL-RESTORE-RECOVERY");
             string world=AsaSaveLayoutResolver.Resolve(map).WorldFile;
             if(!File.Exists(world)||new FileInfo(world).Length==0)
@@ -225,7 +225,7 @@ public sealed class DesktopWorldBackupBridge
                     PublishOriginalBatch(job);
                 }
                 Stopped(map);
-                var point=KovaCompatibleWorldBackup.Create(map,cluster.Store.Root,
+                var point=LegacyCompatibleWorldBackup.Create(map,cluster.Store.Root,
                     ()=>inspect(map));
                 lock(originalBatchSync)
                 {
@@ -307,7 +307,7 @@ public sealed class DesktopWorldBackupBridge
                         confirmedStopped=true,originalSourcePinned=true,
                         requiresTypedApproval=true,
                         repairScope="MANAGER_LOCAL_BATCH_JOURNAL_QUARANTINE_ONLY",
-                        originalKovaFilesWritten=false,serverStarted=false
+                        originalLegacyFilesWritten=false,serverStarted=false
                     });
                 }
                 if(method=="backup.originalBatchJournalRepairApply")
@@ -340,7 +340,7 @@ public sealed class DesktopWorldBackupBridge
                     originalBatchJob=null;
                     return Ok(id,new{
                         reviewed=true,quarantined=true,
-                        originalKovaFilesWritten=false,serverStarted=false,
+                        originalLegacyFilesWritten=false,serverStarted=false,
                         oldBackupPackagesPreserved=true,
                         nextBackupRequiresNewApproval=true,
                         evidence="MANAGER_LOCAL_CORRUPT_BATCH_JOURNAL_OPERATOR_QUARANTINE"
@@ -363,7 +363,7 @@ public sealed class DesktopWorldBackupBridge
                             completedMaps=job.Points.Count,
                             points=job.Points.ToArray(),totalBytes=job.TotalBytes,
                             allFiveVerified=job.State=="completed"&&job.Points.Count==5,
-                            originalKovaFilesWritten=false,serverStarted=false,
+                            originalLegacyFilesWritten=false,serverStarted=false,
                             sharedTransferIncluded=false,otherHostIncluded=false,
                             evidence="FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_NO_SHARED_QUORUM"
                         });
@@ -404,7 +404,7 @@ public sealed class DesktopWorldBackupBridge
                         mapNames=maps.Select(x=>x.Name).ToArray(),
                         originalSourcePinned=true,allMapsConfirmedStopped=true,
                         requiresOperatorConfirmation=true,
-                        originalKovaFilesWritten=false,serverStarted=false,
+                        originalLegacyFilesWritten=false,serverStarted=false,
                         sharedTransferIncluded=false,otherHostIncluded=false,
                         evidence="EXISTING_SHA256_WORLD_ENGINE_ORIGINAL_FIVE_MAP_PREFLIGHT"
                     });
@@ -467,7 +467,7 @@ public sealed class DesktopWorldBackupBridge
                     }
                     return Ok(id,new{
                         jobId=job.Id,started=true,localMaps=5,
-                        originalKovaFilesWritten=false,serverStarted=false,
+                        originalLegacyFilesWritten=false,serverStarted=false,
                         sharedTransferIncluded=false,otherHostIncluded=false,
                         evidence="FIVE_VERIFIED_EXISTING_PER_MAP_WORLD_BACKUPS_JOB_QUEUED"
                     });
@@ -510,7 +510,7 @@ public sealed class DesktopWorldBackupBridge
                         lastStatus=row?.LastStatus??"not-configured",
                         lastPoint=row?.LastPoint,
                         runnerState=scheduled.RuntimeState,
-                        storeProtected=KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(owned),
+                        storeProtected=LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(owned),
                         automaticRestoreAllowed=false,
                         automaticServerStopAllowed=false,
                         evidence="PERSISTED_OPT_IN_STOPPED_NONSTORE_WORLD_BACKUPS"
@@ -523,11 +523,11 @@ public sealed class DesktopWorldBackupBridge
                        !Guid.TryParse(m.GetString(),out var mid))
                         return Fail(id,"UM-BACKUP-INVALID-MAP");
                     var map=Owned(mid);
-                    var points=await Task.Run(()=>KovaCompatibleWorldBackup.List(
+                    var points=await Task.Run(()=>LegacyCompatibleWorldBackup.List(
                         map,cluster.Store.Root));
                     return Ok(id,new{
                         mapId=map.Id,mapName=map.Name,
-                        recoveryRequired=KovaCompatibleWorldBackup.InstallationRecoveryRequired(map),
+                        recoveryRequired=LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map),
                         points=points.Select(x=>new{
                             id=x.Id,createdUtc=x.CreatedUtc,kind=x.Kind,
                             files=x.Files,bytes=x.Bytes,characters=x.Characters,tribes=x.Tribes,
@@ -549,13 +549,13 @@ public sealed class DesktopWorldBackupBridge
                     UniqueWorldDirectory(map);
                     Stopped(map);
                     var budget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
-                    if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+                    if(LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
                         return Fail(id,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED");
-                    var key=KovaCompatibleWorldBackup.MapKey(map);
+                    var key=LegacyCompatibleWorldBackup.MapKey(map);
                     string point="";
                     if(method=="backup.restorePreview")
                     {
-                        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
+                        if(LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map))
                             return Fail(id,"UM-BACKUP-STORE-V1-RESTORE-LOCKED");
                         if(!root.TryGetProperty("point",out var rawPoint)||
                            rawPoint.ValueKind!=JsonValueKind.String||
@@ -563,7 +563,7 @@ public sealed class DesktopWorldBackupBridge
                            parsedPoint==Guid.Empty)
                             return Fail(id,"UM-BACKUP-INVALID-POINT");
                         point=parsedPoint.ToString("D");
-                        await Task.Run(()=>KovaCompatibleWorldBackup.Verify(
+                        await Task.Run(()=>LegacyCompatibleWorldBackup.Verify(
                             map,cluster.Store.Root,point));
                     }
                     else
@@ -625,7 +625,7 @@ public sealed class DesktopWorldBackupBridge
                        chosenName.ValueKind!=JsonValueKind.String||
                        chosenName.GetString()!=current.Name)
                         return Fail(id,"UM-BACKUP-MAP-NAME-CONFIRMATION-REQUIRED");
-                    var receipt=await Task.Run(()=>KovaCompatibleWorldBackup.Restore(
+                    var receipt=await Task.Run(()=>LegacyCompatibleWorldBackup.Restore(
                         current,cluster.Store.Root,ticket.Point,()=>inspect(current)));
                     return Ok(id,new{
                         mapId=current.Id,mapName=current.Name,
@@ -641,10 +641,10 @@ public sealed class DesktopWorldBackupBridge
                         tribeOwnershipVerified=false,
                         characterRejoinVerified=false,
                         storeWriterTouched=false,
-                        evidence="VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY"
+                        evidence="VERIFIED_STOPPED_MAP_LEGACY_STYLE_RESTORE_WITH_PROTECTIVE_COPY"
                     });
                 }
-                var created=await Task.Run(()=>KovaCompatibleWorldBackup.Create(
+                var created=await Task.Run(()=>LegacyCompatibleWorldBackup.Create(
                     current,cluster.Store.Root,()=>inspect(current)));
                 return Ok(id,new{
                     mapId=current.Id,mapName=current.Name,
@@ -652,7 +652,7 @@ public sealed class DesktopWorldBackupBridge
                     files=created.Files,bytes=created.Bytes,
                     characters=created.Characters,tribes=created.Tribes,
                     embeddedSurvivorCountUnknown=
-                        KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(current),
+                        LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(current),
                     backupVerified=true,
                     asaSaveCompleteProven=false,
                     storeWriterTouched=false,
