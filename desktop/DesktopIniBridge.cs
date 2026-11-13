@@ -46,8 +46,8 @@ public sealed class DesktopIniBridge : IDisposable
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
            !string.IsNullOrWhiteSpace(map.FreshStoreClusterId)||
            !string.IsNullOrWhiteSpace(map.FreshStoreTransferDirectory)||
-           (map.Arguments+" "+map.ApiLoaderArguments).Contains("-usestore",
-               StringComparison.OrdinalIgnoreCase)||
+           AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
+           AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments)||
            !AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new UnauthorizedAccessException("UM-INI-CREATE-FRESH-ONLY");
         var root=Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar);
