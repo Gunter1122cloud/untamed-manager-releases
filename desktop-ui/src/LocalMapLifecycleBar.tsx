@@ -1,12 +1,15 @@
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,Play,RotateCcw,Octagon,Skull,Shield} from "lucide-react";
 import {managerBridge} from "./bridge";
 import "./local-map-lifecycle.css";
 
 type Action="start"|"restart"|"stop"|"kill";
-type Approval={action:Action;token:string;mapName:string;pid?:number};
+type Approval={action:Action;token:string;mapId:string;mapName:string;pid?:number};
 type RunningJob={action:"restart"|"stop";id:string};
 const copy:Record<Action,string>={start:"Indítás",restart:"Újraindítás",stop:"Leállítás",kill:"Kill"};
+// Only non-secret one-shot job receipts survive navigation. No approvals are cached.
+const runningJobs=new Map<string,RunningJob>();
+const lastReceipts=new Map<string,string>();
 const phrase:Record<Action,string>={start:"STORE-V1 ACTIVE START",restart:"STORE-V1 SAVEWORLD DOEXIT START",stop:"STORE-V1 SAVEWORLD DOEXIT",kill:"KILL LOCAL ASA"};
 
 /** Compact command surface using the EXISTING native lifecycle bridges.
@@ -17,13 +20,18 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   mapId:string;mapName:string;running:boolean;historical:boolean;
   journalBlocked?:boolean;onRefresh:()=>Promise<void>;onConfigure:()=>void;
 }){
+  const currentMap=useRef(mapId);
+  currentMap.current=mapId;
+  const mounted=useRef(false);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  const belongs=(requested:string)=>mounted.current&&currentMap.current===requested;
   const [pending,setPending]=useState<Approval|null>(null);
   const [checked,setChecked]=useState(false);
   const [typed,setTyped]=useState("");
   const [busy,setBusy]=useState(false);
   const [ownJournalBlocked,setOwnJournalBlocked]=useState(true);
-  const [job,setJob]=useState<RunningJob|null>(null);
-  const [message,setMessage]=useState("");
+  const [job,setJob]=useState<RunningJob|null>(()=>runningJobs.get(mapId)??null);
+  const [message,setMessage]=useState(()=>lastReceipts.get(mapId)??"");
   const [error,setError]=useState("");
   useEffect(()=>{
     if(journalBlocked!==undefined)return;
@@ -42,13 +50,16 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
   },[mapId,historical,journalBlocked]);
   const blocked=journalBlocked??ownJournalBlocked;
   useEffect(()=>{
-    setPending(null);setChecked(false);setTyped("");setError("");setMessage("");
-    setJob(null);
+    setPending(null);setChecked(false);setTyped("");setError("");setMessage(lastReceipts.get(mapId)??"");
+    setBusy(false);setJob(runningJobs.get(mapId)??null);
   },[mapId]);
   useEffect(()=>{
     if(!job)return;
     let alive=true;
+    let inFlight=false;
     const poll=async()=>{
+      if(!alive||inFlight)return;
+      inFlight=true;
       try{
         const data=job.action==="stop"
           ?historical?await managerBridge.historicalGracefulStopStatus(job.id)
@@ -57,20 +68,24 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
             :await managerBridge.freshAsaRestartStatus(job.id);
         if(!alive)return;
         if(data.state==="completed"){
-          setJob(null);
-          setMessage(copy[job.action]+" – a natív művelet befejeződött. A játékbeli készenlét és Store-utazás külön ellenőrzendő.");
-          void onRefresh();
+          runningJobs.delete(mapId);
+          const receipt=copy[job.action]+" – a művelet befejeződött. A játékbeli készenlét és Store-utazás külön ellenőrzendő.";
+          lastReceipts.set(mapId,receipt);
+          setJob(null);setMessage(receipt);
+          try{await onRefresh();}catch{
+            if(alive)setMessage(receipt+" A térkép állapotfrissítése nem sikerült; a műveletet nem ismételtük meg.");
+          }
         }else if(data.state==="needsOperator"){
+          runningJobs.delete(mapId);
           setJob(null);
-          setError(copy[job.action]+" megszakadt: a natív műveleti napló kézi ellenőrzést igényel. Automatikus ismétlés nincs.");
+          setError(copy[job.action]+" megszakadt: a műveleti napló kézi ellenőrzést igényel. Automatikus ismétlés nincs.");
         }
       }catch(e){
         if(alive){
-          setJob(null);
-          setError("A natív "+copy[job.action]+" státusza nem igazolható ("+
+          setError("A "+copy[job.action]+" státusza nem igazolható ("+
             (e instanceof Error?e.message:"ismeretlen")+"). Ellenőrizd a naplót, ne ismételd meg automatikusan.");
         }
-      }
+      }finally{inFlight=false;}
     };
     void poll();
     const timer=window.setInterval(()=>{void poll();},2500);
@@ -79,6 +94,7 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
 
   const preview=async(action:Action)=>{
     if(busy||job||blocked)return;
+    const requestedMap=mapId;
     setBusy(true);setPending(null);setError("");setMessage("");
     setChecked(false);setTyped("");
     try{
@@ -96,16 +112,18 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         ?historical?await managerBridge.historicalGracefulStopPreview(mapId)
           :await managerBridge.freshAsaStopPreview(mapId)
         :await managerBridge.ownedAsaKillPreview(mapId);
-      setPending({action,token:data.token,mapName:data.mapName,
+      if(!belongs(requestedMap))return;
+      setPending({action,token:data.token,mapId:requestedMap,mapName:data.mapName,
         pid:"pid" in data&&typeof data.pid==="number"?data.pid:undefined});
     }catch(e){
+      if(!belongs(requestedMap))return;
       setError(copy[action]+" előellenőrzés elutasítva: "+
         (e instanceof Error?e.message:"nem ellenőrizhető")+
         ". Ellenőrizd a helyi konfigurációt, a naplót, a PID-et, az RCON-t és a portokat.");
-    }finally{setBusy(false);}
+    }finally{if(belongs(requestedMap))setBusy(false);}
   };
   const apply=async()=>{
-    if(!pending||!checked||busy||job||(historical||pending.action==="kill")&&typed!==phrase[pending.action])
+    if(!pending||pending.mapId!==mapId||!checked||busy||job||(historical||pending.action==="kill")&&typed!==phrase[pending.action])
       return;
     const selected=pending;
     setPending(null);setBusy(true);setError("");setMessage("");
@@ -120,23 +138,35 @@ export function LocalMapLifecycleBar({mapId,mapName,running,historical,
         ?historical?await managerBridge.historicalRestartApply(selected.token,phrase.restart)
           :await managerBridge.freshAsaRestartApply(selected.token)
         :await managerBridge.ownedAsaKillApply(selected.token,phrase.kill);
-      if(selected.action==="start"){
-        setMessage("Indítási PID létrejött. Az ASA/Loader gyermekfolyamat és az RCON készenléte külön vizsgálandó.");
-        await onRefresh();
-      }else if(selected.action==="kill"){
-        if(!("confirmedStopped" in started)||!started.confirmedStopped)
-          throw new Error("UM-KILL-STOP-UNVERIFIED");
-        setMessage("Kizárólag a bizonyított helyi ASA PID megszűnt. Kill nem mentett világot – ellenőrizd a mentéseket.");
-        await onRefresh();
+      if(selected.action==="start"||selected.action==="kill"){
+        const receipt=selected.action==="start"
+          ?"ASA-indítás elküldve. A folyamat és az RCON készenléte külön ellenőrizendő."
+          :("confirmedStopped" in started&&started.confirmedStopped)
+            ?"A kiválasztott helyi ASA PID megszűnt. A Kill nem mentette a világot."
+            :"A Kill után a folyamat megszűnése nem igazolt; ne ismételd meg vakon.";
+        lastReceipts.set(selected.mapId,receipt);
+        if(belongs(selected.mapId)){
+          if(selected.action==="kill"&&!("confirmedStopped" in started&&started.confirmedStopped))
+            setError(receipt);
+          else setMessage(receipt);
+          try{await onRefresh();}catch{
+            if(belongs(selected.mapId))setMessage(receipt+" A dashboard frissítése sikertelen; nem történt újabb parancsküldés.");
+          }
+        }
       }else {
         if(!("jobId" in started))throw new Error("UM-LIFECYCLE-JOB-ID-MISSING");
-        setJob({action:selected.action,id:started.jobId});
-        setMessage(copy[selected.action]+" natív feladat elindítva; folyamatban lévő állapot lekérdezése...");
+        const receipt={action:selected.action,id:started.jobId};
+        runningJobs.set(selected.mapId,receipt);
+        if(belongs(selected.mapId)){
+          setJob(receipt);
+          setMessage(copy[selected.action]+" feladat elindítva; állapot lekérdezése...");
+        }
       }
     }catch(e){
-      setError(copy[selected.action]+" nem sikerült: "+(e instanceof Error?e.message:"nem igazolt")+
+      if(!belongs(selected.mapId))return;
+      setError(copy[selected.action]+" nem igazolható: "+(e instanceof Error?e.message:"nem igazolt")+
         ". Nincs automatikus ismétlés; ellenőrizd a natív naplót.");
-    }finally{setBusy(false);}
+    }finally{if(belongs(selected.mapId))setBusy(false);}
   };
   const unavailable=busy||Boolean(job)||blocked;
   return <section className="uk-lifecycle-command" aria-label="Helyi map életciklus vezérlése">
