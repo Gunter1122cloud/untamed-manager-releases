@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace UntamedManager.Core;
 
-// Does NOT parse, migrate or implement any KovaCluster Store format.
+// Does NOT parse, migrate or implement any LegacyCluster Store format.
 // This deliberately accepts only explicit TEMP synthetic copies of the Store,
 // not home-host shares or current cluster/character save directories.
 public sealed record VaultFixtureReport(string Source,Guid TestOwner,int Files,long Bytes,

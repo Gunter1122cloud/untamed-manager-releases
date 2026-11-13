@@ -8,7 +8,7 @@ using System.Text.Json;
 namespace UntamedManager.Core;
 
 // Supports the two different *sanitized audit export* shapes supplied in
-// November 2026. Does not interpret or write the live .kova-store-v1 protocol.
+// November 2026. Does not interpret or write the live .legacy-store-v1 protocol.
 // A clean audit snapshot is historical evidence, NEVER an ownership/restore token.
 public enum VaultAuditHost { Hp, Ryzen }
 public sealed record VaultAuditSnapshot(
