@@ -379,6 +379,20 @@ test.beforeEach(async ({ page }) => {
     let originalSaveQueued=false;
     let originalSavePending=false;
     let originalSaveDispatches=0;
+    let originalSaveWrongPreviewMap=false;
+    let originalSaveWrongStatusJob=false;
+    let originalSaveWrongEvidenceMap=false;
+    (window as typeof window & {
+      __UNTAMED_SAVE_WRONG_PREVIEW_MAP__?:()=>void;
+      __UNTAMED_SAVE_WRONG_STATUS_JOB__?:()=>void;
+      __UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?:()=>void;
+    }).__UNTAMED_SAVE_WRONG_PREVIEW_MAP__=()=>{originalSaveWrongPreviewMap=true;};
+    (window as typeof window & {
+      __UNTAMED_SAVE_WRONG_STATUS_JOB__?:()=>void
+    }).__UNTAMED_SAVE_WRONG_STATUS_JOB__=()=>{originalSaveWrongStatusJob=true;};
+    (window as typeof window & {
+      __UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?:()=>void
+    }).__UNTAMED_SAVE_WRONG_EVIDENCE_MAP__=()=>{originalSaveWrongEvidenceMap=true;};
     let originalSaveReattached=false;
     let originalSaveHold=false;
     let originalSaveEvidenceTampered=false;
@@ -1325,7 +1339,8 @@ test.beforeEach(async ({ page }) => {
             throw new Error("Original Store SaveWorld owner/session unavailable");
           originalSavePending=true;
           return {
-            token:originalSaveToken,mapId:two,mapName:"Astraeos",
+            token:originalSaveToken,
+            mapId:originalSaveWrongPreviewMap?one:two,mapName:"Astraeos",
             pid:42101,rconPort:37145,originalTwoPeersVerified:false,
             originalPeerCheckRequiredForLocalOperation:false,
             usesSaveWorld:true,usesDoExit:false,forceKillAllowed:false,
@@ -1349,7 +1364,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-ORIGINAL-SAVE-JOURNAL-TAMPERED");
           const complete=originalSaveQueued&&!(originalSaveReattached&&originalSaveHold);
           return {
-            mapId:two,phase:originalSaveRecoveryFixture?
+            mapId:originalSaveWrongEvidenceMap?one:two,phase:originalSaveRecoveryFixture?
               (originalSaveReviewed?"reviewed":"needsOperator"):
               originalSaveQueued?(complete?"completed":"prepared"):"none",
             operationId:originalSaveRecoveryFixture?originalSaveJob:
@@ -1392,7 +1407,9 @@ test.beforeEach(async ({ page }) => {
             throw new Error("Original Store SaveWorld job unknown");
           const held=originalSaveReattached&&originalSaveHold;
           if(!held)originalSaveReattached=false;
-          return {jobId:originalSaveJob,kind:"SaveWorldOnly",
+          return {
+            jobId:originalSaveWrongStatusJob?"00000000-0000-4000-8000-000000001695":originalSaveJob,
+            kind:"SaveWorldOnly",
             state:held?"running":"completed",
             step:held?"Natív mentési művelet megfigyelése":
               "Store-v1 SaveWorld igazolva; az ASA tovább fut",
@@ -5267,6 +5284,69 @@ test("Store read-only RCON rejects a different map's response instead of showing
   await expect(panel.getByRole("region",{name:"Eredeti Store-v1 RCON válasz"})).toHaveCount(0);
   await expect(panel).toContainText("válasz mapazonossága");
   await expect(panel.getByRole("button",{name:"Játékoslista lekérdezése"})).toBeDisabled();
+});
+
+test("Store-v1 SaveWorld refuses a native preview bound to another map",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_SAVE_WRONG_PREVIEW_MAP__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_WRONG_PREVIEW_MAP__?:()=>void;
+  }).__UNTAMED_SAVE_WRONG_PREVIEW_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"})).toHaveCount(0);
+  await expect(panel).toContainText("kiválasztott Store-v1 map PID/RCON-ja");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+});
+
+test("Store-v1 SaveWorld rejects another job's completed status without declaring SaveComplete",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_SAVE_WRONG_STATUS_JOB__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_WRONG_STATUS_JOB__?:()=>void;
+  }).__UNTAMED_SAVE_WRONG_STATUS_JOB__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  const preview=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
+  await preview.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
+  await preview.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await expect(panel).toContainText("státusza vagy feladatazonossága nem igazolható");
+  await expect(panel).not.toContainText("Helyi SaveComplete napló tartósan igazolt");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
+});
+
+test("Store-v1 SaveWorld rejects another map's durable evidence without sending RCON",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?:()=>void;
+  }).__UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Tartós napló nem ellenőrizhető");
+  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
 });
 
 test("original Store-v1 SaveWorld-only runs the real native map action without stopping ASA",async({page})=>{
