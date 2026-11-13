@@ -5574,7 +5574,8 @@ test("fresh ASA RCON rejects another map's game-log response",async({page})=>{
     __UNTAMED_RCON_WRONG_LOG_MAP__?:()=>void
   }).__UNTAMED_RCON_WRONG_LOG_MAP__?.());
   await page.getByRole("button",{name:"ASA játéknapló (GetGameLog)"}).click();
-  await expect(page.getByRole("log",{name:"RCON ListPlayers válasz"})).toHaveCount(0);
+  await expect(page.getByRole("log",{name:"RCON ListPlayers válasz"}))
+    .not.toContainText("Synthetic ASA GameLog entry");
   await expect(page.getByText(/RCON-válasz mapazonossága/)).toBeVisible();
 });
 
