@@ -254,34 +254,34 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     if(!ReadGuid(args,"token",out var reviewToken)||
                        reviewPending==null||reviewPending.Token!=reviewToken)
                         return Fail(id,"UM-ASA-RESTART-REVIEW-APPROVAL-EXPIRED");
-                    var approved=reviewPending;
+                    var reviewPermit=reviewPending;
                     reviewPending=null; // one shot even when verification fails
-                    if(approved.ExpiresUtc<DateTimeOffset.UtcNow||
+                    if(reviewPermit.ExpiresUtc<DateTimeOffset.UtcNow||
                        !args.TryGetProperty("confirm",out var confirmReview)||
                        confirmReview.ValueKind!=JsonValueKind.True)
                         return Fail(id,"UM-ASA-RESTART-REVIEW-APPROVAL");
-                    var owned=Owned(approved.MapId);
+                    var owned=Owned(reviewPermit.MapId);
                     if(owned==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     var journal=new AsaManualRestartJournal(owned.InstallationPath);
-                    var observed=journal.Observe();
-                    if(observed==null||observed.Id!=approved.JournalId||
-                       JsonSerializer.Serialize(observed)!=approved.RestartSnapshot||
-                       !ReviewOwner(owned,observed,approved.OldStartedUtc,
-                           approved.ProfileSnapshot)||
-                       observed.OldPid!=approved.OldPid)
+                    var reviewSnapshot=journal.Observe();
+                    if(reviewSnapshot==null||reviewSnapshot.Id!=reviewPermit.JournalId||
+                       JsonSerializer.Serialize(reviewSnapshot)!=reviewPermit.RestartSnapshot||
+                       !ReviewOwner(owned,reviewSnapshot,reviewPermit.OldStartedUtc,
+                           reviewPermit.ProfileSnapshot)||
+                       reviewSnapshot.OldPid!=reviewPermit.OldPid)
                         return Fail(id,"UM-ASA-RESTART-REVIEW-SOURCE-CHANGED");
                     cluster.Operations.ReviewRunningOriginalRestartOnly(
-                        owned.InstallationPath,owned.Id,approved.JournalId,
-                        approved.OldPid,()=>{
+                        owned.InstallationPath,owned.Id,reviewPermit.JournalId,
+                        reviewPermit.OldPid,()=>{
                             var fresh=journal.Observe();
-                            return fresh!=null&&fresh.Id==approved.JournalId&&
-                                fresh.MapId==owned.Id&&fresh.OldPid==approved.OldPid&&
+                            return fresh!=null&&fresh.Id==reviewPermit.JournalId&&
+                                fresh.MapId==owned.Id&&fresh.OldPid==reviewPermit.OldPid&&
                                 fresh.NewPid==0&&ReviewOwner(owned,fresh,
-                                    approved.OldStartedUtc,approved.ProfileSnapshot,
+                                    reviewPermit.OldStartedUtc,reviewPermit.ProfileSnapshot,
                                     allowJustReviewed:true);
                         });
                     return Ok(id,new{
-                        mapId=owned.Id,oldPid=approved.OldPid,
+                        mapId=owned.Id,oldPid=reviewPermit.OldPid,
                         state="operatorReviewed",previousOutcomeUnknown=true,
                         newRestartSucceeded=false,serverStarted=false,
                         serverStopped=false,rconSent=false,
