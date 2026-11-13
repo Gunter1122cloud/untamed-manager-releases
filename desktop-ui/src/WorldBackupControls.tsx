@@ -223,7 +223,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
       setRepairPhrase("");
     }catch{
       setOriginalFiveError("A napló felülvizsgálata nem indítható. "+
-        "Az eredeti öt mapnak igazoltan leállítva kell lennie és a Kova-forrásnak "+
+        "Az eredeti öt mapnak igazoltan leállítva kell lennie és a eredeti forrásnak "+
         "változatlannak. A korábbi mentéseket nem töröljük.");
     }finally{setRepairBusy(false);}
   };
@@ -263,7 +263,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     }catch(e){
       setOriginalFiveError("Az eredeti ötmapos mentés nem készíthető elő. "+
         "Mind az öt importált mapnak igazoltan leállítva kell lennie, "+
-        "változatlan Kova metaadatokkal és érvényes világfájlokkal. "+
+        "változatlan korábbi Manager metaadatokkal és érvényes világfájlokkal. "+
         (e instanceof Error?e.message:""));
     }finally{setOriginalFiveBusy(false);}
   };
@@ -294,7 +294,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   return <section className="uk-world-backup premium-panel">
     <header className="premium-panel-heading">
       <h2><ShieldCheck size={19}/> Valódi világmentés és védett visszaállítás</h2>
-      <span className="premium-small-muted">KOVA-MINTA · SHA-256 · ATOMIKUS</span>
+      <span className="premium-small-muted">OBSIDIAN MINTA · SHA-256 · ATOMIKUS</span>
     </header>
     <div className="uk-world-backup-inner">
       <div className="uk-world-backup-toolbar">
@@ -318,7 +318,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
           <b>Az öt eredeti helyi Store-v1 map mentése együtt</b>
           <p>A már működő, SHA-256 ellenőrzött mapmentési motor mind az öt
             eredeti helyi mapról mentést készít. Nem indít vagy állít le
-            szervert, nem küld RCON-t, és nem módosít Kova-sessiont, lockot
+            szervert, nem küld RCON-t, és nem módosít eredeti sessiont, lockot
             vagy a közös transferkönyvtárat. A másik gépen külön futtasd.</p>
           {!originalFivePreview&&<button type="button" className="secondary"
             disabled={originalFiveBusy||originalFiveRunning||busy}
@@ -370,7 +370,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
                 <p>{originalFiveJob.points.map(p=>p.mapName).join(", ")}</p>}
               {originalFiveJob.state==="needsOperator"&&
                 <p role="alert">A már sikeres mapmentések megmaradtak a helyi előzményekben.
-                  A Kova Store/session/transfer fájlok változatlanok.
+                  A korábbi Manager Store/session/transfer fájlok változatlanok.
                   Ellenőrizd a mapok leállított állapotát és a mentési előzményeket.</p>}
               {originalFiveJob.step==="journal-integrity-repair-required"&&
                 <button type="button" className="secondary" disabled={repairBusy}
@@ -382,7 +382,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
             aria-label="Sérült mentési napló jóváhagyása"
             className="uk-world-backup-confirm">
               <p><b>Csak a Manager saját sérült műveleti naplójának
-                elkülönítése.</b> Az eredeti ASA/Kova világ, karakter, session,
+                elkülönítése.</b> Az eredeti ASA/korábbi Manager világ, karakter, session,
                 lock és transfer változatlan marad. Eltérő korábbi mentési
                 pontok nem kerülnek törlésre.</p>
               <label>Jóváhagyás szövege: REVIEW FIVE BACKUPS
