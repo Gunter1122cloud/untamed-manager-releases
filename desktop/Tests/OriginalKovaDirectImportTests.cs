@@ -114,6 +114,25 @@ internal static class OriginalKovaDirectImportTests
               discovered.LaunchProfileSha256==launchHash,
             "five original GUIDs, map keys and installation paths remain byte-bound");
 
+        // Kova 1.8.3 explicitly accepts mod IDs of 1–12 digits. An
+        // original five-map source with a short numeric ID is valid and
+        // must not be refused by Obsidian solely for ID length.
+        try
+        {
+            File.WriteAllText(launchProfilePath,launchBytes.Replace(
+                "123456789","7",StringComparison.Ordinal));
+            var shortIdSource=LegacyStoreV1OriginalImport.Inspect(local);
+            Check(shortIdSource.Maps.Length==5&&
+                  shortIdSource.Maps.All(m=>m.EnabledMods.SequenceEqual(
+                      new[]{"7","987654321"})&&
+                      m.PassiveMods.SequenceEqual(new[]{"7"})),
+                "original Kova source accepts one-digit mod ID with exact passive order");
+        }
+        finally { File.WriteAllText(launchProfilePath,launchBytes); }
+        Check(LegacyStoreV1OriginalImport.Inspect(local)
+                .LaunchProfileSha256==launchHash,
+            "synthetic original launch source restored byte-for-byte after short-ID test");
+
         // Migration of a PREVIOUSLY imported Manager profile is separate
         // from the first-time import, with explicit one-use native approval.
         // All files below are synthetic TEMP fixtures, not production Kova.
