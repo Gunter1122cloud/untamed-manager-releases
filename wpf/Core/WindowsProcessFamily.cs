@@ -10,7 +10,19 @@ public sealed partial class WindowsProcessInspector
 {
     public ProcessCheck InspectFamily(LocalMap map)
     {
-        if(!File.Exists(map.ApiLoaderPath)||!File.Exists(map.ExecutablePath))return new(false,"Loader or server executable unavailable",null);
+        if(string.IsNullOrWhiteSpace(map.ExecutablePath)||!File.Exists(map.ExecutablePath))
+            return new(false,"ASA server executable unavailable",null);
+        // The API Loader is optional. A direct-mode map with no persisted
+        // Loader parent must remain fully observable even if the optional
+        // Loader path is configured but its binary was never installed.
+        bool hasLoader= !string.IsNullOrWhiteSpace(map.ApiLoaderPath) &&
+            File.Exists(map.ApiLoaderPath);
+        if(!hasLoader)
+        {
+            if(map.StartWithAsaApi||map.LastLoader!=null)
+                return new(false,"API Loader missing or previous Loader identity cannot be verified",null);
+            return Inspect(map);
+        }
         var observed=new List<ObservedProcess>();
         bool uncertain=false;
         string loader=Path.GetFullPath(map.ApiLoaderPath),server=Path.GetFullPath(map.ExecutablePath);
@@ -56,6 +68,14 @@ public sealed partial class WindowsProcessInspector
                 if(!ProcessFamily.IsVerifiedPair(observed,parent,child))return new(false,"Loader-child relationship unverified",null);
                 return new(true,"Loader and server family verified",child,false,parent);
             }
+            // Direct ASA is a supported launch mode even when an optional
+            // Loader binary exists on disk. Never downgrade a known Loader
+            // child to direct mode: that requires matching original parent
+            // and child identities, even if the parent has already exited.
+            if(loaders.Length==0 && ProcessFamily.IsVerifiedDirectServer(
+                children[0],map.LastProcess,map.LastLoader,
+                map.StartWithAsaApi,server,map.Arguments))
+                return new(true,"Direct ASA server verified without Loader",child);
             // A loader may exit while its child remains alive. Windows does not
             // guarantee the orphan's ParentProcessId still equals the original
             // loader PID; use the exact persisted verified identities instead.
