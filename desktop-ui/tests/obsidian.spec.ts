@@ -570,6 +570,15 @@ test.beforeEach(async ({ page }) => {
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
     let iniConcurrentRebased=false;
+    let wrongIniOpenMap=false;
+    let holdIniOpen=false;
+    let releaseIniOpen:(()=>void)|null=null;
+    (window as typeof window & {__UNTAMED_INI_WRONG_OPEN_MAP__?:()=>void})
+      .__UNTAMED_INI_WRONG_OPEN_MAP__=()=>{wrongIniOpenMap=true;};
+    (window as typeof window & {__UNTAMED_INI_HOLD_OPEN__?:()=>void})
+      .__UNTAMED_INI_HOLD_OPEN__=()=>{holdIniOpen=true;};
+    (window as typeof window & {__UNTAMED_INI_RELEASE_OPEN__?:()=>void})
+      .__UNTAMED_INI_RELEASE_OPEN__=()=>{releaseIniOpen?.();};
     const missingGameToken="00000000-0000-4000-8000-000000003334";
     let missingGameCreated=false;
     const nativeSchedules:Record<string,any[]>={};
@@ -2363,11 +2372,16 @@ test.beforeEach(async ({ page }) => {
         }
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
         case "ini.open":
+          if(holdIniOpen){
+            holdIniOpen=false;
+            await new Promise<void>(resolve=>{releaseIniOpen=resolve;});
+            releaseIniOpen=null;
+          }
           if(["missingGameIni","missingGameIniStore"].includes(
               new URLSearchParams(window.location.search).get("fixture")??"") &&
              m.file==="Game.ini"&&!missingGameCreated)
             throw new Error("UM-INI-GAME-MISSING");
-          return {token:iniToken,mapId:one,file:m.file||"Game.ini",
+          return {token:iniToken,mapId:wrongIniOpenMap?two:one,file:m.file||"Game.ini",
             content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",
             sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
         case "ini.createGamePreview":
@@ -4826,6 +4840,44 @@ test("native mod draft contract stages in memory and saves only on explicit clic
   await page.getByRole("tab",{name:"Map modjai"}).click();
   await expect(page.getByRole("table",{name:"Konfigurált modlista"}).getByText("CurseForge ID: 567890")).toBeVisible();
   await expect(page.locator(".premium-mod-save-toast")).toContainText("Mentve a helyi indítási konfigurációba");
+});
+
+test("INI editor never opens another map's native INI snapshot",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INI_WRONG_OPEN_MAP__?:()=>void
+  }).__UNTAMED_INI_WRONG_OPEN_MAP__?.());
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  await expect(page.getByRole("alert")).toContainText("másik maphoz vagy fájlhoz");
+  await expect(page.getByRole("textbox",{
+    name:"Az eredeti fájl szerkeszthető tartalma"
+  })).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}))
+    .toHaveCount(0);
+});
+
+test("INI editor ignores a delayed old-file response after switching to a different INI",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INI_HOLD_OPEN__?:()=>void
+  }).__UNTAMED_INI_HOLD_OPEN__?.());
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  await page.getByRole("combobox",{name:"INI fájl"}).selectOption("GameUserSettings.ini");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INI_RELEASE_OPEN__?:()=>void
+  }).__UNTAMED_INI_RELEASE_OPEN__?.());
+  await expect(page.getByRole("textbox",{
+    name:"Az eredeti fájl szerkeszthető tartalma"
+  })).toHaveCount(0);
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  await expect(page.getByRole("textbox",{
+    name:"Az eredeti fájl szerkeszthető tartalma"
+  })).toBeVisible();
+  await expect(page.getByRole("heading",{
+    name:"INI szerkesztő",exact:true
+  })).toBeVisible();
 });
 
 test("INI editor requires explicit open, preview and save in test contract",async ({page})=>{

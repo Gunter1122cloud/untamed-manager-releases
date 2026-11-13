@@ -1318,6 +1318,21 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   mapLocked?:boolean
 }) {
   const [file, setFile] = useState<IniFile>("Game.ini");
+  // Bind async INI snapshots, previews and approvals to the exact map/file.
+  // A late response after map navigation cannot populate another map's editor.
+  const currentMap=useRef(selected);
+  const currentFile=useRef(file);
+  currentMap.current=selected;
+  currentFile.current=file;
+  const operationEpoch=useRef(0);
+  const mounted=useRef(true);
+  useEffect(()=>{
+    mounted.current=true;
+    return ()=>{mounted.current=false;++operationEpoch.current;};
+  },[]);
+  const belongs=(mapId:string,name:IniFile,epoch:number)=>
+    mounted.current&&operationEpoch.current===epoch&&
+    currentMap.current===mapId&&currentFile.current===name;
   const [opened, setOpened] = useState<IniDocument | null>(null);
   const [content, setContent] = useState("");
   const [preview, setPreview] = useState<IniPreview | null>(null);
@@ -1329,19 +1344,26 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
-    setOpened(null); setContent(""); setPreview(null);setMergeAvailable(false);
+    ++operationEpoch.current;
+    setOpened(null);setContent("");setPreview(null);setMergeAvailable(false);
     setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
-    setNotice(""); setError("");
+    setNotice("");setError("");setBusy(false);
+    return ()=>{++operationEpoch.current;};
   }, [selected, file]);
   const load = async () => {
-    if (!selected) return;
-    setBusy(true); setError(""); setNotice(""); setPreview(null);setMergeAvailable(false);
+    if(!selected||busy)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
+    setBusy(true);setError("");setNotice("");setPreview(null);setMergeAvailable(false);
     setCreatePreview(null);setCreateApproved(false);setMissingGame(false);
     try {
-      const fresh = await managerBridge.iniOpen(selected, file);
-      setOpened(fresh); setContent(fresh.content);
-    } catch(e) {
-      const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
+      const fresh=await managerBridge.iniOpen(requested,name);
+      if(!belongs(requested,name,epoch))return;
+      if(fresh.mapId.toLowerCase()!==requested.toLowerCase()||fresh.file!==name)
+        throw new Error("UM-INI-OPEN-OTHER-MAP");
+      setOpened(fresh);setContent(fresh.content);
+    }catch(e){
+      if(!belongs(requested,name,epoch))return;
+      const code=e instanceof Error?e.message:"UM-INI-OPERATION-FAILED";
       setMissingGame(file==="Game.ini"&&
         ["UM-INI-GAME-MISSING","UM-INI-CONFIG-DIRECTORY-MISSING"].includes(code));
       const message:Record<string,string>={
@@ -1355,86 +1377,142 @@ function IniCenter({ snapshot, selected, setSelected, mapLocked=false }: {
         "UM-INI-PATH-OR-CONTENT-UNSAFE":"Az INI útvonala, linkje vagy tartalma nem felelt meg a biztonsági ellenőrzésnek.",
         "UM-INI-ETAG-MISMATCH":"Az INI fájl az előnézet óta megváltozott. A frissebb fájlt nem írtuk felül. Nyisd meg újra, és ellenőrizd az eltéréseket.",
         "UM-INI-CONFLICT-OR-IO-ERROR":"Az INI fájl zárolt, megváltozott vagy nem olvasható biztonságosan.",
-        "UM-HISTORICAL-STORE-LOCKED":"A történeti Store-v1 map konfigurációja védett."
+        "UM-HISTORICAL-STORE-LOCKED":"A történeti Store-v1 map konfigurációja védett.",
+        "UM-INI-OPEN-OTHER-MAP":"Az INI natív válasza másik maphoz vagy fájlhoz tartozik; a tartalom és a mentési jóváhagyás elutasítva."
       };
       setError(message[code]??"A natív INI-ellenőrzés megtagadta a megnyitást ("+code+").");
-    } finally { setBusy(false); }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const prepareMissingGame=async()=>{
     if(!selected||file!=="Game.ini"||busy)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
     setBusy(true);setError("");setCreatePreview(null);setCreateApproved(false);
-    try{setCreatePreview(await managerBridge.iniCreateGamePreview(selected));}
-    catch(e){
-      const code=e instanceof Error?e.message:"UM-INI-CREATE-DENIED";
-      setError(describeIniCreateFailure(code));
-    }finally{setBusy(false);}
+    try{
+      const result=await managerBridge.iniCreateGamePreview(requested);
+      if(!belongs(requested,name,epoch))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||result.file!==name||
+         result.originalStoreTouched||result.createsFile)
+        throw new Error("UM-INI-CREATE-PREVIEW-OTHER-MAP");
+      setCreatePreview(result);
+    }catch(e){
+      if(belongs(requested,name,epoch)){
+        const code=e instanceof Error?e.message:"UM-INI-CREATE-DENIED";
+        setError(describeIniCreateFailure(code));
+      }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const applyMissingGame=async()=>{
     if(!createPreview||!createApproved||createPreview.mapId!==selected||
        file!=="Game.ini"||busy)return;
-    const token=createPreview.token;
+    const token=createPreview.token,requested=selected,name=file,
+      epoch=operationEpoch.current;
     setBusy(true);setError("");setCreatePreview(null);setCreateApproved(false);
+    let committed=false;
     try{
       const receipt=await managerBridge.iniCreateGameApply(token);
-      if(!receipt.created||receipt.originalStoreTouched)
+      if(!belongs(requested,name,epoch))return;
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         receipt.file!==name||!receipt.created||receipt.originalStoreTouched)
         throw new Error("UM-INI-CREATE-RECEIPT-INVALID");
-      const fresh=await managerBridge.iniOpen(selected,"Game.ini");
-      setOpened(fresh);setContent(fresh.content);setMissingGame(false);
-      setNotice("A hiányzó Game.ini kizárólag ezen az igazoltan leállított új mapon jött létre. A fájlt az ETag-védett szerkesztő már megnyitotta.");
+      committed=true;
+      setMissingGame(false);
+      setNotice("A hiányzó Game.ini ezen az igazoltan leállított mapon létrejött.");
+      try{
+        const fresh=await managerBridge.iniOpen(requested,name);
+        if(!belongs(requested,name,epoch))return;
+        if(fresh.mapId.toLowerCase()!==requested.toLowerCase()||fresh.file!==name)
+          throw new Error("UM-INI-OPEN-OTHER-MAP");
+        setOpened(fresh);setContent(fresh.content);
+        setNotice("A Game.ini létrejött, és az ETag-védett szerkesztő megnyitotta.");
+      }catch{
+        if(belongs(requested,name,epoch))
+          setError("A Game.ini létrejött, de az újraolvasása sikertelen. Ne ismételd meg a létrehozást; csak nyisd meg a fájlt.");
+      }
     }catch(e){
-      const code=e instanceof Error?e.message:"UM-INI-CREATE-FAILED";
-      setError(describeIniCreateFailure(code));
-    }finally{setBusy(false);}
+      if(belongs(requested,name,epoch)&&!committed){
+        const code=e instanceof Error?e.message:"UM-INI-CREATE-FAILED";
+        setError(describeIniCreateFailure(code));
+      }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const showPreview = async () => {
-    if (!opened) return;
-    setBusy(true); setError(""); setNotice("");
-    try { setPreview(await managerBridge.iniPreview(opened.token, content)); }
-    catch { setPreview(null); setError("Az INI előnézet érvénytelen vagy lejárt. Nem írtunk fájlba."); }
-    finally { setBusy(false); }
+    if(!opened||busy||opened.mapId.toLowerCase()!==selected.toLowerCase()||
+       opened.file!==file)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const result=await managerBridge.iniPreview(opened.token,content);
+      if(!belongs(requested,name,epoch))return;
+      if(result.originalSha256.toLowerCase()!==opened.sha256.toLowerCase())
+        throw new Error("UM-INI-PREVIEW-BASE-HASH-MISMATCH");
+      setPreview(result);
+    }catch{
+      if(belongs(requested,name,epoch)){
+        setPreview(null);
+        setError("Az INI előnézet érvénytelen, másik alapverzióhoz tartozik vagy lejárt. Nem írtunk fájlba.");
+      }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const rebaseIni = async () => {
-    if(!opened||busy)return;
+    if(!opened||busy||opened.mapId.toLowerCase()!==selected.toLowerCase()||
+       opened.file!==file)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
     setBusy(true);setError("");setNotice("");setPreview(null);
     try{
       const merge=await managerBridge.iniRebasePreview(opened.token,content);
-      // Keep the freshly read DISK baseline separate from the rebased user
-      // draft. Otherwise the new hash-preview action would be disabled.
+      if(!belongs(requested,name,epoch))return;
       setOpened({...opened,sha256:merge.freshSha256,content:merge.diskContent});
       setContent(merge.content);
       setMergeAvailable(false);
       setNotice("A nem ütköző INI-kulcsváltozások egyeztetve, lemezírás nélkül. Kérj új hash-előnézetet, majd külön hagyd jóvá a mentést.");
     }catch(e){
+      if(!belongs(requested,name,epoch))return;
       const code=e instanceof Error?e.message:"UM-INI-MERGE-FAILED";
       setError(code==="UM-INI-MERGE-CONFLICT"
         ?"Az INI ugyanazon kulcsán vagy a sorstruktúrában versengő módosítás történt. Automatikus egyeztetés tiltva; a meglévő fájl változatlan. Ellenőrizd kézzel a különbségeket."
         :"Nem sikerült az INI újraegyeztetése ("+code+"). A lemezen nem írtunk fájlt.");
-    }finally{setBusy(false);}
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const save = async () => {
-    if (!opened || !preview?.changed) return;
-    setBusy(true); setError(""); setNotice("");
-    try {
-      const result = await managerBridge.iniSave(opened.token);
-      setOpened(null); setPreview(null); setContent("");setMergeAvailable(false);
+    if(!opened||!preview?.changed||busy||
+       opened.mapId.toLowerCase()!==selected.toLowerCase()||opened.file!==file||
+       preview.originalSha256.toLowerCase()!==opened.sha256.toLowerCase())return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const result=await managerBridge.iniSave(opened.token);
+      if(!belongs(requested,name,epoch))return;
+      if(!result.saved||result.sha256.toLowerCase()!==preview.nextSha256.toLowerCase())
+        throw new Error("UM-INI-SAVE-RECEIPT-MISMATCH");
+      setOpened(null);setPreview(null);setContent("");setMergeAvailable(false);
       setNotice(result.backupCreated
-        ? "Az INI mentése atomikusan befejeződött, visszaállítási .bak másolattal."
-        : "Az INI mentése befejeződött.");
-    } catch(e) {
-      const code = e instanceof Error ? e.message : "UM-INI-OPERATION-FAILED";
+        ?"Az INI mentése atomikusan befejeződött, visszaállítási .bak másolattal."
+        :"Az INI mentése befejeződött.");
+    }catch(e){
+      if(!belongs(requested,name,epoch))return;
+      const code=e instanceof Error?e.message:"UM-INI-OPERATION-FAILED";
       setError(code==="UM-INI-ETAG-MISMATCH"
         ?"Az INI időközben megváltozott. Az eredeti fájlt nem írtuk felül. A háromutas egyeztetéssel ellenőrizheted a független kulcsmódosításokat."
+        :code==="UM-INI-SAVE-RECEIPT-MISMATCH"
+        ?"Az INI-mentésre visszakapott SHA-256 nem egyezik az elfogadott előnézettel. A mentés megtörténhetett; ne ismételd meg ellenőrzés nélkül."
         :"Az INI-mentést a natív biztonsági ellenőrzés elutasította ("+code+"). Ellenőrizd, hogy a map leállt-e, és nem változott-e közben a fájl.");
       setMergeAvailable(code==="UM-INI-ETAG-MISMATCH");
       setPreview(null);
-    } finally { setBusy(false); }
+    }finally{if(belongs(requested,name,epoch))setBusy(false);}
   };
   const close = async () => {
-    if (!opened) return;
+    if(!opened||busy||opened.mapId.toLowerCase()!==selected.toLowerCase()||
+       opened.file!==file)return;
+    const requested=selected,name=file,epoch=operationEpoch.current;
     setBusy(true);setError("");
-    try { await managerBridge.iniClose(opened.token); }
-    catch { /* Local draft expires; discarding UI text never writes a file. */ }
-    finally { setOpened(null); setContent(""); setPreview(null);setMergeAvailable(false);setBusy(false); }
+    try{await managerBridge.iniClose(opened.token);}
+    catch{/* Local draft expires; discarding UI text never writes a file. */}
+    finally{
+      if(belongs(requested,name,epoch)){
+        setOpened(null);setContent("");setPreview(null);
+        setMergeAvailable(false);setBusy(false);
+      }
+    }
   };
   return <>
     <div className="page-intro"><span className="eyebrow">LOCAL CONFIGURATION / ETAG PROTECTION</span><h1>INI szerkesztő</h1>
