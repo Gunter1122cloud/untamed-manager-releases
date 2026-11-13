@@ -3307,6 +3307,42 @@ try
                 };
                 return (stopped,replacement);
             });
+        // The old PID must NEVER be stopped just to discover that a
+        // forbidden -usestore / -clusterid / Loader conversion switch
+        // would prevent the new Process.Start. A quoted SessionName with
+        // the same text is ordinary configuration and must remain legal.
+        string originalRestartArgs=stopLabMap.Arguments;
+        stopLabMap.Arguments=
+            "TheIsland_WP?listen?SessionName=\"Untamed Store -usestore\" -port=7798 -QueryPort=27048";
+        identity=new ProcessIdentity{
+            Pid=44117,StartedUtc=identity.StartedUtc,
+            ExecutablePath=exe,Arguments=stopLabMap.Arguments
+        };
+        var namedRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(namedRestart,
+            "Restart accepts ordinary quoted Store session names before DoExit");
+        stopLabMap.Arguments=originalRestartArgs+" -usestore";
+        var writerRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(writerRestart,"UM-ASA-RESTART-FAILED")&&restartCalls==0,
+            "Restart blocks unenrolled -usestore before old PID SaveWorld/DoExit");
+        stopLabMap.Arguments=originalRestartArgs+" -clusterid=NotEnrolled";
+        var clusterRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(clusterRestart,"UM-ASA-RESTART-FAILED")&&restartCalls==0,
+            "Restart blocks unenrolled -clusterid before old PID DoExit");
+        stopLabMap.Arguments=originalRestartArgs;
+        stopLabMap.ApiLoaderArguments="-converttostore";
+        var conversionRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(conversionRestart,"UM-ASA-RESTART-FAILED")&&restartCalls==0,
+            "Restart blocks Loader conversion switch before old PID DoExit");
+        stopLabMap.ApiLoaderArguments="";
+        identity=new ProcessIdentity{
+            Pid=44117,StartedUtc=identity.StartedUtc,
+            ExecutablePath=exe,Arguments=originalRestartArgs
+        };
         var foreignRestart=await Call(restartBridge.HandleAsync,
             "servers.restartPreview",new{mapId=Guid.NewGuid()});
         Check(IsError(foreignRestart,"UM-MAP-NOT-OWNED")&&restartCalls==0,
