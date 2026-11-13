@@ -19,6 +19,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
 {
     private sealed record Approval(Guid Token,Guid MapId,int Pid,
         DateTimeOffset StartedUtc,string Root,string Args,int RconPort,
+        string ProfileSnapshot,string IniFingerprint,string BinariesFingerprint,
         DateTimeOffset Created);
     private sealed record ReviewApproval(Guid Token,Guid MapId,Guid JournalId,
         int OldPid,DateTimeOffset OldStartedUtc,string ProfileSnapshot,
@@ -105,6 +106,11 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
             throw new InvalidOperationException("Restart requires verified local running process and RCON listener");
         return identity;
     }
+    private static bool SameApprovedSource(LocalMap map,Approval permit) =>
+        JsonSerializer.Serialize(map)==permit.ProfileSnapshot &&
+        DesktopFreshAsaStartBridge.IniFingerprint(map)==permit.IniFingerprint &&
+        AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map)==permit.BinariesFingerprint;
+
     // Read-only exact running-owner verification for an interrupted Restart.
     // It NEVER dispatches RCON, invents SaveComplete or resumes old Start.
     private bool ReviewOwner(LocalMap map,AsaRestartRecord record,
@@ -310,7 +316,10 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     var original=Eligible(map);
                     pending=new(Guid.NewGuid(),map.Id,original.Pid,
                         original.StartedUtc,map.InstallationPath,
-                        map.Arguments,map.RconPort,DateTimeOffset.UtcNow);
+                        map.Arguments,map.RconPort,JsonSerializer.Serialize(map),
+                        DesktopFreshAsaStartBridge.IniFingerprint(map),
+                        AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map),
+                        DateTimeOffset.UtcNow);
                     return Ok(id,new{
                         token=pending.Token,mapId=map.Id,mapName=map.Name,
                         currentPid=original.Pid,saveWorldBeforeExit=true,
@@ -333,6 +342,10 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                    currentMap.Arguments!=approved.Args ||
                    currentMap.RconPort!=approved.RconPort)
                     return Fail(id,"UM-ASA-RESTART-PROFILE-CHANGED");
+                // Reject a changed API launch mode, INI or ASA/Loader binary
+                // before the old server receives any SaveWorld/DoExit.
+                if(!SameApprovedSource(currentMap,approved))
+                    return Fail(id,"UM-ASA-RESTART-SOURCE-CHANGED");
                 var observed=Eligible(currentMap);
                 if(observed.Pid!=approved.Pid||
                    observed.StartedUtc!=approved.StartedUtc)
@@ -350,6 +363,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     if(onceMore.Pid!=approved.Pid ||
                        onceMore.StartedUtc!=approved.StartedUtc)
                         return Fail(id,"UM-ASA-RESTART-PROCESS-CHANGED");
+                    if(!SameApprovedSource(currentMap,approved))
+                        return Fail(id,"UM-ASA-RESTART-SOURCE-CHANGED");
                     // A failed Restart-v1 Begin() is a PRE-MUTATION
                     // refusal; never strand the generic operation journal
                     // if another durable Restart already blocks the action.
