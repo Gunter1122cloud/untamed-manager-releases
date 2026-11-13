@@ -21,6 +21,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     private sealed class Job
     {
         public Guid JobId=Guid.NewGuid();
+        public Guid MapId;
         public string State="queued",Step="preflight";
         public bool ConfirmedStopped,SaveCompleteProven,PreExitSaveEvidenceObserved,PreExitWorldMetadataObserved;
         public DateTimeOffset ChangedUtc=DateTimeOffset.UtcNow;
@@ -125,11 +126,33 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
             id=requestId.ToString("D");
             var method=methodElement.GetString();
             if(method is not ("servers.gracefulStopPreview" or
-                "servers.gracefulStopApply" or "servers.gracefulStopStatus"))
+                "servers.gracefulStopApply" or "servers.gracefulStopStatus" or
+                "servers.gracefulStopCurrent"))
                 return Error(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
             {
+                // Read-only job reconciliation survives a WebView navigation.
+                // It never queues a second Stop or touches the server.
+                if(method=="servers.gracefulStopCurrent")
+                {
+                    if(!GuidProperty(request,"mapId",out var mapId))
+                        return Error(id,"UM-ASA-STOP-MAP");
+                    if(Owned(mapId)==null)return Error(id,"UM-MAP-NOT-OWNED");
+                    lock(sync)
+                    {
+                        if(job==null||job.MapId!=mapId)
+                            return Ok(id,new{
+                                mapId,jobId=(Guid?)null,state=(string?)null,active=false,
+                                evidence="LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
+                            });
+                        return Ok(id,new{
+                            mapId,jobId=(Guid?)job.JobId,state=job.State,
+                            active=job.State is "queued" or "running",
+                            evidence="LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
+                        });
+                    }
+                }
                 if(method=="servers.gracefulStopStatus")
                 {
                     if(!GuidProperty(request,"jobId",out var jobId)||
@@ -177,7 +200,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 if(current.Pid!=approved.Pid||
                    current.StartedUtc!=approved.StartedUtc)
                     return Error(id,"UM-ASA-STOP-PROCESS-CHANGED");
-                var item=new Job();
+                var item=new Job{MapId=map.Id};
                 job=item;
                 _=Task.Run(async()=>{
                     Change(item,"running","SaveWorld → új stabil .ark / naplóellenőrzés → DoExit");
