@@ -67,6 +67,7 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
     setSaveApproved(false);setAdminApproved(false);setAdminTyped("");
     setConfigDone(false);setRconPassword("");setBusy(false);setError("");
     void load();
+    return ()=>{++requestEpoch.current;};
   },[load]);
   const previewConfiguration=async()=>{
     if(busy||!config?.permitted||rconPassword.length<12)return;

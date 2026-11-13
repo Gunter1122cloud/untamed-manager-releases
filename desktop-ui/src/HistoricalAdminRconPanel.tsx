@@ -33,6 +33,7 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
     ++generation.current;
     setAction(initialAction);setMessage("");setPreview(null);
     setApproved("");setConfirmed(false);setReply(null);setError("");setBusy(false);
+    return ()=>{++generation.current;};
   },[mapId,initialAction]);
   const change=()=>{setPreview(null);setApproved("");setConfirmed(false);setReply(null);setError("");};
   const inspect=async(e:FormEvent)=>{

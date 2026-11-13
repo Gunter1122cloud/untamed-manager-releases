@@ -49,7 +49,7 @@ export function HistoricalRconLivePanel({mapId,running}:{
       if(active&&belongs(mapId,epoch))
         setError("A helyi ASA PID/RCON-port vagy a kiválasztott map azonossága nem igazolható.");
     });
-    return ()=>{active=false;};
+    return ()=>{active=false;++generation.current;};
   },[mapId,running]);
   const read=async(kind:"players"|"game"|"chat")=>{
     if(busy||!status?.permitted||status.mapId.toLowerCase()!==mapId.toLowerCase())
