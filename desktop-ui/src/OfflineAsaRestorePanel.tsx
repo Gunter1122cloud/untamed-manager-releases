@@ -54,6 +54,9 @@ export function OfflineAsaRestorePanel(){
     const token=preview.token;setPreview(null);setApproved(false);
     try{
       const started=await managerBridge.offlineRestoreLabApply(token);
+      if(!started.started||!started.jobId||started.productionRestoreAllowed||
+         started.sqlUsed)
+        throw new Error("UM-OFFLINE-RESTORE-START-RECEIPT-MISMATCH");
       setJob(started.jobId);
       setNotice("A próba-visszaállítás külön TEMP laborba indult. A sikerhez minden fájl lenyomatának egyeznie kell.");
     }catch{setError("A próba-visszaállítást a natív Manager visszautasította.");}

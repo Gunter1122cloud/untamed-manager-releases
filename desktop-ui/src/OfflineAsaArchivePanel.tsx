@@ -57,6 +57,9 @@ export function OfflineAsaArchivePanel(){
     setBusy(true);setPrepared(null);setApproved(false);setError("");
     try{
       const started=await managerBridge.offlineArchiveApply(token);
+      if(!started.started||!started.jobId||started.productionRestoreAllowed||
+         started.originalStoreTouched||started.sqlUsed)
+        throw new Error("UM-OFFLINE-ARCHIVE-START-RECEIPT-MISMATCH");
       setJobId(started.jobId);
       setStatus(null);
       setNotice("Az offline archívum elkészítése elkezdődött. Csak a SHA-256 ellenőrzés után jelenhet meg sikeres állapot.");
