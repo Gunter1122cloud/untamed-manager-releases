@@ -649,7 +649,8 @@ public sealed class ObsidianWindow : Form
                             "historical.loaderModeStatus" or "historical.loaderModePreview" or
                             "historical.loaderModeApply";
                         historicalRconRoute = name is "historical.rconStatus" or
-                            "historical.rconPreview" or "historical.rconApply";
+                            "historical.rconPreview" or
+                            "historical.rconExistingPreview" or "historical.rconApply";
                     }
                 }
                 catch (JsonException) { /* read-only bridge will safely reject invalid messages */ }
