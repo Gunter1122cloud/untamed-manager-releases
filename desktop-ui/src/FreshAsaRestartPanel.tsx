@@ -20,33 +20,57 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   const [durable,setDurable]=useState<AsaRestartJournalStatus|null>(null);
   const [auditConfirmed,setAuditConfirmed]=useState(false);
   const reviewInFlight=useRef(false);
+  const currentMap=useRef(mapId);
+  currentMap.current=mapId;
+  const mounted=useRef(false);
+  const actionRevision=useRef(0);
+  const [reconciling,setReconciling]=useState(true);
+  const [reconcileFailed,setReconcileFailed]=useState(false);
+  const [reconcileNonce,setReconcileNonce]=useState(0);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  const belongs=(requested:string)=>mounted.current&&currentMap.current===requested;
   useEffect(()=>{
-    setPreview(null);setApproved(false);setError("");
+    ++actionRevision.current;
+    setPreview(null);setApproved(false);setError("");setBusy(false);
     setJobId(null);setStatus(null);
     setNeedsLocalReview(false);setDurable(null);setAuditConfirmed(false);
     setMessage(latestRestart.get(mapId)??"");
   },[mapId]);
+  // Reattach running jobs only. A terminal native receipt is historical
+  // state, not a fresh completed event that should re-trigger onRestarted.
   useEffect(()=>{
     let active=true;
+    const revision=actionRevision.current;
+    setReconciling(true);setReconcileFailed(false);
     managerBridge.freshAsaRestartCurrent(mapId)
       .then(current=>{
-        if(!active)return;
+        if(!active||!belongs(mapId)||revision!==actionRevision.current)return;
         setDurable(current);
-        // The Windows process retains an already accepted Restart after the
-        // operator changes pages. Follow that ID; never issue a new command.
-        if(current.inMemoryJobId&&current.inMemoryJobState)
+        if(current.inMemoryRunning&&!current.inMemoryJobId)
+          throw new Error("UM-ASA-RESTART-CURRENT-MISSING-ID");
+        if(current.inMemoryRunning&&current.inMemoryJobId)
           setJobId(current.inMemoryJobId);
       })
-      .catch(()=>{/* A failure is never interpreted as a completed journal. */});
+      .catch(e=>{
+        if(active&&belongs(mapId)&&revision===actionRevision.current){
+          setReconcileFailed(true);
+          setError("A Restart-feladat vagy napló natív állapota nem olvasható ("+
+            (e instanceof Error?e.message:"ismeretlen")+
+            "). Új Restart helyett ellenőrizd az állapotot.");
+        }
+      }).finally(()=>{
+        if(active&&belongs(mapId)&&revision===actionRevision.current)
+          setReconciling(false);
+      });
     return ()=>{active=false;};
-  },[mapId,needsLocalReview]);
+  },[mapId,reconcileNonce]);
   useEffect(()=>{
     if(!jobId)return;
     let active=true;
     const poll=async()=>{
       try{
         const state=await managerBridge.freshAsaRestartStatus(jobId);
-        if(!active)return;
+        if(!active||!belongs(mapId))return;
         setStatus(state);
         if(state.state==="completed"){
           setJobId(null);
@@ -68,9 +92,10 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
           setError("A szerver újraindítása félbeszakadt. Automatikus ismétlés nem történt. Ellenőrizd a Windows-folyamatot és a natív műveleti naplót.");
         }
       }catch{
-        if(active){
-          setJobId(null);setNeedsLocalReview(true);
-          setError("Nem érhető el a natív újraindítási feladat. Ellenőrizd a helyi naplót új művelet előtt.");
+        if(active&&belongs(mapId)){
+          // Unknown status cannot release the in-progress job lock or
+          // authorize a new Restart. Keep polling the same job ID.
+          setError("A már elindított Restart állapota átmenetileg nem olvasható. A Manager nem ismétel meg Start/Stop műveletet.");
         }
       }
     };
@@ -80,18 +105,30 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   },[jobId,mapId,onRestarted]);
 
   const check=async()=>{
-    if(!mapId||!running||busy||jobId||journalBlocked||needsLocalReview)return;
+    if(!mapId||!running||busy||jobId||journalBlocked||
+       needsLocalReview||reconciling||reconcileFailed)return;
+    const requested=mapId;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
-    try{setPreview(await managerBridge.freshAsaRestartPreview(mapId));}
-    catch{setError("Az újraindítás előellenőrzése sikertelen. Csak saját, RCON-nal azonosított, nem Store-v1 ASA folyamat engedélyezett, a Managerrel egyező GameUserSettings.ini konfigurációval.");}
-    finally{setBusy(false);}
+    try{
+      const proof=await managerBridge.freshAsaRestartPreview(requested);
+      if(!belongs(requested))return;
+      if(proof.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-ASA-RESTART-PREVIEW-MAP-MISMATCH");
+      setPreview(proof);
+    }catch{
+      if(belongs(requested))setError("Az újraindítás előellenőrzése sikertelen. A helyi ASA PID/RCON, telepítés, INI vagy műveleti napló nem egyezik.");
+    }finally{if(belongs(requested))setBusy(false);}
   };
   const run=async()=>{
-    if(!preview||!approved||busy||jobId||journalBlocked||needsLocalReview)return;
-    const token=preview.token;
+    if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
+       !approved||busy||jobId||journalBlocked||needsLocalReview||
+       reconciling||reconcileFailed)return;
+    const token=preview.token,requested=mapId;
+    ++actionRevision.current;
     setBusy(true);setPreview(null);setApproved(false);setError("");
     try{
       const job=await managerBridge.freshAsaRestartApply(token);
+      if(!belongs(requested))return;
       setJobId(job.jobId);
       setStatus({
         jobId:job.jobId,state:"queued",stage:"preflight",
@@ -101,8 +138,12 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
         gameClientRejoinVerified:false,
         killPerformed:false,storeTouched:false,autoRetry:false
       });
-    }catch{setError("A helyi újraindítás nem indult el. A szerverállapot megváltozhatott.");}
-    finally{setBusy(false);}
+    }catch{
+      if(belongs(requested)){
+        setReconcileFailed(true);
+        setError("Az egyszeri Restart jóváhagyás eredménye nem igazolt; a natív Stop/Start már elindulhatott. Ne ismételd meg, ellenőrizd a műveletet.");
+      }
+    }finally{if(belongs(requested))setBusy(false);}
   };
 
   // A stale Restart-v1 is recoverable only if its ORIGINAL ASA process is
@@ -110,18 +151,21 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
   // One user click performs native preview+apply; neither step sends ASA
   // commands. No browser preference or checkbox can override the OS proof.
   const recover=async()=>{
-    if(busy||jobId||reviewInFlight.current)return;
+    if(busy||jobId||reconciling||reconcileFailed||reviewInFlight.current)return;
+    const requested=mapId;
     reviewInFlight.current=true;
     setBusy(true);setError("");
     try{
-      const proof=await managerBridge.freshAsaRestartReviewPreview(mapId);
+      const proof=await managerBridge.freshAsaRestartReviewPreview(requested);
+      if(!belongs(requested))return;
       if(proof.mapId.toLowerCase()!==mapId.toLowerCase()||
          proof.oldPid<=0||!proof.exactOldProcessVerified||
          !proof.rconOwnerVerified||!proof.previousOutcomeUnknown||
          !proof.restartWillNotReplay)
         throw new Error("UM-ASA-RESTART-REVIEW-PROOF-INCOMPLETE");
       const saved=await managerBridge.freshAsaRestartReviewApply(proof.token);
-      if(saved.mapId.toLowerCase()!==mapId.toLowerCase()||
+      if(!belongs(requested))return;
+      if(saved.mapId.toLowerCase()!==requested.toLowerCase()||
          saved.oldPid!==proof.oldPid||
          saved.state!=="operatorReviewed"||
          !saved.previousOutcomeUnknown||!saved.originalJournalAudited||
@@ -143,6 +187,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       try{await onRestarted();}
       catch{setError("A helyi naplórendezés kész, de az állapotfrissítés sikertelen. Ne ismételd meg az auditot.");}
     }catch(e){
+      if(!belongs(requested))return;
       const code=e instanceof Error?e.message:"UM-ASA-RESTART-REVIEW-FAILED";
       const hints:Record<string,string>={
         "UM-ASA-RESTART-REVIEW-OLD-PID-NOT-RUNNING":
@@ -157,11 +202,12 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
       setError(hints[code]??"A korábbi Restart naplóját nem lehetett igazoltan rendezni ("+
         code+"). Nem küldtünk régi parancsot és nem indítottunk szervert.");
     }finally{
-      reviewInFlight.current=false;setBusy(false);
+      reviewInFlight.current=false;
+      if(belongs(requested))setBusy(false);
     }
   };
 
-  const showRecovery=!jobId&&!auditConfirmed&&
+  const showRecovery=!jobId&&!reconciling&&!reconcileFailed&&!auditConfirmed&&
     !!(durable?.needsOperatorReview||needsLocalReview)&&
     (durable===null||durable.belongsToMap);
   return <section className="premium-panel" aria-label="Valódi ASA normál újraindítása" style={{padding:20,marginBlock:18}}>
@@ -170,8 +216,11 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
     </header>
     <p>A C# Manager a régi szerveren új, stabil .ark mentési bizonyítékot figyel, naplójelzéssel, ha az ASA naplózza. DoExit és a régi PID megszűnése után egyszer indítja el az új folyamatot. ASA API módban a Loader gyermekének és az RCON tulajdonosának ellenőrzése is szükséges. Csak saját, helyi normál vagy újonnan regisztrált Store-mapokhoz; a történeti korábbi Manager Store-mapok külön védett műveleteket használnak.</p>
     <button type="button" className="secondary"
-      disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview}
+      disabled={!running||busy||!!jobId||journalBlocked||needsLocalReview||reconciling||reconcileFailed}
       onClick={()=>{void check();}}><RefreshCw size={16}/> Újraindítás előellenőrzése</button>
+    {reconciling&&<p role="status">Korábbi Restart-feladat ellenőrzése…</p>}
+    {reconcileFailed&&<button type="button" className="secondary"
+      onClick={()=>setReconcileNonce(n=>n+1)}>Restart állapot újraellenőrzése</button>}
     {showRecovery&&<div className="historical-preview" role="region"
       aria-label="Megszakadt helyi Restart rendezése">
       <p><b>Korábbi Restart megszakadt.</b> Régi PID: {durable?.oldPid??"ismeretlen"},
@@ -194,7 +243,7 @@ export function FreshAsaRestartPanel({mapId,running,journalBlocked,onRestarted}:
           onChange={e=>setApproved(e.target.checked)} disabled={busy}/>
         Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását.
       </label>
-      <button type="button" className="primary" disabled={!approved||busy||journalBlocked||needsLocalReview}
+      <button type="button" className="primary" disabled={!approved||busy||journalBlocked||needsLocalReview||reconciling||reconcileFailed}
         onClick={()=>{void run();}}>Szerver újraindítása</button>
       <button type="button" className="secondary" disabled={busy}
         onClick={()=>setPreview(null)}>Mégsem</button>
