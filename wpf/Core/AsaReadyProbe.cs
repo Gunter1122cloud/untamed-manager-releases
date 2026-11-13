@@ -210,7 +210,8 @@ public static class AsaReadyProbe
     // Installation and ownership preconditions are still enforced by ProbeAsync.
     internal static async Task<AsaReadinessSnapshot> ObserveAsync(LocalMap map,
         Func<ProcessCheck> inspect,Func<CancellationToken,Task<string>> listPlayers,
-        CancellationToken cancellationToken=default)
+        CancellationToken cancellationToken=default,
+        Func<LocalMap,ProcessIdentity,bool>? loadedModule=null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if(map==null||inspect==null||listPlayers==null)
@@ -269,13 +270,18 @@ public static class AsaReadyProbe
                !Identical(before.LoaderIdentity,final.LoaderIdentity))
                 return Result(map,AsaRuntimeStage.ProcessVerified,
                     "ASA/Loader process changed while confirming runtime logs; readiness refused");
+            // The original desktop agent confirms AsaApi.dll in the
+            // running ASA CHILD process as well as current-session hooks.
+            // A log line or files on disk alone NEVER certify API loading.
+            bool modulePresent=map.StartWithAsaApi && log.ApiInitialized &&
+                (loadedModule??AsaApiModuleEvidence.IsLoaded)(map,before.Identity);
             bool ready=log.JoinAdvertised &&
-                (!map.StartWithAsaApi||log.ApiInitialized);
+                (!map.StartWithAsaApi||modulePresent);
             return Result(map,AsaRuntimeStage.RconAuthenticated,
                 ready?
-                "ASA PID, RCON and current startup join-advertising log confirmed; live client join/travel remains unverified":
-                "ASA PID and RCON confirmed; current startup join-advertising or required API load still unverified",
-                hasLoader,log.ApiInitialized,log.JoinAdvertised);
+                "ASA PID, RCON and current startup runtime confirmed; live client join/travel remains unverified":
+                "ASA PID and RCON confirmed; current startup advertising or API module/hook load still unverified",
+                hasLoader,modulePresent,log.JoinAdvertised);
         }
         catch(OperationCanceledException) when(cancellationToken.IsCancellationRequested){throw;}
         catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidDataException

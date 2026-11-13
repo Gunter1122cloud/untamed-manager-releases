@@ -190,8 +190,16 @@ public static class AsaReadyProbeTests
             " [API][info] Loading..."+Environment.NewLine+
             apiTimestamp+" [API][info] Initialized hooks"+Environment.NewLine+
             apiTimestamp+" [API][info] API was successfully loaded"+Environment.NewLine);
+        var hooksWithoutModule=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."),
+            loadedModule:(_,_)=>false);
+        Check(!hooksWithoutModule.ApiInitialized &&
+              !hooksWithoutModule.ProductionReady &&
+              hooksWithoutModule.Stage==AsaRuntimeStage.RconAuthenticated,
+            "API positive log and RCON without loaded ASA child module cannot certify runtime");
         var hooksFirst=await AsaReadyProbe.ObserveAsync(map,()=>steady,
-            _=>Task.FromResult("No Players Connected."));
+            _=>Task.FromResult("No Players Connected."),
+            loadedModule:(_,_)=>true);
         Check(hooksFirst.ProductionReady && hooksFirst.JoinAdvertised &&
               hooksFirst.ApiInitialized && hooksFirst.LoaderObserved,
             "real ArkApi hooks-before-success order certifies opted-in runtime");
@@ -211,7 +219,8 @@ public static class AsaReadyProbeTests
         File.AppendAllText(apiLog,apiTimestamp+
             " [API][info] Initialized hooks"+Environment.NewLine);
         var loadFirst=await AsaReadyProbe.ObserveAsync(map,()=>steady,
-            _=>Task.FromResult("No Players Connected."));
+            _=>Task.FromResult("No Players Connected."),
+            loadedModule:(_,_)=>true);
         Check(loadFirst.ProductionReady&&loadFirst.ApiInitialized,
             "loader versions with load-before-hooks order are also supported");
         File.AppendAllText(apiLog,apiTimestamp+
