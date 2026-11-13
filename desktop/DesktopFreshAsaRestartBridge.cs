@@ -27,6 +27,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
+        public Guid MapId;
         public string State="queued",Stage="preflight";
         public int OldPid,NewPid,NewAsaServerPid;
         public string NewProcessRole="asaServer";
@@ -206,8 +207,20 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     var saved=new AsaManualRestartJournal(map.InstallationPath).Observe();
                     bool belongs=saved!=null&&saved.MapId==map.Id;
                     bool pending=saved!=null&&saved.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
+                    Guid? inMemoryJobId=null;
+                    string? inMemoryJobState=null;
+                    lock(sync)
+                    {
+                        if(current!=null&&current.MapId==map.Id)
+                        {
+                            inMemoryJobId=current.Id;
+                            inMemoryJobState=current.State;
+                        }
+                    }
                     return Ok(id,new{
                         exists=saved!=null,belongsToMap=belongs,
+                        inMemoryJobId,inMemoryJobState,
+                        inMemoryRunning=inMemoryJobState is "queued" or "running",
                         phase=saved?.Phase.ToString(),
                         oldPid=saved?.OldPid,newPid=saved?.NewPid,
                         changedUtc=saved?.ChangedUtc,
@@ -373,7 +386,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     prepareLease.Complete();
                 }
                 var job=new Job{
-                    OldPid=approved.Pid,
+                    MapId=currentMap.Id,OldPid=approved.Pid,
                     NewProcessRole=currentMap.StartWithAsaApi?"loaderParent":"asaServer"
                 };
                 current=job;
