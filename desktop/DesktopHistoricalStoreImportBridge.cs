@@ -388,7 +388,7 @@ public sealed class DesktopHistoricalStoreImportBridge : IDisposable
                     if(!GuidField(data,"token",out var token)||
                        !BoolField(data,"confirm",out var originalClusterApproved)||!originalClusterApproved||
                        !TextField(data,"typedApproval",60,out var approval)||
-                       !string.Equals(approval,"EREDETI KOVA REGISZTER",StringComparison.Ordinal)||
+                       !string.Equals(approval,"EREDETI STORE REGISZTER",StringComparison.Ordinal)||
                        pendingOriginalCluster==null||
                        pendingOriginalCluster.Token!=token)
                         return Fail(id,"UM-ORIGINAL-CLUSTER-APPROVAL-REQUIRED");

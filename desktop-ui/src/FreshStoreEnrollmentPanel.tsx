@@ -41,7 +41,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
     catch(e){
       const code=e instanceof Error?e.message:"UM-FRESH-STORE-PREFLIGHT";
       const hints:Record<string,string>={
-        "UM-FRESH-STORE-LEGACY-CLUSTER-RESERVED":
+        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED":
           "Az eredeti történeti cluster nem érhető el az új, üres Store-map általános regisztrációjával. Az eredeti kétgazdás transferazonosságot külön kell igazolni; az eredeti világot nem módosítottuk.",
         "UM-FRESH-STORE-RCON-SETUP-REQUIRED-BEFORE-ENROLLMENT":
           "Először a map RCON fülén konfiguráld a helyi RCON-portot és jelszót, utána kérj új Store-előellenőrzést.",
