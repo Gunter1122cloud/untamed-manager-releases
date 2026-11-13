@@ -500,6 +500,14 @@ test.beforeEach(async ({ page }) => {
         } as typeof state.local.maps[number]);
     }
     let rconAllowed=false;
+    let rconWrongPreviewMap=false;
+    let rconWrongLogMap=false;
+    let lastRconAdminCommand="";
+    let lastRconAdminAction="";
+    (window as typeof window & {__UNTAMED_RCON_WRONG_PREVIEW_MAP__?:()=>void})
+      .__UNTAMED_RCON_WRONG_PREVIEW_MAP__=()=>{rconWrongPreviewMap=true;};
+    (window as typeof window & {__UNTAMED_RCON_WRONG_LOG_MAP__?:()=>void})
+      .__UNTAMED_RCON_WRONG_LOG_MAP__=()=>{rconWrongLogMap=true;};
     let dashboardPlayerListFixture=false;
     let dashboardSecondPlayerListUnavailable=false;
     (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?:()=>void})
@@ -800,22 +808,26 @@ test.beforeEach(async ({ page }) => {
           allowedCommands:["ListPlayers","GetGameLog","GetChat","SaveWorld"],
           evidence:"LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND"
         };
-        case "rcon.adminPreview": return {
-          token:"00000000-0000-4000-8000-00000000e001",
-          mapId:m.mapId,mapName:"The Island",action:m.action,
-          command:m.action==="wildWipe"?"DestroyWildDinos":
+        case "rcon.adminPreview": {
+          lastRconAdminAction=m.action;
+          lastRconAdminCommand=m.action==="wildWipe"?"DestroyWildDinos":
             m.action==="broadcast"?"Broadcast "+m.message:
-            m.action==="serverChat"?"ServerChat "+m.message:m.message,
+            m.action==="serverChat"?"ServerChat "+m.message:m.message;
+          return {
+          token:"00000000-0000-4000-8000-00000000e001",
+          mapId:rconWrongPreviewMap?two:m.mapId,mapName:"The Island",action:m.action,
+          command:lastRconAdminCommand,
           dangerous:m.action==="wildWipe"||m.action==="custom",
           approvalWord:m.action==="wildWipe"?"DINÓTÖRLÉS":
             m.action==="custom"?"ADMIN":null,
           requiresApproval:true,expiresUtc:"2026-11-06T10:00:00Z",
           dispatched:false,credentialExposed:false,
           evidence:"LOCAL_OS_VERIFIED_ADMIN_RCON_PREVIEW"
-        };
+          };
+        }
         case "rcon.adminSend": return {
-          mapId:one,mapName:"The Island",action:"broadcast",
-          command:"Broadcast Synthetic operator message",
+          mapId:one,mapName:"The Island",action:lastRconAdminAction,
+          command:lastRconAdminCommand,
           response:"Synthetic RCON command accepted",
           commandSent:true,observedUtc:"2026-11-06T09:00:00Z",
           oneShot:true,saveCompleteProven:false,storeWriterTouched:false,
@@ -824,7 +836,7 @@ test.beforeEach(async ({ page }) => {
         case "rcon.gameLog":
           if(!rconAllowed)throw new Error("RCON requires owned local process");
           return {
-            mapId:one,mapName:"The Island",command:"GetGameLog",
+            mapId:rconWrongLogMap?two:one,mapName:"The Island",command:"GetGameLog",
             response:"Synthetic ASA GameLog entry",observedUtc:"2026-11-06T09:00:00Z",
             readOnly:true,saveCompleteProven:false,
             evidence:"LOCAL_VERIFIED_READ_ONLY_RCON"
@@ -5529,6 +5541,41 @@ test("real admin RCON UI requires two-stage approval and exact typed phrase for 
   await page.getByRole("textbox",{name:"Adminparancs megerősítő szó"}).fill("DINÓTÖRLÉS");
   await expect(page.getByRole("button",{name:"Parancs elküldése"})).toBeEnabled();
   await page.screenshot({path:"test-results/untamed-admin-rcon-confirm-1600.png",fullPage:true});
+});
+
+test("fresh ASA RCON does not offer approval for another map's admin command",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ENABLE__?:()=>void
+  }).__UNTAMED_RCON_ENABLE__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_WRONG_PREVIEW_MAP__?:()=>void
+  }).__UNTAMED_RCON_WRONG_PREVIEW_MAP__?.());
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Helyi admin RCON parancsok"});
+  await page.getByRole("textbox",{name:"Admin RCON üzenet vagy parancs"})
+    .fill("Isolated map-bound fixture");
+  await page.getByRole("button",{name:"Éles RCON-parancs ellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"Adminparancs végső jóváhagyása"})).toHaveCount(0);
+  await expect(page.getByText(/adminparancs előellenőrzése vagy mapazonossága/)).toBeVisible();
+});
+
+test("fresh ASA RCON rejects another map's game-log response",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ENABLE__?:()=>void
+  }).__UNTAMED_RCON_ENABLE__?.());
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const console=page.locator(".uk-rcon-console");
+  await console.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_WRONG_LOG_MAP__?:()=>void
+  }).__UNTAMED_RCON_WRONG_LOG_MAP__?.());
+  await page.getByRole("button",{name:"ASA játéknapló (GetGameLog)"}).click();
+  await expect(page.getByRole("log",{name:"RCON ListPlayers válasz"})).toHaveCount(0);
+  await expect(page.getByText(/RCON-válasz mapazonossága/)).toBeVisible();
 });
 
 test("real local RCON game and chat log buttons are read-only and show separate responses",async({page})=>{
