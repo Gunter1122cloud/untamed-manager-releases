@@ -5469,7 +5469,7 @@ test("ASA Stop job remains linked to the correct map across navigation without r
   await approval.getByRole("button",{name:"Művelet végrehajtása"}).click();
   await expect(bar).toContainText("folyamatban");
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
-  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
   const resumed=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
   await expect(resumed).toContainText("folyamatban");
   await expect(resumed.getByRole("button",{name:"Leállítás",exact:true})).toBeDisabled();
@@ -5486,10 +5486,10 @@ test("ASA Kill approval cannot carry over to another map",async({page})=>{
   await bar.getByRole("button",{name:"Kill",exact:true}).click();
   await expect(bar.getByRole("region",{name:"Kill jóváhagyása"})).toBeVisible();
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
-  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
   await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
-  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
   await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Kill",exact:true})).toBeEnabled();
 });
