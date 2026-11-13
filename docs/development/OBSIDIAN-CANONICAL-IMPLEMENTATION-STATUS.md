@@ -85,7 +85,7 @@ A [#64](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/64) ere
 - `desktop/DesktopInitialMapSetupBridge.cs`: a puszta `File.Exists(map.ExecutablePath)` helyett a már meglévő `AsaReadyProbe.IsRegisteredServerBinary(map)` követelmény érvényesül az elsőbeállítási státusznál és preview-nál, valamint közvetlenül a mentési jóváhagyáskor. Az idegen install EXE, UNC/link/junction és hiányzó helyi bináris elutasítva; nem állít be hamis stopped státuszt.
 - `desktop-ui/src/InitialMapSetup.tsx`: külön, érthető magyar hiba szól az érvénytelen regisztrált EXE/telepítési gyökér esetéről.
 - `desktop/Tests/Program.cs`: izolált rossz-gyökér regresszió valósan létező, de **másik** szintetikus executable-lel. Elutasított initial status és preview; az eredeti portok/argumentumok változatlanok.
-- A mentés, natív ASA Start, Store-v1, RCON és eredeti Kova adatok változatlanok; **valós The Island Windows-felhasználói újrateszt továbbra is szükséges**.
+- A mentés, natív ASA Start, Store-v1, RCON és eredeti Legacy adatok változatlanok; **valós The Island Windows-felhasználói újrateszt továbbra is szükséges**.
 
 ## Osztályozott forráskód – rendrakási ellenőrzés
 
@@ -93,7 +93,7 @@ A [#64](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/64) ere
 | --- | --- | --- |
 | `wpf/MainWindow.Sql.cs` | **ELVETVE / TÖRÖLVE #59** | Elavult WPF SQL GUI; a régi WPF csproj már kizárta a fordításból, az Obsidian csproj nem használja |
 | `wpf/MainWindow*.cs`, `wpf/App.xaml*`, WPF styles | **LEGACY GUI / NEM SZÁLLÍTOTT** | Obsidian nem fordítja be, de WPF projektet még hivatkoznak történeti integrációs tesztek; nem bizonyított az egész GUI fájlszintű törölhetősége |
-| `wpf/Core/LegacyStoreV1*.cs` | **LEGACY – MEGŐRZENDŐ** | Eredeti Kova Store-v1 session/lock és karaktervédelem |
+| `wpf/Core/LegacyStoreV1*.cs` | **LEGACY – MEGŐRZENDŐ** | Eredeti Legacy Store-v1 session/lock és karaktervédelem |
 | `wpf/Core/MariaDb*.cs`, `wpf/Core/OfflineSqlArchive.cs` | **LEGACY TEST-ONLY** | Az Obsidian csproj kizárja; `wpf/Testing/Integration/Integration.csproj` hivatkozza; nem aktuális Manager SQL GUI |
 | `wpf/Core/MultiHostClusterBackupArchive.cs`, `wpf/Core/MultiHostSandboxRestoreTransaction.cs` | **MAIN + CI, RÉSZLEGES #53** | #58 offline backup / TEMP restore; éles restore és karakterutazás nincs bizonyítva |
 | `wpf/Updater/`, `wpf/Testing/` | **MEGŐRZENDŐ** | Aktív Obsidian külső updater és történeti regressziók |
@@ -107,7 +107,7 @@ A [#64](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/64) ere
 | HostRegistry, ClusterRegistry, több független cluster, tagsági előnézet, egyszer használatos apply | [#54](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/54), `wpf/Core/ClusterRegistry.cs`, `desktop/DesktopClusterRegistryBridge.cs` | **MAIN + ZÖLD CI** | Metaadat-regiszter és tagság; a tényleges `-clusterid`/`-ClusterDirOverride` futó ASA-hoz kötése, megosztott tároló és valós átállás külön elfogadás |
 | N-host LAN, per-peer hitelesítés, DPAPI titok, távoli státusz csak olvasás | [#55](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/55), `desktop/DesktopLanSettingsBridge.cs`, `wpf/Core/ClusterBackend.cs` | **MAIN + ZÖLD CI** | Szintetikus multi-Manager/loopback teszt; több valódi Windows host és szélsőséges LAN-helyzet elfogadása hiányzik |
 | N-host Dashboard, térkép/mapgaléria, hostszűrő, Cluster UI és tagsági kontroll | [#56](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/56), `desktop-ui/src/` | **MAIN + ZÖLD CI** | React build és 66/66 Playwright; tényleges WebView2 UX, 100+ map hosszú futás/erőforrásprofil és vizuális egyezés külön ellenőrzendő |
-| Eredeti Kova Store-v1 2 DONE peer × 5 map védelme, write lock, session/owner és konverziótilalom | [#33](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/33), [#36](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/36), [#38–47](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/47), `LegacyStoreV1*.cs` | **MAIN, RÉSZLEGES ELFOGADÁS** | Történeti Store-v1 őrző kód és regressziók; az eredeti Kova 5+5 migráció/teljes karakterutazás élő tesztje NINCS |
+| Eredeti Legacy Store-v1 2 DONE peer × 5 map védelme, write lock, session/owner és konverziótilalom | [#33](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/33), [#36](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/36), [#38–47](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/47), `LegacyStoreV1*.cs` | **MAIN, RÉSZLEGES ELFOGADÁS** | Történeti Store-v1 őrző kód és regressziók; az eredeti Legacy 5+5 migráció/teljes karakterutazás élő tesztje NINCS |
 | ASA API Loader historical ACTIVE indítás, PID/reattach, RCON/SaveWorld/DoExit és védett stop | [#38–47](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/47), `desktop/DesktopHistorical*Bridge.cs` | **MAIN, RÉSZLEGES ELFOGADÁS** | Valódi forrásimplementáció és natív tesztek; minden map/loader/process eset, hosszú futás és teljes ASA runtime elfogadása még hiányzik |
 | Hagyományos 5+5 offline map/INI/transfer backup, hash, restore-lab és embedded survivor/tribe index | [#23–27](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/27), [#30–37](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/37), `OfflineAsaClusterArchive.cs`, `OfflineAsaRestoreLab.cs` | **MAIN, RÉSZLEGES ELFOGADÁS** | Történeti tízmapos archívum és negatív mentésellenőrzések; ez NEM az általános N-host archive |
 | Általános N-host / többclusteres verziózott backup, TEMP-sandbox replacement/rollback | [#53](https://github.com/Gunter1122cloud/untamed-manager-releases/issues/53), [#58 merge](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/58), [offline backup v1 leírás](OBSIDIAN-MULTI-HOST-BACKUP-V1.md) | **MAIN + ZÖLD PR CI; RÉSZLEGES #53** | Verziózott SHA-256 archive v1 és ownership preflight; a Manager-regiszter 300 host / 520 cluster / 4100 map synthetic clone tesztet teljesít. TEMP-only restore staging, checksummed transaction journal, rollback-másolat és bounded recovery UI a hiányzó célkönyvtárú megszakadt tranzakciót is megtalálja. A Windows Setup útvonalregresszió teszteli a hibás cél elutasítását, szóközös/speciális/hosszabb útvonalat, telepítést, WebView2 smoke-ot és eltávolítást. Élő SaveComplete/Store-writer bizonyíték, production restore és valódi A→B→A travel továbbra is hiányzik.
@@ -130,7 +130,7 @@ A [#64](https://github.com/Gunter1122cloud/untamed-manager-releases/pull/64) ere
 
 ## Tiltások / egységes szerkesztési szabály
 
-- Az élő UK-HOME-01/02, Kova/ASA/RCON/portok, Store-v1/UNC adatok, valódi mentések változatlanok.
+- Az élő UK-HOME-01/02, Legacy/ASA/RCON/portok, Store-v1/UNC adatok, valódi mentések változatlanok.
 - Nincs automatikus `-converttostore`, migráció, nullás karakterfájl-takarítás, távoli writer-proxy.
 - Nincs SQL/MariaDB a Managerben. Külső ASA-plugin MariaDB érintetlen.
 - Nincs WPF GUI visszavezetés és nincs párhuzamos verzió.
