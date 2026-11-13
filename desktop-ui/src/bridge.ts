@@ -991,6 +991,7 @@ export type HistoricalRconPreview = {
   existingIniVerified:true;originalActiveDoneVerified:boolean;
   approvedObsidianSourcePinned:boolean;
   legacyPeerCheckRequiredForLocalAttach:boolean;
+  existingCredentialsReadLocally?:boolean;
   originalStoreTouched:false;serverStarted:false;
   evidence:"HISTORICAL_RCON_EXISTING_INI_PREVIEW_ONLY";
 };
@@ -2268,6 +2269,8 @@ export const managerBridge = {
     request<HistoricalRconStatus>("historical.rconStatus",{mapId}),
   historicalRconPreview: (mapId:string,rconPort:number,password:string) =>
     request<HistoricalRconPreview>("historical.rconPreview",{mapId,rconPort,password}),
+  historicalRconExistingPreview: (mapId:string) =>
+    request<HistoricalRconPreview>("historical.rconExistingPreview",{mapId}),
   historicalRconApply: (token:string) =>
     request<HistoricalRconReceipt>("historical.rconApply",{token,confirm:true}),
   historicalLocalStatus: () => request<HistoricalLocalStoreStatus>("historical.localStatus"),

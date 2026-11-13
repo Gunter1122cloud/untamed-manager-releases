@@ -42,6 +42,9 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
     try{
       const result=await managerBridge.historicalRconPreview(mapId,parsed,password);
       if(mapGeneration.current!==generation)return;
+      if(result.mapId.toLowerCase()!==mapId.toLowerCase()||
+         !result.existingIniVerified||result.originalStoreTouched||result.serverStarted)
+        throw new Error("UM-HISTORICAL-RCON-PREVIEW-MAP-MISMATCH");
       setPassword("");setPreview(result);
     }catch(cause){
       if(mapGeneration.current!==generation)return;
@@ -58,6 +61,28 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
         :"A natív RCON-ellenőrzés nem sikerült. Az eredeti ASA/korábbi Manager-fájlok érintetlenek; ellenőrizd a maphoz tartozó futó ASA-folyamatot és RCON-beállítást.");
     }finally{if(mapGeneration.current===generation)setBusy(false);}
   };
+  const inspectExisting=async()=>{
+    if(busy||preview||status?.configured)return;
+    const requested=mapId,generation=mapGeneration.current;
+    setBusy(true);setError("");setNotice("");setPreview(null);setConfirm(false);
+    setPassword("");
+    try{
+      const result=await managerBridge.historicalRconExistingPreview(requested);
+      if(mapGeneration.current!==generation)return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         !result.existingIniVerified||result.originalStoreTouched||
+         result.serverStarted||!result.existingCredentialsReadLocally)
+        throw new Error("UM-HISTORICAL-RCON-EXISTING-MAP-MISMATCH");
+      setPort(String(result.rconPort));
+      setPreview(result);
+      setNotice("A meglévő ASA RCON-port és jelszó a Windows hostban azonosítva. "+
+        "A jelszó nem került a felületre; kizárólag jóváhagyás után tároljuk DPAPI-val.");
+    }catch{
+      if(mapGeneration.current===generation)
+        setError("A meglévő ASA INI-ből az automatikus RCON-átvétel nem igazolható. "+
+          "Ellenőrizd a helyi ServerSettings szekciót, vagy használd a kézi megadást.");
+    }finally{if(mapGeneration.current===generation)setBusy(false);}
+  };
   const attach=async()=>{
     if(!preview||!confirm||busy)return;
     const generation=mapGeneration.current;
@@ -68,6 +93,10 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       const receipt=await managerBridge.historicalRconApply(token);
       committed=true;
       if(mapGeneration.current!==generation)return;
+      if(receipt.mapId.toLowerCase()!==mapId.toLowerCase()||
+         !receipt.configured||receipt.originalStoreTouched||
+         receipt.iniModified||receipt.serverStarted)
+        throw new Error("UM-HISTORICAL-RCON-ATTACH-RECEIPT-MISMATCH");
       // The native DPAPI profile is already committed. A failed subsequent
       // status/refresh MUST NOT disguise that commit as a failed attach and
       // tempt the operator to repeat a single-use mutation.
@@ -100,7 +129,7 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       {status&&!status.configured&&status.suggestedPort>0&&
         <p className="muted small" role="status">
           Az eredeti ASA INI alapján felismert TCP RCON-port: {status.suggestedPort}.
-          A jelszót biztonsági okból külön kell megadni; az ASA INI-hez nem nyúlunk.
+          A jelszó helyben, a Windows hostban is beolvasható; nem jelenik meg a felületen.
         </p>}
       {status?.configured?<div className="success-inline" role="status">
         <CheckCircle2 size={17}/> RCON-port: {status.port} ·
@@ -117,6 +146,10 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
           placeholder="A meglévő GameUserSettings.ini jelszava"/>
         <button className="secondary" type="submit" disabled={busy||!!preview||
           !password||!port}><Shield size={16}/> Eredeti RCON előellenőrzése</button>
+        <button className="secondary" type="button" disabled={busy||!!preview}
+          onClick={()=>{void inspectExisting();}}>
+          <LockKeyhole size={16}/> Meglévő RCON átvétele az ASA INI-ből
+        </button>
       </form>}
       {preview&&<div className="warning-inline" role="region"
           aria-label="Store-v1 RCON jóváhagyása">

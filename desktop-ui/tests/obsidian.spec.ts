@@ -1083,14 +1083,17 @@ test.beforeEach(async ({ page }) => {
           evidence:"HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY"
           };
         }
+        case "historical.rconExistingPreview":
         case "historical.rconPreview": {
-          if(m.mapId!==two||m.rconPort!==37145||
-             m.password!=="HistoricalRconPass!2026")
+          if(m.mapId!==two||
+             (m.method==="historical.rconPreview"&&
+              (m.rconPort!==37145||m.password!=="HistoricalRconPass!2026")))
             throw new Error("Synthetic original RCON INI mismatch");
           return {
             token:historicalRconToken,mapId:two,mapName:"Astraeos",
             rconPort:37145,existingIniVerified:true,
             originalActiveDoneVerified:true,
+            existingCredentialsReadLocally:m.method==="historical.rconExistingPreview",
             originalStoreTouched:false,serverStarted:false,
             evidence:"HISTORICAL_RCON_EXISTING_INI_PREVIEW_ONLY"
           };
@@ -4987,6 +4990,26 @@ test("historical Store Center-style missing RCON opens a functional attach form 
   await expect(page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"})).toBeVisible();
   await page.getByRole("tab",{name:"Áttekintés"}).click();
   await expect(page.getByRole("button",{name:"Meglévő RCON csatlakoztatása"})).toHaveCount(0);
+});
+
+test("Store-v1 RCON can be imported directly from an existing ASA INI without exposing credentials",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await panel.getByRole("button",{name:"Meglévő RCON átvétele az ASA INI-ből"}).click();
+  const approval=panel.getByRole("region",{name:"Store-v1 RCON jóváhagyása"});
+  await expect(approval).toContainText("TCP 37145");
+  await expect(panel).toContainText("A jelszó nem került a felületre");
+  await expect(panel.locator("#historical-rcon-pass")).toHaveValue("");
+  await expect(approval.getByRole("button",{name:"RCON átvétel véglegesítése"}))
+    .toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
+  await expect(panel).toContainText("RCON-port: 37145");
+  await expect(panel).toContainText("ASA és a Store-fájlok nem módosultak");
+  await expect(panel).not.toContainText("HistoricalRconPass!2026");
 });
 
 test("historical Store RCON attaches only existing INI with native approval and without any Store write",async({page})=>{

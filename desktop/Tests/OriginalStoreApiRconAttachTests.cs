@@ -99,6 +99,21 @@ internal static class OriginalStoreApiRconAttachTests
               status.GetProperty("data").GetProperty("port").GetInt32()==0&&
               status.GetProperty("data").GetProperty("suggestedPort").GetInt32()==port,
             "original INI RCON port appears as setup suggestion without writing ASA or exposing password");
+        var nativeExisting=await Call(bridge,"historical.rconExistingPreview",
+            new{mapId=map.Id});
+        Check(nativeExisting.GetProperty("ok").GetBoolean() &&
+              nativeExisting.GetProperty("data")
+                .GetProperty("existingCredentialsReadLocally").GetBoolean() &&
+              !nativeExisting.GetRawText().Contains(password,StringComparison.Ordinal) &&
+              File.ReadAllBytes(ini).SequenceEqual(iniBefore),
+            "local ASA INI can supply existing credential to one-shot preview without exposing secret or editing source");
+        File.AppendAllText(ini,"[ServerSettings]\\r\\nRCONPort="+port+"\\r\\n");
+        var ambiguousExisting=await Call(bridge,"historical.rconExistingPreview",
+            new{mapId=map.Id});
+        Check(!ambiguousExisting.GetProperty("ok").GetBoolean() &&
+              cluster.Config.LocalMaps.Single().RconPort==0,
+            "duplicate ServerSettings section blocks automatic RCON attach");
+        File.WriteAllBytes(ini,iniBefore);
         var preview=await Call(bridge,"historical.rconPreview",
             new{mapId=map.Id,rconPort=port,password});
         Check(preview.GetProperty("ok").GetBoolean(),
