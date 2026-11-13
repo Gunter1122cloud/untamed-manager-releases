@@ -41,6 +41,10 @@ internal static class FreshStoreApiPairObserver
         return ownsRcon(rconPort,child.Pid);
     }
 
+    // Match the original desktop lifecycle's ten-minute RCON readiness
+    // window; large modded ASA maps may need far longer than three minutes.
+    internal static readonly TimeSpan StartupObservationWindow=TimeSpan.FromMinutes(10);
+
     internal static void Begin(ClusterService cluster,Guid mapId,
         ProcessIdentity launchedLoader,CancellationToken cancellation)
     {
@@ -50,7 +54,7 @@ internal static class FreshStoreApiPairObserver
         _=Task.Run(async()=>{
             try
             {
-                var until=DateTimeOffset.UtcNow.AddMinutes(3);
+                var until=DateTimeOffset.UtcNow+StartupObservationWindow;
                 while(!cancellation.IsCancellationRequested&&DateTimeOffset.UtcNow<until)
                 {
                     var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);

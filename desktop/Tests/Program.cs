@@ -117,6 +117,9 @@ Check(!SteamFreshInstall.NeedsSteamBootstrapRestart(0,
         "direct ASA rejects unmatched server arguments");
 }
 
+Check(FreshStoreApiPairObserver.StartupObservationWindow==TimeSpan.FromMinutes(10),
+    "ASA API Loader child reattach observation matches original ten-minute startup window");
+
 string root=Path.Combine(Path.GetTempPath(),
     "Untamed-Obsidian-Native-Bridge-Tests-"+Guid.NewGuid().ToString("N"));
 using var operationJournalScope=UntamedOperationCoordinator.UseIsolatedRootForTests(
