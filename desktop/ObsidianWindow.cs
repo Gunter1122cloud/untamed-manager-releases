@@ -606,7 +606,8 @@ public sealed class ObsidianWindow : Form
                         registryRoute = name is "servers.inspectLocal" or
                             "servers.importLocal";
                         runningAsaRegistrationRoute = name is "servers.runningPreview" or
-                            "servers.runningRegister";
+                            "servers.runningRegister" or
+                            "servers.runningBatchPreview" or "servers.runningBatchRegister";
                         runningAsaAdoptionRoute = name is "servers.runningAdoptPreview" or
                             "servers.runningAdoptApply";
                         clusterRegistryRoute = name is "cluster.registry.snapshot" or

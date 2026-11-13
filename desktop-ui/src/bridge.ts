@@ -168,6 +168,19 @@ export type RunningAsaImportPreview = {
   lifecycleAuthorized:false;storeWriterAuthorized:false;
   evidence:"EXACT_LIVE_ASA_PROCESS_IMPORT_PREVIEW_NO_WRITES";
 };
+export type RunningAsaBatchPreview = {
+  token:string;count:number;storeOrCluster:number;otherSkipped:number;
+  maps:Array<{pid:number;mapName:string;mapKey:string;gamePort:number;queryPort:number}>;
+  readOnly:true;lifecycleAuthorized:false;storeWriterAuthorized:false;
+  serverProcessTouched:false;
+  evidence:"EXACT_NONSTORE_WMI_MULTI_MAP_PREVIEW_NO_WRITES";
+};
+export type RunningAsaBatchReceipt = {
+  imported:number;mapIds:string[];
+  readOnly:true;lifecycleAuthorized:false;storeWriterAuthorized:false;
+  serverProcessTouched:false;originalStoreTouched:false;
+  evidence:"ATOMIC_LOCAL_NONSTORE_RUNNING_ASA_OBSERVATION_IMPORT";
+};
 export type RunningAsaImportReceipt = {
   mapId:string;mapName:string;mapKey:string;pid:number;
   readOnly:true;lifecycleAuthorized:false;storeWriterAuthorized:false;
@@ -1632,6 +1645,7 @@ type WireRequest = { id: string; method: "lan.status" | "lan.preview" | "lan.app
   "ini.createGamePreview" | "ini.createGameApply" |
   "servers.runningLocal" | "servers.inspectLocal" | "servers.importLocal" |
   "servers.runningPreview" | "servers.runningRegister" |
+  "servers.runningBatchPreview" | "servers.runningBatchRegister" |
   "servers.runningAdoptPreview" | "servers.runningAdoptApply" |
   "curseforge.categories" | "curseforge.featured" | "curseforge.browse" |
   "curseforge.project" | "curseforge.summary" | "curseforge.files" |
@@ -2133,6 +2147,10 @@ export const managerBridge = {
     request<RunningAsaImportPreview>("servers.runningPreview", {pid,startedUtc,name,gamePort,queryPort}),
   runningAsaRegister: (token:string) =>
     request<RunningAsaImportReceipt>("servers.runningRegister", {token,confirm:true}),
+  runningAsaBatchPreview: () =>
+    request<RunningAsaBatchPreview>("servers.runningBatchPreview"),
+  runningAsaBatchRegister: (token:string) =>
+    request<RunningAsaBatchReceipt>("servers.runningBatchRegister",{token,confirm:true}),
   runningAsaAdoptPreview: (mapId:string) =>
     request<RunningAsaAdoptPreview>("servers.runningAdoptPreview",{mapId}),
   runningAsaAdoptApply: (token:string,externalControllerStopped:boolean) =>
