@@ -41,13 +41,24 @@ function verifiedBackupBudget(value:{
     value.actualCopySizeRecheckedAtCreate===true;
 }
 
+// Completed native backup/restore receipts are non-secret, read-only UI state.
+// Keep them during card navigation, never the one-time approval token.
+const recentWorldReceipts=new Map<string,WorldBackupCreated|WorldBackupRestored>();
+function retainWorldReceipt(mapId:string,receipt:WorldBackupCreated|WorldBackupRestored){
+  if(!recentWorldReceipts.has(mapId)&&recentWorldReceipts.size>=128){
+    const first=recentWorldReceipts.keys().next().value;
+    if(first)recentWorldReceipts.delete(first);
+  }
+  recentWorldReceipts.set(mapId,receipt);
+}
+
 export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selectedMap?:string}){
   const [chosen,setChosen]=useState(selectedMap??maps[0]?.id??"");
   const [history,setHistory]=useState<WorldBackupHistory|null>(null);
   const [pending,setPending]=useState<WorldBackupPreview|null>(null);
   const [restoreTarget,setRestoreTarget]=useState<WorldBackupPoint|null>(null);
   const [confirmName,setConfirmName]=useState("");
-  const [receipt,setReceipt]=useState<WorldBackupCreated|WorldBackupRestored|null>(null);
+  const [receipt,setReceipt]=useState<WorldBackupCreated|WorldBackupRestored|null>(()=>recentWorldReceipts.get(selectedMap??maps[0]?.id??"")??null);
   const [busy,setBusy]=useState(false);
   const [scheduled,setScheduled]=useState<ScheduledStoppedBackupState|null>(null);
   const [scheduleMinutes,setScheduleMinutes]=useState(120);
@@ -74,7 +85,7 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
   useEffect(()=>{
     selectedRef.current=chosen;
     setHistory(null);setPending(null);setRestoreTarget(null);
-    setConfirmName("");setReceipt(null);setError("");
+    setConfirmName("");setReceipt(recentWorldReceipts.get(chosen)??null);setError("");
     setScheduleConfirm(false);setScheduleNotice("");
   },[chosen]);
   const current=useMemo(()=>maps.find(m=>m.id===chosen),[maps,chosen]);
@@ -167,14 +178,25 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     const token=pending.token;const requestedMap=chosen;setPending(null);
     try{
       const result=await managerBridge.backupCreate(token);
-      if(selectedRef.current!==requestedMap || result.mapId!==requestedMap)return;
+      if(result.mapId!==requestedMap || !result.backupVerified)
+        throw new Error("UM-BACKUP-COMMIT-RECEIPT-INVALID");
+      retainWorldReceipt(requestedMap,result);
+      if(selectedRef.current!==requestedMap)return;
       setReceipt(result);
-      const nextHistory=await managerBridge.backupHistory(requestedMap);
-      if(selectedRef.current===requestedMap)setHistory(nextHistory);
+      // The destructive/expensive native operation is already complete.
+      // A read-only history refresh failure cannot turn that into a failed
+      // backup or prompt another mutating apply using a consumed token.
+      try{
+        const nextHistory=await managerBridge.backupHistory(requestedMap);
+        if(selectedRef.current===requestedMap)setHistory(nextHistory);
+      }catch{
+        if(selectedRef.current===requestedMap)
+          setError("A világmentés sikeresen elkészült és ellenőrzött, de az előzmények frissítése sikertelen. Ne indítsd el újra a mentést; frissítsd csak a listát.");
+      }
     }catch(e){
       if(selectedRef.current===requestedMap)
         setError(backupResourceError(e,
-          "A mentés nem készült el ellenőrzötten; az esetleges .pending csomag nem állítható vissza."));
+          "A mentési kérelem eredménye nem igazolt. Ellenőrizd a mentésnaplót és az előzményeket, mielőtt új műveletet indítasz."));
     }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const restorePreview=async(point:WorldBackupPoint)=>{
@@ -202,14 +224,23 @@ export function WorldBackupControls({maps,selectedMap}:{maps:PublicMap[];selecte
     setBusy(true);setError("");
     try{
       const result=await managerBridge.backupRestore(token,confirmName);
-      if(selectedRef.current!==requestedMap || result.mapId!==requestedMap)return;
-      setReceipt(result);
-      const nextHistory=await managerBridge.backupHistory(requestedMap);
-      if(selectedRef.current===requestedMap)setHistory(nextHistory);
-      if(selectedRef.current===requestedMap)setConfirmName("");
+      if(result.mapId!==requestedMap || !result.restored || !result.worldRestoreVerified)
+        throw new Error("UM-BACKUP-RESTORE-RECEIPT-INVALID");
+      retainWorldReceipt(requestedMap,result);
+      if(selectedRef.current!==requestedMap)return;
+      setReceipt(result);setConfirmName("");
+      // Once Core has committed a verified restore, only refresh the view.
+      // Do not represent a failed list request as a failed world restore.
+      try{
+        const nextHistory=await managerBridge.backupHistory(requestedMap);
+        if(selectedRef.current===requestedMap)setHistory(nextHistory);
+      }catch{
+        if(selectedRef.current===requestedMap)
+          setError("A világ visszaállítása sikeres és ellenőrzött, de a mentéslista frissítése sikertelen. A Restore műveletet ne ismételd meg.");
+      }
     }catch{
       if(selectedRef.current===requestedMap)
-        setError("A világ visszaállítása elakadt. Ellenőrizd a Manager eseménynaplóját és a megőrzött védőmentést; ne indítsd el automatikusan a mapot.");
+        setError("A visszaállítás eredménye nem igazolt. Ellenőrizd a Manager naplóját és a védőmentést; ne ismételd meg automatikusan és ne indítsd el a mapot.");
     }finally{if(selectedRef.current===requestedMap)setBusy(false);}
   };
   const originalLocalFive=maps.filter(m=>m.storeProtected);
