@@ -6594,6 +6594,8 @@ test("multi-host backup rejects another job's completed receipt without enabling
     name:"Megőrzés és ellenőrzött újraépítés indítása"
   }).click();
   await expect(panel).toContainText("másik feladathoz tartozik");
+  await panel.getByRole("button",{name:"Státusz frissítése"}).click();
+  await expect(panel).toContainText("másik feladathoz tartozik");
   await expect(panel).not.toContainText("151 fájl SHA-256 ellenőrizve");
 });
 
