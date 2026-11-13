@@ -63,8 +63,8 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map)||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
-           (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-               StringComparison.OrdinalIgnoreCase)))||
+           AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
+           AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments)))||
            map.Maintenance||!AsaReadyProbe.IsRegisteredServerBinary(map)||
            map.RconHost!="127.0.0.1"||
            map.RconPort is <1024 or >65535 ||
