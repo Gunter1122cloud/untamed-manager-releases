@@ -108,7 +108,7 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
         if(onConfigured)await onConfigured();
       } catch {
         if(belongs(requested,epoch))
-          setError("Az RCON-konfiguráció mentve, de az állapotfrissítés nem sikerült. Ne ismételd meg az INI-előkészítést.");
+          setError("A natív RCON-konfiguráció mentve, de az állapotfrissítés nem sikerült. Ne ismételd meg az INI-előkészítést; frissítsd a Manager állapotát.");
       }
     }catch{
       if(belongs(requested,epoch))
