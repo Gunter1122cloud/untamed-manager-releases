@@ -120,6 +120,36 @@ Check(!SteamFreshInstall.NeedsSteamBootstrapRestart(0,
 Check(FreshStoreApiPairObserver.StartupObservationWindow==TimeSpan.FromMinutes(10),
     "ASA API Loader child reattach observation matches original ten-minute startup window");
 
+// Two owned map profiles may share the same ASA binaries. The exact
+// registered sibling command may be ignored, but an unknown or duplicate
+// command must never be interpreted as a verified stopped process.
+{
+    string exe=@"C:\\ASA\\ShooterGame\\Binaries\\Win64\\ArkAscendedServer.exe";
+    string loader=@"C:\\ASA\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe";
+    var island=new LocalMap{Id=Guid.NewGuid(),Name="Island",
+        ExecutablePath=exe,Arguments="TheIsland_WP?listen -Port=7777 -QueryPort=27015"};
+    var center=new LocalMap{Id=Guid.NewGuid(),Name="Center",
+        ExecutablePath=exe,Arguments="TheCenter_WP?listen -Port=7817 -QueryPort=27055",
+        StartWithAsaApi=true,ApiLoaderPath=loader,
+        ApiLoaderArguments="TheCenter_WP?listen -Port=7817 -QueryPort=27055"};
+    var peers=new[]{island,center};
+    Check(WindowsProcessInspector.MatchesOtherRegisteredMap(island,exe,
+          "\"" + exe + "\" "+center.Arguments,peers),
+        "a known second map sharing the ASA EXE does not block first map observation");
+    Check(WindowsProcessInspector.MatchesOtherRegisteredMap(island,loader,
+          "\"" + loader + "\" "+center.ApiLoaderArguments,peers),
+        "a known API Loader sibling with different map ports is recognized");
+    Check(!WindowsProcessInspector.MatchesOtherRegisteredMap(island,exe,
+          "\"" + exe + "\" Ragnarok_WP?listen -Port=9001",peers),
+        "an unregistered ASA command remains ambiguous and cannot authorize launch");
+    Check(!WindowsProcessInspector.MatchesOtherRegisteredMap(island,exe,
+          "\"" + exe + "\" "+island.Arguments,peers),
+        "current map process is never mistaken for a sibling");
+    Check(!WindowsProcessInspector.MatchesOtherRegisteredMap(island,exe,
+          "\"" + exe + "\" "+center.Arguments,new[]{island,center,new LocalMap{Id=Guid.NewGuid(),ExecutablePath=exe,Arguments=center.Arguments}}),
+        "duplicate known ownership remains ambiguous");
+}
+
 string root=Path.Combine(Path.GetTempPath(),
     "Untamed-Obsidian-Native-Bridge-Tests-"+Guid.NewGuid().ToString("N"));
 using var operationJournalScope=UntamedOperationCoordinator.UseIsolatedRootForTests(

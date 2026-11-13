@@ -8,7 +8,7 @@ using System.Management;
 namespace UntamedManager.Core;
 public sealed partial class WindowsProcessInspector
 {
-    public ProcessCheck InspectFamily(LocalMap map)
+    public ProcessCheck InspectFamily(LocalMap map,IReadOnlyList<LocalMap>? registered=null)
     {
         if(string.IsNullOrWhiteSpace(map.ExecutablePath)||!File.Exists(map.ExecutablePath))
             return new(false,"ASA server executable unavailable",null);
@@ -21,7 +21,7 @@ public sealed partial class WindowsProcessInspector
         {
             if(map.StartWithAsaApi||map.LastLoader!=null)
                 return new(false,"API Loader missing or previous Loader identity cannot be verified",null);
-            return Inspect(map);
+            return Inspect(map,registered);
         }
         var observed=new List<ObservedProcess>();
         bool uncertain=false;
@@ -44,7 +44,12 @@ public sealed partial class WindowsProcessInspector
                 string command=Convert.ToString(row["CommandLine"])??"";
                 bool loaderArgs=isLoader&&CommandMatches(command,loader,map.ApiLoaderArguments);
                 bool serverArgs=isServer&&CommandMatches(command,server,map.Arguments);
-                if(loaderArgs==serverArgs){uncertain=true;continue;}
+                if(loaderArgs==serverArgs)
+                {
+                    if(MatchesOtherRegisteredMap(map,path,command,registered))
+                        continue;
+                    uncertain=true;continue;
+                }
                 using var process=Process.GetProcessById(Convert.ToInt32(row["ProcessId"]));
                 observed.Add(new(process.Id,Convert.ToInt32(row["ParentProcessId"]),new DateTimeOffset(process.StartTime.ToUniversalTime()),path,loaderArgs?map.ApiLoaderArguments:map.Arguments));
             }

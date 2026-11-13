@@ -295,7 +295,38 @@ public sealed record ProcessCheck(bool Running, string Status, ProcessIdentity? 
 
 public sealed partial class WindowsProcessInspector
 {
-    public ProcessCheck Inspect(LocalMap map)
+    // A host may own several map instances from a shared ASA installation.
+    // An exactly registered sibling command is not an ambiguous process
+    // belonging to the selected map. Unknown/changed arguments still block.
+    internal static bool MatchesOtherRegisteredMap(LocalMap selected,
+        string observedExecutable,string observedCommand,
+        IReadOnlyList<LocalMap>? registered)
+    {
+        if(registered==null||selected==null||
+           string.IsNullOrWhiteSpace(observedExecutable)||
+           string.IsNullOrWhiteSpace(observedCommand))return false;
+        int matches=0;
+        foreach(var other in registered)
+        {
+            if(other==null||other.Id==Guid.Empty||other.Id==selected.Id||
+               other.HistoricalStoreProtected||other.ObservedReadOnlyImported)
+                continue;
+            bool server= !string.IsNullOrWhiteSpace(other.Arguments) &&
+                string.Equals(other.ExecutablePath,observedExecutable,
+                    StringComparison.OrdinalIgnoreCase) &&
+                CommandMatches(observedCommand,observedExecutable,other.Arguments);
+            bool loader=other.StartWithAsaApi &&
+                !string.IsNullOrWhiteSpace(other.ApiLoaderArguments) &&
+                string.Equals(other.ApiLoaderPath,observedExecutable,
+                    StringComparison.OrdinalIgnoreCase) &&
+                CommandMatches(observedCommand,observedExecutable,other.ApiLoaderArguments);
+            if(server||loader)matches++;
+            if(matches>1)return false; // duplicate map ownership is ambiguous
+        }
+        return matches==1;
+    }
+
+    public ProcessCheck Inspect(LocalMap map,IReadOnlyList<LocalMap>? registered=null)
     {
         if (string.IsNullOrWhiteSpace(map.ExecutablePath) || !File.Exists(map.ExecutablePath))
             return new ProcessCheck(false, "Nincs érvényes helyi végrehajtható fájl", null);
@@ -320,7 +351,12 @@ public sealed partial class WindowsProcessInspector
                     if (!StringComparer.OrdinalIgnoreCase.Equals(Path.GetFullPath(path), exe)) continue;
                     string command = Convert.ToString(entry["CommandLine"]) ?? "";
                     // An installation with changed or unreadable arguments is not proven stopped.
-                    if (!CommandMatches(command, exe, map.Arguments)) { uncertain = true; continue; }
+                    if (!CommandMatches(command, exe, map.Arguments))
+                    {
+                        if(MatchesOtherRegisteredMap(map,exe,command,registered))
+                            continue;
+                        uncertain = true; continue;
+                    }
                     int id = Convert.ToInt32(entry["ProcessId"]);
                     using var p = Process.GetProcessById(id);
                     if (p.HasExited) continue;
@@ -706,7 +742,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         if(ClusterRegistrySchema.PrepareForSave(Config))Store.Save(Config);
         Registry=new ClusterRegistryService(this);
         _customInspector=inspect!=null;
-        _inspect=inspect ?? _inspector.Inspect;
+        _inspect=inspect ?? (map=>_inspector.Inspect(map,Config.LocalMaps));
     }
     public LegacyStoreV1PhysicalTransferWitness InspectLocalPhysicalTransferWitness()
     {
@@ -1548,7 +1584,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                 LegacyStoreV1ProcessObserver.Observe(map,Config.LocalMaps);
         }
         if(map.StartWithAsaApi || !string.IsNullOrWhiteSpace(map.ApiLoaderPath))
-            return _inspector.InspectFamily(map);
+            return _inspector.InspectFamily(map,Config.LocalMaps);
         return _inspect(map);
     }
 
@@ -1588,7 +1624,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         {
             // Even after opting out, a previous loader child may still be alive.
             // A direct start must not bypass the old family observation.
-            var family=_inspector.InspectFamily(map);
+            var family=_inspector.InspectFamily(map,Config.LocalMaps);
             if(map.StartWithAsaApi || family.Running || !family.ConfirmedStopped)
                 return family;
         }
