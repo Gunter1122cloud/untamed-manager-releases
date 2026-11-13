@@ -140,7 +140,7 @@ public static class OfflineAsaClusterArchive
         // This file is the original Store-v1 coordination identity, not a new
         // session. Its presence alone does NOT certify that no ASA map was writing.
         if(!result.Any(f=>f.RelativePath.Replace('\\','/').Equals(
-               ".legacy-store-v1/operation.json",StringComparison.OrdinalIgnoreCase)))
+               $"{OriginalStoreRuntimeIdentity.CoordinationDirectoryName}/operation.json",StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("Offline copy lacks original Store operation metadata");
         return result;
     }
