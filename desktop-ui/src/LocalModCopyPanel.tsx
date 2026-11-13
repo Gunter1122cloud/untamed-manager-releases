@@ -65,7 +65,7 @@ export function LocalModCopyPanel({maps,sourceMapId,onApplied}:{
     <div className="panel-head"><h3><Layers3 size={18}/> Copy to – többmapos modlista</h3>
       <span className="mod-tag amber">Csak helyi Manager</span></div>
     <p className="muted small">A kijelölt mapok következő indításához használt
-      modlistája módosul. Az eredeti Kova Store-v1 mapoknál kizárólag a
+      modlistája módosul. Az eredeti eredeti Store-v1 mapoknál kizárólag a
       Manager dedikált modlistája változik, igazoltan leállított ASA/Loader mellett.
       A másik gép, a közös Store és a játékosmentések érintetlenek maradnak.</p>
     {!sourceAllowed&&<div className="warning-inline"><Shield size={16}/>

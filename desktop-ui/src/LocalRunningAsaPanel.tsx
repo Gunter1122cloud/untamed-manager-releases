@@ -236,7 +236,7 @@ export function LocalRunningAsaPanel({onRegistered}:{
           {p.processKind==="asaServer" && p.launchFacts?.argumentsValidated &&
             (p.launchFacts.storeFlagPresent||p.launchFacts.clusterSwitchPresent||
              p.launchFacts.transferOverridePresent||p.launchFacts.conversionFlagPresent) &&
-            <p className="muted small">Store/cluster folyamat: az eredeti Kova-forrásból
+            <p className="muted small">Store/cluster folyamat: az eredeti eredeti forrásból
               ellenőrzött történeti regisztráció szükséges. Ez az importútvonal tiltott.</p>}
         </div>
       </div>)}

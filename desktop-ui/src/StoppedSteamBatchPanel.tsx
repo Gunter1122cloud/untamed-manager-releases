@@ -195,7 +195,7 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
         <AlertTriangle size={16}/>{error}</div>}
       <div className="warning-inline"><Shield size={16}/>
         A távoli gazdagépek függetlenek: ezen a gépen csak helyi ASA telepítések
-        módosíthatók. A történeti Kova Store-v1 mapok tiltva maradnak.</div>
+        módosíthatók. A történeti eredeti Store-v1 mapok tiltva maradnak.</div>
     </div>
   </section>;
 }
