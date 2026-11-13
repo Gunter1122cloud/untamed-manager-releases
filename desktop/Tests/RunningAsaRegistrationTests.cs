@@ -270,11 +270,35 @@ internal static class RunningAsaRegistrationTests
             _=>new ProcessCheck(false,"synthetic unowned ASA",null,true)))
         using(var batchBridge=new DesktopRunningAsaRegistrationBridge(batchCluster,Observe))
         {
+            // An active Store map is displayed separately but must NOT enter
+            // this non-Store registration path. No original metadata is read
+            // or modified by the batch.
+            var storeSample=sample with{
+                Pid=71225,StartedUtc=started.AddSeconds(9),
+                CommandLine=command.Replace("Ragnarok_WP","Aberration_WP",
+                    StringComparison.Ordinal)+" -usestore"
+            };
+            observations=new[]{sample,secondSample,storeSample};
             var batchPreview=await Call(batchBridge,"servers.runningBatchPreview",new{});
             Check(batchPreview.GetProperty("ok").GetBoolean() &&
                   batchPreview.GetProperty("data").GetProperty("count").GetInt32()==2 &&
+                  batchPreview.GetProperty("data").GetProperty("storeOrCluster").GetInt32()==1 &&
                   batchCluster.Config.LocalMaps.Count==0,
-                "two separate non-Store ASA processes yield one read-only atomic preview");
+                "batch includes both non-Store maps and excludes an active Store process");
+            var collisions=new[]{
+                sample,secondSample with{CommandLine=command.Replace(
+                    "Ragnarok_WP","TheCenter_WP",StringComparison.Ordinal)}
+            };
+            observations=collisions;
+            var conflictingPorts=await Call(batchBridge,"servers.runningBatchPreview",new{});
+            Check(!conflictingPorts.GetProperty("ok").GetBoolean() &&
+                  batchCluster.Config.LocalMaps.Count==0,
+                "two running maps sharing game/query ports cannot gain partial registrations");
+            observations=new[]{sample,secondSample,storeSample};
+            batchPreview=await Call(batchBridge,"servers.runningBatchPreview",new{});
+            Check(batchPreview.GetProperty("ok").GetBoolean() &&
+                  batchPreview.GetProperty("data").GetProperty("count").GetInt32()==2,
+                "collision recheck requires a new native one-shot batch preview");
             string approved=batchPreview.GetProperty("data").GetProperty("token").GetString()!;
             observations=new[]{sample,secondSample with{
                 StartedUtc=secondSample.StartedUtc!.Value.AddSeconds(1)}};
