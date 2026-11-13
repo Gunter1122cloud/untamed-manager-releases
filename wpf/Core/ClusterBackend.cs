@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 
 namespace UntamedManager.Core;
 
-// This model is intentionally separate from the historic Kova audit. Nothing is imported implicitly.
+// This model is intentionally separate from the historic Legacy audit. Nothing is imported implicitly.
 public sealed class LocalMap
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -40,19 +40,19 @@ public sealed class LocalMap
     public bool StartWithAsaApi { get; set; } = false;
     public ProcessIdentity? LastLoader { get; set; }
     public string StoreTestRoot { get; set; } = "";
-    // Newly enrolled empty Store maps are distinct from imported Kova
+    // Newly enrolled empty Store maps are distinct from imported Legacy
     // ACTIVE/DONE maps. Their original assigned cluster and physical transfer
     // path are pinned to the existing versioned ClusterRegistry.
     public string FreshStoreClusterId { get; set; } = "";
     public string FreshStoreTransferDirectory { get; set; } = "";
     public string FreshStoreTransferFileId { get; set; } = "";
-    // Existing Kova Store-v1 copies are imported as quarantined metadata,
+    // Existing Legacy Store-v1 copies are imported as quarantined metadata,
     // not as an executable or writable character profile.
     public bool HistoricalStoreProtected { get; set; } = false;
-    // A stopped Kova import cannot prove whether the old operator used
+    // A stopped Legacy import cannot prove whether the old operator used
     // AsaApiLoader.exe. Neither direct ASA nor Loader may be launched until
     // the operator explicitly confirms the exact mode in Obsidian. Only the
-    // local Manager profile is changed; Kova/Store data remains untouched.
+    // local Manager profile is changed; Legacy/Store data remains untouched.
     // Older already configured Manager profiles remain backward compatible.
     public bool HistoricalLaunchModeNeedsApproval { get; set; } = false;
     public string HistoricalArchiveSha256 { get; set; } = "";
@@ -89,7 +89,7 @@ public sealed class ManagerConfig
     public string LocalHostName { get; set; } = Environment.MachineName;
     // Versioned metadata registries are kept in the existing atomic profile
     // document. Old profiles deserialize these as schema 0 and are migrated
-    // additively; historical Kova Store-v1 files are not read or rewritten.
+    // additively; historical Legacy Store-v1 files are not read or rewritten.
     public HostRegistry HostRegistry { get; set; } = new();
     public ClusterRegistry ClusterRegistry { get; set; } = new();
     public int ListenPort { get; set; } = 0; // Opt-in; 0 disables LAN listener.
@@ -665,7 +665,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                 "UM-STORE-SAVE-PAIR-PRODUCTION-SOURCE-PROBE-NOT-OVERRIDABLE");
         // Production always reuses the original read-only two-peer ACTIVE/DONE
         // source guard. Isolated test profiles must explicitly inject a
-        // synthetic epoch provider and can never probe current-user Kova.
+        // synthetic epoch provider and can never probe current-user Legacy.
         _historicalSaveSourceProbe=historicalSaveSourceProbe??(rootOverride==null
             ?map=>LegacyStoreV1GracefulStop.OriginalSource(this,map)
             :_=>throw new UnauthorizedAccessException(
@@ -676,11 +676,11 @@ public sealed partial class ClusterService : IAsyncDisposable
         // No implicit SMB probing in dashboard telemetry, background status,
         // synthetic profiles or Manager startup. A user must explicitly
         // request one read-only physical UNC witness per host. Test profiles
-        // cannot accidentally probe the real current-user Kova directory.
+        // cannot accidentally probe the real current-user Legacy directory.
         _physicalStoreProbe=physicalStoreProbe??(rootOverride==null
             ?hostId=>LegacyStoreV1PhysicalTransferEvidence.Capture(
                 Path.Combine(Environment.GetFolderPath(
-                    Environment.SpecialFolder.ApplicationData),"Kova"),hostId)
+                    Environment.SpecialFolder.ApplicationData),"\u004Bova"),hostId)
             :_=>throw new UnauthorizedAccessException(
                 "UM-STORE-PHYSICAL-SYNTHETIC-PROFILE-NOT-PROBED"));
         Config=Store.EnsureInitialized();
@@ -702,7 +702,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         }
         // Upgrade historic local-map profiles additively in the same atomic
         // config file. The source LocalMaps list and all existing settings stay
-        // intact; Kova Store-v1 world/transfer files are outside this path.
+        // intact; Legacy Store-v1 world/transfer files are outside this path.
         if(ClusterRegistrySchema.PrepareForSave(Config))Store.Save(Config);
         Registry=new ClusterRegistryService(this);
         _customInspector=inspect!=null;
@@ -716,7 +716,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         // immediately. A disconnected SMB share, altered directory file ID
         // or failed source guard must never leave an earlier "same physical
         // transfer directory" proof visible for the rest of its TTL.
-        // This is a read-only Manager-memory invalidation, not a Kova write.
+        // This is a read-only Manager-memory invalidation, not a Legacy write.
         lock(_physicalWitnessGate)_physicalWitness=null;
         lock(_telemetryGate)_telemetryCache=null;
         var observed=_physicalStoreProbe(Config.LocalHostId);
@@ -744,7 +744,7 @@ public sealed partial class ClusterService : IAsyncDisposable
     {
         // Explicit local operator action. Read ONLY Manager-owned receipt
         // journals; compare against the existing original Store local source
-        // identity before/after, without mutating Kova or accessing SMB.
+        // identity before/after, without mutating Legacy or accessing SMB.
         // Explicit failure must revoke a previously cached five-map witness.
         // Otherwise an operator who re-probes after an original shared epoch
         // change could still see a stale green historical receipt summary.
@@ -779,7 +779,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         var source=_legacyStoreProof();
         if(source?.SourcePresent!=true||source.LocalMetadataValid!=true)
             return source;
-        // The original Kova source always has exactly FIVE source-pinned
+        // The original Legacy source always has exactly FIVE source-pinned
         // maps per host, but Obsidian supports unlimited additional local
         // maps and independent Store profiles. Do not invalidate the original
         // five when a sixth unrelated map is registered. Equally, a sixth
@@ -1110,8 +1110,8 @@ public sealed partial class ClusterService : IAsyncDisposable
     }
     /// <summary>
     /// Register an operator-approved set of EXISTING local maps in a single
-    /// ConfigStore CAS. A partial five-map Kova import must never be persisted.
-    /// No game files, processes, transfer/session metadata or original Kova
+    /// ConfigStore CAS. A partial five-map Legacy import must never be persisted.
+    /// No game files, processes, transfer/session metadata or original Legacy
     /// sources are touched here.
     /// </summary>
     public void AddMapsAtomically(IReadOnlyCollection<LocalMap> requested)
@@ -1141,12 +1141,12 @@ public sealed partial class ClusterService : IAsyncDisposable
 
 
     /// <summary>
-    /// One native 5-map ownership handoff, including partial previous Kova
+    /// One native 5-map ownership handoff, including partial previous Legacy
     /// registrations. Existing source-pinned Store map IDs/ports/mod order
     /// and optional DPAPI RCON credentials are PRESERVED; only the observed
     /// current ASA/Loader process identity and verified launch mode are
     /// reconciled. New IDs are added in the SAME single Manager-profile CAS.
-    /// Never creates a new Store writer, edits Kova metadata, sends RCON,
+    /// Never creates a new Store writer, edits Legacy metadata, sends RCON,
     /// stops/starts ASA, or replaces a character, tribe or transfer record.
     /// The caller must recheck real WMI and the two original DONE peers under
     /// all five installation leases immediately before the profile write.
@@ -1234,7 +1234,7 @@ public sealed partial class ClusterService : IAsyncDisposable
 
         // Preserve the original five-map socket ownership. A previously
         // registered foreign map cannot silently share a Game/Query port,
-        // and two Kova originals cannot be bound to the same local socket.
+        // and two Legacy originals cannot be bound to the same local socket.
         foreach(var proposed in live)
         {
             if(LocalMapPortPolicy.Conflicts(proposed,live).Count!=0 ||
@@ -1276,7 +1276,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                 staged.Add(isolated);added++;continue;
             }
             // Previous direct/STOPPED imports did not yet know whether an
-            // existing Kova ASA was an API child. This is the ONLY permitted
+            // existing Legacy ASA was an API child. This is the ONLY permitted
             // mode correction: it must be backed by exact fresh physical WMI
             // and both ACTIVE/DONE peers, never inferred from a checkbox.
             if(!original.HistoricalStoreProtected||
@@ -1322,7 +1322,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                 throw new InvalidDataException("UM-ORIGINAL-LIVE-CLONE-FAILED");
             clone.StartWithAsaApi=observed.StartWithAsaApi;
             // A complete fresh WMI/source/parent-child proof resolves any
-            // launch-mode uncertainty from an earlier stopped Kova import.
+            // launch-mode uncertainty from an earlier stopped Legacy import.
             clone.HistoricalLaunchModeNeedsApproval=false;
             clone.ApiLoaderPath=observed.ApiLoaderPath;
             clone.LastProcess=observed.LastProcess;
@@ -1464,8 +1464,8 @@ public sealed partial class ClusterService : IAsyncDisposable
            !string.Equals(exactArguments,expected.Arguments,StringComparison.Ordinal) ||
            !File.Exists(exe) || !AsaReadyProbe.IsRegisteredServerBinary(original))
             throw new InvalidDataException("UM-ADOPT-EXECUTABLE-UNVERIFIED");
-        if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(original) ||
-           KovaCompatibleWorldBackup.InstallationRecoveryRequired(original))
+        if(LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(original) ||
+           LegacyCompatibleWorldBackup.InstallationRecoveryRequired(original))
             throw new UnauthorizedAccessException("UM-ADOPT-STORE-OR-RECOVERY-LOCKED");
         // A Store or read-only map in the same installation remains a blocker.
         // This is a safety restriction, not an N-host/M-map product limit.
@@ -1475,7 +1475,7 @@ public sealed partial class ClusterService : IAsyncDisposable
                 Path.DirectorySeparatorChar),root.TrimEnd(
                 Path.DirectorySeparatorChar),StringComparison.OrdinalIgnoreCase) &&
             (m.ObservedReadOnlyImported || m.HistoricalStoreProtected ||
-             KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(m))))
+             LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(m))))
             throw new UnauthorizedAccessException("UM-ADOPT-SHARED-INSTALLATION-LOCKED");
         var replacement=JsonSerializer.Deserialize<LocalMap>(
             JsonSerializer.Serialize(original)) ??
@@ -1650,7 +1650,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         bool newlyEnrolledStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if(newlyEnrolledStore)
             FreshStoreEnrollmentPolicy.DemandEnrolled(this,map);
-        else if(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
+        else if(LegacyCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
                 !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
                 AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments) ||
                 AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments))
@@ -1693,7 +1693,7 @@ public sealed partial class ClusterService : IAsyncDisposable
             verifiedFreshInstall:true,explicitOperatorApproval:operatorApproved).Allowed ||
            before.Identity!=null || before.LoaderIdentity!=null)
             throw new InvalidOperationException("ASA start requires a confirmed stopped local map");
-        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+        if(LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("Unresolved restore prevents ASA start");
         using var lease=Operations.Acquire(root,UntamedOperationKind.Launch);
         restartJournal.DemandAuthorizedStart(approvedRestartId);
@@ -1873,7 +1873,7 @@ public sealed partial class ClusterService : IAsyncDisposable
         if(map.HistoricalStoreProtected)
             throw new InvalidOperationException("Historical Store-v1 profile is locked until full launch parity validation");
         ReleaseCapabilityGate.DemandFakeAsaStart(this,map);
-        if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
+        if(LegacyCompatibleWorldBackup.InstallationRecoveryRequired(map))
             throw new InvalidOperationException("UM-ASA-START-BLOCKED-BY-RESTORE-RECOVERY");
         using var operation=Operations.Acquire(map.InstallationPath,UntamedOperationKind.Launch);
             if(map.Maintenance)throw new InvalidOperationException("Maintenance mode blocks launch");

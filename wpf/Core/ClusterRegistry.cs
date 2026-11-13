@@ -293,7 +293,7 @@ public sealed class ClusterRegistryService
                StringComparer.OrdinalIgnoreCase).Count()!=5)
             throw new InvalidDataException("UM-ORIGINAL-CLUSTER-FIVE-SOURCE-INVALID");
         var proposed=ClusterRegistrySchema.NormalizeCluster(id,
-            "Original Kova Store-v1",originalTransferDirectory,null,
+            "Original Legacy Store-v1",originalTransferDirectory,null,
             DateTimeOffset.UtcNow);
         if(!proposed.TransferDirectory.StartsWith(@"\\",
             StringComparison.Ordinal))
@@ -384,7 +384,7 @@ public sealed class ClusterRegistryService
             if (current == null) throw new KeyNotFoundException("Cluster is not registered");
             var updated = ClusterRegistrySchema.NormalizeCluster(id, name,
                 transferDirectory, backupDirectory, current.CreatedUtc);
-            // The original Kova Store cluster may already own a live external
+            // The original Legacy Store cluster may already own a live external
             // transfer root. A generic metadata editor must never rebind or
             // rename that source-pinned identity. The same applies to any
             // imported historical Store member assigned to a differently
@@ -394,7 +394,7 @@ public sealed class ClusterRegistryService
                 config.LocalMaps.Any(m=>m.Id==a.MapId &&
                     (m.HistoricalStoreProtected ||
                      !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256))));
-            if((OriginalKovaCluster(id)||historicalMember) &&
+            if((OriginalLegacyCluster(id)||historicalMember) &&
                (!StringComparer.Ordinal.Equals(current.Name,updated.Name) ||
                 !StringComparer.OrdinalIgnoreCase.Equals(
                     current.TransferDirectory,updated.TransferDirectory) ||
@@ -466,10 +466,10 @@ public sealed class ClusterRegistryService
     }
 
     // The generic registry is metadata-only. It must not reassign historic
-    // Store-v1 members or admit new maps into the original Kova cluster.
+    // Store-v1 members or admit new maps into the original Legacy cluster.
     // That requires the separate source-pinned Store migration/peer approval.
-    private static bool OriginalKovaCluster(string? id) =>
-        string.Equals(id, "kovacluster", StringComparison.OrdinalIgnoreCase);
+    private static bool OriginalLegacyCluster(string? id) =>
+        string.Equals(id, "\u006Bovacluster", StringComparison.OrdinalIgnoreCase);
 
     private ClusterMembershipPreview CreatePreview(ClusterRegistrySnapshot snapshot,
         string clusterId, Guid[] requestedMapIds)
@@ -506,7 +506,7 @@ public sealed class ClusterRegistryService
             !string.IsNullOrWhiteSpace(map.HistoricalArchiveSha256))
             .Select(map => map.Id).ToHashSet();
         // Historical Store identity comes from the imported source, not
-        // from an assumed literal KovaCluster ID. Protect every cluster
+        // from an assumed literal LegacyCluster ID. Protect every cluster
         // holding a locally source-pinned historical member.
         var protectedClusterIds = snapshot.ClusterRegistry.MapAssignments
             .Where(a => protectedLocal.Contains(a.MapId))
@@ -527,8 +527,8 @@ public sealed class ClusterRegistryService
             }
             var owner = snapshot.ClusterRegistry.MapAssignments.SingleOrDefault(x => x.MapId == mapId);
             if (owner != null && StringComparer.OrdinalIgnoreCase.Equals(owner.ClusterId, id)) continue;
-            if (protectedLocal.Contains(mapId) || OriginalKovaCluster(owner?.ClusterId) ||
-                OriginalKovaCluster(id) || protectedClusterIds.Contains(id) ||
+            if (protectedLocal.Contains(mapId) || OriginalLegacyCluster(owner?.ClusterId) ||
+                OriginalLegacyCluster(id) || protectedClusterIds.Contains(id) ||
                 (owner != null && protectedClusterIds.Contains(owner.ClusterId)))
             {
                 preview.Errors.Add("UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE");
@@ -548,7 +548,7 @@ public sealed class ClusterRegistryService
             StringComparer.OrdinalIgnoreCase.Equals(x.ClusterId, id) && !requested.Contains(x.MapId)))
         {
             if (protectedLocal.Contains(assignment.MapId) ||
-                OriginalKovaCluster(assignment.ClusterId) ||
+                OriginalLegacyCluster(assignment.ClusterId) ||
                 protectedClusterIds.Contains(assignment.ClusterId))
             {
                 preview.Errors.Add("UM-REGISTRY-ORIGINAL-STORE-MEMBERSHIP-IMMUTABLE");
