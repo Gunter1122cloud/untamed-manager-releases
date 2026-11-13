@@ -167,6 +167,18 @@ public static class AsaReadyProbe
                    @"(?:^|[\s?])(?:-)?QueryPort\s*=\s*(?<port>[^\s?]*)(?=$|[\s?])",map.QueryPort);
     }
 
+    // A valid RCON password is not process identity. Require Windows TCP
+    // ownership for the exact ASA PID before and after the read-only query.
+    // This predicate is pure so failure cases are independently testable.
+    internal static bool ConfirmedOwnedRconListener(ProcessCheck process,int port,
+        Func<int,int,bool> owns)
+    {
+        ArgumentNullException.ThrowIfNull(owns);
+        return process.Running && !process.ConfirmedStopped &&
+            process.Identity is {Pid:>0} identity &&
+            port is >=1024 and <=65535 && owns(port,identity.Pid);
+    }
+
     public static async Task<AsaReadinessSnapshot> ProbeAsync(ClusterService cluster,
         Guid mapId,CancellationToken cancellationToken=default)
     {
@@ -180,8 +192,17 @@ public static class AsaReadyProbe
             return Result(map,AsaRuntimeStage.Unconfigured,
                 "Launch arguments disagree with configured game, query or RCON port");
         return await ObserveAsync(map,()=>cluster.Check(map),
-            async ct=>await RconProtocol.Execute(map.RconHost,map.RconPort,
-                SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",ct),
+            async ct=>{
+                if(!ConfirmedOwnedRconListener(cluster.Check(map),map.RconPort,
+                    RconPortOwnership.IsOwnedListener))
+                    throw new UnauthorizedAccessException("UM-ASA-RCON-PID-OWNER-MISMATCH");
+                string result=await RconProtocol.Execute(map.RconHost,map.RconPort,
+                    SecureStore.Unprotect(map.RconPasswordProtected),"ListPlayers",ct);
+                if(!ConfirmedOwnedRconListener(cluster.Check(map),map.RconPort,
+                    RconPortOwnership.IsOwnedListener))
+                    throw new UnauthorizedAccessException("UM-ASA-RCON-PID-OWNER-CHANGED");
+                return result;
+            },
             cancellationToken);
     }
 
