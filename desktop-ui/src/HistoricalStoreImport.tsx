@@ -169,7 +169,7 @@ export function HistoricalStoreImport({onImported}: {onImported:()=>Promise<void
         token,"OBSIDIAN FORRÁS ÁTVÉTEL");
       setPinNotice(result.localMaps+
         " map eredeti konfigurációja az Obsidian saját profiljában rögzítve. "+
-        "A régi korábbi program és helyi profil nem szükséges a későbbi helyi vezérléshez. "+
+        "A korábbi kezelőalkalmazás és helyi profil nem szükséges a későbbi helyi vezérléshez. "+
         "A clusterutazást továbbra is az ASA kezeli.");
       try{await onImported();}catch{setPinError(
         "A forrásátvétel sikerült, de a felületi frissítés nem. Ne ismételd meg a műveletet.");}

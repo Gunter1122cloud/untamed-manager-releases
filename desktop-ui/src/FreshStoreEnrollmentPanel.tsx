@@ -81,7 +81,7 @@ export function FreshStoreEnrollmentPanel({mapId,onConfigured}:{
       <span className="mod-tag amber">Külön jóváhagyás</span></div>
     <div className="panel-inner">
       {status?.historicalProtected?<div className="warning-inline" role="alert">
-        Eredeti korábbi Manager Store-map: az új mapos regisztráció itt tiltva.</div>:
+        Eredeti korábbi kezelőalkalmazás Store-map: az új mapos regisztráció itt tiltva.</div>:
       status?.enrolled?<div className="success-inline" role="status">
         <CheckCircle2 size={16}/> Store-profil regisztrálva: {status.clusterId}.
         A tényleges játékbeli utazás még nem igazolt.</div>:<>

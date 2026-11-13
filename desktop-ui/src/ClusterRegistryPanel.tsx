@@ -371,7 +371,7 @@ export function ClusterRegistryPanel({protectedMapIds=new Set<string>()}:{protec
       </>}
     </RegistryPanel>
     <RegistryPanel title="Új map a meglévő eredeti Store-v1 clusterhez">
-      <p className="muted small">A történeti, eredeti öt helyi mapot és a korábbi Manager
+      <p className="muted small">A történeti, eredeti öt helyi mapot és a korábbi kezelőalkalmazás
         négy Store-metaadatát változatlanul ellenőrzi. A rendszer csak az
         eredeti, forrásból olvasott clusterazonosítót és az igazolt helyi
         transferkönyvtárat fogadhatja el. Ez az ellenőrzés nem indít ASA-t,
