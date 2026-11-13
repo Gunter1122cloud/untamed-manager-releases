@@ -2693,6 +2693,43 @@ try
         Check(IsError(protectedPreview,"UM-RCON-CONFIG-STOPPED-NONSTORE-ONLY"),
             "RCON bootstrap cannot bypass historical Store map on shared installation");
         cluster.RemoveMap(historicalSibling.Id);
+        // A real existing ASA INI is never rewritten or assigned a new
+        // credential. Exact parity must work with short legacy values and
+        // with significant whitespace and '=' around the original password.
+        const string oldPassword="  =Old7!xx= ";
+        Directory.CreateDirectory(Path.GetDirectoryName(iniPath)!);
+        File.WriteAllText(iniPath,
+            "[ServerSettings]\r\nRCONEnabled=True\r\nRCONPort="+
+            testRconPort.ToString(System.Globalization.CultureInfo.InvariantCulture)+
+            "\r\nServerAdminPassword="+oldPassword+"\r\n");
+        byte[] oldBytes=File.ReadAllBytes(iniPath);
+        var matchingExisting=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=testRconPort,password=oldPassword,createIni=false});
+        IsOk(matchingExisting,"existing ASA INI with exact legacy password can be attached read-only");
+        Check(matchingExisting.GetProperty("data").GetProperty("existingIniVerified").GetBoolean() &&
+              !matchingExisting.GetProperty("data").GetProperty("createsNewIni").GetBoolean() &&
+              !matchingExisting.GetRawText().Contains(oldPassword) &&
+              File.ReadAllBytes(iniPath).SequenceEqual(oldBytes),
+            "existing ASA credential and INI bytes remain unchanged at preview");
+        var trimmedExisting=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=testRconPort,password=oldPassword.Trim(),createIni=false});
+        Check(IsError(trimmedExisting,"UM-RCON-CONFIG-FAILED") &&
+              File.ReadAllBytes(iniPath).SequenceEqual(oldBytes),
+            "trimming an existing password is rejected without rewriting the ASA INI");
+        var otherExisting=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=otherTestRconPort,password=oldPassword,createIni=false});
+        Check(IsError(otherExisting,"UM-RCON-CONFIG-FAILED") &&
+              File.ReadAllBytes(iniPath).SequenceEqual(oldBytes),
+            "existing INI with different RCON port cannot silently bind a profile");
+        File.AppendAllText(iniPath,
+            "[ServerSettings]\r\nRCONEnabled=True\r\nRCONPort="+
+            testRconPort+"\r\nServerAdminPassword="+oldPassword+"\r\n");
+        var duplicateExisting=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=testRconPort,password=oldPassword,createIni=false});
+        Check(IsError(duplicateExisting,"UM-RCON-CONFIG-FAILED"),
+            "duplicate ASA ServerSettings sections cannot authorize attaching an ambiguous RCON");
+        File.Delete(iniPath);
+        Check(!File.Exists(iniPath),"synthetic old INI removed before new-server bootstrap");
         var preview=await Call(rconSetup.HandleAsync,"rcon.configPreview",
             new{mapId=fresh.Id,rconPort=testRconPort,password=secret,createIni=true});
         IsOk(preview,"new ASA RCON config is previewed, not applied");

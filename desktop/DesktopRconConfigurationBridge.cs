@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -75,22 +77,24 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
     private static void VerifyExisting(string path,int port,string password)
     {
         if(!File.Exists(path))throw new InvalidDataException("UM-RCON-INI-ABSENT");
-        var lines=File.ReadAllLines(path);
-        bool section=false;
-        int enabled=0,ports=0,passwords=0;
-        foreach(string item in lines)
+        bool inSection=false;
+        int sections=0,enabled=0,ports=0,passwords=0;
+        byte[] expected=Encoding.UTF8.GetBytes(password);
+        foreach(string source in File.ReadLines(path))
         {
-            string line=item.Trim();
-            if(line.StartsWith("[",StringComparison.Ordinal))
+            string text=source.Trim();
+            if(text.StartsWith("[",StringComparison.Ordinal))
             {
-                section=line.Equals("[ServerSettings]",StringComparison.OrdinalIgnoreCase);
+                inSection=text.Equals("[ServerSettings]",StringComparison.OrdinalIgnoreCase);
+                if(inSection)sections++;
                 continue;
             }
-            if(!section || line.StartsWith(";",StringComparison.Ordinal) ||
-               line.StartsWith("#",StringComparison.Ordinal))continue;
-            int equals=line.IndexOf('=');
-            if(equals<1)continue;
-            string key=line[..equals].Trim(),value=line[(equals+1)..].Trim();
+            if(!inSection||text.Length==0||text[0] is ';' or '#')continue;
+            int equal=source.IndexOf('=');
+            if(equal<1)continue;
+            string key=source[..equal].Trim();
+            string rawValue=source[(equal+1)..];
+            string value=rawValue.Trim();
             if(key.Equals("RCONEnabled",StringComparison.OrdinalIgnoreCase))
             {
                 enabled++;
@@ -106,11 +110,17 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
             else if(key.Equals("ServerAdminPassword",StringComparison.OrdinalIgnoreCase))
             {
                 passwords++;
-                if(!string.Equals(value,password,StringComparison.Ordinal))
+                // Preserve exact existing ASA credentials, including leading
+                // and trailing spaces and embedded '='. Do not normalize or
+                // return secret bytes to WebView2. This mirrors the existing
+                // AsaRconConfigurationEvidence local-profile parity check.
+                byte[] actual=Encoding.UTF8.GetBytes(rawValue);
+                if(actual.Length!=expected.Length||
+                   !CryptographicOperations.FixedTimeEquals(actual,expected))
                     throw new InvalidDataException("UM-RCON-INI-PASSWORD-MISMATCH");
             }
         }
-        if(enabled!=1||ports!=1||passwords!=1)
+        if(sections!=1||enabled!=1||ports!=1||passwords!=1)
             throw new InvalidDataException("UM-RCON-INI-AMBIGUOUS");
     }
 
