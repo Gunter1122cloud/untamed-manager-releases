@@ -70,7 +70,8 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
     return ()=>{++requestEpoch.current;};
   },[load]);
   const previewConfiguration=async()=>{
-    if(busy||!config?.permitted||rconPassword.length<12)return;
+    if(busy||!config?.permitted||
+       rconPassword.length<(createNewIni?12:1))return;
     const requested=mapId,epoch=requestEpoch.current;
     setBusy(true);setError("");setConfigPreview(null);setConfigDone(false);
     try{
@@ -235,9 +236,10 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
           <input aria-label="RCON beállítás port" type="number" min={1024} max={65535} value={rconPort}
             disabled={!config?.permitted||busy} onChange={e=>{setRconPort(e.target.value);setConfigPreview(null);}}/>
         </label>
-        <label>Adminjelszó (12–128 karakter)
+        <label>{createNewIni?"Új adminjelszó (12–128 karakter)":
+          "Meglévő ASA ServerAdminPassword (1–256 karakter, pontos egyezés)"}
           <input aria-label="RCON beállítás jelszó" type="password" autoComplete="new-password"
-            minLength={12} maxLength={128} value={rconPassword} disabled={!config?.permitted||busy}
+            minLength={createNewIni?12:1} maxLength={createNewIni?128:256} value={rconPassword} disabled={!config?.permitted||busy}
             onChange={e=>{setRconPassword(e.target.value);setConfigPreview(null);}}/>
         </label>
       </div>
@@ -246,7 +248,8 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
         Új, még nem létező GameUserSettings.ini létrehozása. Ha már van működő INI, vedd ki a jelölést: a Manager kizárólag ellenőrzi, nem írja át.
       </label>
       <div className="uk-rcon-admin-actions">
-        <button className="secondary" type="button" disabled={!config?.permitted||busy||rconPassword.length<12}
+        <button className="secondary" type="button" disabled={!config?.permitted||busy||
+              rconPassword.length<(createNewIni?12:1)}
           onClick={()=>{void previewConfiguration();}}>Beállítás ellenőrzése</button>
       </div>
       {configPreview&&<div className="uk-rcon-admin-review" role="region" aria-label="RCON beállítás jóváhagyás">

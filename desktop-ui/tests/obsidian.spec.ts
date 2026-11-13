@@ -1694,10 +1694,12 @@ test.beforeEach(async ({ page }) => {
             evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE"};
         }
         case "rcon.configPreview": {
-          if(m.password?.length<12 || !m.createIni)throw new Error("UM-RCON-CONFIG-FIELDS");
+          if((m.createIni&&m.password?.length<12)||
+             (!m.createIni&&m.password?.length<1))
+            throw new Error("UM-RCON-CONFIG-FIELDS");
           return {token:"00000000-0000-4000-8000-000000008879",
             mapId:m.mapId,mapName:"Genesis Part 1",rconPort:m.rconPort,
-            createsNewIni:true,existingIniVerified:false,
+            createsNewIni:!!m.createIni,existingIniVerified:!m.createIni,
             evidence:"STOPPED_LOCAL_RCON_PREVIEW_NO_WRITES"};
         }
         case "rcon.configApply": {
@@ -6021,6 +6023,29 @@ test("first setup follows one RCON bootstrap route and returns to native Start w
   await expect(page.getByRole("region",{name:"Valódi ASA első indítása"})).toBeVisible();
   await expect(page.getByRole("button",{name:"ASA szerver indítása",exact:true})).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Első RCON beállítása"})).toHaveCount(0);
+});
+
+test("existing ASA RCON password can be verified unchanged without the new-password minimum",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await page.getByRole("button",{name:"Beállítások ellenőrzése"}).click();
+  await page.getByText(/Jóváhagyom a regisztrált helyi map Manager-profiljának mentését/).click();
+  await page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"}).click();
+  await page.getByRole("button",{name:"Első RCON beállítása"}).click();
+  await page.getByLabel(/Új, még nem létező GameUserSettings.ini létrehozása/).uncheck();
+  await page.getByRole("textbox",{name:"RCON beállítás jelszó"}).fill("Old7!xx");
+  await expect(page.getByRole("button",{name:"Beállítás ellenőrzése"})).toBeEnabled();
+  await page.getByRole("button",{name:"Beállítás ellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"RCON beállítás jóváhagyás"}))
+    .toContainText("A meglévő INI változatlan marad");
+  // No Apply: the Windows bridge still requires an exact pre-existing
+  // GameUserSettings.ini RCON port and password match.
 });
 
 test("RCON native commit receipt survives a failed subsequent status refresh without reapplying INI",async({page})=>{

@@ -57,6 +57,13 @@ static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
 
+AsaInitialRconSettings.ValidateExistingAdminPassword("Old7!xx");
+Check(true,"existing ASA INI credentials may be shorter than new credentials");
+bool weakNewDenied=false;
+try{AsaInitialRconSettings.ValidateAdminPassword("Old7!xx");}
+catch(InvalidDataException){weakNewDenied=true;}
+Check(weakNewDenied,"newly created ASA RCON passwords still require twelve characters");
+
 Check(SteamFreshInstall.IsTransientMissingSteamConfiguration(
       "ERROR! Failed to install app '2430930' (Missing configuration)"),
     "SteamCMD first-run missing configuration triggers bounded retry");

@@ -172,13 +172,16 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                        !FreshAsaInstallationSafety.IsProvenFresh(cluster,map))
                         return Error(id,"UM-RCON-CONFIG-STOPPED-NONSTORE-ONLY");
                     string password=secretField.GetString()??"";
-                    AsaInitialRconSettings.ValidateAdminPassword(password);
+                    bool create=createField.GetBoolean();
+                    // Existing ASA INI passwords must be verified exactly,
+                    // not rejected by the separate new-password policy.
+                    if(create)AsaInitialRconSettings.ValidateAdminPassword(password);
+                    else AsaInitialRconSettings.ValidateExistingAdminPassword(password);
                     LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
                         Id=map.Id,Name=map.Name,GamePort=map.GamePort,
                         QueryPort=map.QueryPort,RconPort=port
                     },cluster.Config.LocalMaps);
                     string path=IniPath(map);
-                    bool create=createField.GetBoolean();
                     if(create)
                     {
                         if(File.Exists(path)||ExistingWorldOrStore(map))
