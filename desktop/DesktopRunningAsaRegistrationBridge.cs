@@ -28,6 +28,8 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
     private readonly Func<IReadOnlyList<LocalRunningAsaDiscovery.Sample>> observe;
     private readonly SemaphoreSlim serial=new(1,1);
     private readonly Dictionary<Guid,Pinned> previews=new();
+    private sealed record BatchApproval(Guid Token,Pinned[] Maps,DateTimeOffset ExpiresUtc);
+    private BatchApproval? batch;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopRunningAsaRegistrationBridge(ClusterService service,
@@ -178,7 +180,8 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                 return Denied(null,"UM-LIVE-REQUEST-INVALID");
             id=rid.ToString("D");
             if(method.GetString() is not ("servers.runningPreview" or
-                "servers.runningRegister"))
+                "servers.runningRegister" or "servers.runningBatchPreview" or
+                "servers.runningBatchRegister"))
                 return Denied(id,"UM-METHOD-DENIED");
             await serial.WaitAsync();
             try
@@ -186,6 +189,116 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
                 foreach(var expired in previews.Where(x=>x.Value.ExpiresUtc<
                     DateTimeOffset.UtcNow).Select(x=>x.Key).ToArray())
                     previews.Remove(expired);
+                if(batch!=null&&batch.ExpiresUtc<DateTimeOffset.UtcNow)batch=null;
+                if(method.GetString()=="servers.runningBatchPreview")
+                {
+                    batch=null;
+                    previews.Clear();
+                    var observed=observe();
+                    var eligible=new List<Pinned>();
+                    var stagedNames=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    var stagedIdentities=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    var stagedPorts=new HashSet<int>();
+                    int storeOrCluster=0,otherSkipped=0;
+                    foreach(var sample in observed
+                        .Where(x=>x.Name.Equals("ArkAscendedServer.exe",
+                            StringComparison.OrdinalIgnoreCase)).OrderBy(x=>x.Pid))
+                    {
+                        string root,exe,key;
+                        LocalAsaLaunchFacts.Facts facts;
+                        try{(root,exe,key,facts)=Inspect(sample,observed,
+                            cluster.Config.LocalMaps);}
+                        catch(InvalidDataException ex)
+                        {
+                            if(ex.Message=="UM-LIVE-STORE-REQUIRES-HISTORICAL-IMPORT")
+                                storeOrCluster++;
+                            else otherSkipped++;
+                            continue;
+                        }
+                        if(facts.GamePort is not int game||facts.QueryPort is not int query||
+                           game<1024||query<1024||game==query)
+                        {otherSkipped++;continue;}
+                        string name=LocalMapNameRules.Normalize(
+                            (key.EndsWith("_WP",StringComparison.OrdinalIgnoreCase)
+                                ?key[..^3]:key).Replace('_',' '));
+                        Unique(name,exe,key,root,game,query);
+                        if(!stagedNames.Add(name)||
+                           !stagedIdentities.Add(exe+"|"+key)||
+                           !stagedPorts.Add(game)||!stagedPorts.Add(query))
+                            return Denied(id,"UM-LIVE-BATCH-COLLISION");
+                        eligible.Add(new Pinned(Guid.NewGuid(),sample.Pid,
+                            sample.StartedUtc!.Value,exe,
+                            Hash(sample.CommandLine!),key,root,name,game,query,
+                            DateTimeOffset.UtcNow.AddMinutes(3)));
+                        if(eligible.Count>25)
+                            return Denied(id,"UM-LIVE-BATCH-MAP-LIMIT");
+                    }
+                    if(eligible.Count==0)
+                        return Denied(id,"UM-LIVE-BATCH-NO-ELIGIBLE");
+                    var token=Guid.NewGuid();
+                    batch=new(token,eligible.ToArray(),
+                        DateTimeOffset.UtcNow.AddMinutes(3));
+                    return Ok(id,new{
+                        token,count=eligible.Count,storeOrCluster,otherSkipped,
+                        maps=eligible.Select(x=>new{
+                            pid=x.Pid,mapName=x.Name,mapKey=x.MapKey,
+                            gamePort=x.GamePort,queryPort=x.QueryPort}).ToArray(),
+                        readOnly=true,lifecycleAuthorized=false,
+                        storeWriterAuthorized=false,serverProcessTouched=false,
+                        evidence="EXACT_NONSTORE_WMI_MULTI_MAP_PREVIEW_NO_WRITES"
+                    });
+                }
+                if(method.GetString()=="servers.runningBatchRegister")
+                {
+                    if(!GuidField(j,"token",out var token)||batch==null||
+                       batch.Token!=token||batch.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Denied(id,"UM-LIVE-BATCH-APPROVAL-EXPIRED");
+                    var approved=batch;
+                    batch=null; // single use, including unsuccessful apply
+                    if(!j.TryGetProperty("confirm",out var yes)||
+                       yes.ValueKind!=JsonValueKind.True)
+                        return Denied(id,"UM-LIVE-BATCH-APPROVAL-REQUIRED");
+                    var observed=observe();
+                    var stagedNames=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    var stagedKeys=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    var stagedPorts=new HashSet<int>();
+                    var additions=new List<LocalMap>();
+                    foreach(var pinned in approved.Maps)
+                    {
+                        var (running,_)=Select(observed,pinned.Pid,pinned.StartedUtc);
+                        var (root,exe,key,facts)=Inspect(running,observed,
+                            cluster.Config.LocalMaps);
+                        if(root!=pinned.Root||exe!=pinned.Executable||
+                           key!=pinned.MapKey||
+                           Hash(running.CommandLine!)!=pinned.CommandHash||
+                           facts.GamePort!=pinned.GamePort||
+                           facts.QueryPort!=pinned.QueryPort)
+                            return Denied(id,"UM-LIVE-BATCH-PROCESS-CHANGED");
+                        Unique(pinned.Name,exe,key,root,pinned.GamePort,pinned.QueryPort);
+                        if(!stagedNames.Add(pinned.Name)||
+                           !stagedKeys.Add(exe+"|"+key)||
+                           !stagedPorts.Add(pinned.GamePort)||
+                           !stagedPorts.Add(pinned.QueryPort))
+                            return Denied(id,"UM-LIVE-BATCH-COLLISION");
+                        additions.Add(new LocalMap{
+                            Id=Guid.NewGuid(),Name=pinned.Name,
+                            ExecutablePath=exe,InstallationPath=root,
+                            ObservedMapKey=key,ObservedReadOnlyImported=true,
+                            GamePort=pinned.GamePort,QueryPort=pinned.QueryPort,
+                            RconPort=0,Arguments="",ApiLoaderArguments="",
+                            AutoStart=false,StartWithAsaApi=false,MonitorRcon=false
+                        });
+                    }
+                    cluster.AddMapsAtomically(additions);
+                    return Ok(id,new{
+                        imported=additions.Count,
+                        mapIds=additions.Select(x=>x.Id).ToArray(),
+                        readOnly=true,lifecycleAuthorized=false,
+                        storeWriterAuthorized=false,serverProcessTouched=false,
+                        originalStoreTouched=false,
+                        evidence="ATOMIC_LOCAL_NONSTORE_RUNNING_ASA_OBSERVATION_IMPORT"
+                    });
+                }
                 if(method.GetString()=="servers.runningPreview")
                 {
                     if(!j.TryGetProperty("pid",out var pidField)||
