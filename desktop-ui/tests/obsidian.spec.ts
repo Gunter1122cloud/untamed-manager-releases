@@ -1812,6 +1812,35 @@ test.beforeEach(async ({ page }) => {
                 conversionFlagPresent:false,argumentsValidated:true},
               controllable:false,storeWriteAuthorized:false}
           ]};
+        case "servers.runningBatchPreview": {
+          if(importedObserved)throw new Error("UM-LIVE-BATCH-NO-ELIGIBLE");
+          return {
+            token:"00000000-0000-4000-8000-000000007171",
+            count:1,storeOrCluster:1,otherSkipped:0,
+            maps:[{pid:4443,mapName:"Ragnarok",mapKey:"Ragnarok_WP",
+              gamePort:7827,queryPort:27037}],
+            readOnly:true,lifecycleAuthorized:false,storeWriterAuthorized:false,
+            serverProcessTouched:false,
+            evidence:"EXACT_NONSTORE_WMI_MULTI_MAP_PREVIEW_NO_WRITES"
+          };
+        }
+        case "servers.runningBatchRegister": {
+          if(m.token!=="00000000-0000-4000-8000-000000007171"||
+             m.confirm!==true||importedObserved)
+            throw new Error("UM-LIVE-BATCH-APPROVAL-REQUIRED");
+          importedObserved=true;
+          state.local.maps.push({
+            id:"00000000-0000-4000-8000-000000007148",
+            name:"Ragnarok",running:false,
+            observedReadOnlyImported:true,storeProtected:false,
+            gamePort:7827,status:"Megfigyelt futó ASA",
+            steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"
+          } as typeof state.local.maps[number]);
+          return {imported:1,mapIds:["00000000-0000-4000-8000-000000007148"],
+            readOnly:true,lifecycleAuthorized:false,storeWriterAuthorized:false,
+            serverProcessTouched:false,originalStoreTouched:false,
+            evidence:"ATOMIC_LOCAL_NONSTORE_RUNNING_ASA_OBSERVATION_IMPORT"};
+        }
         case "servers.runningPreview": {
           if(m.pid!==4443 || m.startedUtc!=="2026-11-10T15:00:00Z"||
              m.gamePort!==7827 || m.queryPort!==27037)
@@ -4090,6 +4119,25 @@ test("TEMP restore native Windows select gives readable journal choices and roll
   await expect(listing.getByRole("button",{name:"Kiválasztott napló teljes ellenőrzése"})).toBeEnabled();
 });
 
+test("one click previews all eligible running non-Store ASA, excludes Store and commits once",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
+  await panel.getByRole("button",{name:"Összes azonosított nem-Store ASA importálása"}).click();
+  const approval=panel.getByRole("region",{name:"Futó nem-Store ASA batch import jóváhagyása"});
+  await expect(approval).toContainText("1 map egyetlen helyi Manager-profil mentéssel");
+  await expect(approval).toContainText("1 Store/cluster folyamat");
+  await expect(approval).toContainText("PID 4443");
+  const action=approval.getByRole("button",{name:"Futó ASA mapok importálása"});
+  await expect(action).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await action.click();
+  await expect(panel).toContainText("1 futó, nem-Store ASA-map");
+  await expect(panel).toContainText("Nincs RCON, Start/Stop vagy Store-írási jogosultság");
+  await expect(panel).toContainText("Managerhez regisztrálva · kizárólag megfigyelés");
+  await expect(panel.getByLabel("Futó ASA regisztrálása PID 4443")).toHaveCount(0);
+  await expect(panel).toContainText("Store/cluster folyamat:");
+});
 test("P0 running ASA import previews exact PID and explicitly registers read-only local profile",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();

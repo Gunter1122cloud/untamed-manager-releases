@@ -256,6 +256,52 @@ internal static class RunningAsaRegistrationTests
             Check(!duplicate.GetProperty("ok").GetBoolean(),
                 "same running map cannot be registered under a different label");
         }
+        // Full native batch import: one CAS, with zero process or Store writes.
+        string nextCommand=command.Replace("Ragnarok_WP","TheCenter_WP",
+            StringComparison.Ordinal).Replace("-Port=7817","-Port=7827",
+            StringComparison.Ordinal).Replace("-QueryPort=27037","-QueryPort=27047",
+            StringComparison.Ordinal);
+        var secondSample=new LocalRunningAsaDiscovery.Sample(
+            71223,200,started.AddSeconds(4),
+            "ArkAscendedServer.exe",exe,nextCommand);
+        observations=new[]{sample,secondSample};
+        await using(var batchCluster=new ClusterService("p0-batch-running",
+            Path.Combine(root,"p0-batch-profile"),
+            _=>new ProcessCheck(false,"synthetic unowned ASA",null,true)))
+        using(var batchBridge=new DesktopRunningAsaRegistrationBridge(batchCluster,Observe))
+        {
+            var batchPreview=await Call(batchBridge,"servers.runningBatchPreview",new{});
+            Check(batchPreview.GetProperty("ok").GetBoolean() &&
+                  batchPreview.GetProperty("data").GetProperty("count").GetInt32()==2 &&
+                  batchCluster.Config.LocalMaps.Count==0,
+                "two separate non-Store ASA processes yield one read-only atomic preview");
+            string approved=batchPreview.GetProperty("data").GetProperty("token").GetString()!;
+            observations=new[]{sample,secondSample with{
+                StartedUtc=secondSample.StartedUtc!.Value.AddSeconds(1)}};
+            var stale=await Call(batchBridge,"servers.runningBatchRegister",
+                new{token=approved,confirm=true});
+            Check(!stale.GetProperty("ok").GetBoolean() &&
+                  batchCluster.Config.LocalMaps.Count==0,
+                "one changed PID start timestamp prevents the entire batch ConfigStore commit");
+            observations=new[]{sample,secondSample};
+            batchPreview=await Call(batchBridge,"servers.runningBatchPreview",new{});
+            approved=batchPreview.GetProperty("data").GetProperty("token").GetString()!;
+            var bulk=await Call(batchBridge,"servers.runningBatchRegister",
+                new{token=approved,confirm=true});
+            Check(bulk.GetProperty("ok").GetBoolean()&&
+                  bulk.GetProperty("data").GetProperty("imported").GetInt32()==2&&
+                  batchCluster.Config.LocalMaps.Count==2&&
+                  batchCluster.Config.LocalMaps.All(x=>x.ObservedReadOnlyImported&&
+                      x.RconPort==0&&!x.AutoStart&&!x.HistoricalStoreProtected&&
+                      x.LastProcess==null&&x.Arguments==""),
+                "two WMI-verified maps persist in one CAS without granting lifecycle or Store writer");
+            var replayBatch=await Call(batchBridge,"servers.runningBatchRegister",
+                new{token=approved,confirm=true});
+            Check(!replayBatch.GetProperty("ok").GetBoolean()&&
+                  batchCluster.Config.LocalMaps.Count==2,
+                "native running ASA bulk approval cannot be replayed");
+        }
+        observations=new[]{sample};
         await using(var reloaded=new ClusterService("p0-running",profile,
             _=>new ProcessCheck(false,"synthetic unowned process",null,true)))
         {
