@@ -1656,6 +1656,20 @@ try
               !File.Exists(iniFile),
             "historical Store sibling returns precise denied code without creating Game.ini");
         cluster.RemoveMap(historicalIniSibling.Id);
+        string originalCreateArgs=map.Arguments;
+        map.Arguments=originalCreateArgs+
+            " -SessionName=\"Untamed Store -usestore Weekend\"";
+        var namedGameIni=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        IsOk(namedGameIni,
+            "fresh Game.ini setup accepts quoted Store words inside SessionName");
+        map.Arguments=originalCreateArgs+" -clusterid=Unregistered";
+        var forbiddenGameIni=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        Check(IsError(forbiddenGameIni,"UM-INI-CREATE-FRESH-ONLY")&&
+              !File.Exists(iniFile),
+            "fresh Game.ini setup rejects actual unenrolled cluster switch");
+        map.Arguments=originalCreateArgs;
         var missing=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
         Check(IsError(missing,"UM-INI-GAME-MISSING")&&!File.Exists(iniFile),
@@ -2506,6 +2520,24 @@ try
         string iniPath=AsaInitialRconSettings.NewIniPath(fresh.InstallationPath);
         Check(!File.Exists(iniPath),"fresh RCON test starts with no ASA server config");
         using var rconSetup=new DesktopRconConfigurationBridge(cluster);
+        string originalBootstrapArgs=fresh.Arguments;
+        fresh.Arguments=originalBootstrapArgs+
+            " -SessionName=\"Untamed Store -usestore Weekend\"";
+        var namedBootstrap=await Call(rconSetup.HandleAsync,"rcon.configStatus",
+            new{mapId=fresh.Id});
+        Check(namedBootstrap.GetProperty("data").GetProperty("permitted").GetBoolean(),
+            "RCON bootstrap accepts quoted Store words inside SessionName");
+        fresh.Arguments=originalBootstrapArgs+" -converttostore";
+        var forbiddenBootstrap=await Call(rconSetup.HandleAsync,"rcon.configStatus",
+            new{mapId=fresh.Id});
+        Check(!forbiddenBootstrap.GetProperty("data").GetProperty("permitted").GetBoolean(),
+            "RCON bootstrap refuses actual conversion switch");
+        fresh.Arguments=originalBootstrapArgs+" -clusterid=Unregistered";
+        var forbiddenBootstrapCluster=await Call(rconSetup.HandleAsync,"rcon.configStatus",
+            new{mapId=fresh.Id});
+        Check(!forbiddenBootstrapCluster.GetProperty("data").GetProperty("permitted").GetBoolean(),
+            "RCON bootstrap refuses actual unenrolled cluster switch");
+        fresh.Arguments=originalBootstrapArgs;
         var status=await Call(rconSetup.HandleAsync,"rcon.configStatus",
             new{mapId=fresh.Id});
         IsOk(status,"new stopped non-Store map can configure RCON");
