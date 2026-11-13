@@ -47,10 +47,10 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
         :code==="UM-HISTORICAL-RCON-INI-CHANGED"
         ?"A megadott RCON-port vagy jelszó nem egyezik a meglévő ASA GameUserSettings.ini beállításával, vagy az RCON nincs engedélyezve. A jelszót nem módosítottuk."
         :code==="UM-HISTORICAL-RCON-ORIGINAL-STORE-INVALID"
-        ?"A jóváhagyott helyi Store-v1 forrásazonosság vagy a még át nem vett Kova ACTIVE/DONE állapota nem egyezik. A szerverhez és a jelszóhoz nem nyúltunk."
+        ?"A jóváhagyott helyi Store-v1 forrásazonosság vagy a még át nem vett korábbi Manager ACTIVE/DONE állapota nem egyezik. A szerverhez és a jelszóhoz nem nyúltunk."
         :code==="UM-HISTORICAL-RCON-API-CHILD-UNVERIFIED"
         ?"Az ASA API Loader mögötti eredeti szerverfolyamat vagy a TCP-port tulajdonosa nem igazolható. Nem történt RCON-csatolás."
-        :"A natív RCON-ellenőrzés nem sikerült. Az eredeti ASA/Kova-fájlok érintetlenek; ellenőrizd a maphoz tartozó futó ASA-folyamatot és RCON-beállítást.");
+        :"A natív RCON-ellenőrzés nem sikerült. Az eredeti ASA/korábbi Manager-fájlok érintetlenek; ellenőrizd a maphoz tartozó futó ASA-folyamatot és RCON-beállítást.");
     }finally{setBusy(false);}
   };
   const attach=async()=>{
@@ -86,7 +86,7 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
       <p className="muted small">Az eredeti Store-v1 map meglévő RCON-portját kapcsolja
         az új Managerhez, <b>új INI, új session, Store-konverzió és szerverindítás nélkül</b>.
         Az Obsidianba jóváhagyottan átvett forrás helyi használatához nem szükséges
-        a másik gép régi Kova ACTIVE/DONE-jelölője. A jelszót a natív Windows DPAPI védi.</p>
+        a másik gép régi korábbi Manager ACTIVE/DONE-jelölője. A jelszót a natív Windows DPAPI védi.</p>
       {status&&!status.configured&&status.suggestedPort>0&&
         <p className="muted small" role="status">
           Az eredeti ASA INI alapján felismert TCP RCON-port: {status.suggestedPort}.
@@ -114,8 +114,8 @@ export function HistoricalRconAttach({mapId,onConfigured}:{
         <div>
           <b>{preview.mapName} · TCP {preview.rconPort}</b>
           <p>{preview.approvedObsidianSourcePinned?
-            "A jóváhagyott Obsidian-forrás és a meglévő ASA RCON INI ellenőrzött. A régi kétpeer-es Kova ACTIVE/DONE-jelölő nem szükséges ehhez a helyi csatoláshoz.":
-            "A még át nem vett eredeti Kova-forrás és a kétpeer-es ACTIVE/DONE állapot, valamint az ASA RCON INI ellenőrzött."}
+            "A jóváhagyott Obsidian-forrás és a meglévő ASA RCON INI ellenőrzött. A régi kétpeer-es korábbi Manager ACTIVE/DONE-jelölő nem szükséges ehhez a helyi csatoláshoz.":
+            "A még át nem vett eredeti eredeti forrás és a kétpeer-es ACTIVE/DONE állapot, valamint az ASA RCON INI ellenőrzött."}
             {" "}Jóváhagyáskor kizárólag a saját Manager-profil titkosított beállítása változik.</p>
           <label><input type="checkbox" checked={confirm}
             onChange={e=>setConfirm(e.target.checked)}/>

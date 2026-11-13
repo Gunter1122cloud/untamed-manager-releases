@@ -6,7 +6,7 @@ import {managerBridge,type HistoricalActiveStartPreview,
 /**
  * Starts a preserved historical Store-v1 ASA map with native source,
  * INI/port/process checks and explicit typed approval. A pinned Obsidian
- * source does not depend on another host's obsolete Kova ACTIVE/DONE marker.
+ * source does not depend on another host's obsolete korábbi Manager ACTIVE/DONE marker.
  * No WebView-supplied launch arguments or original paths.
  */
 export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
@@ -67,14 +67,14 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       const errors:Record<string,string>={
         "UM-STORE-NATIVE-PORT-IN-USE":"A map Game/Query vagy RCON-portja jelenleg foglalt. Ellenőrizd a helyi Windows-folyamatokat; ASA nem indult.",
         "UM-STORE-NATIVE-PROCESS-NOT-PROVEN-STOPPED":"A korábbi ASA/Loader folyamat leállítása nem bizonyítható. Új Start nem indítható.",
-        "UM-STORE-NATIVE-ORIGINAL-TWO-HOST-NOT-READY":"A még át nem vett Kova-profil régi kétgépes ACTIVE/DONE állapota nem igazolt. A jóváhagyott Obsidian-profil ettől függetlenül működhet.",
+        "UM-STORE-NATIVE-ORIGINAL-TWO-HOST-NOT-READY":"A még át nem vett eredeti profil régi kétgépes ACTIVE/DONE állapota nem igazolt. A jóváhagyott Obsidian-profil ettől függetlenül működhet.",
         "UM-STORE-RUNTIME-CLUSTER-INCOMPLETE":"A jóváhagyott Obsidian map hiányos runtime clusterazonosítóval vagy átviteli gyökérrel rendelkezik.",
         "UM-STORE-RUNTIME-RCON-INI-MISMATCH":"Az ASA jelenlegi RCON INI és a helyi Obsidian RCON-profil nem egyezik. Ellenőrizd a jóváhagyott beállításokat.",
         "UM-STORE-NATIVE-EXE-RCON-PARITY":"A helyi ASA EXE vagy RCON INI azonossága nem igazolható.",
         "UM-STORE-NATIVE-BACKUP-RECOVERY":"A telepítésnél korábbi mentési/visszaállítási helyreállítás vár kezelői rendezésre.",
         "UM-STORE-LAUNCH-MODE-APPROVAL-REQUIRED":"Válaszd ki és hagyd jóvá az ASA API Loader vagy a közvetlen indítási módot.",
         "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR":"Az előző Restart megszakadt, a helyi Restart-v1 napló kézi rendezést igényel. A map nem indulhat el újra automatikusan.",
-        "UM-STORE-PIN-MANIFEST-MISSING":"Hiányzik a jóváhagyott Kova-forrás Obsidianban tárolt ellenőrzőjegyzéke. Az eredeti fájlokat ne írd felül; ellenőrizd az átvételt.",
+        "UM-STORE-PIN-MANIFEST-MISSING":"Hiányzik a jóváhagyott eredeti forrás Obsidianban tárolt ellenőrzőjegyzéke. Az eredeti fájlokat ne írd felül; ellenőrizd az átvételt.",
         "UM-STORE-PIN-MANIFEST-INVALID":"Az átvett Store-v1 forrás ellenőrzőjegyzéke hibás. Az eredeti fájlok megőrzendők; újraellenőrzés szükséges.",
         "UM-STORE-PIN-FILE-CHANGED":"Az Obsidian saját, jóváhagyott Store-v1 forrásmásolata eltér az átvételkori fájltól. Az indítás letiltva.",
         "UM-STORE-PIN-SOURCE-PARITY":"Az átvett Store-v1 forrásfájlok közös ellenőrzőösszege nem egyezik. Új forrásazonosság-ellenőrzés szükséges.",
@@ -83,7 +83,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         "UM-STORE-PIN-OWNER-CHANGED":"A map tulajdonosa vagy forrásazonossága eltér az átvett Store-v1 profiltól. Indítás letiltva.",
         "UM-STORE-PIN-MAP-ROOT-CHANGED":"Az eredeti map telepítési gyökere eltér a megőrzött forrástól. Ellenőrizd a jóváhagyott helyi profilt.",
         "UM-STORE-PIN-CLUSTER-METADATA":"Az eredeti runtime clusterazonosító vagy átviteli útvonal nem olvasható a megőrzött forrásból.",
-        "UM-STORE-PIN-NOT-YET-APPROVED":"Az eredeti Kova-forrás még nem került jóváhagyottan az Obsidian saját profiljába; előbb az átvételt kell véglegesíteni."
+        "UM-STORE-PIN-NOT-YET-APPROVED":"Az eredeti eredeti forrás még nem került jóváhagyottan az Obsidian saját profiljába; előbb az átvételt kell véglegesíteni."
       };
       setError(errors[code]??"A Store-v1 map indítási előellenőrzése nem sikerült. Ellenőrizd a helyi naplót és folyamatállapotot; ASA nem indult.");
     }finally{setBusy(false);}
@@ -127,13 +127,13 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         indítja. A natív Windows réteg minden indítás előtt ellenőrzi a map
         azonosságát, az ASA/RCON INI-t, a portokat és a leállított folyamatot.
         Az Obsidianba jóváhagyottan átvett map helyi indítása nem igényli a másik
-        host régi Kova ACTIVE/DONE-jelölőjét; a tényleges clusterutazás külön bizonyítandó.</p>
+        host régi korábbi Manager ACTIVE/DONE-jelölőjét; a tényleges clusterutazás külön bizonyítandó.</p>
       <div className="details-line"><span>Kiválasztott indítás</span>
         <b>{state?.launchModeApprovalRequired?
           "Még nem jóváhagyott · indítás tiltva":
           state?.requestedMode==="asaApiLoader"?"ASA API Loader":"Közvetlen ASA"}</b></div>
       {state?.launchModeApprovalRequired&&<div className="warning-inline" role="alert">
-        <Shield size={17}/> A mapot leállított Kova-profilból importáltad. Az
+        <Shield size={17}/> A mapot leállított eredeti profilból importáltad. Az
         eredeti indítási mód nem bizonyítható a futó folyamat nélkül.
         A meglévő RCON csatlakoztatása után még az első Start előtt
         jóvá kell hagyni az ASA API Loader vagy a közvetlen ASA módot.
@@ -190,7 +190,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         <div>
           <b>{preview.mapName} · Game {preview.gamePort} · Query {preview.queryPort}</b>
           <p>{preview.originalPeerCheckRequiredForLocalStart?
-              "A régi, még át nem vett Kova-profil két peerének ACTIVE/DONE állapota igazolt.":
+              "A régi, még át nem vett eredeti profil két peerének ACTIVE/DONE állapota igazolt.":
               "Az Obsidianban jóváhagyott helyi Store-profil indítható a másik host régi ACTIVE/DONE jelölője nélkül; a távoli elérés és a karakterutazás ettől még nem igazolt."}
             {" "}A Manager a {preview.launchMode==="asaApiLoader"?
               "helyi ASA API Loadert indítja; a gyermek ASA PID-et külön kell igazolni":

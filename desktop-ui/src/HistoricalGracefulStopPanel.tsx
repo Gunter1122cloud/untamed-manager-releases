@@ -150,8 +150,8 @@ export function HistoricalGracefulStopPanel({mapId,running,onStopped}:{
         <div>
           <b>{preview.mapName} · PID {preview.pid} · TCP {preview.rconPort}</b>
           <p>{preview.originalPeerCheckRequiredForLocalOperation?
-            "A még át nem vett Kova-profil régi ACTIVE/DONE ellenőrzése szükséges.":
-            "A jóváhagyott helyi Obsidian-profil leállítása nem függ a másik host régi Kova-jelölőjétől."}</p>
+            "A még át nem vett eredeti profil régi ACTIVE/DONE ellenőrzése szükséges.":
+            "A jóváhagyott helyi Obsidian-profil leállítása nem függ a másik host régi korábbi Manager-jelölőjétől."}</p>
           <p>A program a jelenlegi mentést SaveWorld paranccsal kezdi, és
             csak új mentésjelzés után küld DoExit-et. Írd be a biztonsági
             jóváhagyást pontosan: STORE-V1 SAVEWORLD DOEXIT</p>
