@@ -1,4 +1,4 @@
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,Play,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type FreshAsaStartPreview,type FreshAsaStartStatus,type FreshAsaReadiness} from "./bridge";
 
@@ -14,18 +14,22 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
   const [approved,setApproved]=useState(false);
   const [readiness,setReadiness]=useState<FreshAsaReadiness|null>(null);
   const [checkingReady,setCheckingReady]=useState(false);
+  const [awaitingStartup,setAwaitingStartup]=useState(false);
+  const readinessGeneration=useRef(0);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState(()=>recentStartReceipts.get(mapId)??"");
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
+    readinessGeneration.current++;
+    setAwaitingStartup(false);
     setPreview(null);setApproved(false);setObserved(null);setError("");
     setReadiness(null);
     setMessage(recentStartReceipts.get(mapId)??"");
     managerBridge.freshAsaStartStatus(mapId)
       .then(s=>{if(active)setObserved(s);})
       .catch(()=>{});
-    return ()=>{active=false;};
+    return ()=>{active=false;readinessGeneration.current++;};
   },[mapId]);
 
   const observe=async()=>{
@@ -40,6 +44,50 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     catch{setError("Nem sikerült az ASA/RCON-készenlét ellenőrzése. Ez nem jelent karaktervesztést; a szerverfolyamatot nem állítottuk le.");}
     finally{setCheckingReady(false);}
   };
+  // Source-compatible post-spawn readiness handoff: observe the exact
+  // existing ASA process and authenticated RCON every two seconds for at
+  // most ten minutes. This never retries Start, sends mutating RCON, or
+  // stops an unresponsive server. UI teardown/map switch cancels the loop.
+  const observeStartedServer=async(targetMapId:string)=>{
+    const generation=++readinessGeneration.current;
+    setAwaitingStartup(true);
+    let finished=false;
+    try{
+      for(let attempt=0;attempt<300;attempt++){
+        await new Promise<void>(resolve=>setTimeout(resolve,2000));
+        if(readinessGeneration.current!==generation)return;
+        let status:FreshAsaStartStatus;
+        try{status=await managerBridge.freshAsaStartStatus(targetMapId);}
+        catch{continue;}
+        if(readinessGeneration.current!==generation)return;
+        setObserved(status);
+        if(status.confirmedStopped){
+          setError("Az indított ASA-folyamat leállt, mielőtt RCON-készenlétet igazolhattunk volna. Nem indítottunk második szervert.");
+          finished=true;
+          break;
+        }
+        if(!status.running)continue;
+        try{
+          const result=await managerBridge.freshAsaReadiness(targetMapId);
+          if(readinessGeneration.current!==generation)return;
+          setReadiness(result);
+          if(result.productionReady){
+            const readyMessage="ASA PID + RCON + indítási napló alapján futásra kész. A tényleges játékoscsatlakozás és karakterutazás külön ellenőrzendő.";
+            setMessage(previous=>previous+" "+readyMessage);
+            recentStartReceipts.set(targetMapId,
+              (recentStartReceipts.get(targetMapId)??"")+" "+readyMessage);
+            finished=true;
+            break;
+          }
+        }catch{/* During ASA startup an unavailable RCON is expected; keep the original process. */}
+      }
+      if(!finished && readinessGeneration.current===generation)
+        setError("Az ASA/RCON-készenlét 10 percen belül nem igazolható. A szerverfolyamatot nem állítottuk le, és nem indítottunk másik példányt.");
+    }finally{
+      if(readinessGeneration.current===generation)setAwaitingStartup(false);
+    }
+  };
+
   const check=async()=>{
     if(busy || !mapId || journalBlocked)return;
     setBusy(true);setError("");setMessage("");setPreview(null);setApproved(false);
@@ -62,6 +110,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
       setMessage(summary);
       try{await onStarted();}catch{/* Process receipt remains visible even if dashboard refresh fails. */}
       await observe();
+      void observeStartedServer(mapId);
     }catch(cause){
       const code=cause instanceof Error?cause.message:"";
       const safe:Record<string,string>={
@@ -94,6 +143,7 @@ export function FreshAsaStartPanel({mapId,onStarted,onOpenRcon,journalBlocked}:{
     <button type="button" className="secondary"
       disabled={!observed?.running||busy||journalBlocked||checkingReady}
       onClick={()=>{void checkReadiness();}}><RefreshCw size={16}/> ASA / RCON készenlét ellenőrzése</button>
+    {awaitingStartup&&<p className="muted small" role="status">Indítás utáni ASA/RCON-készenlét ellenőrzése (legfeljebb 10 perc, csak olvasás). A szerver nincs automatikusan újraindítva vagy leállítva.</p>}
     {readiness&&<div className="historical-preview" role="status">
       <h3>ASA készenléti szint: {readiness.stage}</h3>
       <div className="details-line"><span>Windows folyamat / RCON</span>
