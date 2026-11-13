@@ -5042,6 +5042,9 @@ test("historical Store Center-style missing RCON opens a functional attach form 
 
 test("Store-v1 RCON can be imported directly from an existing ASA INI without exposing credentials",async({page})=>{
   await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
   await page.getByRole("tab",{name:"RCON / Konzol"}).click();
