@@ -4924,6 +4924,10 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await expect(spawn).toBeEnabled();
   await spawn.click();
   await expect(historic.getByText(/valódi Windows ASA PID: 42101/)).toBeVisible();
+  await expect(historic.getByText(/Indítás utáni Store-v1 ASA\/RCON ellenőrzés/)).toBeVisible();
+  await expect(historic.getByText(/RCON-vezérlése elérhető és hitelesítve/))
+    .toBeVisible({timeout:15000});
+  await expect(historic.getByText(/Indítás utáni Store-v1 ASA\/RCON ellenőrzés/)).toHaveCount(0);
   await expect(historic.getByText(/Nincs automatikus Start\/Restart/)).toBeVisible();
   await expect(spawn).toHaveCount(0);
 });

@@ -1,4 +1,4 @@
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Play,Shield} from "lucide-react";
 import {managerBridge,type HistoricalActiveStartPreview,
   type HistoricalActiveStartStatus,type HistoricalLoaderModePreview} from "./bridge";
@@ -17,16 +17,20 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
   const [modePreview,setModePreview]=useState<HistoricalLoaderModePreview|null>(null);
   const [phrase,setPhrase]=useState("");
   const [busy,setBusy]=useState(false);
+  const [checkingControl,setCheckingControl]=useState(false);
+  const controlGeneration=useRef(0);
   const [notice,setNotice]=useState("");
   const [error,setError]=useState("");
   useEffect(()=>{
     let active=true;
+    controlGeneration.current++;
+    setCheckingControl(false);
     setState(null);setPreview(null);setModePreview(null);
     setPhrase("");setError("");setNotice("");
     managerBridge.historicalActiveStartStatus(mapId).then(v=>{
       if(active)setState(v);
     }).catch(()=>{if(active)setError("A történeti Store-v1 folyamatállapot nem ellenőrizhető.");});
-    return ()=>{active=false;};
+    return ()=>{active=false;controlGeneration.current++;};
   },[mapId,rconAttached]);
   const changeMode=async(useApi=state?.requestedMode!=="asaApiLoader")=>{
     if(!state?.confirmedStopped||busy||preview||modePreview)return;
@@ -55,6 +59,39 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
         "Ellenőrizd a helyi műveleti naplót és a map folyamatát.");
     }finally{setBusy(false);}
   };
+  // The original Store map's RCON handoff is separate from Process.Start.
+  // Its native bridge verifies original source, current ASA PID and the
+  // Windows-owned TCP listener before every read-only ListPlayers query.
+  const verifyExistingControl=async(targetMapId:string)=>{
+    const generation=++controlGeneration.current;
+    setCheckingControl(true);
+    let completed=false;
+    try{
+      for(let attempt=0;attempt<300;attempt++){
+        await new Promise<void>(resolve=>setTimeout(resolve,2000));
+        if(controlGeneration.current!==generation)return;
+        try{
+          const status=await managerBridge.historicalRconLiveStatus(targetMapId);
+          if(controlGeneration.current!==generation)return;
+          if(!status.permitted)continue;
+          const response=await managerBridge.historicalRconPlayers(targetMapId);
+          if(controlGeneration.current!==generation)return;
+          if(response.readOnly && response.command==="ListPlayers" &&
+             response.response.trim().length>0){
+            setNotice(previous=>previous+
+              " A helyi Store-v1 ASA RCON-vezérlése elérhető és hitelesítve (PID + TCP tulajdonos ellenőrizve). A karakterutazás külön ellenőrzendő.");
+            completed=true;
+            break;
+          }
+        }catch{/* ASA may still be starting; no Start, Stop or mutating command retry. */}
+      }
+      if(!completed && controlGeneration.current===generation)
+        setError("A Store-v1 ASA RCON-kapcsolata 10 percen belül nem igazolható. Nem állítottuk le és nem indítottuk újra a szervert.");
+    }finally{
+      if(controlGeneration.current===generation)setCheckingControl(false);
+    }
+  };
+
   const inspect=async()=>{
     if(busy||state?.running||!state?.rconConfigured||
        state?.launchModeApprovalRequired)return;
@@ -103,6 +140,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
       try{setState(await managerBridge.historicalActiveStartStatus(mapId));}
       catch{setState(null);}
       await onStarted();
+      void verifyExistingControl(mapId);
     }catch(e){
       const code=e instanceof Error?e.message:"";
       const details:Record<string,string>={
@@ -218,6 +256,7 @@ export function HistoricalActiveStartPanel({mapId,rconAttached,onStarted}:{
           </div>
         </div>
       </div>}
+      {checkingControl&&<p role="status" className="muted small">Indítás utáni Store-v1 ASA/RCON ellenőrzés (csak olvasás, legfeljebb 10 perc). Nincs új Start vagy Store-írás.</p>}
       {notice&&<div className="success-inline" role="status">
         <CheckCircle2 size={17}/>{notice}</div>}
       {error&&<div className="error-inline" role="alert">
