@@ -81,7 +81,7 @@ public sealed class ObsidianWindow : Form
             "servers.lifecycleRecoveryPreview" or
             "operations.snapshot" or "operations.map" or
             "schedule.nativeStatus" or "schedule.nativeOverview" or
-            "servers.gracefulStopStatus" or "servers.restartStatus" or
+            "servers.gracefulStopStatus" or "servers.gracefulStopCurrent" or "servers.restartStatus" or
             "servers.restartCurrent" or "servers.freshStartStatus" or
             "historical.restartStatus" or "historical.restartRecovery" or
             "historical.gracefulStopStatus" or "historical.gracefulStopRecovery" or
@@ -535,7 +535,8 @@ public sealed class ObsidianWindow : Form
                         rconConfigRoute = name is "rcon.configStatus" or "rcon.configPreview" or "rcon.configApply";
                         freshStartRoute = name is "servers.freshStartPreview" or "servers.freshStartApply" or
                             "servers.freshStartStatus" or "servers.freshReadiness";
-                        freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or "servers.gracefulStopStatus";
+                        freshStopRoute = name is "servers.gracefulStopPreview" or "servers.gracefulStopApply" or
+                            "servers.gracefulStopStatus" or "servers.gracefulStopCurrent";
                         ownedKillRoute = name is "servers.ownedKillPreview" or "servers.ownedKillApply";
                         freshRestartRoute = name is "servers.restartPreview" or "servers.restartApply" or
                             "servers.restartStatus" or "servers.restartCurrent" or
