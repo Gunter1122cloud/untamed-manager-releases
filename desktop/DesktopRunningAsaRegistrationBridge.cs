@@ -92,13 +92,19 @@ public sealed class DesktopRunningAsaRegistrationBridge : IDisposable
         // false. Reject ANY sensitive switch spelling before profile writes.
         var sanitizedArgs=LocalRunningAsaDiscovery.CommandArguments(
             server.CommandLine,server.ExecutablePath);
-        if(sanitizedArgs==null)
+        if(!AsaObservedLaunchArguments.TryRead(sanitizedArgs,
+                out var observedKey,out var flags) ||
+           !observedKey.Equals(state.MapKey,StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-LIVE-ARGUMENTS-UNVERIFIED");
-        var tokens=sanitizedArgs.Split((char[]?)null,
-            StringSplitOptions.RemoveEmptyEntries).Skip(1);
-        bool risky=tokens.Any(t=>t.Contains("store",StringComparison.OrdinalIgnoreCase)||
-            t.StartsWith("-cluster",StringComparison.OrdinalIgnoreCase)||
-            t.StartsWith("-convert",StringComparison.OrdinalIgnoreCase));
+        // SessionName is a quoted ASA map URL, NOT a sequence of switches.
+        // Keep the original deliberately broad denial of suspicious *flags*
+        // including duplicate/nonstandard Store spellings, without rejecting
+        // the ordinary server title "Untamed Store PvE".
+        var tokens=flags.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries);
+        bool risky=AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(flags)||
+            tokens.Any(t=>t.Contains("store",StringComparison.OrdinalIgnoreCase)||
+                t.StartsWith("-cluster",StringComparison.OrdinalIgnoreCase)||
+                t.StartsWith("-convert",StringComparison.OrdinalIgnoreCase));
         if(risky||facts.StoreFlagPresent||facts.ClusterSwitchPresent||
            facts.TransferOverridePresent||facts.ConversionFlagPresent)
             throw new InvalidDataException("UM-LIVE-STORE-REQUIRES-HISTORICAL-IMPORT");
