@@ -1837,6 +1837,15 @@ try
               !creation.GetProperty("data").GetProperty("createsFile").GetBoolean(),
             "creation preview leaves installation untouched");
         string creationToken=creation.GetProperty("data").GetProperty("token").GetString()!;
+        // A denied same-map re-preview cannot revoke the earlier valid ticket.
+        // The actual Store switch is never written to the ASA installation.
+        map.Arguments=originalCreateArgs+" -usestore";
+        var rejectedReplacement=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        Check(IsError(rejectedReplacement,"UM-INI-CREATE-FRESH-ONLY")&&
+              !File.Exists(iniFile),
+            "rejected Store-like Game.ini preview leaves existing approval intact");
+        map.Arguments=originalCreateArgs;
         // A second new ASA map has its OWN installation and Game.ini. Its
         // preview must not revoke the first map's one-shot creation approval.
         string secondIniRoot=Path.Combine(root,"second-gameini-synthetic");
