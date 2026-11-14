@@ -358,6 +358,23 @@ internal static class FreshStoreEnrollmentTests
                 Check(saved.GetProperty("ok").GetBoolean()&&
                       !saved.GetProperty("data").GetProperty("serverStarted").GetBoolean(),
                     "approved native Store enrollment saves only local Manager metadata");
+                // The second separately owned map can enroll after the first
+                // committed, using a fresh ClusterRegistry revision. Neither
+                // map's Store/character/transfer directory is written.
+                var secondFreshPreview=await Call(bridge,
+                    "freshStore.enrollmentPreview",
+                    new{mapId=secondMapId,clusterId="future-preview-cluster"});
+                Check(secondFreshPreview.GetProperty("ok").GetBoolean(),
+                    "second map refreshes native enrollment approval after first commit");
+                var secondSaved=await Call(bridge,"freshStore.enrollmentApply",
+                    new{token=secondFreshPreview.GetProperty("data")
+                        .GetProperty("token").GetString(),
+                        confirm=true,typedApproval="NEW EMPTY STORE"});
+                Check(secondSaved.GetProperty("ok").GetBoolean()&&
+                      FreshStoreEnrollmentPolicy.IsEnrolled(
+                          manager.Config.LocalMaps.Single(x=>x.Id==secondMapId))&&
+                      !secondSaved.GetProperty("data").GetProperty("serverStarted").GetBoolean(),
+                    "two future Store map profiles are independently enrolled without process starts");
                 var replay=await Call(bridge,"freshStore.enrollmentApply",
                     new{token,confirm=true,typedApproval="NEW EMPTY STORE"});
                 Check(!replay.GetProperty("ok").GetBoolean(),
@@ -470,6 +487,23 @@ internal static class FreshStoreEnrollmentTests
                       !choose.GetRawText().Contains(transfer,StringComparison.OrdinalIgnoreCase),
                     "Loader selection previews exact local files without spawn or cache runtime claims");
                 string modeToken=choose.GetProperty("data").GetProperty("token").GetString()!;
+                // Both enrolled maps can select API Loader independently;
+                // a second preview must never invalidate the first map's
+                // pending opt-in preference on the same Manager instance.
+                string secondApi=Path.Combine(secondBinary,"ArkApi");
+                Directory.CreateDirectory(Path.Combine(secondApi,"Plugins"));
+                WriteSyntheticPe64(Path.Combine(secondBinary,"AsaApiLoader.exe"));
+                WriteSyntheticPe64(Path.Combine(secondApi,"AsaApi.dll"));
+                File.WriteAllText(Path.Combine(secondBinary,"config.json"),"{}");
+                var secondModePreview=await CallMode(modeBridge,
+                    "freshStore.loaderModePreview",
+                    new{mapId=secondMapId,useApi=true});
+                Check(secondModePreview.GetProperty("ok").GetBoolean(),
+                    "second enrolled map previews its own API Loader mode");
+                string secondModeToken=secondModePreview.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                Check(modeToken!=secondModeToken,
+                    "separate ASA map Loader approvals have distinct one-shot tokens");
                 var wrong=await CallMode(modeBridge,"freshStore.loaderModeApply",
                     new{token=modeToken,confirm=true,typedApproval="NO"});
                 Check(!wrong.GetProperty("ok").GetBoolean(),
@@ -479,6 +513,13 @@ internal static class FreshStoreEnrollmentTests
                 Check(selected.GetProperty("ok").GetBoolean()&&
                       !selected.GetProperty("data").GetProperty("serverStarted").GetBoolean(),
                     "explicit one-shot Loader approval changes only local Manager launch preference");
+                var secondModeSelected=await CallMode(modeBridge,"freshStore.loaderModeApply",
+                    new{token=secondModeToken,confirm=true,
+                        typedApproval="FRESH STORE API MODE"});
+                Check(secondModeSelected.GetProperty("ok").GetBoolean()&&
+                      !secondModeSelected.GetProperty("data").GetProperty("serverStarted").GetBoolean()&&
+                      manager.Config.LocalMaps.Single(x=>x.Id==secondMapId).StartWithAsaApi,
+                    "other Store-map Loader approval survives independent first-map mode change");
                 var repeated=await CallMode(modeBridge,"freshStore.loaderModeApply",
                     new{token=modeToken,confirm=true,typedApproval="FRESH STORE API MODE"});
                 Check(!repeated.GetProperty("ok").GetBoolean(),
