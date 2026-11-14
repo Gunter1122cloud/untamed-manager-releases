@@ -7671,6 +7671,86 @@ try
         }
         Check(File.ReadAllBytes(ini).SequenceEqual(originalIni),
             "every native original Store RCON query preserves exact ASA INI file bytes");
+
+        // Independent Store maps have independent RCON request lanes. If one
+        // ASA does not reply, a different locally owned map must remain usable.
+        string secondRoot=Path.Combine(root,"historical-rcon-readonly-second-map");
+        string secondBin=Path.Combine(secondRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(secondBin);
+        string secondExe=Path.Combine(secondBin,"ArkAscendedServer.exe");
+        File.WriteAllBytes(secondExe,new byte[]{77,90,2,0});
+        string secondIniDir=Path.Combine(secondRoot,"ShooterGame","Saved",
+            "Config","WindowsServer");
+        Directory.CreateDirectory(secondIniDir);
+        string secondIni=Path.Combine(secondIniDir,"GameUserSettings.ini");
+        const int secondPort=37175;
+        File.WriteAllText(secondIni,"[ServerSettings]\\r\\nRCONEnabled=True\\r\\n"+
+            "RCONPort="+secondPort+"\\r\\nServerAdminPassword="+secret+"\\r\\n");
+        var secondMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Valguero",
+            InstallationPath=secondRoot,ExecutablePath=secondExe,
+            HistoricalStoreProtected=true,HistoricalMapKey="Valguero_WP",
+            HistoricalArchiveSha256=new string('A',64),
+            GamePort=7887,QueryPort=27187,RconPort=secondPort,
+            RconPasswordProtected=SecureStore.Protect(secret)
+        };
+        historical.AddMap(secondMap);
+        byte[] firstBeforeParallel=File.ReadAllBytes(ini);
+        byte[] secondBeforeParallel=File.ReadAllBytes(secondIni);
+        var firstDispatched=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowFirstReply=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        int firstDispatches=0,secondDispatches=0;
+        using(var parallel=new DesktopHistoricalRconReadOnlyBridge(historical,
+            processInspector:map=>new ProcessCheck(true,"synthetic per-map process",
+                new ProcessIdentity{
+                    Pid=map.Id==secondMap.Id?43220:43210,
+                    StartedUtc=new DateTimeOffset(2026,11,7,10,0,0,TimeSpan.Zero),
+                    ExecutablePath=map.ExecutablePath,
+                    Arguments="SYNTHETIC_ORIGINAL_ACTIVE"},false),
+            sourceEpochProof:_=>new string('A',64),
+            portOwner:(requestedPort,pid)=>
+                (requestedPort==port&&pid==43210)||
+                (requestedPort==secondPort&&pid==43220),
+            dispatch:async(host,requestedPort,password,command,ct)=>{
+                Check(host=="127.0.0.1"&&password==secret&&
+                      command is "ListPlayers" or "GetGameLog" or "GetChat",
+                    "each original Store RCON lane stays on its own local read-only channel");
+                if(requestedPort==port)
+                {
+                    Interlocked.Increment(ref firstDispatches);
+                    firstDispatched.TrySetResult(true);
+                    await allowFirstReply.Task.WaitAsync(ct);
+                }
+                else Interlocked.Increment(ref secondDispatches);
+                return "SYNTHETIC_"+command;
+            }))
+        {
+            var stalledFirst=Call(parallel.HandleAsync,"historical.rconPlayers",
+                new{mapId=originalRconMap.Id});
+            await firstDispatched.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                var independent=await Call(parallel.HandleAsync,
+                    "historical.rconGameLog",new{mapId=secondMap.Id})
+                    .WaitAsync(TimeSpan.FromSeconds(3));
+                IsOk(independent,"another ASA RCON map is usable while one map's reply is held");
+                Check(independent.GetProperty("data").GetProperty("mapId").GetGuid()==
+                      secondMap.Id&&
+                      independent.GetProperty("data").GetProperty("command").GetString()==
+                      "GetGameLog"&&
+                      secondDispatches==1&&firstDispatches==1,
+                    "simultaneous original Store RCON commands stay bound to distinct map IDs");
+            }
+            finally{allowFirstReply.TrySetResult(true);}
+            var released=await stalledFirst.WaitAsync(TimeSpan.FromSeconds(5));
+            IsOk(released,"the stalled first RCON map resumes without duplicate dispatch");
+            Check(firstDispatches==1&&
+                  File.ReadAllBytes(ini).SequenceEqual(firstBeforeParallel)&&
+                  File.ReadAllBytes(secondIni).SequenceEqual(secondBeforeParallel),
+                "parallel original Store RCON reads dispatch once and preserve both INI files");
+        }
     }
 
     // The gallery consumes the native snapshot, never static Store flags:
