@@ -253,6 +253,22 @@ internal static class NativeWebViewDispatchContractTests
                 StringComparison.Ordinal),
             "CORE binary installer does not reintroduce automated plugin ZIP installation");
 
+        string originalRconAttach=Read("desktop/DesktopHistoricalRconAttachBridge.cs");
+        Check(originalRconAttach.Contains(
+                "Dictionary<Guid,Approval> pendingByMap",
+                StringComparison.Ordinal)&&
+              !originalRconAttach.Contains("private Approval? pending;",
+                StringComparison.Ordinal),
+            "each source-pinned original Store map retains its own RCON attach token");
+        string freshStoreLoaderMode=Read("desktop/DesktopFreshStoreLoaderModeBridge.cs");
+        Check(!freshStoreLoaderMode.Contains(
+                "if(pendingByMap.Count>=25)pendingByMap.Clear();",
+                StringComparison.Ordinal)&&
+              freshStoreLoaderMode.Contains(
+                "UM-FRESH-STORE-API-PREVIEW-CAPACITY",
+                StringComparison.Ordinal),
+            "new Store per-map Loader approvals fail closed instead of clearing sibling maps");
+
         // Three independent native Loader lifecycle paths must not impose
         // older 2–3-minute false-failure windows on large modded ASA worlds.
         // All use the same bounded read-only family/RCON verification period;
