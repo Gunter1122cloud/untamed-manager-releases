@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -27,7 +28,8 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
     private readonly Func<LocalMap,ProcessCheck> apiProcessObserver;
     private readonly Func<int,int,bool> ownsRconListener;
     private readonly SemaphoreSlim gate=new(1,1);
-    private Approval? pending;
+    // Separate source-pinned RCON attachment approvals per original local map.
+    private readonly Dictionary<Guid,Approval> pendingByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopHistoricalRconAttachBridge(ClusterService service,
@@ -300,6 +302,9 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
             await gate.WaitAsync();
             try
             {
+                foreach(var expired in pendingByMap.Where(x=>
+                    DateTimeOffset.UtcNow-x.Value.Created>TimeSpan.FromMinutes(3))
+                    .Select(x=>x.Key).ToArray())pendingByMap.Remove(expired);
                 if(action=="historical.rconStatus")
                 {
                     if(!GuidValue(item,"mapId",out var mapId))
@@ -320,7 +325,6 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                 }
                 if(action is "historical.rconPreview" or "historical.rconExistingPreview")
                 {
-                    pending=null;
                     if(!GuidValue(item,"mapId",out var mapId))
                         return Fail(id,"UM-HISTORICAL-RCON-PREVIEW-FIELDS");
                     var map=Owned(mapId);
@@ -363,7 +367,9 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                         map.InstallationPath,map.ExecutablePath,
                         map.HistoricalArchiveSha256,map.GamePort,map.QueryPort,
                         port,protectedPassword,hash,DateTimeOffset.UtcNow);
-                    pending=permit;
+                    if(!pendingByMap.ContainsKey(map.Id)&&pendingByMap.Count>=25)
+                        return Fail(id,"UM-HISTORICAL-RCON-PREVIEW-CAPACITY");
+                    pendingByMap[map.Id]=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId=map.Id,mapName=map.Name,
                         rconPort=port,existingIniVerified=true,
@@ -375,15 +381,15 @@ public sealed class DesktopHistoricalRconAttachBridge : IDisposable
                         evidence="HISTORICAL_RCON_EXISTING_INI_PREVIEW_ONLY"
                     });
                 }
-                if(!GuidValue(item,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!GuidValue(item,"token",out var token))
+                    return Fail(id,"UM-HISTORICAL-RCON-TOKEN-EXPIRED");
+                var approved=pendingByMap.Values.SingleOrDefault(x=>x.Token==token);
+                if(approved==null)
                     return Fail(id,"UM-HISTORICAL-RCON-TOKEN-EXPIRED");
                 if(!item.TryGetProperty("confirm",out var yes)||
                    yes.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-HISTORICAL-RCON-APPROVAL");
-                Approval approved=pending;
-                pending=null; // Never replay an attach approval.
+                pendingByMap.Remove(approved.MapId); // One-shot per original map.
                 var original=Owned(approved.MapId);
                 if(original==null||JsonSerializer.Serialize(original)!=approved.Profile||
                    original.HistoricalMapKey!=approved.OriginalMapKey||
