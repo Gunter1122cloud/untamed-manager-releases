@@ -2665,7 +2665,7 @@ test.beforeEach(async ({ page }) => {
         };
         case "api.coreRollbackPreview": return {
           token:"00000000-0000-4000-8000-000000006666",
-          mapId:m.mapId,mapName:"The Island",
+          mapId:m.mapId,mapName:"Astraeos",
           transactionId:m.transactionId,releaseTag:"2.03",binaries:4,
           approved:false,doesNotRestart:true,
           evidence:"STOPPED_OWNED_COMMITTED_ROLLBACK_REQUIRES_BYTE_REVALIDATION"
@@ -2675,7 +2675,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("Rollback approval required");
           apiCoreRolledBack=true;
           return {
-            mapId:one,transactionId:"11111111111141118111111111111111",
+            mapId:two,transactionId:"11111111111141118111111111111111",
             filesRestored:1,filesRemoved:3,bytesVerified:true,serverRestarted:false,
             evidence:"STOPPED_OWNED_OFFICIAL_API_CORE_SHA256_ROLLBACK_ONLY"
           };
