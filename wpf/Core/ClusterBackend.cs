@@ -1479,17 +1479,11 @@ public sealed partial class ClusterService : IAsyncDisposable
         if(expected==null || expected.Pid<=0 || expected.StartedUtc.Year<2020 ||
            string.IsNullOrWhiteSpace(exactArguments) || exactArguments.Length>2048 ||
            exactArguments.Any(char.IsControl) ||
-           exactArguments.Contains("store",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("cluster",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("convert",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("password",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("secret",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("token",StringComparison.OrdinalIgnoreCase) ||
-           exactArguments.Contains("auth",StringComparison.OrdinalIgnoreCase))
+           !AsaObservedLaunchArguments.TryRead(exactArguments,
+               out string observedMapKey,out string launchFlags) ||
+           AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(launchFlags))
             throw new UnauthorizedAccessException("UM-ADOPT-ARGUMENTS-UNSAFE");
-        string first=exactArguments.Split((char[]?)null,
-            StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()??"";
-        if(!first.Equals(original.ObservedMapKey+"?listen",
+        if(!observedMapKey.Equals(original.ObservedMapKey,
             StringComparison.OrdinalIgnoreCase) ||
            original.GamePort is <1024 or >65535 ||
            original.QueryPort is <1024 or >65535 ||
