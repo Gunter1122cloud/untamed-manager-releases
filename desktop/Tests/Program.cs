@@ -5679,30 +5679,49 @@ try
         Check(IsError(fakeWatch,"UM-RCON-SAVE-WITNESS-NOT-FOUND") &&
               dispatched==2,
             "unrecognized SaveWorld proof token cannot inspect another operation");
+        // A real SaveWorld cannot race the machine-wide SteamCMD, Restart
+        // or Backup writer, even when its browser approval is valid.
+        using(var updating=observed.Operations.Acquire(
+            fakeMap.InstallationPath,UntamedOperationKind.Update))
+        {
+            var overlappingSave=await Call(rcon.HandleAsync,
+                "rcon.saveWorld",new{mapId=fakeMap.Id,confirm=true});
+            Check(IsError(overlappingSave,"UM-RCON-SAVE-INSTALLATION-BUSY")&&
+                  dispatched==2,
+                "native installation lock prevents overlapping SteamCMD/SaveWorld dispatch");
+            updating.Complete();
+        }
+        var nextSave=await Call(rcon.HandleAsync,"rcon.saveWorld",
+            new{mapId=fakeMap.Id,confirm=true});
+        IsOk(nextSave,"new explicitly approved SaveWorld works after SteamCMD lease release");
+        Check(dispatched==3&&
+              observed.Operations.Observe(fakeMap.InstallationPath)?.Phase==
+                UntamedOperationPhase.Completed,
+            "SaveWorld dispatch commits its own durable installation journal without an automatic retry");
         owner=false;
         var deniedOwnership=await Call(rcon.HandleAsync,"rcon.saveWorld",
             new{mapId=fakeMap.Id,confirm=true});
         Check(IsError(deniedOwnership,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
-              dispatched==2,"SaveWorld denied if native RCON listener ownership changes");
+              dispatched==3,"SaveWorld denied if native RCON listener ownership changes");
         var refused=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(refused,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
-              dispatched==2,"RCON port ownership loss prevents another dispatch");
+              dispatched==3,"RCON port ownership loss prevents another dispatch");
         owner=true;
         fakeMap.Arguments="-usestore";
         var forbiddenStoreSave=await Call(rcon.HandleAsync,"rcon.saveWorld",
             new{mapId=fakeMap.Id,confirm=true});
         Check(IsError(forbiddenStoreSave,"UM-HISTORICAL-STORE-LOCKED")&&
-              dispatched==2,
+              dispatched==3,
             "native RCON SaveWorld rejects active -usestore writes without peer writer authority");
         fakeMap.Arguments="";
         rconRunning=false;
         var stopped=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(stopped,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
-              dispatched==2,"stopped synthetic process cannot receive RCON");
+              dispatched==3,"stopped synthetic process cannot receive RCON");
         rconRunning=true;fakeMap.HistoricalStoreProtected=true;
         var locked=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(locked,"UM-HISTORICAL-STORE-LOCKED") &&
-              dispatched==2,"historical Store-v1 lock always prevents RCON dispatch");
+              dispatched==3,"historical Store-v1 lock always prevents RCON dispatch");
         var foreign=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=Guid.NewGuid()});
         Check(IsError(foreign,"UM-MAP-NOT-OWNED"),
             "RCON cannot target an unregistered or remote peer map");
@@ -5906,7 +5925,7 @@ try
         var gameLog=await Call(rcon.HandleAsync,"rcon.gameLog",
             new{mapId=fakeMap.Id,command="DestroyWildDinos"});
         IsOk(gameLog,"actual native GetGameLog reads local ASA log without caller-supplied commands");
-        Check(dispatched==3 &&
+        Check(dispatched==4 &&
               gameLog.GetProperty("data").GetProperty("command").GetString()=="GetGameLog" &&
               gameLog.GetProperty("data").GetProperty("readOnly").GetBoolean() &&
               gameLog.GetProperty("data").GetProperty("response")
@@ -5914,7 +5933,7 @@ try
             "GetGameLog sends only fixed read-only RCON to owned local map");
         var chatLog=await Call(rcon.HandleAsync,"rcon.chatLog",new{mapId=fakeMap.Id});
         IsOk(chatLog,"actual native GetChat reads local ASA chat");
-        Check(dispatched==4 &&
+        Check(dispatched==5 &&
               chatLog.GetProperty("data").GetProperty("command").GetString()=="GetChat" &&
               chatLog.GetProperty("data").GetProperty("response")
                   .GetString()=="Synthetic chat message",
@@ -5924,12 +5943,12 @@ try
         var noSecondSave=await Call(rcon.HandleAsync,"rcon.saveWorld",
             new{mapId=fakeMap.Id,confirm=true});
         Check(IsError(noSecondSave,"UM-RCON-READONLY-UNAVAILABLE")&&
-              dispatched==4,
+              dispatched==5,
             "pending manual Restart blocks standalone SaveWorld before any RCON bytes");
         var diagnosticDuringRestart=await Call(rcon.HandleAsync,
             "rcon.chatLog",new{mapId=fakeMap.Id});
         Check(diagnosticDuringRestart.GetProperty("ok").GetBoolean()&&
-              dispatched==5,
+              dispatched==6,
             "read-only GetChat remains available for operator diagnostics during restart");
         rconPendingJournal.Change(pendingRconRestart.Id,AsaRestartPhase.NeedsOperator);
     }
