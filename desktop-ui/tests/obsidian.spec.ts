@@ -7226,6 +7226,8 @@ test("real stopped-map SteamCMD update is opt-in and reports verified outcome",a
   await expect(page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"})).toBeVisible();
   await expect(page.getByRole("combobox",{name:"SteamCMD frissítés map"})).toHaveCount(0);
   await page.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"}))
+    .toContainText("ellenőrzött, a helyi, leállított telepítés mapjai");
   await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toBeVisible();
   await expect(page.getByText(/Astraeos – jelenlegi build: 123456/)).toBeVisible();
   const start=page.getByRole("button",{name:"Valódi frissítés indítása"});
