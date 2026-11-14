@@ -4856,9 +4856,10 @@ test("native ASA API CORE installation and rollback are available only on eligib
   // The Island is an ordinary fresh local ASA fixture, not historical
   // Store. It may expose the CORE updater, subject to native preflight.
   await expect(page.getByRole("region",
-    {name:"Hivatalos ASA API CORE telepítés"})).toBeVisible();
+    {name:"Hivatalos ASA API CORE telepítés · The Island"})).toBeVisible();
   await selector.selectOption(second);
-  const core=page.getByRole("region",{name:"Hivatalos ASA API CORE telepítés"});
+  const core=page.getByRole("region",
+    {name:"Hivatalos ASA API CORE telepítés · Astraeos"});
   await expect(core).toBeVisible();
   await core.getByRole("button",
     {name:"Hivatalos ASA API kiadás lekérdezése"}).click();
@@ -4898,7 +4899,7 @@ test("native ASA API CORE installation and rollback are available only on eligib
   }).__UNTAMED_PROTECT_TEST_MAP__?.());
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await expect(page.getByRole("region",
-    {name:"Hivatalos ASA API CORE telepítés"})).toHaveCount(0);
+    {name:"Hivatalos ASA API CORE telepítés · Astraeos"})).toHaveCount(0);
   await expect(page.getByText(/ASA API CORE binárisfrissítés ezen a mapon nem/))
     .toBeVisible();
 });
@@ -4912,7 +4913,7 @@ test("newly enrolled Store has native API CORE access while original Store remai
   await page.getByRole("button",{name:"Pluginok",exact:true}).click();
   await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
   await expect(page.getByRole("region",
-    {name:"Hivatalos ASA API CORE telepítés"})).toBeVisible();
+    {name:"Hivatalos ASA API CORE telepítés · Astraeos"})).toBeVisible();
   await expect(page.getByRole("button",
     {name:"Pluginmappa megnyitása"})).toBeVisible();
 });
