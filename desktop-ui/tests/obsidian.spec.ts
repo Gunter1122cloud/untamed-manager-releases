@@ -4853,10 +4853,10 @@ test("native ASA API CORE installation and rollback are available only on eligib
   await page.goto("/");
   await page.getByRole("button",{name:"Pluginok",exact:true}).click();
   const selector=page.getByRole("combobox",{name:"Pluginok mapja"});
+  // The Island is an ordinary fresh local ASA fixture, not historical
+  // Store. It may expose the CORE updater, subject to native preflight.
   await expect(page.getByRole("region",
-    {name:"Hivatalos ASA API CORE telepítés"})).toHaveCount(0);
-  await expect(page.getByText(/ASA API CORE binárisfrissítés ezen a mapon nem/))
-    .toBeVisible();
+    {name:"Hivatalos ASA API CORE telepítés"})).toBeVisible();
   await selector.selectOption(second);
   const core=page.getByRole("region",{name:"Hivatalos ASA API CORE telepítés"});
   await expect(core).toBeVisible();
@@ -4892,6 +4892,15 @@ test("native ASA API CORE installation and rollback are available only on eligib
     {name:"Eredeti API CORE binárisok visszaállítása"}).click();
   await expect(core.getByText(/API CORE visszaállítva/)).toBeVisible();
   await expect(core.getByRole("button",{name:"Plugin reload"})).toHaveCount(0);
+  // A historical original Store map must not expose binary installation.
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await expect(page.getByRole("region",
+    {name:"Hivatalos ASA API CORE telepítés"})).toHaveCount(0);
+  await expect(page.getByText(/ASA API CORE binárisfrissítés ezen a mapon nem/))
+    .toBeVisible();
 });
 
 test("newly enrolled Store has native API CORE access while original Store remains protected",async({page})=>{
@@ -4912,10 +4921,20 @@ test("P0 every local map has a real per-map ASA API checkbox in Plugin Center",a
   await page.goto("/");
   await page.getByRole("button",{name:"Pluginok",exact:true}).click();
   const picker=page.getByRole("combobox",{name:"Pluginok mapja"});
-  const group=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
-  await expect(group.getByRole("checkbox",{name:"Indítás ASA API-val"})).toBeVisible();
-  await expect(group.getByRole("checkbox",{name:"Indítás ASA API-val"})).toBeDisabled();
+  const originalGroup=page.getByRole("region",
+    {name:"Maponkénti ASA API indítási kapcsoló"})
+    .filter({hasText:"The Island"});
+  await expect(originalGroup.getByRole("checkbox",
+    {name:"Indítás ASA API-val"})).toBeVisible();
+  await expect(originalGroup.getByRole("checkbox",
+    {name:"Indítás ASA API-val"})).toBeDisabled();
   await picker.selectOption(second);
+  // A map selection may briefly retain the previous map panel. Scope
+  // actions to the actual selected map rather than assuming a global
+  // region label is unique during React key transitions.
+  const group=page.getByRole("region",
+    {name:"Maponkénti ASA API indítási kapcsoló"})
+    .filter({hasText:"Astraeos"});
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
   await expect(option).not.toBeChecked();
@@ -4944,7 +4963,9 @@ test("P0 historical and new Store maps use existing native Loader selection, nev
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Pluginok",exact:true}).click();
   await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
-  const group=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
+  const group=page.getByRole("region",
+    {name:"Maponkénti ASA API indítási kapcsoló"})
+    .filter({hasText:"Astraeos"});
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
   await option.click();
@@ -4962,7 +4983,9 @@ test("P0 original Store-v1 ASA API switch is usable before RCON attachment",asyn
   await page.goto("/");
   await page.getByRole("button",{name:"Pluginok",exact:true}).click();
   await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
-  const panel=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
+  const panel=page.getByRole("region",
+    {name:"Maponkénti ASA API indítási kapcsoló"})
+    .filter({hasText:"Astraeos"});
   const checkbox=panel.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(checkbox).toBeVisible();
   await expect(checkbox).toBeEnabled();
@@ -4982,7 +5005,9 @@ test("P0 new Store ASA API checkbox uses original native Store loader approval",
   await page.getByRole("button",{name:"Állapot frissítése"}).click();
   await page.getByRole("button",{name:"Pluginok",exact:true}).click();
   await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
-  const group=page.getByRole("region",{name:"Maponkénti ASA API indítási kapcsoló"});
+  const group=page.getByRole("region",
+    {name:"Maponkénti ASA API indítási kapcsoló"})
+    .filter({hasText:"Astraeos"});
   const option=group.getByRole("checkbox",{name:"Indítás ASA API-val"});
   await expect(option).toBeEnabled();
   await option.click();
