@@ -1979,11 +1979,13 @@ try
     string steamExe=Path.Combine(steamDir,"steamcmd.exe");
     File.WriteAllText(steamExe,"SYNTHETIC STEAMCMD EXE - DO NOT EXECUTE");
     int fakeRuns=0;
+    IProgress<SteamInstallProgress>? lateFreshInstallProgress=null;
     async Task<SteamFreshInstallReceipt> SyntheticSteamRunner(
         SteamFreshInstallRequest request,LocalMap[] existing,
         IProgress<SteamInstallProgress>? progress,CancellationToken cancellationToken)
     {
         fakeRuns++;
+        lateFreshInstallProgress=progress;
         Check(request.MapName=="Valguero" && request.SessionName=="" &&
               !existing.Any(m=>m.Name=="Valguero"),
             "new Steam installer begins without ports, session or existing map");
@@ -2083,6 +2085,19 @@ try
               fakeRuns==1 &&
               !cluster.Config.LocalMaps.Any(m=>m.Name=="Valguero"),
             "finished SteamCMD files never silently register or start a server");
+        Check(lateFreshInstallProgress!=null,
+            "synthetic fresh SteamCMD worker retains the source progress callback");
+        lateFreshInstallProgress!.Report(new("download",
+            "DELAYED_PROGRESS_AFTER_VERIFIED_STEAM_INSTALL",5));
+        var stableVerified=await Call(steamBridge.HandleAsync,
+            "steam.freshStatus",new{jobId});
+        IsOk(stableVerified,"verified fresh install survives late worker progress");
+        var verifiedState=stableVerified.GetProperty("data");
+        Check(verifiedState.GetProperty("verified").GetBoolean()&&
+              verifiedState.GetProperty("stage").GetString()=="verified"&&
+              verifiedState.GetProperty("percent").GetDouble()==100&&
+              fakeRuns==1,
+            "late SteamCMD progress cannot replace a finished install receipt");
         var registered=await Call(steamBridge.HandleAsync,"steam.freshRegister",
             new{jobId,confirm=true});
         IsOk(registered,"explicit registration succeeds after verified file and manifest");
@@ -2099,6 +2114,15 @@ try
             "completed Steam registration is not replayable");
         Check(!File.Exists(Path.Combine(freshRoot,"ShooterGame","Saved","SavedArks","Valguero_WP.ark")),
             "fresh download never fabricates world saves or Store data");
+        lateFreshInstallProgress!.Report(new("download",
+            "DELAYED_PROGRESS_AFTER_REGISTERED_STEAM_INSTALL",1));
+        var stableRegistered=await Call(steamBridge.HandleAsync,
+            "steam.freshStatus",new{jobId});
+        IsOk(stableRegistered,"registered fresh install remains addressable by original job ID");
+        Check(stableRegistered.GetProperty("data").GetProperty("registered").GetBoolean()&&
+              stableRegistered.GetProperty("data").GetProperty("stage").GetString()=="registered"&&
+              fakeRuns==1,
+            "late SteamCMD progress cannot regress completed native map registration");
         var current=await Call(steamBridge.HandleAsync,"steam.freshCurrent");
         Check(current.GetProperty("data").GetProperty("current")
             .GetProperty("registered").GetBoolean(),
