@@ -6397,6 +6397,14 @@ try
             new{mapId=localMap.Id});
         IsOk(preview,"real stopped-world backup preview prepared");
         string ticket=preview.GetProperty("data").GetProperty("token").GetString()!;
+        // A rejected replacement preview cannot silently cancel an already
+        // approved map backup. No actual ASA process or world writer is used.
+        stopped=false;
+        var invalidReplacement=await Call(worldBridge.HandleAsync,
+            "backup.preview",new{mapId=localMap.Id});
+        Check(IsError(invalidReplacement,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED"),
+            "running-state backup replacement preview is rejected");
+        stopped=true;
         var noConfirm=await Call(worldBridge.HandleAsync,"backup.create",
             new{token=ticket,confirm=false});
         Check(IsError(noConfirm,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),
