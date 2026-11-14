@@ -5771,6 +5771,56 @@ try
             finally{firstRelease.TrySetResult(true);}
             IsOk(await slowRead.WaitAsync(TimeSpan.FromSeconds(5)),
                 "original slow ASA RCON finishes without a second dispatch");
+
+            // Both map cards can hold independent short-lived RCON approvals.
+            // A global single Pending token used to revoke the first one.
+            int mutatingAdminSends=0;
+            using var otherMapAdmin=new DesktopRconAdminBridge(parallelCluster,
+                (port,pid)=>pid==identity.Pid&&
+                    (port==parallelA.RconPort||port==parallelB.RconPort),
+                (host,port,password,command,ct)=>{
+                    Check(host=="127.0.0.1"&&password=="test-only-passphrase",
+                        "parallel mutation remains credential-bound and loopback-only");
+                    Interlocked.Increment(ref mutatingAdminSends);
+                    return Task.FromResult("SYNTHETIC ADMIN ACK");
+                });
+            var aPreview=await Call(otherMapAdmin.HandleAsync,"rcon.adminPreview",
+                new{mapId=parallelA.Id,action="broadcast",message="Island notice"});
+            var bPreview=await Call(otherMapAdmin.HandleAsync,"rcon.adminPreview",
+                new{mapId=parallelB.Id,action="broadcast",message="Ragnarok notice"});
+            IsOk(aPreview,"Island native RCON preview");
+            IsOk(bPreview,"Ragnarok native RCON preview");
+            string aToken=aPreview.GetProperty("data").GetProperty("token").GetString()!;
+            string bToken=bPreview.GetProperty("data").GetProperty("token").GetString()!;
+            Check(aToken!=bToken,"ten-map RCON previews retain independent one-use tokens");
+            IsOk(await Call(otherMapAdmin.HandleAsync,"rcon.adminSend",
+                new{token=aToken,confirm=true,typedApproval=""}),
+                "Island RCON executes under local cross-process installation lease");
+            IsOk(await Call(otherMapAdmin.HandleAsync,"rcon.adminSend",
+                new{token=bToken,confirm=true,typedApproval=""}),
+                "Ragnarok RCON approval survives independent Island command");
+            Check(mutatingAdminSends==2,"exactly one admin dispatch per owned ASA map");
+            var blockedPreview=await Call(otherMapAdmin.HandleAsync,
+                "rcon.adminPreview",new{mapId=parallelA.Id,
+                    action="broadcast",message="blocked by maintenance"});
+            IsOk(blockedPreview,"mutating admin preview is not an execution");
+            var blockedToken=blockedPreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            using(var held=parallelCluster.Operations.Acquire(
+                parallelA.InstallationPath,UntamedOperationKind.Update))
+            {
+                var denied=await Call(otherMapAdmin.HandleAsync,"rcon.adminSend",
+                    new{token=blockedToken,confirm=true,typedApproval=""});
+                Check(IsError(denied,"UM-RCON-ADMIN-SAFETY-CHECK-FAILED_NO_AUTO_RETRY")
+                      &&mutatingAdminSends==2,
+                    "SteamCMD installation lease prevents concurrent admin RCON mutation");
+                held.Complete();
+            }
+            var rejectedReplay=await Call(otherMapAdmin.HandleAsync,
+                "rcon.adminSend",new{token=blockedToken,confirm=true,typedApproval=""});
+            Check(IsError(rejectedReplay,"UM-RCON-ADMIN-APPROVAL-REQUIRED")&&
+                  mutatingAdminSends==2,
+                "releasing SteamCMD lease never replays an already rejected admin token");
         }
 
         // Actual RCON admin execution is a separately approved, one-shot
