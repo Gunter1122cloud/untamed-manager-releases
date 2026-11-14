@@ -27,6 +27,9 @@ internal static class RunningAsaRegistrationTests
             "ArkAscendedServer.exe",exe,command);
         LocalRunningAsaDiscovery.Sample[] observations={sample};
         IReadOnlyList<LocalRunningAsaDiscovery.Sample> Observe()=>observations;
+        string namedLaunch="\""+exe+"\" "+
+            "Ragnarok_WP?listen?SessionName=\"Untamed Kingdom PvE\""+
+            " -Port=7817 -QueryPort=27037 -mods=100001,100002";
 
         static void Check(bool yes,string caseName)
         {
@@ -47,6 +50,24 @@ internal static class RunningAsaRegistrationTests
             using var result=JsonDocument.Parse(reply);
             return result.RootElement.Clone();
         }
+
+        var namedSample=sample with{CommandLine=namedLaunch};
+        var namedFacts=LocalAsaLaunchFacts.Parse(namedLaunch,exe);
+        Check(namedFacts.ArgumentsValidated&&namedFacts.GamePort==7817&&
+              namedFacts.QueryPort==27037&&
+              namedFacts.ActiveModsState=="parsed"&&
+              LocalRunningAsaDiscovery.Classify(
+                  new[]{namedSample},Array.Empty<LocalMap>())
+                  .Single() is {MapKey:"Ragnarok_WP",MatchState:"unregistered"},
+            "real ASA quoted SessionName with spaces keeps native WMI and mod/port discovery");
+        string unexpectedUrl="\""+exe+"\" "+
+            "Ragnarok_WP?listen?SessionName=\"Untamed\"?ServerPassword=secret"+
+            " -Port=7817 -QueryPort=27037";
+        Check(!LocalAsaLaunchFacts.Parse(unexpectedUrl,exe).ArgumentsValidated&&
+              LocalRunningAsaDiscovery.Classify(
+                  new[]{sample with{CommandLine=unexpectedUrl}},
+                  Array.Empty<LocalMap>()).Single().MapKey=="unknown",
+            "unrecognized or sensitive map-URL options never grant discovery authority");
 
         string profile=Path.Combine(root,"p0-running-profile");
         await using(var cluster=new ClusterService("p0-running",profile,
@@ -191,6 +212,15 @@ internal static class RunningAsaRegistrationTests
                         await bridge.HandleAsync(JsonSerializer.Serialize(props)));
                     return response.RootElement.Clone();
                 }
+                observations=new[]{namedSample};
+                var quotedPreview=await AdoptCall(takeover,
+                    "servers.runningAdoptPreview",new{mapId=map.Id});
+                Check(quotedPreview.GetProperty("ok").GetBoolean()&&
+                      quotedPreview.GetProperty("data").GetProperty("mapKey")
+                        .GetString()=="Ragnarok_WP"&&
+                      cluster.Config.LocalMaps.Single().ObservedReadOnlyImported,
+                    "named ASA session is eligible for real non-Store adoption preview without write");
+                observations=new[]{sample};
                 var adoptPreview=await AdoptCall(takeover,
                     "servers.runningAdoptPreview",new{mapId=map.Id});
                 Check(adoptPreview.GetProperty("ok").GetBoolean() &&
