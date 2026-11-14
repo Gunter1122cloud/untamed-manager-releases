@@ -4867,6 +4867,15 @@ try
                   prepared.GetProperty("data").GetProperty("changed").GetBoolean(),
                 "cross-host import preview never writes local map");
             string token=prepared.GetProperty("data").GetProperty("token").GetString()!;
+            string intactPortable=File.ReadAllText(exportPath);
+            File.WriteAllText(exportPath,
+                intactPortable.Replace("940975","999999",StringComparison.Ordinal));
+            var corruptReplacement=await Call(importer.HandleAsync,
+                "mods.profileImportPreview",
+                new{targets=new[]{ryzenMap.Id},mode="merge"});
+            Check(IsError(corruptReplacement,"UM-MODPROFILE-SAFETY-CHECK-FAILED"),
+                "rejected portable import cannot overwrite previously valid target approval");
+            File.WriteAllText(exportPath,intactPortable);
             var noConsent=await Call(importer.HandleAsync,"mods.profileImportApply",
                 new{token,confirm=false});
             Check(IsError(noConsent,"UM-MODPROFILE-APPROVAL-REQUIRED"),
