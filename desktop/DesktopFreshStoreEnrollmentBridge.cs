@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -19,7 +20,9 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
         string Fingerprint,long Revision,DateTimeOffset Created);
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Approval? pending;
+    // Multiple map cards may be configuring a future cluster concurrently.
+    // Each map owns its short-lived, one-use enrollment preview.
+    private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopFreshStoreEnrollmentBridge(ClusterService service)=>
@@ -65,6 +68,9 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var stale in approvalsByMap.Where(p=>
+                    DateTimeOffset.UtcNow-p.Value.Created>TimeSpan.FromMinutes(3))
+                    .Select(p=>p.Key).ToArray())approvalsByMap.Remove(stale);
                 if(method=="freshStore.enrollmentStatus")
                 {
                     if(!GuidId(req,"mapId",out var mapId))
@@ -82,18 +88,20 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
                 }
                 if(method=="freshStore.enrollmentPreview")
                 {
-                    pending=null;
                     if(!GuidId(req,"mapId",out var mapId)||
                        !Text(req,"clusterId",out string clusterId))
                         return Fail(id,"UM-FRESH-STORE-MAP-OR-CLUSTER");
+                    approvalsByMap.Remove(mapId);
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-FRESH-STORE-LOCAL-MAP");
                     var plan=await Task.Run(()=>FreshStoreEnrollmentPolicy.Prepare(
                         cluster,map,clusterId));
-                    pending=new Approval(Guid.NewGuid(),map.Id,plan.ClusterId,
+                    if(approvalsByMap.Count>=25)approvalsByMap.Clear();
+                    var approval=new Approval(Guid.NewGuid(),map.Id,plan.ClusterId,
                         plan.Fingerprint,plan.RegistryRevision,DateTimeOffset.UtcNow);
+                    approvalsByMap[map.Id]=approval;
                     return Ok(id,new{
-                        token=pending.Token,mapId,mapName=map.Name,
+                        token=approval.Token,mapId,mapName=map.Name,
                         clusterId=plan.ClusterId,
                         gamePort=map.GamePort,queryPort=map.QueryPort,
                         steamBuild=plan.InstalledBuild,
@@ -104,17 +112,22 @@ public sealed class DesktopFreshStoreEnrollmentBridge : IDisposable
                         evidence="NEW_EMPTY_STORE_ENROLLMENT_PREVIEW_ONLY"
                     });
                 }
-                if(!GuidId(req,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!GuidId(req,"token",out var token)||
+                   !approvalsByMap.Values.Any(p=>p.Token==token))
                     return Fail(id,"UM-FRESH-STORE-PREVIEW-EXPIRED");
+                var approved=approvalsByMap.Values.Single(p=>p.Token==token);
+                if(DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
+                {
+                    approvalsByMap.Remove(approved.MapId);
+                    return Fail(id,"UM-FRESH-STORE-PREVIEW-EXPIRED");
+                }
                 if(!req.TryGetProperty("confirm",out var yes)||
                    yes.ValueKind!=JsonValueKind.True||
                    !req.TryGetProperty("typedApproval",out var typed)||
                    typed.ValueKind!=JsonValueKind.String||
                    typed.GetString()!="NEW EMPTY STORE")
                     return Fail(id,"UM-FRESH-STORE-EXPLICIT-APPROVAL");
-                var approved=pending;pending=null; // one-shot, including failures
+                approvalsByMap.Remove(approved.MapId); // one shot, including failures
                 var original=Owned(approved.MapId);
                 if(original==null)return Fail(id,"UM-FRESH-STORE-LOCAL-MAP");
                 var current=await Task.Run(()=>FreshStoreEnrollmentPolicy.Prepare(
