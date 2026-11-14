@@ -2,7 +2,7 @@
 
 Status: **SOURCE IMPLEMENTED / ISOLATED CI TEST ONLY**. This is not production
 certification. Neither UK-HOME-01 nor UK-HOME-02 or their shared Store was
-opened or altered. Existing Kova Store-v1 session, hashes and original
+opened or altered. Existing Legacy Store-v1 session, hashes and original
 configuration remain unchanged.
 
 ## Source-specific constraints
@@ -22,7 +22,7 @@ configuration remain unchanged.
 
 ## Implemented changes
 
-1. **`KovaCompatibleWorldBackup`:** a *stopped* historic `-usestore`
+1. **`LegacyCompatibleWorldBackup`:** a *stopped* historic `-usestore`
    map may have zero-byte loose `.arkprofile`/`.arktribe` leftovers. Keep
    every byte in the verified backup; never delete or treat the loose files as
    the authoritative embedded survivor population. A zero-byte `.ark`

@@ -4,6 +4,11 @@ const first = "00000000-0000-4000-8000-000000000001";
 const second = "00000000-0000-4000-8000-000000000002";
 
 test.beforeEach(async ({ page }) => {
+  // In the rare event of a blank boot, preserve the real browser error in CI
+  // rather than reporting only a missing navigation button after 30 seconds.
+  page.on("pageerror",error=>console.error("[Obsidian UI browser]",error.message));
+  page.on("requestfailed",request=>console.error("[Obsidian UI request]",
+    request.method(),request.url(),request.failure()?.errorText??"unknown"));
   await page.addInitScript(({ one, two }) => {
     type Handler = (e: { data: { id: string; ok: boolean; data?: unknown; error?: string } }) => void;
     const handlers: Handler[] = [];
@@ -58,9 +63,81 @@ test.beforeEach(async ({ page }) => {
           observedRuntimeState:"observedRunning"
         });
       };
+    let lifecycleStopHeld=false;
+    let lifecycleStopIssued=false;
+    let lifecycleStopApplies=0;
+    let lifecycleRestartIssued=false;
+    let lifecycleRestartHeld=false;
+    let lifecycleRestartApplies=0;
+    (window as typeof window & {
+      __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number;
+      __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number;
+      __UNTAMED_HOLD_LOCAL_RESTART__?:()=>void;
+      __UNTAMED_RELEASE_LOCAL_RESTART__?:()=>void;
+    }).__UNTAMED_LOCAL_STOP_APPLIES__=()=>lifecycleStopApplies;
+    (window as typeof window & {
+      __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number;
+    }).__UNTAMED_LOCAL_RESTART_APPLIES__=()=>lifecycleRestartApplies;
+    (window as typeof window & {
+      __UNTAMED_HOLD_LOCAL_RESTART__?:()=>void;
+    }).__UNTAMED_HOLD_LOCAL_RESTART__=()=>{lifecycleRestartHeld=true;};
+    (window as typeof window & {
+      __UNTAMED_RELEASE_LOCAL_RESTART__?:()=>void;
+    }).__UNTAMED_RELEASE_LOCAL_RESTART__=()=>{lifecycleRestartHeld=false;};
+    (window as typeof window & {__UNTAMED_HOLD_LOCAL_STOP__?:()=>void;
+      __UNTAMED_RELEASE_LOCAL_STOP__?:()=>void;}).__UNTAMED_HOLD_LOCAL_STOP__=()=>{lifecycleStopHeld=true;};
+    (window as typeof window & {__UNTAMED_RELEASE_LOCAL_STOP__?:()=>void;})
+      .__UNTAMED_RELEASE_LOCAL_STOP__=()=>{lifecycleStopHeld=false;};
     let freshId = "";
+    let nativeFreshRegisteredResume=false;
+    const resumeMapId="00000000-0000-4000-8000-000000008881";
+    (window as typeof window & {__UNTAMED_FRESH_CONFIGURED_RESUME__?:()=>void})
+      .__UNTAMED_FRESH_CONFIGURED_RESUME__=()=>{
+        nativeFreshRegisteredResume=true;
+        state.local.maps.push({
+          id:resumeMapId,name:"Valguero",running:false,
+          status:"Leállítva",gamePort:7847,queryPort:27087,
+          steamBuildId:"123456",steamUpdateState:"Nem ellenőrizhető"
+        } as any);
+      };
     let importedObserved=false;
     let adoptedObserved=false;
+    let missingBackupPolicyFixture=false;
+    (window as typeof window & {__UNTAMED_MISSING_BACKUP_POLICY__?:()=>void})
+      .__UNTAMED_MISSING_BACKUP_POLICY__=()=>{missingBackupPolicyFixture=true;};
+    let sourcePinCommits=0;
+    let runtimeConfigCommits=0;
+    let mismatchRuntimePreview=false;
+    (window as typeof window & {
+      __UNTAMED_SOURCE_PIN_COMMITS__?:()=>number;
+      __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number;
+      __UNTAMED_RUNTIME_MISMATCH__?:()=>void;
+    }).__UNTAMED_SOURCE_PIN_COMMITS__=()=>sourcePinCommits;
+    (window as typeof window & {
+      __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number;
+    }).__UNTAMED_RUNTIME_CONFIG_COMMITS__=()=>runtimeConfigCommits;
+    (window as typeof window & {
+      __UNTAMED_RUNTIME_MISMATCH__?:()=>void;
+    }).__UNTAMED_RUNTIME_MISMATCH__=()=>{mismatchRuntimePreview=true;};
+    let mismatchedMultiHostBackupStatus=false;
+    let mismatchedOfflineArchiveStatus=false;
+    let mismatchedOfflineRestoreStatus=false;
+    (window as typeof window & {__UNTAMED_WRONG_MULTIHOST_JOB__?:()=>void})
+      .__UNTAMED_WRONG_MULTIHOST_JOB__=()=>{mismatchedMultiHostBackupStatus=true;};
+    (window as typeof window & {__UNTAMED_WRONG_OFFLINE_ARCHIVE_JOB__?:()=>void})
+      .__UNTAMED_WRONG_OFFLINE_ARCHIVE_JOB__=()=>{mismatchedOfflineArchiveStatus=true;};
+    (window as typeof window & {__UNTAMED_WRONG_OFFLINE_RESTORE_JOB__?:()=>void})
+      .__UNTAMED_WRONG_OFFLINE_RESTORE_JOB__=()=>{mismatchedOfflineRestoreStatus=true;};
+    let multihostCancelFixture=false;
+    let multihostCancelled=false;
+    let multihostCancelRequests=0;
+    (window as typeof window & {
+      __UNTAMED_MULTIHOST_CANCEL_FIXTURE__?:()=>void;
+      __UNTAMED_MULTIHOST_CANCEL_COUNT__?:()=>number;
+    }).__UNTAMED_MULTIHOST_CANCEL_FIXTURE__=()=>{multihostCancelFixture=true;};
+    (window as typeof window & {
+      __UNTAMED_MULTIHOST_CANCEL_COUNT__?:()=>number;
+    }).__UNTAMED_MULTIHOST_CANCEL_COUNT__=()=>multihostCancelRequests;
     let originalLiveFiveFixture=false;
     let originalLiveMixedFixture=false;
     let originalLiveDispatchDenied=false;
@@ -120,6 +197,15 @@ test.beforeEach(async ({ page }) => {
         originalLiveFiveFixture=true;originalLiveMixedFixture=true;
       };
     let initialBlocked=false;
+    let initialPreviewPortBusy=false;
+    let initialApplyPortBusy=false;
+    (window as typeof window & {
+      __UNTAMED_INITIAL_PORT_PREVIEW_BUSY__?:()=>void;
+      __UNTAMED_INITIAL_PORT_APPLY_BUSY__?:()=>void;
+    }).__UNTAMED_INITIAL_PORT_PREVIEW_BUSY__=()=>{initialPreviewPortBusy=true;};
+    (window as typeof window & {
+      __UNTAMED_INITIAL_PORT_APPLY_BUSY__?:()=>void;
+    }).__UNTAMED_INITIAL_PORT_APPLY_BUSY__=()=>{initialApplyPortBusy=true;};
     let customInitialLevel=false;
     (window as typeof window & {__UNTAMED_CUSTOM_INITIAL_LEVEL__?:(value:boolean)=>void})
       .__UNTAMED_CUSTOM_INITIAL_LEVEL__=(value:boolean)=>{customInitialLevel=value;};
@@ -138,21 +224,67 @@ test.beforeEach(async ({ page }) => {
     let pluginZipInstalled = false;
     let apiCoreRolledBack = false;
     let steamUpdateStarted = false;
+    let singleSteamHeld=false;
+    let singleSteamStatusFailsOnce=false;
+    let singleSteamApplies=0;
+    (window as typeof window & {__UNTAMED_HOLD_SINGLE_STEAM__?:()=>void})
+      .__UNTAMED_HOLD_SINGLE_STEAM__=()=>{singleSteamHeld=true;};
+    (window as typeof window & {__UNTAMED_RELEASE_SINGLE_STEAM__?:()=>void})
+      .__UNTAMED_RELEASE_SINGLE_STEAM__=()=>{singleSteamHeld=false;};
+    (window as typeof window & {__UNTAMED_SINGLE_STEAM_STATUS_FAIL__?:()=>void})
+      .__UNTAMED_SINGLE_STEAM_STATUS_FAIL__=()=>{singleSteamStatusFailsOnce=true;};
+    (window as typeof window & {__UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number})
+      .__UNTAMED_SINGLE_STEAM_APPLIES__=()=>singleSteamApplies;
     let steamBatchApplyCount=0;
     let steamBatchStarted=false;
+    let steamBatchHeld=false;
+    let steamBatchStatusFailsOnce=false;
+    (window as typeof window & {__UNTAMED_HOLD_STEAM_BATCH__?:()=>void})
+      .__UNTAMED_HOLD_STEAM_BATCH__=()=>{steamBatchHeld=true;};
+    (window as typeof window & {__UNTAMED_RELEASE_STEAM_BATCH__?:()=>void})
+      .__UNTAMED_RELEASE_STEAM_BATCH__=()=>{steamBatchHeld=false;};
+    (window as typeof window & {__UNTAMED_FAIL_STEAM_BATCH_STATUS__?:()=>void})
+      .__UNTAMED_FAIL_STEAM_BATCH_STATUS__=()=>{steamBatchStatusFailsOnce=true;};
+    (window as typeof window & {__UNTAMED_STOPPED_ORIGINAL_STEAM__?:()=>void})
+      .__UNTAMED_STOPPED_ORIGINAL_STEAM__=()=>{
+        Object.assign(state.local.maps[1],{
+          storeProtected:true,storeLifecycleState:"preflightRequired",
+          running:false,status:"Leállítva",maintenance:false,
+          observedReadOnlyImported:false,freshStoreEnrolled:false
+        });
+      };
 
     (window as typeof window & {__UNTAMED_STEAM_BATCH_APPLIES__?:()=>number})
       .__UNTAMED_STEAM_BATCH_APPLIES__=()=>steamBatchApplyCount;
     let freshStarted=false;
+    let freshReadinessCalls=0;
+    (window as typeof window & {__UNTAMED_FRESH_READY_CALLS__?:()=>number})
+      .__UNTAMED_FRESH_READY_CALLS__=()=>freshReadinessCalls;
+    let freshStartInvalidated=false;
+    (window as typeof window & {__UNTAMED_FRESH_START_CHANGED__?:()=>void})
+      .__UNTAMED_FRESH_START_CHANGED__=()=>{freshStartInvalidated=true;};
     let restartInterrupted=false;
+    let freshRestartReviewCount=0;
+    (window as typeof window & {__UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number})
+      .__UNTAMED_FRESH_RESTART_REVIEWS__=()=>freshRestartReviewCount;
     (window as typeof window & {__UNTAMED_RESTART_INTERRUPTED__?:()=>void})
       .__UNTAMED_RESTART_INTERRUPTED__=()=>{restartInterrupted=true;};
     let lifecycleInterrupted=false;
     let storeLaunchRecoveryFixture=false;
+    let storeRestartOnlyFixture=false;
     let storeLaunchRecoveryCalls=0;
+    (window as typeof window & {__UNTAMED_STORE_RESTART_ONLY__?:()=>void})
+      .__UNTAMED_STORE_RESTART_ONLY__=()=>{
+        storeLaunchRecoveryFixture=true;storeRestartOnlyFixture=true;
+        lifecycleInterrupted=false;restartInterrupted=true;
+        Object.assign(state.local.maps[1],{
+          name:"Aberration",storeProtected:true,rconConfigured:true,
+          running:true,status:"Fut",storeLifecycleState:"needsOperator"
+        });
+      };
     (window as typeof window & {__UNTAMED_STORE_LAUNCH_RECOVERY__?:()=>void})
       .__UNTAMED_STORE_LAUNCH_RECOVERY__=()=>{
-        storeLaunchRecoveryFixture=true;lifecycleInterrupted=true;
+        storeLaunchRecoveryFixture=true;lifecycleInterrupted=true;restartInterrupted=true;
         Object.assign(state.local.maps[1],{
           name:"Aberration",storeProtected:true,rconConfigured:true,
           running:true,status:"Fut",storeLifecycleState:"needsOperator"
@@ -167,6 +299,9 @@ test.beforeEach(async ({ page }) => {
       .__UNTAMED_STEAM_INTERRUPTED__=()=>{steamInterrupted=true;};
     let localBackupMap=one;
     let localBackupSaved=false;
+    let failNextBackupHistory=false;
+    (window as typeof window & {__UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?:()=>void})
+      .__UNTAMED_FAIL_NEXT_BACKUP_HISTORY__=()=>{failNextBackupHistory=true;};
     let crashRecovery=false;
     (window as typeof window & {__UNTAMED_CRASH_MARKER_TEST__?:()=>void})
       .__UNTAMED_CRASH_MARKER_TEST__=()=>{
@@ -204,6 +339,15 @@ test.beforeEach(async ({ page }) => {
     (window as typeof window & {__UNTAMED_FIVE_BACKUP_COPIES__?:()=>number})
       .__UNTAMED_FIVE_BACKUP_COPIES__=()=>originalFiveBackupCopies;
     let historicalRconAttached=false;
+    let wrongHistoricalAdminPreviewMap=false;
+    let wrongHistoricalRconReadMap=false;
+    (window as typeof window & {
+      __UNTAMED_BAD_STORE_RCON_MAP__?:()=>void;
+      __UNTAMED_BAD_STORE_ADMIN_MAP__?:()=>void;
+    }).__UNTAMED_BAD_STORE_RCON_MAP__=()=>{wrongHistoricalRconReadMap=true;};
+    (window as typeof window & {
+      __UNTAMED_BAD_STORE_ADMIN_MAP__?:()=>void;
+    }).__UNTAMED_BAD_STORE_ADMIN_MAP__=()=>{wrongHistoricalAdminPreviewMap=true;};
     let historicalRconFailStatusAfterApply=false;
     (window as typeof window & {
       __UNTAMED_HISTORICAL_RCON_FAIL_REFRESH__?:()=>void;
@@ -213,6 +357,12 @@ test.beforeEach(async ({ page }) => {
     const historicalRconToken="00000000-0000-4000-8000-000000001699";
     const historicalStartToken="00000000-0000-4000-8000-000000001698";
     let historicalActiveStarted=false;
+    let failOneHistoricalStartStatus=false;
+    (window as typeof window & {
+      __UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?:()=>void;
+    }).__UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__=()=>{
+      failOneHistoricalStartStatus=true;
+    };
     let historicalApiEnabled=false;
     let historicalApiPreviewRequested:boolean|null=null;
     const historicalApiToken="00000000-0000-4000-8000-000000009914";
@@ -256,6 +406,20 @@ test.beforeEach(async ({ page }) => {
     let originalSaveQueued=false;
     let originalSavePending=false;
     let originalSaveDispatches=0;
+    let originalSaveWrongPreviewMap=false;
+    let originalSaveWrongStatusJob=false;
+    let originalSaveWrongEvidenceMap=false;
+    (window as typeof window & {
+      __UNTAMED_SAVE_WRONG_PREVIEW_MAP__?:()=>void;
+      __UNTAMED_SAVE_WRONG_STATUS_JOB__?:()=>void;
+      __UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?:()=>void;
+    }).__UNTAMED_SAVE_WRONG_PREVIEW_MAP__=()=>{originalSaveWrongPreviewMap=true;};
+    (window as typeof window & {
+      __UNTAMED_SAVE_WRONG_STATUS_JOB__?:()=>void
+    }).__UNTAMED_SAVE_WRONG_STATUS_JOB__=()=>{originalSaveWrongStatusJob=true;};
+    (window as typeof window & {
+      __UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?:()=>void
+    }).__UNTAMED_SAVE_WRONG_EVIDENCE_MAP__=()=>{originalSaveWrongEvidenceMap=true;};
     let originalSaveReattached=false;
     let originalSaveHold=false;
     let originalSaveEvidenceTampered=false;
@@ -386,6 +550,14 @@ test.beforeEach(async ({ page }) => {
         } as typeof state.local.maps[number]);
     }
     let rconAllowed=false;
+    let rconWrongPreviewMap=false;
+    let rconWrongLogMap=false;
+    let lastRconAdminCommand="";
+    let lastRconAdminAction="";
+    (window as typeof window & {__UNTAMED_RCON_WRONG_PREVIEW_MAP__?:()=>void})
+      .__UNTAMED_RCON_WRONG_PREVIEW_MAP__=()=>{rconWrongPreviewMap=true;};
+    (window as typeof window & {__UNTAMED_RCON_WRONG_LOG_MAP__?:()=>void})
+      .__UNTAMED_RCON_WRONG_LOG_MAP__=()=>{rconWrongLogMap=true;};
     let dashboardPlayerListFixture=false;
     let dashboardSecondPlayerListUnavailable=false;
     (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?:()=>void})
@@ -424,6 +596,28 @@ test.beforeEach(async ({ page }) => {
       differences:stagedId?[{modId:stagedId,beforeMode:null,beforePosition:null,afterMode:"active",afterPosition:2}]:[]
     });
     const iniToken="00000000-0000-4000-8000-000000003333";
+    let iniConcurrentRebased=false;
+    let wrongLogTailMap=false;
+    let wrongPluginInventoryMap=false;
+    let wrongPluginOpenMap=false;
+    (window as typeof window & {__UNTAMED_WRONG_PLUGIN_FOLDER_MAP__?:()=>void})
+      .__UNTAMED_WRONG_PLUGIN_FOLDER_MAP__=()=>{wrongPluginOpenMap=true;};
+    (window as typeof window & {__UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__?:()=>void})
+      .__UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__=()=>{wrongPluginInventoryMap=true;};
+    let failIniReopenAfterCreate=false;
+    (window as typeof window & {__UNTAMED_WRONG_LOG_TAIL_MAP__?:()=>void})
+      .__UNTAMED_WRONG_LOG_TAIL_MAP__=()=>{wrongLogTailMap=true;};
+    (window as typeof window & {__UNTAMED_FAIL_INI_REOPEN_AFTER_CREATE__?:()=>void})
+      .__UNTAMED_FAIL_INI_REOPEN_AFTER_CREATE__=()=>{failIniReopenAfterCreate=true;};
+    let wrongIniOpenMap=false;
+    let holdIniOpen=false;
+    let releaseIniOpen:(()=>void)|null=null;
+    (window as typeof window & {__UNTAMED_INI_WRONG_OPEN_MAP__?:()=>void})
+      .__UNTAMED_INI_WRONG_OPEN_MAP__=()=>{wrongIniOpenMap=true;};
+    (window as typeof window & {__UNTAMED_INI_HOLD_OPEN__?:()=>void})
+      .__UNTAMED_INI_HOLD_OPEN__=()=>{holdIniOpen=true;};
+    (window as typeof window & {__UNTAMED_INI_RELEASE_OPEN__?:()=>void})
+      .__UNTAMED_INI_RELEASE_OPEN__=()=>{releaseIniOpen?.();};
     const missingGameToken="00000000-0000-4000-8000-000000003334";
     let missingGameCreated=false;
     const nativeSchedules:Record<string,any[]>={};
@@ -436,7 +630,7 @@ test.beforeEach(async ({ page }) => {
       .__UNTAMED_GENESIS_PARTIAL_INDEX__=()=>{partialStoreIndex=true;};
     (window as typeof window & {__UNTAMED_MIXED_STORE_INDEX__?:()=>void})
       .__UNTAMED_MIXED_STORE_INDEX__=()=>{mixedStoreIndex=true;};
-    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; frequency?:string;minuteOfDay?:number;daysMask?:number; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; confirmation?:string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;maintenance?:boolean;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;backupDirectory?:string }) => {
+    const answers = (m: { method: string; mapId?: string; term?: string; page?: number; credential?: string; draftId?: string; modId?: string | number; mode?: string; file?: string; token?: string; content?: string; name?: string; root?: string; importToken?: string; categoryId?: number; sort?: number; descending?: boolean; mapName?: string; sessionName?: string; gamePort?: number; queryPort?: number; archive?: string; command?: string; coordinationArchive?: string; localMetadataArchive?: string; plugin?: string; enabled?: boolean; confirm?: boolean; frequency?:string;minuteOfDay?:number;daysMask?:number; channel?: string; transactionId?:string; point?: string; action?: string; message?: string; typedApproval?: string; confirmation?:string; listenPort?:number; peerAddress?:string; peerPort?:number; pairingKey?:string; hostId?:string;hostName?:string;peerAction?:string;kind?:string;intervalMinutes?:number;maintenance?:boolean;jobId?:string;clusterId?:string;mapIds?:string[];transferDirectory?:string;transferRoot?:string;backupDirectory?:string }) => {
       switch (m.method) {
         case "store.inspectArchive": return {
           batch:"b8d0c49f-cc87-42e0-b312-a0485c82f101",
@@ -549,9 +743,25 @@ test.beforeEach(async ({ page }) => {
             serverProcessTouched:false,
             evidence:"OPERATOR_APPROVED_EXISTING_MULTIHOST_ARCHIVE_REBUILD"
           };
+        case "cluster.multiHostCancel":
+          if(!m.confirm||m.jobId!=="00000000-0000-4000-8000-000000009623"||
+             !multihostCancelFixture||multihostCancelled)
+            throw new Error("UM-MULTIHOST-CANCEL-EXPLICIT-CONFIRMATION");
+          multihostCancelled=true;multihostCancelRequests++;
+          return {jobId:m.jobId,cancelRequested:true,completed:false,
+            requiresStatusRecheck:true,productionRestoreAllowed:false,
+            rconSent:false,serverProcessTouched:false,
+            automaticRollback:false,journalDeleted:false,
+            evidence:"EXACT_OFFLINE_JOB_CANCELLATION_REQUEST_ONLY"};
         case "cluster.multiHostBackupStatus": return {
-          jobId:m.jobId,kind:"backup",state:"completed",
-          stage:"ARCHIVE_SHA256_VERIFIED_AFTER_RECOVERY",
+          jobId:mismatchedMultiHostBackupStatus?
+            "00000000-0000-4000-8000-000000009699":m.jobId,kind:"backup",
+          state:multihostCancelFixture?
+            (multihostCancelled?"needsOperator":"running"):"completed",
+          stage:multihostCancelFixture?
+            (multihostCancelled?"RECOVERY_INTERRUPTED_RETAINED_STAGE_PRESERVED":
+              "REBUILDING_FROM_VERIFIED_OFFLINE_SOURCE"):
+              "ARCHIVE_SHA256_VERIFIED_AFTER_RECOVERY",
           artifactName:"Untamed-MultiHost-20261109-fixture",
           rollbackArtifactName:"Untamed-MultiHost-20261109-fixture.retained-abc",
           hosts:2,clusters:1,maps:10,components:151,bytes:123456789,
@@ -670,22 +880,26 @@ test.beforeEach(async ({ page }) => {
           allowedCommands:["ListPlayers","GetGameLog","GetChat","SaveWorld"],
           evidence:"LOCAL_RCON_READ_ONLY_PREFLIGHT_NO_COMMAND"
         };
-        case "rcon.adminPreview": return {
-          token:"00000000-0000-4000-8000-00000000e001",
-          mapId:m.mapId,mapName:"The Island",action:m.action,
-          command:m.action==="wildWipe"?"DestroyWildDinos":
+        case "rcon.adminPreview": {
+          lastRconAdminAction=m.action;
+          lastRconAdminCommand=m.action==="wildWipe"?"DestroyWildDinos":
             m.action==="broadcast"?"Broadcast "+m.message:
-            m.action==="serverChat"?"ServerChat "+m.message:m.message,
+            m.action==="serverChat"?"ServerChat "+m.message:m.message;
+          return {
+          token:"00000000-0000-4000-8000-00000000e001",
+          mapId:rconWrongPreviewMap?two:m.mapId,mapName:"The Island",action:m.action,
+          command:lastRconAdminCommand,
           dangerous:m.action==="wildWipe"||m.action==="custom",
           approvalWord:m.action==="wildWipe"?"DINÓTÖRLÉS":
             m.action==="custom"?"ADMIN":null,
           requiresApproval:true,expiresUtc:"2026-11-06T10:00:00Z",
           dispatched:false,credentialExposed:false,
           evidence:"LOCAL_OS_VERIFIED_ADMIN_RCON_PREVIEW"
-        };
+          };
+        }
         case "rcon.adminSend": return {
-          mapId:one,mapName:"The Island",action:"broadcast",
-          command:"Broadcast Synthetic operator message",
+          mapId:one,mapName:"The Island",action:lastRconAdminAction,
+          command:lastRconAdminCommand,
           response:"Synthetic RCON command accepted",
           commandSent:true,observedUtc:"2026-11-06T09:00:00Z",
           oneShot:true,saveCompleteProven:false,storeWriterTouched:false,
@@ -694,7 +908,7 @@ test.beforeEach(async ({ page }) => {
         case "rcon.gameLog":
           if(!rconAllowed)throw new Error("RCON requires owned local process");
           return {
-            mapId:one,mapName:"The Island",command:"GetGameLog",
+            mapId:rconWrongLogMap?two:one,mapName:"The Island",command:"GetGameLog",
             response:"Synthetic ASA GameLog entry",observedUtc:"2026-11-06T09:00:00Z",
             readOnly:true,saveCompleteProven:false,
             evidence:"LOCAL_VERIFIED_READ_ONLY_RCON"
@@ -727,7 +941,11 @@ test.beforeEach(async ({ page }) => {
           };
           }
           throw new Error("Unknown player-list map");
-        case "backup.history": return {
+        case "backup.history":
+          if(failNextBackupHistory){failNextBackupHistory=false;
+            throw new Error("UM-SYNTHETIC-BACKUP-READONLY-REFRESH-FAILED");
+          }
+          return {
           mapId:m.mapId,
           mapName:m.mapId===two?"Astraeos":"The Island",
           recoveryRequired:crashRecovery,
@@ -744,6 +962,10 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-BACKUP-ORIGINAL-FIVE-STOPPED-REQUIRED");
           return {token:"00000000-0000-4000-8000-00000000b051",
             localMaps:5,worldBytes:5*1024*1024*1024,
+            ...(missingBackupPolicyFixture?{}:{
+              maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
+              resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true
+            }),
             mapNames:["The Island","Astraeos","The Center",
               "Scorched Earth","Extinction"],
             originalSourcePinned:true,allMapsConfirmedStopped:true,
@@ -784,7 +1006,12 @@ test.beforeEach(async ({ page }) => {
             mapId:m.mapId,
             mapName:localBackupMap===two?"Astraeos":"The Island",
             mapKey:localBackupMap===two?"Astraeos_WP":"TheIsland_WP",
-            point:null,confirmedStopped:true,willCreateProtectiveBackup:false,
+            point:null,confirmedStopped:true,
+            ...(missingBackupPolicyFixture?{}:{
+              maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
+              resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true
+            }),
+            willCreateProtectiveBackup:false,
             originalWorldRetained:false,storeWriterTouched:false,
             action:"BACKUP",evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
           };
@@ -804,6 +1031,10 @@ test.beforeEach(async ({ page }) => {
           mapId:m.mapId,mapName:m.mapId===two?"Astraeos":"The Island",
           mapKey:m.mapId===two?"Astraeos_WP":"TheIsland_WP",
           point:m.point,confirmedStopped:true,
+          ...(missingBackupPolicyFixture?{}:{
+            maxFilesPerMap:100000,maxBytesPerMap:2*1024**4,
+            resourcePolicyCustomized:false,actualCopySizeRecheckedAtCreate:true
+          }),
           willCreateProtectiveBackup:true,originalWorldRetained:true,
           storeWriterTouched:false,action:"RESTORE",
           evidence:"NATIVE_STOPPED_WORLD_BACKUP_PREFLIGHT"
@@ -813,7 +1044,11 @@ test.beforeEach(async ({ page }) => {
           mapName:localBackupMap===two?"Astraeos":"The Island",
           point:"00000000-0000-4000-8000-00000000b002",
           protectiveBackup:"00000000-0000-4000-8000-00000000b004",
-          restored:true,oldWorldRetained:true,worldRestoreVerified:true,
+          restored:true,oldWorldRetained:true,
+          bytesRestoredAndHashesVerified:true,
+          worldRestoreVerified:false,
+          gameClientLoadVerified:false,
+          tribeOwnershipVerified:false,characterRejoinVerified:false,
           storeWriterTouched:false,
           evidence:"VERIFIED_STOPPED_MAP_KOVA_STYLE_RESTORE_WITH_PROTECTIVE_COPY"
         };
@@ -896,14 +1131,17 @@ test.beforeEach(async ({ page }) => {
           evidence:"HISTORICAL_RCON_MANAGER_PROFILE_STATUS_ONLY"
           };
         }
+        case "historical.rconExistingPreview":
         case "historical.rconPreview": {
-          if(m.mapId!==two||m.rconPort!==37145||
-             m.password!=="HistoricalRconPass!2026")
+          if(m.mapId!==two||
+             (m.method==="historical.rconPreview"&&
+              (m.rconPort!==37145||m.password!=="HistoricalRconPass!2026")))
             throw new Error("Synthetic original RCON INI mismatch");
           return {
             token:historicalRconToken,mapId:two,mapName:"Astraeos",
             rconPort:37145,existingIniVerified:true,
             originalActiveDoneVerified:true,
+            existingCredentialsReadLocally:m.method==="historical.rconExistingPreview",
             originalStoreTouched:false,serverStarted:false,
             evidence:"HISTORICAL_RCON_EXISTING_INI_PREVIEW_ONLY"
           };
@@ -917,7 +1155,12 @@ test.beforeEach(async ({ page }) => {
             originalStoreTouched:false,iniModified:false,serverStarted:false,
             evidence:"HISTORICAL_RCON_DPAPI_PROFILE_ATTACHED"};
         }
-        case "historical.activeStartStatus": return {
+        case "historical.activeStartStatus":
+          if(failOneHistoricalStartStatus){
+            failOneHistoricalStartStatus=false;
+            throw new Error("UM-SYNTHETIC-READONLY-START-STATUS-FAILED");
+          }
+          return {
           mapId:two,mapName:"Astraeos",running:historicalActiveStarted,
           confirmedStopped:!historicalActiveStarted,
           requestedMode:historicalApiEnabled?"asaApiLoader":"directAsa",
@@ -967,8 +1210,9 @@ test.beforeEach(async ({ page }) => {
           return {
             token:historicalStartToken,mapId:two,mapName:"Astraeos",
             gamePort:7847,queryPort:27025,rconPort:37145,
-            originalTwoPeersVerified:true,conversionAllowed:false,
-            automaticRetryAllowed:false,serverStarted:false,readyCertified:false,
+            originalTwoPeersVerified:false,originalPeerCheckRequiredForLocalStart:false,
+            conversionAllowed:false,automaticRetryAllowed:false,
+            serverStarted:false,readyCertified:false,
             gameplayTravelVerified:false,
             evidence:"ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT"
           };
@@ -1004,7 +1248,8 @@ test.beforeEach(async ({ page }) => {
             act==="serverChat"?"ServerChat "+m.message:
             act==="wildWipe"?"DestroyWildDinos":m.message;
           historicalAdminPending=true;
-          return {token:historicalAdminToken,mapId:two,mapName:"Astraeos",
+          return {token:historicalAdminToken,
+            mapId:wrongHistoricalAdminPreviewMap?one:two,mapName:"Astraeos",
             action:act,command:historicalAdminCommand,
             approvalWord:act==="wildWipe"?"STORE-V1 DINÓTÖRLÉS":"STORE-V1 ADMIN",
             dangerous:act==="wildWipe"||act==="custom",
@@ -1047,7 +1292,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("Original Store PID/source/RCON owner not verified");
           const command=m.method==="historical.rconPlayers"?"ListPlayers":
             m.method==="historical.rconGameLog"?"GetGameLog":"GetChat";
-          return {mapId:two,mapName:"Astraeos",command,
+          return {mapId:wrongHistoricalRconReadMap?one:two,mapName:"Astraeos",command,
             response:"Synthetic original ASA "+command,observedUtc:"2026-11-07T17:00:00Z",
             readOnly:true,storeTouched:false,saveCompleteProven:false,
             evidence:"ORIGINAL_STORE_V1_VERIFIED_LOCAL_READ_ONLY_RCON"};
@@ -1145,8 +1390,10 @@ test.beforeEach(async ({ page }) => {
             throw new Error("Original Store SaveWorld owner/session unavailable");
           originalSavePending=true;
           return {
-            token:originalSaveToken,mapId:two,mapName:"Astraeos",
-            pid:42101,rconPort:37145,originalTwoPeersVerified:true,
+            token:originalSaveToken,
+            mapId:originalSaveWrongPreviewMap?one:two,mapName:"Astraeos",
+            pid:42101,rconPort:37145,originalTwoPeersVerified:false,
+            originalPeerCheckRequiredForLocalOperation:false,
             usesSaveWorld:true,usesDoExit:false,forceKillAllowed:false,
             automaticRestart:false,originalStoreTouched:false,
             evidence:"ORIGINAL_STORE_V1_SAVEWORLD_ONLY_PREFLIGHT"
@@ -1168,7 +1415,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-ORIGINAL-SAVE-JOURNAL-TAMPERED");
           const complete=originalSaveQueued&&!(originalSaveReattached&&originalSaveHold);
           return {
-            mapId:two,phase:originalSaveRecoveryFixture?
+            mapId:originalSaveWrongEvidenceMap?one:two,phase:originalSaveRecoveryFixture?
               (originalSaveReviewed?"reviewed":"needsOperator"):
               originalSaveQueued?(complete?"completed":"prepared"):"none",
             operationId:originalSaveRecoveryFixture?originalSaveJob:
@@ -1211,7 +1458,9 @@ test.beforeEach(async ({ page }) => {
             throw new Error("Original Store SaveWorld job unknown");
           const held=originalSaveReattached&&originalSaveHold;
           if(!held)originalSaveReattached=false;
-          return {jobId:originalSaveJob,kind:"SaveWorldOnly",
+          return {
+            jobId:originalSaveWrongStatusJob?"00000000-0000-4000-8000-000000001695":originalSaveJob,
+            kind:"SaveWorldOnly",
             state:held?"running":"completed",
             step:held?"Natív mentési művelet megfigyelése":
               "Store-v1 SaveWorld igazolva; az ASA tovább fut",
@@ -1228,7 +1477,8 @@ test.beforeEach(async ({ page }) => {
             throw new Error("Original RCON owner or Store session invalid");
           return {
             token:originalStopToken,mapId:two,mapName:"Astraeos",
-            pid:42101,rconPort:37145,originalTwoPeersVerified:true,
+            pid:42101,rconPort:37145,originalTwoPeersVerified:false,
+            originalPeerCheckRequiredForLocalOperation:false,
             usesSaveWorld:true,usesDoExit:true,forceKillAllowed:false,
             automaticRestart:false,originalStoreTouched:false,
             evidence:"ORIGINAL_STORE_V1_SAVEWORLD_DOEXIT_PREFLIGHT_ONLY"
@@ -1280,6 +1530,45 @@ test.beforeEach(async ({ page }) => {
           productionUseAllowed:false,
           evidence:"PAIRED_COPIES_OFFLINE_READ_ONLY_NO_WRITER_CERTIFICATION"
         };
+        case "historical.sourcePinPreview": return {
+          token:"00000000-0000-4000-8000-000000001991",
+          verifiedLocalMaps:1,requiresExplicitApproval:true,peerStatusRequired:false,
+          evidence:"READ_ONLY_OBSIDIAN_SOURCE_PIN_PREVIEW"
+        };
+        case "historical.sourcePinApply":
+          if(m.token!=="00000000-0000-4000-8000-000000001991"||
+             m.confirm!==true||m.typedApproval!=="OBSIDIAN FORRÁS ÁTVÉTEL"||
+             sourcePinCommits>0)
+            throw new Error("UM-STORE-SOURCE-PIN-APPROVAL-REQUIRED");
+          sourcePinCommits++;
+          return {pinned:true,localMaps:1,originalKovaRequiredAfterPin:false,
+            kovaFilesWritten:false,asaFilesWritten:false,rconUsed:false,
+            evidence:"IMMUTABLE_SOURCE_PINNED_IN_OBSIDIAN_MANAGER_PROFILE"};
+        case "historical.runtimeSettingsStatus":
+          if(sourcePinCommits<1||m.mapId!=="00000000-0000-4000-8000-000000009001")
+            throw new Error("UM-STORE-RUNTIME-SOURCE-PIN-REQUIRED");
+          return {mapId:m.mapId,mapName:"The Island",gamePort:7777,queryPort:27015,
+            clusterId:"KovaCluster",transferRoot:"D:\\Synthetic\\OriginalCluster",
+            originalSourcePinned:true,peerRequiredForLocalStart:false,
+            sharedTransferAccessVerified:false};
+        case "historical.runtimeSettingsPreview":
+          if(sourcePinCommits<1||m.mapId!=="00000000-0000-4000-8000-000000009001")
+            throw new Error("UM-STORE-RUNTIME-SOURCE-PIN-REQUIRED");
+          return {token:"00000000-0000-4000-8000-000000001992",
+            mapId:mismatchRuntimePreview?"00000000-0000-4000-8000-000000009099":m.mapId,
+            gamePort:m.gamePort,queryPort:m.queryPort,
+            clusterId:m.clusterId,transferRoot:m.transferRoot,
+            sourcePinVerified:true,requiresStoppedProcess:true,
+            iniMustAlreadyMatchPorts:true,evidence:"OBSIDIAN_LOCAL_RUNTIME_SETTINGS_PREVIEW"};
+        case "historical.runtimeSettingsApply":
+          if(sourcePinCommits<1||m.token!=="00000000-0000-4000-8000-000000001992"||
+             m.confirm!==true||m.typedApproval!=="OBSIDIAN MAP KONFIG")
+            throw new Error("UM-STORE-RUNTIME-EXPLICIT-APPROVAL");
+          runtimeConfigCommits++;
+          return {mapId:"00000000-0000-4000-8000-000000009001",
+            updated:true,portAndClusterSettingsStoredInManager:true,
+            kovaFilesWritten:false,asaFilesWritten:false,
+            noServerStarted:true,noRconSent:true};
         case "historical.originalList": return {
           sourceVerified:true,originalFourFilesUnchanged:true,
           evidence:"ORIGINAL_KOVA_FIVE_LOCAL_MAPS_READ_ONLY",
@@ -1297,7 +1586,7 @@ test.beforeEach(async ({ page }) => {
           })):[{mapId:"00000000-0000-4000-8000-000000009001",
             mapKey:"TheIsland_WP",name:"The Island",
             folderName:"OriginalIsland",gamePort:7777,queryPort:27015,
-            enabledMods:22,passiveMods:3,registered:false}]
+            enabledMods:22,passiveMods:3,registered:sourcePinCommits>0}]
         };
         case "historical.originalClusterPreview": {
           sourceKovaClusterToken="00000000-0000-4000-8000-000000009555";
@@ -1313,7 +1602,7 @@ test.beforeEach(async ({ page }) => {
         }
         case "historical.originalClusterApply": {
           if(!sourceKovaClusterToken||m.token!==sourceKovaClusterToken||
-             m.confirm!==true||m.typedApproval!=="EREDETI KOVA REGISZTER")
+             m.confirm!==true||m.typedApproval!=="EREDETI STORE REGISZTER")
             throw new Error("UM-ORIGINAL-CLUSTER-APPROVAL-REQUIRED");
           sourceKovaClusterToken="";sourceKovaClusterApplies++;
           const missing=sourceKovaClusterAssigned?0:5;
@@ -1392,7 +1681,13 @@ test.beforeEach(async ({ page }) => {
             mapName:"Scorched Earth",registered:true,storeProtected:true,
             requiresOriginalLaunchVerification:true,serverStarted:false,
             worldFilesChanged:false,evidence:"HISTORICAL_STORE_V1_REGISTERED_QUARANTINED"};
-        case "steam.freshCurrent": return {current:null};
+        case "steam.freshCurrent": return {current:nativeFreshRegisteredResume?{
+          jobId:"00000000-0000-4000-8000-000000008889",
+          mapId:resumeMapId,mapName:"Valguero",
+          stage:"registered",detail:"Fájlok ellenőrizve és regisztrálva",
+          percent:100,verified:true,registered:true,errorCode:null,
+          evidence:"NATIVE_STEAMCMD_JOB_STATE"
+        }:null};
         case "steam.freshBrowse": return {selected:true,installRoot:"D:\\ASA-NEW"};
         case "steam.freshPreflight":
           if(m.customLevel && !/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(m.customLevel))
@@ -1420,6 +1715,29 @@ test.beforeEach(async ({ page }) => {
           return {mapId:"00000000-0000-4000-8000-000000008881",
             mapName:"Valguero",needsConfiguration:true,serverStarted:false,
             evidence:"VERIFIED_STEAM_FILES_REGISTERED_MANAGER_PROFILE_ONLY"};
+        case "steam.freshRecoverPreview":
+          if(m.installRoot!=="D:\\ASA-Verified" || m.mapName!=="Valguero")
+            throw new Error("UM-FRESH-RECOVERY-NO-COMPLETE-JOURNAL");
+          return {token:"00000000-0000-4000-8000-000000001909",
+            mapId:"00000000-0000-4000-8000-000000001908",
+            mapName:"Valguero",mapLevel:"Valguero_WP",buildId:"123456",
+            verified:true,filesDownloadedAgain:false,serverStarted:false};
+        case "steam.freshRecoverRegister":
+          if(m.typedApproval!=="ASA TELEPÍTÉS ÁTVÉTEL" ||
+             m.token!=="00000000-0000-4000-8000-000000001909")
+            throw new Error("UM-FRESH-RECOVERY-APPROVAL-REQUIRED");
+          if(state.local.maps.some(x=>x.id==="00000000-0000-4000-8000-000000001908"))
+            throw new Error("UM-FRESH-RECOVERY-ALREADY-REGISTERED");
+          state.local.maps.push({
+            id:"00000000-0000-4000-8000-000000001908",
+            name:"Valguero",running:false,status:"Nincs beállítva",
+            gamePort:0,steamBuildId:"123456",steamUpdateState:"Nem ellenőrizhető"
+          });
+          return {jobId:"00000000-0000-4000-8000-000000001907",
+            mapId:"00000000-0000-4000-8000-000000001908",
+            mapName:"Valguero",needsConfiguration:true,serverStarted:false,
+            filesDownloadedAgain:false,kovaFilesWritten:false,
+            evidence:"COMPLETED_STEAMCMD_RECOVERED_MANAGER_REGISTRATION_ONLY"};
         case "steam.freshCancel": return {cancelRequested:true};
         case "steam.freshDiscard": return {discarded:true};
         case "maps.maintenanceStatus": {
@@ -1454,10 +1772,12 @@ test.beforeEach(async ({ page }) => {
             evidence:"LOCAL_RCON_CONFIGURATION_STATUS_NO_WRITE"};
         }
         case "rcon.configPreview": {
-          if(m.password?.length<12 || !m.createIni)throw new Error("UM-RCON-CONFIG-FIELDS");
+          if((m.createIni&&m.password?.length<12)||
+             (!m.createIni&&m.password?.length<1))
+            throw new Error("UM-RCON-CONFIG-FIELDS");
           return {token:"00000000-0000-4000-8000-000000008879",
             mapId:m.mapId,mapName:"Genesis Part 1",rconPort:m.rconPort,
-            createsNewIni:true,existingIniVerified:false,
+            createsNewIni:!!m.createIni,existingIniVerified:!m.createIni,
             evidence:"STOPPED_LOCAL_RCON_PREVIEW_NO_WRITES"};
         }
         case "rcon.configApply": {
@@ -1479,11 +1799,17 @@ test.beforeEach(async ({ page }) => {
             blocker:initialBlocked?"PROCESS_STOP_NOT_VERIFIED":
               map.gamePort>0?"PROFILE_ALREADY_CONFIGURED_OR_PROTECTED":"NONE",
             processStatus:initialBlocked?"Synthetic uncertain WMI process observation":"Synthetic stopped",
-            hasServerExecutable:true,gamePort:map.gamePort,queryPort:0,
+            hasServerExecutable:true,gamePort:map.gamePort,
+            queryPort:(map as any).queryPort??0,
             suggestion:{game:7797,query:27035},
             evidence:"LOCAL_MANAGER_PROFILE_FIRST_SETUP_STATUS"};
         }
-        case "servers.initialPreview": return {
+        case "servers.initialPreview": {
+          if(initialPreviewPortBusy){
+            initialPreviewPortBusy=false;
+            throw new Error("UM-INITIAL-PORT-IN-USE");
+          }
+          return {
           token:"00000000-0000-4000-8000-000000008877",mapId:m.mapId,
           mapName:"Genesis Part 1",sessionName:m.sessionName||"Untamed Kingdom",
           mapLevel:customInitialLevel?m.customLevel:"Genesis_WP",
@@ -1491,8 +1817,13 @@ test.beforeEach(async ({ page }) => {
           gamePort:m.gamePort||7797,queryPort:m.queryPort||27035,
           rconEnabled:false,serverStartRequested:false,configuredArgumentsLength:93,
           evidence:"INITIAL_MAP_PROFILE_PREVIEW_NO_WRITES"
-        };
+          };
+        }
         case "servers.initialApply": {
+          if(initialApplyPortBusy){
+            initialApplyPortBusy=false;
+            throw new Error("UM-INITIAL-PORT-IN-USE");
+          }
           const map=state.local.maps.find(x=>x.name==="Genesis Part 1");
           if(map)map.gamePort=7797;
           return {mapId:map?.id||"",mapName:"Genesis Part 1",
@@ -1529,6 +1860,35 @@ test.beforeEach(async ({ page }) => {
                 conversionFlagPresent:false,argumentsValidated:true},
               controllable:false,storeWriteAuthorized:false}
           ]};
+        case "servers.runningBatchPreview": {
+          if(importedObserved)throw new Error("UM-LIVE-BATCH-NO-ELIGIBLE");
+          return {
+            token:"00000000-0000-4000-8000-000000007171",
+            count:1,storeOrCluster:1,otherSkipped:0,
+            maps:[{pid:4443,mapName:"Ragnarok",mapKey:"Ragnarok_WP",
+              gamePort:7827,queryPort:27037}],
+            readOnly:true,lifecycleAuthorized:false,storeWriterAuthorized:false,
+            serverProcessTouched:false,
+            evidence:"EXACT_NONSTORE_WMI_MULTI_MAP_PREVIEW_NO_WRITES"
+          };
+        }
+        case "servers.runningBatchRegister": {
+          if(m.token!=="00000000-0000-4000-8000-000000007171"||
+             m.confirm!==true||importedObserved)
+            throw new Error("UM-LIVE-BATCH-APPROVAL-REQUIRED");
+          importedObserved=true;
+          state.local.maps.push({
+            id:"00000000-0000-4000-8000-000000007148",
+            name:"Ragnarok",running:false,
+            observedReadOnlyImported:true,storeProtected:false,
+            gamePort:7827,status:"Megfigyelt futó ASA",
+            steamBuildId:null,steamUpdateState:"Nem ellenőrizhető"
+          } as typeof state.local.maps[number]);
+          return {imported:1,mapIds:["00000000-0000-4000-8000-000000007148"],
+            readOnly:true,lifecycleAuthorized:false,storeWriterAuthorized:false,
+            serverProcessTouched:false,originalStoreTouched:false,
+            evidence:"ATOMIC_LOCAL_NONSTORE_RUNNING_ASA_OBSERVATION_IMPORT"};
+        }
         case "servers.runningPreview": {
           if(m.pid!==4443 || m.startedUtc!=="2026-11-10T15:00:00Z"||
              m.gamePort!==7827 || m.queryPort!==27037)
@@ -1602,12 +1962,45 @@ test.beforeEach(async ({ page }) => {
             requiresExternalControllerStopped:true,requiresTypedApproval:true,
             evidence:"ORIGINAL_ACTIVE_FIVE_RUNNING_ASA_NATIVE_IMPORT_PREFLIGHT"};
         }
+        case "historical.operationJournalInventory":
+          return {recordCount:3,registeredRecords:1,unattributedResources:1,
+            unattributedPendingResources:1,historicalSourceRecords:1,
+            pendingRecords:3,corruptRecords:1,truncated:false,
+            historicalSourceReadable:true,
+            entries:[{
+              resourceFingerprint:"AAAABBBBCCCCDDDD",journal:"Operations-v1",
+              kind:"Launch",phase:"NeedsOperator",changedUtc:"2026-11-12T09:00:00Z",
+              registered:true,registeredMapNames:"Aberration",
+              historicalSourceMatched:false,historicalMapKey:null,
+              needsReview:true,corrupt:false
+            },{
+              resourceFingerprint:"1111222233334444",journal:"Restart-v1",
+              kind:"Restart",phase:"NeedsOperator",changedUtc:"2026-11-07T09:00:00Z",
+              registered:false,registeredMapNames:null,
+              historicalSourceMatched:true,historicalMapKey:"Synthetic1",
+              needsReview:true,corrupt:false
+            },{
+              resourceFingerprint:"FFFFEEEEDDDDCCCC",journal:"Operations-v1",
+              kind:"Unknown",phase:"Corrupt",changedUtc:null,
+              registered:false,registeredMapNames:null,
+              historicalSourceMatched:false,historicalMapKey:null,
+              needsReview:true,corrupt:true
+            }],
+            evidence:"BOUNDED_READ_ONLY_LOCAL_OPERATION_JOURNAL_INVENTORY",
+            deletedOrReviewed:false
+          };
         case "historical.originalLiveOperationBlockers":
-          return {mapCount:5,blockedCount:1,blockedMaps:[{
+          return {mapCount:5,blockedCount:2,blockedMaps:[{
             mapId:"00000000-0000-4000-8000-000000007103",
             mapName:"Aberration",kind:"Launch",phase:"NeedsOperator",
             operationId:"00000000-0000-4000-8000-000000007199",
             blockingCode:"UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE",
+            existingManagerProfile:true,supportedReviewInMapDetails:true
+          },{
+            mapId:"00000000-0000-4000-8000-000000007103",
+            mapName:"Aberration",kind:"Restart-v1",phase:"NeedsOperator",
+            operationId:"00000000-0000-4000-8000-000000007198",
+            blockingCode:"UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE",
             existingManagerProfile:true,supportedReviewInMapDetails:true
           }],allRecoveriesRequireFreshOwnerProof:true,
             noAutomaticCommandRetry:true,processStarted:false,
@@ -2018,11 +2411,15 @@ test.beforeEach(async ({ page }) => {
         }
         case "dashboard.snapshot": return JSON.parse(JSON.stringify(state));
         case "ini.open":
+          if(failIniReopenAfterCreate&&missingGameCreated){
+            failIniReopenAfterCreate=false;
+            throw new Error("UM-INI-ACCESS-DENIED");
+          }
           if(["missingGameIni","missingGameIniStore"].includes(
               new URLSearchParams(window.location.search).get("fixture")??"") &&
              m.file==="Game.ini"&&!missingGameCreated)
             throw new Error("UM-INI-GAME-MISSING");
-          return {token:iniToken,mapId:one,file:m.file||"Game.ini",
+          return {token:iniToken,mapId:wrongIniOpenMap?two:one,file:m.file||"Game.ini",
             content:"[ServerSettings]\\nExample=1\\n",encoding:"utf-8",
             sha256:"AABBCC",bytes:28,evidence:"STOPPED_LOCAL_INI_SNAPSHOT"};
         case "ini.createGamePreview":
@@ -2039,8 +2436,23 @@ test.beforeEach(async ({ page }) => {
           return {mapId:one,file:"Game.ini",created:true,bytes:38,
             originalStoreTouched:false,
             evidence:"FRESH_GAME_INI_DURABLE_CREATE_NEW_VERIFIED"};
-        case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
-        case "ini.save": return {saved:true,backupCreated:true,sha256:"FFEE11",evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
+        case "ini.preview": return {previewToken:iniToken,changed:true,oldLines:3,newLines:3,bytes:28,originalSha256:iniConcurrentRebased?"CCDD22":"AABBCC",nextSha256:"FFEE11",evidence:"HASHED_IN_MEMORY_PREVIEW"};
+        case "ini.rebasePreview": {
+          if(new URLSearchParams(window.location.search).get("fixture")!=="iniConcurrent")
+            throw new Error("UM-METHOD-DENIED");
+          iniConcurrentRebased=true;
+          return {
+            content:"[ServerSettings]\\nExample=2\\nForeign=remote\\n",
+            diskContent:"[ServerSettings]\\nExample=1\\nForeign=remote\\n",
+            freshSha256:"CCDD22",mergedLines:1,
+            evidence:"THREE_WAY_INI_REBASE_PREVIEW_NO_WRITE"
+          };
+        }
+        case "ini.save":
+          if(new URLSearchParams(window.location.search).get("fixture")==="iniConcurrent" &&
+             !iniConcurrentRebased)throw new Error("UM-INI-ETAG-MISMATCH");
+          return {saved:true,backupCreated:true,sha256:"FFEE11",
+            evidence:"ATOMIC_LOCAL_INI_SAVE_ETAG_VERIFIED"};
         case "ini.close": return {closed:true};
         case "plugins.jsonOpen":
           if(m.plugin!=="ExamplePlugin")throw new Error("UM-PLUGIN-JSON-INVALID-NAME");
@@ -2079,7 +2491,9 @@ test.beforeEach(async ({ page }) => {
         case "cluster.restoreLabStatus":
           if(m.jobId!==restoreLabJob||!restoreLabApproved)
             throw new Error("UM-ASARESTORE-JOB-UNKNOWN");
-          return {jobId:restoreLabJob,state:"completed",stage:"LAB_FILE_HASHES_VERIFIED",
+          return {jobId:mismatchedOfflineRestoreStatus?
+              "00000000-0000-4000-8000-000000001269":restoreLabJob,
+            state:"completed",stage:"LAB_FILE_HASHES_VERIFIED",
             labName:"Untamed-AsaRestore-Lab-synthetic",maps:10,files:12,
             changedUtc:"2026-11-07T00:00:00Z",
             gameplayRestoredVerified:false,storeWriterVerified:false,
@@ -2104,7 +2518,9 @@ test.beforeEach(async ({ page }) => {
         case "cluster.offlineStatus":
           if(m.jobId!==offlineArchiveJob || !offlineArchiveApproved)
             throw new Error("UM-CLUSTER-ARCHIVE-JOB-NOT-FOUND");
-          return {jobId:offlineArchiveJob,state:"completed",code:"SHA256_VERIFIED",
+          return {jobId:mismatchedOfflineArchiveStatus?
+              "00000000-0000-4000-8000-000000001269":offlineArchiveJob,
+            state:"completed",code:"SHA256_VERIFIED",
             archiveName:"Untamed-ASA-Offline-synthetic",verifiedMaps:10,transferFiles:3,
             configurationFiles:20,
             changedUtc:"2026-11-06T22:00:00Z",liveConsistencyCertified:false,
@@ -2260,20 +2676,38 @@ test.beforeEach(async ({ page }) => {
           changedUtc:lifecycleInterrupted?"2026-11-06T11:00:00Z":null,
           classification:lifecycleInterrupted?"unknownOutcome":"closed",
           blockingCode:storeLaunchRecoveryFixture&&lifecycleInterrupted?
-            "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE":null,
-          recoverySupported:storeLaunchRecoveryFixture&&lifecycleInterrupted&&m.mapId===two,
-          needsOperatorReview:lifecycleInterrupted,
+            "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE":
+            storeRestartOnlyFixture&&restartInterrupted?
+              "UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE":null,
+          restartJournalExists:storeLaunchRecoveryFixture,
+          restartId:storeLaunchRecoveryFixture?"00000000-0000-4000-8000-000000001627":null,
+          restartPhase:storeLaunchRecoveryFixture?
+            restartInterrupted?"NeedsOperator":"OperatorReviewed":null,
+          restartChangedUtc:storeLaunchRecoveryFixture?"2026-11-11T18:53:53Z":null,
+          restartOldPid:storeLaunchRecoveryFixture?123456:null,
+          restartNewPid:storeLaunchRecoveryFixture?0:null,
+          restartClassification:storeLaunchRecoveryFixture?
+            restartInterrupted?"unknownOutcome":"operatorReviewed":"closed",
+          recoverySupported:storeLaunchRecoveryFixture&&
+            (lifecycleInterrupted||storeRestartOnlyFixture&&restartInterrupted)&&m.mapId===two,
+          needsOperatorReview:lifecycleInterrupted||storeLaunchRecoveryFixture&&restartInterrupted,
           autoResumeAllowed:false,storeTouched:false,
           evidence:"DURABLE_INSTALLATION_OPERATION_JOURNAL_READ_ONLY"
         };
         case "servers.lifecycleRecoveryPreview":
-          if(!storeLaunchRecoveryFixture||!lifecycleInterrupted||m.mapId!==two)
-            throw new Error("UM-RECOVERY-LAUNCH-NEEDS-OPERATOR-ONLY");
+          if(!storeLaunchRecoveryFixture||
+             !(lifecycleInterrupted||storeRestartOnlyFixture&&restartInterrupted)||
+             m.mapId!==two)
+            throw new Error("UM-RECOVERY-LAUNCH-OR-RESTART-PENDING-ONLY");
           return {token:"00000000-0000-4000-8000-000000001626",
             mapId:two,mapName:"Aberration",
             operationId:"00000000-0000-4000-8000-000000001625",
-            kind:"Launch",phase:"NeedsOperator",pid:123456,
-            processStartedUtc:"2026-11-12T03:00:00Z",rconPort:37095,
+            kind:storeRestartOnlyFixture?"Restart":"Launch",
+            phase:"NeedsOperator",pid:123456,
+            processStartedUtc:"2026-11-12T03:00:00Z",rconPort:37045,
+            restartId:"00000000-0000-4000-8000-000000001627",
+            restartPhase:"NeedsOperator",restartOldPid:123456,
+            restartNewPid:0,pairedJournals:storeRestartOnlyFixture?1:2,
             expiresUtc:new Date(Date.now()+180000).toISOString(),
             exactWindowsProcessVerified:true,originalStoreSessionVerified:true,
             rconListenerOwnerVerified:true,priorCommandOutcomeUnknown:true,
@@ -2281,16 +2715,21 @@ test.beforeEach(async ({ page }) => {
             auditRequired:true,storeBytesModified:false,
             evidence:"ORIGINAL_STORE_RUNNING_LAUNCH_JOURNAL_RECOVERY_PREVIEW"};
         case "servers.lifecycleRecoveryApply":
-          if(!storeLaunchRecoveryFixture||!lifecycleInterrupted||m.mapId!==two||
+          if(!storeLaunchRecoveryFixture||
+             !(lifecycleInterrupted||storeRestartOnlyFixture&&restartInterrupted)||
+             m.mapId!==two||
             m.token!=="00000000-0000-4000-8000-000000001626"||
             m.confirm!==true||m.ackUnknownOutcome!==true||
             m.typedApproval!=="STORE-V1 NAPLÓ HELYREÁLLÍTÁS")
             throw new Error("UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED");
-          storeLaunchRecoveryCalls++;lifecycleInterrupted=false;
+          storeLaunchRecoveryCalls++;lifecycleInterrupted=false;restartInterrupted=false;
           Object.assign(state.local.maps[1],{storeLifecycleState:"running"});
           return {mapId:two,operationId:"00000000-0000-4000-8000-000000001625",
             state:"operatorReviewed",previousOutcomeStillUnknown:true,
-            originalJournalAudited:true,storeBytesModified:false,
+            originalJournalAudited:!storeRestartOnlyFixture,restartJournalAudited:true,
+            pairedJournalsReviewed:storeRestartOnlyFixture?1:2,
+            restartMarkedSuccessful:false,
+            oldRunningPid:123456,storeBytesModified:false,
             processStarted:false,processStopped:false,rconCommandSent:false,
             noAutomaticRetry:true,newOperationRequiresFreshApproval:true,
             evidence:"ORIGINAL_STORE_EXACT_RUNNING_OWNER_AUDITED_MANUAL_JOURNAL_REVIEW"};
@@ -2307,7 +2746,9 @@ test.beforeEach(async ({ page }) => {
           confirmedStopped:true,serverStarted:false,
           evidence:"FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
         };
-        case "servers.freshReadiness": return {
+        case "servers.freshReadiness":
+          freshReadinessCalls++;
+          return {
           mapId:m.mapId,mapName:"Astraeos",stage:"RconAuthenticated",
           observedUtc:"2026-11-06T11:00:00Z",loaderObserved:false,
           apiRequired:false,apiInitialized:false,joinAdvertised:false,
@@ -2318,21 +2759,49 @@ test.beforeEach(async ({ page }) => {
         };
         case "servers.freshStartApply":
           if(!m.confirm)throw new Error("approval required");
+          if(freshStartInvalidated)throw new Error("UM-FRESH-START-CHANGED");
           freshStarted=true;
           return {mapId:two,mapName:"Astraeos",pid:45678,
             createdUtc:"2026-11-06T10:01:00Z",startRequested:true,
             readyCertified:false,requiresRconReadiness:true,storeTouched:false,
             evidence:"LOCAL_REAL_ASA_PROCESS_STARTED_NOT_READY"};
         case "servers.restartCurrent": return {
+          inMemoryJobId:lifecycleRestartIssued?
+            "00000000-0000-4000-8000-000000009777":null,
+          inMemoryJobState:lifecycleRestartIssued?
+            (lifecycleRestartHeld?"running":"completed"):null,
+          inMemoryRunning:lifecycleRestartIssued&&lifecycleRestartHeld,
           exists:restartInterrupted,belongsToMap:true,
           phase:restartInterrupted?"NeedsOperator":null,
-          oldPid:restartInterrupted?44117:null,
+          oldPid:restartInterrupted?(storeLaunchRecoveryFixture?123456:44117):null,
           newPid:restartInterrupted?0:null,
           changedUtc:restartInterrupted?"2026-11-06T11:51:00Z":null,
           needsOperatorReview:restartInterrupted,
           autoResumeAllowed:false,
           evidence:"DURABLE_MACHINE_LOCAL_MANUAL_ASA_RESTART"
         };
+        case "servers.restartReviewPreview":
+          if(!restartInterrupted||m.mapId!==one)
+            throw new Error("UM-ASA-RESTART-REVIEW-NOT-ELIGIBLE");
+          return {token:"00000000-0000-4000-8000-000000009669",
+            mapId:one,mapName:"The Island",oldPid:44117,
+            oldStartedUtc:"2026-11-10T10:00:00Z",
+            journalId:"00000000-0000-4000-8000-000000009668",
+            phase:"NeedsOperator",exactOldProcessVerified:true,
+            rconOwnerVerified:true,previousOutcomeUnknown:true,
+            restartWillNotReplay:true,serverStarted:false,
+            serverStopped:false,rconSent:false,
+            evidence:"FRESH_ASA_OLD_RUNNING_PID_LOCAL_RESTART_REVIEW_PREVIEW"};
+        case "servers.restartReviewApply":
+          if(m.token!=="00000000-0000-4000-8000-000000009669"||
+             m.confirm!==true||!restartInterrupted)
+            throw new Error("UM-ASA-RESTART-REVIEW-APPROVAL");
+          freshRestartReviewCount++;restartInterrupted=false;
+          return {mapId:one,oldPid:44117,state:"operatorReviewed",
+            previousOutcomeUnknown:true,newRestartSucceeded:false,
+            serverStarted:false,serverStopped:false,rconSent:false,
+            originalJournalAudited:true,nextActionRequiresNewApproval:true,
+            evidence:"FRESH_ASA_OLD_RUNNING_PID_RESTART_JOURNAL_AUDITED"};
         case "servers.restartPreview": return {
           token:"00000000-0000-4000-8000-000000009666",
           mapId:m.mapId,mapName:"The Island",currentPid:44117,
@@ -2342,12 +2811,14 @@ test.beforeEach(async ({ page }) => {
         };
         case "servers.restartApply":
           if(!m.confirm)throw new Error("Approval required");
+          lifecycleRestartIssued=true;
+          lifecycleRestartApplies++;
           return {jobId:"00000000-0000-4000-8000-000000009777",
             started:true,autoRetry:false,killPerformed:false,
             storeTouched:false,evidence:"REAL_LOCAL_ASA_RESTART_JOB_QUEUED"};
         case "servers.restartStatus": return {
           jobId:"00000000-0000-4000-8000-000000009777",
-          state:"completed",stage:"New Windows process started; readiness unverified",
+          state:lifecycleRestartHeld?"running":"completed",stage:"New Windows process started; readiness unverified",
           oldPid:44117,newPid:44118,changedUtc:"2026-11-06T11:30:00Z",
           saveCompleteProven:false,readinessCertified:false,
           killPerformed:false,storeTouched:false,autoRetry:false
@@ -2381,12 +2852,21 @@ test.beforeEach(async ({ page }) => {
         };
         case "servers.gracefulStopApply":
           if(!m.confirm)throw new Error("Approval required");
+          lifecycleStopIssued=true;
+          lifecycleStopApplies++;
           return {jobId:"00000000-0000-4000-8000-000000009555",
             started:true,killPerformed:false,autoRestart:false,
             evidence:"REAL_LOCAL_GRACEFUL_STOP_JOB_QUEUED"};
+        case "servers.gracefulStopCurrent": return {
+          mapId:m.mapId,
+          jobId:lifecycleStopIssued?"00000000-0000-4000-8000-000000009555":null,
+          state:lifecycleStopIssued?(lifecycleStopHeld?"running":"completed"):null,
+          active:lifecycleStopIssued&&lifecycleStopHeld,
+          evidence:"LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
+        };
         case "servers.gracefulStopStatus": return {
           jobId:"00000000-0000-4000-8000-000000009555",
-          state:"completed",step:"Windows process verified stopped",
+          state:lifecycleStopHeld?"running":"completed",step:"Windows process verified stopped",
           changedUtc:"2026-11-06T11:00:00Z",confirmedStopped:true,
           saveCompleteProven:false,killPerformed:false,
           restartPerformed:false,storeTouched:false
@@ -2401,23 +2881,37 @@ test.beforeEach(async ({ page }) => {
               loaderPid:null,reason:entry.running?"Native ASA PID active":"Verified stopped"}],
             overlaps:[],steamCmdFound:true,steamCmdConfigured:true,
             availableBytes:53687091200,requiredBytes:10737418240,
-            journalBlocked:steamInterrupted,historicalBlocked:Boolean((entry as any).storeProtected),
-            safeInstallation:!entry.running&&!(entry as any).storeProtected,
-            canPreview:!entry.running&&!steamInterrupted&&!(entry as any).storeProtected,
+            journalBlocked:steamInterrupted,
+            historicalBlocked:Boolean((entry as any).storeProtected)&&!(entry as any).freshStoreEnrolled,
+            safeInstallation:!entry.running&&
+              (!(entry as any).storeProtected||(entry as any).freshStoreEnrolled),
+            canPreview:!entry.running&&!steamInterrupted&&
+              (!(entry as any).storeProtected||(entry as any).freshStoreEnrolled),
             noProcessAutoStop:true,remoteWrites:false,
             evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"};
         }
         case "steam.batchCurrent": return {
-          activeJob:null,journalExists:false,journalPhase:null,
-          journalNextIndex:null,journalTotal:null,needsOperatorReview:false,
-          automaticRetry:false,remoteWritesAllowed:false
+          activeJob:steamBatchStarted&&steamBatchHeld?{
+            jobId:"00000000-0000-4000-8000-000000008881",
+            state:"running",stage:"SteamCMD",position:1,total:1,
+            activeMapName:"Astraeos",completedInstallations:0,
+            changedUtc:"2026-11-10T09:30:00Z",
+            serverStopRequested:false,remoteHostTouched:false,
+            storeWriterTouched:false,automaticRetry:false
+          }:null,
+          journalExists:steamBatchStarted,
+          journalPhase:steamBatchHeld?"MapInProgress":steamBatchStarted?"Completed":null,
+          journalNextIndex:steamBatchStarted?1:null,
+          journalTotal:steamBatchStarted?1:null,
+          needsOperatorReview:false,automaticRetry:false,remoteWritesAllowed:false
         };
         case "steam.batchPreview": {
           if(!Array.isArray(m.mapIds)||m.mapIds.length<1||
              m.mapIds.length>25||new Set(m.mapIds).size!==m.mapIds.length)
             throw new Error("UM-STEAM-BATCH-INVALID-MAPS");
           const local=m.mapIds.map((id:string)=>
-            state.local.maps.find(x=>x.id===id&&!x.running&&!x.storeProtected));
+            state.local.maps.find(x=>x.id===id&&!x.running&&
+              !x.maintenance&&!x.observedReadOnlyImported));
           if(local.some((x:any)=>!x))throw new Error("UM-STEAM-BATCH-PROTECTED-OR-REMOTE");
           return {token:"00000000-0000-4000-8000-000000008880",
             requestedMaps:local.length,installations:local.length,
@@ -2440,9 +2934,14 @@ test.beforeEach(async ({ page }) => {
             evidence:"EXPLICIT_LOCAL_STOPPED_SERIAL_STEAM_BATCH_STARTED"};
         case "steam.batchStatus":
           if(!steamBatchStarted)throw new Error("UM-STEAM-BATCH-JOB-MISSING");
+          if(steamBatchStatusFailsOnce){
+            steamBatchStatusFailsOnce=false;
+            throw new Error("UM-TEST-TRANSIENT-BATCH-STATUS-LOSS");
+          }
           return {jobId:"00000000-0000-4000-8000-000000008881",
-            state:"completed",stage:"verified",position:1,total:1,
-            activeMapName:"Local Map 60",completedInstallations:1,
+            state:steamBatchHeld?"running":"completed",
+            stage:steamBatchHeld?"SteamCMD":"verified",position:1,total:1,
+            activeMapName:"Astraeos",completedInstallations:steamBatchHeld?0:1,
             changedUtc:"2026-11-10T09:30:00Z",
             serverStopRequested:false,remoteHostTouched:false,
             storeWriterTouched:false,automaticRetry:false};
@@ -2474,15 +2973,22 @@ test.beforeEach(async ({ page }) => {
         };
         case "steam.stoppedApply":
           if(!m.confirm)throw new Error("Approval required");
-          steamUpdateStarted=true;
+          steamUpdateStarted=true;singleSteamApplies++;
           return {jobId:"00000000-0000-4000-8000-000000007777",started:true,
             restartPerformed:false,remoteHostTouched:false,
             evidence:"REAL_LOCAL_STOPPED_STEAM_UPDATE_STARTED"};
         case "steam.stoppedCurrent": return new URLSearchParams(window.location.search)
           .get("fixture")==="steamReattach"?{
             exists:false,needsOperatorReview:false,autoResumeAllowed:false,
-            activeJob:{jobId:"00000000-0000-4000-8000-000000007777",
+            activeJob:{jobId:"00000000-0000-4000-8000-000000007777",mapId:two,
               state:"running",stage:"steamcmd",changedUtc:"2026-11-10T08:40:00Z",
+              oldBuild:"123456",newBuild:"",protectedFilesIntact:false,
+              restartPerformed:false,storeTouched:false}
+          }:steamUpdateStarted&&singleSteamHeld?{
+            exists:false,needsOperatorReview:false,autoResumeAllowed:false,
+            activeJob:{jobId:"00000000-0000-4000-8000-000000007777",mapId:two,
+              state:"running",stage:"steamcmd",
+              changedUtc:"2026-11-10T08:40:00Z",
               oldBuild:"123456",newBuild:"",protectedFilesIntact:false,
               restartPerformed:false,storeTouched:false}
           }:steamInterrupted?{
@@ -2494,17 +3000,21 @@ test.beforeEach(async ({ page }) => {
           evidence:"DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL"
         }:{exists:false,needsOperatorReview:false,autoResumeAllowed:false};
         case "steam.stoppedStatus":
+          if(singleSteamStatusFailsOnce){
+            singleSteamStatusFailsOnce=false;
+            throw new Error("UM-SYNTHETIC-SINGLE-STEAM-STATUS-LOST");
+          }
           if(new URLSearchParams(window.location.search).get("fixture")==="steamReattach")
-            return {jobId:"00000000-0000-4000-8000-000000007777",
+            return {jobId:"00000000-0000-4000-8000-000000007777",mapId:two,
               state:"completed",stage:"verified",changedUtc:"2026-11-10T08:42:00Z",
               oldBuild:"123456",newBuild:"123457",protectedFilesIntact:true,
               restartPerformed:false,storeTouched:false};
-          return {jobId:"00000000-0000-4000-8000-000000007777",
-            state:steamUpdateStarted?"completed":"queued",
-            stage:steamUpdateStarted?"verified":"preflight",
+          return {jobId:"00000000-0000-4000-8000-000000007777",mapId:two,
+            state:singleSteamHeld?"running":steamUpdateStarted?"completed":"queued",
+            stage:singleSteamHeld?"steamcmd":steamUpdateStarted?"verified":"preflight",
             changedUtc:"2026-11-06T10:00:00Z",
             oldBuild:"123456",newBuild:"123457",
-            protectedFilesIntact:steamUpdateStarted,
+            protectedFilesIntact:steamUpdateStarted&&!singleSteamHeld,
             restartPerformed:false,storeTouched:false};
         case "plugins.state": return {
           mapId:m.mapId,mapName:"The Island",historicalProtected:false,
@@ -2523,11 +3033,16 @@ test.beforeEach(async ({ page }) => {
           return {mapId:one,plugin:"ExamplePlugin",enabled:pluginEnabled,
             backupCreated:true,requiresRestart:true,runtimeLoadedVerified:false,
             evidence:"VERIFIED_LOCAL_PLUGIN_DIRECTORY_TOGGLE"};
-        case "plugins.inventory": return {mapId:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
+        case "plugins.openFolder":
+          return {mapId:wrongPluginOpenMap?two:m.mapId,opened:true,
+            runtimeLoadedVerified:false,filesChanged:false,
+            serverOperation:false,rconSent:false,
+            evidence:"LOCAL_ARKAPI_PLUGIN_FOLDER_OPENED_IN_EXPLORER"};
+        case "plugins.inventory": return {mapId:wrongPluginInventoryMap?two:m.mapId,mapName:"The Island",evidence:"READ_ONLY_LOCAL_FILE_INVENTORY",plugins:[{name:"ExamplePlugin",protectedData:false,binaries:[{name:"ExamplePlugin.dll",version:"1.0",bytes:1234}]}]};
         case "backups.summary": return {evidence:"FILE_INTEGRITY_ONLY_NOT_ASA_SAVE_COMPLETE",maps:[{mapId:one,mapName:"The Island",validPackages:1,invalidPackages:0,verifiedBytes:1250000,latestVerifiedUtc:"2026-11-05T12:00:00Z"}]};
         case "steam.installations": return {evidence:"READ_ONLY_STEAM_INSTALLATION_PREFLIGHT",installations:[{id:0,maps:["The Island","Astraeos"],executablePresent:true,installedSteamBuild:"123456",updateBlocked:true,reason:"Read-only test fixture: upgrade blocked"}]};
         case "servers.suggestPorts": return {game:7797,query:27035,rcon:37035,evidence:"PROFILE_ONLY_NO_NETWORK_PROBE"};
-        case "logs.read": return {mapId:m.mapId,mapName:"The Island",lastModifiedUtc:"2026-11-05T12:00:00Z",totalBytes:1900,truncated:false,evidence:"SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH",lines:[{number:1,level:"info",content:"Synthetic ASA startup line"},{number:2,level:"error",content:"Synthetic failure detected"}]};
+        case "logs.read": return {mapId:wrongLogTailMap?two:m.mapId,mapName:"The Island",lastModifiedUtc:"2026-11-05T12:00:00Z",totalBytes:1900,truncated:false,evidence:"SANITIZED_LOCAL_LOG_TAIL_NOT_SERVER_HEALTH",lines:[{number:1,level:"info",content:"Synthetic ASA startup line"},{number:2,level:"error",content:"Synthetic failure detected"}]};
         case "curseforge.categories": return {
           evidence:"OFFICIAL_ASA_CATEGORY_METADATA",
           categories:[{id:101,name:"Structures",isClass:false,parentCategoryId:0},{id:102,name:"Creatures",isClass:false,parentCategoryId:0}]
@@ -2579,7 +3094,7 @@ test.beforeEach(async ({ page }) => {
       chrome: { webview: {
         addEventListener: (_name: string, fn: Handler) => { handlers.push(fn); },
         postMessage: (msg: {id:string;method:string}) => {
-          queueMicrotask(() => {
+          const dispatch=()=>queueMicrotask(() => {
             try {
               const data = answers(msg);
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:true,data} }));
@@ -2589,11 +3104,15 @@ test.beforeEach(async ({ page }) => {
               const error=e instanceof Error&&
                 (e.message.startsWith("UM-FRESH-ROOT-OVERLAP|")||
                   e.message==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"||
+                  e.message==="UM-FRESH-START-CHANGED"||
                   e.message==="UM-UPDATE-CHECK-REQUIRED"||
                   e.message==="UM-UPDATE-CHECK-STALE"||
                   e.message==="UM-INI-GAME-MISSING"||
                   e.message==="UM-INI-CREATE-SHARED-STORE"||
                   e.message==="UM-INI-CONFIG-DIRECTORY-MISSING"||
+                  e.message==="UM-INI-ETAG-MISMATCH"||
+                  e.message==="UM-INI-MERGE-CONFLICT"||
+                  e.message.startsWith("UM-INITIAL-PORT-")||
                   e.message.startsWith("UM-ORIGINAL-LIVE-APPROVAL-")||
                   e.message==="UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL"||
                   e.message.startsWith("UM-RECOVERY-"))
@@ -2601,6 +3120,12 @@ test.beforeEach(async ({ page }) => {
               handlers.forEach(fn=>fn({ data: {id:msg.id,ok:false,error} }));
             }
           });
+          if(msg.method==="ini.open"&&holdIniOpen){
+            // Hold the native bridge reply (not the synchronous switch).
+            // A file change must discard its subsequent old-file response.
+            holdIniOpen=false;
+            releaseIniOpen=()=>{releaseIniOpen=null;dispatch();};
+          }else dispatch();
         }
       }}
     });
@@ -2729,10 +3254,16 @@ test("real native per-map SaveWorld and Restart schedule controls require opt-in
 test("dashboard shows authenticated per-map ASA players and zero without inventing peer counts",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
+  // The synthetic bridge is installed by addInitScript, while React mounts
+  // asynchronously. Wait for the real dashboard and refresh control before
+  // mutating fixture state; otherwise this test can race initial hydration.
+  const refresh=page.getByRole("button",{name:"Állapot frissítése"});
+  await expect(refresh).toBeVisible();
+  await expect(page.locator(".premium-server-row").first()).toBeVisible();
   await page.evaluate(()=>
     (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS__?:()=>void})
       .__UNTAMED_DASHBOARD_PLAYERS__?.());
-  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await refresh.click();
   const rows=page.locator(".premium-server-row");
   await expect(rows.filter({hasText:"The Island"}).locator(".premium-server-players")).toHaveText("2");
   await expect(rows.filter({hasText:"Astraeos"}).locator(".premium-server-players")).toHaveText("0");
@@ -2744,10 +3275,13 @@ test("dashboard shows authenticated per-map ASA players and zero without inventi
 test("dashboard marks incomplete local player data as a lower bound",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
+  const refresh=page.getByRole("button",{name:"Állapot frissítése"});
+  await expect(refresh).toBeVisible();
+  await expect(page.locator(".premium-server-row").first()).toBeVisible();
   await page.evaluate(()=>
     (window as typeof window & {__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?:()=>void})
       .__UNTAMED_DASHBOARD_PLAYERS_PARTIAL__?.());
-  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await refresh.click();
   const rows=page.locator(".premium-server-row");
   await expect(rows.filter({hasText:"The Island"}).locator(".premium-server-players")).toHaveText("2");
   await expect(rows.filter({hasText:"Astraeos"}).locator(".premium-server-players")).toHaveText("—");
@@ -2764,7 +3298,7 @@ test("original Store physical UNC probe is explicit and never grants transfer or
     "Az eredeti öt-öt GUID és mapnév tényleges Manager-regisztrációja");
   await expect(proof).toContainText("Hiányzik vagy eltér – ellenőrzés szükséges");
   await expect(proof).toContainText(
-    "Öt aktív Store-map az eredeti Kova-forrásfájlokban");
+    "Öt aktív Store-map az eredeti forrásfájlokban");
   await proof.getByRole("button",{
     name:"Helyi Store transferkönyvtár fizikai ellenőrzése"
   }).click();
@@ -2883,7 +3417,7 @@ test("multi-cluster membership filters 100+ maps, protects Store-v1 and applies 
   const membershipCheckboxes=page.locator(".cluster-registry-map-groups");
   const protectedMap=membershipCheckboxes.getByRole("checkbox",{name:/The Island/});
   await expect(protectedMap).toBeDisabled();
-  await expect(page.getByText("Kova Store-v1 védett")).toBeVisible();
+  await expect(page.getByText("eredeti Store-v1 védett")).toBeVisible();
 
   await page.getByRole("textbox",{name:"Cluster map keresése"}).fill("Local Map 4");
   const movedMap=membershipCheckboxes.getByRole("checkbox",{name:/Local Map 4/});
@@ -2898,7 +3432,7 @@ test("multi-cluster membership filters 100+ maps, protects Store-v1 and applies 
   await expect(membershipCheckboxes.getByRole("checkbox",{name:/Local Map 4/})).not.toBeChecked();
 });
 
-test("historical Kova new-map compatibility check is native, read-only and never enables writer or live travel",async({page})=>{
+test("historical korábbi kezelőalkalmazás new-map compatibility check is native, read-only and never enables writer or live travel",async({page})=>{
   await page.goto("/?fixture=large");
   await page.getByRole("navigation",{name:"Fő navigáció"})
     .getByRole("button",{name:"Cluster",exact:true}).click();
@@ -2980,10 +3514,13 @@ test("Cluster page owns character travel evidence without unlocking Store",async
   await expect(page.getByLabel("Fő navigáció").getByRole("button",{name:"Karakterutazás teszt"})).toHaveCount(0);
   await page.getByLabel("Fő navigáció").getByRole("button",{name:"Cluster",exact:true}).click();
   await expect(page.getByRole("heading",{name:"Karakterutazás tesztközpont"})).toBeVisible();
-  const mandatory=page.getByRole("region",{name:"Referenciával igazolt, kötelező működés"});
-  await expect(mandatory).toContainText("REFERENCIÁVAL IGAZOLT – NÁLUNK IS KÖTELEZŐEN MŰKÖDNIE KELL");
-  await expect(mandatory).toContainText("Saját éles Store-v1 igazolás: még nincs");
-  await expect(mandatory).toContainText("két map egy Windows gépen");
+  const mandatory=page.getByRole("region",{name:"ASA natív karakterutazás ellenőrzése"});
+  await expect(mandatory).toContainText("ASA NATÍV TRANSFER – KONFIGURÁCIÓMEGŐRZÉS");
+  await expect(mandatory).toContainText("Natív ASA indítási konfigurációellenőrzés beépítve");
+  await expect(mandatory).toContainText("Csak az éles HP → Ryzen → HP tesztkarakter-utazás függőben");
+  await expect(mandatory).toContainText("nem hoz létre külön");
+  await expect(page.getByText("A karakterutazás az ASA feladata.",{exact:false}))
+    .toBeVisible();
   const embedded=page.getByRole("region",{name:"Beágyazott Store-v1 ellenőrzése"});
   await embedded.getByRole("button",{name:"Offline .ark másolat megvizsgálása"}).click();
   await expect(embedded).toContainText("2 karakterindex-bejegyzés");
@@ -3011,7 +3548,7 @@ test("Cluster page owns character travel evidence without unlocking Store",async
   await expect(page.getByText("Az öt helyi map fájlleltára nyugalomban készült; ez nem karakterigazolás.")).toBeVisible();
   await expect(page.locator(".uk-travel-map-results>div")).toHaveCount(5);
   await expect(page.getByRole("textbox",{name:"Helyi mentéslenyomat JSON"})).not.toBeEmpty();
-  await expect(page.getByText(/nem oldja fel a védett mapok indítási zárolását/)).toBeVisible();
+  await expect(page.getByText(/A mentéslenyomatok nem adnak indítási jogot és nem végeznek restore-t/)).toBeVisible();
   await page.screenshot({path:"test-results/untamed-store-travel-workbench-1600.png",fullPage:false});
 });
 
@@ -3140,6 +3677,39 @@ test("interrupted N-host offline archive recovery requires consent and retains o
   await expect(panel).not.toContainText("Éles restore engedélyezve");
 });
 
+test("N-host offline cancellation affects only the exact running job and retains operator review",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_MULTIHOST_CANCEL_FIXTURE__?:()=>void
+  }).__UNTAMED_MULTIHOST_CANCEL_FIXTURE__?.());
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await panel.getByRole("button",{
+    name:"Félbeszakadt offline archívum helyreállítása"
+  }).click();
+  const approval=panel.getByRole("region",{
+    name:"Félbeszakadt multi-host archívum helyreállításának jóváhagyása"
+  });
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{
+    name:"Megőrzés és ellenőrzött újraépítés indítása"
+  }).click();
+  await expect(panel).toContainText("Offline backup állapot: running");
+  const cancel=panel.getByRole("button",{
+    name:"Megszakítás kérése – csak ez az offline feladat"
+  });
+  await expect(cancel).toBeEnabled();
+  await cancel.click();
+  await expect(panel).toContainText("Megszakítási kérés elküldve");
+  await expect(panel).toContainText("nincs automatikus rollback");
+  await expect(panel).toContainText("Offline backup állapot: needsOperator");
+  await expect(cancel).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_MULTIHOST_CANCEL_COUNT__?:()=>number
+  }).__UNTAMED_MULTIHOST_CANCEL_COUNT__?.())).toBe(1);
+});
+
 test("complete local host restore staging uses typed approval and displays native SHA256 receipt",async({page})=>{
   await page.goto("/");
   await page.getByRole("navigation",{name:"Fő navigáció"})
@@ -3214,6 +3784,59 @@ test("Mentésközpont calls real native preview/create and displays verified cha
   await page.screenshot({path:"test-results/uk-real-world-backup-1600.png",fullPage:false});
 });
 
+test("verified world backup receipt survives a failed read-only history refresh",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const picker=page.getByRole("combobox",{name:"Mentendő helyi map"});
+  await picker.selectOption(second);
+  await page.getByRole("button",{name:"Világmentés készítése"}).click();
+  await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toBeVisible();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?:()=>void
+  }).__UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?.());
+  await page.getByRole("button",{name:"Mentés indítása"}).click();
+  await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
+  await expect(page.getByText(/előzmények frissítése sikertelen/)).toBeVisible();
+  await picker.selectOption(first);
+  await picker.selectOption(second);
+  await expect(page.getByText("A világmentés elkészült és a fájlok SHA-256 ellenőrzése sikeres.")).toBeVisible();
+});
+
+test("verified restore receipt survives read-only history failure without replay",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const picker=page.getByRole("combobox",{name:"Mentendő helyi map"});
+  await picker.selectOption(second);
+  await page.getByRole("button",{name:"Világmentés készítése"}).click();
+  await page.getByRole("button",{name:"Mentés indítása"}).click();
+  await expect(page.getByRole("button",{name:"Visszaállítás"}).first()).toBeEnabled();
+  await page.getByRole("button",{name:"Visszaállítás"}).first().click();
+  const approval=page.getByRole("region",{name:"Védett világvisszaállítás"});
+  await approval.getByRole("textbox",{name:"Visszaállítás mapnév megerősítés"}).fill("Astraeos");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?:()=>void
+  }).__UNTAMED_FAIL_NEXT_BACKUP_HISTORY__?.());
+  await approval.getByRole("button",{name:"Védett visszaállítás"}).click();
+  await expect(page.getByText("A visszaállított fájlok SHA-256 szerint egyeznek; ASA játékbeli betöltés még nincs igazolva.")).toBeVisible();
+  await expect(page.getByText(/mentéslista frissítése sikertelen/)).toBeVisible();
+  await picker.selectOption(first);
+  await picker.selectOption(second);
+  await expect(page.getByText("A visszaállított fájlok SHA-256 szerint egyeznek; ASA játékbeli betöltés még nincs igazolva.")).toBeVisible();
+});
+
+test("old native backup previews without resource proof cannot be approved",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_MISSING_BACKUP_POLICY__?:()=>void
+  }).__UNTAMED_MISSING_BACKUP_POLICY__?.());
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  await page.getByRole("combobox",{name:"Mentendő helyi map"}).selectOption(second);
+  await page.getByRole("button",{name:"Világmentés készítése"}).click();
+  await expect(page.getByText(/natív Manager mentési előnézete nem tartalmaz ellenőrzött erőforráskorlátot/)).toBeVisible();
+  await expect(page.getByRole("region",{name:"Világmentés jóváhagyása"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Mentés indítása"})).toHaveCount(0);
+});
+
 test("backup approval and completed receipt never follow another selected map",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Mentések",exact:true}).click();
@@ -3260,13 +3883,16 @@ test("crash restore marker blocks new snapshot and restore actions in native bac
   await expect(page.getByRole("button",{name:"Visszaállítás"})).toBeDisabled();
 });
 
-test("dropped native WebView response expires its Promise and rejects without an automatic mutation retry",async({page})=>{
+test("dropped native WebView status response times out in the packaged UI without retrying the operation",async({page})=>{
   await page.clock.install();
   await page.goto("/");
-  await page.evaluate(async()=>{
+  // Exercise the SAME compiled bundle as the real WebView2 host. Importing
+  // /src/bridge.ts works only on Vite dev server and fails in production dist.
+  await expect(page.getByRole("navigation",{name:"Fő navigáció"})).toBeVisible();
+  await page.evaluate(()=>{
     const host=window as unknown as {
       chrome:{webview:{postMessage:(message:{id:string;method:string})=>void}};
-      __rpcFailure?:Promise<string>;__droppedNativeRequests?:number
+      __droppedNativeRequests?:number
     };
     const webview=host.chrome.webview;
     const original=webview.postMessage.bind(webview);
@@ -3274,25 +3900,23 @@ test("dropped native WebView response expires its Promise and rejects without an
     webview.postMessage=(message)=>{
       if(message.method==="updates.status"){
         host.__droppedNativeRequests=(host.__droppedNativeRequests??0)+1;
-        return; // Synthetic abandoned native RPC; no response ever arrives.
+        return; // Synthetic abandoned native status; no response arrives.
       }
       original(message);
     };
-    const bridge=await import("/src/bridge.ts");
-    host.__rpcFailure=bridge.managerBridge.updateStatus()
-      .then(()=>"unexpected-success")
-      .catch((error:Error)=>error.message);
   });
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Frissítések"}).click();
+  await expect(page.getByRole("heading",{name:"Frissítési központ"})).toBeVisible();
   await page.clock.fastForward(121_000);
-  const observed=await page.evaluate(async()=>{
-    const host=window as unknown as {
-      __rpcFailure:Promise<string>;__droppedNativeRequests:number
-    };
-    return {error:await host.__rpcFailure,dropped:host.__droppedNativeRequests};
-  });
-  expect(observed).toEqual({
-    error:"UM-NATIVE-TIMEOUT-OPERATION-STATUS-UNKNOWN",dropped:1
-  });
+  await expect(page.getByRole("alert")).toContainText(
+    "A natív verziólekérdezés időtúllépést ért el");
+  await expect(page.getByRole("alert")).toContainText(
+    "nincs automatikus újrapróbálás vagy telepítés");
+  const dropped=await page.evaluate(()=>(
+    window as typeof window & {__droppedNativeRequests?:number}
+  ).__droppedNativeRequests??-1);
+  expect(dropped).toBe(1);
 });
 
 test("Update Center verifies Obsidian-only installer and requires explicit two-stage native approval",async({page})=>{
@@ -3517,15 +4141,15 @@ test("P0 observed-only map detail never exposes lifecycle, RCON, or disk writer 
   })).toHaveCount(0);
   await expect(detail.getByRole("region",{name:"Futó helyi ASA-folyamatok"})).toBeVisible();
   const enrollment=detail.getByRole("button",{
-    name:"Kova Store-v1 mapok átvételi varázslója"
+    name:"eredeti Store-v1 mapok átvételi varázslója"
   });
   await expect(enrollment).toBeVisible();
   await enrollment.click();
   await expect(detail.getByRole("region",{
-    name:"Közvetlen Kova Store-v1 mapimport"
+    name:"Közvetlen eredeti Store-v1 mapimport"
   })).toBeVisible();
   await expect(detail.getByRole("button",{
-    name:"Öt eredeti Kova-map felismerése"
+    name:"Öt eredeti map felismerése"
   })).toBeEnabled();
   // A discovered WMI PID alone does NOT authorize write operations:
   // the real native five-map enrollment still requires its approval.
@@ -3539,7 +4163,7 @@ test("Server import actions render BEFORE the potentially long running-ASA proce
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   const observation=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const historical=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
+  const historical=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
   await expect(historical).toBeVisible();
   await expect(page.getByRole("button",{name:"Store-v1 import bezárása"})).toBeVisible();
   expect(await historical.evaluate(node=>{
@@ -3583,6 +4207,25 @@ test("TEMP restore native Windows select gives readable journal choices and roll
   await expect(listing.getByRole("button",{name:"Kiválasztott napló teljes ellenőrzése"})).toBeEnabled();
 });
 
+test("one click previews all eligible running non-Store ASA, excludes Store and commits once",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Futó helyi ASA-folyamatok"});
+  await panel.getByRole("button",{name:"Összes azonosított nem-Store ASA importálása"}).click();
+  const approval=panel.getByRole("region",{name:"Futó nem-Store ASA batch import jóváhagyása"});
+  await expect(approval).toContainText("1 map egyetlen helyi Manager-profil mentéssel");
+  await expect(approval).toContainText("1 Store/cluster folyamat");
+  await expect(approval).toContainText("PID 4443");
+  const action=approval.getByRole("button",{name:"Futó ASA mapok importálása"});
+  await expect(action).toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await action.click();
+  await expect(panel).toContainText("1 futó, nem-Store ASA-map");
+  await expect(panel).toContainText("Nincs RCON, Start/Stop vagy Store-írási jogosultság");
+  await expect(panel).toContainText("Managerhez regisztrálva · kizárólag megfigyelés");
+  await expect(panel.getByLabel("Futó ASA regisztrálása PID 4443")).toHaveCount(0);
+  await expect(panel).toContainText("Store/cluster folyamat:");
+});
 test("P0 running ASA import previews exact PID and explicitly registers read-only local profile",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
@@ -3685,15 +4328,16 @@ test("running Aberration Store-v1 stale Launch journal is reviewed once, never a
   await map.click();
   const locked=page.getByRole("region",{name:"Store-v1 beragadt indítás helyreállítása"});
   await expect(locked).toBeVisible();
+  await expect(locked).toContainText("Restart-v1 napló");
+  await expect(locked).toContainText("NeedsOperator");
+  await expect(locked).toContainText("régi PID 123456");
   await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeDisabled();
-  await locked.getByRole("button",{name:"Helyreállítás előellenőrzése"}).click();
-  const confirm=locked.getByRole("button",{name:"Auditált helyreállítás végrehajtása"});
-  await expect(confirm).toBeDisabled();
-  await locked.getByRole("checkbox").check();
-  await locked.getByRole("textbox",{name:"Store-v1 napló helyreállítási jóváhagyás"})
-    .fill("STORE-V1 NAPLÓ HELYREÁLLÍTÁS");
-  await expect(confirm).toBeEnabled();
-  await confirm.click();
+  // One deliberate click runs fresh native proof and one-shot journal
+  // review; no typed phrase, stale token reuse, old RCON or Restart replay.
+  const repair=locked.getByRole("button",{name:"Ellenőrzés és helyi naplórendezés"});
+  await expect(repair).toBeEnabled();
+  await expect(locked.getByRole("textbox")).toHaveCount(0);
+  await repair.click();
   await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeEnabled();
   await expect(locked).toHaveCount(0);
   const count=await page.evaluate(()=>(window as typeof window & {
@@ -3702,21 +4346,38 @@ test("running Aberration Store-v1 stale Launch journal is reviewed once, never a
   expect(count).toBe(1);
 });
 
-test("P0 original live Store method denial is identified as native dispatch/build mismatch, never Kova process proof failure",async({page})=>{
+test("old Store Restart-only NeedsOperator is explicitly recoverable without declaring a successful restart",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STORE_RESTART_ONLY__?:()=>void;
+  }).__UNTAMED_STORE_RESTART_ONLY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").filter({hasText:"Aberration"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 beragadt indítás helyreállítása"});
+  await expect(panel).toContainText("Restart-v1 / NeedsOperator");
+  await expect(panel).toContainText("UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE");
+  await expect(panel.getByRole("textbox")).toHaveCount(0);
+  await panel.getByRole("button",{name:"Ellenőrzés és helyi naplórendezés"}).click();
+  await expect(panel).toHaveCount(0);
+  await expect(page.locator(".uk-lifecycle-btn.uk-lifecycle-stop")).toBeEnabled();
+});
+
+test("P0 original live Store method denial is identified as native dispatch/build mismatch, never korábbi kezelőalkalmazás process proof failure",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(
     window as typeof window & {__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__?:()=>void}
   ).__UNTAMED_ORIGINAL_LIVE_DISPATCH_DENIED__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
   await panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   }).click();
   await expect(panel).toContainText("UM-METHOD-DENIED");
   await expect(panel).toContainText("natív WebView2-dispatchere elutasította");
-  await expect(panel).toContainText("NEM Kova ACTIVE/DONE");
+  await expect(panel).toContainText("NEM korábbi kezelőalkalmazás ACTIVE/DONE");
   await expect(panel.getByRole("region",{
     name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
   })).toHaveCount(0);
@@ -3729,8 +4390,8 @@ test("P0 live original five-map Store takeover is explicit, single-use and prese
   ).__UNTAMED_ORIGINAL_LIVE_FIVE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
   const live=panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   });
@@ -3762,7 +4423,7 @@ test("P0 live original five-map Store takeover is explicit, single-use and prese
   expect(fieldAppearance.opacity).toBe(1);
   expect(fieldAppearance.foreground).not.toBe(fieldAppearance.background);
   await expect(apply).toBeDisabled();
-  await expect(blockReason).toContainText("Hiányzik a Kova-felügyelet");
+  await expect(blockReason).toContainText("Hiányzik a korábbi felügyelet");
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeDisabled();
   await expect(blockReason).toContainText("Írd be a pontos");
@@ -3784,8 +4445,8 @@ test("P0 Store-v1 expired approval disables apply and demands new native preflig
   }).__UNTAMED_ORIGINAL_LIVE_EXPIRED_ONCE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
   await panel.getByRole("button",{name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"}).click();
   const proof=panel.getByRole("region",{
     name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
@@ -3813,8 +4474,8 @@ test("P0 Store-v1 lost native approval shows safe recheck, no automatic retry",a
   }).__UNTAMED_ORIGINAL_LIVE_TOKEN_LOST_ONCE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
   await panel.getByRole("button",{name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"}).click();
   const proof=panel.getByRole("region",{
     name:"Öt futó Store-v1 szerver átvételének jóváhagyása"
@@ -3837,8 +4498,8 @@ test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",
   ).__UNTAMED_ORIGINAL_LIVE_FIVE__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
   await panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   }).click();
@@ -3856,7 +4517,7 @@ test("P0 Store-v1 exact-text input stays visible and usable at compact 940x620",
   await input.fill("STORE-V1 FUTÓ ÁTVÉTEL");
   await expect(apply).toBeDisabled();
   await expect(proof.locator("#store-live-approval-reason")).toContainText(
-    "Hiányzik a Kova-felügyelet");
+    "Hiányzik a korábbi felügyelet");
   await proof.getByRole("checkbox").check();
   await expect(apply).toBeEnabled();
   // Do NOT click: this test asserts the exact two-factor gate only.
@@ -3869,8 +4530,8 @@ test("Store-v1 five-map preview can succeed but later Aberration Launch journal 
   }).__UNTAMED_ORIGINAL_LIVE_BLOCKED_APPLY__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
   await panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   }).click();
@@ -3890,7 +4551,10 @@ test("Store-v1 five-map preview can succeed but later Aberration Launch journal 
   });
   await expect(blockers).toContainText("Aberration");
   await expect(blockers).toContainText("Launch / NeedsOperator");
+  await expect(blockers).toContainText("Restart-v1 / NeedsOperator");
+  await expect(blockers).toContainText("2 rekord / 1 érintett map");
   await expect(blockers).toContainText("UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE");
+  await expect(blockers).toContainText("UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE");
   await expect(panel).toContainText("UM-ORIGINAL-LIVE-PENDING-LIFECYCLE-JOURNAL");
   await expect(proof).toHaveCount(0);
   const attempts=await page.evaluate(()=>(window as typeof window & {
@@ -3899,15 +4563,36 @@ test("Store-v1 five-map preview can succeed but later Aberration Launch journal 
   expect(attempts).toBe(1);
 });
 
-test("P0 original Kova five-map live takeover reattaches partially registered originals without duplicates",async({page})=>{
+test("original Store local journal inventory separates map-owned and unattributed logs without deletion",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{
+    name:"Helyi műveletinaplók leltára (csak olvasás)"
+  }).click();
+  const inventory=panel.getByRole("region",{
+    name:"Helyi műveletinaplók eredetének ellenőrzése"
+  });
+  await expect(inventory).toContainText("3 rekord");
+  await expect(inventory).toContainText("1 nem azonosított erőforrás");
+  await expect(inventory).toContainText("1 olyan");
+  await expect(inventory).toContainText("Eredeti forrás: Synthetic1");
+  await expect(inventory).toContainText("Aberration");
+  await expect(inventory).toContainText("Restart-v1");
+  await expect(inventory).toContainText("sérült rekord");
+  await expect(inventory).toContainText("Sem törlés");
+});
+
+test("P0 original korábbi kezelőalkalmazás five-map live takeover reattaches partially registered originals without duplicates",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(
     window as typeof window & {__UNTAMED_ORIGINAL_LIVE_MIXED__?:()=>void}
   ).__UNTAMED_ORIGINAL_LIVE_MIXED__?.());
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await panel.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const panel=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await panel.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
   const live=panel.getByRole("button",{
     name:"Öt már futó eredeti Store-v1 map teljes natív felismerése"
   });
@@ -3927,7 +4612,7 @@ test("P0 original Kova five-map live takeover reattaches partially registered or
   await expect(apply).toBeEnabled();
   await apply.click();
   await expect(approved).toHaveCount(0);
-  await expect(panel).toContainText("2 hiányzó Kova-map hozzáadva");
+  await expect(panel).toContainText("2 hiányzó eredeti map hozzáadva");
   await expect(panel).toContainText("3 már ismert futó szerver újracsatlakoztatva");
 });
 
@@ -4231,6 +4916,70 @@ test("native mod draft contract stages in memory and saves only on explicit clic
   await expect(page.locator(".premium-mod-save-toast")).toContainText("Mentve a helyi indítási konfigurációba");
 });
 
+test("log center rejects another map's returned local log tail",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_LOG_TAIL_MAP__?:()=>void
+  }).__UNTAMED_WRONG_LOG_TAIL_MAP__?.());
+  await page.getByLabel("Fő navigáció").getByRole("button",{name:"Naplók"}).click();
+  await expect(page.getByText(/válasz másik maphoz tartozik/)).toBeVisible();
+  await expect(page.getByText("Synthetic ASA startup line")).toHaveCount(0);
+});
+
+test("approved new Game.ini remains created when read-only editor reopen fails",async({page})=>{
+  await page.goto("/?fixture=missingGameIni");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  const create=page.getByRole("region",{name:"Hiányzó Game.ini létrehozása"});
+  await create.getByRole("button",{name:"Game.ini létrehozásának előnézete"}).click();
+  await create.getByRole("checkbox").check();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FAIL_INI_REOPEN_AFTER_CREATE__?:()=>void
+  }).__UNTAMED_FAIL_INI_REOPEN_AFTER_CREATE__?.());
+  await create.getByRole("button",{name:"Game.ini létrehozása és megnyitása"}).click();
+  await expect(page.getByText(/Game.ini ezen az igazoltan leállított mapon létrejött/)).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("újraolvasása sikertelen");
+  await expect(create.getByRole("button",{name:"Game.ini létrehozása és megnyitása"})).toHaveCount(0);
+});
+
+test("INI editor never opens another map's native INI snapshot",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INI_WRONG_OPEN_MAP__?:()=>void
+  }).__UNTAMED_INI_WRONG_OPEN_MAP__?.());
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  await expect(page.getByRole("alert")).toContainText("másik maphoz vagy fájlhoz");
+  await expect(page.getByRole("textbox",{
+    name:"Az eredeti fájl szerkeszthető tartalma"
+  })).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}))
+    .toHaveCount(0);
+});
+
+test("INI editor ignores a delayed old-file response after switching to a different INI",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INI_HOLD_OPEN__?:()=>void
+  }).__UNTAMED_INI_HOLD_OPEN__?.());
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  await page.getByRole("combobox",{name:"INI fájl"}).selectOption("GameUserSettings.ini");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INI_RELEASE_OPEN__?:()=>void
+  }).__UNTAMED_INI_RELEASE_OPEN__?.());
+  await expect(page.getByRole("textbox",{
+    name:"Az eredeti fájl szerkeszthető tartalma"
+  })).toHaveCount(0);
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  await expect(page.getByRole("textbox",{
+    name:"Az eredeti fájl szerkeszthető tartalma"
+  })).toBeVisible();
+  await expect(page.getByRole("heading",{
+    name:"INI szerkesztő",exact:true
+  })).toBeVisible();
+});
+
 test("INI editor requires explicit open, preview and save in test contract",async ({page})=>{
   await page.setViewportSize({width:1366,height:768});
   await page.goto("/");
@@ -4247,6 +4996,28 @@ test("INI editor requires explicit open, preview and save in test contract",asyn
   await page.screenshot({path:"test-results/ini-preview-1366.png",fullPage:true});
   await page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}).click();
   await expect(page.getByText(/visszaállítási \.bak másolattal/)).toBeVisible();
+});
+
+test("INI ETag conflict offers an explicit three-way rebase and requires fresh approval",async({page})=>{
+  await page.goto("/?fixture=iniConcurrent");
+  await page.getByRole("button",{name:"INI szerkesztő"}).click();
+  await page.getByRole("button",{name:"Fájl biztonságos megnyitása"}).click();
+  const edit=page.getByRole("textbox",{name:"Az eredeti fájl szerkeszthető tartalma"});
+  await edit.fill("[ServerSettings]\\nExample=2\\n");
+  await page.getByRole("button",{name:"Hash és változások előnézete"}).click();
+  await page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}).click();
+  await expect(page.getByRole("alert")).toContainText("háromutas egyeztetéssel");
+  await page.getByRole("button",{
+    name:"Háromutas INI-egyeztetés előnézete (nem ment)"
+  }).click();
+  await expect(edit).toHaveValue(/Foreign=remote/);
+  await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}))
+    .toBeDisabled();
+  await expect(page.getByRole("button",{name:"Hash és változások előnézete"}))
+    .toBeEnabled();
+  await page.getByRole("button",{name:"Hash és változások előnézete"}).click();
+  await expect(page.getByRole("button",{name:"Jóváhagyás és atomikus mentés"}))
+    .toBeEnabled();
 });
 
 test("missing Game.ini requires two explicit user actions before opening the native ETag editor",async({page})=>{
@@ -4278,7 +5049,7 @@ test("historical Store sibling prevents missing Game.ini creation with useful vi
   const region=page.getByRole("region",{name:"Hiányzó Game.ini létrehozása"});
   await expect(region).toBeVisible();
   await region.getByRole("button",{name:"Game.ini létrehozásának előnézete"}).click();
-  await expect(page.getByRole("alert")).toContainText("történeti Kova/Store-v1 map");
+  await expect(page.getByRole("alert")).toContainText("történeti korábbi kezelőalkalmazás/Store-v1 map");
   await expect(region.getByRole("checkbox")).toHaveCount(0);
   await expect(page.getByRole("textbox",{name:"Az eredeti fájl szerkeszthető tartalma"})).toHaveCount(0);
 });
@@ -4421,6 +5192,29 @@ test("historical Store Center-style missing RCON opens a functional attach form 
   await expect(page.getByRole("button",{name:"Meglévő RCON csatlakoztatása"})).toHaveCount(0);
 });
 
+test("Store-v1 RCON can be imported directly from an existing ASA INI without exposing credentials",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_PROTECT_TEST_MAP__?:()=>void
+  }).__UNTAMED_PROTECT_TEST_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 RCON csatlakoztatás"});
+  await panel.getByRole("button",{name:"Meglévő RCON átvétele az ASA INI-ből"}).click();
+  const approval=panel.getByRole("region",{name:"Store-v1 RCON jóváhagyása"});
+  await expect(approval).toContainText("TCP 37145");
+  await expect(panel).toContainText("A jelszó nem került a felületre");
+  await expect(panel.locator("#historical-rcon-pass")).toHaveValue("");
+  await expect(approval.getByRole("button",{name:"RCON átvétel véglegesítése"}))
+    .toBeDisabled();
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"RCON átvétel véglegesítése"}).click();
+  await expect(panel).toContainText("RCON-port: 37145");
+  await expect(panel).toContainText("ASA és a Store-fájlok nem módosultak");
+  await expect(panel).not.toContainText("HistoricalRconPass!2026");
+});
+
 test("historical Store RCON attaches only existing INI with native approval and without any Store write",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
@@ -4504,6 +5298,8 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await preflight.click();
   const approval=historic.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
   await expect(approval).toBeVisible();
+  await expect(approval).toContainText("a másik host régi ACTIVE/DONE jelölője nélkül");
+  await expect(approval).not.toContainText("Mindkét eredeti Store peer ACTIVE/DONE állapota igazolt");
   const spawn=approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"});
   await expect(spawn).toBeDisabled();
   await approval.locator('input[id="historical-start-phrase"]').fill("START");
@@ -4512,11 +5308,37 @@ test("original two-host ACTIVE Store-v1 ASA Start is real native approved operat
   await expect(spawn).toBeEnabled();
   await spawn.click();
   await expect(historic.getByText(/valódi Windows ASA PID: 42101/)).toBeVisible();
+  await expect(historic.getByText(/Indítás utáni Store-v1 ASA\/RCON ellenőrzés/)).toBeVisible();
+  await expect(historic.getByText(/RCON-vezérlése elérhető és hitelesítve/))
+    .toBeVisible({timeout:15000});
+  await expect(historic.getByText(/Indítás utáni Store-v1 ASA\/RCON ellenőrzés/)).toHaveCount(0);
   await expect(historic.getByText(/Nincs automatikus Start\/Restart/)).toBeVisible();
   await expect(spawn).toHaveCount(0);
 });
 
-test("new empty Store-map uses existing cluster membership, one-shot approval and distinct non-Kova UI",async({page})=>{
+test("Store-v1 Start native success is not reported as a failed Start after read-only status failure",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_API_MODE_READY__?:()=>void
+  }).__UNTAMED_ORIGINAL_API_MODE_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Történeti Store-v1 ASA indítás"});
+  const check=panel.getByRole("button",{name:"Eredeti Store-v1 indítás előellenőrzése"});
+  await expect(check).toBeEnabled();
+  await check.click();
+  const approval=panel.getByRole("region",{name:"Eredeti Store-v1 ASA indítás jóváhagyása"});
+  await approval.locator('input[id="historical-start-phrase"]').fill("STORE-V1 ACTIVE START");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?:()=>void
+  }).__UNTAMED_HISTORICAL_START_STATUS_REFRESH_FAIL__?.());
+  await approval.getByRole("button",{name:"Eredeti Store-v1 ASA indítása"}).click();
+  await expect(panel).toContainText("valódi Windows ASA PID: 42101");
+  await expect(panel).toContainText("ASA indítási visszaigazolása megvan");
+  await expect(panel).not.toContainText("Az indítás eredménye nem igazolható");
+});
+
+test("new empty Store-map uses existing cluster membership, one-shot approval and distinct non-korábbi kezelőalkalmazás UI",async({page})=>{
   await page.goto("/");
   await page.getByRole("navigation",{name:"Fő navigáció"})
     .getByRole("button",{name:"Szerverek",exact:true}).click();
@@ -4537,9 +5359,37 @@ test("new empty Store-map uses existing cluster membership, one-shot approval an
   await expect(page.getByRole("region",{name:"Új üres Store-map"})).toContainText("játékbeli utazás még nem igazolt");
 });
 
+test("enrolled empty Store map exposes manual stopped-only SteamCMD diagnostics with explicit approval",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_STORE_API_MODE_READY__?:()=>void;
+  }).__UNTAMED_FRESH_STORE_API_MODE_READY__?.());
+  // Refresh the React-owned snapshot after changing the injected native
+  // fixture; changing mock state alone does not publish a dashboard update.
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local")
+    .filter({hasText:"Astraeos"}).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await expect(panel).toBeVisible();
+  await expect(page.getByText(/Új Store-map: csak az egyedül birtokolt/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeEnabled();
+  await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Valódi frissítés indítása"})).toBeDisabled();
+  await expect(panel).not.toContainText("automatikus újraindítás");
+});
+
 test("new Store API Loader mode needs separate approval and permits direct opt-out without start",async({page})=>{
   await page.goto("/");
-  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  // The main dashboard may virtualize map cards. Select the verified LOCAL
+  // roster row on the Servers page, like the adjacent Store enrollment test.
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local")
+    .filter({hasText:"Astraeos"}).click();
   const enrollment=page.getByRole("region",{name:"Új üres Store-map"});
   await enrollment.getByRole("button",{name:"Üres Store-map előellenőrzése"}).click();
   await enrollment.getByRole("checkbox",{name:/Jóváhagyom az üres map/}).check();
@@ -4646,6 +5496,108 @@ test("original Store-v1 admin RCON requires exact one-time native approval and e
     .toBeVisible();
 });
 
+test("Store admin RCON rejects a preview bound to another map without offering Apply",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_BAD_STORE_ADMIN_MAP__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_BAD_STORE_ADMIN_MAP__?:()=>void;
+  }).__UNTAMED_BAD_STORE_ADMIN_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 admin RCON"});
+  await panel.getByLabel("Küldendő üzenet").fill("This must not be sent");
+  await panel.getByRole("button",{name:"Eredeti adminparancs ellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"Store-v1 adminparancs végső jóváhagyása"})).toHaveCount(0);
+  await expect(panel.getByText(/map admin RCON előellenőrzése/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Adminparancs egyszeri elküldése"})).toHaveCount(0);
+});
+
+test("Store read-only RCON rejects a different map's response instead of showing players or chat",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti Store-v1 RCON konzol"});
+  await expect(panel.getByRole("button",{name:"Játékoslista lekérdezése"})).toBeEnabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_BAD_STORE_RCON_MAP__?:()=>void
+  }).__UNTAMED_BAD_STORE_RCON_MAP__?.());
+  await panel.getByRole("button",{name:"Játékoslista lekérdezése"}).click();
+  await expect(panel.getByRole("region",{name:"Eredeti Store-v1 RCON válasz"})).toHaveCount(0);
+  await expect(panel).toContainText("válasz mapazonossága");
+  await expect(panel.getByRole("button",{name:"Játékoslista lekérdezése"})).toBeDisabled();
+});
+
+test("Store-v1 SaveWorld refuses a native preview bound to another map",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_SAVE_WRONG_PREVIEW_MAP__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_WRONG_PREVIEW_MAP__?:()=>void;
+  }).__UNTAMED_SAVE_WRONG_PREVIEW_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"})).toHaveCount(0);
+  await expect(panel).toContainText("kiválasztott Store-v1 map PID/RCON-ja");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+});
+
+test("Store-v1 SaveWorld rejects another job's completed status without declaring SaveComplete",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_SAVE_WRONG_STATUS_JOB__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_WRONG_STATUS_JOB__?:()=>void;
+  }).__UNTAMED_SAVE_WRONG_STATUS_JOB__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await panel.getByRole("button",{name:"Mentés előellenőrzése"}).click();
+  const preview=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
+  await preview.getByLabel("Store-v1 mentés jóváhagyó szöveg").fill("STORE-V1 SAVEWORLD");
+  await preview.getByRole("button",{name:"SaveWorld végrehajtása"}).click();
+  await expect(panel).toContainText("státusza vagy feladatazonossága nem igazolható");
+  await expect(panel).not.toContainText("Helyi SaveComplete napló tartósan igazolt");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(1);
+});
+
+test("Store-v1 SaveWorld rejects another map's durable evidence without sending RCON",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_RCON_TEST_READY__?:()=>void;
+    __UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?:()=>void;
+  }).__UNTAMED_ORIGINAL_RCON_TEST_READY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?:()=>void;
+  }).__UNTAMED_SAVE_WRONG_EVIDENCE_MAP__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Astraeos részletei"}).click();
+  const panel=page.getByRole("region",{name:"Store-v1 SaveWorld leállítás nélkül"});
+  await expect(panel.getByTestId("store-durable-save-evidence"))
+    .toContainText("Tartós napló nem ellenőrizhető");
+  await expect(panel.getByRole("button",{name:"Mentés előellenőrzése"})).toBeDisabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_ORIGINAL_SAVE_DISPATCHES__?:()=>number
+  }).__UNTAMED_ORIGINAL_SAVE_DISPATCHES__?.())).toBe(0);
+});
+
 test("original Store-v1 SaveWorld-only runs the real native map action without stopping ASA",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
@@ -4661,6 +5613,7 @@ test("original Store-v1 SaveWorld-only runs the real native map action without s
   const approve=panel.getByRole("region",{name:"Store-v1 SaveWorld jóváhagyása"});
   await expect(approve).toContainText("PID 42101");
   await expect(approve).toContainText("RCON 37145");
+  await expect(approve).toContainText("nem szükséges a távoli korábbi kezelőalkalmazás peer-jelölő");
   const save=approve.getByRole("button",{name:"SaveWorld végrehajtása"});
   await expect(save).toBeDisabled();
   const savePhrase=approve.getByLabel("Store-v1 mentés jóváhagyó szöveg");
@@ -4935,6 +5888,42 @@ test("real admin RCON UI requires two-stage approval and exact typed phrase for 
   await page.screenshot({path:"test-results/untamed-admin-rcon-confirm-1600.png",fullPage:true});
 });
 
+test("fresh ASA RCON does not offer approval for another map's admin command",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ENABLE__?:()=>void
+  }).__UNTAMED_RCON_ENABLE__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_WRONG_PREVIEW_MAP__?:()=>void
+  }).__UNTAMED_RCON_WRONG_PREVIEW_MAP__?.());
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const panel=page.getByRole("region",{name:"Helyi admin RCON parancsok"});
+  await page.getByRole("textbox",{name:"Admin RCON üzenet vagy parancs"})
+    .fill("Isolated map-bound fixture");
+  await page.getByRole("button",{name:"Éles RCON-parancs ellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"Adminparancs végső jóváhagyása"})).toHaveCount(0);
+  await expect(page.getByText(/adminparancs előellenőrzése vagy mapazonossága/)).toBeVisible();
+});
+
+test("fresh ASA RCON rejects another map's game-log response",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_ENABLE__?:()=>void
+  }).__UNTAMED_RCON_ENABLE__?.());
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"RCON / Konzol"}).click();
+  const console=page.locator(".uk-rcon-console");
+  await console.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RCON_WRONG_LOG_MAP__?:()=>void
+  }).__UNTAMED_RCON_WRONG_LOG_MAP__?.());
+  await page.getByRole("button",{name:"ASA játéknapló (GetGameLog)"}).click();
+  await expect(page.getByRole("log",{name:"RCON ListPlayers válasz"}))
+    .not.toContainText("Synthetic ASA GameLog entry");
+  await expect(page.getByText(/RCON-válasz mapazonossága/)).toBeVisible();
+});
+
 test("real local RCON game and chat log buttons are read-only and show separate responses",async({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
@@ -5029,7 +6018,44 @@ test("map header always shows four real lifecycle actions and Kill requires nati
   await expect(bar).toContainText("bizonyított helyi ASA PID megszűnt");
   await expect(bar.getByRole("button",{name:"Indítás",exact:true})).toBeEnabled();
 });
-test("original Kova Store maps retain four buttons but disable destructive Kill",async({page})=>{
+test("ASA Stop job remains linked to the correct map across navigation without replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_LOCAL_STOP__?:()=>void
+  }).__UNTAMED_HOLD_LOCAL_STOP__?.());
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  await bar.getByRole("button",{name:"Leállítás",exact:true}).click();
+  const approval=bar.getByRole("region",{name:"Leállítás jóváhagyása"});
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"Művelet végrehajtása"}).click();
+  await expect(bar).toContainText("folyamatban");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const resumed=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  await expect(resumed).toContainText("folyamatban");
+  await expect(resumed.getByRole("button",{name:"Leállítás",exact:true})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_LOCAL_STOP__?:()=>void
+  }).__UNTAMED_RELEASE_LOCAL_STOP__?.());
+  await expect(resumed).toContainText("művelet befejeződött",{timeout:15000});
+});
+
+test("ASA Kill approval cannot carry over to another map",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  const bar=page.getByRole("region",{name:"Helyi map életciklus vezérlése"});
+  await bar.getByRole("button",{name:"Kill",exact:true}).click();
+  await expect(bar.getByRole("region",{name:"Kill jóváhagyása"})).toBeVisible();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await expect(page.getByRole("region",{name:"Kill jóváhagyása"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Kill",exact:true})).toBeEnabled();
+});
+test("original korábbi kezelőalkalmazás Store maps retain four buttons but disable destructive Kill",async({page})=>{
   await page.addInitScript(()=>{(window as any).__UNTAMED_PROTECT_TEST_MAP__?.();});
   await page.goto("/");
   await page.getByRole("button",{name:"Astraeos részletei"}).click();
@@ -5050,6 +6076,40 @@ test("SteamCMD install shows exact overlapping map and offers existing ASA impor
   await page.getByRole("button",{name:"Már telepített ASA-könyvtár importálása"}).click();
   await expect(page.getByText(/Meglévő ASA/).first()).toBeVisible();
 });
+test("manual single-map SteamCMD job reattaches through status loss and map page navigation with no second update",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_SINGLE_STEAM__?:()=>void
+  }).__UNTAMED_HOLD_SINGLE_STEAM__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  const consent=panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"});
+  await consent.getByRole("checkbox").check();
+  await consent.getByRole("button",{name:"Valódi frissítés indítása"}).click();
+  await expect(panel).toContainText("Frissítés: running");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SINGLE_STEAM_STATUS_FAIL__?:()=>void
+  }).__UNTAMED_SINGLE_STEAM_STATUS_FAIL__?.());
+  await expect(panel).toContainText("állapota átmenetileg nem ellenőrizhető",{timeout:15000});
+  await expect(panel.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const resumed=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await expect(resumed).toContainText("Frissítés: running");
+  await expect(resumed.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_SINGLE_STEAM__?:()=>void
+  }).__UNTAMED_RELEASE_SINGLE_STEAM__?.());
+  await expect(resumed).toContainText("Frissítés: completed",{timeout:15000});
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number
+  }).__UNTAMED_SINGLE_STEAM_APPLIES__?.())).toBe(1);
+});
+
 test("stopped SteamCMD update displays exact local process and reserve evidence",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
@@ -5062,7 +6122,7 @@ test("stopped SteamCMD update displays exact local process and reserve evidence"
   await expect(diagnostics).toContainText("Szabad tárhely: 50 GiB");
   await expect(diagnostics).toContainText("SteamCMD: Telepítve");
   await expect(diagnostics).toContainText(
-    "Közös telepítés tulajdonjoga: ellenőrzött, kizárólag leállított nem Store mapok");
+    "Közös telepítés tulajdonjoga: ellenőrzött, a helyi, leállított telepítés mapjai");
 });
 
 test("cluster bulk SteamCMD queues only explicitly approved stopped local map beyond page 1",async({page})=>{
@@ -5127,6 +6187,11 @@ test("SteamCMD new ASA: choose map and Windows folder, one click starts download
     .toBeVisible({timeout:10000});
   await expect(page.getByText(/letöltve és hozzáadva a Managerhez/))
     .toBeVisible({timeout:10000});
+  await expect(page.getByRole("region",{name:"Telepítés utáni ASA konfiguráció"}))
+    .toBeVisible();
+  await expect(page.getByRole("button",{
+    name:"Mapadatlap megnyitása – további konfiguráció"
+  })).toBeVisible();
   await expect(page.getByText("Valguero").first()).toBeVisible();
   await expect(page.getByRole("textbox",{name:"SteamCMD EXE"})).toHaveCount(0);
   await page.screenshot({path:"test-results/steam-fresh-install-1600.png",fullPage:true});
@@ -5168,6 +6233,25 @@ test("Servers page offers immediate real ASA download separately from importing 
     .toBeVisible({timeout:12000});
 });
 
+test("unfinished custom-map SteamCMD wizard keeps unapproved form choices after navigation",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("__custom__");
+  await page.getByRole("textbox",{name:"Egyedi ASA map neve"}).fill("Atlantis Demo");
+  await page.getByRole("textbox",{name:"Egyedi ASA level azonosító"}).fill("Atlantis_WP");
+  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Drafts\\Atlantis");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await expect(page.getByRole("combobox",{name:"Új ASA map"})).toHaveValue("__custom__");
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA map neve"}))
+    .toHaveValue("Atlantis Demo");
+  await expect(page.getByRole("textbox",{name:"Egyedi ASA level azonosító"}))
+    .toHaveValue("Atlantis_WP");
+  await expect(page.getByRole("textbox",{name:"Új ASA célmappa"}))
+    .toHaveValue("D:\\ASA-Drafts\\Atlantis");
+  await expect(page.getByText("SteamCMD folyamatban")).toHaveCount(0);
+});
+
 test("SteamCMD simple path entry starts installation without advanced options or extra confirmation",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Új map",exact:true}).click();
@@ -5177,6 +6261,58 @@ test("SteamCMD simple path entry starts installation without advanced options or
   await expect(page.getByText(/letöltve és hozzáadva a Managerhez/))
     .toBeVisible({timeout:12000});
   await expect(page.getByRole("checkbox",{name:/Korábban megszakadt telepítés/})).toHaveCount(0);
+});
+
+test("registered SteamCMD wizard reopens at native configured step without replaying setup",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_CONFIGURED_RESUME__?:()=>void
+  }).__UNTAMED_FRESH_CONFIGURED_RESUME__?.());
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  const next=page.getByRole("region",{name:"Telepítés utáni ASA konfiguráció"});
+  await expect(next).toBeVisible();
+  await expect(next).toContainText("Az első indítási profil mentve.");
+  await expect(next.getByRole("button",{
+    name:"Mapadatlap megnyitása – további konfiguráció"
+  })).toBeVisible();
+  await expect(next.getByRole("button",{
+    name:"Jóváhagyás és első konfiguráció mentése"
+  })).toHaveCount(0);
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await expect(page.getByRole("region",{
+    name:"Telepítés utáni ASA konfiguráció"
+  })).toContainText("Az első indítási profil mentve.");
+});
+
+test("completed ASA files recover after Manager restart without downloading again",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Új map",exact:true}).click();
+  await page.getByRole("combobox",{name:"Új ASA map"}).selectOption("Valguero");
+  await page.getByRole("textbox",{name:"Új ASA célmappa"}).fill("D:\\ASA-Verified");
+  await page.getByRole("button",{
+    name:/Befejezett SteamCMD-telepítés visszavétele/
+  }).click();
+  const approval=page.getByRole("region",{
+    name:"Befejezett SteamCMD telepítés jóváhagyása"
+  });
+  await expect(approval).toContainText("Valguero");
+  const register=approval.getByRole("button",{
+    name:"Ellenőrzött ASA-fájlok regisztrálása az eredeti GUID-dal"
+  });
+  await expect(register).toBeDisabled();
+  await approval.getByRole("textbox",{
+    name:"Befejezett telepítés jóváhagyó szöveg"
+  }).fill("ASA TELEPÍTÉS ÁTVÉTEL");
+  await expect(register).toBeEnabled();
+  await register.click();
+  await expect(page.getByRole("region",{
+    name:"Telepítés utáni ASA konfiguráció"
+  })).toBeVisible();
+  await expect(page.getByText("Első mapbeállítások")).toBeVisible();
+  await expect(page.getByText(/eredeti mapazonosítóval regisztrálva, letöltés és szerverindítás nélkül/))
+    .toBeVisible();
+  await expect(page.getByText("A valódi ASA-letöltés elindult.")).toHaveCount(0);
 });
 
 test("Newly imported local map first setup saves session and UDP ports only after preview and confirmation",async ({page})=>{
@@ -5266,6 +6402,29 @@ test("first setup follows one RCON bootstrap route and returns to native Start w
   await expect(page.getByRole("button",{name:"Első RCON beállítása"})).toHaveCount(0);
 });
 
+test("existing ASA RCON password can be verified unchanged without the new-password minimum",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await page.getByRole("button",{name:"Beállítások ellenőrzése"}).click();
+  await page.getByText(/Jóváhagyom a regisztrált helyi map Manager-profiljának mentését/).click();
+  await page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"}).click();
+  await page.getByRole("button",{name:"Első RCON beállítása"}).click();
+  await page.getByLabel(/Új, még nem létező GameUserSettings.ini létrehozása/).uncheck();
+  await page.getByRole("textbox",{name:"RCON beállítás jelszó"}).fill("Old7!xx");
+  await expect(page.getByRole("button",{name:"Beállítás ellenőrzése"})).toBeEnabled();
+  await page.getByRole("button",{name:"Beállítás ellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"RCON beállítás jóváhagyás"}))
+    .toContainText("A meglévő INI változatlan marad");
+  // No Apply: the Windows bridge still requires an exact pre-existing
+  // GameUserSettings.ini RCON port and password match.
+});
+
 test("RCON native commit receipt survives a failed subsequent status refresh without reapplying INI",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
@@ -5331,15 +6490,15 @@ test("verified historical archive and original local four Store files show byte 
   await expect(panel.getByText("BÁJT-PONTOSAN EGYEZIK")).toHaveCount(0);
 });
 
-test("Store-v1 direct original local Kova map registration is operator-approved and preserves identity",async ({page})=>{
+test("Store-v1 direct original local korábbi kezelőalkalmazás map registration is operator-approved and preserves identity",async ({page})=>{
   await page.setViewportSize({width:1600,height:900});
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const section=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await section.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
-  await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"})).toBeVisible();
-  await section.getByRole("combobox",{name:"Közvetlen Kova-map"})
+  const section=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await section.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
+  await expect(section.getByRole("combobox",{name:"Közvetlen eredeti map"})).toBeVisible();
+  await section.getByRole("combobox",{name:"Közvetlen eredeti map"})
     .selectOption("00000000-0000-4000-8000-000000009001");
   await expect(section.getByRole("spinbutton",{name:"Közvetlen Game port"}))
     .toHaveValue("7777");
@@ -5354,7 +6513,7 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   await section.getByRole("button",{
     name:"Eredeti map regisztrációjának előellenőrzése"
   }).click();
-  const confirm=section.getByRole("region",{name:"Közvetlen Kova-import jóváhagyása"});
+  const confirm=section.getByRole("region",{name:"Közvetlen eredeti import jóváhagyása"});
   await expect(confirm).toContainText("Megmarad");
   await expect(confirm).toContainText("sorrend megőrizve");
   await expect(confirm).toContainText("Változatlanok");
@@ -5362,15 +6521,122 @@ test("Store-v1 direct original local Kova map registration is operator-approved 
   await confirm.getByRole("checkbox").check();
   await confirm.getByRole("button",{name:"Eredeti map hozzáadása"}).click();
   await expect(section).toContainText("The Island felvéve az eredeti GUID-dal");
-  await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"}))
+  await expect(section.getByRole("combobox",{name:"Közvetlen eredeti map"}))
     .toHaveValue("");
 });
 
-test("original Kova Cluster registry adoption requires exact typed approval and never writes Store data",async({page})=>{
+test("pinned Obsidian Store source and approved offline runtime changes use only explicit native approvals",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const panel=page.getByRole("region",{name:"Eredeti Kova Cluster-regiszter átvétele"});
+  const pin=page.getByRole("region",{name:"Eredeti Store-v1 konfiguráció végleges átvétele"});
+  await pin.getByRole("button",{name:"Meglévő mapok forrásátvételének ellenőrzése"}).click();
+  const approval=pin.getByRole("region",{name:"Obsidian saját forrás átvételének jóváhagyása"});
+  await expect(approval).toContainText("1 korábban regisztrált map");
+  const commit=approval.getByRole("button",{name:"Forrás átvételének jóváhagyása"});
+  await expect(commit).toBeDisabled();
+  await approval.getByRole("textbox",{name:/Jóváhagyó szöveg/}).fill("OBSIDIAN FORRÁS");
+  await expect(commit).toBeDisabled();
+  await approval.getByRole("textbox",{name:/Jóváhagyó szöveg/})
+    .fill("OBSIDIAN FORRÁS ÁTVÉTEL");
+  await commit.click();
+  await expect(pin.getByRole("status")).toContainText("Obsidian saját profiljában");
+  const runtime=page.getByRole("region",{name:"Obsidian Store-v1 port és cluster módosítása"});
+  await runtime.getByRole("button",{name:"Eredeti és átvett helyi mapok listázása"}).click();
+  await runtime.getByRole("combobox",{name:"Átvett helyi map"})
+    .selectOption("00000000-0000-4000-8000-000000009001");
+  await runtime.getByRole("button",{name:"Jelenlegi Obsidian-beállítások betöltése"}).click();
+  await expect(runtime.getByRole("spinbutton",{name:"Game UDP-port"})).toHaveValue("7777");
+  await runtime.getByRole("textbox",{name:"Cluster ID"}).fill("ObsidianCluster");
+  await runtime.getByRole("button",{name:"Beállításmódosítás előellenőrzése"}).click();
+  const runtimeApproval=runtime.getByRole("region",{
+    name:"Átvett map konfigurációjának jóváhagyása"
+  });
+  await expect(runtimeApproval).toContainText("ObsidianCluster");
+  await expect(runtimeApproval.getByRole("button",{name:"Jóváhagyott változtatások mentése"})).toBeDisabled();
+  await runtimeApproval.getByRole("textbox",{name:/Jóváhagyás/})
+    .fill("OBSIDIAN MAP KONFIG");
+  await runtimeApproval.getByRole("button",{name:"Jóváhagyott változtatások mentése"}).click();
+  await expect(runtime.getByRole("status")).toContainText("Obsidian profiljába mentve");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SOURCE_PIN_COMMITS__?:()=>number;
+    __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number;
+  }).__UNTAMED_SOURCE_PIN_COMMITS__?.())).toBe(1);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number;
+  }).__UNTAMED_RUNTIME_CONFIG_COMMITS__?.())).toBe(1);
+});
+
+test("delayed Store runtime preview cannot restore approval after a different cluster is typed",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const pin=page.getByRole("region",{name:"Eredeti Store-v1 konfiguráció végleges átvétele"});
+  await pin.getByRole("button",{name:"Meglévő mapok forrásátvételének ellenőrzése"}).click();
+  await pin.getByRole("textbox",{name:/Jóváhagyó szöveg/}).fill("OBSIDIAN FORRÁS ÁTVÉTEL");
+  await pin.getByRole("button",{name:"Forrás átvételének jóváhagyása"}).click();
+  const runtime=page.getByRole("region",{name:"Obsidian Store-v1 port és cluster módosítása"});
+  await runtime.getByRole("button",{name:"Eredeti és átvett helyi mapok listázása"}).click();
+  await runtime.getByRole("combobox",{name:"Átvett helyi map"})
+    .selectOption("00000000-0000-4000-8000-000000009001");
+  await runtime.getByRole("button",{name:"Jelenlegi Obsidian-beállítások betöltése"}).click();
+  await page.evaluate(()=>{
+    const host=window as unknown as {
+      chrome:{webview:{postMessage:(message:{method:string})=>void}}
+    };
+    const original=host.chrome.webview.postMessage.bind(host.chrome.webview);
+    host.chrome.webview.postMessage=(message)=>{
+      if(message.method==="historical.runtimeSettingsPreview"){
+        window.setTimeout(()=>original(message),180);
+        return;
+      }
+      original(message);
+    };
+  });
+  await runtime.getByRole("button",{name:"Beállításmódosítás előellenőrzése"}).click();
+  await runtime.getByRole("textbox",{name:"Cluster ID"}).fill("EditedAfterPreviewRequest");
+  await page.waitForTimeout(350);
+  await expect(runtime.getByRole("region",{
+    name:"Átvett map konfigurációjának jóváhagyása"
+  })).toHaveCount(0);
+  await expect(runtime.getByRole("textbox",{name:"Cluster ID"}))
+    .toHaveValue("EditedAfterPreviewRequest");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number
+  }).__UNTAMED_RUNTIME_CONFIG_COMMITS__?.())).toBe(0);
+});
+
+test("Store runtime approval refuses a native preview for another map without applying",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const pin=page.getByRole("region",{name:"Eredeti Store-v1 konfiguráció végleges átvétele"});
+  await pin.getByRole("button",{name:"Meglévő mapok forrásátvételének ellenőrzése"}).click();
+  await pin.getByRole("textbox",{name:/Jóváhagyó szöveg/}).fill("OBSIDIAN FORRÁS ÁTVÉTEL");
+  await pin.getByRole("button",{name:"Forrás átvételének jóváhagyása"}).click();
+  const runtime=page.getByRole("region",{name:"Obsidian Store-v1 port és cluster módosítása"});
+  await runtime.getByRole("button",{name:"Eredeti és átvett helyi mapok listázása"}).click();
+  await runtime.getByRole("combobox",{name:"Átvett helyi map"})
+    .selectOption("00000000-0000-4000-8000-000000009001");
+  await runtime.getByRole("button",{name:"Jelenlegi Obsidian-beállítások betöltése"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RUNTIME_MISMATCH__?:()=>void
+  }).__UNTAMED_RUNTIME_MISMATCH__?.());
+  await runtime.getByRole("button",{name:"Beállításmódosítás előellenőrzése"}).click();
+  await expect(runtime.getByRole("alert")).toContainText("UM-STORE-RUNTIME-PREVIEW-DIFFERENT-CONFIG");
+  await expect(runtime.getByRole("region",{
+    name:"Átvett map konfigurációjának jóváhagyása"
+  })).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RUNTIME_CONFIG_COMMITS__?:()=>number
+  }).__UNTAMED_RUNTIME_CONFIG_COMMITS__?.())).toBe(0);
+});
+
+test("original korábbi kezelőalkalmazás Cluster registry adoption requires exact typed approval and never writes Store data",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
+  const panel=page.getByRole("region",{name:"Eredeti korábbi kezelőalkalmazás Cluster-regiszter átvétele"});
   await panel.getByRole("button",{name:"Eredeti Cluster-regiszter előellenőrzése"}).click();
   const confirmation=panel.getByRole("region",{name:"Eredeti Cluster-regiszter jóváhagyása"});
   await expect(confirmation).toContainText("KovaCluster");
@@ -5381,7 +6647,7 @@ test("original Kova Cluster registry adoption requires exact typed approval and 
     .fill("EREDETI KOVA");
   await expect(approval).toBeDisabled();
   await confirmation.getByRole("textbox",{name:"Eredeti Cluster-regiszter jóváhagyó szöveg"})
-    .fill("EREDETI KOVA REGISZTER");
+    .fill("EREDETI STORE REGISZTER");
   await expect(approval).toBeEnabled();
   await approval.click();
   await expect(panel).toContainText("5 eredeti map-tagság átvezetve");
@@ -5394,24 +6660,24 @@ test("original Kova Cluster registry adoption requires exact typed approval and 
     .toContainText("0");
 });
 
-test("original Kova batch import requires one consent and registers all missing local maps atomically",async({page})=>{
+test("original korábbi kezelőalkalmazás batch import requires one consent and registers all missing local maps atomically",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
   await page.getByRole("button",{name:"Store-v1 átvétel"}).click();
-  const section=page.getByRole("region",{name:"Közvetlen Kova Store-v1 mapimport"});
-  await section.getByRole("button",{name:"Öt eredeti Kova-map felismerése"}).click();
+  const section=page.getByRole("region",{name:"Közvetlen eredeti Store-v1 mapimport"});
+  await section.getByRole("button",{name:"Öt eredeti map felismerése"}).click();
   await section.getByRole("button",{
     name:"Összes hiányzó helyi map átvétele egy lépésben"
   }).click();
   const approval=section.getByRole("region",{
-    name:"Összes eredeti Kova-map importálásának jóváhagyása"
+    name:"Összes eredeti map importálásának jóváhagyása"
   });
   await expect(approval).toContainText("The Island");
   await expect(approval.getByRole("button",{name:"1 map hozzáadása"})).toBeDisabled();
   await approval.getByRole("checkbox").check();
   await approval.getByRole("button",{name:"1 map hozzáadása"}).click();
   await expect(section).toContainText("1 eredeti map atomikusan felvéve");
-  await expect(section.getByRole("combobox",{name:"Közvetlen Kova-map"})).toHaveValue("");
+  await expect(section.getByRole("combobox",{name:"Közvetlen eredeti map"})).toHaveValue("");
 });
 
 test("Store-v1 historic import preserves map identity and never permits launch before real validation",async ({page})=>{
@@ -5554,6 +6820,53 @@ test("P0 original Store-v1 map exposes a real native stopped SteamCMD update but
     .toHaveCount(0);
 });
 
+test("Plugin Center never lists another map's native plugin inventory",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__?:()=>void
+  }).__UNTAMED_WRONG_PLUGIN_INVENTORY_MAP__?.());
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByText("UM-PLUGIN-INVENTORY-MAP-MISMATCH")).toBeVisible();
+  await expect(page.getByText("ExamplePlugin.dll")).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Plugin ZIP kiválasztása és ellenőrzése"}))
+    .toHaveCount(0);
+});
+
+test("Plugin Center refuses cross-map Explorer receipt and does not claim the wrong folder opened",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_PLUGIN_FOLDER_MAP__?:()=>void
+  }).__UNTAMED_WRONG_PLUGIN_FOLDER_MAP__?.());
+  await page.getByRole("button",{name:"Pluginmappa megnyitása"}).click();
+  await expect(page.getByText("UM-PLUGIN-FOLDER-RECEIPT-MAP-MISMATCH")).toBeVisible();
+  await expect(page.getByText(/Plugins mappája megnyílt/)).toHaveCount(0);
+});
+
+test("each map Plugin Center opens only its owned local plugin folder with manual files inventory",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"The Island részletei"}).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("The Island");
+  await expect(page.getByRole("button",{name:"Pluginmappa megnyitása"})).toBeEnabled();
+  await expect(page.getByText("Pluginmappa megtalálva · betöltés nem igazolt")).toBeVisible();
+  await page.getByRole("button",{name:"Pluginmappa megnyitása"}).click();
+  await expect(page.getByRole("status").filter({
+    hasText:"A map saját ASA API Plugins mappája megnyílt"
+  })).toBeVisible();
+  await expect(page.getByRole("button",{name:"Plugin ZIP kiválasztása és ellenőrzése"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Letiltás előnézete"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"config.json szerkesztése"})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Plugin reload"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
+  await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("Astraeos");
+  await expect(page.getByRole("button",{name:"Pluginmappa megnyitása"})).toBeVisible();
+});
+
 test("map detail keeps Plugin Center and ASA API controls bound to its own local map",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"The Island részletei"}).click();
@@ -5568,23 +6881,6 @@ test("map detail keeps Plugin Center and ASA API controls bound to its own local
   await page.getByRole("tab",{name:"Pluginok / ASA API"}).click();
   await expect(page.getByLabel("Pluginok forrásmapja")).toHaveText("Astraeos");
   await expect(page.getByRole("combobox",{name:"Pluginok mapja"})).toHaveCount(0);
-});
-
-test("Plugin Center uses native stopped-map JSON editing with preview and protective save",async ({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
-  await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
-  await page.getByRole("button",{name:"config.json szerkesztése"}).click();
-  const editor=page.getByRole("region",{name:"Plugin JSON szerkesztő"});
-  await expect(editor).toBeVisible();
-  await editor.getByRole("textbox",{name:"Plugin JSON tartalma"}).fill('{"enabled":false,"slot":2}');
-  await editor.getByRole("button",{name:"JSON és változások ellenőrzése"}).click();
-  const approval=editor.getByRole("region",{name:"Plugin JSON módosítás jóváhagyása"});
-  await expect(approval).toContainText("Változott: igen");
-  await expect(approval.getByRole("button",{name:"Mentés véglegesítése"})).toBeDisabled();
-  await approval.getByRole("checkbox").check();
-  await approval.getByRole("button",{name:"Mentés véglegesítése"}).click();
-  await expect(editor).toContainText("védőmásolattal");
 });
 
 test("SQL-free restore always targets isolated TEMP lab and requires explicit consent",async ({page})=>{
@@ -5604,7 +6900,7 @@ test("SQL-free restore always targets isolated TEMP lab and requires explicit co
   await expect(panel).toContainText("Játékbeli működés nem igazolt");
 });
 
-test("original five-map Kova backup requires one confirmed user action and uses verified per-map points",async({page})=>{
+test("original five-map korábbi kezelőalkalmazás backup requires one confirmed user action and uses verified per-map points",async({page})=>{
   await page.goto("/");
   await page.evaluate(()=>(window as typeof window & {
     __UNTAMED_FIVE_BACKUP_FIXTURE__?:()=>void;
@@ -5633,6 +6929,79 @@ test("original five-map Kova backup requires one confirmed user action and uses 
   expect(count).toBe(1);
 });
 
+test("five-map backup refuses mismatched native resource-policy response",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_MISSING_BACKUP_POLICY__?:()=>void;
+    __UNTAMED_FIVE_BACKUP_FIXTURE__?:()=>void;
+  }).__UNTAMED_MISSING_BACKUP_POLICY__?.());
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FIVE_BACKUP_FIXTURE__?:()=>void;
+  }).__UNTAMED_FIVE_BACKUP_FIXTURE__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const section=page.getByRole("region",{name:"Eredeti Store-v1 ötmapos helyi mentés"});
+  await section.getByRole("button",{
+    name:"Mind az 5 eredeti helyi map mentésének ellenőrzése"
+  }).click();
+  await expect(section.getByRole("region",{
+    name:"Eredeti Store-v1 ötmapos mentés jóváhagyása"
+  })).toHaveCount(0);
+  await expect(section).toContainText("UM-BACKUP-PREVIEW-RESOURCE-POLICY-MISSING");
+});
+
+test("offline archive rejects completed SHA-256 receipts belonging to a different job",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_OFFLINE_ARCHIVE_JOB__?:()=>void
+  }).__UNTAMED_WRONG_OFFLINE_ARCHIVE_JOB__?.());
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const panel=page.getByRole("region",{name:"SQL-mentes clusterarchívum"});
+  await panel.getByRole("button",{name:"A négy offline mappa kiválasztása"}).click();
+  const prepared=panel.getByRole("region",{name:"SQL-mentes clusterarchívum előnézete"});
+  await prepared.getByRole("checkbox").check();
+  await prepared.getByRole("button",{name:"Offline archívum készítése"}).click();
+  await expect(panel).toContainText("nem a kiválasztott feladathoz tartozik");
+  await expect(panel).not.toContainText("10 map, 3 transferállomány és");
+});
+
+test("multi-host backup rejects another job's completed receipt without enabling restore",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_MULTIHOST_JOB__?:()=>void
+  }).__UNTAMED_WRONG_MULTIHOST_JOB__?.());
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"N-host mentés és izolált restore"});
+  await panel.getByRole("button",{name:"Félbeszakadt offline archívum helyreállítása"}).click();
+  const approval=panel.getByRole("region",{
+    name:"Félbeszakadt multi-host archívum helyreállításának jóváhagyása"
+  });
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{
+    name:"Megőrzés és ellenőrzött újraépítés indítása"
+  }).click();
+  await expect(panel).toContainText("másik feladathoz tartozik");
+  await panel.getByRole("button",{name:"Státusz frissítése"}).click();
+  await expect(panel).toContainText("másik feladathoz tartozik");
+  await expect(panel).not.toContainText("151 fájl SHA-256 ellenőrizve");
+});
+
+test("offline restore rejects another job's apparent completed hash verification",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_WRONG_OFFLINE_RESTORE_JOB__?:()=>void
+  }).__UNTAMED_WRONG_OFFLINE_RESTORE_JOB__?.());
+  await page.getByRole("button",{name:"Mentések",exact:true}).click();
+  const panel=page.getByRole("region",{name:"SQL-mentes próba-visszaállítás"});
+  await panel.getByRole("button",{name:"Offline archívum kiválasztása"}).click();
+  const approval=panel.getByRole("region",{name:"Próba-visszaállítás jóváhagyása"});
+  await approval.getByRole("checkbox").check();
+  await approval.getByRole("button",{name:"Próba-visszaállítás jóváhagyása"}).click();
+  await expect(panel).toContainText("másik feladathoz tartozik");
+  await expect(panel).not.toContainText("12 világfájl SHA-256 ellenőrizve");
+});
+
 test("SQL-free offline cluster archive requires four native folders and explicit approval",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Mentések",exact:true}).click();
@@ -5656,6 +7025,72 @@ test("SQL-free offline cluster archive requires four native folders and explicit
   await expect(panel).not.toContainText("SQL mentés kész");
 });
 
+test("native serial SteamCMD batch reattaches after navigation and transient lost status without replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_STEAM_BATCH__?:()=>void
+  }).__UNTAMED_HOLD_STEAM_BATCH__?.());
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Helyi mapok soros SteamCMD frissítése"});
+  const targets=panel.getByRole("group",{name:"Soros SteamCMD célmapok"});
+  await targets.getByRole("checkbox").check();
+  await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
+  const consent=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
+  await consent.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
+    .fill("HELYI SOROS STEAMCMD");
+  await consent.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"}).click();
+  await expect(panel).toContainText("SteamCMD: running");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FAIL_STEAM_BATCH_STATUS__?:()=>void
+  }).__UNTAMED_FAIL_STEAM_BATCH_STATUS__?.());
+  await expect(panel).toContainText("állapota átmenetileg nem ellenőrizhető",{timeout:15000});
+  await expect(panel.getByRole("button",{name:/map natív frissítési előellenőrzése/})).toBeDisabled();
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const resumed=page.getByRole("region",{name:"Helyi mapok soros SteamCMD frissítése"});
+  await expect(resumed).toContainText("SteamCMD: running");
+  await expect(resumed.getByRole("button",{name:/map natív frissítési előellenőrzése/})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_STEAM_BATCH__?:()=>void
+  }).__UNTAMED_RELEASE_STEAM_BATCH__?.());
+  await expect(resumed).toContainText("SteamCMD: completed",{timeout:15000});
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
+  }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(1);
+});
+
+test("stopped original Store-v1 ASA map participates in explicitly approved serial SteamCMD, never auto-stopped",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STOPPED_ORIGINAL_STEAM__?:()=>void
+  }).__UNTAMED_STOPPED_ORIGINAL_STEAM__?.());
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Cluster",exact:true}).click();
+  const panel=page.getByRole("region",{name:"Helyi mapok soros SteamCMD frissítése"});
+  await expect(panel).toContainText("eredeti Store-v1 mapok");
+  const targets=panel.getByRole("group",{name:"Soros SteamCMD célmapok"});
+  await expect(targets).toContainText("Astraeos");
+  await targets.getByRole("checkbox").check();
+  await panel.getByRole("button",{name:/map natív frissítési előellenőrzése/}).click();
+  const proof=panel.getByRole("region",{name:"Soros SteamCMD jóváhagyása"});
+  await expect(proof).toContainText("Astraeos");
+  await expect(proof.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"})).toBeDisabled();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
+  }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(0);
+  await proof.getByRole("textbox",{name:"Soros SteamCMD jóváhagyó szöveg"})
+    .fill("HELYI SOROS STEAMCMD");
+  await proof.getByRole("button",{name:"Helyi soros SteamCMD frissítés indítása"}).click();
+  await expect(panel).toContainText("SteamCMD: completed");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_STEAM_BATCH_APPLIES__?:()=>number
+  }).__UNTAMED_STEAM_BATCH_APPLIES__?.())).toBe(1);
+  await expect(panel).not.toContainText("automatikus újraindítás elindult");
+});
+
 test("HP/Ryzen portable mod profiles require native selection and per-host local approval",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
@@ -5676,7 +7111,7 @@ test("HP/Ryzen portable mod profiles require native selection and per-host local
   await expect(panel).toContainText("tényleges betöltését");
 });
 
-test("P0 original Kova Store-v1 mod profiles export and import from native local UI",async({page})=>{
+test("P0 original eredeti Store-v1 mod profiles export and import from native local UI",async({page})=>{
   await page.addInitScript(()=>{
     (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
       .__UNTAMED_PROTECT_TEST_MAP__?.();
@@ -5702,6 +7137,29 @@ test("P0 original Kova Store-v1 mod profiles export and import from native local
   await expect(panel).toContainText("map módosítva");
 });
 
+test("new enrolled Store map is an editable stopped-only Mod Center copy source and destination",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_STORE_API_MODE_READY__?:()=>void
+  }).__UNTAMED_FRESH_STORE_API_MODE_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("combobox",{name:"Helyi map"}).selectOption({label:"The Island"});
+  await page.getByRole("tab",{name:"Másolás több mapra"}).click();
+  const panel=page.getByRole("region",{name:"Modlista másolása több mapra"});
+  const targets=panel.getByRole("group",{name:"Célmapok kiválasztása"});
+  await expect(targets).toContainText("Astraeos");
+  await expect(targets).toContainText("Új Store-map – csak leállítva");
+  await targets.getByRole("checkbox").check();
+  await expect(panel.getByRole("button",{name:"Változások előnézete"})).toBeEnabled();
+  await page.getByRole("combobox",{name:"Helyi map"}).selectOption({label:"Astraeos"});
+  await expect(panel).not.toContainText("Nem helyi, még át nem vett Store");
+  await expect(panel.getByRole("button",{name:"Változások előnézete"})).toBeDisabled();
+  await panel.getByRole("group",{name:"Célmapok kiválasztása"})
+    .getByRole("checkbox").check();
+  await expect(panel.getByRole("button",{name:"Változások előnézete"})).toBeEnabled();
+});
+
 test("Mod Center Copy To merges selected local maps only after native diff approval",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
@@ -5720,7 +7178,7 @@ test("Mod Center Copy To merges selected local maps only after native diff appro
   await expect(panel).toContainText("helyi map modkonfigurációja mentve");
 });
 
-test("P0 original Kova Store-v1 maps can be mod-copy sources and destinations",async({page})=>{
+test("P0 original eredeti Store-v1 maps can be mod-copy sources and destinations",async({page})=>{
   await page.addInitScript(()=>{
     (window as typeof window & {__UNTAMED_PROTECT_TEST_MAP__?:()=>void})
       .__UNTAMED_PROTECT_TEST_MAP__?.();
@@ -5809,72 +7267,6 @@ test("cross-map mod inventory uses actual native contract, filtering and map sel
   await expect(page.getByRole("combobox",{name:"Helyi map"})).toHaveValue("00000000-0000-4000-8000-000000000002");
 });
 
-test("Plugin Center ZIP rollback uses native picker, verified preview and approval",async({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
-  const panel=page.getByRole("region",{name:"Helyi ASA API plugin ZIP telepítése"});
-  await expect(panel.getByRole("button",{name:"Korábbi pluginmentés kiválasztása"}))
-    .toBeEnabled();
-  await panel.getByRole("button",{name:"Korábbi pluginmentés kiválasztása"}).click();
-  const approval=panel.getByRole("region",{name:"Plugin ZIP rollback jóváhagyása"});
-  await expect(approval).toContainText("SampleZip");
-  await expect(approval.getByRole("button",{name:"Ellenőrzött plugin rollback végrehajtása"}))
-    .toBeDisabled();
-  await approval.getByRole("checkbox").check();
-  await approval.getByRole("button",{name:"Ellenőrzött plugin rollback végrehajtása"}).click();
-  await expect(panel).toContainText("eredeti DLL/PDB visszaállítva");
-});
-
-test("plugin center requires native preview and explicit operator approval before toggle",async ({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok"}).click();
-  await expect(page.getByRole("heading",{name:"Plugin Center"})).toBeVisible();
-  await expect(page.getByText("Engedélyezett mappa")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Pluginállapot módosításának jóváhagyása"})).toHaveCount(0);
-  await page.getByRole("button",{name:"Letiltás előnézete"}).click();
-  await expect(page.getByText("Megvizsgált helyi mapok")).toBeVisible();
-  await expect(page.getByRole("button",{name:"Pluginállapot módosításának jóváhagyása"})).toBeDisabled();
-  await page.getByText(/Jóváhagyom a helyi pluginmappa áthelyezését/).click();
-  await page.getByRole("button",{name:"Pluginállapot módosításának jóváhagyása"}).click();
-  await expect(page.getByText("Letiltott mappa")).toBeVisible();
-  await expect(page.getByText(/teljes könyvtár mentése elkészült/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Engedélyezés előnézete"})).toBeVisible();
-});
-
-test("API CORE rollback is a native opt-in two-stage workflow, never an automatic retry",async({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok"}).click();
-  await page.getByRole("button",{name:"Korábbi API CORE telepítések lekérdezése"}).click();
-  await expect(page.getByRole("combobox",{name:"Korábbi API CORE tranzakció"})).toBeVisible();
-  await page.getByRole("button",{name:"Visszaállítási jóváhagyás előkészítése"}).click();
-  const rollback=page.getByRole("region",{name:"API CORE visszaállítás jóváhagyása"});
-  await expect(rollback).toBeVisible();
-  const apply=page.getByRole("button",{name:"Eredeti API CORE binárisok visszaállítása"});
-  await expect(apply).toBeDisabled();
-  await rollback.getByText(/Kifejezetten jóváhagyom a visszaállítást/).click();
-  await expect(apply).toBeEnabled();
-  await apply.click();
-  await expect(page.getByText(/API CORE visszaállítva: 1 eredeti bináris/)).toBeVisible();
-  await expect(rollback).toHaveCount(0);
-});
-
-test("native plugin ZIP install has explicit preview, approval, and verified result",async({page})=>{
-  await page.goto("/");
-  await page.getByRole("button",{name:"Pluginok"}).click();
-  const choose=page.getByRole("button",{name:"Plugin ZIP kiválasztása és ellenőrzése"});
-  await expect(choose).toBeVisible();
-  await choose.click();
-  await expect(page.getByRole("region",{name:"Plugin ZIP telepítés jóváhagyása"})).toBeVisible();
-  await expect(page.getByText("SampleZip-package.zip")).toBeVisible();
-  const apply=page.getByRole("button",{name:"Plugin telepítésének véglegesítése"});
-  await expect(apply).toBeDisabled();
-  await page.getByText(/Jóváhagyom a kiválasztott helyi plugin/).click();
-  await expect(apply).toBeEnabled();
-  await apply.click();
-  await expect(page.getByText(/SampleZip – 1 DLL telepítve/)).toBeVisible();
-  await expect(page.getByRole("region",{name:"Plugin ZIP telepítés jóváhagyása"})).toHaveCount(0);
-});
-
 test("real stopped-map SteamCMD update is opt-in and reports verified outcome",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
@@ -5883,6 +7275,8 @@ test("real stopped-map SteamCMD update is opt-in and reports verified outcome",a
   await expect(page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"})).toBeVisible();
   await expect(page.getByRole("combobox",{name:"SteamCMD frissítés map"})).toHaveCount(0);
   await page.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"SteamCMD natív előfeltétel diagnosztika"}))
+    .toContainText("ellenőrzött, a helyi, leállított telepítés mapjai");
   await expect(page.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toBeVisible();
   await expect(page.getByText(/Astraeos – jelenlegi build: 123456/)).toBeVisible();
   const start=page.getByRole("button",{name:"Valódi frissítés indítása"});
@@ -5908,6 +7302,48 @@ test("SteamCMD schedule is permanently disabled; only separately approved manual
   await expect(policy.getByRole("textbox")).toHaveCount(0);
   await expect(policy.getByRole("spinbutton")).toHaveCount(0);
   await expect(policy.getByRole("button")).toHaveCount(0);
+});
+
+test("another map's SteamCMD job releases its global lock after completion without replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_SINGLE_STEAM__?:()=>void
+  }).__UNTAMED_HOLD_SINGLE_STEAM__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const source=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await source.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  const consent=source.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"});
+  await consent.getByRole("checkbox").check();
+  await consent.getByRole("button",{name:"Valódi frissítés indítása"}).click();
+  await expect(source).toContainText("Frissítés: running");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const other=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await expect(other).toContainText("Másik helyi map SteamCMD-frissítése folyamatban van");
+  await expect(other.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_SINGLE_STEAM__?:()=>void
+  }).__UNTAMED_RELEASE_SINGLE_STEAM__?.());
+  await expect(other.getByRole("button",{name:"Frissítés előellenőrzése"}))
+    .toBeEnabled({timeout:15000});
+  await expect(other).not.toContainText("Frissítés: completed");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number
+  }).__UNTAMED_SINGLE_STEAM_APPLIES__?.())).toBe(1);
+});
+
+test("one ASA map never displays or restarts a different map's SteamCMD job",async({page})=>{
+  await page.goto("/?fixture=steamReattach");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await expect(panel).toContainText("Másik helyi map SteamCMD-frissítése folyamatban van");
+  await expect(panel.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await expect(panel).not.toContainText("Frissítés: completed");
 });
 
 test("SteamCMD monitor reattaches to existing native job after WebView2 reload without another Steam update",async({page})=>{
@@ -5961,6 +7397,47 @@ test("fresh ASA map starts a real local process only after explicit approval",as
   await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
 });
 
+test("fresh ASA start automatically observes RCON without retrying a failed readiness proof",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
+  await expect(page.getByText(/Indítás utáni ASA\/RCON-készenlét ellenőrzése/))
+    .toBeVisible();
+  // No manual readiness button is clicked: the source-compatible startup
+  // handoff itself checks the already spawned process and local RCON.
+  await expect.poll(()=>page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_READY_CALLS__?:()=>number
+  }).__UNTAMED_FRESH_READY_CALLS__?.()??0),{timeout:12000}).toBeGreaterThan(0);
+  await expect(page.getByText("ASA készenléti szint: RconAuthenticated")).toBeVisible();
+  await expect(page.getByText(/RCON-vezérlés hitelesítve és elérhető/)).toBeVisible();
+  await expect(page.getByText(/Indítás utáni ASA\/RCON-készenlét ellenőrzése/))
+    .toHaveCount(0);
+  await expect(page.getByText("Várakozás vagy hiba – a natív bizonyíték nem teljes",
+    {exact:true})).toBeVisible();
+  await expect(page.getByText(/folyamatindítás még nem bizonyítja/)).toBeVisible();
+});
+
+test("changed ASA binary after preview surfaces exact reapproval without auto-start",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_START_CHANGED__?:()=>void
+  }).__UNTAMED_FRESH_START_CHANGED__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}).click();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toBeVisible();
+  await page.getByText(/Jóváhagyom az új, saját helyi ASA szerver/).click();
+  await page.getByRole("button",{name:"ASA szerver indítása",exact:true}).click();
+  await expect(page.getByText(/ASA EXE\/Loader bináris vagy az INI megváltozott/))
+    .toBeVisible();
+  await expect(page.getByRole("region",{name:"Valódi ASA indítás jóváhagyása"})).toHaveCount(0);
+  await expect(page.locator(".success-inline").filter({hasText:"PID: 45678"})).toHaveCount(0);
+  await expect(page.getByText(/Igazoltan leállítva/)).toBeVisible();
+});
+
 test("ASA normal Stop requires approval and never force-kills or claims SaveComplete",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
@@ -5976,6 +7453,68 @@ test("ASA normal Stop requires approval and never force-kills or claims SaveComp
   await expect(page.locator(".success-inline").filter({hasText:"ASA-folyamat kilépett"})).toBeVisible({timeout:12000});
   await expect(page.locator(".success-inline").filter({hasText:"SaveWorld/DoExit lemezmentése nincs igazolva"})).toBeVisible();
   await expect(page.getByRole("region",{name:"ASA leállítás jóváhagyása"})).toHaveCount(0);
+});
+
+test("fresh Stop reattaches the exact in-memory job after map navigation without redispatch",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_LOCAL_STOP__?:()=>void
+  }).__UNTAMED_HOLD_LOCAL_STOP__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  await panel.getByRole("button",{name:"Normál leállítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a kiválasztott helyi ASA szerver/).click();
+  await panel.getByRole("button",{name:"Szerver szabályos leállítása"}).click();
+  await expect(panel).toContainText("Leállítás: running");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const resumed=page.getByRole("region",{name:"Valódi ASA biztonságos leállítása"});
+  await expect(resumed).toContainText("Leállítás: running");
+  await expect(resumed.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
+  const before=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number
+  }).__UNTAMED_LOCAL_STOP_APPLIES__?.());
+  expect(before).toBe(1);
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_LOCAL_STOP__?:()=>void
+  }).__UNTAMED_RELEASE_LOCAL_STOP__?.());
+  await expect(resumed).toContainText("SaveWorld/DoExit lemezmentése nincs igazolva",{timeout:15000});
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_STOP_APPLIES__?:()=>number
+  }).__UNTAMED_LOCAL_STOP_APPLIES__?.())).toBe(1);
+});
+
+test("fresh Restart reattaches a running native job without restarting it twice",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_LOCAL_RESTART__?:()=>void
+  }).__UNTAMED_HOLD_LOCAL_RESTART__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const panel=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
+  await panel.getByRole("button",{name:"Újraindítás előellenőrzése"}).click();
+  await panel.getByText(/Jóváhagyom a helyi ASA szerver tényleges leállítását és újraindítását/).click();
+  await panel.getByRole("button",{name:"Szerver újraindítása"}).click();
+  await expect(panel).toContainText("Újraindítás: running");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  const resumed=page.getByRole("region",{name:"Valódi ASA normál újraindítása"});
+  await expect(resumed).toContainText("Újraindítás: running");
+  await expect(resumed.getByRole("button",{name:"Újraindítás előellenőrzése"})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_LOCAL_RESTART__?:()=>void
+  }).__UNTAMED_RELEASE_LOCAL_RESTART__?.());
+  await expect(resumed).toContainText("44117 → 44118",{timeout:15000});
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await expect(page.getByRole("region",{name:"Valódi ASA normál újraindítása"}))
+    .toContainText("44117 → 44118");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_LOCAL_RESTART_APPLIES__?:()=>number
+  }).__UNTAMED_LOCAL_RESTART_APPLIES__?.())).toBe(1);
 });
 
 test("interrupted lifecycle journal disables fresh ASA Start and Stop in map Overview",async({page})=>{
@@ -6021,10 +7560,36 @@ test("crashed manual Restart journal blocks all ASA lifecycle buttons after UI r
   await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
   await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"})).toBeDisabled();
   await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"})).toBeDisabled();
+  const recovery=page.getByRole("region",{name:"Megszakadt helyi Restart rendezése"});
+  await expect(recovery).toBeVisible();
+  await expect(recovery).toContainText("Régi PID: 44117");
+  await recovery.getByRole("button",{
+    name:"Futó régi ASA ellenőrzése és Restart-napló rendezése"
+  }).click();
+  // The receipt is authoritative; a late OLD read-only journal response
+  // must not revive the just-audited blocker.
+  await expect(page.getByText(/Az eredeti, még futó ASA PID 44117 igazolt/))
+    .toBeVisible();
+  await expect(recovery).toHaveCount(0);
+  // The old PID may remain VISIBLE as historical audit metadata in the
+  // journal details. What matters is that the blocker is cleared and a
+  // brand-new independently approved Restart is enabled.
+  await expect(page.getByRole("button",{name:"Újraindítás előellenőrzése"}))
+    .toBeEnabled();
+  await expect(page.getByRole("button",{name:"Normál leállítás előellenőrzése"}))
+    .toBeEnabled();
+  const reviewCount=await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_RESTART_REVIEWS__?:()=>number
+  }).__UNTAMED_FRESH_RESTART_REVIEWS__?.()??-1);
+  expect(reviewCount).toBe(1);
   await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
   await page.locator(".premium-map-line.is-local").nth(1).click();
-  await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toBeVisible();
-  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"})).toBeDisabled();
+  await expect(page.getByText(/manuális ASA újraindítás megszakadt/)).toHaveCount(0);
+  // A journal for the FIRST installation must never leave a DIFFERENT
+  // independent local map disabled after native audit. Actual Start still
+  // has its separate OS/INI/Store preflight on click.
+  await expect(page.getByRole("button",{name:"Valódi ASA-indítás előellenőrzése"}))
+    .toBeEnabled();
 });
 
 test("CurseForge cart survives searches and uses native draft preview before a single save",async({page})=>{
@@ -6072,6 +7637,68 @@ test("first ASA setup can retry an uncertain native process state without skippi
   await page.getByRole("button",{name:"Első beállítások állapotának újraellenőrzése"}).click();
   await expect(page.getByRole("button",{name:"Beállítások ellenőrzése"})).toBeEnabled();
   await expect(page.getByText(/Igazolt leállítás: igen/)).toBeVisible();
+});
+
+test("initial ASA map setup reports actual OS port conflicts at preview and approval",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await expect(page.getByRole("button",{name:"Beállítások ellenőrzése"})).toBeEnabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INITIAL_PORT_PREVIEW_BUSY__?:()=>void;
+  }).__UNTAMED_INITIAL_PORT_PREVIEW_BUSY__?.());
+  await page.getByRole("button",{name:"Beállítások ellenőrzése"}).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "már egy Windows-folyamat használja");
+  await expect(page.getByRole("heading",{name:"Konfigurációs előnézet"}))
+    .toHaveCount(0);
+  await page.getByRole("button",{name:"Beállítások ellenőrzése"}).click();
+  await expect(page.getByRole("heading",{name:"Konfigurációs előnézet"}))
+    .toBeVisible();
+  await page.getByText(
+    "Jóváhagyom a regisztrált helyi map Manager-profiljának mentését."
+  ).click();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_INITIAL_PORT_APPLY_BUSY__?:()=>void;
+  }).__UNTAMED_INITIAL_PORT_APPLY_BUSY__?.());
+  await page.getByRole("button",{name:"Jóváhagyás és első konfiguráció mentése"})
+    .click();
+  await expect(page.getByRole("alert")).toContainText(
+    "az előnézet után foglalttá vált");
+  await expect(page.getByRole("heading",{name:"Konfigurációs előnézet"}))
+    .toHaveCount(0);
+});
+
+test("unapproved first ASA map setup choices survive map card navigation without applying native configuration",async({page})=>{
+  await page.goto("/");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("button",{name:"Meglévő ASA importálása"}).click();
+  await page.getByRole("button",{name:"Genesis Part 1",exact:true}).click();
+  await page.getByRole("textbox",{name:"Helyi ASA mappa"}).fill("C:\\ASA-LAB");
+  await page.getByRole("button",{name:"Helyi telepítés ellenőrzése"}).click();
+  await page.getByRole("button",{name:"Ellenőrzött map regisztrálása"}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await page.getByRole("textbox",{name:"ASA szerver neve"}).fill("Untamed Kézi Draft");
+  await page.getByRole("textbox",{name:"Első Game UDP"}).fill("7953");
+  await page.getByRole("textbox",{name:"Első Query UDP"}).fill("27953");
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.getByRole("row",{name:/Genesis Part 1/}).click();
+  await expect(page.getByRole("textbox",{name:"ASA szerver neve"}))
+    .toHaveValue("Untamed Kézi Draft");
+  await expect(page.getByRole("textbox",{name:"Első Game UDP"}))
+    .toHaveValue("7953");
+  await expect(page.getByRole("textbox",{name:"Első Query UDP"}))
+    .toHaveValue("27953");
+  await expect(page.getByRole("heading",{name:"Konfigurációs előnézet"}))
+    .toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Beállítások ellenőrzése"}))
+    .toBeEnabled();
 });
 
 test("N-host profile and local copy select-all are limited to local eligible maps",async({page})=>{

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, AlertTriangle, RefreshCw, Shield } from "lucide-react";
 import { managerBridge, type RunningLocalAsaSnapshot, type RunningLocalAsaProcess,
-  type RunningAsaImportPreview, type RunningAsaAdoptPreview } from "./bridge";
+  type RunningAsaImportPreview, type RunningAsaAdoptPreview,
+  type RunningAsaBatchPreview } from "./bridge";
 
 
 /** Two-stage registration changes ONLY the local Manager profile, never ASA. */
@@ -127,6 +128,11 @@ export function LocalRunningAsaPanel({onRegistered}:{
   const [snapshot,setSnapshot]=useState<RunningLocalAsaSnapshot|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
+  const [bulkPreview,setBulkPreview]=useState<RunningAsaBatchPreview|null>(null);
+  const [bulkApproved,setBulkApproved]=useState(false);
+  const [bulkBusy,setBulkBusy]=useState(false);
+  const [bulkError,setBulkError]=useState("");
+  const [bulkNotice,setBulkNotice]=useState("");
   // React StrictMode mounts/cleans/remounts effects. A single in-flight
   // boolean may strand the second mount behind an abandoned first request:
   // the process list then stays on "Ellenőrzés..." indefinitely.
@@ -161,6 +167,49 @@ export function LocalRunningAsaPanel({onRegistered}:{
     };
   },[inspect]);
 
+  const prepareAll=async()=>{
+    if(bulkBusy||!snapshot||snapshot.fresh===false)return;
+    setBulkBusy(true);setBulkApproved(false);setBulkPreview(null);
+    setBulkError("");setBulkNotice("");
+    try{
+      const result=await managerBridge.runningAsaBatchPreview();
+      if(!result.readOnly||result.lifecycleAuthorized||
+         result.storeWriterAuthorized||result.serverProcessTouched||
+         !result.count||result.maps.length!==result.count)
+        throw new Error("UM-LIVE-BATCH-NATIVE-PREVIEW-MISMATCH");
+      setBulkPreview(result);
+    }catch(e){
+      setBulkError(e instanceof Error?e.message:"UM-LIVE-BATCH-NO-ELIGIBLE");
+    }finally{setBulkBusy(false);}
+  };
+  const applyAll=async()=>{
+    if(bulkBusy||!bulkPreview||!bulkApproved)return;
+    const selected=bulkPreview;
+    setBulkBusy(true);setBulkApproved(false);setBulkPreview(null);
+    setBulkError("");setBulkNotice("");
+    try{
+      const result=await managerBridge.runningAsaBatchRegister(selected.token);
+      if(result.imported!==selected.count||
+         result.mapIds.length!==selected.count||!result.readOnly||
+         result.lifecycleAuthorized||result.storeWriterAuthorized||
+         result.serverProcessTouched||result.originalStoreTouched)
+        throw new Error("UM-LIVE-BATCH-NATIVE-RECEIPT-MISMATCH");
+      setBulkNotice(result.imported+" futó, nem-Store ASA-map"+
+        " egyetlen Manager-profil mentéssel importálva. "+
+        "Nincs RCON, Start/Stop vagy Store-írási jogosultság; "+
+        "a vezérlés átvétele külön ellenőrzés és jóváhagyás.");
+      void inspect();
+      try{await onRegistered?.();}
+      catch{
+        setBulkError("A natív import sikeres, de a dashboard nem frissült. "+
+          "Ne ismételd meg a batch műveletet, frissítsd a listát.");
+      }
+    }catch(e){
+      setBulkError("A teljes batch import eredménye nem igazolt. "+
+        "Nincs automatikus újrapróbálkozás: "+
+        (e instanceof Error?e.message:"UM-LIVE-BATCH-APPLY-FAILED"));
+    }finally{setBulkBusy(false);}
+  };
   return <section className="glass panel" aria-label="Futó helyi ASA-folyamatok">
     <div className="panel-head">
       <h2><Activity size={18}/> Futó ASA-folyamatok · helyi felismerés</h2>
@@ -174,6 +223,33 @@ export function LocalRunningAsaPanel({onRegistered}:{
       <p className="muted small">A Windows összes ASA és ASA API Loader folyamatát
         automatikusan ellenőrzi 15 másodpercenként, a háttérben és tálcára csukva is.
         Az ismeretlen PID megfigyelés, nem tulajdonjog vagy Store-v1 írási engedély.</p>
+      <div className="settings-actions">
+        <button type="button" className="secondary"
+          disabled={loading||bulkBusy||!snapshot||snapshot.fresh===false||!!bulkPreview}
+          onClick={()=>{void prepareAll();}}>
+          <Shield size={16}/> Összes azonosított nem-Store ASA importálása
+        </button>
+      </div>
+      {bulkPreview&&<div role="region" className="historical-preview"
+        aria-label="Futó nem-Store ASA batch import jóváhagyása">
+        <strong>{bulkPreview.count} map egyetlen helyi Manager-profil mentéssel</strong>
+        <p>{bulkPreview.storeOrCluster} Store/cluster folyamat külön eredeti Store-v1 átvételt
+          igényel; {bulkPreview.otherSkipped} hiányos vagy már regisztrált folyamat kihagyva.</p>
+        {bulkPreview.maps.map(p=><p key={p.pid}>
+          {p.mapName} · PID {p.pid} · Game {p.gamePort} / Query {p.queryPort}
+        </p>)}
+        <label><input type="checkbox" checked={bulkApproved}
+          disabled={bulkBusy} onChange={e=>setBulkApproved(e.target.checked)}/>
+          Jóváhagyom a felsorolt, pontosan azonosított futó nem-Store mapok
+          együttes regisztrációját. A szerverek nem állnak le és nem indulnak újra.
+        </label>
+        <button type="button" className="primary" disabled={!bulkApproved||bulkBusy}
+          onClick={()=>{void applyAll();}}>Futó ASA mapok importálása</button>
+        <button type="button" className="secondary" disabled={bulkBusy}
+          onClick={()=>{setBulkPreview(null);setBulkApproved(false);}}>Mégsem</button>
+      </div>}
+      {bulkNotice&&<p className="success-inline" role="status">{bulkNotice}</p>}
+      {bulkError&&<p className="error-inline" role="alert">{bulkError}</p>}
       {snapshot?.automaticDiscovery&&<p className="muted small">
         Folyamatfigyelő: {snapshot.watcherState??"ismeretlen"} ·
         {snapshot.fresh?" friss Windows-folyamatkép":" újraellenőrzés szükséges"}
@@ -236,7 +312,7 @@ export function LocalRunningAsaPanel({onRegistered}:{
           {p.processKind==="asaServer" && p.launchFacts?.argumentsValidated &&
             (p.launchFacts.storeFlagPresent||p.launchFacts.clusterSwitchPresent||
              p.launchFacts.transferOverridePresent||p.launchFacts.conversionFlagPresent) &&
-            <p className="muted small">Store/cluster folyamat: az eredeti Kova-forrásból
+            <p className="muted small">Store/cluster folyamat: az eredeti eredeti forrásból
               ellenőrzött történeti regisztráció szükséges. Ez az importútvonal tiltott.</p>}
         </div>
       </div>)}

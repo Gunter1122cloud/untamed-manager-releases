@@ -12,17 +12,22 @@ namespace UntamedManager.Core;
 /// lifecycle and RCON operations. Prevents a new server from launching over
 /// an already-bound UDP game/query port or TCP RCON port.
 /// </summary>
+public enum AsaLocalPortAvailability { Available, InUse, Unverified }
 public static class AsaLocalPortPreflight
 {
     public static bool CanStart(LocalMap map,IEnumerable<IPEndPoint>? udp=null,
-        IEnumerable<IPEndPoint>? tcp=null)
+        IEnumerable<IPEndPoint>? tcp=null)=>
+        Inspect(map,udp,tcp)==AsaLocalPortAvailability.Available;
+
+    public static AsaLocalPortAvailability Inspect(LocalMap map,
+        IEnumerable<IPEndPoint>? udp=null,IEnumerable<IPEndPoint>? tcp=null)
     {
         if(map==null||map.GamePort is <1024 or >65535||
            map.QueryPort is <1024 or >65535||
            map.GamePort==map.QueryPort||
            map.RconPort is <0 or >65535||
            (map.RconPort>0 && map.RconPort<1024))
-            return false;
+            return AsaLocalPortAvailability.Unverified;
         try
         {
             var ip=IPGlobalProperties.GetIPGlobalProperties();
@@ -30,14 +35,17 @@ public static class AsaLocalPortPreflight
                 .Select(x=>x.Port).ToHashSet();
             var busyTcp=(tcp??ip.GetActiveTcpListeners())
                 .Select(x=>x.Port).ToHashSet();
-            return !busyUdp.Contains(map.GamePort)&&
-                !busyUdp.Contains(map.QueryPort)&&
-                (map.RconPort==0||!busyTcp.Contains(map.RconPort));
+            return busyUdp.Contains(map.GamePort)||
+                busyUdp.Contains(map.QueryPort)||
+                (map.RconPort!=0&&busyTcp.Contains(map.RconPort))
+                ? AsaLocalPortAvailability.InUse
+                : AsaLocalPortAvailability.Available;
         }
         catch(Exception ex) when(ex is NetworkInformationException or
             InvalidOperationException or UnauthorizedAccessException)
         {
-            return false;
+            // Lack of OS evidence must not be misreported as an occupied port.
+            return AsaLocalPortAvailability.Unverified;
         }
     }
 }

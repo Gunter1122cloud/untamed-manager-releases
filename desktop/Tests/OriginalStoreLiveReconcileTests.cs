@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using UntamedDesktop;
 using UntamedManager.Core;
 
 /// <summary>
@@ -170,5 +171,43 @@ internal static class OriginalStoreLiveReconcileTests
         Check(cluster.Config.LocalMaps.Count==5&&
               cluster.Config.LocalMaps.Select(m=>m.Id).Distinct().Count()==5,
             "no partial map regrowth after denied owner conflict");
+
+        // The preview must report BOTH journals before offering five-map
+        // approval, and must not mistake a restart-only journal for success.
+        // No real ASA/RCON/Store commands: these are isolated TEMP records.
+        using(var operation=cluster.Operations.Acquire(
+            live[0].InstallationPath,UntamedOperationKind.Launch))
+            operation.MarkMutationStarted();
+        var paired=new AsaManualRestartJournal(live[0].InstallationPath);
+        var pairedEntry=paired.Begin(live[0].Id,live[0].LastProcess!.Pid);
+        paired.Change(pairedEntry.Id,AsaRestartPhase.NeedsOperator);
+        var restartOnly=new AsaManualRestartJournal(live[1].InstallationPath);
+        var restartEntry=restartOnly.Begin(live[1].Id,live[1].LastProcess!.Pid);
+        restartOnly.Change(restartEntry.Id,AsaRestartPhase.NeedsOperator);
+        using var bridge=new DesktopHistoricalStoreImportBridge(cluster);
+        var inspect=typeof(DesktopHistoricalStoreImportBridge).GetMethod(
+            "OriginalLiveOperationBlockers",
+            System.Reflection.BindingFlags.NonPublic|
+            System.Reflection.BindingFlags.Instance)??throw new InvalidOperationException(
+                "Five-map durable blocker reader is unavailable");
+        var rows=((System.Collections.IEnumerable)(inspect.Invoke(
+            bridge,new object[]{live})??throw new InvalidOperationException(
+                "Five-map durable blocker reader failed")))
+            .Cast<object>().Select(x=>(
+                Map:(Guid)x.GetType().GetProperty("MapId")!.GetValue(x)!,
+                Kind:(string)x.GetType().GetProperty("Kind")!.GetValue(x)!,
+                Code:(string)x.GetType().GetProperty("BlockingCode")!.GetValue(x)!))
+            .ToArray();
+        Check(rows.Length==3&&
+              rows.Count(x=>x.Map==live[0].Id)==2&&
+              rows.Count(x=>x.Map==live[1].Id)==1&&
+              rows.Any(x=>x.Map==live[0].Id&&x.Kind=="Launch")&&
+              rows.Any(x=>x.Map==live[0].Id&&x.Kind=="Restart-v1"&&
+                  x.Code=="UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE")&&
+              rows.Any(x=>x.Map==live[1].Id&&x.Kind=="Restart-v1"&&
+                  x.Code=="UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE"),
+            "five-map preflight reports paired and restart-only NeedsOperator separately");
+        Check(Denies(()=>cluster.ReconcileOriginalStoreLiveFive(live,()=>true)),
+            "an unresolved original Launch journal cannot be bypassed by a successful preview");
     }
 }

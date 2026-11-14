@@ -7,7 +7,8 @@ using UntamedManager.Core;
 namespace UntamedDesktop;
 
 /// <summary>
-/// A bounded follow-up to an OPERATOR-approved native Loader launch, including
+/// A bounded follow-up to an OPERATOR-approved Loader launch for fresh ASA
+/// and newly enrolled Store maps, including
 /// manual Restart. Read-only physical process observation may persist a verified
 /// local Loader/ASA identity pair for safe orphan-child reattach after UI restart.
 /// No new Start, RCON command, Store transfer, session or backup writes.
@@ -40,6 +41,10 @@ internal static class FreshStoreApiPairObserver
         return ownsRcon(rconPort,child.Pid);
     }
 
+    // Match the original desktop lifecycle's ten-minute RCON readiness
+    // window; large modded ASA maps may need far longer than three minutes.
+    internal static readonly TimeSpan StartupObservationWindow=TimeSpan.FromMinutes(10);
+
     internal static void Begin(ClusterService cluster,Guid mapId,
         ProcessIdentity launchedLoader,CancellationToken cancellation)
     {
@@ -49,15 +54,20 @@ internal static class FreshStoreApiPairObserver
         _=Task.Run(async()=>{
             try
             {
-                var until=DateTimeOffset.UtcNow.AddMinutes(3);
+                var until=DateTimeOffset.UtcNow+StartupObservationWindow;
                 while(!cancellation.IsCancellationRequested&&DateTimeOffset.UtcNow<until)
                 {
                     var map=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==mapId);
-                    if(map==null||map.HistoricalStoreProtected||map.Maintenance||
-                       !map.StartWithAsaApi||
-                       !FreshStoreEnrollmentPolicy.IsEnrolled(map))
+                    if(map==null||map.HistoricalStoreProtected||
+                       map.ObservedReadOnlyImported||map.Maintenance||
+                       !map.StartWithAsaApi)
                         return;
-                    FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+                    // Both newly enrolled Store and ordinary fresh ASA are
+                    // permitted. Never extend this to historical/foreign maps.
+                    if(FreshStoreEnrollmentPolicy.IsEnrolled(map))
+                        FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+                    else
+                        FreshAsaInstallationSafety.Demand(cluster,map);
                     var observed=cluster.ObserveLocalProcessesReadOnly(map);
                     if(MatchesVerifiedPair(observed,launchedLoader,
                         map.ExecutablePath,map.Arguments,map.RconPort,

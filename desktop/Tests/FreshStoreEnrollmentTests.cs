@@ -275,6 +275,43 @@ internal static class FreshStoreEnrollmentTests
                       StringComparison.Ordinal)&&
                   plan.InstalledBuild=="980812"&&plan.RegistryRevision>0,
                 "new empty Store launch uses existing cluster metadata, exactly one -usestore, zero conversion");
+            // Independent new map, SteamCMD installation, RCON/INI and
+            // ClusterRegistry membership. Previewing one map must not revoke
+            // the other map's pending enrollment. No ASA process is started.
+            Guid secondMapId=Guid.Parse("11111111-2222-4333-8444-555555555557");
+            string secondInstall=Path.Combine(root,"future-ragnarok-install");
+            string secondBinary=Path.Combine(secondInstall,"ShooterGame","Binaries","Win64");
+            Directory.CreateDirectory(secondBinary);
+            File.WriteAllBytes(Path.Combine(secondBinary,"ArkAscendedServer.exe"),
+                new byte[]{77,90,7,9});
+            string secondSteamApps=Path.Combine(secondInstall,"steamapps");
+            Directory.CreateDirectory(secondSteamApps);
+            File.WriteAllText(Path.Combine(secondSteamApps,"appmanifest_2430930.acf"),
+                File.ReadAllText(Path.Combine(apps,"appmanifest_2430930.acf")));
+            string secondTransfer=Path.Combine(root,"future-transfer");
+            Directory.CreateDirectory(secondTransfer);
+            var secondMap=new LocalMap{
+                Id=secondMapId,Name="Ragnarok",
+                InstallationPath=secondInstall,
+                ExecutablePath=Path.Combine(secondBinary,"ArkAscendedServer.exe"),
+                GamePort=7853,QueryPort=27553,RconPort=37553,
+                Arguments=AsaSteamMapCatalog.LaunchArguments(
+                    "Ragnarok","Future Store Map",7853,27553),
+                AutoStart=false
+            };
+            AsaInitialRconSettings.CreateForNewServer(
+                secondInstall,secondMap.RconPort,syntheticAdminPassword);
+            secondMap.RconPasswordProtected=SecureStore.Protect(syntheticAdminPassword);
+            manager.AddMap(secondMap);
+            manager.Registry.CreateCluster(
+                "future-preview-cluster","Another New Store",secondTransfer);
+            var secondAssignment=manager.Registry.PreviewMapAssignments(
+                "future-preview-cluster",new[]{secondMapId});
+            manager.Registry.ApplyMapAssignments(
+                "future-preview-cluster",new[]{secondMapId},secondAssignment.BaseRevision);
+            Check(FreshStoreEnrollmentPolicy.Prepare(manager,secondMap,
+                    "future-preview-cluster").MapId==secondMapId,
+                "independently owned future ASA map has valid Store enrollment preflight");
             string untouched=map.Arguments;
             using(var bridge=new DesktopFreshStoreEnrollmentBridge(manager))
             {
@@ -282,6 +319,12 @@ internal static class FreshStoreEnrollmentTests
                 Check(state.GetProperty("ok").GetBoolean()&&
                       !state.GetProperty("data").GetProperty("enrolled").GetBoolean(),
                     "new empty Store native status is read-only and not yet enrolled");
+                var reserved=await Call(bridge,"freshStore.enrollmentPreview",
+                    new{mapId,clusterId="KovaCluster"});
+                Check(!reserved.GetProperty("ok").GetBoolean()&&
+                      reserved.GetProperty("error").GetString()==
+                        "UM-FRESH-STORE-KOVA-CLUSTER-RESERVED",
+                    "native enrollment reports the exact reserved historical cluster blocker without exposing UNC paths or other secrets");
                 var preview=await Call(bridge,"freshStore.enrollmentPreview",
                     new{mapId,clusterId="new-local-cluster"});
                 Check(preview.GetProperty("ok").GetBoolean()&&
@@ -289,6 +332,22 @@ internal static class FreshStoreEnrollmentTests
                       !preview.GetRawText().Contains(transfer,StringComparison.OrdinalIgnoreCase),
                     "native preview exposes neither transfer path nor a fictional server Start");
                 var token=preview.GetProperty("data").GetProperty("token").GetString()!;
+                var secondPreview=await Call(bridge,
+                    "freshStore.enrollmentPreview",
+                    new{mapId=secondMapId,clusterId="future-preview-cluster"});
+                Check(secondPreview.GetProperty("ok").GetBoolean()&&
+                      !secondPreview.GetRawText().Contains(secondTransfer,
+                          StringComparison.OrdinalIgnoreCase),
+                    "second local Store map preview is independently authorized and path-redacted");
+                string secondToken=secondPreview.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                Check(secondToken!=token,"two map approvals never share a token");
+                var secondNotApproved=await Call(bridge,"freshStore.enrollmentApply",
+                    new{token=secondToken,confirm=true,typedApproval="NO"});
+                Check(secondNotApproved.GetProperty("error").GetString()==
+                      "UM-FRESH-STORE-EXPLICIT-APPROVAL"&&
+                      !FreshStoreEnrollmentPolicy.IsEnrolled(secondMap),
+                    "second-map approval remains recognized without modifying its Store profile");
                 var notApproved=await Call(bridge,"freshStore.enrollmentApply",
                     new{token,confirm=true,typedApproval="NO"});
                 Check(!notApproved.GetProperty("ok").GetBoolean()&&
@@ -299,6 +358,23 @@ internal static class FreshStoreEnrollmentTests
                 Check(saved.GetProperty("ok").GetBoolean()&&
                       !saved.GetProperty("data").GetProperty("serverStarted").GetBoolean(),
                     "approved native Store enrollment saves only local Manager metadata");
+                // The second separately owned map can enroll after the first
+                // committed, using a fresh ClusterRegistry revision. Neither
+                // map's Store/character/transfer directory is written.
+                var secondFreshPreview=await Call(bridge,
+                    "freshStore.enrollmentPreview",
+                    new{mapId=secondMapId,clusterId="future-preview-cluster"});
+                Check(secondFreshPreview.GetProperty("ok").GetBoolean(),
+                    "second map refreshes native enrollment approval after first commit");
+                var secondSaved=await Call(bridge,"freshStore.enrollmentApply",
+                    new{token=secondFreshPreview.GetProperty("data")
+                        .GetProperty("token").GetString(),
+                        confirm=true,typedApproval="NEW EMPTY STORE"});
+                Check(secondSaved.GetProperty("ok").GetBoolean()&&
+                      FreshStoreEnrollmentPolicy.IsEnrolled(
+                          manager.Config.LocalMaps.Single(x=>x.Id==secondMapId))&&
+                      !secondSaved.GetProperty("data").GetProperty("serverStarted").GetBoolean(),
+                    "two future Store map profiles are independently enrolled without process starts");
                 var replay=await Call(bridge,"freshStore.enrollmentApply",
                     new{token,confirm=true,typedApproval="NEW EMPTY STORE"});
                 Check(!replay.GetProperty("ok").GetBoolean(),
@@ -310,6 +386,128 @@ internal static class FreshStoreEnrollmentTests
             }
             var enrolled=manager.Config.LocalMaps.Single(x=>x.Id==mapId);
             FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
+            SteamStoppedMapUpdater.DemandSafeLocalInstallation(manager,enrolled);
+            Check(true,"exact enrolled Store map can preflight local stopped-only manual SteamCMD maintenance");
+            var pristineScope=SteamStoppedMapUpdater.PreUpdateBackupScope(manager,enrolled);
+            Check(pristineScope.HasFlag(LocalBackupScope.Ini)&&
+                  !pristineScope.HasFlag(LocalBackupScope.WorldAndProfiles),
+                "never-started enrolled Store protects configured INI without requiring a nonexistent world");
+            var pristineBackup=LocalBackupWorkflow.Preview(enrolled,
+                manager.Check(enrolled),Path.Combine(profile,"first-map-steam-prebackup"),
+                pristineScope);
+            Check(pristineBackup.Files>0&&pristineBackup.SelectedBytes>0,
+                "INI-only first-map Steam protection has a real verified, recoverable backup plan");
+            var previousProcess=enrolled.LastProcess;
+            try
+            {
+                enrolled.LastProcess=new ProcessIdentity{
+                    Pid=65101,StartedUtc=DateTimeOffset.UtcNow,
+                    ExecutablePath=enrolled.ExecutablePath,Arguments=enrolled.Arguments
+                };
+                Check(SteamStoppedMapUpdater.PreUpdateBackupScope(manager,enrolled)
+                    .HasFlag(LocalBackupScope.WorldAndProfiles),
+                    "a map with persisted prior ASA launch cannot waive its world backup");
+            }
+            finally { enrolled.LastProcess=previousProcess; }
+            string worldFolder=Path.Combine(installation,"ShooterGame","Saved","SavedArks");
+            string zeroByteWorld=Path.Combine(worldFolder,"TheIsland_WP.ark");
+            Directory.CreateDirectory(worldFolder);
+            File.WriteAllBytes(zeroByteWorld,Array.Empty<byte>());
+            try
+            {
+                Check(SteamStoppedMapUpdater.PreUpdateBackupScope(manager,enrolled)
+                    .HasFlag(LocalBackupScope.WorldAndProfiles),
+                    "even a zero-byte world placeholder prohibits config-only Steam backup waiver");
+            }
+            finally
+            {
+                File.Delete(zeroByteWorld);
+                Directory.Delete(worldFolder);
+            }
+            Check(!SteamStoppedMapUpdater.PreUpdateBackupScope(manager,enrolled)
+                      .HasFlag(LocalBackupScope.WorldAndProfiles),
+                "removing isolated synthetic placeholder restores untouched first-world eligibility");
+            // Mod Center and Copy To must remain useful AFTER a new Store
+            // map has enrolled. Only source-pinned launch switches change,
+            // the ASA stays stopped and transfer/tribe/character files are
+            // never touched by Manager code.
+            string transferBeforeMods=enrolled.FreshStoreTransferFileId;
+            var individualMod=ModStateController.Preview(enrolled,
+                new ModEdit(mapId,"100125",ModMode.Active));
+            Check(individualMod.Changed&&
+                  individualMod.NewArguments.Contains(
+                      "-mods=100123,100124,100125 -passivemods=100124 -clusterid=",
+                      StringComparison.Ordinal)&&
+                  individualMod.NewArguments.EndsWith(" -usestore",
+                      StringComparison.Ordinal),
+                "native single-map mod edit retains enrolled Store suffix and global passive order");
+            var modApplied=ModStateController.ApplyLocalBatch(manager,
+                new[]{new ModEdit(mapId,"100125",ModMode.Active)});
+            Check(modApplied.Count==1&&enrolled.ModChangesPending,
+                "stopped enrolled Store map persists new mod only in local Manager profile");
+            FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
+            // The ordinary Mod Center draft uses a cloned in-memory map.
+            // That clone must retain Store identity, otherwise the first
+            // actual edit fails even though the direct Core preview works.
+            var draft=new ModDraftSession(enrolled);
+            draft.Stage("100126",ModMode.Passive);
+            Check(draft.IsDirty&&draft.Projected().FreshStoreClusterId==
+                      enrolled.FreshStoreClusterId&&
+                  draft.Projected().FreshStoreTransferFileId==
+                      transferBeforeMods&&
+                  ModStateController.Read(draft.Projected()).Passive
+                      .Contains("100126"),
+                "Mod Center draft stage retains complete enrolled Store identity");
+            var draftApplied=draft.Save(manager);
+            Check(draftApplied.Count==1&&enrolled.Arguments.EndsWith(" -usestore",
+                    StringComparison.Ordinal)&&
+                  ModStateController.Read(enrolled).Passive.Contains("100126"),
+                "native Mod Center draft commit works on stopped enrolled Store without moving transfer data");
+            var staleDraft=new ModDraftSession(enrolled);
+            string originalIdentity=enrolled.FreshStoreTransferFileId;
+            try
+            {
+                enrolled.FreshStoreTransferFileId=new string('C',64);
+                Check(!staleDraft.MatchesLive(enrolled),
+                    "Mod Center draft refuses changed transfer physical ID before save");
+            }
+            finally { enrolled.FreshStoreTransferFileId=originalIdentity; }
+            FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
+            var nativeModCopy=LocalModCopyPlanner.Preview(manager,mapId,
+                new[]{secondMapId},LocalModCopyMode.Replace);
+            Check(nativeModCopy.Changed&&
+                  nativeModCopy.Targets.Single().After.EnabledOrder
+                      .SequenceEqual(ModStateController.Read(enrolled).EnabledOrder),
+                "Copy To previews full mod ordering for another local enrolled Store map");
+            var appliedCopy=LocalModCopyPlanner.Apply(manager,nativeModCopy);
+            var secondEnrolled=manager.Config.LocalMaps.Single(x=>x.Id==secondMapId);
+            FreshStoreEnrollmentPolicy.DemandEnrolled(manager,secondEnrolled);
+            Check(appliedCopy.Count>0&&secondEnrolled.ModChangesPending&&
+                  ModStateController.Read(secondEnrolled).EnabledOrder
+                      .SequenceEqual(ModStateController.Read(enrolled).EnabledOrder)&&
+                  secondEnrolled.Arguments.EndsWith(" -usestore",
+                      StringComparison.Ordinal)&&
+                  secondEnrolled.FreshStoreTransferFileId.Length==64&&
+                  enrolled.FreshStoreTransferFileId==transferBeforeMods,
+                "atomic mod copy changes only next-launch mod flags, preserving both transfer identities");
+            // The exact installed Store profile can use natural ASA
+            // SessionName text containing "ConvertToStore". Only actual
+            // startup flags may cause a native conversion denial.
+            string enrolledArgs=enrolled.Arguments;
+            try
+            {
+                enrolled.Arguments=enrolledArgs.Replace("Synthetic Store Map",
+                    "ConvertToStore Celebration",StringComparison.Ordinal);
+                FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
+                Check(AsaStoreArgumentSwitches.ContainsStoreWriter(enrolled.Arguments) &&
+                      !AsaStoreArgumentSwitches.ContainsConversion(enrolled.Arguments),
+                    "ordinary ConvertToStore server title does not lock an approved fresh Store writer");
+                enrolled.Arguments=enrolledArgs.Replace(" -usestore",
+                    " -converttostore -usestore",StringComparison.Ordinal);
+                Reject(()=>FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled),
+                    "actual Store conversion switch remains forbidden for an already enrolled local writer");
+            }
+            finally { enrolled.Arguments=enrolledArgs; }
             Check(enrolled.FreshStoreClusterId=="new-local-cluster"&&
                   enrolled.Arguments.EndsWith(" -usestore",StringComparison.Ordinal)&&
                   enrolled.HistoricalArchiveSha256==""&&
@@ -352,6 +550,23 @@ internal static class FreshStoreEnrollmentTests
                       !choose.GetRawText().Contains(transfer,StringComparison.OrdinalIgnoreCase),
                     "Loader selection previews exact local files without spawn or cache runtime claims");
                 string modeToken=choose.GetProperty("data").GetProperty("token").GetString()!;
+                // Both enrolled maps can select API Loader independently;
+                // a second preview must never invalidate the first map's
+                // pending opt-in preference on the same Manager instance.
+                string secondApi=Path.Combine(secondBinary,"ArkApi");
+                Directory.CreateDirectory(Path.Combine(secondApi,"Plugins"));
+                WriteSyntheticPe64(Path.Combine(secondBinary,"AsaApiLoader.exe"));
+                WriteSyntheticPe64(Path.Combine(secondApi,"AsaApi.dll"));
+                File.WriteAllText(Path.Combine(secondBinary,"config.json"),"{}");
+                var secondModePreview=await CallMode(modeBridge,
+                    "freshStore.loaderModePreview",
+                    new{mapId=secondMapId,useApi=true});
+                Check(secondModePreview.GetProperty("ok").GetBoolean(),
+                    "second enrolled map previews its own API Loader mode");
+                string secondModeToken=secondModePreview.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                Check(modeToken!=secondModeToken,
+                    "separate ASA map Loader approvals have distinct one-shot tokens");
                 var wrong=await CallMode(modeBridge,"freshStore.loaderModeApply",
                     new{token=modeToken,confirm=true,typedApproval="NO"});
                 Check(!wrong.GetProperty("ok").GetBoolean(),
@@ -361,6 +576,13 @@ internal static class FreshStoreEnrollmentTests
                 Check(selected.GetProperty("ok").GetBoolean()&&
                       !selected.GetProperty("data").GetProperty("serverStarted").GetBoolean(),
                     "explicit one-shot Loader approval changes only local Manager launch preference");
+                var secondModeSelected=await CallMode(modeBridge,"freshStore.loaderModeApply",
+                    new{token=secondModeToken,confirm=true,
+                        typedApproval="FRESH STORE API MODE"});
+                Check(secondModeSelected.GetProperty("ok").GetBoolean()&&
+                      !secondModeSelected.GetProperty("data").GetProperty("serverStarted").GetBoolean()&&
+                      manager.Config.LocalMaps.Single(x=>x.Id==secondMapId).StartWithAsaApi,
+                    "other Store-map Loader approval survives independent first-map mode change");
                 var repeated=await CallMode(modeBridge,"freshStore.loaderModeApply",
                     new{token=modeToken,confirm=true,typedApproval="FRESH STORE API MODE"});
                 Check(!repeated.GetProperty("ok").GetBoolean(),
@@ -394,6 +616,8 @@ internal static class FreshStoreEnrollmentTests
             manager.ReplaceMap(enrolled,aliasSwap);
             Reject(()=>FreshStoreEnrollmentPolicy.DemandEnrolled(manager,aliasSwap),
                 "changed physical transfer-directory fingerprint blocks Store process authorization");
+            Reject(()=>SteamStoppedMapUpdater.DemandSafeLocalInstallation(manager,aliasSwap),
+                "manual SteamCMD also rejects changed Store transfer file identity before any download");
             Reject(()=>AsaApiOwnedInstaller.ListCompletedRollbacks(manager,mapId),
                 "changed Store transfer identity also blocks API Core update or rollback inspection");
             manager.ReplaceMap(aliasSwap,enrolled);

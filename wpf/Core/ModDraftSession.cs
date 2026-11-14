@@ -14,13 +14,22 @@ public sealed record ModEditBaseline(string Arguments,string[] DisabledIds,bool 
     public bool HistoricalStoreProtected {get;init;}
     public string[] HistoricalEnabledMods {get;init;}=Array.Empty<string>();
     public string[] HistoricalPassiveMods {get;init;}=Array.Empty<string>();
+    // Preserve the exact immutable enrolled Store transfer parameters while
+    // projecting an IN-MEMORY mod draft. Without these, the Mod Center
+    // showed a valid Store map but its first staged edit was always refused.
+    public string FreshStoreClusterId {get;init;}="";
+    public string FreshStoreTransferDirectory {get;init;}="";
+    public string FreshStoreTransferFileId {get;init;}="";
     public static ModEditBaseline Capture(LocalMap map)
     {
         ArgumentNullException.ThrowIfNull(map);
         return new(map.Arguments??"", (map.DisabledModIds??new()).ToArray(),map.ModChangesPending){
             HistoricalStoreProtected=map.HistoricalStoreProtected,
             HistoricalEnabledMods=(map.HistoricalEnabledMods??new()).ToArray(),
-            HistoricalPassiveMods=(map.HistoricalPassiveMods??new()).ToArray()
+            HistoricalPassiveMods=(map.HistoricalPassiveMods??new()).ToArray(),
+            FreshStoreClusterId=map.FreshStoreClusterId??"",
+            FreshStoreTransferDirectory=map.FreshStoreTransferDirectory??"",
+            FreshStoreTransferFileId=map.FreshStoreTransferFileId??""
         };
     }
     public bool Matches(LocalMap map)=>
@@ -28,6 +37,9 @@ public sealed record ModEditBaseline(string Arguments,string[] DisabledIds,bool 
         DisabledIds.SequenceEqual(map.DisabledModIds??new()) &&
         Pending==map.ModChangesPending &&
         HistoricalStoreProtected==map.HistoricalStoreProtected &&
+        FreshStoreClusterId==(map.FreshStoreClusterId??"") &&
+        FreshStoreTransferDirectory==(map.FreshStoreTransferDirectory??"") &&
+        FreshStoreTransferFileId==(map.FreshStoreTransferFileId??"") &&
         (!HistoricalStoreProtected||
             (HistoricalEnabledMods.SequenceEqual(map.HistoricalEnabledMods??new())&&
              HistoricalPassiveMods.SequenceEqual(map.HistoricalPassiveMods??new())));
@@ -75,6 +87,9 @@ public sealed class ModDraftSession
         DisabledModIds=_baseline.DisabledIds.ToList(),
         ModChangesPending=_baseline.Pending,
         HistoricalStoreProtected=_baseline.HistoricalStoreProtected,
+        FreshStoreClusterId=_baseline.FreshStoreClusterId,
+        FreshStoreTransferDirectory=_baseline.FreshStoreTransferDirectory,
+        FreshStoreTransferFileId=_baseline.FreshStoreTransferFileId,
         HistoricalEnabledMods=_baseline.HistoricalEnabledMods.ToList(),
         HistoricalPassiveMods=_baseline.HistoricalPassiveMods.ToList()
     };

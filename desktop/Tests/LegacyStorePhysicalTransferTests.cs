@@ -562,7 +562,7 @@ internal static class LegacyStorePhysicalTransferTests
                     "wrong source-metadata approval never creates a cluster");
                 var complete=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterApply",approvalToken,
-                    "EREDETI KOVA REGISZTER");
+                    "EREDETI STORE REGISZTER");
                 Check(complete.GetProperty("ok").GetBoolean() &&
                       complete.GetProperty("data").GetProperty("addedCount").GetInt32()==5 &&
                       !complete.GetProperty("data").GetProperty("serverStarted").GetBoolean() &&
@@ -572,7 +572,7 @@ internal static class LegacyStorePhysicalTransferTests
                     "explicit native commit atomically adopts five original assignments in Manager metadata only");
                 var bootstrapReplay=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterApply",approvalToken,
-                    "EREDETI KOVA REGISZTER");
+                    "EREDETI STORE REGISZTER");
                 Check(!bootstrapReplay.GetProperty("ok").GetBoolean(),
                     "one-use metadata approval token cannot be replayed");
                 long revision=bootstrap.Registry.Snapshot().Revision;
@@ -585,7 +585,7 @@ internal static class LegacyStorePhysicalTransferTests
                 string repeatToken=again.GetProperty("data").GetProperty("token").GetString()!;
                 var repeat=await CallHistoricalBootstrap(registryBridge,
                     "historical.originalClusterApply",repeatToken,
-                    "EREDETI KOVA REGISZTER");
+                    "EREDETI STORE REGISZTER");
                 Check(repeat.GetProperty("ok").GetBoolean() &&
                       repeat.GetProperty("data").GetProperty("addedCount").GetInt32()==0 &&
                       bootstrap.Registry.Snapshot().Revision==revision,

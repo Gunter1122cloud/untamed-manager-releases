@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,7 +26,9 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
         DateTimeOffset Created);
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Pending? pending;
+    // A wizard on another map cannot revoke this map's pending RCON
+    // configuration. Keep one short-lived approval per local map.
+    private readonly Dictionary<Guid,Pending> approvalsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopRconConfigurationBridge(ClusterService service) =>
@@ -35,8 +40,8 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
     private static bool SafeMap(LocalMap m)=>
         !m.HistoricalStoreProtected && !m.ObservedReadOnlyImported && !m.Maintenance &&
         m.GamePort>0 && m.QueryPort>0 && !string.IsNullOrWhiteSpace(m.Arguments) &&
-        !m.Arguments.Contains("-usestore",StringComparison.OrdinalIgnoreCase) &&
-        !m.Arguments.Contains("converttostore",StringComparison.OrdinalIgnoreCase) &&
+        !AsaStoreArgumentSwitches.ContainsProtectedSwitch(m.Arguments) &&
+        !AsaStoreArgumentSwitches.ContainsProtectedSwitch(m.ApiLoaderArguments) &&
         !m.Arguments.Contains("RCONPort",StringComparison.OrdinalIgnoreCase) &&
         !m.Arguments.Contains("ServerAdminPassword",StringComparison.OrdinalIgnoreCase) &&
         string.IsNullOrWhiteSpace(m.StoreTestRoot) &&
@@ -75,22 +80,24 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
     private static void VerifyExisting(string path,int port,string password)
     {
         if(!File.Exists(path))throw new InvalidDataException("UM-RCON-INI-ABSENT");
-        var lines=File.ReadAllLines(path);
-        bool section=false;
-        int enabled=0,ports=0,passwords=0;
-        foreach(string item in lines)
+        bool inSection=false;
+        int sections=0,enabled=0,ports=0,passwords=0;
+        byte[] expected=Encoding.UTF8.GetBytes(password);
+        foreach(string source in File.ReadLines(path))
         {
-            string line=item.Trim();
-            if(line.StartsWith("[",StringComparison.Ordinal))
+            string text=source.Trim();
+            if(text.StartsWith("[",StringComparison.Ordinal))
             {
-                section=line.Equals("[ServerSettings]",StringComparison.OrdinalIgnoreCase);
+                inSection=text.Equals("[ServerSettings]",StringComparison.OrdinalIgnoreCase);
+                if(inSection)sections++;
                 continue;
             }
-            if(!section || line.StartsWith(";",StringComparison.Ordinal) ||
-               line.StartsWith("#",StringComparison.Ordinal))continue;
-            int equals=line.IndexOf('=');
-            if(equals<1)continue;
-            string key=line[..equals].Trim(),value=line[(equals+1)..].Trim();
+            if(!inSection||text.Length==0||text[0] is ';' or '#')continue;
+            int equal=source.IndexOf('=');
+            if(equal<1)continue;
+            string key=source[..equal].Trim();
+            string rawValue=source[(equal+1)..];
+            string value=rawValue.Trim();
             if(key.Equals("RCONEnabled",StringComparison.OrdinalIgnoreCase))
             {
                 enabled++;
@@ -106,11 +113,17 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
             else if(key.Equals("ServerAdminPassword",StringComparison.OrdinalIgnoreCase))
             {
                 passwords++;
-                if(!string.Equals(value,password,StringComparison.Ordinal))
+                // Preserve exact existing ASA credentials, including leading
+                // and trailing spaces and embedded '='. Do not normalize or
+                // return secret bytes to WebView2. This mirrors the existing
+                // AsaRconConfigurationEvidence local-profile parity check.
+                byte[] actual=Encoding.UTF8.GetBytes(rawValue);
+                if(actual.Length!=expected.Length||
+                   !CryptographicOperations.FixedTimeEquals(actual,expected))
                     throw new InvalidDataException("UM-RCON-INI-PASSWORD-MISMATCH");
             }
         }
-        if(enabled!=1||ports!=1||passwords!=1)
+        if(sections!=1||enabled!=1||ports!=1||passwords!=1)
             throw new InvalidDataException("UM-RCON-INI-AMBIGUOUS");
     }
 
@@ -143,6 +156,9 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var expired in approvalsByMap.Where(p=>
+                    DateTimeOffset.UtcNow-p.Value.Created>TimeSpan.FromMinutes(5))
+                    .Select(p=>p.Key).ToArray())approvalsByMap.Remove(expired);
                 if(method=="rcon.configStatus")
                 {
                     if(!TryGuid(root,"mapId",out var mapId))return Error(id,"UM-RCON-MAP");
@@ -166,19 +182,23 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                        !root.TryGetProperty("createIni",out var createField) ||
                        createField.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                         return Error(id,"UM-RCON-CONFIG-FIELDS");
+                    approvalsByMap.Remove(mapId);
                     var map=Local(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
                     if(!SafeMap(map)||!Stopped(map)||
                        !FreshAsaInstallationSafety.IsProvenFresh(cluster,map))
                         return Error(id,"UM-RCON-CONFIG-STOPPED-NONSTORE-ONLY");
                     string password=secretField.GetString()??"";
-                    AsaInitialRconSettings.ValidateAdminPassword(password);
+                    bool create=createField.GetBoolean();
+                    // Existing ASA INI passwords must be verified exactly,
+                    // not rejected by the separate new-password policy.
+                    if(create)AsaInitialRconSettings.ValidateAdminPassword(password);
+                    else AsaInitialRconSettings.ValidateExistingAdminPassword(password);
                     LocalMapPortPolicy.RequireNoConflicts(new LocalMap{
                         Id=map.Id,Name=map.Name,GamePort=map.GamePort,
                         QueryPort=map.QueryPort,RconPort=port
                     },cluster.Config.LocalMaps);
                     string path=IniPath(map);
-                    bool create=createField.GetBoolean();
                     if(create)
                     {
                         if(File.Exists(path)||ExistingWorldOrStore(map))
@@ -186,22 +206,30 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                     }
                     else VerifyExisting(path,port,password);
                     string digest=Digest(path);
-                    pending=new(Guid.NewGuid(),map.Id,map.Arguments,map.InstallationPath,
-                        map.ExecutablePath,map.RconPort,SecureStore.Protect(password),port,
-                        create,digest,DateTimeOffset.UtcNow);
-                    return Ok(id,new{token=pending.Token,mapId=map.Id,mapName=map.Name,
+                    if(approvalsByMap.Count>=25)approvalsByMap.Clear();
+                    var approval=new Pending(Guid.NewGuid(),map.Id,map.Arguments,
+                        map.InstallationPath,map.ExecutablePath,map.RconPort,
+                        SecureStore.Protect(password),port,create,digest,
+                        DateTimeOffset.UtcNow);
+                    approvalsByMap[map.Id]=approval;
+                    return Ok(id,new{token=approval.Token,mapId=map.Id,mapName=map.Name,
                         rconPort=port,createsNewIni=create,existingIniVerified=!create,
                         evidence="STOPPED_LOCAL_RCON_PREVIEW_NO_WRITES"});
                 }
-                if(!TryGuid(root,"token",out var token)||pending==null ||
-                   pending.Token!=token ||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(5))
+                if(!TryGuid(root,"token",out var token)||
+                   !approvalsByMap.Values.Any(p=>p.Token==token))
                     return Error(id,"UM-RCON-CONFIG-TOKEN-EXPIRED");
+                var approved=approvalsByMap.Values.Single(p=>p.Token==token);
+                if(DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(5))
+                {
+                    approvalsByMap.Remove(approved.MapId);
+                    return Error(id,"UM-RCON-CONFIG-TOKEN-EXPIRED");
+                }
                 if(!root.TryGetProperty("confirm",out var approve) ||
                    approve.ValueKind!=JsonValueKind.True)
                     return Error(id,"UM-RCON-CONFIG-CONFIRMATION");
-                var item=pending;
-                pending=null; // one shot, including failed writes
+                var item=approved;
+                approvalsByMap.Remove(item.MapId); // one shot, including failed writes
                 var current=Local(item.MapId);
                 if(current==null||!SafeMap(current) || !Stopped(current) ||
                    !FreshAsaInstallationSafety.IsProvenFresh(cluster,current) ||

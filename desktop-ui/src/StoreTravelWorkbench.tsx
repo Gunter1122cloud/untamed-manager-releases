@@ -196,7 +196,7 @@ export function StoreTravelWorkbench(){
       const code=e instanceof Error?e.message:"UM-TRAVEL-EVIDENCE-UNVERIFIED";
       setCaptureError(code==="UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"
         ?"Az Obsidian helyi regiszterében nincs pontosan öt egyedi ASA-map. "+
-         "Előbb a Store-v1 meglévő Kova-map átvételénél ellenőrizd az eredeti öt mapot. "+
+         "Előbb a Store-v1 meglévő eredeti map átvételénél ellenőrizd az eredeti öt mapot. "+
          "A futó szervereket ne állítsd le ehhez."
         :"A helyi ötmapos, csak olvasási mentésleltár nem készíthető el ("+
          (code.startsWith("UM-")?code:"UM-TRAVEL-EVIDENCE-UNVERIFIED")+
@@ -247,34 +247,40 @@ export function StoreTravelWorkbench(){
     <header className="page-intro">
       <span className="eyebrow">UNTAMED KINGDOM / 5 + 5 MAP / STORE-V1</span>
       <h1>Karakterutazás tesztközpont</h1>
-      <p>HP és Ryzen mentésfájlok ellenőrzése az utazás előtt és után.
-        A modul nem ad írási jogosultságot az eredeti Store-v1-hez, nem
-        szerkeszt .arkprofile vagy .arktribe fájlt és nem módosít MariaDB-t.</p>
+      <p>Az oda-vissza karakterutazást az ASA saját cluster/transfer rendszere végzi.
+        Az Obsidian nem másol karaktert, inventoryt, tribe-ot vagy tribute-ot,
+        nem hoz létre új Store-v1 sessiont, és utazás miatt nem futtat
+        automatikus mentést vagy restore-t. A tényleges HP → Ryzen → HP
+        visszautat a tulajdonosok tesztkarakterrel ellenőrzik.</p>
     </header>
     <section className="uk-travel-hero">
       <div className="uk-travel-hero-icon"><ShieldCheck size={33}/></div>
       <div><span>VÉDETT · CSAK OLVASÁS</span>
-        <h2>Az eredeti karakterfájlok megőrzése az első.</h2>
-        <p>A legszigorúbb összehasonlítás nyugalomban lévő (igazoltan leállított)
-          mapoknál érvényes. Készíts 5+5 mentéslenyomatot indulás előtt,
-          teszteld az utazást, majd 5+5-öt utána. Ez nem kapcsolja ki a Store-zárat.</p>
+        <h2>Az eredeti ASA/korábbi kezelőalkalmazás konfiguráció marad érvényben.</h2>
+        <p>A natív indítás ellenőrzi a eredeti clusterazonosítót, az eredeti közös
+          transferkönyvtárat, a maponkénti portokat, mod-sorrendet, egyszeri
+          -usestore kapcsolót és a meglévő INI-k változatlanságát.
+          Az alábbi offline fájlleltár opcionális diagnosztika, nem feltétele
+          az ASA saját játékbeli karakterutazásának.</p>
       </div>
     </section>
-    <section className="uk-travel-reference" aria-label="Referenciával igazolt, kötelező működés">
+    <section className="uk-travel-reference" aria-label="ASA natív karakterutazás ellenőrzése">
       <div className="uk-travel-reference-header">
         <ShieldCheck size={19}/>
-        <strong>REFERENCIÁVAL IGAZOLT – NÁLUNK IS KÖTELEZŐEN MŰKÖDNIE KELL</strong>
+        <strong>ASA NATÍV TRANSFER – KONFIGURÁCIÓMEGŐRZÉS A MANAGERBEN</strong>
       </div>
-      <p>Nyilvánosan dokumentált ASA Manager-tesztekben játékbeli próbával igazolták a két map közötti
-        karakter-, tárgy- és dinóátvitelt, újraindítással és oda-vissza utazással.
-        Ez nálunk is kötelező képesség, kiegészítve a két külön gépes, 5+5 mapos
-        Store-v1 kompatibilitással, a tribe-adatok és az eredeti fájlok sértetlenségével.</p>
+      <p>Mind a tíz eredeti map a saját korábbi kezelőalkalmazás-indítási forrásából kapja a
+        eredeti clusterazonosítót, az eredeti közös ClusterDirOverride útvonalat
+        és a Store-v1 kapcsolókat. A Manager nem hoz létre külön
+        karaktermozgatási vagy automatikus helyreállítási rendszert.
+        Az előnézet és a jóváhagyás között változó forrást elutasítja.</p>
       <div className="uk-travel-reference-status">
-        <span><CheckCircle2 size={14}/> Kötelező megvalósítási cél</span>
-        <span><LockKeyhole size={14}/> Saját éles Store-v1 igazolás: még nincs</span>
+        <span><CheckCircle2 size={14}/> Natív ASA indítási konfigurációellenőrzés beépítve</span>
+        <span><LockKeyhole size={14}/> Csak az éles HP → Ryzen → HP tesztkarakter-utazás függőben</span>
       </div>
-      <small>Referenciabizonyíték: külső ASA Manager teszt, két map egy Windows gépen.
-        Nem a mi kétgépes clusterünk tanúsítása. A Writer/Store védelem továbbra is aktív.</small>
+      <small>Az éles próba során a túlélő, inventory, tribe és tribute
+        folytonosságát a játékban ellenőrizzétek. A fájlok SHA-256
+        összehasonlítása nem helyettesíti a játékbeli ellenőrzést.</small>
     </section>
     <EmbeddedStoreCopyInspector/>
     <div className="uk-travel-grid">
@@ -435,9 +441,9 @@ export function StoreTravelWorkbench(){
     </div>
     {error&&<div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
     <div className="uk-travel-lock"><LockKeyhole size={19}/>
-      <span>Éles karakterutazás, a Store-v1 kétgépes írójoga, az implant és
-        a MariaDB-tranzakciók csak valódi ASA teszttel fogadhatók el.
-        A mentéslenyomatok összevetése nem oldja fel a védett mapok indítási zárolását.</span>
+      <span>A karakterutazás az ASA feladata. A kétgépes játékbeli próba
+        még függőben van; ez nem egy hiányzó Obsidian-karaktermozgató modul.
+        A mentéslenyomatok nem adnak indítási jogot és nem végeznek restore-t.</span>
     </div>
   </div>;
 }

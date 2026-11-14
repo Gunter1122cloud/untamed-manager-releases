@@ -22,13 +22,15 @@ public sealed class DesktopIniBridge : IDisposable
     private readonly SemaphoreSlim gate = new(1,1);
     private readonly Dictionary<Guid,OpenDocument> opened = new();
     private sealed record MissingGameApproval(Guid Token,Guid MapId,string Profile,DateTimeOffset Expires);
-    private MissingGameApproval? pendingGame;
+    // A Game.ini setup wizard on another local ASA map must not invalidate
+    // this map's approval. Only one one-shot ticket per map is allowed.
+    private readonly Dictionary<Guid,MissingGameApproval> pendingGameByMap=new();
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed class OpenDocument
     {
         public required Guid Token {get;init;}
         public required Guid MapId {get;init;}
-        public required ConfigSnapshot Snapshot {get;init;}
+        public required ConfigSnapshot Snapshot {get;set;}
         public required DateTimeOffset OpenedUtc {get;init;}
         public string? PreviewedContent {get;set;}
         public ConfigPreview? Preview {get;set;}
@@ -46,8 +48,8 @@ public sealed class DesktopIniBridge : IDisposable
            !string.IsNullOrWhiteSpace(map.StoreTestRoot)||
            !string.IsNullOrWhiteSpace(map.FreshStoreClusterId)||
            !string.IsNullOrWhiteSpace(map.FreshStoreTransferDirectory)||
-           (map.Arguments+" "+map.ApiLoaderArguments).Contains("-usestore",
-               StringComparison.OrdinalIgnoreCase)||
+           AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
+           AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments)||
            !AsaReadyProbe.IsRegisteredServerBinary(map))
             throw new UnauthorizedAccessException("UM-INI-CREATE-FRESH-ONLY");
         var root=Path.GetFullPath(map.InstallationPath).TrimEnd(Path.DirectorySeparatorChar);
@@ -103,8 +105,8 @@ public sealed class DesktopIniBridge : IDisposable
                 return Fail(null,"UM-INVALID-MESSAGE");
             id=requestId.ToString("D");
             string? method=methodValue.GetString();
-            if(method is not ("ini.open" or "ini.preview" or "ini.save" or "ini.close"
-                or "ini.createGamePreview" or "ini.createGameApply"))
+            if(method is not ("ini.open" or "ini.preview" or "ini.rebasePreview" or
+                "ini.save" or "ini.close" or "ini.createGamePreview" or "ini.createGameApply"))
                 return Fail(id,"UM-METHOD-DENIED");
 
             await gate.WaitAsync();
@@ -113,17 +115,22 @@ public sealed class DesktopIniBridge : IDisposable
                 foreach(var expired in opened.Where(x=>
                     DateTimeOffset.UtcNow-x.Value.OpenedUtc>TimeSpan.FromMinutes(12))
                     .Select(x=>x.Key).ToArray())opened.Remove(expired);
+                foreach(var expired in pendingGameByMap.Where(x=>
+                    x.Value.Expires<DateTimeOffset.UtcNow)
+                    .Select(x=>x.Key).ToArray())pendingGameByMap.Remove(expired);
 
                 if(method=="ini.createGamePreview")
                 {
-                    pendingGame=null;
                     if(!GetGuid(data,"mapId",out var mapId))
                         return Fail(id,"UM-INI-CREATE-MAP");
+                    pendingGameByMap.Remove(mapId);
                     var selected=MissingGamePreflight(mapId);
-                    pendingGame=new MissingGameApproval(Guid.NewGuid(),mapId,
+                    if(pendingGameByMap.Count>=25)pendingGameByMap.Clear();
+                    var approval=new MissingGameApproval(Guid.NewGuid(),mapId,
                         JsonSerializer.Serialize(selected.Map),DateTimeOffset.UtcNow.AddMinutes(3));
+                    pendingGameByMap[mapId]=approval;
                     return Ok(id,new{
-                        token=pendingGame.Token,mapId,file="Game.ini",
+                        token=approval.Token,mapId,file="Game.ini",
                         createsFile=false,requiresStoppedProcess=true,
                         originalStoreTouched=false,
                         evidence="FRESH_GAME_INI_CREATE_PREVIEW_NO_WRITE"
@@ -131,13 +138,13 @@ public sealed class DesktopIniBridge : IDisposable
                 }
                 if(method=="ini.createGameApply")
                 {
-                    if(!GetGuid(data,"token",out var gameToken)||pendingGame==null||
-                       pendingGame.Token!=gameToken||
+                    if(!GetGuid(data,"token",out var gameToken)||
+                       !pendingGameByMap.Values.Any(p=>p.Token==gameToken)||
                        !data.TryGetProperty("confirm",out var consent)||
                        consent.ValueKind!=JsonValueKind.True)
                         return Fail(id,"UM-INI-CREATE-EXPLICIT-APPROVAL");
-                    var approved=pendingGame;
-                    pendingGame=null; // never replay, even after an I/O failure
+                    var approved=pendingGameByMap.Values.Single(p=>p.Token==gameToken);
+                    pendingGameByMap.Remove(approved.MapId); // one shot, including failed writes
                     if(approved.Expires<DateTimeOffset.UtcNow)
                         return Fail(id,"UM-INI-CREATE-EXPIRED");
                     var candidate=MissingGamePreflight(approved.MapId);
@@ -268,6 +275,37 @@ public sealed class DesktopIniBridge : IDisposable
                         evidence="HASHED_IN_MEMORY_PREVIEW"
                     });
                 }
+                if(method=="ini.rebasePreview")
+                {
+                    if(!data.TryGetProperty("content",out var rebasedField) ||
+                       rebasedField.ValueKind!=JsonValueKind.String)
+                        return Fail(id,"UM-INI-INVALID-CONTENT");
+                    string proposed=rebasedField.GetString()??"";
+                    if(proposed.Length>2_000_000)
+                        return Fail(id,"UM-INI-CONTENT-TOO-LARGE");
+                    var observed=owned.HistoricalStoreProtected?
+                        HistoricalLocalConfigGuard.DemandStopped(cluster,owned):
+                        cluster.Check(owned);
+                    if(!observed.ConfirmedStopped||observed.Running||
+                       owned.Maintenance)
+                        return Fail(id,"UM-INI-STOP-REQUIRED");
+                    var latest=SafeConfigEditor.Read(openedFile.Snapshot.Path,
+                        owned.InstallationPath,ConfigKind.GameIni,observed,
+                        owned.Maintenance);
+                    var merge=SafeConfigEditor.RebaseIni(
+                        openedFile.Snapshot,proposed,latest);
+                    // No file mutation, no implicit approval, no reuse of
+                    // the old hash preview. Only the fresh baseline is kept.
+                    openedFile.Snapshot=latest;
+                    openedFile.PreviewedContent=null;
+                    openedFile.Preview=null;
+                    return Ok(id,new{
+                        content=merge.Content,diskContent=latest.Text,
+                        freshSha256=latest.Sha256,
+                        mergedLines=merge.MergedLines,
+                        evidence="THREE_WAY_INI_REBASE_PREVIEW_NO_WRITE"
+                    });
+                }
                 if(openedFile.PreviewedContent==null || openedFile.Preview==null ||
                    !openedFile.Preview.Changed)
                     return Fail(id,"UM-INI-PREVIEW-REQUIRED");
@@ -308,6 +346,7 @@ public sealed class DesktopIniBridge : IDisposable
         catch(UnauthorizedAccessException){return Fail(id,"UM-INI-ACCESS-DENIED");}
         catch(InvalidDataException){return Fail(id,"UM-INI-PATH-OR-CONTENT-UNSAFE");}
         catch(ConfigEtagConflictException){return Fail(id,"UM-INI-ETAG-MISMATCH");}
+        catch(ConfigMergeConflictException){return Fail(id,"UM-INI-MERGE-CONFLICT");}
         catch(IOException){return Fail(id,"UM-INI-CONFLICT-OR-IO-ERROR");}
         catch(Exception)
         {

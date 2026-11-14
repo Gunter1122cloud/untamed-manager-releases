@@ -3,7 +3,7 @@
 **2026-11-03 · v1.6.x Windows TEST / PREVIEW – NEM production elfogadás**
 
 ## Források
-A felhasználó TELJES-KEZELOFELULET-TERV-HU.md dokumentuma, Untamed-Manager-Kutatas-es-Adatigeny-20261102.md, a 2026-11-03-as v1.3.7/v1.5.0/v1.6.0 feladatok, a HP/Ryzen auditjelentések, a 159 Kova dokumentációs bejegyzés összefoglalója, az aktuális GitHub WPF/Core/Supervisor/CI-kód és a korábban szintetikus tesztekkel feldolgozott valódi Store-v1 metadata ZIP. A felhasználó eredeti Store ZIP-jét és a privát hostadatokat nem másoltuk a GitHubba.
+A felhasználó TELJES-KEZELOFELULET-TERV-HU.md dokumentuma, Untamed-Manager-Kutatas-es-Adatigeny-20261102.md, a 2026-11-03-as v1.3.7/v1.5.0/v1.6.0 feladatok, a HP/Ryzen auditjelentések, a 159 Legacy dokumentációs bejegyzés összefoglalója, az aktuális GitHub WPF/Core/Supervisor/CI-kód és a korábban szintetikus tesztekkel feldolgozott valódi Store-v1 metadata ZIP. A felhasználó eredeti Store ZIP-jét és a privát hostadatokat nem másoltuk a GitHubba.
 
 ## Tételes, 20 területes hiányosságlista
 
@@ -40,7 +40,7 @@ A felhasználó TELJES-KEZELOFELULET-TERV-HU.md dokumentuma, Untamed-Manager-Kut
 
 ## Maradék feladatok és blokkolók – sorrend
 
-**P0:** valós ASA SaveWorld-befejezési bizonyíték; egyetlen writer tulajdonjog és API Loader/process ID; teljes Kova/Untamed Vault 1:1 transzfer-rendszer és maradéktalan kétgépes karakter- és adatkonzisztencia; három SQL adatbázis konzisztens dump/restore másolaton; izolált valódi ASA tesztcluster. Ezek NEM dönthetők el kizárólag FakeAsa Windows CI alapján.
+**P0:** valós ASA SaveWorld-befejezési bizonyíték; egyetlen writer tulajdonjog és API Loader/process ID; teljes Legacy/Untamed Vault 1:1 transzfer-rendszer és maradéktalan kétgépes karakter- és adatkonzisztencia; három SQL adatbázis konzisztens dump/restore másolaton; izolált valódi ASA tesztcluster. Ezek NEM dönthetők el kizárólag FakeAsa Windows CI alapján.
 
 **P1:** SteamCMD és ASA API éles staged frissítési motor; telepített CurseForge-file ID, jogosultság és törés nélküli update; teljes backup retention karantén és WPF; automatikus ütemezett író feladatok csak P0 után; kiadási csatorna publikált és kiadói aláírt GitHub Release-szel.
 
@@ -52,7 +52,7 @@ A felhasználó TELJES-KEZELOFELULET-TERV-HU.md dokumentuma, Untamed-Manager-Kut
 - A tesztbuild **csak a külön Windows tesztgépre** való, az UK-HOME-01/02 éles gépekhez a fejlesztés alatt nem nyúlunk.
 - A felületen a márkanév Untamed Cluster Vault. A már létező diskprotokoll azonosítóit belül megtartjuk, semmilyen konverzió vagy locktörlés nem történik.
 - A felhasználó korábbi kézi WAN-kezelési döntését nem írjuk felül automatikus restarttal.
-- A teljes telepítő a CI után TEST, nem production-ready, amíg az eredeti két hoston kívüli, valódi ASA/Kova teszt nincs lezárva.
+- A teljes telepítő a CI után TEST, nem production-ready, amíg az eredeti két hoston kívüli, valódi ASA/Legacy teszt nincs lezárva.
 
 Discord protokollhoz ellenőrzött elsődleges források:
 https://github.com/discord/discord-api-docs/blob/main/developers/resources/webhook.mdx

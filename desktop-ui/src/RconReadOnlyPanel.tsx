@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,RefreshCw,Shield,Terminal,Users,Save} from "lucide-react";
 import {managerBridge,type RconStatus,type RconPlayers,type RconReadLog,type RconWorldSave,type RconSaveStatus,type RconAdminPreview,type RconAdminResult,type RconConfigStatus,type RconConfigPreview} from "./bridge";
 
@@ -22,10 +22,16 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
   const [createNewIni,setCreateNewIni]=useState(true);
   const [configPreview,setConfigPreview]=useState<RconConfigPreview|null>(null);
   const [configDone,setConfigDone]=useState(false);
+  const currentMap=useRef(mapId);
+  currentMap.current=mapId;
+  const requestEpoch=useRef(0);
+  const belongs=(requested:string,epoch:number)=>
+    currentMap.current===requested&&requestEpoch.current===epoch;
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const load=useCallback(async()=>{
     if(!mapId)return;
+    const requested=mapId,epoch=requestEpoch.current;
     setBusy(true);setError("");setStatus(null);setResult(null);setReadLog(null);
     setSaveReceipt(null);setSaveEvidence(null);setSaveApproved(false);
     setAdminDraft(null);setAdminApproved(false);setAdminTyped("");setAdminReceipt(null);
@@ -33,103 +39,187 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
       // The optional configuration endpoint must never block existing RCON
       // commands or the admin panel when old/native test bridges omit it.
       const [rcon,configuration]=await Promise.allSettled([
-        managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
+        managerBridge.rconStatus(requested),managerBridge.rconConfigStatus(requested)
       ]);
-      if(rcon.status!=="fulfilled")throw new Error("UM-RCON-STATUS-UNAVAILABLE");
+      if(!belongs(requested,epoch))return;
+      if(rcon.status!=="fulfilled"||
+         rcon.value.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-RCON-STATUS-UNAVAILABLE");
       setStatus(rcon.value);
-      const nextConfig=configuration.status==="fulfilled"?configuration.value:null;
+      const nextConfig=configuration.status==="fulfilled"&&
+        configuration.value.mapId.toLowerCase()===requested.toLowerCase()
+          ?configuration.value:null;
       setConfig(nextConfig);
       // Port selection is read from the opened map's native configuration.
       // The map-bound component key discards unsaved drafts on navigation.
       if(nextConfig?.rconPort && nextConfig.rconPort>=1024&&nextConfig.rconPort<=65535)
         setRconPort(String(nextConfig.rconPort));
     }
-    catch{setError("A helyi RCON-állapot nem ellenőrizhető. Egyetlen parancs sem került elküldésre.");}
-    finally{setBusy(false);}
+    catch{if(belongs(requested,epoch))
+      setError("A helyi RCON-állapot nem ellenőrizhető. Egyetlen parancs sem került elküldésre.");}
+    finally{if(belongs(requested,epoch))setBusy(false);}
   },[mapId]);
-  useEffect(()=>{void load();},[load]);
+  useEffect(()=>{
+    ++requestEpoch.current;
+    setStatus(null);setResult(null);setReadLog(null);
+    setSaveReceipt(null);setSaveEvidence(null);setAdminDraft(null);
+    setAdminReceipt(null);setConfigPreview(null);setConfig(null);
+    setSaveApproved(false);setAdminApproved(false);setAdminTyped("");
+    setConfigDone(false);setRconPassword("");setBusy(false);setError("");
+    void load();
+    return ()=>{++requestEpoch.current;};
+  },[load]);
   const previewConfiguration=async()=>{
-    if(busy||!config?.permitted||rconPassword.length<12)return;
+    if(busy||!config?.permitted||
+       rconPassword.length<(createNewIni?12:1))return;
+    const requested=mapId,epoch=requestEpoch.current;
     setBusy(true);setError("");setConfigPreview(null);setConfigDone(false);
     try{
-      setConfigPreview(await managerBridge.rconConfigPreview(
-        mapId,Number(rconPort),rconPassword,createNewIni));
+      const result=await managerBridge.rconConfigPreview(
+        requested,Number(rconPort),rconPassword,createNewIni);
+      if(!belongs(requested,epoch))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-RCON-CONFIG-PREVIEW-MAP-MISMATCH");
+      setConfigPreview(result);
     }catch{
-      setError("Az RCON-konfiguráció ellenőrzése sikertelen. A mapnak leállítva kell lennie; meglévő INI esetén az eredeti portnak és jelszónak egyeznie kell.");
-    }finally{setBusy(false);}
+      if(belongs(requested,epoch))setError("Az RCON-konfiguráció előellenőrzése sikertelen. Az INI, a port vagy a mapazonosító nem egyezik.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const commitConfiguration=async()=>{
-    if(!configPreview||busy)return;
-    const token=configPreview.token;
+    if(!configPreview||configPreview.mapId.toLowerCase()!==mapId.toLowerCase()||busy)return;
+    const token=configPreview.token,requested=mapId,epoch=requestEpoch.current;
     setConfigPreview(null);setRconPassword("");
     setBusy(true);setError("");
     try{
-      await managerBridge.rconConfigApply(token);
+      const receipt=await managerBridge.rconConfigApply(token);
+      if(!belongs(requested,epoch))return;
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         !receipt.configured||receipt.serverStarted)
+        throw new Error("UM-RCON-CONFIG-RECEIPT-MISMATCH");
       setConfigDone(true);
-      // A committed native receipt cannot be revoked by a subsequent read.
-      // Do not invite repeated bootstrap writes when status refresh fails.
       try {
         const [nextStatus,nextConfig]=await Promise.all([
-          managerBridge.rconStatus(mapId),managerBridge.rconConfigStatus(mapId)
+          managerBridge.rconStatus(requested),managerBridge.rconConfigStatus(requested)
         ]);
+        if(!belongs(requested,epoch))return;
+        if(nextStatus.mapId.toLowerCase()!==requested.toLowerCase()||
+           nextConfig.mapId.toLowerCase()!==requested.toLowerCase())
+          throw new Error("UM-RCON-CONFIG-STATUS-MAP-MISMATCH");
         setStatus(nextStatus);setConfig(nextConfig);
         if(onConfigured)await onConfigured();
       } catch {
-        setError("A natív RCON-konfiguráció mentve, de az állapotfrissítés nem sikerült. Ne ismételd meg az INI-előkészítést; frissítsd a Manager állapotát.");
+        if(belongs(requested,epoch))
+          setError("A natív RCON-konfiguráció mentve, de az állapotfrissítés nem sikerült. Ne ismételd meg az INI-előkészítést; frissítsd a Manager állapotát.");
       }
     }catch{
-      setError("A natív RCON-beállítás nem fejeződött be. A szerver nem indult el; ellenőrizd a helyi állapotot.");
-    }finally{setBusy(false);}
+      if(belongs(requested,epoch))
+        setError("Az RCON-beállítás eredménye nem igazolható. Ellenőrizd a helyi profilt, mielőtt megismételnéd.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const list=async()=>{
     if(!status?.permitted||busy)return;
+    const requested=mapId,epoch=requestEpoch.current;
     setBusy(true);setError("");setResult(null);
-    try{setResult(await managerBridge.rconListPlayers(mapId));}
-    catch{setError("A biztonságos ListPlayers lekérdezés nem igazolható. A kapcsolódás vagy a folyamat állapota megváltozhatott.");}
-    finally{setBusy(false);}
+    try{
+      const reply=await managerBridge.rconListPlayers(requested);
+      if(!belongs(requested,epoch))return;
+      if(reply.mapId.toLowerCase()!==requested.toLowerCase()||!reply.readOnly)
+        throw new Error("UM-RCON-PLAYERS-MAP-MISMATCH");
+      setResult(reply);
+    }catch{if(belongs(requested,epoch))
+      setError("A helyi ASA játékoslista válasza vagy mapazonosítója nem igazolható.");}
+    finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const queryReadLog=async(type:"game"|"chat")=>{
     if(!status?.permitted||busy)return;
+    const requested=mapId,epoch=requestEpoch.current;
     setBusy(true);setError("");setReadLog(null);setResult(null);
     try{
-      setReadLog(type==="game"
-        ?await managerBridge.rconGameLog(mapId)
-        :await managerBridge.rconChatLog(mapId));
+      const response=type==="game"
+        ?await managerBridge.rconGameLog(requested)
+        :await managerBridge.rconChatLog(requested);
+      if(!belongs(requested,epoch))return;
+      if(response.mapId.toLowerCase()!==requested.toLowerCase()||
+         response.command!==(type==="game"?"GetGameLog":"GetChat")||!response.readOnly)
+        throw new Error("UM-RCON-LOG-MAP-MISMATCH");
+      setReadLog(response);
     }catch{
-      setError("Az ASA napló/chat RCON-lekérdezés nem igazolható. A parancs ismételhető, de a helyi PID és TCP-port ellenőrzése szükséges.");
-    }finally{setBusy(false);}
+      if(belongs(requested,epoch))
+        setError("Az ASA napló/chat RCON-válasz mapazonossága nem igazolható.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const saveWorld=async()=>{
     if(!status?.permitted||!saveApproved||busy)return;
+    const requested=mapId,epoch=requestEpoch.current;
     setBusy(true);setError("");setSaveReceipt(null);setSaveEvidence(null);setSaveApproved(false);
-    try{setSaveReceipt(await managerBridge.rconSaveWorld(mapId));}
-    catch{setError("A SaveWorld RCON-parancs nem lett ellenőrzötten visszaigazolva. A folyamatot és a mentés fájljait ellenőrizd.");}
-    finally{setBusy(false);}
+    try{
+      const receipt=await managerBridge.rconSaveWorld(requested);
+      if(!belongs(requested,epoch))return;
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         !receipt.rconCommandDispatched)
+        throw new Error("UM-RCON-SAVE-RECEIPT-MAP-MISMATCH");
+      setSaveReceipt(receipt);
+    }catch{
+      if(belongs(requested,epoch))
+        setError("A SaveWorld kiküldésének eredménye nem igazolható. A parancs már célba érhetett; ne ismételd meg ellenőrzés nélkül.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const verifySave=async()=>{
     if(!saveReceipt?.watchId||checkingSave||busy)return;
+    if(saveReceipt.mapId.toLowerCase()!==mapId.toLowerCase())return;
+    const requested=mapId,epoch=requestEpoch.current;
+    const watch=saveReceipt.watchId;
     setCheckingSave(true);setError("");
-    try{setSaveEvidence(await managerBridge.rconSaveStatus(mapId,saveReceipt.watchId));}
-    catch{setError("A mentési napló vagy világfájl nem igazolható, illetve a PID megváltozott. Új SaveWorld nem indult.");}
-    finally{setCheckingSave(false);}
+    try{
+      const proof=await managerBridge.rconSaveStatus(requested,watch);
+      if(!belongs(requested,epoch))return;
+      if(proof.mapId.toLowerCase()!==requested.toLowerCase()||
+         proof.watchId!==watch)
+        throw new Error("UM-RCON-SAVE-STATUS-MAP-MISMATCH");
+      setSaveEvidence(proof);
+    }catch{
+      if(belongs(requested,epoch))
+        setError("A mentésnapló vagy világfájl nem igazolható. Új SaveWorld nem indult.");
+    }finally{if(belongs(requested,epoch))setCheckingSave(false);}
   };
   const prepareAdmin=async()=>{
     if(!status?.permitted||busy||(!adminMessage.trim()&&adminAction!=="wildWipe"))return;
+    const requested=mapId,epoch=requestEpoch.current;
     setBusy(true);setError("");setAdminDraft(null);setAdminReceipt(null);
     setAdminApproved(false);setAdminTyped("");
-    try{setAdminDraft(await managerBridge.rconAdminPreview(mapId,adminAction,adminAction==="wildWipe"?"":adminMessage));}
-    catch{setError("A helyi adminparancs ellenőrzése sikertelen: a művelet nincs engedélyezve vagy a RCON-kapcsolat nem igazolt.");}
-    finally{setBusy(false);}
+    try{
+      const result=await managerBridge.rconAdminPreview(requested,adminAction,
+        adminAction==="wildWipe"?"":adminMessage);
+      if(!belongs(requested,epoch))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         result.action!==adminAction||result.dispatched)
+        throw new Error("UM-RCON-ADMIN-PREVIEW-MAP-MISMATCH");
+      setAdminDraft(result);
+    }catch{
+      if(belongs(requested,epoch))
+        setError("A helyi adminparancs előellenőrzése vagy mapazonossága nem igazolható.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const executeAdmin=async()=>{
-    if(!adminDraft||!adminApproved||busy||
+    if(!adminDraft||adminDraft.mapId.toLowerCase()!==mapId.toLowerCase()||
+       !adminApproved||busy||
        (adminDraft.approvalWord!==null&&adminTyped!==adminDraft.approvalWord))return;
-    const token=adminDraft.token;
+    const token=adminDraft.token,requested=mapId,epoch=requestEpoch.current,
+      approvedCommand=adminDraft.command,typed=adminTyped;
     setAdminDraft(null);setAdminApproved(false);setAdminTyped("");
     setBusy(true);setError("");setAdminReceipt(null);
-    try{setAdminReceipt(await managerBridge.rconAdminSend(token,adminTyped));}
-    catch{setError("A parancs eredménye nem igazolható. A TCP-küldés megtörténhetett; ismétlés előtt ellenőrizd a szerver állapotát. Automatikus újraküldés nincs.");}
-    finally{setBusy(false);}
+    try{
+      const receipt=await managerBridge.rconAdminSend(token,typed);
+      if(!belongs(requested,epoch))return;
+      if(receipt.mapId.toLowerCase()!==requested.toLowerCase()||
+         receipt.command!==approvedCommand||!receipt.oneShot||
+         !receipt.commandSent||receipt.storeWriterTouched)
+        throw new Error("UM-RCON-ADMIN-RECEIPT-MISMATCH");
+      setAdminReceipt(receipt);
+    }catch{
+      if(belongs(requested,epoch))
+        setError("Az adminparancs eredménye nem igazolható. A TCP-küldés megtörténhetett; ismétlés előtt ellenőrizd a mapot. Automatikus újraküldés nincs.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   return <div className="uk-rcon-page">
     <div className="page-intro"><span className="eyebrow">UNTAMED ASA / LOCAL RCON</span>
@@ -146,9 +236,10 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
           <input aria-label="RCON beállítás port" type="number" min={1024} max={65535} value={rconPort}
             disabled={!config?.permitted||busy} onChange={e=>{setRconPort(e.target.value);setConfigPreview(null);}}/>
         </label>
-        <label>Adminjelszó (12–128 karakter)
+        <label>{createNewIni?"Új adminjelszó (12–128 karakter)":
+          "Meglévő ASA ServerAdminPassword (1–256 karakter, pontos egyezés)"}
           <input aria-label="RCON beállítás jelszó" type="password" autoComplete="new-password"
-            minLength={12} maxLength={128} value={rconPassword} disabled={!config?.permitted||busy}
+            minLength={createNewIni?12:1} maxLength={createNewIni?128:256} value={rconPassword} disabled={!config?.permitted||busy}
             onChange={e=>{setRconPassword(e.target.value);setConfigPreview(null);}}/>
         </label>
       </div>
@@ -157,7 +248,8 @@ export function RconReadOnlyPanel({mapId,onConfigured,onOpenStart}:{mapId:string
         Új, még nem létező GameUserSettings.ini létrehozása. Ha már van működő INI, vedd ki a jelölést: a Manager kizárólag ellenőrzi, nem írja át.
       </label>
       <div className="uk-rcon-admin-actions">
-        <button className="secondary" type="button" disabled={!config?.permitted||busy||rconPassword.length<12}
+        <button className="secondary" type="button" disabled={!config?.permitted||busy||
+              rconPassword.length<(createNewIni?12:1)}
           onClick={()=>{void previewConfiguration();}}>Beállítás ellenőrzése</button>
       </div>
       {configPreview&&<div className="uk-rcon-admin-review" role="region" aria-label="RCON beállítás jóváhagyás">

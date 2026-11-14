@@ -25,10 +25,11 @@ public static class LocalRunningAsaDiscovery
         LocalAsaLaunchFacts.Facts? LaunchFacts=null,
         bool ObservedReadOnlyImported=false);
 
-    private static readonly Regex MapToken=new(
-        @"\A(?<map>[A-Za-z0-9_]{1,100})\?listen\z",
-        RegexOptions.IgnoreCase|RegexOptions.CultureInvariant,
-        TimeSpan.FromMilliseconds(100));
+    // The final Core physical Windows ownership check uses exactly
+    // the same parser as this display-only WMI classification.
+    internal static bool TryReadLaunchArguments(string? value,
+        out string mapKey,out string flags)=>
+        AsaObservedLaunchArguments.TryRead(value,out mapKey,out flags);
 
     private static bool SamePath(string? first,string? second)
     {
@@ -76,11 +77,8 @@ public static class LocalRunningAsaDiscovery
     {
         string? line=CommandArguments(command,expectedExe);
         if(string.IsNullOrWhiteSpace(line))return null;
-        var first=line.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries)
-            .FirstOrDefault();
-        if(first==null)return null;
-        var match=MapToken.Match(first);
-        return match.Success?match.Groups["map"].Value:null;
+        return TryReadLaunchArguments(line,out var mapKey,out _)?
+            mapKey:null;
     }
 
     private static string? ProfileMap(LocalMap map)
@@ -93,10 +91,8 @@ public static class LocalRunningAsaDiscovery
         if(!string.IsNullOrWhiteSpace(map.HistoricalMapKey))
             return Regex.IsMatch(map.HistoricalMapKey,
                 @"\A[A-Za-z0-9_]{1,100}\z")?map.HistoricalMapKey:null;
-        string? first=map.Arguments?.TrimStart().Split((char[]?)null,
-            StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        return first==null?null:(MapToken.Match(first) is {Success:true} match
-            ?match.Groups["map"].Value:null);
+        return TryReadLaunchArguments(map.Arguments,out var mapKey,out _)?
+            mapKey:null;
     }
 
     private static bool PossibleLoaderProfile(LocalMap map,string? path)

@@ -1,4 +1,4 @@
-import {useEffect,useState,type FormEvent} from "react";
+import {useEffect,useRef,useState,type FormEvent} from "react";
 import {AlertTriangle,CheckCircle2,LockKeyhole,Send,Shield} from "lucide-react";
 import {managerBridge,type HistoricalAdminRconPreview,
   type HistoricalAdminRconReceipt} from "./bridge";
@@ -20,41 +20,62 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
   const [approved,setApproved]=useState("");
   const [confirmed,setConfirmed]=useState(false);
   const [reply,setReply]=useState<HistoricalAdminRconReceipt|null>(null);
+  // No approval, response, or in-flight request may cross the selected map.
+  // The native bridge is authoritative for one-shot command delivery.
+  const currentMap=useRef(mapId);
+  currentMap.current=mapId;
+  const generation=useRef(0);
+  const belongs=(requested:string,epoch:number)=>
+    currentMap.current===requested&&generation.current===epoch;
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   useEffect(()=>{
+    ++generation.current;
     setAction(initialAction);setMessage("");setPreview(null);
-    setApproved("");setConfirmed(false);setReply(null);setError("");
+    setApproved("");setConfirmed(false);setReply(null);setError("");setBusy(false);
+    return ()=>{++generation.current;};
   },[mapId,initialAction]);
   const change=()=>{setPreview(null);setApproved("");setConfirmed(false);setReply(null);setError("");};
   const inspect=async(e:FormEvent)=>{
     e.preventDefault();
     if(!running||busy)return;
-    setBusy(true);setError("");setReply(null);
+    const requested=mapId,epoch=generation.current;
+    setBusy(true);setError("");setReply(null);setPreview(null);
     try{
-      const result=await managerBridge.historicalAdminPreview(mapId,action,message);
+      const result=await managerBridge.historicalAdminPreview(requested,action,message);
+      if(!belongs(requested,epoch))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         result.action!==action||result.dispatched)
+        throw new Error("UM-STORE-ADMIN-PREVIEW-IDENTITY-MISMATCH");
       setPreview(result);setApproved("");setConfirmed(false);
     }catch{
+      if(!belongs(requested,epoch))return;
       setPreview(null);
-      setError("Az admin RCON előellenőrzés sikertelen: az eredeti "+
-        "Store-v1 session, helyi PID, RCON-port vagy a korábbi "+
-        "műveleti napló nem igazolható. Nem küldtünk parancsot.");
-    }finally{setBusy(false);}
+      setError("A kiválasztott map admin RCON előellenőrzése vagy "+
+        "Windows PID/RCON azonosítója nem igazolható. Nem küldtünk parancsot.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const send=async()=>{
-    if(!preview||!confirmed||approved!==preview.approvalWord||busy)return;
-    const token=preview.token;
+    if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
+       !confirmed||approved!==preview.approvalWord||busy)return;
+    const token=preview.token,requested=mapId,epoch=generation.current,
+      approvedCommand=preview.command;
     setPreview(null);setApproved("");setConfirmed(false);
     setBusy(true);setError("");setReply(null);
     try{
       const result=await managerBridge.historicalAdminSend(token,preview.approvalWord);
+      if(!belongs(requested,epoch))return;
+      if(result.mapId.toLowerCase()!==requested.toLowerCase()||
+         result.command!==approvedCommand||!result.commandSent||!result.oneShot||
+         result.originalStoreMetadataWritten)
+        throw new Error("UM-STORE-ADMIN-SEND-RECEIPT-MISMATCH");
       setReply(result);
     }catch{
-      setError("Az eredeti Store-v1 adminparancs nem igazolható. "+
-        "Az egyszer használatos jóváhagyás lejárt. "+
-        "Ha a parancs elküldése közben szakadt meg, "+
-        "ne ismételd meg ellenőrzés nélkül!");
-    }finally{setBusy(false);}
+      if(belongs(requested,epoch))
+        setError("Az egyszeri admin RCON parancs eredménye nem igazolható. "+
+          "A TCP-küldés már megtörténhetett; ne ismételd meg "+
+          "a map és a parancs tényleges állapotának ellenőrzése nélkül.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   return <section className="glass panel historical-admin-rcon"
       aria-label="Eredeti Store-v1 admin RCON">
@@ -63,7 +84,7 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
       <span className="mod-tag amber"><Shield size={13}/> Helyi · kézi jóváhagyás</span>
     </div>
     <div className="panel-inner">
-      <p className="muted small">Csak a két peer alapján igazolt, helyi ASA PID-hez
+      <p className="muted small">Csak az adott map ellenőrzött helyi ASA PID-jéhez
         tartozó RCON TCP-porthoz küldhető adminparancs. Minden parancs külön
         natív jóváhagyást kap, automatikus ismétlés nélkül.
         A SaveWorld és DoExit kizárólag az elkülönített mentés/leállítás részen érhető el.</p>
@@ -111,7 +132,8 @@ export function HistoricalAdminRconPanel({mapId,running,initialAction="broadcast
             onChange={e=>setApproved(e.target.value)}/>
           <div className="settings-actions">
             <button className="primary" type="button"
-              disabled={busy||!confirmed||approved!==preview.approvalWord}
+              disabled={busy||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
+                !confirmed||approved!==preview.approvalWord}
               onClick={()=>{void send();}}>
               <Send size={16}/> Adminparancs egyszeri elküldése
             </button>

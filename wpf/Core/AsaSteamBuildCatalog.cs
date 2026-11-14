@@ -128,42 +128,59 @@ public static class AsaSteamBuildCatalog
         if(string.IsNullOrWhiteSpace(raw)||raw.Length>2_000_000||
            string.IsNullOrWhiteSpace(branch)||branch.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c!='_'))
             return null;
+        // SteamCMD can return logs and unrelated quoted VDF objects.
+        // Keep the 2430930 context for EACH nested object; a global
+        // "seen app" flag silently turned another app's public branch into
+        // an apparent ASA update. Truncated/ambiguous responses fail closed.
         var tokens=Regex.Matches(raw,"\"(?:[^\"\\\\]|\\\\.)*\"|[{}]")
             .Select(m=>m.Value).ToArray();
         var path=new List<string>();
         string? pending=null;
-        bool containsApp=false;
+        string? publishedBuild=null;
+        bool sawAsaRoot=false;
         for(int i=0;i<tokens.Length;i++)
         {
             string token=tokens[i];
             if(token=="{")
             {
-                path.Add(pending??"");
-                pending=null;continue;
+                if(pending==null)return null;
+                if(path.Count==0&&pending=="2430930")sawAsaRoot=true;
+                path.Add(pending);
+                pending=null;
+                continue;
             }
             if(token=="}")
             {
-                if(path.Count>0)path.RemoveAt(path.Count-1);
-                pending=null;continue;
+                if(path.Count==0||pending!=null)return null;
+                path.RemoveAt(path.Count-1);
+                continue;
             }
-            if(!token.StartsWith('"')||token.Length<2)continue;
+            if(!token.StartsWith('"')||token.Length<2)return null;
             string key=token[1..^1];
-            if(key=="2430930" && path.Count==0)containsApp=true;
-            if(i+1<tokens.Length && tokens[i+1].StartsWith('"'))
+            if(i+1<tokens.Length&&tokens[i+1].StartsWith('"'))
             {
                 string value=tokens[++i][1..^1];
-                if(containsApp && key=="buildid" && path.Count>=3 &&
-                   path[^1].Equals(branch,StringComparison.OrdinalIgnoreCase) &&
-                   path.Contains("branches",StringComparer.OrdinalIgnoreCase) &&
-                   path.Contains("depots",StringComparer.OrdinalIgnoreCase) &&
-                   value.Length<=20 && value.All(char.IsAsciiDigit))
-                    return value;
+                bool exactAsaBranch=path.Count==4&&
+                    path[0]=="2430930"&&
+                    path[1].Equals("depots",StringComparison.OrdinalIgnoreCase)&&
+                    path[2].Equals("branches",StringComparison.OrdinalIgnoreCase)&&
+                    path[3].Equals(branch,StringComparison.OrdinalIgnoreCase);
+                if(exactAsaBranch&&key=="buildid")
+                {
+                    if(publishedBuild!=null||value.Length is <1 or >20||
+                       !value.All(char.IsAsciiDigit))return null;
+                    publishedBuild=value;
+                }
                 pending=null;
             }
             else pending=key;
         }
-        return null;
+        // Closing all objects and a unique target-branch ID are mandatory.
+        // A partial Steam response cannot authorize "update available".
+        return sawAsaRoot&&path.Count==0&&pending==null
+            ? publishedBuild:null;
     }
+
     public static AsaSteamBuildCheck Compare(string install,string branch,
         string? local,string? available,DateTimeOffset when)
     {
@@ -216,25 +233,50 @@ public static class AsaSteamBuildCatalog
         foreach(var arg in new[]{"+login","anonymous","+app_info_update","1",
             "+app_info_print","2430930","+quit"})
             psi.ArgumentList.Add(arg);
-        using var process=Process.Start(psi)??throw new IOException("SteamCMD could not start");
-        var stdout=process.StandardOutput.ReadToEndAsync(deadline.Token);
-        var stderr=process.StandardError.ReadToEndAsync(deadline.Token);
+        Process? process;
         try
         {
-            await process.WaitForExitAsync(deadline.Token);
-            var output=await stdout;
-            _=await stderr;
-            if(output.Length>2_000_000)throw new InvalidDataException("Steam appinfo exceeds bounded output");
-            string? remote=process.ExitCode==0?ParseSteamAppInfo(output,branch):null;
-            return Compare(install,branch,local,remote,DateTimeOffset.UtcNow);
+            process=Process.Start(psi);
         }
-        catch
+        catch(System.ComponentModel.Win32Exception)
         {
-            if(!process.HasExited)
+            // A launch failure cannot prove a public build is available.
+            // Keep the observed local manifest, but classify remote as unknown.
+            ct.ThrowIfCancellationRequested();
+            return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+        }
+        if(process==null)
+            return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+        using(process)
+        {
+            try
             {
-                try{process.Kill(entireProcessTree:true);}catch{}
+                var stdout=process.StandardOutput.ReadToEndAsync(deadline.Token);
+                var stderr=process.StandardError.ReadToEndAsync(deadline.Token);
+                await process.WaitForExitAsync(deadline.Token);
+                var output=await stdout;
+                _=await stderr;
+                // Bounded but malformed/truncated output is never treated as a build.
+                if(output.Length>2_000_000)
+                    return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+                string? remote=process.ExitCode==0?ParseSteamAppInfo(output,branch):null;
+                return Compare(install,branch,local,remote,DateTimeOffset.UtcNow);
             }
-            throw;
+            catch(Exception ex) when(!ct.IsCancellationRequested&&
+                ex is OperationCanceledException or IOException or InvalidDataException)
+            {
+                // SteamCMD timeout, redirected pipe or malformed output:
+                // unknown is not up-to-date, and not update-available.
+                if(!process.HasExited)
+                    try{process.Kill(entireProcessTree:true);}catch{}
+                return Compare(install,branch,local,null,DateTimeOffset.UtcNow);
+            }
+            catch
+            {
+                if(!process.HasExited)
+                    try{process.Kill(entireProcessTree:true);}catch{}
+                throw;
+            }
         }
     }
 }

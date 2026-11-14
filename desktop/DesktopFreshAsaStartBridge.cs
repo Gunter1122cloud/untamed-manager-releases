@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,13 +21,16 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
     private sealed record Approval(Guid Token,Guid Map,string Root,string Executable,
         string Arguments,int Game,int Query,int Rcon,string Build,
         bool UseApi,string LoaderPath,string LoaderArguments,
-        DateTimeOffset CreatedUtc);
+        string RconCredential,string FreshClusterId,string FreshTransferDirectory,
+        string InstalledLevel,string IniFingerprint,
+        string BinariesFingerprint,DateTimeOffset CreatedUtc);
     private readonly ClusterService cluster;
     private readonly Func<Guid,bool,ProcessIdentity> launch;
     private readonly bool nativeLauncher;
     private readonly CancellationTokenSource closing=new();
     private readonly SemaphoreSlim gate=new(1,1);
-    private Approval? pending;
+    // Each registered ASA map has its own one-time approved Start plan.
+    private readonly Dictionary<Guid,Approval> approvalsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopFreshAsaStartBridge(ClusterService service,
@@ -34,6 +39,29 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         cluster=service??throw new ArgumentNullException(nameof(service));
         nativeLauncher=starter==null;
         launch=starter??((mapId,approved)=>cluster.LaunchFreshAsa(mapId,approved));
+    }
+
+    internal static string IniFingerprint(LocalMap map)
+    {
+        // Fresh-start approval is bound to the actual on-disk ASA INI bytes,
+        // including unknown mod sections. Hash only the two small config
+        // files ONCE at preview and AGAIN at apply; never hash a live world.
+        string config=Path.Combine(Path.GetFullPath(map.InstallationPath),
+            "ShooterGame","Saved","Config","WindowsServer");
+        string One(string fileName)
+        {
+            string file=Path.Combine(config,fileName);
+            if(!File.Exists(file))return "ABSENT";
+            var info=new FileInfo(file);
+            if((info.Attributes&FileAttributes.ReparsePoint)!=0 ||
+               info.Length>16L*1024*1024)
+                throw new InvalidDataException("UM-FRESH-START-INI-UNSAFE");
+            byte[] bytes=File.ReadAllBytes(file);
+            if(bytes.LongLength!=info.Length)
+                throw new IOException("UM-FRESH-START-INI-CHANGED");
+            return bytes.Length+":"+Convert.ToHexString(SHA256.HashData(bytes));
+        }
+        return One("Game.ini")+"|"+One("GameUserSettings.ini");
     }
 
     private LocalMap? Owned(Guid id)=>
@@ -50,8 +78,9 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         bool newStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if((!newStore&&(KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||
            !string.IsNullOrWhiteSpace(map.StoreTestRoot) ||
-           (map.Arguments+" "+map.ApiLoaderArguments).Contains("store",
-               StringComparison.OrdinalIgnoreCase)))||map.Maintenance||
+           AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.Arguments)||
+           AsaStoreArgumentSwitches.ContainsProtectedSwitch(map.ApiLoaderArguments)))||
+           map.Maintenance||
            map.GamePort is <1024 or >65535 ||
            map.QueryPort is <1024 or >65535 ||
            string.IsNullOrWhiteSpace(map.Arguments) ||
@@ -80,8 +109,15 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
         }
         else if(!FreshAsaInstallationSafety.IsProvenFresh(cluster,map))return false;
         if(!AsaRconConfigurationEvidence.Matches(map))return false;
+        // The durable Restart-v1 protocol explicitly permits a NEW
+        // independent Start after a verified operator audit. Treat
+        // OperatorReviewed the same as Completed; a pending Stopping,
+        // Starting or NeedsOperator still blocks every new launch.
+        // The old restart is never resumed or reported successful.
         var restart=new AsaManualRestartJournal(map.InstallationPath).Observe();
-        if(restart!=null&&restart.Phase!=AsaRestartPhase.Completed)return false;
+        if(restart!=null&&restart.Phase is not
+            (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed))
+            return false;
         LocalMapPortPolicy.RequireNoConflicts(map,cluster.Config.LocalMaps);
         if(!AsaLocalPortPreflight.CanStart(map))return false;
         AsaApiLaunchPolicy.Resolve(map);
@@ -181,30 +217,43 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
                     if(!Eligible(map))return Error(id,"UM-FRESH-START-NOT-READY");
-                    pending=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
+                    approvalsByMap.Remove(mapId);
+                    string? installedBuild=AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath);
+                    if(string.IsNullOrWhiteSpace(installedBuild))
+                        return Error(id,"UM-FRESH-START-BUILD-NOT-VERIFIED");
+                    var previewApproval=new Approval(Guid.NewGuid(),map.Id,map.InstallationPath,
                         map.ExecutablePath,map.Arguments,map.GamePort,map.QueryPort,
-                        map.RconPort,AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath),
+                        map.RconPort,installedBuild,
                         map.StartWithAsaApi,map.ApiLoaderPath,map.ApiLoaderArguments,
+                        map.RconPasswordProtected,map.FreshStoreClusterId,
+                        map.FreshStoreTransferDirectory,map.FreshInstallMapLevel,
+                        IniFingerprint(map),
+                        AsaReadyProbe.ApprovedLaunchBinariesFingerprint(map),
                         DateTimeOffset.UtcNow);
+                    approvalsByMap[map.Id]=previewApproval;
                     return Ok(id,new {
-                        token=pending.Token,mapId=map.Id,mapName=map.Name,
-                        steamBuild=pending.Build,gamePort=map.GamePort,
+                        token=previewApproval.Token,mapId=map.Id,mapName=map.Name,
+                        steamBuild=previewApproval.Build,gamePort=map.GamePort,
                         queryPort=map.QueryPort,rconConfigured=map.RconPort>0 &&
                             !string.IsNullOrWhiteSpace(map.RconPasswordProtected),
                         confirmedStopped=true,serverStarted=false,
-                        launchMode=pending.UseApi?"asaApiLoader":"directAsa",
+                        launchMode=previewApproval.UseApi?"asaApiLoader":"directAsa",
                         evidence="FRESH_LOCAL_ASA_START_PREVIEW_NO_WRITE"
                     });
                 }
-                if(!ReadGuid(item,"token",out var token) || pending==null ||
-                   pending.Token!=token ||
-                   DateTimeOffset.UtcNow-pending.CreatedUtc>TimeSpan.FromMinutes(5))
+                if(!ReadGuid(item,"token",out var token))
+                    return Error(id,"UM-FRESH-START-TOKEN-EXPIRED");
+                var permit=approvalsByMap.Values.SingleOrDefault(
+                    approval=>approval.Token==token);
+                if(permit==null||
+                   DateTimeOffset.UtcNow-permit.CreatedUtc>TimeSpan.FromMinutes(5))
                     return Error(id,"UM-FRESH-START-TOKEN-EXPIRED");
                 if(!item.TryGetProperty("confirm",out var confirmation) ||
                    confirmation.ValueKind!=JsonValueKind.True)
                     return Error(id,"UM-FRESH-START-APPROVAL");
-                var permit=pending;
-                pending=null; // a start is never replayed, even after an error
+                approvalsByMap.Remove(permit.Map);
+                // A Start token is consumed once even if the process has
+                // changed; a sibling map's approval is not affected.
                 var current=Owned(permit.Map);
                 if(current==null || !Eligible(current) ||
                    !string.Equals(current.InstallationPath,permit.Root,
@@ -217,13 +266,19 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                    current.StartWithAsaApi!=permit.UseApi ||
                    current.ApiLoaderPath!=permit.LoaderPath ||
                    current.ApiLoaderArguments!=permit.LoaderArguments ||
+                   current.RconPasswordProtected!=permit.RconCredential ||
+                   current.FreshStoreClusterId!=permit.FreshClusterId ||
+                   current.FreshStoreTransferDirectory!=permit.FreshTransferDirectory ||
+                   current.FreshInstallMapLevel!=permit.InstalledLevel ||
+                   IniFingerprint(current)!=permit.IniFingerprint ||
+                   AsaReadyProbe.ApprovedLaunchBinariesFingerprint(current)!=
+                       permit.BinariesFingerprint ||
                    AsaSteamBuildCatalog.InstalledBuild(current.InstallationPath)!=permit.Build)
                     return Error(id,"UM-FRESH-START-CHANGED");
                 var identity=launch(current.Id,true);
                 if(identity.Pid<=0 || identity.StartedUtc==default)
                     return Error(id,"UM-FRESH-START-UNVERIFIED-PROCESS");
-                if(nativeLauncher&&permit.UseApi&&
-                   FreshStoreEnrollmentPolicy.IsEnrolled(current))
+                if(nativeLauncher&&permit.UseApi)
                     FreshStoreApiPairObserver.Begin(cluster,current.Id,identity,closing.Token);
                 return Ok(id,new{
                     mapId=current.Id,mapName=current.Name,pid=identity.Pid,

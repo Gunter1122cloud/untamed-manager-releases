@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,6 +31,9 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
     private readonly object stateGate = new();
     private readonly Dictionary<Guid,Prepared> prepared = new();
     private InstallJob? currentJob;
+    private sealed record PreparedCompletedRecovery(Guid Token,CompletedSteamInstall Source,
+        string Fingerprint,DateTimeOffset ExpiresUtc);
+    private PreparedCompletedRecovery? completedRecovery;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private sealed record Prepared(
@@ -96,7 +101,8 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
             string? method=methodValue.GetString();
             if(method is not ("steam.freshPreflight" or "steam.freshStart" or
                 "steam.freshStatus" or "steam.freshCurrent" or "steam.freshCancel" or
-                "steam.freshDiscard" or "steam.freshRegister" or "steam.freshBrowse"))
+                "steam.freshDiscard" or "steam.freshRegister" or "steam.freshBrowse" or
+                "steam.freshRecoverPreview" or "steam.freshRecoverRegister"))
                 return Error(id,"UM-METHOD-DENIED");
 
             await serial.WaitAsync();
@@ -117,6 +123,130 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
                 if(method=="steam.freshCurrent")
                 {
                     lock(stateGate)return Ok(id,new{current=currentJob==null?null:Describe(currentJob)});
+                }
+
+                if(method=="steam.freshRecoverPreview")
+                {
+                    completedRecovery=null;
+                    if(!TextField(data,"installRoot",520,out var recoveredRoot) ||
+                       !TextField(data,"mapName",100,out var recoveredName))
+                        return Error(id,"UM-FRESH-RECOVERY-INVALID-INPUT");
+                    // Never supersede a running or verified-but-unregistered
+                    // SteamCMD job. It has a separate native identity.
+                    lock(stateGate)
+                    {
+                        if(currentJob!=null && !currentJob.Registered &&
+                           currentJob.ErrorCode==null)
+                            return Error(id,"UM-FRESH-INSTALL-IN-PROGRESS");
+                    }
+                    CompletedSteamInstall? source;
+                    try{source=SteamFreshInstall.InspectCompleted(Canonical(recoveredRoot));}
+                    catch(InvalidDataException ex)
+                    {
+                        // Return ONLY known safe error codes, never arbitrary
+                        // source file paths or untrusted SteamCMD output.
+                        string code=ex.Message is
+                            "UM-FRESH-RECOVERY-JOURNAL-INVALID" or
+                            "UM-FRESH-RECOVERY-UNPINNED-COMPLETION" or
+                            "UM-FRESH-RECOVERY-COMPLETED-FILES-CHANGED" or
+                            "UM-FRESH-RECOVERY-LEVEL-MISMATCH" or
+                            "UM-FRESH-RECOVERY-MAP-NAME-INVALID" or
+                            "UM-FRESH-RECOVERY-BINARY-OUTSIDE-ROOT"
+                            ?ex.Message:"UM-FRESH-RECOVERY-FILES-UNVERIFIED";
+                        return Error(id,code);
+                    }
+                    catch(Exception ex) when(ex is IOException or
+                        UnauthorizedAccessException or ArgumentException or
+                        NotSupportedException or FormatException)
+                    { return Error(id,"UM-FRESH-RECOVERY-FILES-UNVERIFIED"); }
+                    if(source==null)return Error(id,"UM-FRESH-RECOVERY-NO-COMPLETE-JOURNAL");
+                    if(!string.Equals(source.MapName,recoveredName,StringComparison.OrdinalIgnoreCase))
+                        return Error(id,"UM-FRESH-RECOVERY-MAP-MISMATCH");
+                    if(data.TryGetProperty("customLevel",out var customRecovery))
+                    {
+                        if(customRecovery.ValueKind!=JsonValueKind.String ||
+                           !string.Equals(customRecovery.GetString()?.Trim()??"",
+                               source.MapLevel,StringComparison.Ordinal))
+                            return Error(id,"UM-FRESH-RECOVERY-LEVEL-MISMATCH");
+                    }
+                    if(cluster.Config.LocalMaps.Any(m=>m.Id==source.MapId ||
+                        m.Name.Equals(source.MapName,StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                         Overlap(Canonical(m.InstallationPath),source.InstallRoot))))
+                        return Error(id,"UM-FRESH-RECOVERY-ALREADY-REGISTERED");
+                    string fingerprint=RecoveryFingerprint(source);
+                    var recoveryToken=Guid.NewGuid();
+                    completedRecovery=new(recoveryToken,source,fingerprint,
+                        DateTimeOffset.UtcNow.AddMinutes(5));
+                    return Ok(id,new{
+                        token=recoveryToken,mapId=source.MapId,
+                        mapName=source.MapName,mapLevel=source.MapLevel,
+                        buildId=source.BuildId,verified=true,
+                        filesDownloadedAgain=false,serverStarted=false,
+                        requiresExplicitApproval=true,
+                        evidence="COMPLETED_STEAMCMD_JOURNAL_VERIFIED_READ_ONLY"
+                    });
+                }
+                if(method=="steam.freshRecoverRegister")
+                {
+                    if(!GetGuid(data,"token",out var recoveryToken)||
+                       !BoolField(data,"confirm",out var recoveryApproved)||
+                       !recoveryApproved||
+                       !TextField(data,"typedApproval",80,out var recoveryPhrase)||
+                       recoveryPhrase!="ASA TELEPÍTÉS ÁTVÉTEL"||
+                       completedRecovery?.Token!=recoveryToken)
+                        return Error(id,"UM-FRESH-RECOVERY-APPROVAL-REQUIRED");
+                    var stagedRecovery=completedRecovery!;
+                    completedRecovery=null; // single-use even after failure
+                    if(stagedRecovery.ExpiresUtc<DateTimeOffset.UtcNow)
+                        return Error(id,"UM-FRESH-RECOVERY-PREVIEW-EXPIRED");
+                    CompletedSteamInstall? latest;
+                    try{latest=SteamFreshInstall.InspectCompleted(stagedRecovery.Source.InstallRoot);}
+                    catch(Exception ex) when(ex is InvalidDataException or IOException or
+                        UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                    {return Error(id,"UM-FRESH-RECOVERY-FILES-CHANGED");}
+                    if(latest==null ||
+                       !string.Equals(RecoveryFingerprint(latest),
+                           stagedRecovery.Fingerprint,StringComparison.Ordinal))
+                        return Error(id,"UM-FRESH-RECOVERY-FILES-CHANGED");
+                    lock(stateGate)
+                    {
+                        if(currentJob!=null&&!currentJob.Registered&&
+                           currentJob.ErrorCode==null)
+                            return Error(id,"UM-FRESH-INSTALL-IN-PROGRESS");
+                    }
+                    if(cluster.Config.LocalMaps.Any(m=>m.Id==latest.MapId ||
+                        m.Name.Equals(latest.MapName,StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrWhiteSpace(m.InstallationPath)&&
+                         Overlap(Canonical(m.InstallationPath),latest.InstallRoot))))
+                        return Error(id,"UM-FRESH-RECOVERY-ALREADY-REGISTERED");
+                    var recoveredMap=new LocalMap{
+                        Id=latest.MapId,Name=latest.MapName,
+                        InstallationPath=latest.InstallRoot,
+                        ExecutablePath=latest.ServerExecutable,
+                        FreshInstallMapLevel=latest.MapLevel,
+                        GamePort=0,QueryPort=0,RconPort=0,Arguments="",
+                        AutoStart=false,StartWithAsaApi=false
+                    };
+                    cluster.AddMap(recoveredMap); // Manager profile ONLY
+                    var recRequest=new Prepared(Guid.NewGuid(),latest.MapId,
+                        latest.MapName,latest.MapLevel,latest.InstallRoot,
+                        latest.SteamCmdExecutable,false,false,DateTimeOffset.UtcNow);
+                    var recJob=new InstallJob{
+                        Id=Guid.NewGuid(),Request=recRequest,
+                        Stage="registered",Detail="Befejezett ASA telepítés visszavéve",
+                        Completed=true,Registered=true,Percent=100,
+                        Receipt=new SteamFreshInstallReceipt(latest.MapId,
+                            latest.InstallRoot,latest.ServerExecutable,latest.BuildId,
+                            latest.CompletedUtc,latest.SteamCmdExecutable,latest.MapLevel)
+                    };
+                    lock(stateGate)currentJob=recJob;
+                    return Ok(id,new{
+                        jobId=recJob.Id,mapId=latest.MapId,mapName=latest.MapName,
+                        needsConfiguration=true,serverStarted=false,
+                        filesDownloadedAgain=false,kovaFilesWritten=false,
+                        evidence="COMPLETED_STEAMCMD_RECOVERED_MANAGER_REGISTRATION_ONLY"
+                    });
                 }
 
                 if(method=="steam.freshPreflight")
@@ -399,6 +529,10 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
             var progress=new SynchronousProgress(item=>{
                 lock(stateGate)
                 {
+                    // A delayed progress callback must not replace a verified,
+                    // registered, canceled or failed SteamCMD result. Only the
+                    // approved running installer may update transient stages.
+                    if(job.Completed||job.Registered||job.ErrorCode!=null)return;
                     job.Stage=item.Stage;
                     job.Detail=item.Detail.Length>200?item.Detail[..200]:item.Detail;
                     job.Percent=item.Percent is >=0 and <=100?item.Percent:null;
@@ -436,7 +570,7 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
     }
 
     private static object Describe(InstallJob job) => new {
-        jobId=job.Id,mapName=job.Request.Name,
+        jobId=job.Id,mapId=job.Request.MapId,mapName=job.Request.Name,
         stage=job.Stage,detail=job.Detail,percent=job.Percent,
         verified=job.Completed && job.Receipt!=null &&
             job.ErrorCode==null,
@@ -494,6 +628,24 @@ public sealed class DesktopSteamFreshInstallBridge : IDisposable
         result=value.GetBoolean();
         return true;
     }
+    private static string RecoveryFingerprint(CompletedSteamInstall source)
+    {
+        static string HashFile(string path)
+        {
+            using var file=new FileStream(path,FileMode.Open,FileAccess.Read,
+                FileShare.Read,1024*1024,FileOptions.SequentialScan);
+            return Convert.ToHexString(SHA256.HashData(file));
+        }
+        string manifest=Path.Combine(source.InstallRoot,"steamapps",
+            "appmanifest_2430930.acf");
+        var proof=string.Join("\n",source.MapId.ToString("D"),
+            source.MapName,source.InstallRoot,source.ServerExecutable,
+            source.SteamCmdExecutable,source.MapLevel,source.BuildId,
+            source.CompletedUtc.ToString("O"),
+            HashFile(source.ServerExecutable),HashFile(manifest));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(proof)));
+    }
+
     private static string Ok(string id,object data)=>
         JsonSerializer.Serialize(new{id,ok=true,data},Json);
     private static string Error(string? id,string code)=>

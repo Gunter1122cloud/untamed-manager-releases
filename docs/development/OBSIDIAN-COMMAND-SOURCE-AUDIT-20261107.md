@@ -26,7 +26,7 @@ Windows CI WebView2 indítási képernyőképe és Playwright 1600px dashboard/m
 - `desktop/ObsidianWindow.cs`: offline WebView2 virtuális host, engedélyezett natív metódusok, tálcaikon, kilépés a külső updater sikeres átadásakor.
 - `desktop/DesktopReadOnlyBridge.cs`: hitelesített kétgépes státusz, dashboard, modok, pluginok, logok, fájlintegritási összefoglalók; Store-írást nem tesz lehetővé.
 - Natív bridge-ek: új/tisztán telepített helyi ASA SteamCMD, kétlépcsős Start/Stop/Restart, RCON, INI, CurseForge API, plugin JSON/ZIP, Mod Copy, offline backup/TEMP restore.
-- A történeti Store-v1 valódi másik gépre átutazásának, aktív session/locknak és karakter/tribe/inventory/dínó sértetlenségének teljes bizonyítása **NINCS KÉSZ**. A korábbi működő Kova-koordináció eredeti metaadatait és karakterfájljait átírni tilos; ne távolítsunk el biztonsági tiltást bizonyíték nélkül.
+- A történeti Store-v1 valódi másik gépre átutazásának, aktív session/locknak és karakter/tribe/inventory/dínó sértetlenségének teljes bizonyítása **NINCS KÉSZ**. A korábbi működő Legacy-koordináció eredeti metaadatait és karakterfájljait átírni tilos; ne távolítsunk el biztonsági tiltást bizonyíték nélkül.
 - Az 5+5 offline archívum SHA-256 fájlintegritást ellenőriz, **nem** atomi, élő kétgépes cluster-pillanatkép.
 - Az ASA API/plugin, CurseForge modok valódi betöltöttsége és a SaveWorld/DoExit utáni játékbeli újratöltés nem igazolható szintetikus GitHub Actions futással.
 - A forrásban látható Cloudflare/licenc korábbi v0.5 dokumentációja nem bizonyította, hogy a jelenlegi Obsidian `UntamedDesktop.exe` licencfolyamata kész; ezt külön éles elfogadásnak kell alávetni.

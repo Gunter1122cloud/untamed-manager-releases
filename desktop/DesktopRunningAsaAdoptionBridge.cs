@@ -97,9 +97,10 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
             server.CommandLine,server.ExecutablePath);
         if(string.IsNullOrWhiteSpace(args)||args.Length>2048 ||
            args.Any(char.IsControl) ||
-           !args.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries)
-               .First().Equals(map.ObservedMapKey+"?listen",
-                   StringComparison.OrdinalIgnoreCase))
+           !LocalRunningAsaDiscovery.TryReadLaunchArguments(
+               args,out var observedKey,out var launchFlags) ||
+           !observedKey.Equals(map.ObservedMapKey,
+               StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("UM-ADOPT-LAUNCH-UNVERIFIED");
         var facts=LocalAsaLaunchFacts.Parse(server.CommandLine,
             server.ExecutablePath);
@@ -113,12 +114,9 @@ public sealed class DesktopRunningAsaAdoptionBridge : IDisposable
            facts.ActiveModsState is "conflict" or "unverified"||
            facts.PassiveModsState is "conflict" or "unverified")
             throw new InvalidDataException("UM-ADOPT-PORTS-STORE-OR-MODS-UNVERIFIED");
-        // Never persist secrets recovered from a foreign process command line.
-        // No arbitrary renderer-provided launch strings are ever accepted.
-        string[] forbidden={"store","cluster","convert","password",
-            "secret","token","auth","credential","key="};
-        if(forbidden.Any(s=>args.Contains(s,
-            StringComparison.OrdinalIgnoreCase)))
+        // The last Core WMI adoption boundary calls the identical shared
+        // switch classifier. Never silently disagree about Store or secrets.
+        if(AsaObservedLaunchArguments.ContainsProtectedOrSecretSwitch(launchFlags))
             throw new InvalidDataException("UM-ADOPT-SENSITIVE-LAUNCH");
         if(!AsaReadyProbe.IsRegisteredServerBinary(map) ||
            KovaCompatibleWorldBackup.HasLiveOrHistoricalStore(map) ||

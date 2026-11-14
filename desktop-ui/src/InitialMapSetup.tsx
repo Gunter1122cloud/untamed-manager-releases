@@ -4,14 +4,32 @@ import {
   managerBridge, type InitialMapPreview, type InitialMapStatus
 } from "./bridge";
 
+// Unapproved first-setup choices are UI-only drafts. They must survive
+// navigation between map cards but never become a native ASA configuration
+// or an approval token until the operator explicitly submits them.
+// No RCON passwords, secrets or Store fields are cached here.
+type InitialSetupDraft=Partial<{
+  session:string;customLevel:string;game:string;query:string;
+}>;
+const initialSetupDrafts=new Map<string,InitialSetupDraft>();
+function rememberInitialChoice(mapId:string,change:InitialSetupDraft){
+  const before=initialSetupDrafts.get(mapId);
+  // Bounded memory cache, only for the current WebView lifetime.
+  if(!before&&initialSetupDrafts.size>=128){
+    const oldest=initialSetupDrafts.keys().next().value;
+    if(oldest)initialSetupDrafts.delete(oldest);
+  }
+  initialSetupDrafts.set(mapId,{...before,...change});
+}
+
 export function InitialMapSetup({mapId,onConfigured}: {
   mapId:string; onConfigured:()=>Promise<void>
 }) {
   const [status,setStatus]=useState<InitialMapStatus | null>(null);
-  const [session,setSession]=useState("Untamed Kingdom");
-  const [customLevel,setCustomLevel]=useState("");
-  const [game,setGame]=useState("");
-  const [query,setQuery]=useState("");
+  const [session,setSession]=useState(()=>initialSetupDrafts.get(mapId)?.session??"Untamed Kingdom");
+  const [customLevel,setCustomLevel]=useState(()=>initialSetupDrafts.get(mapId)?.customLevel??"");
+  const [game,setGame]=useState(()=>initialSetupDrafts.get(mapId)?.game??"");
+  const [query,setQuery]=useState(()=>initialSetupDrafts.get(mapId)?.query??"");
   const [preview,setPreview]=useState<InitialMapPreview | null>(null);
   const [approved,setApproved]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -21,12 +39,17 @@ export function InitialMapSetup({mapId,onConfigured}: {
   useEffect(()=>{
     let active=true;
     setStatus(null);setPreview(null);setApproved(false);setError("");setNotice("");
-    setCustomLevel("");
+    const draft=initialSetupDrafts.get(mapId);
+    setSession(draft?.session??"Untamed Kingdom");
+    setCustomLevel(draft?.customLevel??"");
+    setGame(draft?.game??"");setQuery(draft?.query??"");
     managerBridge.initialStatus(mapId).then(value=>{
       if(!active)return;
       setStatus(value);
-      setGame(String(value.suggestion.game));
-      setQuery(String(value.suggestion.query));
+      // Never overwrite an unapproved operator choice with a new suggested
+      // port after returning from another page.
+      if(draft?.game===undefined)setGame(String(value.suggestion.game));
+      if(draft?.query===undefined)setQuery(String(value.suggestion.query));
     }).catch(()=>{
       if(active)setError("A map első konfigurálhatósága nem ellenőrizhető a natív Managerben.");
     });
@@ -71,8 +94,12 @@ export function InitialMapSetup({mapId,onConfigured}: {
       const code=e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED";
       setError(code==="UM-INITIAL-EXECUTABLE-INVALID"
         ? "A regisztrált ASA EXE nem igazolható a map saját telepítési gyökerében. Az első konfiguráció nem lett mentve."
-        : "A Manager nem fogadta el az indítási paramétereket ("+code+
-          "). Lehetséges helyi portütközés, futó map vagy módosult konfiguráció.");
+        : code==="UM-INITIAL-PORT-IN-USE"
+          ? "A kiválasztott Game vagy Query UDP-portot már egy Windows-folyamat használja. Válassz szabad portokat, majd ellenőrizd újra; a Manager-profil nem módosult."
+          : code==="UM-INITIAL-PORT-UNVERIFIED"
+            ? "A Windows UDP-portfoglalásai most nem ellenőrizhetők megbízhatóan. Nem állítjuk, hogy a port foglalt vagy szabad; kérj új előnézetet, ha a rendszerállapot rendeződött."
+            : "A Manager nem fogadta el az indítási paramétereket ("+code+
+            "). Lehetséges helyi portütközés, futó map vagy módosult konfiguráció.");
     }finally{setBusy(false);}
   };
   const apply=async()=>{
@@ -80,6 +107,7 @@ export function InitialMapSetup({mapId,onConfigured}: {
     setBusy(true);setError("");
     try{
       const result=await managerBridge.initialApply(preview.token);
+      initialSetupDrafts.delete(mapId); // Only a verified native commit clears the draft.
       setPreview(null);setApproved(false);
       setNotice(result.mapName+" indítási profilja mentve. A szerver még nem indult el. Következő lépés: RCON előkészítés, majd az ASA Start előnézete.");
       // The native apply receipt is authoritative. A subsequent refresh
@@ -93,9 +121,13 @@ export function InitialMapSetup({mapId,onConfigured}: {
       }
     }catch(e){
       setPreview(null);setApproved(false);
-      setError("Az első konfigurálás elutasítva ("+
-        (e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED")+
-        "). A megfigyelt mapot és a fájlokat nem indítottuk el.");
+      const code=e instanceof Error?e.message:"UM-INITIAL-OPERATION-FAILED";
+      setError(code==="UM-INITIAL-PORT-IN-USE"
+        ? "A Game vagy Query UDP-port az előnézet után foglalttá vált. A jóváhagyott profil nem lett mentve; válassz új portokat és kérj új előnézetet."
+        : code==="UM-INITIAL-PORT-UNVERIFIED"
+          ? "A jóváhagyás pillanatában a Windows UDP-portállapota nem ellenőrizhető. Nem írtunk profilt; kérj új előnézetet, és ne indíts mapot ismeretlen portállapottal."
+          : "Az első konfigurálás elutasítva ("+code+
+          "). A megfigyelt mapot és a fájlokat nem indítottuk el.");
     }finally{setBusy(false);}
   };
 
@@ -125,24 +157,28 @@ export function InitialMapSetup({mapId,onConfigured}: {
       <form className="initial-setup-form" onSubmit={e=>{void inspect(e);}}>
         {status?.requiresCustomLevel && <label><span>Egyedi ASA pályaszint (Unreal level)</span>
           <input aria-label="Egyedi ASA pályaszint" value={customLevel} maxLength={80}
-            onChange={e=>{setCustomLevel(e.target.value);clear();}}
+            onChange={e=>{setCustomLevel(e.target.value);
+              rememberInitialChoice(mapId,{customLevel:e.target.value});clear();}}
             placeholder="Példa: EgyediMap_WP"
             autoComplete="off" spellCheck={false}
             disabled={busy||!status?.initialSetupAvailable} required/>
         </label>}
         <label><span>Szerver nyilvános neve</span>
           <input aria-label="ASA szerver neve" value={session} maxLength={75}
-            onChange={e=>{setSession(e.target.value);clear();}}
+            onChange={e=>{setSession(e.target.value);
+              rememberInitialChoice(mapId,{session:e.target.value});clear();}}
             disabled={busy||!status?.initialSetupAvailable} required/>
         </label>
         <label><span>Game UDP port</span>
           <input aria-label="Első Game UDP" value={game} inputMode="numeric"
-            onChange={e=>{setGame(e.target.value);clear();}}
+            onChange={e=>{setGame(e.target.value);
+              rememberInitialChoice(mapId,{game:e.target.value});clear();}}
             disabled={busy||!status?.initialSetupAvailable} required/>
         </label>
         <label><span>Query UDP port</span>
           <input aria-label="Első Query UDP" value={query} inputMode="numeric"
-            onChange={e=>{setQuery(e.target.value);clear();}}
+            onChange={e=>{setQuery(e.target.value);
+              rememberInitialChoice(mapId,{query:e.target.value});clear();}}
             disabled={busy||!status?.initialSetupAvailable} required/>
         </label>
         <button className="secondary" type="submit"
@@ -171,7 +207,9 @@ export function InitialMapSetup({mapId,onConfigured}: {
       {notice && <div role="status" className="success-inline"><CheckCircle2 size={17}/>{notice}</div>}
       {error && <div role="alert" className="error-inline"><AlertTriangle size={17}/>{error}</div>}
       <div className="warning-inline"><Shield size={17}/>
-        A javasolt portok csak a saját helyi Managerben ütközésmentesek. A Windows tűzfalat, a routert vagy a másik gépet nem módosítjuk, RCON-jelszót nem kérünk.</div>
+        A javasolt portok csak a Manager helyi profiljai alapján készülnek.
+        A Windows UDP-foglalásokat az előnézetnél és a végső mentés előtt újra ellenőrizzük.
+        A router/NAT és a külső elérhetőség ettől még nincs igazolva.</div>
     </div>
   </section>;
 }

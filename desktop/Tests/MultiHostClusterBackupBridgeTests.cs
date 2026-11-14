@@ -184,6 +184,14 @@ public static class MultiHostClusterBackupBridgeTests
         File.Copy(catalogPath, protectedCatalogPath);
         var choices = new Queue<string?>();
         using var bridge = new DesktopMultiHostClusterBackupBridge(service, _ => choices.Dequeue());
+        var missingCancellation=await Call(bridge,"cluster.multiHostCancel",
+            new{jobId=Guid.NewGuid().ToString("D"),confirm=true});
+        Check(Error(missingCancellation,"UM-MULTIHOST-BACKUP-JOB-NOT-FOUND"),
+            "offline cancellation rejects a nonexistent job without touching any archive");
+        var unapprovedCancellation=await Call(bridge,"cluster.multiHostCancel",
+            new{jobId=Guid.NewGuid().ToString("D")});
+        Check(Error(unapprovedCancellation,"UM-MULTIHOST-CANCEL-EXPLICIT-CONFIRMATION"),
+            "offline cancellation requires explicit confirmation and exact job GUID");
 
         // Real interrupted v1 engine: a failure after object 2 leaves the
         // journal and partial objects, not a fabricated fixture. The operator
@@ -289,6 +297,14 @@ public static class MultiHostClusterBackupBridgeTests
             "approved offline archive starts without touching a server process");
         string jobId = started.GetProperty("data").GetProperty("jobId").GetString()!;
         var finished = await WaitFor(bridge, "cluster.multiHostBackupStatus", jobId);
+        var finishedCancel=await Call(bridge,"cluster.multiHostCancel",
+            new{jobId,confirm=true});
+        Check(Error(finishedCancel,"UM-MULTIHOST-CANCEL-NOT-RUNNING"),
+            "completed offline package cannot be marked cancelled or rolled back by stale request");
+        var foreignCancel=await Call(bridge,"cluster.multiHostCancel",
+            new{jobId=Guid.NewGuid().ToString("D"),confirm=true});
+        Check(Error(foreignCancel,"UM-MULTIHOST-BACKUP-JOB-NOT-FOUND"),
+            "different offline job ID cannot cancel a previously completed package");
         Check(finished.GetProperty("data").GetProperty("state").GetString() == "completed" &&
               File.ReadAllText(liveMarker) == "synthetic test marker only",
             "multi-host backup job completes and registered map marker stays byte-identical");
@@ -673,6 +689,45 @@ public static class MultiHostClusterBackupBridgeTests
               File.ReadAllText(liveMarker) == "synthetic test marker only",
             "SHA-256 tamper regression retains the live map and restores the independent offline fixture");
 
+        // Synthetic active task: exercise the actual native WebView2 bridge
+        // without starting a real archive copy (which would race to complete).
+        // Reflection is confined to this TEMP test fixture to create the
+        // otherwise private in-memory job record; no production injection.
+        var jobField=typeof(DesktopMultiHostClusterBackupBridge).GetField("current",
+            System.Reflection.BindingFlags.Instance|
+            System.Reflection.BindingFlags.NonPublic)!;
+        var cancellationField=typeof(DesktopMultiHostClusterBackupBridge).GetField(
+            "currentCancellation",System.Reflection.BindingFlags.Instance|
+            System.Reflection.BindingFlags.NonPublic)!;
+        var simulatedJob=Activator.CreateInstance(jobField.FieldType,nonPublic:true)!;
+        var cancellationId=Guid.NewGuid();
+        jobField.FieldType.GetField("Id")!.SetValue(simulatedJob,cancellationId);
+        jobField.FieldType.GetField("Kind")!.SetValue(simulatedJob,"backup");
+        jobField.FieldType.GetField("State")!.SetValue(simulatedJob,"running");
+        jobField.SetValue(bridge,simulatedJob);
+        var simulatedCancellation=new System.Threading.CancellationTokenSource();
+        cancellationField.SetValue(bridge,simulatedCancellation);
+        var cancelResponse=await Call(bridge,"cluster.multiHostCancel",
+            new{jobId=cancellationId.ToString("D"),confirm=true});
+        Check(cancelResponse.GetProperty("ok").GetBoolean()&&
+              cancelResponse.GetProperty("data").GetProperty(
+                  "cancelRequested").GetBoolean()&&
+              !cancelResponse.GetProperty("data").GetProperty(
+                  "completed").GetBoolean()&&
+              !cancelResponse.GetProperty("data").GetProperty(
+                  "automaticRollback").GetBoolean()&&
+              !cancelResponse.GetProperty("data").GetProperty(
+                  "journalDeleted").GetBoolean()&&
+              simulatedCancellation.IsCancellationRequested,
+            "exact active offline task cancellation propagates a token but never claims completion or rollback");
+        var cancellationStatus=await Call(bridge,"cluster.multiHostBackupStatus",
+            new{jobId=cancellationId.ToString("D")});
+        Check(cancellationStatus.GetProperty("ok").GetBoolean()&&
+              cancellationStatus.GetProperty("data").GetProperty("state")
+                  .GetString()=="running"&&
+              cancellationStatus.GetProperty("data").GetProperty("stage")
+                  .GetString()=="CANCELLATION_REQUESTED_AWAIT_OPERATOR_RESULT",
+            "cancel request remains pending, not a fabricated completed backup");
         string[] liveFiles = Directory.GetFiles(liveMapRoot, "*", SearchOption.AllDirectories);
         Check(liveFiles.Length == 1 && liveFiles[0] == liveMarker && File.ReadAllText(liveMarker) == "synthetic test marker only",
             "restore and backup never create files under the registered server installation");

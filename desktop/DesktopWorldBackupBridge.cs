@@ -24,10 +24,14 @@ public sealed class DesktopWorldBackupBridge
     private readonly SemaphoreSlim serial=new(1,1);
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private sealed record Ticket(Guid Token,Guid MapId,string Point,string Root,
-        string Arguments,DateTimeOffset Until,bool Restore);
-    private Ticket? pending;
+        string Arguments,DateTimeOffset Until,bool Restore,
+        int BudgetFiles,long BudgetBytes,bool BudgetCustomized);
+    // Ten local map cards must retain independent one-use backup/restore
+    // approvals. New preview invalidates only its own map's earlier ticket.
+    private readonly Dictionary<Guid,Ticket> pendingByMap=new();
     private sealed record OriginalBatchTicket(Guid Token,string FourFilesSha,
-        string LaunchProfileSha,Guid[] MapIds,DateTimeOffset ExpiresUtc);
+        string LaunchProfileSha,Guid[] MapIds,DateTimeOffset ExpiresUtc,
+        int BudgetFiles,long BudgetBytes,bool BudgetCustomized);
     private OriginalBatchTicket? originalBatchPending;
     // A completed point is published only after the existing Core backup
     // engine has copied and SHA-256 verified it. No new backup format.
@@ -105,10 +109,16 @@ public sealed class DesktopWorldBackupBridge
             cluster.ObserveLocalProcessesReadOnly(map):
             new WindowsProcessInspector().InspectFamily(map));
         scheduled=scheduledBackups;
-        originalSelection=originalSelectionProvider??(()=>
-            LegacyStoreV1OriginalImport.Inspect(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Kova")));
+        originalSelection=originalSelectionProvider??(()=>{
+            // After an explicitly approved import the independent Obsidian
+            // source is authoritative. The old Kova profile is used only for
+            // migration of pre-pin installations.
+            string legacy=Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.ApplicationData),"Kova");
+            string profile=LegacyStoreV1PinnedSource.PreferredProfile(
+                cluster.Store.Root,legacy);
+            return LegacyStoreV1OriginalImport.Inspect(profile);
+        });
         // Read only Manager-owned orchestration metadata; never original Kova
         // world, shared session, lock or transfer files at bridge creation.
         LoadOriginalBatch();
@@ -155,18 +165,21 @@ public sealed class DesktopWorldBackupBridge
         {
             LocalMap map=historical.SingleOrDefault(m=>m.Id==original.MapId)
                 ??throw new InvalidDataException("UM-BACKUP-ORIGINAL-MAP-NOT-IMPORTED");
-            if(!string.Equals(map.HistoricalMapKey,original.MapKey,
-                    StringComparison.Ordinal)||
-               !string.Equals(map.HistoricalArchiveSha256,source.FourFilesSha256,
-                    StringComparison.Ordinal)||
-               !string.Equals(Path.GetFullPath(map.InstallationPath),
-                    Path.GetFullPath(original.OriginalInstallationRoot),
-                    StringComparison.OrdinalIgnoreCase)||
-               map.GamePort!=original.GamePort||map.QueryPort!=original.QueryPort||
-               map.HistoricalEnabledMods?.SequenceEqual(original.EnabledMods,
+            // Immutable imported GUID/map/install/source proof still matches,
+            // while approved runtime port/mod edits live in Obsidian's own
+            // map profile. Backups never rewrite either set of metadata.
+            LegacyStoreV1PinnedSource.RequireImmutableIdentity(map,source);
+            // On older unpinned installs, retain strict legacy launch parity.
+            string legacy=Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.ApplicationData),"Kova");
+            if(string.Equals(LegacyStoreV1PinnedSource.PreferredProfile(
+                    cluster.Store.Root,legacy),legacy,
+                    StringComparison.OrdinalIgnoreCase) &&
+               (map.GamePort!=original.GamePort||map.QueryPort!=original.QueryPort||
+                map.HistoricalEnabledMods?.SequenceEqual(original.EnabledMods,
                     StringComparer.Ordinal)!=true||
-               map.HistoricalPassiveMods?.SequenceEqual(original.PassiveMods,
-                    StringComparer.Ordinal)!=true)
+                map.HistoricalPassiveMods?.SequenceEqual(original.PassiveMods,
+                    StringComparer.Ordinal)!=true))
                 throw new InvalidDataException("UM-BACKUP-ORIGINAL-SOURCE-OR-PORTS-CHANGED");
             if(!roots.Add(Path.GetFullPath(map.InstallationPath)))
                 throw new InvalidDataException("UM-BACKUP-ORIGINAL-DUPLICATE-ROOT");
@@ -196,6 +209,11 @@ public sealed class DesktopWorldBackupBridge
             for(int index=0;index<ticket.MapIds.Length;index++)
             {
                 var (source,maps)=RequireOriginalStoppedFive();
+                var currentBudget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
+                if(currentBudget.MaxFiles!=ticket.BudgetFiles||
+                   currentBudget.MaxTotalBytes!=ticket.BudgetBytes||
+                   currentBudget.Customized!=ticket.BudgetCustomized)
+                    throw new InvalidDataException("UM-BACKUP-RESOURCE-POLICY-CHANGED");
                 if(source.FourFilesSha256!=ticket.FourFilesSha||
                    source.LaunchProfileSha256!=ticket.LaunchProfileSha||
                    !maps.Select(x=>x.Id).SequenceEqual(ticket.MapIds))
@@ -362,16 +380,29 @@ public sealed class DesktopWorldBackupBridge
                         if(originalBatchJob?.State is "queued" or "running")
                             return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-JOB-BUSY");
                     var (original,maps)=RequireOriginalStoppedFive();
+                    var budget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
                     long worldBytes=0;
                     foreach(var map in maps)
-                        worldBytes=checked(worldBytes+
-                            new FileInfo(AsaSaveLayoutResolver.Resolve(map).WorldFile).Length);
+                    {
+                        long oneWorld=new FileInfo(
+                            AsaSaveLayoutResolver.Resolve(map).WorldFile).Length;
+                        // This is only a MINIMUM estimate. Additional profile,
+                        // tribe and tribute files are counted by Core at Create.
+                        if(oneWorld>budget.MaxTotalBytes)
+                            return Fail(id,"UM-BACKUP-RESOURCE-BYTE-LIMIT");
+                        worldBytes=checked(worldBytes+oneWorld);
+                    }
                     var originalBatchTicket=new OriginalBatchTicket(Guid.NewGuid(),
                         original.FourFilesSha256,original.LaunchProfileSha256,
-                        maps.Select(x=>x.Id).ToArray(),DateTimeOffset.UtcNow.AddMinutes(5));
+                        maps.Select(x=>x.Id).ToArray(),DateTimeOffset.UtcNow.AddMinutes(5),
+                        budget.MaxFiles,budget.MaxTotalBytes,budget.Customized);
                     originalBatchPending=originalBatchTicket;
                     return Ok(id,new{
                         token=originalBatchTicket.Token,localMaps=5,worldBytes,
+                        maxFilesPerMap=budget.MaxFiles,
+                        maxBytesPerMap=budget.MaxTotalBytes,
+                        resourcePolicyCustomized=budget.Customized,
+                        actualCopySizeRecheckedAtCreate=true,
                         mapNames=maps.Select(x=>x.Name).ToArray(),
                         originalSourcePinned=true,allMapsConfirmedStopped=true,
                         requiresOperatorConfirmation=true,
@@ -393,6 +424,11 @@ public sealed class DesktopWorldBackupBridge
                     originalBatchPending=null; // consume on every attempt
                     if(approved.ExpiresUtc<DateTimeOffset.UtcNow)
                         return Fail(id,"UM-BACKUP-ORIGINAL-FIVE-APPROVAL-EXPIRED");
+                    var actualBudget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
+                    if(actualBudget.MaxFiles!=approved.BudgetFiles||
+                       actualBudget.MaxTotalBytes!=approved.BudgetBytes||
+                       actualBudget.Customized!=approved.BudgetCustomized)
+                        return Fail(id,"UM-BACKUP-RESOURCE-POLICY-CHANGED");
                     var (currentOriginal,maps)=RequireOriginalStoppedFive();
                     if(approved.FourFilesSha!=currentOriginal.FourFilesSha256||
                        approved.LaunchProfileSha!=currentOriginal.LaunchProfileSha256||
@@ -506,14 +542,18 @@ public sealed class DesktopWorldBackupBridge
                 }
                 if(method is "backup.preview" or "backup.restorePreview")
                 {
-                    pending=null;
+                    foreach(var stale in pendingByMap.Where(p=>
+                        p.Value.Until<DateTimeOffset.UtcNow).Select(p=>p.Key)
+                        .ToArray())pendingByMap.Remove(stale);
                     if(!root.TryGetProperty("mapId",out var m)||
                        m.ValueKind!=JsonValueKind.String||
                        !Guid.TryParse(m.GetString(),out var mid))
                         return Fail(id,"UM-BACKUP-INVALID-MAP");
+                    pendingByMap.Remove(mid);
                     var map=Owned(mid);
                     UniqueWorldDirectory(map);
                     Stopped(map);
+                    var budget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
                     if(KovaCompatibleWorldBackup.InstallationRecoveryRequired(map))
                         return Fail(id,"UM-BACKUP-RESTORE-RECOVERY-REQUIRED");
                     var key=KovaCompatibleWorldBackup.MapKey(map);
@@ -538,14 +578,24 @@ public sealed class DesktopWorldBackupBridge
                         string world=AsaSaveLayoutResolver.Resolve(map).WorldFile;
                         if(!File.Exists(world)||new FileInfo(world).Length==0)
                             return Fail(id,"UM-BACKUP-SAVED-WORLD-MISSING");
+                        if(new FileInfo(world).Length>budget.MaxTotalBytes)
+                            return Fail(id,"UM-BACKUP-RESOURCE-BYTE-LIMIT");
                     }
-                    pending=new(Guid.NewGuid(),map.Id,point,map.InstallationPath,
-                        map.Arguments,DateTimeOffset.UtcNow.AddMinutes(5),
-                        method=="backup.restorePreview");
+                    if(pendingByMap.Count>=25)pendingByMap.Clear();
+                    var approved=new Ticket(Guid.NewGuid(),map.Id,point,
+                        map.InstallationPath,map.Arguments,
+                        DateTimeOffset.UtcNow.AddMinutes(5),
+                        method=="backup.restorePreview",
+                        budget.MaxFiles,budget.MaxTotalBytes,budget.Customized);
+                    pendingByMap[map.Id]=approved;
                     return Ok(id,new{
-                        token=pending.Token,mapId=map.Id,mapName=map.Name,
+                        token=approved.Token,mapId=map.Id,mapName=map.Name,
                         mapKey=key,point=string.IsNullOrEmpty(point)?null:point,
                         confirmedStopped=true,
+                        maxFilesPerMap=budget.MaxFiles,
+                        maxBytesPerMap=budget.MaxTotalBytes,
+                        resourcePolicyCustomized=budget.Customized,
+                        actualCopySizeRecheckedAtCreate=true,
                         willCreateProtectiveBackup=method=="backup.restorePreview",
                         originalWorldRetained=method=="backup.restorePreview",
                         storeWriterTouched=false,
@@ -560,12 +610,18 @@ public sealed class DesktopWorldBackupBridge
                    !Guid.TryParse(tokenRaw.GetString(),out var token)||
                    !root.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True||
-                   pending==null||pending.Token!=token)
+                   !pendingByMap.Values.Any(p=>p.Token==token))
                     return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
-                Ticket ticket=pending;pending=null;
+                Ticket ticket=pendingByMap.Values.Single(p=>p.Token==token);
+                pendingByMap.Remove(ticket.MapId); // one shot, including failures
                 if(ticket.Until<DateTimeOffset.UtcNow ||
                    ticket.Restore!=(method=="backup.restore"))
                     return Fail(id,"UM-BACKUP-PREVIEW-EXPIRED");
+                var currentBudget=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
+                if(currentBudget.MaxFiles!=ticket.BudgetFiles||
+                   currentBudget.MaxTotalBytes!=ticket.BudgetBytes||
+                   currentBudget.Customized!=ticket.BudgetCustomized)
+                    return Fail(id,"UM-BACKUP-RESOURCE-POLICY-CHANGED");
                 var current=Owned(ticket.MapId);
                 if(current.InstallationPath!=ticket.Root||
                    current.Arguments!=ticket.Arguments)
@@ -618,6 +674,14 @@ public sealed class DesktopWorldBackupBridge
             UnauthorizedAccessException or InvalidDataException or
             InvalidOperationException or ArgumentException or OverflowException)
         {
+            // Only whitelisted, path-free resource codes cross into WebView.
+            // Never forward raw IO/Store exceptions, paths or secrets.
+            if(e is InvalidDataException && e.Message is
+                ("UM-BACKUP-RESOURCE-FILE-LIMIT" or
+                 "UM-BACKUP-RESOURCE-BYTE-LIMIT" or
+                 "UM-BACKUP-RESOURCE-POLICY-INVALID" or
+                 "UM-BACKUP-RESOURCE-POLICY-NOT-FILE"))
+                return Fail(id,e.Message);
             return Fail(id,"UM-BACKUP-NATIVE-SAFETY-CHECK-FAILED");
         }
     }

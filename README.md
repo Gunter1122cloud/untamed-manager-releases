@@ -17,7 +17,7 @@
 Obsidian kiadások: [GitHub Releases – csak Obsidian Command](https://github.com/Gunter1122cloud/untamed-manager-releases/releases). Csak az **`obsidian-preview`** címkékhez tartozó `Untamed_Obsidian_Desktop_Preview_Setup.exe` / Portable ZIP telepíthető az Obsidian Commandhoz. A `wpf-asa-only` kiadások régi, eltérő alkalmazást jelentenek, és nem kompatibilisek az Obsidian frissítőjével.
 
 ## Biztonsági és fejlesztési döntések
-A végleges irányról szóló rögzítés: [AGENTS.md](AGENTS.md). A jóváhagyott React-kinézetet, a saját mapok helyi kezelését és az N-host, többclusteres, hitelesített LAN megfigyelést meg kell őrizni. A történeti Kova 2×5 Store-v1 csak kompatibilitási kivétel.
+A végleges irányról szóló rögzítés: [AGENTS.md](AGENTS.md). A jóváhagyott React-kinézetet, a saját mapok helyi kezelését és az N-host, többclusteres, hitelesített LAN megfigyelést meg kell őrizni. A történeti Legacy 2×5 Store-v1 csak kompatibilitási kivétel.
 
 A program **nem tartalmaz SQL/MariaDB motort vagy adatbázis-kezelőt**; az ASA-pluginok külön MariaDB-szolgáltatása érintetlen. A működő történeti Store-v1 karakter- és transferadatok nem alakíthatók át vagy írhatók felül. Éles, 5+5 mapos karakterutazás sikerét nem bizonyítják a szintetikus Windows CI-tesztek; a telepítést és valódi szervercsatlakozást külön Windows tesztgépen kell elfogadni.
 

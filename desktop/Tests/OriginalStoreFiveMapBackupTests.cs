@@ -119,6 +119,59 @@ internal static class OriginalStoreFiveMapBackupTests
         Check(!unknown.GetProperty("ok").GetBoolean(),
             "unknown stopped status on a single original map prevents five-map approval");
         allStopped=true;
+        // Operator-controlled budget is local to the Manager profile. It
+        // rejects an oversized source BEFORE creating a backup point.
+        string policyFile=Path.Combine(cluster.Store.Root,
+            BackupResourcePolicy.FileName);
+        File.WriteAllText(policyFile,
+            "{\"schema\":1,\"maxFiles\":1,\"maxTotalBytes\":1048576}");
+        var policy=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);
+        Check(policy.Customized&&policy.MaxFiles==1&&
+              policy.MaxTotalBytes==1048576,
+            "bounded Manager-local backup resource policy is readable");
+        bool limited=false;
+        try
+        {
+            UntamedWorldBackup.Create(maps[0],cluster.Store.Root,
+                ()=>new ProcessCheck(false,"isolated stopped ASA",null,true));
+        }
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-FILE-LIMIT")
+        { limited=true; }
+        Check(limited,
+            "a file-count limit rejects a world plus historical profile before archive creation");
+        File.WriteAllText(policyFile,
+            "{\"schema\":1,\"maxFiles\":0,\"maxTotalBytes\":1048576}");
+        bool invalidRejected=false;
+        try{_=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-POLICY-INVALID")
+        {invalidRejected=true;}
+        Check(invalidRejected,"invalid resource policy does not silently downgrade to defaults");
+        File.WriteAllText(policyFile,"{\"schema\":1,\"maxFiles\":");
+        bool brokenJsonRejected=false;
+        try{_=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-POLICY-INVALID")
+        {brokenJsonRejected=true;}
+        Check(brokenJsonRejected,
+            "truncated resource policy JSON reports a specific safe error without copying files");
+        File.WriteAllText(policyFile,
+            "{\"schema\":1,\"maxFiles\":1,\"maxFiles\":100000,\"maxTotalBytes\":1048576}");
+        bool duplicateRejected=false;
+        try{_=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-POLICY-INVALID")
+        {duplicateRejected=true;}
+        Check(duplicateRejected,
+            "duplicate backup resource limit cannot be interpreted using last JSON property");
+        File.WriteAllText(policyFile,
+            "{\"schema\":1,\"maxFiles\":1,\"maxF\\u0069les\":2,\"maxTotalBytes\":1048576}");
+        bool escapedDuplicateRejected=false;
+        try{_=BackupResourcePolicy.ForManagerProfile(cluster.Store.Root);}
+        catch(InvalidDataException e) when(e.Message=="UM-BACKUP-RESOURCE-POLICY-INVALID")
+        {escapedDuplicateRejected=true;}
+        Check(escapedDuplicateRejected,
+            "escaped duplicate JSON property cannot bypass backup resource policy validation");
+        File.Delete(policyFile);
+        Check(!BackupResourcePolicy.ForManagerProfile(cluster.Store.Root).Customized,
+            "removing TEMP test-only budget restores the documented default");
         var preview=await Call(bridge,"backup.originalBatchPreview");
         Check(preview.GetProperty("ok").GetBoolean()&&
               preview.GetProperty("data").GetProperty("localMaps").GetInt32()==5&&
@@ -140,6 +193,21 @@ internal static class OriginalStoreFiveMapBackupTests
                   map,cluster.Store.Root).Length==0),
             "source fingerprint change rejects without creating any backup point");
         currentSource=new(sourceSha,launchSha,mapRows.ToArray());
+        var staleBudgetPreview=await Call(bridge,"backup.originalBatchPreview");
+        Check(staleBudgetPreview.GetProperty("ok").GetBoolean(),
+            "five-map preview binds the current Manager backup resource ceiling");
+        string staleBudgetToken=staleBudgetPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        File.WriteAllText(policyFile,
+            "{\"schema\":1,\"maxFiles\":100000,\"maxTotalBytes\":1048576}");
+        var policyChanged=await Call(bridge,"backup.originalBatchCreate",
+            new{token=staleBudgetToken,confirm=true});
+        Check(!policyChanged.GetProperty("ok").GetBoolean()&&
+              policyChanged.GetProperty("error").GetString()==
+                  "UM-BACKUP-RESOURCE-POLICY-CHANGED"&&
+              maps.All(map=>UntamedWorldBackup.List(map,cluster.Store.Root).Length==0),
+            "changed backup budget invalidates approval without creating any five-map archive");
+        File.Delete(policyFile);
         var approvedPreview=await Call(bridge,"backup.originalBatchPreview");
         Check(approvedPreview.GetProperty("ok").GetBoolean(),
             "operator can request a fresh five-map approval after source correction");

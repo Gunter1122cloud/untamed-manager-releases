@@ -42,6 +42,20 @@ public static class AsaReadyProbeTests
         Check(AsaReadyProbe.IsRegisteredServerBinary(map),
             "fixed local registered ASA/loader paths recognized without executing binaries");
 
+        // RCON passwords may be shared across maps; a reply on a different
+        // Windows TCP listener is not evidence that this ASA PID is ready.
+        Check(AsaReadyProbe.ConfirmedOwnedRconListener(steady,27999,
+              (port,pid)=>port==27999 && pid==server.Pid),
+            "RCON listener owned by exact server PID accepted");
+        Check(!AsaReadyProbe.ConfirmedOwnedRconListener(steady,27999,
+              (_,pid)=>pid==server.Pid+1),
+            "correct RCON password on another ASA PID cannot certify readiness");
+        Check(!AsaReadyProbe.ConfirmedOwnedRconListener(steady with {
+              Identity=null},27999,(_,_)=>true) &&
+              !AsaReadyProbe.ConfirmedOwnedRconListener(steady with {
+                ConfirmedStopped=true},27999,(_,_)=>true),
+            "missing or stopped ASA process cannot own RCON readiness");
+
         int processPolls=0,rconCalls=0;
         byte[] unchangedServer=File.ReadAllBytes(serverExe);
         var healthy=await AsaReadyProbe.ObserveAsync(map,()=>{
@@ -176,8 +190,16 @@ public static class AsaReadyProbeTests
             " [API][info] Loading..."+Environment.NewLine+
             apiTimestamp+" [API][info] Initialized hooks"+Environment.NewLine+
             apiTimestamp+" [API][info] API was successfully loaded"+Environment.NewLine);
+        var hooksWithoutModule=await AsaReadyProbe.ObserveAsync(map,()=>steady,
+            _=>Task.FromResult("No Players Connected."),
+            loadedModule:(_,_)=>false);
+        Check(!hooksWithoutModule.ApiInitialized &&
+              !hooksWithoutModule.ProductionReady &&
+              hooksWithoutModule.Stage==AsaRuntimeStage.RconAuthenticated,
+            "API positive log and RCON without loaded ASA child module cannot certify runtime");
         var hooksFirst=await AsaReadyProbe.ObserveAsync(map,()=>steady,
-            _=>Task.FromResult("No Players Connected."));
+            _=>Task.FromResult("No Players Connected."),
+            loadedModule:(_,_)=>true);
         Check(hooksFirst.ProductionReady && hooksFirst.JoinAdvertised &&
               hooksFirst.ApiInitialized && hooksFirst.LoaderObserved,
             "real ArkApi hooks-before-success order certifies opted-in runtime");
@@ -197,7 +219,8 @@ public static class AsaReadyProbeTests
         File.AppendAllText(apiLog,apiTimestamp+
             " [API][info] Initialized hooks"+Environment.NewLine);
         var loadFirst=await AsaReadyProbe.ObserveAsync(map,()=>steady,
-            _=>Task.FromResult("No Players Connected."));
+            _=>Task.FromResult("No Players Connected."),
+            loadedModule:(_,_)=>true);
         Check(loadFirst.ProductionReady&&loadFirst.ApiInitialized,
             "loader versions with load-before-hooks order are also supported");
         File.AppendAllText(apiLog,apiTimestamp+

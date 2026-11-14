@@ -16,6 +16,8 @@ if (args.Length > 0 && args[0] == MultiHostTempProcessLeaseTests.ChildSwitch)
     Environment.Exit(MultiHostTempProcessLeaseTests.RunChild(args));
 if (args.Length > 0 && args[0] == MultiHostArchiveProcessLeaseTests.ChildSwitch)
     Environment.Exit(MultiHostArchiveProcessLeaseTests.RunChild(args));
+if (args.Length > 0 && args[0] == OperationJournalIsolationTests.ChildSwitch)
+    Environment.Exit(OperationJournalIsolationTests.RunChild(args));
 
 static void Check(bool value, string reason)
 {
@@ -54,6 +56,122 @@ static void IsOk(JsonElement value,string context)
 static bool IsError(JsonElement value,string code)=>
     !value.GetProperty("ok").GetBoolean() &&
     value.GetProperty("error").GetString()==code;
+
+AsaInitialRconSettings.ValidateExistingAdminPassword("Old7!xx");
+Check(true,"existing ASA INI credentials may be shorter than new credentials");
+bool weakNewDenied=false;
+try{AsaInitialRconSettings.ValidateAdminPassword("Old7!xx");}
+catch(InvalidDataException){weakNewDenied=true;}
+Check(weakNewDenied,"newly created ASA RCON passwords still require twelve characters");
+
+Check(SteamFreshInstall.IsTransientMissingSteamConfiguration(
+      "ERROR! Failed to install app '2430930' (Missing configuration)"),
+    "SteamCMD first-run missing configuration triggers bounded retry");
+Check(!SteamFreshInstall.IsTransientMissingSteamConfiguration(
+      "ERROR! Failed to install app '2430930' (Disk write failure)") &&
+      !SteamFreshInstall.IsTransientMissingSteamConfiguration(
+      "Failed to install app '999999' (Missing configuration)"),
+    "SteamCMD never retries unrelated app IDs or disk failures");
+
+// Valve's first-run SteamCMD self-update can exit nonzero before app_update.
+Check(SteamFreshInstall.NeedsSteamBootstrapRestart(8,
+      "Update complete, launching SteamCMD"),
+    "SteamCMD fresh self-update permits one bootstrap retry");
+Check(SteamFreshInstall.NeedsSteamBootstrapRestart(8,
+      "Restarting SteamCMD"),
+    "SteamCMD alternative first-run restart message recognized");
+Check(!SteamFreshInstall.NeedsSteamBootstrapRestart(0,
+      "Update complete, launching SteamCMD") &&
+      !SteamFreshInstall.NeedsSteamBootstrapRestart(1,
+      "Failed to install app '2430930' (Missing configuration)"),
+    "SteamCMD bootstrap does not retry unrelated failures or successful exit");
+Check(SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,8,
+      "Failed to install app '2430930' (Missing configuration)",false) &&
+      SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(1,8,
+      "ERROR! Failed to install app '2430930' (Missing configuration)",false) &&
+      !SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(2,8,
+      "Failed to install app '2430930' (Missing configuration)",false),
+    "manually approved SteamCMD update permits only two exact first-run configuration retries");
+Check(!SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,0,
+      "Failed to install app '2430930' (Missing configuration)",false) &&
+      !SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,8,
+      "Failed to install app '2430930' (Disk write failure)",false) &&
+      !SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,8,
+      "Failed to install app '999999' (Missing configuration)",false) &&
+      !SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,8,
+      "Failed to install app '2430930' (Missing configuration)",true),
+    "manual updater rejects retries after success, for unrelated failures and in synthetic CI");
+
+// API Loader is optional: direct ASA with an installed but unused Loader
+// must remain observable, while persisted Loader-child relationships remain
+// guarded against misclassification or PID reuse.
+{
+    var time=DateTimeOffset.UtcNow;
+    var direct=new ObservedProcess(44117,0,time,
+        @"C:\ASA\ShooterGame\Binaries\Win64\ArkAscendedServer.exe",
+        "TheIsland_WP?listen -Port=7777 -QueryPort=27015");
+    var saved=new ProcessIdentity{
+        Pid=direct.Pid,StartedUtc=direct.StartedUtc,
+        ExecutablePath=direct.ExecutablePath,Arguments=direct.Arguments};
+    var oldLoader=new ProcessIdentity{
+        Pid=44116,StartedUtc=time.AddSeconds(-1),
+        ExecutablePath=@"C:\ASA\ShooterGame\Binaries\Win64\AsaApiLoader.exe",
+        Arguments=direct.Arguments};
+    Check(ProcessFamily.IsVerifiedDirectServer(direct,null,null,false,
+          direct.ExecutablePath,direct.Arguments),
+        "direct ASA without API Loader history remains recognizable");
+    Check(ProcessFamily.IsVerifiedDirectServer(direct,saved,null,false,
+          direct.ExecutablePath,direct.Arguments),
+        "direct ASA exact persisted process may reattach without Loader");
+    Check(!ProcessFamily.IsVerifiedDirectServer(direct,saved,oldLoader,false,
+          direct.ExecutablePath,direct.Arguments),
+        "previous Loader child cannot be downgraded to direct ASA");
+    Check(!ProcessFamily.IsVerifiedDirectServer(direct,saved,null,true,
+          direct.ExecutablePath,direct.Arguments),
+        "API-enabled map cannot bypass Loader parent check");
+    Check(!ProcessFamily.IsVerifiedDirectServer(direct,new ProcessIdentity{
+          Pid=saved.Pid,StartedUtc=time.AddMinutes(-2),
+          ExecutablePath=saved.ExecutablePath,Arguments=saved.Arguments
+          },null,false,
+          direct.ExecutablePath,direct.Arguments),
+        "direct ASA rejects reused PID with changed process start time");
+    Check(!ProcessFamily.IsVerifiedDirectServer(direct,saved,null,false,
+          direct.ExecutablePath,direct.Arguments+" -changed"),
+        "direct ASA rejects unmatched server arguments");
+}
+
+Check(FreshStoreApiPairObserver.StartupObservationWindow==TimeSpan.FromMinutes(10),
+    "ASA API Loader child reattach observation matches original ten-minute startup window");
+
+// Two owned map profiles may share the same ASA binaries. The exact
+// registered sibling command may be ignored, but an unknown or duplicate
+// command must never be interpreted as a verified stopped process.
+{
+    string exe=@"C:\\ASA\\ShooterGame\\Binaries\\Win64\\ArkAscendedServer.exe";
+    string loader=@"C:\\ASA\\ShooterGame\\Binaries\\Win64\\AsaApiLoader.exe";
+    var island=new LocalMap{Id=Guid.NewGuid(),Name="Island",
+        ExecutablePath=exe,Arguments="TheIsland_WP?listen -Port=7777 -QueryPort=27015"};
+    var center=new LocalMap{Id=Guid.NewGuid(),Name="Center",
+        ExecutablePath=exe,Arguments="TheCenter_WP?listen -Port=7817 -QueryPort=27055",
+        StartWithAsaApi=true,ApiLoaderPath=loader,
+        ApiLoaderArguments="TheCenter_WP?listen -Port=7817 -QueryPort=27055"};
+    var peers=new[]{island,center};
+    Check(WindowsProcessInspector.MatchesOtherRegisteredMap(island,exe,
+          "\"" + exe + "\" "+center.Arguments,peers),
+        "a known second map sharing the ASA EXE does not block first map observation");
+    Check(WindowsProcessInspector.MatchesOtherRegisteredMap(island,loader,
+          "\"" + loader + "\" "+center.ApiLoaderArguments,peers),
+        "a known API Loader sibling with different map ports is recognized");
+    Check(!WindowsProcessInspector.MatchesOtherRegisteredMap(island,exe,
+          "\"" + exe + "\" Ragnarok_WP?listen -Port=9001",peers),
+        "an unregistered ASA command remains ambiguous and cannot authorize launch");
+    Check(!WindowsProcessInspector.MatchesOtherRegisteredMap(island,exe,
+          "\"" + exe + "\" "+island.Arguments,peers),
+        "current map process is never mistaken for a sibling");
+    Check(!WindowsProcessInspector.MatchesOtherRegisteredMap(island,exe,
+          "\"" + exe + "\" "+center.Arguments,new[]{island,center,new LocalMap{Id=Guid.NewGuid(),ExecutablePath=exe,Arguments=center.Arguments}}),
+        "duplicate known ownership remains ambiguous");
+}
 
 string root=Path.Combine(Path.GetTempPath(),
     "Untamed-Obsidian-Native-Bridge-Tests-"+Guid.NewGuid().ToString("N"));
@@ -103,6 +221,7 @@ var incompleteFiveCapture=await Call(
     new DesktopStoreTravelEvidenceBridge(cluster).HandleAsync,"travel.capture");
 Check(IsError(incompleteFiveCapture,"UM-TRAVEL-REQUIRES-FIVE-OWNED-MAPS"),
     "travel capture reports the exact five-local-map prerequisite without reading ASA files");
+await SteamPublicBuildParsingTests.RunAsync(root);
 NativeWebViewDispatchContractTests.Run();
 LocalRunningAsaDiscoveryTests.Run();
 LocalAsaLaunchFactsTests.Run();
@@ -112,6 +231,9 @@ await LegacyStorePhysicalTransferTests.Run(root);
 LegacyStoreOriginalLinkTests.Run(root);
 OriginalStoreLiveBatchEvidenceTests.Run(root);
 await OriginalStoreLiveReconcileTests.Run(root);
+await MapScopedNativeLifecycleJobsTests.Run(root);
+OperationJournalInventoryTests.Run(root);
+await OperationJournalIsolationTests.Run(root);
 await OriginalStoreApiRconAttachTests.Run(root);
 await OriginalKovaDirectImportTests.Run(root);
 await LegacyStoreSaveEvidenceTests.Run(root);
@@ -690,15 +812,46 @@ try
         const string safeIni="[ServerSettings]\nPort=7777\nQueryPort=27015\n";
         var input=new LegacyStoreV1ActiveLaunch.Input(
             "ScorchedEarth_WP",7777,27015,
-            new[]{"123456","654321","123456"},new[]{"654321"},
+            new[]{"123456","654321"},new[]{"654321"},
             "KovaCluster", @"\\192.0.2.1\SyntheticCluster","active",safeIni);
         var active=LegacyStoreV1ActiveLaunch.Build(input);
         Check(active.Arguments.SequenceEqual(new[]{
             "ScorchedEarth_WP?listen","-Port=7777","-QueryPort=27015",
-            "-mods=654321,123456","-passivemods=654321",
+            "-mods=123456,654321","-passivemods=654321",
             "-clusterid=KovaCluster",@"-ClusterDirOverride=\\192.0.2.1\SyntheticCluster",
             "-usestore","-log"})&&!active.ConversionRequested,
-            "original active Store-v1 source grammar preserves passive-first mods and forbids conversion");
+            "original active Store-v1 source grammar preserves the exact enabled mod order with separate passive flags and forbids conversion");
+        // Kova 1.8.3 accepts UTF-8 and BOM-marked UTF-16 LE/BE
+        // GameUserSettings.ini. The historical launcher must parse these
+        // equivalently, without normalizing or rewriting original bytes.
+        static byte[] WithBom(Encoding encoding,string text)=>
+            encoding.GetPreamble().Concat(encoding.GetBytes(text)).ToArray();
+        var bomVariants=new[]{
+            Encoding.UTF8.GetBytes(safeIni),
+            WithBom(new UTF8Encoding(true,true),safeIni),
+            WithBom(new UnicodeEncoding(false,true,true),safeIni),
+            WithBom(new UnicodeEncoding(true,true,true),safeIni)
+        };
+        foreach(byte[] encoded in bomVariants)
+        {
+            string parsed=LegacyStoreV1ActiveLaunch.DecodeOriginalIni(encoded);
+            Check(parsed==safeIni &&
+                  LegacyStoreV1ActiveLaunch.Build(input with{
+                      GameUserSettingsIni=parsed
+                  }).Arguments.SequenceEqual(active.Arguments),
+                "original Store-v1 UTF-8/UTF-16 INI leaves active launch arguments unchanged");
+        }
+        bool wrongUnicodeDenied=false;
+        try{LegacyStoreV1ActiveLaunch.DecodeOriginalIni(
+            new byte[]{0xFF,0xFE,0x5B});}
+        catch(InvalidDataException){wrongUnicodeDenied=true;}
+        Check(wrongUnicodeDenied,
+            "truncated UTF-16 Store INI cannot silently bypass startup validation");
+        bool nulDenied=false;
+        try{LegacyStoreV1ActiveLaunch.DecodeOriginalIni(
+            Encoding.UTF8.GetBytes("[ServerSettings]\0Port=7777"));}
+        catch(InvalidDataException){nulDenied=true;}
+        Check(nulDenied,"binary NUL in original INI is rejected without source changes");
         void Reject(LegacyStoreV1ActiveLaunch.Input changed,string label)
         {
             bool denied=false;
@@ -722,6 +875,8 @@ try
             "Game and Query UDP ports cannot collide");
         Reject(input with{PassiveMods=new[]{"999999"}},
             "passive mod cannot be newly injected into the original enabled order");
+        Reject(input with{Mods=new[]{"123456","654321","123456"}},
+            "ambiguous duplicated original mod order is never silently rewritten during native startup");
         Reject(input with{Mods=Enumerable.Repeat("123456",101).ToArray()},
             "over-limit legacy mod list fails closed");
         Check(!active.Arguments.Any(x=>x.Contains("converttostore",StringComparison.OrdinalIgnoreCase)),
@@ -1014,6 +1169,14 @@ try
             Arguments="TheIsland_WP?SessionName=Fixture"
         };
         host.AddMap(target);
+        Check(!new ManagerConfig().AutoSteamUpdatesEnabled &&
+              !new ManagerConfig().SteamRestartAfterUpdate,
+            "new Manager profiles default to manual SteamCMD with no automatic ASA restart");
+        // An older serialized profile may still contain both legacy true
+        // preferences. Loading them must not reactivate the retired scheduler
+        // or dispatch a Store/ASA process update without manual approval.
+        host.Config.AutoSteamUpdatesEnabled=true;
+        host.Config.SteamRestartAfterUpdate=true;
         int autoRuns=0;
         using var supervisor=new DesktopScheduledStoppedSteamSupervisor(host,
             (_,_)=>{
@@ -1549,6 +1712,82 @@ try
         Check(File.ReadAllText(iniFile).Contains("EXTERNAL=1"),
             "external change preserved on failed staged save");
 
+        var failedMerge=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=conflictToken,content="[ServerSettings]\nExample=3\n"});
+        Check(IsError(failedMerge,"UM-INI-MERGE-CONFLICT"),
+            "three-way merge refuses structural changes with original writer edits intact");
+        Check(File.ReadAllText(iniFile).Contains("EXTERNAL=1"),
+            "rejected three-way merge does not write to the disk");
+
+        // Distinct INI keys and comments are preserved when another process
+        // changes an unrelated value while this operator edits Example.
+        File.WriteAllText(iniFile,"[ServerSettings]\nExample=2\nForeign=old\n; keep comment\n");
+        var rebasedOpen=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        IsOk(rebasedOpen,"three-way INI fixture opens baseline without writes");
+        string mergeToken=rebasedOpen.GetProperty("data").GetProperty("token").GetString()!;
+        string operatorEdit="[ServerSettings]\nExample=3\nForeign=old\n; keep comment\n";
+        IsOk(await Call(ini.HandleAsync,"ini.preview",
+            new{token=mergeToken,content=operatorEdit}),
+            "operator INI change receives ordinary hash preview");
+        File.WriteAllText(iniFile,"[ServerSettings]\nExample=2\nForeign=new\n; keep comment\n");
+        Check(IsError(await Call(ini.HandleAsync,"ini.save",new{token=mergeToken}),
+                "UM-INI-ETAG-MISMATCH"),
+            "other writer triggers ETag rejection before merge");
+        var goodMerge=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=mergeToken,content=operatorEdit});
+        IsOk(goodMerge,"disjoint INI modifications merge without writing");
+        string rebasedText=goodMerge.GetProperty("data").GetProperty("content").GetString()!;
+        Check(rebasedText.Contains("Example=3")&&rebasedText.Contains("Foreign=new")&&
+              rebasedText.Contains("; keep comment")&&
+              File.ReadAllText(iniFile).Contains("Example=2"),
+            "merge previews the operator change alongside the newer disk value and comment");
+        Check(IsError(await Call(ini.HandleAsync,"ini.save",new{token=mergeToken}),
+                "UM-INI-PREVIEW-REQUIRED"),
+            "rebased INI cannot save before a new explicit hash preview");
+        IsOk(await Call(ini.HandleAsync,"ini.preview",
+            new{token=mergeToken,content=rebasedText}),
+            "operator must approve fresh rebased SHA preview");
+        IsOk(await Call(ini.HandleAsync,"ini.save",new{token=mergeToken}),
+            "newly previewed merged INI is atomically committed");
+        Check(File.ReadAllText(iniFile).Contains("Example=3")&&
+              File.ReadAllText(iniFile).Contains("Foreign=new"),
+            "independent disk and user values survive the approved merge");
+        // External comment edits are independent of an operator changing a
+        // different existing value. They must survive rebase byte-for-byte.
+        var commentsOpen=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        IsOk(commentsOpen,"comment-only concurrent edit opens its old INI baseline");
+        string commentsToken=commentsOpen.GetProperty("data").GetProperty("token").GetString()!;
+        string commentsBaseline=File.ReadAllText(iniFile);
+        File.WriteAllText(iniFile,commentsBaseline.Replace("; keep comment","; changed by external editor"));
+        var commentsRebase=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=commentsToken,content=commentsBaseline.Replace("Example=3","Example=7")});
+        IsOk(commentsRebase,"external comment change is nonconflicting with independent INI value edit");
+        string commentsMerged=commentsRebase.GetProperty("data").GetProperty("content").GetString()!;
+        Check(commentsMerged.Contains("Example=7")&&
+              commentsMerged.Contains("; changed by external editor")&&
+              File.ReadAllText(iniFile).Contains("Example=3"),
+            "three-way rebase keeps external comments and remains a no-write preview");
+        IsOk(await Call(ini.HandleAsync,"ini.close",new{token=commentsToken}),
+            "close comment rebase without saving or touching ASA process");
+        File.WriteAllText(iniFile,commentsBaseline);
+        var collisionOpen=await Call(ini.HandleAsync,"ini.open",
+            new{mapId=map.Id,file="Game.ini"});
+        string collisionToken=collisionOpen.GetProperty("data").GetProperty("token").GetString()!;
+        File.WriteAllText(iniFile,"[ServerSettings]\nExample=4\nForeign=new\n; keep comment\n");
+        var collision=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=collisionToken,content=rebasedText.Replace("Example=3","Example=5")});
+        Check(IsError(collision,"UM-INI-MERGE-CONFLICT")&&
+              File.ReadAllText(iniFile).Contains("Example=4"),
+            "same INI key edited by both writers conflicts and preserves newer disk bytes");
+        File.WriteAllText(iniFile,"[DifferentSection]\nExample=3\nForeign=new\n; keep comment\n");
+        var sectionMoved=await Call(ini.HandleAsync,"ini.rebasePreview",
+            new{token=collisionToken,content=rebasedText.Replace("Example=3","Example=5")});
+        Check(IsError(sectionMoved,"UM-INI-MERGE-CONFLICT")&&
+              File.ReadAllText(iniFile).Contains("[DifferentSection]"),
+            "external section rename is never silently accepted as an INI rebase");
+
         // This test's older INI read fixture intentionally had no server EXE.
         // A genuinely FRESH install must have its registered ASA binary before
         // the new create endpoint can be approved. Materialize only synthetic
@@ -1573,6 +1812,20 @@ try
               !File.Exists(iniFile),
             "historical Store sibling returns precise denied code without creating Game.ini");
         cluster.RemoveMap(historicalIniSibling.Id);
+        string originalCreateArgs=map.Arguments;
+        map.Arguments=originalCreateArgs+
+            " -SessionName=\"Untamed Store -usestore Weekend\"";
+        var namedGameIni=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        IsOk(namedGameIni,
+            "fresh Game.ini setup accepts quoted Store words inside SessionName");
+        map.Arguments=originalCreateArgs+" -clusterid=Unregistered";
+        var forbiddenGameIni=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=map.Id});
+        Check(IsError(forbiddenGameIni,"UM-INI-CREATE-FRESH-ONLY")&&
+              !File.Exists(iniFile),
+            "fresh Game.ini setup rejects actual unenrolled cluster switch");
+        map.Arguments=originalCreateArgs;
         var missing=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
         Check(IsError(missing,"UM-INI-GAME-MISSING")&&!File.Exists(iniFile),
@@ -1584,6 +1837,27 @@ try
               !creation.GetProperty("data").GetProperty("createsFile").GetBoolean(),
             "creation preview leaves installation untouched");
         string creationToken=creation.GetProperty("data").GetProperty("token").GetString()!;
+        // A second new ASA map has its OWN installation and Game.ini. Its
+        // preview must not revoke the first map's one-shot creation approval.
+        string secondIniRoot=Path.Combine(root,"second-gameini-synthetic");
+        string secondIniExe=Path.Combine(secondIniRoot,"ShooterGame",
+            "Binaries","Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondIniExe)!);
+        File.WriteAllText(secondIniExe,"synthetic second ASA EXE never executed");
+        var secondIniMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="INI second synthetic",
+            InstallationPath=secondIniRoot,ExecutablePath=secondIniExe,
+            Arguments="TheCenter_WP?listen"
+        };
+        cluster.AddMap(secondIniMap);
+        var secondCreation=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=secondIniMap.Id});
+        IsOk(secondCreation,
+            "independent second local ASA has separately scoped Game.ini preview");
+        string secondCreationToken=secondCreation.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(secondCreationToken!=creationToken,
+            "multi-map Game.ini approvals never share a token");
         var declinedCreate=await Call(ini.HandleAsync,"ini.createGameApply",
             new{token=creationToken,confirm=false});
         Check(IsError(declinedCreate,"UM-INI-CREATE-EXPLICIT-APPROVAL") &&
@@ -1592,6 +1866,20 @@ try
         var createdGame=await Call(ini.HandleAsync,"ini.createGameApply",
             new{token=creationToken,confirm=true});
         IsOk(createdGame,"approved fresh Game.ini created using atomic CreateNew");
+        var secondCreated=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=secondCreationToken,confirm=true});
+        IsOk(secondCreated,
+            "second Game.ini create survives first map's approved filesystem write");
+        string secondCreatedIni=Path.Combine(secondIniRoot,
+            "ShooterGame","Saved","Config","WindowsServer","Game.ini");
+        Check(File.Exists(secondCreatedIni)&&
+              File.ReadAllText(secondCreatedIni)
+                  .Contains("ShooterGameMode",StringComparison.Ordinal),
+            "second ASA receives only its own independent Game.ini");
+        var replaySecond=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=secondCreationToken,confirm=true});
+        Check(IsError(replaySecond,"UM-INI-CREATE-EXPLICIT-APPROVAL"),
+            "second-map Game.ini approval cannot be replayed after creation");
         Check(createdGame.GetProperty("data").GetProperty("created").GetBoolean() &&
               File.ReadAllText(iniFile).Contains("ShooterGameMode",StringComparison.Ordinal),
             "native Game.ini creation really writes a valid UTF-8 starter section");
@@ -1609,6 +1897,7 @@ try
         var reopened=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
         IsOk(reopened,"newly created Game.ini opens in the original ETag editor");
+        cluster.RemoveMap(secondIniMap.Id);
         if(!hadServerExe)File.Delete(map.ExecutablePath);
     }
 
@@ -1734,11 +2023,13 @@ try
     string steamExe=Path.Combine(steamDir,"steamcmd.exe");
     File.WriteAllText(steamExe,"SYNTHETIC STEAMCMD EXE - DO NOT EXECUTE");
     int fakeRuns=0;
+    IProgress<SteamInstallProgress>? lateFreshInstallProgress=null;
     async Task<SteamFreshInstallReceipt> SyntheticSteamRunner(
         SteamFreshInstallRequest request,LocalMap[] existing,
         IProgress<SteamInstallProgress>? progress,CancellationToken cancellationToken)
     {
         fakeRuns++;
+        lateFreshInstallProgress=progress;
         Check(request.MapName=="Valguero" && request.SessionName=="" &&
               !existing.Any(m=>m.Name=="Valguero"),
             "new Steam installer begins without ports, session or existing map");
@@ -1838,6 +2129,19 @@ try
               fakeRuns==1 &&
               !cluster.Config.LocalMaps.Any(m=>m.Name=="Valguero"),
             "finished SteamCMD files never silently register or start a server");
+        Check(lateFreshInstallProgress!=null,
+            "synthetic fresh SteamCMD worker retains the source progress callback");
+        lateFreshInstallProgress!.Report(new("download",
+            "DELAYED_PROGRESS_AFTER_VERIFIED_STEAM_INSTALL",5));
+        var stableVerified=await Call(steamBridge.HandleAsync,
+            "steam.freshStatus",new{jobId});
+        IsOk(stableVerified,"verified fresh install survives late worker progress");
+        var verifiedState=stableVerified.GetProperty("data");
+        Check(verifiedState.GetProperty("verified").GetBoolean()&&
+              verifiedState.GetProperty("stage").GetString()=="verified"&&
+              verifiedState.GetProperty("percent").GetDouble()==100&&
+              fakeRuns==1,
+            "late SteamCMD progress cannot replace a finished install receipt");
         var registered=await Call(steamBridge.HandleAsync,"steam.freshRegister",
             new{jobId,confirm=true});
         IsOk(registered,"explicit registration succeeds after verified file and manifest");
@@ -1854,10 +2158,224 @@ try
             "completed Steam registration is not replayable");
         Check(!File.Exists(Path.Combine(freshRoot,"ShooterGame","Saved","SavedArks","Valguero_WP.ark")),
             "fresh download never fabricates world saves or Store data");
+        lateFreshInstallProgress!.Report(new("download",
+            "DELAYED_PROGRESS_AFTER_REGISTERED_STEAM_INSTALL",1));
+        var stableRegistered=await Call(steamBridge.HandleAsync,
+            "steam.freshStatus",new{jobId});
+        IsOk(stableRegistered,"registered fresh install remains addressable by original job ID");
+        Check(stableRegistered.GetProperty("data").GetProperty("registered").GetBoolean()&&
+              stableRegistered.GetProperty("data").GetProperty("stage").GetString()=="registered"&&
+              fakeRuns==1,
+            "late SteamCMD progress cannot regress completed native map registration");
         var current=await Call(steamBridge.HandleAsync,"steam.freshCurrent");
         Check(current.GetProperty("data").GetProperty("current")
             .GetProperty("registered").GetBoolean(),
             "manager can restore verified native Steam job status after UI navigation");
+    }
+
+    // A failed, never-executed synthetic install must remain failed after
+    // its worker publishes stale progress. No SteamCMD child or ASA is opened.
+    {
+        string failedRoot=Path.Combine(root,"fresh-asa-synthetic-failure");
+        await using var failedCluster=new ClusterService("fresh-error-progress-fixture",
+            Path.Combine(root,"fresh-error-manager"),
+            _=>new ProcessCheck(false,"No ASA in synthetic failure test",null,true));
+        IProgress<SteamInstallProgress>? delayedFailureProgress=null;
+        int failedAttempts=0;
+        using var failedBridge=new DesktopSteamFreshInstallBridge(failedCluster,
+            async (request,maps,progress,token)=>{
+                failedAttempts++;
+                delayedFailureProgress=progress;
+                progress?.Report(new("download","SYNTHETIC FAILURE BEFORE FILES",15));
+                await Task.Delay(30,token);
+                throw new IOException("SYNTHETIC STEAM INSTALL FAILURE");
+            },
+            ()=>failedRoot,availableFreeBytes:_=>100L*1024*1024*1024);
+        var plan=await Call(failedBridge.HandleAsync,"steam.freshPreflight",
+            new{mapName="Valguero",installRoot=failedRoot,steamExe,
+                allowSteamCmdDownload=false,explicitRetry=false});
+        IsOk(plan,"failed Steam progress fixture has an independent approved preflight");
+        var begun=await Call(failedBridge.HandleAsync,"steam.freshStart",
+            new{token=plan.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true});
+        IsOk(begun,"synthetic failed Steam job receives a real native task ID");
+        string failureJobId=begun.GetProperty("data").GetProperty("jobId").GetString()!;
+        JsonElement failedState=default;
+        for(int attempt=0;attempt<80;attempt++)
+        {
+            failedState=await Call(failedBridge.HandleAsync,"steam.freshStatus",
+                new{jobId=failureJobId});
+            if(failedState.GetProperty("data").GetProperty("errorCode")
+                .ValueKind==JsonValueKind.String)break;
+            await Task.Delay(30);
+        }
+        IsOk(failedState,"failed fresh SteamCMD job is observable without auto-retry");
+        Check(failedState.GetProperty("data").GetProperty("stage").GetString()=="failed"&&
+              failedState.GetProperty("data").GetProperty("errorCode").GetString()
+                =="UM-FRESH-INSTALL-FAILED"&&failedAttempts==1,
+            "failed synthetic SteamCMD installation reports terminal failure once");
+        Check(delayedFailureProgress!=null,
+            "failed Steam fixture captured its worker's own progress callback");
+        delayedFailureProgress!.Report(new("download",
+            "DELAYED_PROGRESS_AFTER_FAILED_STEAM_INSTALL",91));
+        var preserved=await Call(failedBridge.HandleAsync,"steam.freshStatus",
+            new{jobId=failureJobId});
+        IsOk(preserved,"failed Steam install remains observable after stale progress");
+        Check(preserved.GetProperty("data").GetProperty("stage").GetString()=="failed"&&
+              preserved.GetProperty("data").GetProperty("errorCode").GetString()
+                =="UM-FRESH-INSTALL-FAILED"&&failedAttempts==1&&
+              !Directory.Exists(failedRoot),
+            "late native SteamCMD progress cannot hide failure or start another download");
+    }
+
+    // Completed SteamCMD install after Manager restart: the memory-only job
+    // disappeared, but the SOURCE-PINNED journal and local binaries survived.
+    // This fixture creates only synthetic files under a unique TEMP root and
+    // one GUID-derived journal under the isolated CI runner's ProgramData.
+    {
+        string recoveredRoot=Path.Combine(root,"fresh-completed-after-restart");
+        string recoveredExe=Path.Combine(recoveredRoot,"ShooterGame","Binaries",
+            "Win64","ArkAscendedServer.exe");
+        string recoveredManifest=Path.Combine(recoveredRoot,"steamapps",
+            "appmanifest_2430930.acf");
+        Directory.CreateDirectory(Path.GetDirectoryName(recoveredExe)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(recoveredManifest)!);
+        const string recoveryMap="Synthetic Completed Recovery";
+        const string recoveryLevel="SyntheticCompleted_WP";
+        Guid recoveryMapId=Guid.NewGuid();
+        File.WriteAllText(recoveredExe,"SYNTHETIC VERIFIED COMPLETED ASA EXE");
+        File.WriteAllText(recoveredManifest,
+            "\"AppState\"\n{\n\"appid\" \"2430930\"\n\"buildid\" \"123456\"\n}\n");
+        string journalKey=Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(recoveredRoot.ToUpperInvariant())));
+        string journalFile=Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.CommonApplicationData),
+            "UntamedManager","FreshSteamInstall-v1",journalKey+".json");
+        Directory.CreateDirectory(Path.GetDirectoryName(journalFile)!);
+        File.WriteAllText(journalFile,JsonSerializer.Serialize(new {
+            MapId=recoveryMapId,InstallRoot=recoveredRoot,SteamExe=steamExe,
+            Phase="complete",ChangedUtc=DateTimeOffset.UtcNow,
+            MapName=recoveryMap,MapLevel=recoveryLevel,
+            BinarySha256=Convert.ToHexString(
+                SHA256.HashData(File.ReadAllBytes(recoveredExe))),
+            ManifestSha256=Convert.ToHexString(
+                SHA256.HashData(File.ReadAllBytes(recoveredManifest)))
+        }));
+        try
+        {
+            int downloadsBeforeRecovery=fakeRuns;
+            await using var recoveryCluster=new ClusterService("steam-recovery-native",
+                Path.Combine(root,"steam-recovery-profile"),
+                _=>new ProcessCheck(false,"Synthetic stopped only",null,true));
+            using var recoveredBridge=new DesktopSteamFreshInstallBridge(recoveryCluster,
+                SyntheticSteamRunner,availableFreeBytes:_=>100L*1024*1024*1024);
+            string pinnedJournalBytes=File.ReadAllText(journalFile);
+            File.WriteAllText(journalFile,JsonSerializer.Serialize(new{
+                MapId=recoveryMapId,InstallRoot=recoveredRoot,SteamExe=steamExe,
+                Phase="complete",ChangedUtc=DateTimeOffset.UtcNow,
+                MapName=recoveryMap,MapLevel=recoveryLevel
+            }));
+            var legacyJournal=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            Check(IsError(legacyJournal,"UM-FRESH-RECOVERY-UNPINNED-COMPLETION") &&
+                  recoveryCluster.Config.LocalMaps.Count==0,
+                "unhashed historical completion is not treated as verified executable ownership");
+            File.WriteAllText(journalFile,pinnedJournalBytes);
+            var preview=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            IsOk(preview,"completed SteamCMD journal can be previewed after independent Manager restart");
+            string approvalToken=preview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            Check(preview.GetProperty("data").GetProperty("mapId").GetGuid()==
+                    recoveryMapId && fakeRuns==downloadsBeforeRecovery,
+                "recovery preview preserves exact map GUID without another SteamCMD process");
+
+            var unapproved=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=approvalToken,confirm=true,typedApproval="NO"
+                });
+            Check(IsError(unapproved,"UM-FRESH-RECOVERY-APPROVAL-REQUIRED") &&
+                !recoveryCluster.Config.LocalMaps.Any(m=>m.Id==recoveryMapId),
+                "typed native consent is required before recovering a registered map");
+
+            File.AppendAllText(recoveredExe,"TAMPER");
+            var changed=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=approvalToken,confirm=true,
+                    typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
+                });
+            Check(IsError(changed,"UM-FRESH-RECOVERY-FILES-CHANGED") &&
+                !recoveryCluster.Config.LocalMaps.Any(m=>m.Id==recoveryMapId),
+                "changed EXE invalidates a one-use recovery token without writing the Manager profile");
+            File.WriteAllText(recoveredExe,"SYNTHETIC VERIFIED COMPLETED ASA EXE");
+
+            string originalManifest=File.ReadAllText(recoveredManifest);
+            var manifestPreview=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            IsOk(manifestPreview,"unchanged binary and manifest can be re-previewed");
+            string manifestToken=manifestPreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            File.AppendAllText(recoveredManifest,"TAMPERED_MANIFEST");
+            var manifestChanged=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=manifestToken,confirm=true,
+                    typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
+                });
+            Check(IsError(manifestChanged,"UM-FRESH-RECOVERY-FILES-CHANGED") &&
+                  recoveryCluster.Config.LocalMaps.Count==0,
+                "modified Steam appmanifest invalidates previously approved recovery without Manager writes");
+            File.WriteAllText(recoveredManifest,originalManifest);
+
+            var freshPreview=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            IsOk(freshPreview,"restored completed journal has a new approved recovery preview");
+            approvalToken=freshPreview.GetProperty("data").GetProperty("token").GetString()!;
+            var applied=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=approvalToken,confirm=true,
+                    typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
+                });
+            IsOk(applied,"previously downloaded ASA registered without a second download or start");
+            var recoveredMap=recoveryCluster.Config.LocalMaps.Single(m=>m.Id==recoveryMapId);
+            Check(recoveredMap.Name==recoveryMap && recoveredMap.GamePort==0 &&
+                  recoveredMap.QueryPort==0 && !recoveredMap.AutoStart &&
+                  !recoveredMap.StartWithAsaApi &&
+                  recoveredMap.FreshInstallMapLevel==recoveryLevel &&
+                  fakeRuns==downloadsBeforeRecovery &&
+                  File.ReadAllText(recoveredExe)=="SYNTHETIC VERIFIED COMPLETED ASA EXE",
+                "independent completed recovery preserves GUID and ASA binary while leaving initial configuration pending");
+            var replay=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverRegister",new{
+                    token=approvalToken,confirm=true,
+                    typedApproval="ASA TELEPÍTÉS ÁTVÉTEL"
+                });
+            Check(IsError(replay,"UM-FRESH-RECOVERY-APPROVAL-REQUIRED") &&
+                  recoveryCluster.Config.LocalMaps.Count(m=>m.Id==recoveryMapId)==1,
+                "completed Steam recovery consent is never replayable");
+            var duplicate=await Call(recoveredBridge.HandleAsync,
+                "steam.freshRecoverPreview",new{
+                    mapName=recoveryMap,installRoot=recoveredRoot,
+                    customLevel=recoveryLevel
+                });
+            Check(IsError(duplicate,"UM-FRESH-RECOVERY-ALREADY-REGISTERED"),
+                "completed Steam recovery refuses a second registration of the same installation");
+        }
+        finally
+        {
+            if(File.Exists(journalFile))File.Delete(journalFile);
+        }
     }
 
     // Synthetic custom/unofficial map SteamCMD: the ASA 2430930 binaries
@@ -1982,8 +2500,24 @@ try
         Check(planned.GetProperty("data").GetProperty("mapLevel").GetString()
                 ==customLevel,
             "initial launch preview keeps the source-pinned Unreal level");
+        string staleCustomToken=planned.GetProperty("data").GetProperty("token").GetString()!;
+        customMap.FreshInstallMapLevel="ExternallyChanged_WP";
+        var staleCustomApply=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token=staleCustomToken,confirm=true});
+        Check(IsError(staleCustomApply,"UM-INITIAL-CONFLICT")&&
+              customMap.Arguments==""&&customMap.GamePort==0,
+            "level changed after preview rejects first setup without writing a mismatched launch");
+        customMap.FreshInstallMapLevel=customLevel;
+        var replayCustom=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token=staleCustomToken,confirm=true});
+        Check(IsError(replayCustom,"UM-INITIAL-PREVIEW-EXPIRED"),
+            "stale first-setup approval cannot be replayed after rejected map identity change");
+        var approvedCustom=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=customMap.Id,sessionName="Synthetic Custom Server",
+                gamePort=7951,queryPort=27951,customLevel=""});
+        IsOk(approvedCustom,"restored custom level receives a fresh native preview");
         var committed=await Call(customSetup.HandleAsync,"servers.initialApply",
-            new{token=planned.GetProperty("data").GetProperty("token").GetString(),
+            new{token=approvedCustom.GetProperty("data").GetProperty("token").GetString(),
                 confirm=true});
         IsOk(committed,"approved custom first setup writes only local launch profile");
         var configuredCustom=customCluster.Config.LocalMaps.Single(m=>m.Id==customMap.Id);
@@ -2061,6 +2595,20 @@ try
         Check(!bad.GetProperty("ok").GetBoolean(),
             "initial setup rejects identical Game and Query UDP ports");
 
+        // Real OS UDP ownership, not just the Manager's map registry.
+        // The socket belongs to this isolated test process, not any ASA port.
+        using(var occupied=new System.Net.Sockets.UdpClient(
+            new IPEndPoint(IPAddress.Loopback,testGamePort)))
+        {
+            var busyPreview=await Call(setup.HandleAsync,
+                "servers.initialPreview",
+                new{mapId=valguero.Id,sessionName="Occupied preview",
+                    gamePort=testGamePort,queryPort=testQueryPort});
+            Check(IsError(busyPreview,"UM-INITIAL-PORT-IN-USE")&&
+                  valguero.Arguments=="",
+                "OS-owned Game UDP port rejects initial preview without profile writes");
+        }
+
         var preview=await Call(setup.HandleAsync,"servers.initialPreview",
             new{mapId=valguero.Id,sessionName="Untamed Kingdom Test",
                 gamePort=testGamePort,queryPort=testQueryPort});
@@ -2074,6 +2622,15 @@ try
         Check(IsError(unconfirmed,"UM-INITIAL-CONFIRMATION-REQUIRED"),
             "unapproved initial setup writes nothing and preserves preview");
 
+        using(var occupied=new System.Net.Sockets.UdpClient(
+            new IPEndPoint(IPAddress.Loopback,testQueryPort)))
+        {
+            var blockedApply=await Call(setup.HandleAsync,"servers.initialApply",
+                new{token,confirm=true});
+            Check(IsError(blockedApply,"UM-INITIAL-PORT-IN-USE")&&
+                  valguero.GamePort==0&&valguero.Arguments=="",
+                "UDP port claimed after preview blocks apply and preserves original profile");
+        }
         var committed=await Call(setup.HandleAsync,"servers.initialApply",
             new{token,confirm=true});
         IsOk(committed,"approved initial setup saves registered Manager launch profile");
@@ -2193,10 +2750,23 @@ try
               custom.Arguments=="",
             "custom level cannot be applied after map identity changes");
         custom.Name=previousName;
-        var applied=await Call(customSetup.HandleAsync,"servers.initialApply",
+        // A rejected identity mismatch consumes the preview on purpose.
+        // Restoring the previous name must NOT revive a stale approval.
+        var replay=await Call(customSetup.HandleAsync,"servers.initialApply",
             new{token,confirm=true});
+        Check(IsError(replay,"UM-INITIAL-PREVIEW-EXPIRED") &&
+              custom.Arguments=="",
+            "restoring a changed map name cannot replay an invalidated first-setup approval");
+        var refreshed=await Call(customSetup.HandleAsync,"servers.initialPreview",
+            new{mapId=custom.Id,sessionName="Untamed Custom",
+                gamePort=customGame,queryPort=customQuery,
+                customLevel="Atlantis_Custom_WP"});
+        IsOk(refreshed,"custom level requires a new native preview after changed identity");
+        var applied=await Call(customSetup.HandleAsync,"servers.initialApply",
+            new{token=refreshed.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true});
         Check(applied.GetProperty("ok").GetBoolean(),
-            "confirmed custom level is saved through existing atomic native Manager profile");
+            "confirmed fresh custom level preview saves the atomic native Manager profile");
         var registered=cluster.Config.LocalMaps.Single(x=>x.Id==custom.Id);
         Check(registered.Arguments.StartsWith(
                 "Atlantis_Custom_WP?listen?SessionName=",StringComparison.Ordinal) &&
@@ -2221,6 +2791,24 @@ try
         string iniPath=AsaInitialRconSettings.NewIniPath(fresh.InstallationPath);
         Check(!File.Exists(iniPath),"fresh RCON test starts with no ASA server config");
         using var rconSetup=new DesktopRconConfigurationBridge(cluster);
+        string originalBootstrapArgs=fresh.Arguments;
+        fresh.Arguments=originalBootstrapArgs+
+            " -SessionName=\"Untamed Store -usestore Weekend\"";
+        var namedBootstrap=await Call(rconSetup.HandleAsync,"rcon.configStatus",
+            new{mapId=fresh.Id});
+        Check(namedBootstrap.GetProperty("data").GetProperty("permitted").GetBoolean(),
+            "RCON bootstrap accepts quoted Store words inside SessionName");
+        fresh.Arguments=originalBootstrapArgs+" -converttostore";
+        var forbiddenBootstrap=await Call(rconSetup.HandleAsync,"rcon.configStatus",
+            new{mapId=fresh.Id});
+        Check(!forbiddenBootstrap.GetProperty("data").GetProperty("permitted").GetBoolean(),
+            "RCON bootstrap refuses actual conversion switch");
+        fresh.Arguments=originalBootstrapArgs+" -clusterid=Unregistered";
+        var forbiddenBootstrapCluster=await Call(rconSetup.HandleAsync,"rcon.configStatus",
+            new{mapId=fresh.Id});
+        Check(!forbiddenBootstrapCluster.GetProperty("data").GetProperty("permitted").GetBoolean(),
+            "RCON bootstrap refuses actual unenrolled cluster switch");
+        fresh.Arguments=originalBootstrapArgs;
         var status=await Call(rconSetup.HandleAsync,"rcon.configStatus",
             new{mapId=fresh.Id});
         IsOk(status,"new stopped non-Store map can configure RCON");
@@ -2245,12 +2833,62 @@ try
         Check(IsError(protectedPreview,"UM-RCON-CONFIG-STOPPED-NONSTORE-ONLY"),
             "RCON bootstrap cannot bypass historical Store map on shared installation");
         cluster.RemoveMap(historicalSibling.Id);
+        // A real existing ASA INI is never rewritten or assigned a new
+        // credential. Exact parity must work with short legacy values and
+        // with significant whitespace and '=' around the original password.
+        const string oldPassword="  =Old7!xx= ";
+        Directory.CreateDirectory(Path.GetDirectoryName(iniPath)!);
+        File.WriteAllText(iniPath,
+            "[ServerSettings]\r\nRCONEnabled=True\r\nRCONPort="+
+            testRconPort.ToString(System.Globalization.CultureInfo.InvariantCulture)+
+            "\r\nServerAdminPassword="+oldPassword+"\r\n");
+        byte[] oldBytes=File.ReadAllBytes(iniPath);
+        var matchingExisting=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=testRconPort,password=oldPassword,createIni=false});
+        IsOk(matchingExisting,"existing ASA INI with exact legacy password can be attached read-only");
+        Check(matchingExisting.GetProperty("data").GetProperty("existingIniVerified").GetBoolean() &&
+              !matchingExisting.GetProperty("data").GetProperty("createsNewIni").GetBoolean() &&
+              !matchingExisting.GetRawText().Contains(oldPassword) &&
+              File.ReadAllBytes(iniPath).SequenceEqual(oldBytes),
+            "existing ASA credential and INI bytes remain unchanged at preview");
+        var trimmedExisting=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=testRconPort,password=oldPassword.Trim(),createIni=false});
+        Check(IsError(trimmedExisting,"UM-RCON-CONFIG-FAILED") &&
+              File.ReadAllBytes(iniPath).SequenceEqual(oldBytes),
+            "trimming an existing password is rejected without rewriting the ASA INI");
+        var otherExisting=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=otherTestRconPort,password=oldPassword,createIni=false});
+        Check(IsError(otherExisting,"UM-RCON-CONFIG-FAILED") &&
+              File.ReadAllBytes(iniPath).SequenceEqual(oldBytes),
+            "existing INI with different RCON port cannot silently bind a profile");
+        File.AppendAllText(iniPath,
+            "[ServerSettings]\r\nRCONEnabled=True\r\nRCONPort="+
+            testRconPort+"\r\nServerAdminPassword="+oldPassword+"\r\n");
+        var duplicateExisting=await Call(rconSetup.HandleAsync,"rcon.configPreview",
+            new{mapId=fresh.Id,rconPort=testRconPort,password=oldPassword,createIni=false});
+        Check(IsError(duplicateExisting,"UM-RCON-CONFIG-FAILED"),
+            "duplicate ASA ServerSettings sections cannot authorize attaching an ambiguous RCON");
+        File.Delete(iniPath);
+        Check(!File.Exists(iniPath),"synthetic old INI removed before new-server bootstrap");
         var preview=await Call(rconSetup.HandleAsync,"rcon.configPreview",
             new{mapId=fresh.Id,rconPort=testRconPort,password=secret,createIni=true});
         IsOk(preview,"new ASA RCON config is previewed, not applied");
         Check(!File.Exists(iniPath) && !preview.GetRawText().Contains(secret),
             "RCON preview leaves disk untouched and hides credential");
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        // A second independent local ASA map can finish its own first RCON
+        // wizard without revoking the still pending Valguero approval.
+        var customRcon=cluster.Config.LocalMaps.Single(x=>
+            x.Name=="Custom Atlantis Community");
+        int customRconPort=FindFreeTestPort(false,
+            testGamePort,testQueryPort,testRconPort,otherTestRconPort);
+        var customRconPreview=await Call(rconSetup.HandleAsync,
+            "rcon.configPreview",new{mapId=customRcon.Id,
+                rconPort=customRconPort,password=secret,createIni=true});
+        IsOk(customRconPreview,"second map preserves independent native RCON setup");
+        string customToken=customRconPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(token!=customToken,"two separate ASA maps hold distinct config approvals");
         var declined=await Call(rconSetup.HandleAsync,"rcon.configApply",
             new{token,confirm=false});
         Check(IsError(declined,"UM-RCON-CONFIG-CONFIRMATION") &&
@@ -2258,6 +2896,14 @@ try
         var configured=await Call(rconSetup.HandleAsync,"rcon.configApply",
             new{token,confirm=true});
         IsOk(configured,"native RCON bootstrap creates ASA INI and stores DPAPI credential");
+        var customRconApply=await Call(rconSetup.HandleAsync,"rcon.configApply",
+            new{token=customToken,confirm=true});
+        IsOk(customRconApply,"second ASA RCON configuration survives Valguero commit");
+        Check(cluster.Config.LocalMaps.Single(x=>x.Id==customRcon.Id).RconPort==
+                customRconPort&&
+              File.Exists(AsaInitialRconSettings.NewIniPath(
+                  customRcon.InstallationPath)),
+            "native RCON setup makes only the selected map's INI/DPAPI changes");
         var afterSetupStatus=await Call(rconSetup.HandleAsync,"rcon.configStatus",
             new{mapId=fresh.Id});
         Check(afterSetupStatus.GetProperty("data").GetProperty("rconPort").GetInt32()==testRconPort,
@@ -2341,6 +2987,19 @@ try
               !AsaLocalPortPreflight.CanStart(fresh,noPorts,localRconBind) &&
               AsaLocalPortPreflight.CanStart(fresh,noPorts,noPorts),
             "OS game/query UDP or RCON TCP port conflicts deny real ASA start");
+        static IEnumerable<System.Net.IPEndPoint> BrokenPortQuery()
+        {
+            yield return new System.Net.IPEndPoint(
+                System.Net.IPAddress.Loopback,12345);
+            throw new InvalidOperationException("Synthetic OS port enumeration failed");
+        }
+        Check(AsaLocalPortPreflight.Inspect(fresh,noPorts,noPorts)==
+                  AsaLocalPortAvailability.Available&&
+              AsaLocalPortPreflight.Inspect(fresh,localQueryBind,noPorts)==
+                  AsaLocalPortAvailability.InUse&&
+              AsaLocalPortPreflight.Inspect(fresh,BrokenPortQuery(),noPorts)==
+                  AsaLocalPortAvailability.Unverified,
+            "busy listener and unavailable Windows port evidence have different states");
         using var starter=new DesktopFreshAsaStartBridge(cluster,(id,approved)=>{
             Check(approved && id==fresh.Id,"native launch receives exact approved local map");
             calls++;
@@ -2363,6 +3022,33 @@ try
             new{token=firstToken,confirm=false});
         Check(IsError(denied,"UM-FRESH-START-APPROVAL")&&calls==0,
             "real fresh ASA start requires explicit confirmation");
+        // A concurrent, harmless-looking INI edit still invalidates a
+        // previously approved start. No process may launch on old evidence.
+        File.AppendAllText(rconIni,"\r\n; concurrent external ASA INI edit\r\n");
+        var staleStart=await Call(starter.HandleAsync,"servers.freshStartApply",
+            new{token=firstToken,confirm=true});
+        Check(IsError(staleStart,"UM-FRESH-START-CHANGED")&&calls==0,
+            "INI bytes changed after preview invalidate fresh ASA start approval");
+        File.WriteAllBytes(rconIni,rconOriginal);
+        var binaryPreview=await Call(starter.HandleAsync,
+            "servers.freshStartPreview",new{mapId=fresh.Id});
+        IsOk(binaryPreview,"new ASA start preflight protects actual installed server binary");
+        byte[] originalFreshExe=File.ReadAllBytes(fresh.ExecutablePath);
+        try
+        {
+            File.WriteAllBytes(fresh.ExecutablePath,
+                originalFreshExe.Concat(new byte[]{0x6D}).ToArray());
+            var binaryChanged=await Call(starter.HandleAsync,"servers.freshStartApply",
+                new{token=binaryPreview.GetProperty("data")
+                    .GetProperty("token").GetString(),confirm=true});
+            Check(IsError(binaryChanged,"UM-FRESH-START-CHANGED")&&calls==0,
+                "changing the ASA EXE after preview rejects a fresh Start with no process launch");
+        }
+        finally{File.WriteAllBytes(fresh.ExecutablePath,originalFreshExe);}
+        var refreshed=await Call(starter.HandleAsync,"servers.freshStartPreview",
+            new{mapId=fresh.Id});
+        IsOk(refreshed,"unchanged fresh ASA INI bytes receive a new explicit start preview");
+        firstToken=refreshed.GetProperty("data").GetProperty("token").GetString()!;
         var launched=await Call(starter.HandleAsync,"servers.freshStartApply",
             new{token=firstToken,confirm=true});
         IsOk(launched,"confirmed new local ASA start calls native process adapter");
@@ -2375,6 +3061,52 @@ try
             new{token=firstToken,confirm=true});
         Check(IsError(replay,"UM-FRESH-START-TOKEN-EXPIRED")&&calls==1,
             "approved ASA start is one-shot and cannot automatically repeat");
+
+        // Fresh Start must follow the SAME Restart-v1 terminal states as
+        // fresh Stop/Restart and original Store Start. An interrupted
+        // restart blocks, but a fully audited old restart may be followed
+        // by a NEW, separately approved Start. The fixture is contained
+        // in the isolated TEMP journal scope; there is no real ASA process.
+        var localRestart=new AsaManualRestartJournal(fresh.InstallationPath);
+        var restartKey=UntamedOperationCoordinator.ResourceKey(fresh.InstallationPath);
+        var restartFolder=Path.Combine(UntamedOperationCoordinator.DefaultRoot,
+            "Restart-v1");
+        string restartFile=Path.Combine(restartFolder,restartKey+".json");
+        var interrupted=localRestart.Begin(fresh.Id,56781);
+        var pendingRestart=localRestart.Change(interrupted.Id,AsaRestartPhase.NeedsOperator);
+        string auditFile=Path.Combine(restartFolder,restartKey+"-"+
+            interrupted.Id.ToString("N")+".operator-reviewed.json");
+        try
+        {
+            var blockedAfterCrash=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            Check(IsError(blockedAfterCrash,"UM-FRESH-START-NOT-READY")&&calls==1,
+                "pending durable Restart-v1 still blocks independent fresh ASA Start");
+            // Simulate an old, crashed operation in the isolated test only:
+            // native review refuses a recent journal and preserves the
+            // immutable original audit record on approval.
+            var oldRecord=pendingRestart with {
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+            };
+            File.WriteAllText(restartFile,JsonSerializer.Serialize(oldRecord,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            var reviewed=localRestart.ReviewOriginalOldPid(
+                fresh.Id,interrupted.Id,56781);
+            Check(reviewed.Phase==AsaRestartPhase.OperatorReviewed &&
+                  File.Exists(auditFile),
+                "manual review records the interrupted restart without claiming success");
+            var afterReview=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            IsOk(afterReview,"fully reviewed old Restart-v1 no longer blocks a new explicit local Start");
+            Check(calls==1,
+                "post-review preview never starts ASA or replays the old Restart");
+        }
+        finally
+        {
+            // Only temporary synthetic CI fixture files are removed.
+            if(File.Exists(restartFile))File.Delete(restartFile);
+            if(File.Exists(auditFile))File.Delete(auditFile);
+        }
         fresh.HistoricalStoreProtected=true;
         var historical=await Call(starter.HandleAsync,"servers.freshStartPreview",
             new{mapId=fresh.Id});
@@ -2445,6 +3177,51 @@ try
                 "native Start preserves ASA mod load/download order in launch args");
         }
         finally { fresh.Arguments=originalLaunch; }
+        // One Core lexer is shared by the actual Process.Start boundary,
+        // native preview, legacy backup guard and fresh Store enrollment.
+        // Quoted session words are never misclassified as ASA flags.
+        Check(!AsaStoreArgumentSwitches.ContainsProtectedSwitch(
+                  "TheIsland_WP?listen?SessionName=\"Untamed Store -usestore -clusterid\" -Port=7777") &&
+              !AsaStoreArgumentSwitches.ContainsConversion(
+                  "TheIsland_WP?listen?SessionName=\"ConvertToStore Celebration\"") &&
+              !AsaStoreArgumentSwitches.ContainsStoreWriter(
+                  "TheIsland_WP?listen?SessionName=\"UK -usestore Weekend\""),
+            "quoted session names and internal Store keywords never trigger real Start/backup denial");
+        Check(AsaStoreArgumentSwitches.ContainsStoreWriter(
+                  "TheIsland_WP?listen -usestore") &&
+              AsaStoreArgumentSwitches.ContainsConversion(
+                  "TheIsland_WP?listen -ConvertToStore") &&
+              AsaStoreArgumentSwitches.ContainsProtectedSwitch(
+                  "TheIsland_WP?listen -ClusterDirOverride=\"C:\\Transfer Share\"") &&
+              AsaStoreArgumentSwitches.ContainsProtectedSwitch(
+                  "TheIsland_WP?listen \"-clusterid\"=KovaCluster") &&
+              AsaStoreArgumentSwitches.ContainsProtectedSwitch(
+                  "TheIsland_WP?listen -ClusterDirOverride=\"unterminated"),
+            "real Store/cluster switches and malformed quoted arguments cannot bypass native authorization");
+        // "Store" is a legitimate custom session word; it is NOT an
+        // implicit -usestore switch. Actual Store/cluster switches still
+        // cannot be smuggled into a non-enrolled local launch.
+        try
+        {
+            fresh.Arguments=AsaSteamMapCatalog.LaunchArguments(
+                fresh.Name,"Untamed Store House",fresh.GamePort,fresh.QueryPort);
+            var named=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            IsOk(named,"ordinary Store word in ASA session name does not block fresh Start");
+            Check(calls==2,
+                "read-only preview of a Store-named fresh session does not spawn ASA");
+            fresh.Arguments=originalLaunch+" -ClusterDirOverride=C:\\Unsafe";
+            var forbiddenTransfer=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            Check(IsError(forbiddenTransfer,"UM-FRESH-START-NOT-READY")&&calls==2,
+                "unapproved cluster transfer override is rejected for non-Store ASA");
+            fresh.Arguments=originalLaunch+" -usestore";
+            var forbiddenStore=await Call(starter.HandleAsync,
+                "servers.freshStartPreview",new{mapId=fresh.Id});
+            Check(IsError(forbiddenStore,"UM-FRESH-START-NOT-READY")&&calls==2,
+                "Store-v1 launch switch cannot bypass native enrollment");
+        }
+        finally {fresh.Arguments=originalLaunch;}
     }
 
     // Local serial SteamCMD batch: a new UI command must delegate to the
@@ -2494,12 +3271,79 @@ try
                 new{mapIds=new[]{batchTarget.Id,batchTarget.Id}});
             Check(!duplicates.GetProperty("ok").GetBoolean()&&batchRuns==0,
                 "duplicated map IDs cannot execute multiple SteamCMD jobs");
+            // A browser cannot declare a map "historical and stopped" and
+            // thereby acquire the original Store-v1 Steam maintenance path.
+            // Core requires a trusted Windows observer before creating its
+            // serial queue journal or executing SteamCMD.
             second.HistoricalStoreProtected=true;
+            bool originalObserverRequired=false;
+            try
+            {
+                _=await SteamStoppedMapUpdater.UpdateAllStoppedAsync(
+                    cluster,new[]{second},cluster.Config.SteamCmdExecutable,
+                    10L*1024*1024*1024,TimeSpan.FromMinutes(5));
+            }
+            catch(UnauthorizedAccessException){originalObserverRequired=true;}
+            Check(originalObserverRequired && batchRuns==0,
+                "original Store-v1 batch cannot start without BOTH native stopped-family observers");
             var quarantined=await Call(batch.HandleAsync,"steam.batchPreview",
                 new{mapIds=new[]{batchTarget.Id,second.Id}});
             Check(!quarantined.GetProperty("ok").GetBoolean()&&batchRuns==0,
                 "a historical Store sibling blocks shared-install Steam update");
             second.HistoricalStoreProtected=false;
+            // Positive isolated Core guard: a source-identified original ASA
+            // installation becomes eligible ONLY with a trusted observed
+            // STOPPED process family. This test never launches SteamCMD.
+            string originalRoot=Path.Combine(Path.GetTempPath(),
+                "Untamed-Integration-StoreSteam-"+Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(originalRoot);
+            var isolatedOriginal=new LocalMap{
+                Id=Guid.NewGuid(),Name="Synthetic stopped original Store ASA",
+                InstallationPath=originalRoot
+            };
+            cluster.AddMap(isolatedOriginal);
+            try
+            {
+                isolatedOriginal.HistoricalStoreProtected=true;
+                isolatedOriginal.HistoricalMapKey="Astraeos_WP";
+                isolatedOriginal.HistoricalArchiveSha256=new string('A',64);
+                Func<LocalMap,ProcessCheck> safelyStopped=_=>
+                    new ProcessCheck(false,"Synthetic independent Windows STOPPED evidence",null,true);
+                SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                    cluster,isolatedOriginal,safelyStopped);
+                bool unprovenDenied=false;
+                try{SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,isolatedOriginal);}
+                catch(UnauthorizedAccessException){unprovenDenied=true;}
+                Check(unprovenDenied,"original ASA serial maintenance refuses absent native observer");
+                isolatedOriginal.Arguments="-UnapprovedLaunch";
+                bool changedLaunchDenied=false;
+                try{SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                    cluster,isolatedOriginal,safelyStopped);}
+                catch(UnauthorizedAccessException){changedLaunchDenied=true;}
+                Check(changedLaunchDenied,
+                    "source-pinned original Store ASA refuses unapproved launch-profile mutation");
+                isolatedOriginal.Arguments="";
+                isolatedOriginal.HistoricalLaunchModeNeedsApproval=true;
+                bool pendingModeDenied=false;
+                try{SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                    cluster,isolatedOriginal,safelyStopped);}
+                catch(UnauthorizedAccessException){pendingModeDenied=true;}
+                Check(pendingModeDenied,
+                    "original Store batch refuses ASA API/direct launch mode awaiting approval");
+                isolatedOriginal.HistoricalLaunchModeNeedsApproval=false;
+                bool runningObserverDenied=false;
+                try{SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                    cluster,isolatedOriginal,_=>new ProcessCheck(true,
+                        "Synthetic original ASA still runs",null,false));}
+                catch(InvalidOperationException){runningObserverDenied=true;}
+                Check(runningObserverDenied,
+                    "original Store batch cannot update a running ASA family");
+            }
+            finally
+            {
+                cluster.RemoveMap(isolatedOriginal.Id);
+                try{Directory.Delete(originalRoot,true);}catch{}
+            }
             var planned=await Call(batch.HandleAsync,"steam.batchPreview",
                 new{mapIds=new[]{batchTarget.Id,second.Id}});
             IsOk(planned,"native serial SteamCMD preview validates both local map identities");
@@ -2549,6 +3393,100 @@ try
                   batchRuns==1 &&
                   untouched.SequenceEqual(File.ReadAllBytes(batchTarget.ExecutablePath)),
                 "serial Steam batch executes exactly once and leaves real ASA binary unchanged in fixture");
+            // Exercise the approved original Store-v1 path end to end through
+            // the SAME native bridge/queue contract. The injected observer
+            // never sees a real ASA process, and the runner never calls Steam.
+            var savedOriginal=new{
+                batchTarget.HistoricalStoreProtected,
+                batchTarget.HistoricalMapKey,
+                batchTarget.HistoricalArchiveSha256,
+                batchTarget.HistoricalLaunchModeNeedsApproval,
+                batchTarget.Arguments,batchTarget.ApiLoaderArguments
+            };
+            int historicalRuns=0,observedStopped=0;
+            try
+            {
+                foreach(var m in new[]{batchTarget,second})
+                {
+                    m.HistoricalStoreProtected=true;
+                    m.HistoricalMapKey=m.Name.Replace(" ","")+"WP";
+                    m.HistoricalArchiveSha256=new string('A',64);
+                    m.HistoricalLaunchModeNeedsApproval=false;
+                    m.Arguments="";m.ApiLoaderArguments="";
+                }
+                using var originalBatch=new DesktopStoppedSteamBatchBridge(cluster,
+                    (maps,progress)=>{
+                        historicalRuns++;
+                        Check(maps.Count==1&&maps[0].Id==batchTarget.Id,
+                            "original Store installation deduplicates shared ASA binaries");
+                        IReadOnlyList<SteamStoppedMapUpdater.Receipt> receipts=new[]{
+                            new SteamStoppedMapUpdater.Receipt(maps[0].Id,
+                                maps[0].InstallationPath,"123456","123457",
+                                "synthetic-original-backup",DateTimeOffset.UtcNow,true)
+                        };
+                        return Task.FromResult(receipts);
+                    },
+                    map=>new SteamUpdatePreview(
+                        Path.GetFullPath(map.InstallationPath),
+                        new[]{batchTarget.Name,second.Name},"SYNTHETIC-STEAM",
+                        "123456",10L*1024*1024*1024,20L*1024*1024*1024,
+                        true,"Approved original offline fixture"),
+                    (map,underOwnOperation)=>{
+                        observedStopped++;
+                        return new ProcessCheck(false,"Native original ASA STOPPED fixture",null,true);
+                    });
+                var originalPreview=await Call(originalBatch.HandleAsync,
+                    "steam.batchPreview",new{mapIds=new[]{batchTarget.Id,second.Id}});
+                IsOk(originalPreview,
+                    "native serial batch previews approved original Store-v1 local ASA maps");
+                Check(originalPreview.GetProperty("data").GetProperty("installations")
+                    .GetInt32()==1&&historicalRuns==0&&observedStopped>0,
+                    "original Store batch uses native stopped-family evidence before approval");
+                string originalToken=originalPreview.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                var originalStarted=await Call(originalBatch.HandleAsync,
+                    "steam.batchApply",new{token=originalToken,confirm=true,
+                        typedApproval="HELYI SOROS STEAMCMD"});
+                IsOk(originalStarted,
+                    "operator approval can run the unchanged original Store ASA batch path");
+                string originalJob=originalStarted.GetProperty("data")
+                    .GetProperty("jobId").GetString()!;
+                JsonElement originalFinished=default;
+                for(int tries=0;tries<60;tries++)
+                {
+                    originalFinished=await Call(originalBatch.HandleAsync,
+                        "steam.batchStatus",new{jobId=originalJob});
+                    if(originalFinished.GetProperty("data").GetProperty("state")
+                       .GetString()=="completed")break;
+                    await Task.Delay(30);
+                }
+                IsOk(originalFinished,"original Store batch status is queryable");
+                Check(originalFinished.GetProperty("data").GetProperty("state")
+                      .GetString()=="completed"&&historicalRuns==1&&
+                      originalFinished.GetProperty("data")
+                        .GetProperty("completedInstallations").GetInt32()==1&&
+                      untouched.SequenceEqual(File.ReadAllBytes(batchTarget.ExecutablePath)),
+                    "one native original Store batch executes exactly once without touching ASA/Store bytes");
+                var originalReplay=await Call(originalBatch.HandleAsync,
+                    "steam.batchApply",new{token=originalToken,confirm=true,
+                        typedApproval="HELYI SOROS STEAMCMD"});
+                Check(!originalReplay.GetProperty("ok").GetBoolean()&&historicalRuns==1,
+                    "original Store serial SteamCMD cannot replay a consumed token");
+            }
+            finally
+            {
+                batchTarget.HistoricalStoreProtected=savedOriginal.HistoricalStoreProtected;
+                batchTarget.HistoricalMapKey=savedOriginal.HistoricalMapKey;
+                batchTarget.HistoricalArchiveSha256=savedOriginal.HistoricalArchiveSha256;
+                batchTarget.HistoricalLaunchModeNeedsApproval=savedOriginal.HistoricalLaunchModeNeedsApproval;
+                batchTarget.Arguments=savedOriginal.Arguments;
+                batchTarget.ApiLoaderArguments=savedOriginal.ApiLoaderArguments;
+                second.HistoricalStoreProtected=false;
+                second.HistoricalMapKey="";
+                second.HistoricalArchiveSha256="";
+                second.HistoricalLaunchModeNeedsApproval=false;
+                second.Arguments="";second.ApiLoaderArguments="";
+            }
         }
         finally{release.TrySetResult(true);cluster.RemoveMap(second.Id);}
     }
@@ -2558,6 +3496,8 @@ try
     {
         var target=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
         int executions=0;
+        bool failNextSyntheticUpdate=false;
+        IProgress<SteamMaintenanceStage>? delayedSteamProgress=null;
         // Hold the fake native runner at an observable in-progress boundary;
         // UI reattachment must never schedule a second update.
         var runnerEntered=new TaskCompletionSource<bool>(
@@ -2572,9 +3512,12 @@ try
                 10L*1024*1024*1024,20L*1024*1024*1024,true,"Synthetic plan"),
             async(m,progress)=>{
                 executions++;
+                delayedSteamProgress=progress;
                 progress.Report(SteamMaintenanceStage.Backup);
                 runnerEntered.TrySetResult(true);
                 await allowRunnerFinish.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                if(failNextSyntheticUpdate)
+                    throw new InvalidOperationException("SYNTHETIC-STEAM-FAILURE");
                 return new SteamStoppedMapUpdater.Receipt(m.Id,m.InstallationPath,
                     "123456","123457","fake-backup",
                     DateTimeOffset.UtcNow,true);
@@ -2660,6 +3603,28 @@ try
         IsOk(proposed,"stopped-map SteamCMD update preflight is functional");
         Check(executions==0,"SteamCMD preview has no launch side effect");
         string token=proposed.GetProperty("data").GetProperty("token").GetString()!;
+        // A second locally registered map sharing the ASA installation
+        // may be inspected without invalidating the first map's consent.
+        // Execution remains one SteamCMD at a time per host.
+        var siblingSteamMap=new LocalMap{
+            Name="Second stopped SteamCMD map",
+            InstallationPath=target.InstallationPath,
+            ExecutablePath=target.ExecutablePath
+        };
+        cluster.AddMap(siblingSteamMap);
+        string siblingToken="";
+        try
+        {
+            var siblingPreview=await Call(updater.HandleAsync,"steam.stoppedPreview",
+                new{mapId=siblingSteamMap.Id});
+            IsOk(siblingPreview,"separate stopped map receives an independent update preview");
+            siblingToken=siblingPreview.GetProperty("data").GetProperty("token").GetString()!;
+            Check(siblingToken!=token &&
+                  siblingPreview.GetProperty("data").GetProperty("mapId").GetGuid()==siblingSteamMap.Id &&
+                  executions==0,
+                "previewing a sibling never replaces the first map's SteamCMD approval");
+        }
+        finally{cluster.RemoveMap(siblingSteamMap.Id);}
         var refused=await Call(updater.HandleAsync,"steam.stoppedApply",
             new{token,confirm=false});
         Check(IsError(refused,"UM-STEAM-CONFIRMATION-REQUIRED") && executions==0,
@@ -2675,9 +3640,14 @@ try
         var resume=observedWhileRunning.GetProperty("data");
         Check(!resume.GetProperty("exists").GetBoolean() &&
               resume.GetProperty("activeJob").GetProperty("jobId").GetString()==job &&
+              resume.GetProperty("activeJob").GetProperty("mapId").GetGuid()==target.Id &&
               resume.GetProperty("activeJob").GetProperty("state").GetString()=="running" &&
               !resume.GetProperty("autoResumeAllowed").GetBoolean() && executions==1,
             "current-status exposes only the existing active Steam job and never restarts it");
+        var parallel=await Call(updater.HandleAsync,"steam.stoppedApply",
+            new{token=siblingToken,confirm=true});
+        Check(IsError(parallel,"UM-STEAM-UPDATE-IN-PROGRESS")&&executions==1,
+            "another map's accepted SteamCMD preview cannot run concurrently on the same host");
         var replay=await Call(updater.HandleAsync,"steam.stoppedApply",
             new{token,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
@@ -2692,10 +3662,69 @@ try
         }
         IsOk(result,"native SteamCMD update reports progress");
         Check(result.GetProperty("data").GetProperty("state").GetString()=="completed" &&
+              result.GetProperty("data").GetProperty("mapId").GetGuid()==target.Id &&
               executions==1 &&
               result.GetProperty("data").GetProperty("protectedFilesIntact").GetBoolean() &&
               original.SequenceEqual(File.ReadAllBytes(target.ExecutablePath)),
             "SteamCMD update runs once and preserves fixture ASA executable");
+        Check(delayedSteamProgress!=null,
+            "synthetic native updater exposes progress for late callback regression");
+        // .NET Progress<T> may dispatch queued callbacks after the awaited
+        // native SteamCMD runner has already committed the success receipt.
+        delayedSteamProgress!.Report(SteamMaintenanceStage.Backup);
+        await Task.Delay(250);
+        var stableAfterLateProgress=await Call(updater.HandleAsync,
+            "steam.stoppedStatus",new{jobId=job});
+        IsOk(stableAfterLateProgress,
+            "verified SteamCMD receipt remains queryable after delayed progress");
+        var stableReceipt=stableAfterLateProgress.GetProperty("data");
+        Check(stableReceipt.GetProperty("state").GetString()=="completed" &&
+              stableReceipt.GetProperty("stage").GetString()=="verified" &&
+              stableReceipt.GetProperty("protectedFilesIntact").GetBoolean() &&
+              executions==1,
+            "late SteamCMD progress cannot revert completed job to running or discard verification");
+        var missingSibling=await Call(updater.HandleAsync,"steam.stoppedApply",
+            new{token=siblingToken,confirm=true});
+        Check(IsError(missingSibling,"UM-STEAM-PREFLIGHT-CHANGED")&&executions==1,
+            "removed sibling map cannot consume an old SteamCMD approval after the first update");
+        var retained=await Call(updater.HandleAsync,"steam.stoppedStatus",new{jobId=job});
+        IsOk(retained,"completed map-owned SteamCMD job receipt remains readable");
+        Check(retained.GetProperty("data").GetProperty("mapId").GetGuid()==target.Id,
+            "SteamCMD status cannot silently change to a sibling map");
+        // A failure receipt must likewise be immune to delayed progress.
+        // No real SteamCMD process is invoked in this negative fixture.
+        failNextSyntheticUpdate=true;
+        var failurePreview=await Call(updater.HandleAsync,
+            "steam.stoppedPreview",new{mapId=target.Id});
+        IsOk(failurePreview,"failed synthetic SteamCMD run has fresh explicit approval");
+        var failureToken=failurePreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var failureStarted=await Call(updater.HandleAsync,
+            "steam.stoppedApply",new{token=failureToken,confirm=true});
+        IsOk(failureStarted,"synthetic failure is tracked as a native SteamCMD job");
+        string failedJobId=failureStarted.GetProperty("data")
+            .GetProperty("jobId").GetString()!;
+        JsonElement failedResult=default;
+        for(int i=0;i<60;i++)
+        {
+            failedResult=await Call(updater.HandleAsync,
+                "steam.stoppedStatus",new{jobId=failedJobId});
+            if(failedResult.GetProperty("data").GetProperty("state")
+               .GetString()=="needsOperator")break;
+            await Task.Delay(25);
+        }
+        IsOk(failedResult,"native Steam failure remains queryable");
+        Check(failedResult.GetProperty("data").GetProperty("state")
+              .GetString()=="needsOperator"&&executions==2,
+            "failed SteamCMD runner requires operator review without automatic replay");
+        delayedSteamProgress!.Report(SteamMaintenanceStage.VerifyBuild);
+        await Task.Delay(250);
+        var failedAfterLate=await Call(updater.HandleAsync,
+            "steam.stoppedStatus",new{jobId=failedJobId});
+        IsOk(failedAfterLate,"failed SteamCMD job remains readable after late progress");
+        Check(failedAfterLate.GetProperty("data").GetProperty("state")
+              .GetString()=="needsOperator"&&executions==2,
+            "late SteamCMD progress never hides an operator-required failure");
         var emptyJournal=await Call(updater.HandleAsync,"steam.stoppedCurrent");
         IsOk(emptyJournal,"first-run Steam queue journal status is readable");
         Check(!emptyJournal.GetProperty("data").GetProperty("exists").GetBoolean(),
@@ -2777,6 +3806,17 @@ try
                     },listenerOwner:Owner);
                 return receipt;
             });
+        var missingStopCurrent=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=Guid.NewGuid()});
+        Check(IsError(missingStopCurrent,"UM-MAP-NOT-OWNED"),
+            "Stop-current refuses unknown and remote map identities");
+        var idleStopCurrent=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=stopLabMap.Id});
+        IsOk(idleStopCurrent,"idle map Stop-current is read-only and allowed");
+        Check(!idleStopCurrent.GetProperty("data").GetProperty("active").GetBoolean()&&
+              idleStopCurrent.GetProperty("data").GetProperty("jobId").ValueKind==
+                  JsonValueKind.Null&&sends==0,
+            "idle Stop-current never invents a job or sends RCON");
         var unknown=await Call(stopBridge.HandleAsync,"servers.gracefulStopPreview",
             new{mapId=Guid.NewGuid()});
         Check(IsError(unknown,"UM-MAP-NOT-OWNED")&&sends==0,
@@ -2793,6 +3833,11 @@ try
             new{token,confirm=true});
         IsOk(started,"graceful Stop begins without blocking WebView2");
         string job=started.GetProperty("data").GetProperty("jobId").GetString()!;
+        var runningStopCurrent=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=stopLabMap.Id});
+        IsOk(runningStopCurrent,"Stop-current reattaches to the exact map's existing job");
+        Check(runningStopCurrent.GetProperty("data").GetProperty("jobId").GetString()==job,
+            "Stop-current only exposes the original one-shot Stop ID");
         var replay=await Call(stopBridge.HandleAsync,"servers.gracefulStopApply",
             new{token,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
@@ -2805,6 +3850,12 @@ try
             await Task.Delay(35);
         }
         IsOk(result,"native graceful stop job status remains readable");
+        var finishedStopCurrent=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopCurrent",new{mapId=stopLabMap.Id});
+        IsOk(finishedStopCurrent,"finished Stop-current remains observable without dispatch");
+        Check(finishedStopCurrent.GetProperty("data").GetProperty("jobId").GetString()==job &&
+              !finishedStopCurrent.GetProperty("data").GetProperty("active").GetBoolean(),
+            "completed Stop is not replayed and remains bound to its map");
         Check(result.GetProperty("data").GetProperty("state").GetString()=="completed" &&
               result.GetProperty("data").GetProperty("confirmedStopped").GetBoolean() &&
               !result.GetProperty("data").GetProperty("saveCompleteProven").GetBoolean() &&
@@ -2812,6 +3863,41 @@ try
               sends==1,
             "native DoExit verifies process exit without inventing SaveComplete");
         stopLabRunning=true;
+        // An ordinary SessionName may contain Store keywords and text
+        // resembling ASA switches. Stop must agree with the common native
+        // Start/backup parser instead of substring-matching the word "store".
+        string originalStopArguments=stopLabMap.Arguments;
+        stopLabMap.Arguments=
+            "TheIsland_WP?listen?SessionName=\"Untamed Store -usestore Celebration\" -port=7798 -QueryPort=27048";
+        identity=new ProcessIdentity{
+            Pid=44117,StartedUtc=identity.StartedUtc,
+            ExecutablePath=exe,Arguments=stopLabMap.Arguments
+        };
+        var namedStop=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
+        IsOk(namedStop,
+            "graceful Stop accepts Store words in an ordinary quoted SessionName");
+        stopLabMap.Arguments=originalStopArguments+" -usestore";
+        var actualWriterStop=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(actualWriterStop,"UM-ASA-STOP-FAILED")&&sends==1,
+            "real -usestore switch cannot enter non-enrolled graceful Stop");
+        stopLabMap.Arguments=originalStopArguments+" -clusterid=NotAnOwnedCluster";
+        var actualClusterStop=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(actualClusterStop,"UM-ASA-STOP-FAILED")&&sends==1,
+            "real -clusterid switch cannot enter non-enrolled graceful Stop");
+        stopLabMap.Arguments=originalStopArguments;
+        stopLabMap.ApiLoaderArguments="-converttostore";
+        var actualLoaderConversionStop=await Call(stopBridge.HandleAsync,
+            "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(actualLoaderConversionStop,"UM-ASA-STOP-FAILED")&&sends==1,
+            "real Loader conversion switch cannot enter non-enrolled graceful Stop");
+        stopLabMap.ApiLoaderArguments="";
+        identity=new ProcessIdentity{
+            Pid=44117,StartedUtc=identity.StartedUtc,
+            ExecutablePath=exe,Arguments=originalStopArguments
+        };
         stopLabMap.HistoricalMapKey="TheIsland_WP";
         var provenanceStop=await Call(stopBridge.HandleAsync,
             "servers.gracefulStopPreview",new{mapId=stopLabMap.Id});
@@ -2856,6 +3942,100 @@ try
                 };
                 return (stopped,replacement);
             });
+        // The old PID must NEVER be stopped just to discover that a
+        // forbidden -usestore / -clusterid / Loader conversion switch
+        // would prevent the new Process.Start. A quoted SessionName with
+        // the same text is ordinary configuration and must remain legal.
+        string originalRestartArgs=stopLabMap.Arguments;
+        stopLabMap.Arguments=
+            "TheIsland_WP?listen?SessionName=\"Untamed Store -usestore\" -port=7798 -QueryPort=27048";
+        identity=new ProcessIdentity{
+            Pid=44117,StartedUtc=identity.StartedUtc,
+            ExecutablePath=exe,Arguments=stopLabMap.Arguments
+        };
+        var namedRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(namedRestart,
+            "Restart accepts ordinary quoted Store session names before DoExit");
+        stopLabMap.Arguments=originalRestartArgs+" -usestore";
+        var writerRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(writerRestart,"UM-ASA-RESTART-FAILED")&&restartCalls==0,
+            "Restart blocks unenrolled -usestore before old PID SaveWorld/DoExit");
+        stopLabMap.Arguments=originalRestartArgs+" -clusterid=NotEnrolled";
+        var clusterRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(clusterRestart,"UM-ASA-RESTART-FAILED")&&restartCalls==0,
+            "Restart blocks unenrolled -clusterid before old PID DoExit");
+        stopLabMap.Arguments=originalRestartArgs;
+        stopLabMap.ApiLoaderArguments="-converttostore";
+        var conversionRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        Check(IsError(conversionRestart,"UM-ASA-RESTART-FAILED")&&restartCalls==0,
+            "Restart blocks Loader conversion switch before old PID DoExit");
+        stopLabMap.ApiLoaderArguments="";
+        identity=new ProcessIdentity{
+            Pid=44117,StartedUtc=identity.StartedUtc,
+            ExecutablePath=exe,Arguments=originalRestartArgs
+        };
+        // Pin a deliberate fresh Restart approval to the same full map,
+        // Game.ini, GameUserSettings.ini, ASA EXE and selected API Loader.
+        // Even one changed byte must refuse BEFORE SaveWorld/DoExit.
+        var profilePinned=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(profilePinned,"fresh Restart source snapshot can be previewed");
+        string pinnedToken=profilePinned.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        string originalStopMapName=stopLabMap.Name;
+        stopLabMap.Name+=" (externally changed)";
+        var changedProfileRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartApply",new{token=pinnedToken,confirm=true});
+        Check(IsError(changedProfileRestart,"UM-ASA-RESTART-SOURCE-CHANGED")&&
+              restartCalls==0,
+            "map profile mutation after Restart preview cannot stop original ASA");
+        stopLabMap.Name=originalStopMapName;
+
+        var iniPinned=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(iniPinned,"fresh Restart INI snapshot can be previewed");
+        string iniToken=iniPinned.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        string gameIni=Path.Combine(stopRoot,"ShooterGame","Saved","Config",
+            "WindowsServer","Game.ini");
+        bool gameIniExisted=File.Exists(gameIni);
+        byte[] oldGameIni=gameIniExisted?File.ReadAllBytes(gameIni):Array.Empty<byte>();
+        try
+        {
+            File.AppendAllText(gameIni,"\n[ServerSettings]\nProbe=changed\n");
+            var changedIniRestart=await Call(restartBridge.HandleAsync,
+                "servers.restartApply",new{token=iniToken,confirm=true});
+            Check(IsError(changedIniRestart,"UM-ASA-RESTART-SOURCE-CHANGED")&&
+                  restartCalls==0,
+                "Game.ini mutation after Restart approval cannot stop original ASA");
+        }
+        finally
+        {
+            if(gameIniExisted)File.WriteAllBytes(gameIni,oldGameIni);
+            else File.Delete(gameIni);
+        }
+
+        var binaryPinned=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(binaryPinned,"fresh Restart binary snapshot can be previewed");
+        string binaryToken=binaryPinned.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        byte[] originalStopExe=File.ReadAllBytes(exe);
+        try
+        {
+            File.AppendAllText(exe,"synthetic-change-after-approval");
+            var changedBinaryRestart=await Call(restartBridge.HandleAsync,
+                "servers.restartApply",new{token=binaryToken,confirm=true});
+            Check(IsError(changedBinaryRestart,"UM-ASA-RESTART-SOURCE-CHANGED")&&
+                  restartCalls==0,
+                "ASA EXE mutation after Restart approval cannot stop original ASA");
+        }
+        finally { File.WriteAllBytes(exe,originalStopExe); }
+
         var foreignRestart=await Call(restartBridge.HandleAsync,
             "servers.restartPreview",new{mapId=Guid.NewGuid()});
         Check(IsError(foreignRestart,"UM-MAP-NOT-OWNED")&&restartCalls==0,
@@ -2874,6 +4054,12 @@ try
         IsOk(restartStarted,"one-shot restart dispatches native coordinator");
         string restartJob=restartStarted.GetProperty("data")
             .GetProperty("jobId").GetString()!;
+        var currentRestartJob=await Call(restartBridge.HandleAsync,
+            "servers.restartCurrent",new{mapId=stopLabMap.Id});
+        IsOk(currentRestartJob,"Restart-current identifies accepted job after page change");
+        Check(currentRestartJob.GetProperty("data")
+                .GetProperty("inMemoryJobId").GetString()==restartJob,
+            "Restart-current binds exactly one existing job to the local map");
         var doubleRestart=await Call(restartBridge.HandleAsync,
             "servers.restartApply",new{token=restartToken,confirm=true});
         Check(!doubleRestart.GetProperty("ok").GetBoolean(),
@@ -2965,6 +4151,66 @@ try
             "servers.restartPreview",new{mapId=stopLabMap.Id});
         Check(IsError(blockedRestart,"UM-ASA-RESTART-FAILED"),
             "unresolved historical Restart prevents another approved job");
+
+        // The OS still owns the ORIGINAL PID (44117). An interrupted
+        // restart does not need a typed operator phrase or a new ASA/RCON
+        // dispatch: independently verify the old process and audit the
+        // exact Restart-v1 record once, leaving its prior result UNKNOWN.
+        string reviewKey=UntamedOperationCoordinator.ResourceKey(stopRoot);
+        string reviewFolder=Path.Combine(
+            UntamedOperationCoordinator.DefaultRoot,"Restart-v1");
+        string reviewFile=Path.Combine(reviewFolder,reviewKey+".json");
+        var delayedRestart=manualJournal.Observe()! with {
+            ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-6)
+        };
+        File.WriteAllText(reviewFile,JsonSerializer.Serialize(delayedRestart,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var recoveryPreview=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewPreview",new{mapId=stopLabMap.Id});
+        IsOk(recoveryPreview,"stale local fresh Restart can verify exact old running ASA owner");
+        var reviewData=recoveryPreview.GetProperty("data");
+        Check(reviewData.GetProperty("oldPid").GetInt32()==44117&&
+              reviewData.GetProperty("exactOldProcessVerified").GetBoolean()&&
+              !reviewData.GetProperty("serverStarted").GetBoolean()&&
+              restartCalls==1,
+            "fresh restart recovery preview checks old PID and cannot trigger new ASA");
+        string reviewToken=reviewData.GetProperty("token").GetString()!;
+        var rejectedReview=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewApply",new{token=reviewToken,confirm=false});
+        Check(IsError(rejectedReview,"UM-ASA-RESTART-REVIEW-APPROVAL")&&
+              manualJournal.Observe()?.Phase==AsaRestartPhase.NeedsOperator,
+            "a missing explicit repair click cannot mutate a pending Restart journal");
+        var freshReviewPreview=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewPreview",new{mapId=stopLabMap.Id});
+        IsOk(freshReviewPreview,"restart audit requires new one-shot preview after denial");
+        string reviewedToken=freshReviewPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        var auditedRestart=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewApply",new{token=reviewedToken,confirm=true});
+        IsOk(auditedRestart,"verified old running ASA allows auditable fresh Restart recovery");
+        Check(manualJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+              !auditedRestart.GetProperty("data")
+                .GetProperty("newRestartSucceeded").GetBoolean()&&
+              !auditedRestart.GetProperty("data").GetProperty("rconSent").GetBoolean()&&
+              !auditedRestart.GetProperty("data").GetProperty("serverStarted").GetBoolean()&&
+              restartCalls==1,
+            "audit never claims old Restart succeeded and sends no extra RCON/Start");
+        string reviewedAudit=Path.Combine(reviewFolder,reviewKey+"-"+
+            crash.Id.ToString("N")+".operator-reviewed.json");
+        Check(File.Exists(reviewedAudit),
+            "original interrupted Restart evidence is durably preserved");
+        var reviewReplay=await Call(restartBridge.HandleAsync,
+            "servers.restartReviewApply",new{token=reviewedToken,confirm=true});
+        Check(IsError(reviewReplay,"UM-ASA-RESTART-REVIEW-APPROVAL-EXPIRED")&&
+              restartCalls==1,
+            "audited recovery token is one-shot and cannot retry old command");
+        var freshAgain=await Call(restartBridge.HandleAsync,
+            "servers.restartPreview",new{mapId=stopLabMap.Id});
+        IsOk(freshAgain,"new independent Restart can be previewed after verified audit");
+        // Restore a DIFFERENT isolated interruption for the legacy journal
+        // read-only observation below; never delete or reuse the old audit.
+        var secondCrash=manualJournal.Begin(stopLabMap.Id,44117);
+        manualJournal.Change(secondCrash.Id,AsaRestartPhase.NeedsOperator);
         var foreignRestartJournal=await Call(restartBridge.HandleAsync,
             "servers.restartCurrent",new{mapId=Guid.NewGuid()});
         Check(IsError(foreignRestartJournal,"UM-MAP-NOT-OWNED"),
@@ -2976,9 +4222,16 @@ try
         var beforeJournal=await Call(journalBridge.HandleAsync,
             "servers.lifecycleJournal",new{mapId=stopLabMap.Id});
         IsOk(beforeJournal,"native lifecycle journal can be observed read-only");
-        Check(!beforeJournal.GetProperty("data")
-                  .GetProperty("needsOperatorReview").GetBoolean(),
-            "completed graceful stop has no pending operator review");
+        Check(beforeJournal.GetProperty("data")
+                  .GetProperty("needsOperatorReview").GetBoolean()&&
+              beforeJournal.GetProperty("data")
+                  .GetProperty("restartPhase").GetString()=="NeedsOperator"&&
+              !beforeJournal.GetProperty("data")
+                  .GetProperty("recoverySupported").GetBoolean()&&
+              beforeJournal.GetProperty("data")
+                  .GetProperty("blockingCode").GetString()==
+                  "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR",
+            "completed graceful stop does not hide a distinct unresolved Restart-v1 journal on a non-Store map");
         using(var lease=lab.Operations.Acquire(stopRoot,UntamedOperationKind.Launch))
         {
             lease.MarkMutationStarted();
@@ -3012,7 +4265,7 @@ try
             InstallationPath=Path.Combine(path,"Aberration"),
             HistoricalStoreProtected=true,HistoricalMapKey="Aberration_WP",
             HistoricalArchiveSha256=new string('B',64),
-            RconPort=37095
+            RconPort=37045
         };
         originalLab.AddMap(protectedMap);
         using(var lease=originalLab.Operations.Acquire(
@@ -3032,11 +4285,22 @@ try
                 "ShooterGame","Binaries","Win64","ArkAscendedServer.exe"),
             Arguments="SYNTHETIC_OWNER_ONLY"
         };
-        bool sameProcess=true;
+        var restartJournal=new AsaManualRestartJournal(protectedMap.InstallationPath);
+        var oldRestart=restartJournal.Begin(protectedMap.Id,23456);
+        restartJournal.Change(oldRestart.Id,AsaRestartPhase.NeedsOperator);
+        string restartFile=Path.Combine(root,"operation-journals","Restart-v1",key+".json");
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(
+            restartJournal.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+            }));
+        string restartOriginalBytes=File.ReadAllText(restartFile);
+        bool sameProcess=true,failAfterFirstRestartReview=false;
         var review=new DesktopAsaLifecycleJournalBridge(originalLab,id=>{
             proofCalls++;
-            if(!sameProcess)throw new InvalidDataException(
-                "UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
+            if(!sameProcess||failAfterFirstRestartReview&&
+                restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed)
+                throw new InvalidDataException(
+                    "UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED");
             return new LegacyStoreV1GracefulStop.Owned(protectedMap,
                 identity,new string('A',64));
         });
@@ -3046,11 +4310,17 @@ try
         Check(current.GetProperty("data").GetProperty("recoverySupported").GetBoolean()&&
             current.GetProperty("data").GetProperty("classification").GetString()=="unknownOutcome"&&
             current.GetProperty("data").GetProperty("blockingCode").GetString()==
-                "UM-RECOVERY-ORIGINAL-LAUNCH-REVIEW-AVAILABLE",
+                "UM-RECOVERY-PAIRED-LAUNCH-RESTART-REVIEW-AVAILABLE"&&
+            current.GetProperty("data").GetProperty("restartOldPid").GetInt32()==23456&&
+            current.GetProperty("data").GetProperty("restartPhase").GetString()=="NeedsOperator",
             "recovery status exposes the exact blocker without deleting its durable journal");
         var staged=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
         IsOk(staged,"original Store-v1 running owner recovery preview is native and read-only");
+        Check(staged.GetProperty("data").GetProperty("originalStoreSessionVerified").GetBoolean()&&
+              !staged.GetProperty("data").GetProperty("approvedObsidianSourcePinned").GetBoolean()&&
+              staged.GetProperty("data").GetProperty("legacyPeerCheckRequiredForLocalReview").GetBoolean(),
+            "synthetic unpinned original recovery must not pretend it has an approved independent local source");
         var reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
         var missingApproval=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryApply",new{
@@ -3058,8 +4328,9 @@ try
                 ackUnknownOutcome=true,typedApproval="INCORRECT"
             });
         Check(IsError(missingApproval,"UM-RECOVERY-EXPLICIT-APPROVAL-REQUIRED")&&
-            File.ReadAllText(journalFile)==before,
-            "bad approval cannot clear, replace or replay an interrupted Launch");
+            File.ReadAllText(journalFile)==before&&
+            File.ReadAllText(restartFile)==restartOriginalBytes,
+            "bad approval cannot change either durable journal or repeat a command");
         staged=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
         reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
@@ -3071,11 +4342,40 @@ try
                 typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
             });
         Check(IsError(changed,"UM-RECOVERY-RUNNING-SOURCE-UNVERIFIED")&&
-            File.ReadAllText(journalFile)==before,
-            "a changed ASA PID/source cannot be approved by a prior recovery token");
+            File.ReadAllText(journalFile)==before&&
+            File.ReadAllText(restartFile)==restartOriginalBytes,
+            "a changed ASA PID/source cannot change either journal");
         sameProcess=true;
+        failAfterFirstRestartReview=true;
         staged=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
+        var interruptedPair=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=reviewToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        Check(!interruptedPair.GetProperty("ok").GetBoolean()&&
+            restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+            originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
+                UntamedOperationPhase.NeedsOperator,
+            "crash after first audited journal leaves second journal blocking every write");
+        var restartAudit=Path.Combine(root,"operation-journals","Restart-v1",
+            key+"-"+oldRestart.Id.ToString("N")+".operator-reviewed.json");
+        Check(File.Exists(restartAudit)&&
+            File.ReadAllText(restartAudit)==restartOriginalBytes,
+            "original Restart-v1 NeedsOperator bytes are safely archived before transition");
+        bool stillBlocked=false;
+        try{using var denied=originalLab.Operations.Acquire(
+            protectedMap.InstallationPath,UntamedOperationKind.Configuration);}
+        catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_NEEDS_OPERATOR")
+        {stillBlocked=true;}
+        Check(stillBlocked,"partial paired recovery NEVER opens a second ASA mutation lease");
+        failAfterFirstRestartReview=false;
+        staged=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        IsOk(staged,"fresh operator preview resumes partially audited paired journals");
         reviewToken=staged.GetProperty("data").GetProperty("token").GetString();
         var reviewed=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryApply",new{
@@ -3083,7 +4383,7 @@ try
                 ackUnknownOutcome=true,
                 typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
             });
-        IsOk(reviewed,"authorized running original Store Launch can be reviewed, not replayed");
+        IsOk(reviewed,"paired Store-v1 Launch/Restart recovery completes without restart or command replay");
         var receipt=reviewed.GetProperty("data");
         var audit=Path.Combine(root,"operation-journals",
             key+"-"+initial.Operation.ToString("N")+".operator-reviewed.json");
@@ -3091,9 +4391,26 @@ try
             !receipt.GetProperty("rconCommandSent").GetBoolean()&&
             !receipt.GetProperty("processStarted").GetBoolean()&&
             File.Exists(audit)&&File.ReadAllText(audit)==before&&
+            File.Exists(restartAudit)&&File.ReadAllText(restartAudit)==restartOriginalBytes&&
+            restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+            receipt.GetProperty("restartJournalAudited").GetBoolean()&&
+            !receipt.GetProperty("restartMarkedSuccessful").GetBoolean()&&
+            receipt.GetProperty("pairedJournalsReviewed").GetInt32()==2&&
             originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
                 UntamedOperationPhase.OperatorReviewed,
-            "old Launch journal is archived byte-for-byte; no double RCON or ASA startup");
+            "both real-schema journals are archived byte-for-byte; no fake restart or double ASA/RCON command");
+        // An audited Restart must unblock independently approved NEW
+        // operations; it must never authorize replay of an old restart token.
+        restartJournal.DemandNoPending();
+        restartJournal.DemandAuthorizedStop(null);
+        restartJournal.DemandAuthorizedStart(null);
+        bool oldRestartTokenDenied=false;
+        try{restartJournal.DemandAuthorizedStart(oldRestart.Id);}
+        catch(InvalidOperationException ex) when(
+            ex.Message=="UM-ASA-RESTART-JOURNAL-START-UNAUTHORIZED")
+        {oldRestartTokenDenied=true;}
+        Check(oldRestartTokenDenied,
+            "reviewed Restart allows fresh Start/Stop but rejects old interrupted Restart token");
         var repeated=await Call(review.HandleAsync,
             "servers.lifecycleRecoveryApply",new{
                 mapId=protectedMap.Id,token=reviewToken,confirm=true,
@@ -3108,6 +4425,114 @@ try
         Check(originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
             UntamedOperationPhase.Completed,
             "reviewed operation unlocks only fresh, separately authorized actions");
+
+        // A historic restart may be the ONLY unresolved journal, when a
+        // different operation already ended. The UI must still offer an
+        // original-running-PID audit instead of an infinite dead end.
+        var restartOnly=restartJournal.Begin(protectedMap.Id,23456);
+        restartJournal.Change(restartOnly.Id,AsaRestartPhase.NeedsOperator);
+        File.WriteAllText(restartFile,JsonSerializer.Serialize(
+            restartJournal.Observe()! with{
+                ChangedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)
+            }));
+        string originalRestartOnly=File.ReadAllText(restartFile);
+        var standaloneStatus=await Call(review.HandleAsync,
+            "servers.lifecycleJournal",new{mapId=protectedMap.Id});
+        IsOk(standaloneStatus,"standalone old Restart-v1 has readable native diagnostic");
+        Check(standaloneStatus.GetProperty("data")
+                .GetProperty("recoverySupported").GetBoolean()&&
+              standaloneStatus.GetProperty("data")
+                .GetProperty("blockingCode").GetString()==
+                "UM-RECOVERY-RESTART-ONLY-REVIEW-AVAILABLE",
+            "a closed general operation does not strand an unrelated old restart");
+        var standalonePreview=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryPreview",new{mapId=protectedMap.Id});
+        IsOk(standalonePreview,
+            "old running ASA and Store proof authorize single-restart review");
+        var standaloneToken=standalonePreview.GetProperty("data")
+            .GetProperty("token").GetString();
+        var standaloneApplied=await Call(review.HandleAsync,
+            "servers.lifecycleRecoveryApply",new{
+                mapId=protectedMap.Id,token=standaloneToken,confirm=true,
+                ackUnknownOutcome=true,
+                typedApproval="STORE-V1 NAPLÓ HELYREÁLLÍTÁS"
+            });
+        IsOk(standaloneApplied,
+            "restart-only NeedsOperator can be audited without replay");
+        var standaloneReceipt=standaloneApplied.GetProperty("data");
+        string standaloneAudit=Path.Combine(root,"operation-journals","Restart-v1",
+            key+"-"+restartOnly.Id.ToString("N")+".operator-reviewed.json");
+        Check(standaloneReceipt.GetProperty("restartJournalAudited").GetBoolean()&&
+            !standaloneReceipt.GetProperty("originalJournalAudited").GetBoolean()&&
+            standaloneReceipt.GetProperty("pairedJournalsReviewed").GetInt32()==1&&
+            !standaloneReceipt.GetProperty("restartMarkedSuccessful").GetBoolean()&&
+            restartJournal.Observe()?.Phase==AsaRestartPhase.OperatorReviewed&&
+            File.Exists(standaloneAudit)&&
+            File.ReadAllText(standaloneAudit)==originalRestartOnly&&
+            originalLab.Operations.Observe(protectedMap.InstallationPath)?.Phase==
+                UntamedOperationPhase.Completed,
+            "standalone restart audit preserves original bytes and never falsifies a successful restart");
+    }
+
+    // Reproduce the ACTUAL native circular preflight, not only the mocked
+    // recovery bridge. All binary/INI/process/port data are synthetic TEMP.
+    {
+        string baseDir=Path.Combine(root,"p0-original-review-circular-guard");
+        string exe=Path.Combine(baseDir,"ShooterGame","Binaries",
+            "Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(exe)!);
+        File.WriteAllBytes(exe,new byte[]{0x4D,0x5A});
+        const string password="SYNTHETIC-STORE-REVIEW-ONLY-37045";
+        AsaInitialRconSettings.CreateForNewServer(baseDir,37045,password);
+        var original=new LocalMap{
+            Id=Guid.NewGuid(),Name="Aberration",InstallationPath=baseDir,
+            ExecutablePath=exe,HistoricalStoreProtected=true,
+            HistoricalMapKey="Aberration_WP",RconPort=37045,
+            RconPasswordProtected=SecureStore.Protect(password)
+        };
+        await using var lab=new ClusterService("old-asaserver-proof",
+            Path.Combine(root,"p0-circular-guard-profile"),
+            _=>new ProcessCheck(false,"synthetic",null,true));
+        lab.AddMap(original);
+        var pid=new ProcessIdentity{
+            Pid=16796,StartedUtc=DateTimeOffset.UtcNow.AddHours(-4),
+            ExecutablePath=exe,Arguments="Aberration_WP?listen -usestore"
+        };
+        var ongoing=new ProcessCheck(true,"synthetic running original",pid);
+        var restart=new AsaManualRestartJournal(baseDir);
+        var old=restart.Begin(original.Id,pid.Pid);
+        restart.Change(old.Id,AsaRestartPhase.NeedsOperator);
+        Check(AsaRconConfigurationEvidence.Matches(original),
+            "original recovery verifies DPAPI RCON secret against synthetic INI");
+        bool normalDenied=false;
+        try{_ =LegacyStoreV1GracefulStop.Preview(lab,original.Id,
+            _=>ongoing,_=>new string('A',64),
+            (port,owner)=>port==37045&&owner==16796);}
+        catch(InvalidOperationException ex) when(
+            ex.Message=="UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR")
+        {normalDenied=true;}
+        Check(normalDenied,
+            "ordinary Stop/Restart cannot bypass a NeedsOperator restart journal");
+        var proven=LegacyStoreV1GracefulStop.PreviewForUnfinishedRestartReview(
+            lab,original.Id,_=>ongoing,_=>new string('A',64),
+            (port,owner)=>port==37045&&owner==16796);
+        Check(proven.Map.Id==original.Id&&proven.Process.Pid==16796&&
+            proven.SourceSha==new string('A',64)&&
+            restart.Observe()?.Phase==AsaRestartPhase.NeedsOperator,
+            "explicit review preview breaks circular guard without changing either original journal");
+        bool wrongPidDenied=false;
+        try{_ =LegacyStoreV1GracefulStop.PreviewForUnfinishedRestartReview(
+            lab,original.Id,
+            _=>new ProcessCheck(true,"changed PID",new ProcessIdentity{
+                Pid=16797,StartedUtc=pid.StartedUtc,
+                ExecutablePath=pid.ExecutablePath,Arguments=pid.Arguments
+            }),
+            _=>new string('A',64),(port,owner)=>true);}
+        catch(InvalidOperationException ex) when(
+            ex.Message=="UM-RECOVERY-RESTART-OLD-PID-OR-PHASE-MISMATCH")
+        {wrongPidDenied=true;}
+        Check(wrongPidDenied,
+            "read-only recovery still refuses an unexpected ASA PID even with a matching map and RCON listener");
     }
 
     // Automatic watcher: all ASA and API Loader processes are detected even
@@ -4240,7 +5665,7 @@ try
                     "RCON command is fixed allowlist and secret never reaches WebView");
                 dispatched++;return Task.FromResult(command switch {
                     "SaveWorld"=>"World save queued",
-                    "GetGameLog"=>"Synthetic world log line",
+                    "GetGameLog"=>"Synthetic world log line\nServerAdminPassword=test-only-passphrase",
                     "GetChat"=>"Synthetic chat message",
                     _=>"Player 1: Synthetic Survivor"
                 });
@@ -4311,33 +5736,168 @@ try
         Check(IsError(fakeWatch,"UM-RCON-SAVE-WITNESS-NOT-FOUND") &&
               dispatched==2,
             "unrecognized SaveWorld proof token cannot inspect another operation");
+        // A real SaveWorld cannot race the machine-wide SteamCMD, Restart
+        // or Backup writer, even when its browser approval is valid.
+        using(var updating=observed.Operations.Acquire(
+            fakeMap.InstallationPath,UntamedOperationKind.Update))
+        {
+            var overlappingSave=await Call(rcon.HandleAsync,
+                "rcon.saveWorld",new{mapId=fakeMap.Id,confirm=true});
+            Check(IsError(overlappingSave,"UM-RCON-SAVE-INSTALLATION-BUSY")&&
+                  dispatched==2,
+                "native installation lock prevents overlapping SteamCMD/SaveWorld dispatch");
+            updating.Complete();
+        }
+        var nextSave=await Call(rcon.HandleAsync,"rcon.saveWorld",
+            new{mapId=fakeMap.Id,confirm=true});
+        IsOk(nextSave,"new explicitly approved SaveWorld works after SteamCMD lease release");
+        Check(dispatched==3&&
+              observed.Operations.Observe(fakeMap.InstallationPath)?.Phase==
+                UntamedOperationPhase.Completed,
+            "SaveWorld dispatch commits its own durable installation journal without an automatic retry");
         owner=false;
         var deniedOwnership=await Call(rcon.HandleAsync,"rcon.saveWorld",
             new{mapId=fakeMap.Id,confirm=true});
         Check(IsError(deniedOwnership,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
-              dispatched==2,"SaveWorld denied if native RCON listener ownership changes");
+              dispatched==3,"SaveWorld denied if native RCON listener ownership changes");
         var refused=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(refused,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
-              dispatched==2,"RCON port ownership loss prevents another dispatch");
+              dispatched==3,"RCON port ownership loss prevents another dispatch");
         owner=true;
         fakeMap.Arguments="-usestore";
         var forbiddenStoreSave=await Call(rcon.HandleAsync,"rcon.saveWorld",
             new{mapId=fakeMap.Id,confirm=true});
         Check(IsError(forbiddenStoreSave,"UM-HISTORICAL-STORE-LOCKED")&&
-              dispatched==2,
+              dispatched==3,
             "native RCON SaveWorld rejects active -usestore writes without peer writer authority");
         fakeMap.Arguments="";
         rconRunning=false;
         var stopped=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(stopped,"UM-RCON-READONLY-PREFLIGHT-DENIED") &&
-              dispatched==2,"stopped synthetic process cannot receive RCON");
+              dispatched==3,"stopped synthetic process cannot receive RCON");
         rconRunning=true;fakeMap.HistoricalStoreProtected=true;
         var locked=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=fakeMap.Id});
         Check(IsError(locked,"UM-HISTORICAL-STORE-LOCKED") &&
-              dispatched==2,"historical Store-v1 lock always prevents RCON dispatch");
+              dispatched==3,"historical Store-v1 lock always prevents RCON dispatch");
         var foreign=await Call(rcon.HandleAsync,"rcon.listPlayers",new{mapId=Guid.NewGuid()});
         Check(IsError(foreign,"UM-MAP-NOT-OWNED"),
             "RCON cannot target an unregistered or remote peer map");
+
+        // A slow first map must not block RCON from a different local ASA.
+        // No RCON or live ASA process is started in this fixture.
+        await using(var parallelCluster=new ClusterService(
+            "rcon-parallel-local",
+            Path.Combine(root,"rcon-parallel-local-profile"),
+            _=>new ProcessCheck(true,"parallel synthetic local process",identity,false)))
+        {
+            var parallelA=new LocalMap{
+                Name="The Island",Id=Guid.NewGuid(),
+                InstallationPath=syntheticRconRoot,
+                ExecutablePath=syntheticRconExe,
+                RconHost="127.0.0.1",RconPort=37555,
+                RconPasswordProtected=SecureStore.Protect("test-only-passphrase")
+            };
+            string parallelOtherRoot=Path.Combine(root,"rcon-parallel-other-install");
+            Directory.CreateDirectory(parallelOtherRoot);
+            var parallelB=new LocalMap{
+                Name="Ragnarok",Id=Guid.NewGuid(),
+                InstallationPath=parallelOtherRoot,
+                ExecutablePath=Path.Combine(parallelOtherRoot,"ArkAscendedServer.exe"),
+                RconHost="127.0.0.1",RconPort=37565,
+                RconPasswordProtected=SecureStore.Protect("test-only-passphrase")
+            };
+            parallelCluster.AddMap(parallelA);
+            parallelCluster.AddMap(parallelB);
+            var firstEntered=new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstRelease=new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            int firstCalls=0,secondCalls=0;
+            var parallelRcon=new DesktopRconReadOnlyBridge(parallelCluster,
+                (portNumber,pid)=>pid==identity.Pid&&
+                    (portNumber==parallelA.RconPort||portNumber==parallelB.RconPort),
+                async(host,portNumber,password,command,ct)=>{
+                    Check(host=="127.0.0.1"&&password=="test-only-passphrase"&&
+                          command is "ListPlayers" or "GetGameLog",
+                        "parallel fresh ASA RCON remains fixed-command and loopback-only");
+                    if(portNumber==parallelA.RconPort)
+                    {
+                        Interlocked.Increment(ref firstCalls);
+                        firstEntered.TrySetResult(true);
+                        await firstRelease.Task.WaitAsync(ct);
+                    }
+                    else Interlocked.Increment(ref secondCalls);
+                    return "SYNTHETIC_"+command;
+                });
+            var slowRead=Call(parallelRcon.HandleAsync,"rcon.listPlayers",
+                new{mapId=parallelA.Id});
+            await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                var otherRead=await Call(parallelRcon.HandleAsync,
+                    "rcon.gameLog",new{mapId=parallelB.Id})
+                    .WaitAsync(TimeSpan.FromSeconds(3));
+                IsOk(otherRead,"second local ASA does not wait for a stalled RCON map");
+                Check(otherRead.GetProperty("data").GetProperty("mapId").GetGuid()==
+                      parallelB.Id&&
+                      otherRead.GetProperty("data").GetProperty("command").GetString()==
+                      "GetGameLog"&&firstCalls==1&&secondCalls==1,
+                    "the two fresh ASA RCON lanes dispatch independently and exactly once");
+            }
+            finally{firstRelease.TrySetResult(true);}
+            IsOk(await slowRead.WaitAsync(TimeSpan.FromSeconds(5)),
+                "original slow ASA RCON finishes without a second dispatch");
+
+            // Both map cards can hold independent short-lived RCON approvals.
+            // A global single Pending token used to revoke the first one.
+            int mutatingAdminSends=0;
+            var otherMapAdmin=new DesktopRconAdminBridge(parallelCluster,
+                (port,pid)=>pid==identity.Pid&&
+                    (port==parallelA.RconPort||port==parallelB.RconPort),
+                (host,port,password,command,ct)=>{
+                    Check(host=="127.0.0.1"&&password=="test-only-passphrase",
+                        "parallel mutation remains credential-bound and loopback-only");
+                    Interlocked.Increment(ref mutatingAdminSends);
+                    return Task.FromResult("SYNTHETIC ADMIN ACK");
+                });
+            var aPreview=await Call(otherMapAdmin.HandleAsync,"rcon.adminPreview",
+                new{mapId=parallelA.Id,action="broadcast",message="Island notice"});
+            var bPreview=await Call(otherMapAdmin.HandleAsync,"rcon.adminPreview",
+                new{mapId=parallelB.Id,action="broadcast",message="Ragnarok notice"});
+            IsOk(aPreview,"Island native RCON preview");
+            IsOk(bPreview,"Ragnarok native RCON preview");
+            string aToken=aPreview.GetProperty("data").GetProperty("token").GetString()!;
+            string bToken=bPreview.GetProperty("data").GetProperty("token").GetString()!;
+            Check(aToken!=bToken,"ten-map RCON previews retain independent one-use tokens");
+            IsOk(await Call(otherMapAdmin.HandleAsync,"rcon.adminSend",
+                new{token=aToken,confirm=true,typedApproval=""}),
+                "Island RCON executes under local cross-process installation lease");
+            IsOk(await Call(otherMapAdmin.HandleAsync,"rcon.adminSend",
+                new{token=bToken,confirm=true,typedApproval=""}),
+                "Ragnarok RCON approval survives independent Island command");
+            Check(mutatingAdminSends==2,"exactly one admin dispatch per owned ASA map");
+            var blockedPreview=await Call(otherMapAdmin.HandleAsync,
+                "rcon.adminPreview",new{mapId=parallelA.Id,
+                    action="broadcast",message="blocked by maintenance"});
+            IsOk(blockedPreview,"mutating admin preview is not an execution");
+            var blockedToken=blockedPreview.GetProperty("data")
+                .GetProperty("token").GetString()!;
+            using(var held=parallelCluster.Operations.Acquire(
+                parallelA.InstallationPath,UntamedOperationKind.Update))
+            {
+                var denied=await Call(otherMapAdmin.HandleAsync,"rcon.adminSend",
+                    new{token=blockedToken,confirm=true,typedApproval=""});
+                Check(IsError(denied,"UM-RCON-ADMIN-SAFETY-CHECK-FAILED_NO_AUTO_RETRY")
+                      &&mutatingAdminSends==2,
+                    "SteamCMD installation lease prevents concurrent admin RCON mutation");
+                held.Complete();
+            }
+            var rejectedReplay=await Call(otherMapAdmin.HandleAsync,
+                "rcon.adminSend",new{token=blockedToken,confirm=true,typedApproval=""});
+            Check(IsError(rejectedReplay,"UM-RCON-ADMIN-APPROVAL-REQUIRED")&&
+                  mutatingAdminSends==2,
+                "releasing SteamCMD lease never replays an already rejected admin token");
+        }
 
         // Actual RCON admin execution is a separately approved, one-shot
         // native operation; the fake adapter never touches a game server.
@@ -4351,7 +5911,8 @@ try
                     "admin dispatch is local and obtains DPAPI secret only inside native host");
                 lastAdminCommand=command;
                 adminDispatches++;
-                return Task.FromResult("Admin command accepted");
+                return Task.FromResult(
+                    "Admin command accepted; ServerAdminPassword=test-only-passphrase");
             });
         var announcement=await Call(admin.HandleAsync,"rcon.adminPreview",
             new{mapId=fakeMap.Id,action="broadcast",message="Hello Untamed!"});
@@ -4370,7 +5931,9 @@ try
         Check(adminDispatches==1&&lastAdminCommand=="Broadcast Hello Untamed!"&&
               sent.GetProperty("data").GetProperty("oneShot").GetBoolean()&&
               !sent.GetProperty("data").GetProperty("saveCompleteProven").GetBoolean()&&
-              !sent.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal),
+              !sent.GetRawText().Contains("test-only-passphrase",StringComparison.Ordinal)&&
+              sent.GetProperty("data").GetProperty("response").GetString()!
+                  .Contains("[REDACTED]",StringComparison.Ordinal),
             "broadcast dispatch is one-shot and does not disclose native credentials");
         var repeated=await Call(admin.HandleAsync,"rcon.adminSend",
             new{token=adminToken,confirm=true,typedApproval=""});
@@ -4422,15 +5985,17 @@ try
         var gameLog=await Call(rcon.HandleAsync,"rcon.gameLog",
             new{mapId=fakeMap.Id,command="DestroyWildDinos"});
         IsOk(gameLog,"actual native GetGameLog reads local ASA log without caller-supplied commands");
-        Check(dispatched==3 &&
+        Check(dispatched==4 &&
               gameLog.GetProperty("data").GetProperty("command").GetString()=="GetGameLog" &&
               gameLog.GetProperty("data").GetProperty("readOnly").GetBoolean() &&
               gameLog.GetProperty("data").GetProperty("response")
-                  .GetString()=="Synthetic world log line",
+                  .GetString()!.Contains("Synthetic world log line") &&
+              !gameLog.GetRawText().Contains("test-only-passphrase",
+                  StringComparison.Ordinal),
             "GetGameLog sends only fixed read-only RCON to owned local map");
         var chatLog=await Call(rcon.HandleAsync,"rcon.chatLog",new{mapId=fakeMap.Id});
         IsOk(chatLog,"actual native GetChat reads local ASA chat");
-        Check(dispatched==4 &&
+        Check(dispatched==5 &&
               chatLog.GetProperty("data").GetProperty("command").GetString()=="GetChat" &&
               chatLog.GetProperty("data").GetProperty("response")
                   .GetString()=="Synthetic chat message",
@@ -4440,12 +6005,12 @@ try
         var noSecondSave=await Call(rcon.HandleAsync,"rcon.saveWorld",
             new{mapId=fakeMap.Id,confirm=true});
         Check(IsError(noSecondSave,"UM-RCON-READONLY-UNAVAILABLE")&&
-              dispatched==4,
+              dispatched==5,
             "pending manual Restart blocks standalone SaveWorld before any RCON bytes");
         var diagnosticDuringRestart=await Call(rcon.HandleAsync,
             "rcon.chatLog",new{mapId=fakeMap.Id});
         Check(diagnosticDuringRestart.GetProperty("ok").GetBoolean()&&
-              dispatched==5,
+              dispatched==6,
             "read-only GetChat remains available for operator diagnostics during restart");
         rconPendingJournal.Change(pendingRconRestart.Id,AsaRestartPhase.NeedsOperator);
     }
@@ -4876,6 +6441,10 @@ try
         restored=await Call(worldBridge.HandleAsync,"backup.restore",
             new{token=restoreToken,mapName="The Island",confirm=true});
         IsOk(restored,"real map world restore finishes with protective backup");
+        var restoreJournal=new UntamedOperationCoordinator().Observe(localInstall);
+        Check(restoreJournal?.Kind==UntamedOperationKind.Restore&&
+              restoreJournal.Phase==UntamedOperationPhase.Completed,
+            "completed world directory swap is durably journaled as Restore, not a misleading Backup");
         Check(File.ReadAllBytes(arkFile).SequenceEqual(worldBeforeBackup) &&
               File.ReadAllBytes(charFile).SequenceEqual(survivorBeforeBackup) &&
               restored.GetProperty("data").GetProperty("oldWorldRetained").GetBoolean() &&
@@ -5146,6 +6715,10 @@ try
                   ".untamed-restore-TheIsland_WP.json")) &&
               !Directory.EnumerateDirectories(worldParent,".untamed-stage-*").Any(),
             "pre-swap failure leaves live world intact, removes stage and does not fake a crash recovery marker");
+        var deniedRestoreJournal=new UntamedOperationCoordinator().Observe(localInstall);
+        Check(deniedRestoreJournal?.Kind==UntamedOperationKind.Restore&&
+              deniedRestoreJournal.Phase==UntamedOperationPhase.CancelledBeforeMutation,
+            "denied pre-swap restore remains a non-mutated Restore operation in durable journal");
 
         string crashMarker=Path.Combine(worldParent,
             ".untamed-restore-TheIsland_WP.json");
@@ -5182,6 +6755,27 @@ try
         var sharedSecond=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=centerMap.Id});
         IsOk(sharedSecond,"The Center has its own independent world backup in shared install");
+        string islandBackupToken=sharedFirst.GetProperty("data").GetProperty("token").GetString()!;
+        string centerBackupToken=sharedSecond.GetProperty("data").GetProperty("token").GetString()!;
+        Check(islandBackupToken!=centerBackupToken,
+            "two stopped map cards retain distinct backup approval tokens");
+        var firstSharedBackup=await Call(worldBridge.HandleAsync,
+            "backup.create",new{token=islandBackupToken,confirm=true});
+        IsOk(firstSharedBackup,
+            "first map's backup token survives an independent second-map preview");
+        var secondSharedBackup=await Call(worldBridge.HandleAsync,
+            "backup.create",new{token=centerBackupToken,confirm=true});
+        IsOk(secondSharedBackup,
+            "second map's backup token survives the first map's committed archive");
+        Check(firstSharedBackup.GetProperty("data").GetProperty("mapId").GetGuid()==localMap.Id &&
+              secondSharedBackup.GetProperty("data").GetProperty("mapId").GetGuid()==centerMap.Id &&
+              firstSharedBackup.GetProperty("data").GetProperty("point").GetString()!=
+                secondSharedBackup.GetProperty("data").GetProperty("point").GetString(),
+            "shared-install ASA maps receive separate verified world backup package IDs");
+        var reusedIsland=await Call(worldBridge.HandleAsync,"backup.create",
+            new{token=islandBackupToken,confirm=true});
+        Check(IsError(reusedIsland,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),
+            "completed backup tokens cannot replay after another map's backup");
         Check(File.ReadAllBytes(Path.Combine(centerWorld,"TheCenter_WP.ark"))
                 .SequenceEqual(centerBytes),
             "first map backup cannot alter neighboring map world bytes");
@@ -6048,6 +7642,10 @@ try
             var preview=await Call(bridge.HandleAsync,"historical.rconPreview",
                 new{mapId=protectedMap.Id,rconPort,password=originalPass});
             IsOk(preview,"original existing INI verifies historical RCON credentials");
+            Check(preview.GetProperty("data").GetProperty("originalActiveDoneVerified").GetBoolean()&&
+                  !preview.GetProperty("data").GetProperty("approvedObsidianSourcePinned").GetBoolean()&&
+                  preview.GetProperty("data").GetProperty("legacyPeerCheckRequiredForLocalAttach").GetBoolean(),
+                "un-pinned synthetic legacy Store RCON reports historical peer proof without claiming a local pin");
             Check(!preview.ToString().Contains(originalPass,StringComparison.Ordinal)&&
                   !preview.ToString().Contains(histRoot,StringComparison.OrdinalIgnoreCase),
                 "historical RCON preview does not expose password or private root to React");
@@ -6220,6 +7818,38 @@ try
             "unconfigured loader mode cannot be guessed from an EXE path or process name");
         otherOriginalMap.StartWithAsaApi=true;
 
+        // A direct original Store launch must not reuse approval if the
+        // physical ASA EXE changed at the same registered path. This
+        // explicit preflight hashes only the server binary, never world
+        // saves or shared Store transfer files.
+        string hashRoot=Path.Combine(root,"original-direct-exe-fingerprint");
+        string hashBin=Path.Combine(hashRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(hashBin);
+        string hashExe=Path.Combine(hashBin,"ArkAscendedServer.exe");
+        byte[] beforeExeBytes={77,90,10,23};
+        File.WriteAllBytes(hashExe,beforeExeBytes);
+        var hashMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Ragnarok",InstallationPath=hashRoot,
+            ExecutablePath=hashExe,StartWithAsaApi=false
+        };
+        string directSha=AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap);
+        File.WriteAllBytes(hashExe,beforeExeBytes.Concat(new byte[]{0x42}).ToArray());
+        string changedExeSha=AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap);
+        Check(directSha.Length==64&&changedExeSha.Length==64&&
+              directSha!=changedExeSha,
+            "original direct ASA Start approval can bind physical executable content, not only its path");
+        File.WriteAllBytes(hashExe,beforeExeBytes);
+        Check(AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap)==directSha,
+            "original ASA EXE fixture restored without touching world, Store or transfer data");
+        string hashLoader=Path.Combine(hashBin,"AsaApiLoader.exe");
+        File.WriteAllBytes(hashLoader,new byte[]{77,90,11,24});
+        hashMap.ApiLoaderPath=hashLoader;
+        hashMap.StartWithAsaApi=true;
+        string loaderSha=AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap);
+        File.AppendAllText(hashLoader,"changed");
+        Check(AsaReadyProbe.ApprovedLaunchBinariesFingerprint(hashMap)!=loaderSha,
+            "API Loader replacement invalidates exact original ASA/Loader start fingerprint");
+
         int launches=0,prepared=0;
         bool changedPlan=false;
         LegacyStoreV1NativeStartPlan Prepare(LocalMap original)
@@ -6229,7 +7859,8 @@ try
                 "native original Store Start checks locally registered historical map");
             return new("Ragnarok_WP?listen -Port=7787 -usestore -log",
                 new string(changedPlan?'C':'B',64),7787,27017,37025,
-                "SYNTHETIC_TWO_HOST_SOURCE_TEST_ONLY");
+                "SYNTHETIC_TWO_HOST_SOURCE_TEST_ONLY",
+                OriginalTwoPeersVerified:true);
         }
         ProcessIdentity Start(Guid mapId,string fingerprint,bool confirmed)
         {
@@ -6240,6 +7871,43 @@ try
                 Pid=42101,StartedUtc=DateTimeOffset.UtcNow,
                 ExecutablePath=exe,Arguments="SYNTHETIC_NO_ACTUAL_PROCESS"
             };
+        }
+        // Native failures retain an exact bounded safety code without
+        // leaking a filesystem path or starting/replaying an ASA process.
+        using(var blockedBridge=new DesktopHistoricalActiveStartBridge(historic,
+            _=>throw new InvalidOperationException("UM-STORE-NATIVE-PORT-IN-USE"),
+            (_,_,_)=>throw new InvalidOperationException("Must not launch")))
+        {
+            var blocked=await Call(blockedBridge.HandleAsync,
+                "historical.activeStartPreview",new{mapId=storeMap.Id});
+            Check(IsError(blocked,"UM-STORE-NATIVE-PORT-IN-USE")&&launches==0,
+                "Store-v1 native preview reports exact safe local port conflict without launch");
+        }
+        // Exact original source/Restart failure codes must be actionable;
+        // never expose raw paths or arbitrary exception text to WebView.
+        foreach(string safeCode in new[]{
+            "UM-STORE-PIN-FILE-CHANGED",
+            "UM-STORE-PIN-MAP-ROOT-CHANGED",
+            "UM-STORE-PIN-MAP-IDENTITY",
+            "UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR"})
+        {
+            using var denied=new DesktopHistoricalActiveStartBridge(historic,
+                _=>throw new InvalidDataException(safeCode),
+                (_,_,_)=>throw new InvalidOperationException("Must not launch"));
+            var response=await Call(denied.HandleAsync,
+                "historical.activeStartPreview",new{mapId=storeMap.Id});
+            Check(IsError(response,safeCode)&&launches==0,
+                "native Store Start preserves a concrete source/restart blocker without launching ASA");
+        }
+        using(var redacted=new DesktopHistoricalActiveStartBridge(historic,
+            _=>throw new IOException("path C:\\SECRET\\my-key.txt"),
+            (_,_,_)=>throw new InvalidOperationException("Must not launch")))
+        {
+            var response=await Call(redacted.HandleAsync,
+                "historical.activeStartPreview",new{mapId=storeMap.Id});
+            Check(IsError(response,"UM-STORE-ACTIVE-START-SAFETY-FAILED")&&
+                  !response.ToString().Contains("SECRET",StringComparison.Ordinal),
+                "native Store Start redacts unexpected filesystem and credential errors");
         }
         using(var bridge=new DesktopHistoricalActiveStartBridge(historic,
             Prepare,Start))
@@ -6259,6 +7927,7 @@ try
                 new{mapId=storeMap.Id});
             IsOk(preview,"real native original Store-v1 Start is available after source preflight");
             Check(preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                  preview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalStart").GetBoolean()&&
                   !preview.GetProperty("data").GetProperty("conversionAllowed").GetBoolean()&&
                   !preview.ToString().Contains(historicalRoot,StringComparison.OrdinalIgnoreCase)&&
                   !preview.ToString().Contains("Ragnarok_WP?listen",StringComparison.Ordinal),
@@ -6332,7 +8001,9 @@ try
                 "historical.activeStartPreview",new{mapId=storeMap.Id});
             IsOk(apiPreview,"original Store API Loader opt-in native preview");
             Check(apiPreview.GetProperty("data").GetProperty("launchMode").GetString()
-                    =="asaApiLoader"&&apiLaunches==0,
+                    =="asaApiLoader"&&apiLaunches==0&&
+                  !apiPreview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                  !apiPreview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalStart").GetBoolean(),
                 "API Loader preview is explicit and does not start an ASA process");
             string approval=apiPreview.GetProperty("data")
                 .GetProperty("token").GetString()!;
@@ -6574,6 +8245,86 @@ try
         }
         Check(File.ReadAllBytes(ini).SequenceEqual(originalIni),
             "every native original Store RCON query preserves exact ASA INI file bytes");
+
+        // Independent Store maps have independent RCON request lanes. If one
+        // ASA does not reply, a different locally owned map must remain usable.
+        string secondRoot=Path.Combine(root,"historical-rcon-readonly-second-map");
+        string secondBin=Path.Combine(secondRoot,"ShooterGame","Binaries","Win64");
+        Directory.CreateDirectory(secondBin);
+        string secondExe=Path.Combine(secondBin,"ArkAscendedServer.exe");
+        File.WriteAllBytes(secondExe,new byte[]{77,90,2,0});
+        string secondIniDir=Path.Combine(secondRoot,"ShooterGame","Saved",
+            "Config","WindowsServer");
+        Directory.CreateDirectory(secondIniDir);
+        string secondIni=Path.Combine(secondIniDir,"GameUserSettings.ini");
+        const int secondPort=37175;
+        File.WriteAllText(secondIni,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
+            "RCONPort="+secondPort+"\r\nServerAdminPassword="+secret+"\r\n");
+        var secondMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Valguero",
+            InstallationPath=secondRoot,ExecutablePath=secondExe,
+            HistoricalStoreProtected=true,HistoricalMapKey="Valguero_WP",
+            HistoricalArchiveSha256=new string('A',64),
+            GamePort=7887,QueryPort=27187,RconPort=secondPort,
+            RconPasswordProtected=SecureStore.Protect(secret)
+        };
+        historical.AddMap(secondMap);
+        byte[] firstBeforeParallel=File.ReadAllBytes(ini);
+        byte[] secondBeforeParallel=File.ReadAllBytes(secondIni);
+        var firstDispatched=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowFirstReply=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        int firstDispatches=0,secondDispatches=0;
+        using(var parallel=new DesktopHistoricalRconReadOnlyBridge(historical,
+            processInspector:map=>new ProcessCheck(true,"synthetic per-map process",
+                new ProcessIdentity{
+                    Pid=map.Id==secondMap.Id?43220:43210,
+                    StartedUtc=new DateTimeOffset(2026,11,7,10,0,0,TimeSpan.Zero),
+                    ExecutablePath=map.ExecutablePath,
+                    Arguments="SYNTHETIC_ORIGINAL_ACTIVE"},false),
+            sourceEpochProof:_=>new string('A',64),
+            portOwner:(requestedPort,pid)=>
+                (requestedPort==port&&pid==43210)||
+                (requestedPort==secondPort&&pid==43220),
+            dispatch:async(host,requestedPort,password,command,ct)=>{
+                Check(host=="127.0.0.1"&&password==secret&&
+                      command is "ListPlayers" or "GetGameLog" or "GetChat",
+                    "each original Store RCON lane stays on its own local read-only channel");
+                if(requestedPort==port)
+                {
+                    Interlocked.Increment(ref firstDispatches);
+                    firstDispatched.TrySetResult(true);
+                    await allowFirstReply.Task.WaitAsync(ct);
+                }
+                else Interlocked.Increment(ref secondDispatches);
+                return "SYNTHETIC_"+command;
+            }))
+        {
+            var stalledFirst=Call(parallel.HandleAsync,"historical.rconPlayers",
+                new{mapId=originalRconMap.Id});
+            await firstDispatched.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                var independent=await Call(parallel.HandleAsync,
+                    "historical.rconGameLog",new{mapId=secondMap.Id})
+                    .WaitAsync(TimeSpan.FromSeconds(3));
+                IsOk(independent,"another ASA RCON map is usable while one map's reply is held");
+                Check(independent.GetProperty("data").GetProperty("mapId").GetGuid()==
+                      secondMap.Id&&
+                      independent.GetProperty("data").GetProperty("command").GetString()==
+                      "GetGameLog"&&
+                      secondDispatches==1&&firstDispatches==1,
+                    "simultaneous original Store RCON commands stay bound to distinct map IDs");
+            }
+            finally{allowFirstReply.TrySetResult(true);}
+            var released=await stalledFirst.WaitAsync(TimeSpan.FromSeconds(5));
+            IsOk(released,"the stalled first RCON map resumes without duplicate dispatch");
+            Check(firstDispatches==1&&
+                  File.ReadAllBytes(ini).SequenceEqual(firstBeforeParallel)&&
+                  File.ReadAllBytes(secondIni).SequenceEqual(secondBeforeParallel),
+                "parallel original Store RCON reads dispatch once and preserve both INI files");
+        }
     }
 
     // The gallery consumes the native snapshot, never static Store flags:
@@ -6688,6 +8439,8 @@ try
             IsOk(preview,"original ACTIVE Store SaveWorld-only preflight");
             Check(!preview.GetProperty("data").GetProperty("usesDoExit").GetBoolean()&&
                 preview.GetProperty("data").GetProperty("usesSaveWorld").GetBoolean()&&
+                !preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                preview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalOperation").GetBoolean()&&
                 !preview.GetRawText().Contains(password,StringComparison.Ordinal),
                 "SaveWorld-only preview is explicit and never reveals Store credentials");
             string token=preview.GetProperty("data").GetProperty("token").GetString()!;
@@ -6843,6 +8596,7 @@ try
         const string restartSource="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
         int oldRestartPid=44311,saveExitCalls=0,newStarts=0;
         bool failNextStart=false,oldRestartExited=false;
+        Action<string>? lateStoreRestartProgress=null;
         var oldStartTime=new DateTimeOffset(2026,11,8,11,0,0,TimeSpan.Zero);
         var releaseOldExit=new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -6858,6 +8612,7 @@ try
             Action<string> report)
         {
             saveExitCalls++;
+            lateStoreRestartProgress=report;
             var journal=new AsaManualRestartJournal(restartRoot).Observe();
             Check(journal!=null&&journal.Phase==AsaRestartPhase.Stopping&&
                   journal.Id==journalId&&journal.MapId==restartMap.Id&&
@@ -6974,6 +8729,16 @@ try
             Check(completed?.Phase==AsaRestartPhase.Completed&&
                   completed.NewPid==44312,
                 "Store Restart closes durable journal only on verified new PID");
+            Check(lateStoreRestartProgress!=null,
+                "Store Restart captures the approved native progress callback");
+            lateStoreRestartProgress!("DELAYED ORIGINAL RESTART PROGRESS");
+            var stableRestart=await Call(restartBridge.HandleAsync,
+                "historical.restartStatus",new{jobId});
+            Check(stableRestart.GetProperty("data").GetProperty("state")
+                    .GetString()=="completed"&&
+                  !stableRestart.GetProperty("data").GetProperty("step")
+                    .GetString()!.Contains("DELAYED",StringComparison.Ordinal),
+                "late Store Restart stage cannot undo a completed replacement PID");
             // A separately approved attempt may fail after the old ASA stopped;
             // a crashed Manager must never launch another process automatically.
             failNextStart=true;
@@ -7002,6 +8767,14 @@ try
             Check(status.GetProperty("data").GetProperty("step").GetString()!
                       .Contains("[UM-",StringComparison.Ordinal),
                 "failed Store restart exposes a bounded failure code while retaining NeedsOperator");
+            lateStoreRestartProgress!("DELAYED ORIGINAL FAILED RESTART");
+            var retainedFailure=await Call(restartBridge.HandleAsync,
+                "historical.restartStatus",new{jobId});
+            Check(retainedFailure.GetProperty("data").GetProperty("state")
+                    .GetString()=="needsOperator"&&
+                  retainedFailure.GetProperty("data").GetProperty("step")
+                    .GetString()!.Contains("[UM-",StringComparison.Ordinal),
+                "late Store Restart evidence cannot hide a failed durable recovery");
         }
         using(var reattached=new DesktopHistoricalRestartBridge(
             restartCluster,RestartProbe,RestartStop,RestartStart))
@@ -7210,6 +8983,8 @@ try
             IsOk(preview,"native two-stage original Store SaveWorld+DoExit preflight");
             Check(preview.GetProperty("data").GetProperty("usesSaveWorld").GetBoolean()&&
                   preview.GetProperty("data").GetProperty("usesDoExit").GetBoolean()&&
+                  !preview.GetProperty("data").GetProperty("originalTwoPeersVerified").GetBoolean()&&
+                  preview.GetProperty("data").GetProperty("originalPeerCheckRequiredForLocalOperation").GetBoolean()&&
                   !preview.GetProperty("data").GetProperty("forceKillAllowed").GetBoolean()&&
                   !preview.ToString().Contains(originalPassword,StringComparison.Ordinal),
                 "original Store stop binds real source/PID but never leaks credentials or offers Kill");
@@ -7439,6 +9214,36 @@ try
             IsOk(wipe,"original Store admin wild wipe can be dispatched exactly once with explicit consent");
             Check(adminSent==2,
                 "two separate original Store admin approvals dispatched exactly twice in total");
+            // Restart-v1 is durable independently from the generic operation
+            // journal, which is already Completed after the last RCON. An
+            // interrupted restart must suppress both a fresh admin preview
+            // and a previously issued admin approval before sending any byte.
+            var staleAdmin=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="broadcast",message="Hello Store"});
+            IsOk(staleAdmin,"fresh admin preview before restart overlap");
+            var restartGuard=new AsaManualRestartJournal(adminRoot);
+            var restarting=restartGuard.Begin(originalAdminMap.Id,adminPid);
+            var blockedSend=await Call(adminBridge.HandleAsync,
+                "historical.adminSend",
+                new{token=staleAdmin.GetProperty("data").GetProperty("token").GetString(),
+                    confirm=true,typedApproval="STORE-V1 ADMIN"});
+            Check(IsError(blockedSend,"UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR")&&
+                  adminSent==2,
+                "admin RCON preview made before restart cannot dispatch during pending Restart-v1");
+            var blockedPreview=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="broadcast",message="Hello Store"});
+            Check(IsError(blockedPreview,"UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR")&&
+                  adminSent==2,
+                "pending Restart-v1 blocks fresh RCON even when generic operation journal is Completed");
+            restartGuard.Change(restarting.Id,AsaRestartPhase.NeedsOperator);
+            var blockedRecovery=await Call(adminBridge.HandleAsync,
+                "historical.adminPreview",
+                new{mapId=originalAdminMap.Id,action="wildWipe",message=""});
+            Check(IsError(blockedRecovery,"UM-ASA-RESTART-JOURNAL-NEEDS-OPERATOR")&&
+                  adminSent==2,
+                "interrupted Restart-v1 NeedsOperator blocks dangerous wild wipe without command replay");
         }
         Check(File.ReadAllBytes(adminIni).SequenceEqual(originalAdminIni),
             "original ASA GameUserSettings.ini stays byte-identical after approved Store RCON admin tests");

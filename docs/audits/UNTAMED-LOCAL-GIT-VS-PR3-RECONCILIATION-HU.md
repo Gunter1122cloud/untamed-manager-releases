@@ -10,7 +10,7 @@ Git parancssori eszköz korábban nem volt elérhető. Nem hoztunk létre új Gi
 
 A vizsgált munkamappában egyetlen ilyen projektmappa van; `untamed-manager-dev/untamed-manager-dev` nested másolat nincs.
 Ez a megállapítás a munkamappára vonatkozik, nem a teljes számítógép minden könyvtárára.
-Az éles Kova telepítése és éles szervermappák ettől különállók; nem forrás-worktree-k.
+Az éles Legacy telepítése és éles szervermappák ettől különállók; nem forrás-worktree-k.
 
 ## Pontos számok a dokumentáció hozzáadása előtti alapállapoton
 
@@ -44,7 +44,7 @@ Nincs 127 elveszett funkcionális javításra bizonyíték. A teljes helyi máso
 - PR #1: `feature/store-lifecycle-evidence-parity-20261103`, HEAD `62dea92ce52e8270e57833fc976356ce199026d5`; nyitott Draft; 19 változott fájl; teljes patch átnézve.
 - PR #3: `codex/p0-store-v1-parity`, HEAD `3b8b448fb906a02d45615a466ef2900ca40200f0`; cél PR #1 fejlesztési ága; nyitott Draft; teljes 14-fájlos patch átnézve.
 - Legutóbbi igazolt alkalmazásforrás: PR #3 HEAD. Korábbi [Windows CI](https://github.com/Gunter1122cloud/untamed-manager-releases/actions/runs/41795392001) ezen a forráson sikeres, nem az új dokumentációs commit tesztje.
-- Új auditág: `codex/read-only-kova-gap-audit`, PR #3 HEAD-ről, célága `codex/p0-store-v1-parity`. Csak dokumentációt tartalmaz.
+- Új auditág: `codex/read-only-legacy-gap-audit`, PR #3 HEAD-ről, célága `codex/p0-store-v1-parity`. Csak dokumentációt tartalmaz.
 
 ## Mi került PR #3-ba?
 
@@ -53,12 +53,12 @@ Nincs 127 elveszett funkcionális javításra bizonyíték. A teljes helyi máso
 | .github/workflows/build-untamed-wpf.yml | EXACT |
 | wpf/Core/ClusterVaultArchiveInspector.cs | EXACT |
 | wpf/Core/HistoricalLaunchProfileReader.cs | EXACT |
-| wpf/Core/KovaStoreV1CopyReader.cs | EXACT |
+| wpf/Core/LegacyStoreV1CopyReader.cs | EXACT |
 | wpf/Core/StoreV1Fingerprint.cs | EXACT |
 | wpf/Core/UntamedManagerArchiveInspector.cs | EXACT |
 | wpf/Core/VaultReadSnapshot.cs | EXACT |
 | wpf/MainWindow.ClusterVault.cs | EXACT |
-| wpf/MainWindow.KovaStoreV1.cs | EXACT |
+| wpf/MainWindow.LegacyStoreV1.cs | EXACT |
 | wpf/P0-STORE-V1-AUDIT-2026-11-04-HU.md | EXACT |
 | wpf/Testing/Integration/ClusterVaultTests.cs | EXACT |
 | wpf/Testing/Integration/ProfessionalOperationsTests.cs | EXACT |

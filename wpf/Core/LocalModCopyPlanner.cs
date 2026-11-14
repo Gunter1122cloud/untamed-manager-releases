@@ -28,10 +28,12 @@ public sealed record LocalModCopyPlan(Guid SourceMapId,LocalModCopyMode Mode,
 
 public static class LocalModCopyPlanner
 {
-    private static void RequireEligible(LocalMap map)
+    private static void RequireEligible(ClusterService cluster,LocalMap map)
     {
+        bool enrolledStore=FreshStoreEnrollmentPolicy.IsEnrolled(map);
         if(map.Id==Guid.Empty || map.Maintenance || map.ObservedReadOnlyImported ||
-           (!map.HistoricalStoreProtected&&UntamedWorldBackup.HasLiveOrHistoricalStore(map)) ||
+           (!map.HistoricalStoreProtected&&UntamedWorldBackup.HasLiveOrHistoricalStore(map)&&
+            !enrolledStore) ||
            (map.HistoricalStoreProtected&&(
                string.IsNullOrWhiteSpace(map.HistoricalMapKey) ||
                map.HistoricalArchiveSha256?.Length!=64 ||
@@ -41,8 +43,19 @@ public static class LocalModCopyPlanner
                !string.IsNullOrWhiteSpace(map.ApiLoaderArguments))))
             throw new UnauthorizedAccessException(
                 "Mod copy requires an owned local map or imported original Kova profile");
-        // The shared Store writer belongs to ASA and the existing legacy coordinator.
-        // This module never touches files outside Manager config.
+        // The original Store writer belongs to ASA. A new enrolled Store
+        // map can edit only its OWN stopped, Registry-pinned Manager launch
+        // mod switches; no shared transfer or peer files are modified.
+        if(enrolledStore)
+        {
+            FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,map);
+            new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+            var process=cluster.Check(map);
+            if(process.Running||!process.ConfirmedStopped||
+               process.Identity!=null||process.LoaderIdentity!=null)
+                throw new InvalidOperationException(
+                    "UM-MOD-COPY-FRESH-STORE-STOP-REQUIRED");
+        }
         _=ModStateController.Read(map);
     }
 
@@ -58,7 +71,7 @@ public static class LocalModCopyPlanner
             throw new InvalidDataException("A distinct list of local destination maps is required");
         var source=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==sourceId)
             ??throw new UnauthorizedAccessException("Source map is not owned locally");
-        RequireEligible(source);
+        RequireEligible(cluster,source);
         var sourceMods=ModStateController.Read(source);
         var passive=new HashSet<string>(sourceMods.Passive,StringComparer.Ordinal);
         var baselines=new Dictionary<Guid,ModEditBaseline>
@@ -72,11 +85,16 @@ public static class LocalModCopyPlanner
         {
             var target=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==id)
                 ??throw new UnauthorizedAccessException("Destination map is not owned locally");
-            RequireEligible(target);
+            RequireEligible(cluster,target);
             var prior=ModStateController.Read(target);
             baselines.Add(id,ModEditBaseline.Capture(target));
             var working=new LocalMap {
                 Id=target.Id,Name=target.Name,Arguments=target.Arguments,
+                FreshStoreClusterId=target.FreshStoreClusterId,
+                FreshStoreTransferDirectory=target.FreshStoreTransferDirectory,
+                FreshStoreTransferFileId=target.FreshStoreTransferFileId,
+                StartWithAsaApi=target.StartWithAsaApi,
+                ApiLoaderArguments=target.ApiLoaderArguments,
                 HistoricalStoreProtected=target.HistoricalStoreProtected,
                 HistoricalEnabledMods=(target.HistoricalEnabledMods??new()).ToList(),
                 HistoricalPassiveMods=(target.HistoricalPassiveMods??new()).ToList(),
@@ -139,14 +157,14 @@ public static class LocalModCopyPlanner
         if(!plan.Changed)throw new InvalidOperationException("Nothing changed");
         var source=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==plan.SourceMapId)
             ??throw new UnauthorizedAccessException("Source map no longer owned");
-        RequireEligible(source);
+        RequireEligible(cluster,source);
         if(!plan.SourceBaseline.Matches(source))
             throw new IOException("Source mod configuration changed since preview");
         foreach(var target in plan.Targets)
         {
             var current=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==target.MapId)
                 ??throw new UnauthorizedAccessException("Destination map no longer owned");
-            RequireEligible(current);
+            RequireEligible(cluster,current);
         }
         // The existing operation coordinator, full baseline check and ConfigStore
         // optimistic CAS perform the whole batch as one Manager-config write.

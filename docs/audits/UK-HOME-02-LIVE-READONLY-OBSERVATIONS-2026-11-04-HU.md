@@ -7,10 +7,10 @@ Első leltár 08:11 UTC körül; részletes leltár: 2026-11-04T08:15:40.4772478
 
 ## Lényegi eredmények
 
-Öt valódi Kova→Loader→ASA lánc fut; mind az öt -usestore kapcsolóval, konverzió nélkül.
+Öt valódi Legacy→Loader→ASA lánc fut; mind az öt -usestore kapcsolóval, konverzió nélkül.
 A profil és a processz modlistájának sorrendje 5/5 esetben egyezik: 28/29 mod, nulla passzív.
 Ez argumentumegyezés, nem valamennyi mod tényleges betöltésének ACK-ja.
-Négy Kova-processz Electron-folyamatcsalád, nem négy külön Manager bizonyítéka.
+Négy Legacy-processz Electron-folyamatcsalád, nem négy külön Manager bizonyítéka.
 
 Öt helyi Store-rekord ACTIVE, a helyi selected/member/session összerendelés egyezik.
 A közös élő peer-állapot, HP helyi adatok, karakter/tribe integritás és kizárólagos írójog nem igazoltak.
@@ -23,14 +23,14 @@ Nem kezeljük őket azonos idejű aktuális hibáknak; a success felirat nem tar
 Stopped/Disabled másik szolgáltatás binárisa **11.4.13.0**. A terv 11.4-et feltételezett.
 Ez ProductVersion-bizonyíték, nem SELECT VERSION(). Nincs automatikus upgrade; előbb engine/séma/jogok tisztázása kell.
 
-Telepített Kova **1.8.3**; **44/44 saját modul** bájtszinten egyezik a privát referenciával.
+Telepített Legacy **1.8.3**; **44/44 saját modul** bájtszinten egyezik a privát referenciával.
 A belső agent külön verziószáma nem a desktop alkalmazás kiadási verziója.
 
 ## E01–E12 bizonyítékkatalógus
 
 | ID | Forrás / módszer | Tény | Erő és korlát |
 | --- | --- | --- | --- |
-| E01 | Get-Process és egyszeri WMI processzleltár | 5 ASA, 5 Loader, 4 Kova, 1 mariadbd; öt Kova→Loader→ASA lánc | OBSERVED lét/PPID/indulási azonosság; nem RCON_AUTH vagy join-ready |
+| E01 | Get-Process és egyszeri WMI processzleltár | 5 ASA, 5 Loader, 4 Legacy, 1 mariadbd; öt Legacy→Loader→ASA lánc | OBSERVED lét/PPID/indulási azonosság; nem RCON_AUTH vagy join-ready |
 | E02 | Argumentumok memóriabeli profil-összevetése; helyi sockettáblák | 5/5 mods-sorrend, -usestore, nincs konverzió; 1 UDP és 1–2 TCP listener/map | Nyers argumentum/cím/port/PID nincs exportban. Listener nem bizonyít RCON-ready állapotot. |
 | E03 | Nyolc kis JSON, megosztott read/write/delete olvasóhandle | 5 profil/member/ACTIVE/selected; helyi session egyezik | Nem atomikus többfájlos snapshot; közös UNC/HP nem megnyitott, live configHash nem újraszámított. |
 | E04 | Maponként legfeljebb 128 KiB ShooterGame tail és aktuális PID-es API-log | 5/5 API-inicializálási szöveg; hét ismert pluginnév említése; ASA start/advertising szöveg | API-log idő/start kapcsolata életszerű, nem teljes eseménykorreláció. Névemlítés nem hibátlan betöltés. |
@@ -39,7 +39,7 @@ A belső agent külön verziószáma nem a desktop alkalmazás kiadási verziój
 | E07 | MariaDB service/process/bináris ProductVersion; plugin SQL-kulcs/sémanév-whitelist | Running: 10.11.19.0; disabled: 11.4.13.0. arkpermissions/lethalquests hivatkozás, ArkShop plugin | Nincs SQL-kapcsolat/credentialkiemelés. arkshop DB létezése, táblák/motorok és konzisztencia nem igazolt. |
 | E08 | Helyi ASAR-fejléc és 44 saját modul bounded olvasása, asar.unpacked támogatással | 44/44 referencia-SHA egyezés; app verzió 1.8.3; 80 csomagbejegyzés | Implementációazonosság. A kódút végrehajtási sikere INFERRED/UNVERIFIED; eredeti forrás/asset nem kerül repóba. |
 | E09 | Korábbi négy privát csomag és korábbi ellenőrzés | Store 8/8, Manager 39/39, 53 mellékelt forrás, 3 exportlog hash egyezett | Történeti bizonyíték, nem mai HP vagy live restore; 561 statikus jelölt nem 561 futott teszt. |
-| E10 | Natív ablakleltár/UIA; engedélyezett menüfelirat-keresés | Látható Chromium és tray-host; UIA 9 leszármazott, használható menüfelirat nélkül. PrintWindow kivágat csak dekoratív háttér. | Teljes távoli GUI/fókusz nem megfigyelt. Nem aktiváltunk/kattintottunk. Képek nem publikáltak; takart képernyő első kivágata nem Kova-bizonyíték. |
+| E10 | Natív ablakleltár/UIA; engedélyezett menüfelirat-keresés | Látható Chromium és tray-host; UIA 9 leszármazott, használható menüfelirat nélkül. PrintWindow kivágat csak dekoratív háttér. | Teljes távoli GUI/fókusz nem megfigyelt. Nem aktiváltunk/kattintottunk. Képek nem publikáltak; takart képernyő első kivágata nem Legacy-bizonyíték. |
 | E11 | main/PR1/PR3 metadata és teljes diff; helyi Git-blob összevetés | PR1:19, PR3:14 fájl; 139 helyi szöveg, 14 exact +125 csak EOF-újsor; nincs .git/nested projekt | 23 preview/asset nincs helyben. A korábbi 141-es UI-számláló eredeti listája nélkül nem rekonstruálható. |
 | E12 | Kis JSON és processzazonosság korlátozott előtte/utána összevetése | Eredmény a redaktált manifestben | Nem világ-/SQL-hashbizonyíték. Az élő rendszer saját írása nem auditmutáció. |
 
@@ -47,11 +47,11 @@ A belső agent külön verziószáma nem a desktop alkalmazás kiadási verziój
 
 | Map | Futó lánc | Modszám | Sorrend | Passzív | Store | API | Élő RCON/join |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Ragnarok_WP | Kova→Loader→ASA | 28 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
-| LostColony_WP | Kova→Loader→ASA | 29 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
-| ScorchedEarth_WP | Kova→Loader→ASA | 28 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
-| TheCenter_WP | Kova→Loader→ASA | 28 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
-| Aberration_WP | Kova→Loader→ASA | 29 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
+| Ragnarok_WP | Legacy→Loader→ASA | 28 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
+| LostColony_WP | Legacy→Loader→ASA | 29 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
+| ScorchedEarth_WP | Legacy→Loader→ASA | 28 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
+| TheCenter_WP | Legacy→Loader→ASA | 28 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
+| Aberration_WP | Legacy→Loader→ASA | 29 | egyezik | nincs | -usestore, nincs konverzió | aktuális PID-es inicializálási szöveg | UNVERIFIED; nem kérdeztük |
 
 ## Fontos működési szabályok a telepített kódból – INFERRED E08
 
@@ -77,7 +77,7 @@ A belső agent külön verziószáma nem a desktop alkalmazás kiadási verziój
 
 ## Hatás bizonyíthatósága
 
-Az élő fájlokat FileAccess.Read + FileShare.ReadWrite/Delete móddal olvastuk, a Kova írásait nem zártuk ki.
+Az élő fájlokat FileAccess.Read + FileShare.ReadWrite/Delete móddal olvastuk, a Legacy írásait nem zártuk ki.
 A tesztmásolatra való VaultReadSnapshotot az élő auditban nem használtuk. Csak a fejlesztési munkamappába írtunk jelentést.
 Átmeneti CPU/I/O-költség van; matematikailag nulla terhelést nem állítunk.
 A nem mutáló parancsok, processzazonosság és kis fájlösszevetés az audit beavatkozásmentességét támasztja alá; a futó szerverek saját írásait nem igazolja változatlannak.

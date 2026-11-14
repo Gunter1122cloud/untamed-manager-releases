@@ -115,12 +115,46 @@ internal static class NativeWebViewDispatchContractTests
             "all original Kova native methods are forwarded, including live 5-map preview/apply: "+
             string.Join(", ",unroutedHistorical));
         Check(ObsidianWindow.IsHistoricalStoreMethod(
+            "historical.operationJournalInventory")&&
+              !ObsidianWindow.RequiresGlobalBridgeGate(
+            "historical.operationJournalInventory")&&
+              ObsidianWindow.IsHistoricalStoreMethod(
             "historical.originalLiveBatchPreview")&&
               ObsidianWindow.IsHistoricalStoreMethod(
             "historical.originalLiveBatchApply")&&
               !ObsidianWindow.IsHistoricalStoreMethod(
             "historical.unsafeOperation"),
             "real dispatcher includes both live 5-map methods and denies unknown methods");
+
+        // The previous plugin JSON, ZIP installer and runtime-toggle routes
+        // remain parseable by older UI clients but MUST fail closed at the
+        // actual WebView2 dispatcher. Only folder-open/inventory is allowed.
+        string[] forbiddenPlugins={
+            "plugins.togglePreview","plugins.toggleApply",
+            "plugins.zipSelect","plugins.zipApply",
+            "plugins.zipRollbackSelect","plugins.zipRollbackApply",
+            "plugins.jsonOpen","plugins.jsonPreview",
+            "plugins.jsonSave","plugins.jsonClose"
+        };
+        Check(forbiddenPlugins.All(ObsidianWindow.IsManualOnlyDeniedPluginMethod)&&
+              !ObsidianWindow.IsManualOnlyDeniedPluginMethod("plugins.openFolder")&&
+              !ObsidianWindow.IsManualOnlyDeniedPluginMethod("plugins.inventory")&&
+              !ObsidianWindow.IsManualOnlyDeniedPluginMethod("plugins.state"),
+            "shipping WebView2 accepts manual plugin folder/inventory but denies retired writes");
+        var pluginRequestId=Guid.NewGuid();
+        using(var refused=System.Text.Json.JsonDocument.Parse(
+            ObsidianWindow.NativeErrorResponse(
+                System.Text.Json.JsonSerializer.Serialize(
+                    new{id=pluginRequestId.ToString("D")}),
+                "UM-PLUGIN-MANUAL-FOLDER-ONLY")))
+        {
+            Check(refused.RootElement.GetProperty("id").GetString()==
+                    pluginRequestId.ToString("D")&&
+                  !refused.RootElement.GetProperty("ok").GetBoolean()&&
+                  refused.RootElement.GetProperty("error").GetString()==
+                    "UM-PLUGIN-MANUAL-FOLDER-ONLY",
+                "refused plugin mutation yields correlated, explicit error without file changes");
+        }
 
         // Ensure each named routing group points to an actual compiled
         // handler AND that the target handler contains its requested method.
@@ -173,5 +207,23 @@ internal static class NativeWebViewDispatchContractTests
             string.Join("; ",handlerIssues.Take(20)));
         Check(requested.SetEquals(everyRouted),
             "all "+requested.Count+" production React methods have one eligible host dispatcher route");
+
+        // Three independent native Loader lifecycle paths must not impose
+        // older 2–3-minute false-failure windows on large modded ASA worlds.
+        // All use the same bounded read-only family/RCON verification period;
+        // nothing here permits background Process.Start or command replay.
+        Check(FreshStoreApiPairObserver.StartupObservationWindow==
+                TimeSpan.FromMinutes(10),
+            "production ASA Loader-child observation window is ten minutes");
+        foreach(var path in new[]{
+            "desktop/DesktopFreshAsaRestartBridge.cs",
+            "desktop/DesktopHistoricalRestartBridge.cs",
+            "desktop/DesktopHistoricalActiveStartBridge.cs"})
+        {
+            Check(Read(path).Contains(
+                    "FreshStoreApiPairObserver.StartupObservationWindow",
+                    StringComparison.Ordinal),
+                "native Loader lifecycle uses shared bounded readiness interval: "+path);
+        }
     }
 }

@@ -25,7 +25,8 @@ internal static class LegacyStoreV1GracefulStop
 
     internal static Owned Require(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck> inspect,Func<LocalMap,string> source,
-        Func<int,int,bool> portOwner,Guid? approvedRestartId=null)
+        Func<int,int,bool> portOwner,Guid? approvedRestartId=null,
+        bool recoveryReadOnly=false)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(inspect);
@@ -57,7 +58,7 @@ internal static class LegacyStoreV1GracefulStop
                 throw new InvalidOperationException("UM-ORIGINAL-RESTART-STOP-NOT-AUTHORIZED");
             restart.DemandAuthorizedStop(restartId);
         }
-        else restart.DemandNoPending();
+        else if(!recoveryReadOnly)restart.DemandNoPending();
         string fingerprint=source(map);
         if(fingerprint.Length!=64||fingerprint.Any(c=>!Uri.IsHexDigit(c)))
             throw new InvalidDataException("UM-ORIGINAL-STOP-SOURCE-NOT-ACTIVE");
@@ -68,14 +69,47 @@ internal static class LegacyStoreV1GracefulStop
            (state.LoaderIdentity!=null&&state.LoaderIdentity.Pid==identity.Pid)||
            !portOwner(map.RconPort,identity.Pid))
             throw new InvalidOperationException("UM-ORIGINAL-STOP-PID-RCON-NOT-OWNED");
+        if(recoveryReadOnly)
+        {
+            // This bypass is ONLY for read-only proof during an explicitly
+            // approved paired-journal review, never for Stop/Restart/RCON.
+            // Still require the ORIGINAL live PID, full Store session and
+            // RCON port ownership proof above; an unexpected restarted PID
+            // must NOT be made eligible for the old-process recovery.
+            var oldRestart=restart.Observe();
+            if(oldRestart!=null&&oldRestart.Phase is not
+                (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed)&&
+               (oldRestart.MapId!=mapId||oldRestart.OldPid!=identity.Pid||
+                oldRestart.NewPid!=0||oldRestart.Phase is not
+                    (AsaRestartPhase.NeedsOperator or AsaRestartPhase.Stopping)))
+                throw new InvalidOperationException(
+                    "UM-RECOVERY-RESTART-OLD-PID-OR-PHASE-MISMATCH");
+        }
         return new(map,identity,fingerprint);
     }
 
-    internal static string OriginalSource(LocalMap map)
+    internal static string OriginalSource(LocalMap map) =>
+        ReadSource(map,Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.ApplicationData),"Kova"));
+
+    internal static string OriginalSource(ClusterService cluster,LocalMap map)
     {
-        var proof=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,
-            Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.ApplicationData),"Kova"));
+        string legacy=Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.ApplicationData),"Kova");
+        string selected=LegacyStoreV1PinnedSource.Resolve(
+            cluster.Store.Root,legacy,map);
+        // ACTIVE/DONE was Kova's import/migration coordination, not a
+        // runtime requirement for independently managed local SaveWorld/Stop.
+        // A peer being offline must not invalidate a locally owned PID/RCON.
+        if(!string.Equals(selected,legacy,StringComparison.OrdinalIgnoreCase))
+            return LegacyStoreV1PinnedSource.RuntimeFingerprint(
+                cluster.Store.Root,legacy,map);
+        return ReadSource(map,legacy);
+    }
+
+    private static string ReadSource(LocalMap map,string profile)
+    {
+        var proof=LegacyStoreV1LiveReadGate.InspectOriginalActive(map,profile);
         if(!proof.CompletedOriginalSourceGuard||!proof.BothPeersDone||
            !proof.SharedSessionMatches||proof.ActiveMaps!=10||proof.DonePeers!=2||
            !proof.LocalMapBindingMatches||!proof.NoMutationMarker||
@@ -108,7 +142,7 @@ internal static class LegacyStoreV1GracefulStop
         inspect??=(map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
         stopped??=(map=>LegacyStoreV1ProcessObserver.ObserveStoppedForNativeStart(
             map,cluster.Config.LocalMaps));
-        source??=OriginalSource;
+        source??=(map=>OriginalSource(cluster,map));
         portOwner??=RconPortOwnership.IsOwnedListener;
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(maximum);
@@ -225,7 +259,7 @@ internal static class LegacyStoreV1GracefulStop
            maximum<=TimeSpan.Zero||maximum>TimeSpan.FromMinutes(3))
             throw new InvalidDataException("UM-ORIGINAL-SAVE-APPROVAL");
         inspect??=(map=>LegacyStoreV1ProcessObserver.Observe(map,cluster.Config.LocalMaps));
-        source??=OriginalSource;
+        source??=(map=>OriginalSource(cluster,map));
         portOwner??=RconPortOwnership.IsOwnedListener;
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(maximum);
@@ -283,11 +317,23 @@ internal static class LegacyStoreV1GracefulStop
             "ORIGINAL_ACTIVE_STORE_SAVEWORLD_LOG_AND_STABLE_WORLD_NO_DOEXIT");
     }
 
+    internal static Owned PreviewForUnfinishedRestartReview(
+        ClusterService cluster,Guid mapId,
+        Func<LocalMap,ProcessCheck>? inspect=null,
+        Func<LocalMap,string>? source=null,
+        Func<int,int,bool>? portOwner=null)=>
+        Require(cluster,mapId,
+            inspect??(map=>LegacyStoreV1ProcessObserver.Observe(
+                map,cluster.Config.LocalMaps)),
+            source??(map=>OriginalSource(cluster,map)),
+            portOwner??RconPortOwnership.IsOwnedListener,
+            recoveryReadOnly:true);
+
     internal static Owned Preview(ClusterService cluster,Guid mapId,
         Func<LocalMap,ProcessCheck>? inspect=null,
         Func<LocalMap,string>? source=null,
         Func<int,int,bool>? portOwner=null)=>
         Require(cluster,mapId,inspect??(map=>LegacyStoreV1ProcessObserver.Observe(
                 map,cluster.Config.LocalMaps)),
-            source??OriginalSource,portOwner??RconPortOwnership.IsOwnedListener);
+            source??(map=>OriginalSource(cluster,map)),portOwner??RconPortOwnership.IsOwnedListener);
 }
