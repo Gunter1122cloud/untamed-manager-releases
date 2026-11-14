@@ -7750,8 +7750,8 @@ try
         Directory.CreateDirectory(secondIniDir);
         string secondIni=Path.Combine(secondIniDir,"GameUserSettings.ini");
         const int secondPort=37175;
-        File.WriteAllText(secondIni,"[ServerSettings]\\r\\nRCONEnabled=True\\r\\n"+
-            "RCONPort="+secondPort+"\\r\\nServerAdminPassword="+secret+"\\r\\n");
+        File.WriteAllText(secondIni,"[ServerSettings]\r\nRCONEnabled=True\r\n"+
+            "RCONPort="+secondPort+"\r\nServerAdminPassword="+secret+"\r\n");
         var secondMap=new LocalMap{
             Id=Guid.NewGuid(),Name="Valguero",
             InstallationPath=secondRoot,ExecutablePath=secondExe,
