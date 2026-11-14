@@ -202,6 +202,7 @@ internal static class MapScopedNativeLifecycleJobsTests
         var releaseFirst=new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var saved=new List<Guid>();
+        var lateSaveProgress=new Action<string>?[2];
         LegacyStoreV1GracefulStop.Owned Probe(Guid mapId)
         {
             int idx=mapId==maps[0].Id?0:mapId==maps[1].Id?1:-1;
@@ -218,6 +219,7 @@ internal static class MapScopedNativeLifecycleJobsTests
             Guid mapId,int pid,DateTimeOffset started,string source,
             Action<string> progress)
         {
+            lateSaveProgress[mapId==maps[0].Id?0:1]=progress;
             lock(saved)saved.Add(mapId);
             if(mapId==maps[0].Id)
                 await releaseFirst.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -282,6 +284,16 @@ internal static class MapScopedNativeLifecycleJobsTests
             "completed original SaveWorld survives sibling operation");
         Check(completed.GetProperty("state").GetString()=="completed",
             "original Store SaveWorld completed without losing its job ID");
+        Check(lateSaveProgress[0]!=null,
+            "original Store SaveWorld captured the exact map progress callback");
+        lateSaveProgress[0]!("DELAYED ORIGINAL SAVEWORLD PROGRESS");
+        var stableSave=Data(await Call(bridge.HandleAsync,
+            "historical.saveWorldStatus",new{jobId=jobIds[0]}),
+            "original SaveWorld final receipt survives delayed evidence");
+        Check(stableSave.GetProperty("state").GetString()=="completed"&&
+              stableSave.GetProperty("step").GetString()==
+                "Store-v1 SaveWorld igazolva; az ASA tovább fut",
+            "late Store SaveWorld RCON callback cannot erase verified final save");
         lock(saved)Check(saved.Count==2&&
             saved.Contains(maps[0].Id)&&saved.Contains(maps[1].Id),
             "exactly one synthetic SaveWorld action per original Store map");
@@ -423,10 +435,12 @@ internal static class MapScopedNativeLifecycleJobsTests
         var releaseFirst=new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var dispatched=new List<Guid>();
+        var lateRestartProgress=new Action<string>?[2];
         using var bridge=new DesktopFreshAsaRestartBridge(cluster,
             (port,pid)=>(port==37620&&pid==45001)||
                         (port==37621&&pid==45002),
             async (mapId,old,restartId,progress)=>{
+                lateRestartProgress[mapId==maps[0].Id?0:1]=progress;
                 lock(dispatched)dispatched.Add(mapId);
                 if(mapId==maps[0].Id)
                     await releaseFirst.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -496,6 +510,16 @@ internal static class MapScopedNativeLifecycleJobsTests
             "first completed Restart retained its own final receipt");
         Check(done.GetProperty("state").GetString()=="completed",
             "first synthetic ASA Restart finishes after second map started");
+        Check(lateRestartProgress[0]!=null,
+            "fresh ASA Restart captured the source map's native progress callback");
+        lateRestartProgress[0]!("DELAYED FRESH RESTART PROGRESS");
+        var stableRestart=Data(await Call(bridge.HandleAsync,
+            "servers.restartStatus",new{jobId=ids[0]}),
+            "completed ASA Restart remains observable after late progress");
+        Check(stableRestart.GetProperty("state").GetString()=="completed"&&
+              !stableRestart.GetProperty("stage").GetString()!
+                .Contains("DELAYED",StringComparison.Ordinal),
+            "late ASA Restart callback cannot revert verified PID outcome");
         lock(dispatched)Check(dispatched.Count==2&&
             dispatched.Contains(maps[0].Id)&&dispatched.Contains(maps[1].Id),
             "one native simulated Restart dispatch per independent local map");
