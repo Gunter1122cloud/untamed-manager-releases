@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -20,12 +21,14 @@ namespace UntamedDesktop;
 public sealed class DesktopRconAdminBridge
 {
     private sealed record Pending(Guid Token,Guid MapId,string Action,string Command,
-        int Pid,DateTimeOffset ProcessStartUtc,DateTimeOffset Expires);
+        int Pid,DateTimeOffset ProcessStartUtc,string Profile,DateTimeOffset Expires);
     private readonly ClusterService cluster;
     private readonly Func<int,int,bool> ownsPort;
     private readonly Func<string,int,string,string,Action,CancellationToken,Task<string>> send;
     private readonly SemaphoreSlim gate=new(1,1);
-    private Pending? pending;
+    // Ten local maps can hold independent approvals, but a newer preview for
+    // one map invalidates the previous token for that SAME map.
+    private readonly Dictionary<Guid,Pending> pendingByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private static readonly Regex ForbiddenLifecycle=new(
         @"\A\s*(?:(?:cheat|admincheat)\s+)*(?:doexit|exit|quit|stop|restart|saveworld)\b",
@@ -114,9 +117,10 @@ public sealed class DesktopRconAdminBridge
             await gate.WaitAsync();
             try
             {
+                foreach(var stale in pendingByMap.Where(p=>p.Value.Expires<DateTimeOffset.UtcNow)
+                    .Select(p=>p.Key).ToArray())pendingByMap.Remove(stale);
                 if(method=="rcon.adminPreview")
                 {
-                    pending=null;
                     if(!root.TryGetProperty("mapId",out var rawMap)||
                        rawMap.ValueKind!=JsonValueKind.String||
                        !Guid.TryParse(rawMap.GetString(),out var mapId)||
@@ -125,19 +129,23 @@ public sealed class DesktopRconAdminBridge
                        !root.TryGetProperty("message",out var rawMessage)||
                        rawMessage.ValueKind!=JsonValueKind.String)
                         return Fail(id,"UM-RCON-INVALID-PREVIEW");
+                    pendingByMap.Remove(mapId);
                     string action=rawAction.GetString()??"";
                     string message=rawMessage.GetString()??"";
                     string command=BuildCommand(action,message);
                     var (map,identity)=RequireOwned(mapId);
-                    pending=new(Guid.NewGuid(),map.Id,action,command,identity.Pid,
-                        identity.StartedUtc,DateTimeOffset.UtcNow.AddMinutes(3));
+                    if(pendingByMap.Count>=25)pendingByMap.Clear();
+                    var approval=new Pending(Guid.NewGuid(),map.Id,action,command,
+                        identity.Pid,identity.StartedUtc,JsonSerializer.Serialize(map),
+                        DateTimeOffset.UtcNow.AddMinutes(3));
+                    pendingByMap[map.Id]=approval;
                     return Ok(id,new{
-                        token=pending.Token,mapId=map.Id,mapName=map.Name,
+                        token=approval.Token,mapId=map.Id,mapName=map.Name,
                         action,command,requiresApproval=true,
                         dangerous=action is "wildWipe" or "custom",
                         approvalWord=action=="wildWipe"?"DINÓTÖRLÉS":
                                      action=="custom"?"ADMIN":null,
-                        expiresUtc=pending.Expires,
+                        expiresUtc=approval.Expires,
                         dispatched=false,credentialExposed=false,
                         evidence="LOCAL_OS_VERIFIED_ADMIN_RCON_PREVIEW"
                     });
@@ -147,12 +155,13 @@ public sealed class DesktopRconAdminBridge
                    !Guid.TryParse(rawToken.GetString(),out var token)||
                    !root.TryGetProperty("confirm",out var yes)||
                    yes.ValueKind!=JsonValueKind.True||
-                   pending==null||pending.Token!=token)
+                   !pendingByMap.Values.Any(p=>p.Token==token))
                     return Fail(id,"UM-RCON-ADMIN-APPROVAL-REQUIRED");
-                var job=pending;
+                var job=pendingByMap.Values.Single(p=>p.Token==token);
                 // Claim before dispatch. A timeout cannot silently resend
-                // a non-idempotent command to a later process.
-                pending=null;
+                // a non-idempotent command to a later process. Do not revoke
+                // unrelated map approvals on another local ASA installation.
+                pendingByMap.Remove(job.MapId);
                 if(job.Expires<DateTimeOffset.UtcNow)
                     return Fail(id,"UM-RCON-ADMIN-PREVIEW-EXPIRED");
                 string approval=job.Action=="wildWipe"?"DINÓTÖRLÉS":
@@ -166,8 +175,20 @@ public sealed class DesktopRconAdminBridge
                 }
                 var (owned,identityNow)=RequireOwned(job.MapId);
                 if(identityNow.Pid!=job.Pid||
-                   identityNow.StartedUtc!=job.ProcessStartUtc)
+                   identityNow.StartedUtc!=job.ProcessStartUtc||
+                   JsonSerializer.Serialize(owned)!=job.Profile)
                     return Fail(id,"UM-RCON-ADMIN-PROCESS-CHANGED");
+                // Match the original Store-v1 admin boundary: serialize
+                // mutating RCON against Stop/Restart/SteamCMD/INI/Backup on
+                // the ACTUAL installation, across Manager processes.
+                using var lease=cluster.Operations.Acquire(
+                    owned.InstallationPath,UntamedOperationKind.Configuration);
+                var (underLease,processUnderLease)=RequireOwned(job.MapId);
+                if(!ReferenceEquals(underLease,owned)||
+                   processUnderLease.Pid!=job.Pid||
+                   processUnderLease.StartedUtc!=job.ProcessStartUtc||
+                   JsonSerializer.Serialize(underLease)!=job.Profile)
+                    return Fail(id,"UM-RCON-ADMIN-LEASE-PROOF-CHANGED");
                 string password=SecureStore.Unprotect(owned.RconPasswordProtected);
                 if(string.IsNullOrEmpty(password))
                     return Fail(id,"UM-RCON-ADMIN-PASSWORD-UNAVAILABLE");
@@ -177,10 +198,13 @@ public sealed class DesktopRconAdminBridge
                     var (live,process)=RequireOwned(job.MapId);
                     if(process.Pid!=job.Pid ||
                        process.StartedUtc!=job.ProcessStartUtc ||
-                       live.RconPort!=owned.RconPort)
+                       live.RconPort!=owned.RconPort||
+                       JsonSerializer.Serialize(live)!=job.Profile)
                         throw new InvalidOperationException(
                             "UM-RCON-ADMIN-POST-AUTH-PID-CHANGED");
                 }
+                RecheckAfterAuthentication();
+                lease.MarkMutationStarted();
                 string output=await send("127.0.0.1",owned.RconPort,password,job.Command,
                     RecheckAfterAuthentication,deadline.Token);
                 var check=cluster.Check(owned);
@@ -189,8 +213,9 @@ public sealed class DesktopRconAdminBridge
                    check.Identity.StartedUtc!=job.ProcessStartUtc||
                    !ownsPort(owned.RconPort,job.Pid))
                     return Fail(id,"UM-RCON-ADMIN-POST-SEND-UNVERIFIED_NO_RETRY");
-                if(output.Length>32000)
+                if(output==null||output.Length>32000)
                     return Fail(id,"UM-RCON-ADMIN-OUTPUT-TOO-LARGE");
+                lease.Complete();
                 return Ok(id,new{
                     mapId=owned.Id,mapName=owned.Name,action=job.Action,
                     command=job.Command,response=UntamedPresentation.Redact(output),
