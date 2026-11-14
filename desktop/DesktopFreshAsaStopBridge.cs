@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -32,8 +33,14 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     private readonly Func<int,int,bool> ownsPort;
     private readonly Func<Guid,ProcessIdentity,Action<string>,Task<AsaGracefulStopReceipt>> stop;
     private Approval? pending;
-    private Job? job;
+    // Retain a separate Stop receipt for every registered local ASA map.
+    private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
+    private bool HasActive(Guid mapId)
+    {
+        lock(sync)return jobsByMap.TryGetValue(mapId,out var existing)&&
+            existing.State is ("queued" or "running");
+    }
 
     public DesktopFreshAsaStopBridge(ClusterService service,
         Func<int,int,bool>? owner=null,
@@ -141,30 +148,27 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                     if(Owned(mapId)==null)return Error(id,"UM-MAP-NOT-OWNED");
                     lock(sync)
                     {
-                        if(job==null||job.MapId!=mapId)
+                        if(!jobsByMap.TryGetValue(mapId,out var tracked))
                             return Ok(id,new{
                                 mapId,jobId=(Guid?)null,state=(string?)null,active=false,
                                 evidence="LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
                             });
                         return Ok(id,new{
-                            mapId,jobId=(Guid?)job.JobId,state=job.State,
-                            active=job.State is "queued" or "running",
+                            mapId,jobId=(Guid?)tracked.JobId,state=tracked.State,
+                            active=tracked.State is "queued" or "running",
                             evidence="LOCAL_ASA_STOP_IN_MEMORY_JOB_OBSERVATION_NO_DISPATCH"
                         });
                     }
                 }
                 if(method=="servers.gracefulStopStatus")
                 {
-                    if(!GuidProperty(request,"jobId",out var jobId)||
-                       job==null||job.JobId!=jobId)
+                    if(!GuidProperty(request,"jobId",out var jobId))
                         return Error(id,"UM-ASA-STOP-JOB-NOT-FOUND");
-                    return Ok(id,Snapshot(job));
-                }
-                if(job!=null)
-                {
-                    lock(sync)
-                        if(job.State is "queued" or "running")
-                            return Error(id,"UM-ASA-STOP-BUSY");
+                    Job? tracked;
+                    lock(sync)tracked=jobsByMap.Values.FirstOrDefault(
+                        item=>item.JobId==jobId);
+                    if(tracked==null)return Error(id,"UM-ASA-STOP-JOB-NOT-FOUND");
+                    return Ok(id,Snapshot(tracked));
                 }
                 if(method=="servers.gracefulStopPreview")
                 {
@@ -172,6 +176,7 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                         return Error(id,"UM-ASA-STOP-MAP");
                     var owned=Owned(mapId);
                     if(owned==null)return Error(id,"UM-MAP-NOT-OWNED");
+                    if(HasActive(mapId))return Error(id,"UM-ASA-STOP-BUSY");
                     var process=Require(owned);
                     pending=new(Guid.NewGuid(),owned.Id,process.Pid,
                         process.StartedUtc,owned.InstallationPath,owned.RconPort,
@@ -196,12 +201,13 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
                 if(map==null || map.InstallationPath!=approved.Root ||
                    map.RconPort!=approved.RconPort)
                     return Error(id,"UM-ASA-STOP-CHANGED");
+                if(HasActive(map.Id))return Error(id,"UM-ASA-STOP-BUSY");
                 var current=Require(map);
                 if(current.Pid!=approved.Pid||
                    current.StartedUtc!=approved.StartedUtc)
                     return Error(id,"UM-ASA-STOP-PROCESS-CHANGED");
                 var item=new Job{MapId=map.Id};
-                job=item;
+                lock(sync)jobsByMap[map.Id]=item;
                 _=Task.Run(async()=>{
                     Change(item,"running","SaveWorld → új stabil .ark / naplóellenőrzés → DoExit");
                     try
