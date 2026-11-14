@@ -164,7 +164,7 @@ public static class LocalModCopyPlanner
         {
             var current=cluster.Config.LocalMaps.SingleOrDefault(m=>m.Id==target.MapId)
                 ??throw new UnauthorizedAccessException("Destination map no longer owned");
-            RequireEligible(current);
+            RequireEligible(cluster,current);
         }
         // The existing operation coordinator, full baseline check and ConfigStore
         // optimistic CAS perform the whole batch as one Manager-config write.
