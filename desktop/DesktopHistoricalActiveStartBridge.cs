@@ -386,7 +386,11 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                     _=Task.Run(async()=>{
                         try
                         {
-                            var until=DateTimeOffset.UtcNow.AddMinutes(3);
+                            // Imported, heavily modded original ASA servers
+                            // can take longer than three minutes to expose
+                            // their Loader-child RCON listener. No retry/start.
+                            var until=DateTimeOffset.UtcNow+
+                                FreshStoreApiPairObserver.StartupObservationWindow;
                             while(DateTimeOffset.UtcNow<until)
                             {
                                 var seen=LegacyStoreV1ProcessObserver.Observe(
