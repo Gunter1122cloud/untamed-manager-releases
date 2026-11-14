@@ -207,5 +207,23 @@ internal static class NativeWebViewDispatchContractTests
             string.Join("; ",handlerIssues.Take(20)));
         Check(requested.SetEquals(everyRouted),
             "all "+requested.Count+" production React methods have one eligible host dispatcher route");
+
+        // Three independent native Loader lifecycle paths must not impose
+        // older 2–3-minute false-failure windows on large modded ASA worlds.
+        // All use the same bounded read-only family/RCON verification period;
+        // nothing here permits background Process.Start or command replay.
+        Check(FreshStoreApiPairObserver.StartupObservationWindow==
+                TimeSpan.FromMinutes(10),
+            "production ASA Loader-child observation window is ten minutes");
+        foreach(var path in new[]{
+            "desktop/DesktopFreshAsaRestartBridge.cs",
+            "desktop/DesktopHistoricalRestartBridge.cs",
+            "desktop/DesktopHistoricalActiveStartBridge.cs"})
+        {
+            Check(Read(path).Contains(
+                    "FreshStoreApiPairObserver.StartupObservationWindow",
+                    StringComparison.Ordinal),
+                "native Loader lifecycle uses shared bounded readiness interval: "+path);
+        }
     }
 }
