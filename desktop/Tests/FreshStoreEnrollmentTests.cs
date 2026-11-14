@@ -318,6 +318,45 @@ internal static class FreshStoreEnrollmentTests
             FreshStoreEnrollmentPolicy.DemandEnrolled(manager,enrolled);
             SteamStoppedMapUpdater.DemandSafeLocalInstallation(manager,enrolled);
             Check(true,"exact enrolled Store map can preflight local stopped-only manual SteamCMD maintenance");
+            var pristineScope=SteamStoppedMapUpdater.PreUpdateBackupScope(manager,enrolled);
+            Check(pristineScope.HasFlag(LocalBackupScope.Ini)&&
+                  !pristineScope.HasFlag(LocalBackupScope.WorldAndProfiles),
+                "never-started enrolled Store protects configured INI without requiring a nonexistent world");
+            var pristineBackup=LocalBackupWorkflow.Preview(enrolled,
+                manager.Check(enrolled),Path.Combine(profile,"first-map-steam-prebackup"),
+                pristineScope);
+            Check(pristineBackup.SelectedFiles>0&&pristineBackup.TotalBytes>0,
+                "INI-only first-map Steam protection has a real verified, recoverable backup plan");
+            var previousProcess=enrolled.LastProcess;
+            try
+            {
+                enrolled.LastProcess=new ProcessIdentity{
+                    Pid=65101,StartedUtc=DateTimeOffset.UtcNow,
+                    ExecutablePath=enrolled.ExecutablePath,Arguments=enrolled.Arguments
+                };
+                Check(SteamStoppedMapUpdater.PreUpdateBackupScope(manager,enrolled)
+                    .HasFlag(LocalBackupScope.WorldAndProfiles),
+                    "a map with persisted prior ASA launch cannot waive its world backup");
+            }
+            finally { enrolled.LastProcess=previousProcess; }
+            string worldFolder=Path.Combine(installation,"ShooterGame","Saved","SavedArks");
+            string zeroByteWorld=Path.Combine(worldFolder,"TheIsland_WP.ark");
+            Directory.CreateDirectory(worldFolder);
+            File.WriteAllBytes(zeroByteWorld,Array.Empty<byte>());
+            try
+            {
+                Check(SteamStoppedMapUpdater.PreUpdateBackupScope(manager,enrolled)
+                    .HasFlag(LocalBackupScope.WorldAndProfiles),
+                    "even a zero-byte world placeholder prohibits config-only Steam backup waiver");
+            }
+            finally
+            {
+                File.Delete(zeroByteWorld);
+                Directory.Delete(worldFolder);
+            }
+            Check(!SteamStoppedMapUpdater.PreUpdateBackupScope(manager,enrolled)
+                      .HasFlag(LocalBackupScope.WorldAndProfiles),
+                "removing isolated synthetic placeholder restores untouched first-world eligibility");
             // The exact installed Store profile can use natural ASA
             // SessionName text containing "ConvertToStore". Only actual
             // startup flags may cause a native conversion denial.
