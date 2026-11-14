@@ -22,7 +22,8 @@ public sealed class DesktopIniBridge : IDisposable
     private readonly SemaphoreSlim gate = new(1,1);
     private readonly Dictionary<Guid,OpenDocument> opened = new();
     private sealed record MissingGameApproval(Guid Token,Guid MapId,string Profile,DateTimeOffset Expires);
-    private MissingGameApproval? pendingGame;
+    // Independent one-shot Game.ini create approval per local ASA map.
+    private readonly Dictionary<Guid,MissingGameApproval> pendingGameByMap=new();
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed class OpenDocument
     {
@@ -113,17 +114,22 @@ public sealed class DesktopIniBridge : IDisposable
                 foreach(var expired in opened.Where(x=>
                     DateTimeOffset.UtcNow-x.Value.OpenedUtc>TimeSpan.FromMinutes(12))
                     .Select(x=>x.Key).ToArray())opened.Remove(expired);
+                foreach(var expired in pendingGameByMap.Where(x=>
+                    x.Value.Expires<DateTimeOffset.UtcNow)
+                    .Select(x=>x.Key).ToArray())pendingGameByMap.Remove(expired);
 
                 if(method=="ini.createGamePreview")
                 {
-                    pendingGame=null;
                     if(!GetGuid(data,"mapId",out var mapId))
                         return Fail(id,"UM-INI-CREATE-MAP");
+                    pendingGameByMap.Remove(mapId);
                     var selected=MissingGamePreflight(mapId);
-                    pendingGame=new MissingGameApproval(Guid.NewGuid(),mapId,
+                    if(pendingGameByMap.Count>=25)pendingGameByMap.Clear();
+                    var draftApproval=new MissingGameApproval(Guid.NewGuid(),mapId,
                         JsonSerializer.Serialize(selected.Map),DateTimeOffset.UtcNow.AddMinutes(3));
+                    pendingGameByMap[mapId]=draftApproval;
                     return Ok(id,new{
-                        token=pendingGame.Token,mapId,file="Game.ini",
+                        token=draftApproval.Token,mapId,file="Game.ini",
                         createsFile=false,requiresStoppedProcess=true,
                         originalStoreTouched=false,
                         evidence="FRESH_GAME_INI_CREATE_PREVIEW_NO_WRITE"
@@ -131,13 +137,13 @@ public sealed class DesktopIniBridge : IDisposable
                 }
                 if(method=="ini.createGameApply")
                 {
-                    if(!GetGuid(data,"token",out var gameToken)||pendingGame==null||
-                       pendingGame.Token!=gameToken||
+                    if(!GetGuid(data,"token",out var gameToken)||
+                       !pendingGameByMap.Values.Any(p=>p.Token==gameToken)||
                        !data.TryGetProperty("confirm",out var consent)||
                        consent.ValueKind!=JsonValueKind.True)
                         return Fail(id,"UM-INI-CREATE-EXPLICIT-APPROVAL");
-                    var approved=pendingGame;
-                    pendingGame=null; // never replay, even after an I/O failure
+                    var approved=pendingGameByMap.Values.Single(p=>p.Token==gameToken);
+                    pendingGameByMap.Remove(approved.MapId); // one shot even on failed writes
                     if(approved.Expires<DateTimeOffset.UtcNow)
                         return Fail(id,"UM-INI-CREATE-EXPIRED");
                     var candidate=MissingGamePreflight(approved.MapId);
