@@ -87,6 +87,23 @@ internal static class RunningAsaRegistrationTests
             _=>new ProcessCheck(false,"synthetic unowned process",null,true)))
         using(var bridge=new DesktopRunningAsaRegistrationBridge(cluster,Observe))
         {
+            observations=new[]{namedSample};
+            var safeTitle=await Call(bridge,"servers.runningPreview",
+                new{pid=71221,startedUtc=started.ToString("O"),name="Ragnarok",
+                    gamePort=7817,queryPort=27037});
+            Check(safeTitle.GetProperty("ok").GetBoolean()&&
+                  cluster.Config.LocalMaps.Count==0,
+                "read-only import accepts quoted Store/Password title without interpreting title words as Store switches");
+            observations=new[]{namedSample with{
+                CommandLine=namedLaunch+" -usestore -usestore"
+            }};
+            var duplicateStoreNamed=await Call(bridge,"servers.runningPreview",
+                new{pid=71221,startedUtc=started.ToString("O"),name="Ragnarok",
+                    gamePort=7817,queryPort=27037});
+            Check(!duplicateStoreNamed.GetProperty("ok").GetBoolean()&&
+                  cluster.Config.LocalMaps.Count==0,
+                "duplicate real Store flags remain denied even inside a named ASA process");
+            observations=new[]{sample};
             var invalid=await Call(bridge,"servers.runningPreview",
                 new{pid=71221,startedUtc=started.ToString("O"),name="Ragnarok",
                     gamePort=7900,queryPort=27037});
