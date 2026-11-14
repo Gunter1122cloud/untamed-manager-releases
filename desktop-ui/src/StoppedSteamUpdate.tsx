@@ -66,6 +66,42 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       }).finally(()=>{if(active)setReconnecting(false);});
     return ()=>{active=false;};
   },[reconnectNonce,mapId]);
+  // A global host-level SteamCMD job for another map blocks this map
+  // temporarily, not forever. Poll only native read-only current-status;
+  // never issue a second SteamCMD apply, and fail closed on lost evidence.
+  useEffect(()=>{
+    if(!otherMapUpdating)return;
+    let active=true,inFlight=false;
+    const poll=async()=>{
+      if(!active||inFlight)return;
+      inFlight=true;
+      try{
+        const value=await managerBridge.steamStoppedCurrent();
+        if(!active)return;
+        if(value.autoResumeAllowed)
+          throw new Error("UM-STEAM-AUTO-RESUME-FORBIDDEN");
+        setJournal(value);
+        const current=value.activeJob;
+        if(!current||current.state==="completed"||current.state==="needsOperator"){
+          setOtherMapUpdating(false);
+        }else if(!current.mapId||!current.jobId||
+                 current.restartPerformed||current.storeTouched){
+          throw new Error("UM-STEAM-FOREIGN-JOB-INVALID");
+        }else if(current.mapId.toLowerCase()===mapId.toLowerCase()){
+          setOtherMapUpdating(false);
+          setJob(current);setJobId(current.jobId);
+        }
+      }catch{
+        if(active){
+          setReconnectFailed(true);
+          setError("A másik helyi map SteamCMD-művelete nem ellenőrizhető. Új frissítés nem indítható.");
+        }
+      }finally{inFlight=false;}
+    };
+    const timer=window.setInterval(()=>{void poll();},2500);
+    return ()=>{active=false;window.clearInterval(timer);};
+  },[otherMapUpdating,mapId]);
+
   useEffect(()=>{
     if(!jobId)return;
     let active=true,inFlight=false;

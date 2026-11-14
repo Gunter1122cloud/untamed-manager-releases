@@ -7253,6 +7253,37 @@ test("SteamCMD schedule is permanently disabled; only separately approved manual
   await expect(policy.getByRole("button")).toHaveCount(0);
 });
 
+test("another map's SteamCMD job releases its global lock after completion without replay",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_SINGLE_STEAM__?:()=>void
+  }).__UNTAMED_HOLD_SINGLE_STEAM__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const source=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await source.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  const consent=source.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"});
+  await consent.getByRole("checkbox").check();
+  await consent.getByRole("button",{name:"Valódi frissítés indítása"}).click();
+  await expect(source).toContainText("Frissítés: running");
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const other=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await expect(other).toContainText("Másik helyi map SteamCMD-frissítése folyamatban van");
+  await expect(other.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_SINGLE_STEAM__?:()=>void
+  }).__UNTAMED_RELEASE_SINGLE_STEAM__?.());
+  await expect(other.getByRole("button",{name:"Frissítés előellenőrzése"}))
+    .toBeEnabled({timeout:15000});
+  await expect(other).not.toContainText("Frissítés: completed");
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number
+  }).__UNTAMED_SINGLE_STEAM_APPLIES__?.())).toBe(1);
+});
+
 test("one ASA map never displays or restarts a different map's SteamCMD job",async({page})=>{
   await page.goto("/?fixture=steamReattach");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
