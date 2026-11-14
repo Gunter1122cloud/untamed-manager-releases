@@ -346,20 +346,20 @@ internal static class MapScopedNativeLifecycleJobsTests
             preparation:null,launcher:null,
             loaderModePreflight:(map,useApi)=>true))
         {
-            var tokens=new string[2];
+            var modeApprovalTokens=new string[2];
             for(int i=0;i<2;i++)
             {
                 var preview=Data(await Call(modes.HandleAsync,
                     "historical.loaderModePreview",
                     new{mapId=maps[i].Id,useApi=false}),
                     "historical Loader preference can be reviewed for each map");
-                tokens[i]=preview.GetProperty("token").GetString()!;
+                modeApprovalTokens[i]=preview.GetProperty("token").GetString()!;
             }
             for(int i=0;i<2;i++)
             {
                 var applied=Data(await Call(modes.HandleAsync,
                     "historical.loaderModeApply",
-                    new{token=tokens[i],confirm=true}),
+                    new{token=modeApprovalTokens[i],confirm=true}),
                     "original Loader preference remains approved after sibling preview");
                 Check(applied.GetProperty("mapId").GetGuid()==maps[i].Id&&
                       !applied.GetProperty("serverStarted").GetBoolean()&&
