@@ -3110,12 +3110,64 @@ try
                 new{mapIds=new[]{batchTarget.Id,batchTarget.Id}});
             Check(!duplicates.GetProperty("ok").GetBoolean()&&batchRuns==0,
                 "duplicated map IDs cannot execute multiple SteamCMD jobs");
+            // A browser cannot declare a map "historical and stopped" and
+            // thereby acquire the original Store-v1 Steam maintenance path.
+            // Core requires a trusted Windows observer before creating its
+            // serial queue journal or executing SteamCMD.
             second.HistoricalStoreProtected=true;
+            bool originalObserverRequired=false;
+            try
+            {
+                _=await SteamStoppedMapUpdater.UpdateAllStoppedAsync(
+                    cluster,new[]{second},cluster.Config.SteamCmdExecutable,
+                    10L*1024*1024*1024,TimeSpan.FromMinutes(5));
+            }
+            catch(UnauthorizedAccessException){originalObserverRequired=true;}
+            Check(originalObserverRequired && batchRuns==0,
+                "original Store-v1 batch cannot start without BOTH native stopped-family observers");
             var quarantined=await Call(batch.HandleAsync,"steam.batchPreview",
                 new{mapIds=new[]{batchTarget.Id,second.Id}});
             Check(!quarantined.GetProperty("ok").GetBoolean()&&batchRuns==0,
                 "a historical Store sibling blocks shared-install Steam update");
             second.HistoricalStoreProtected=false;
+            // Positive isolated Core guard: a source-identified original ASA
+            // installation becomes eligible ONLY with a trusted observed
+            // STOPPED process family. This test never launches SteamCMD.
+            string originalRoot=Path.Combine(Path.GetTempPath(),
+                "Untamed-Integration-StoreSteam-"+Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(originalRoot);
+            var isolatedOriginal=new LocalMap{
+                Id=Guid.NewGuid(),Name="Synthetic stopped original Store ASA",
+                InstallationPath=originalRoot
+            };
+            cluster.AddMap(isolatedOriginal);
+            try
+            {
+                isolatedOriginal.HistoricalStoreProtected=true;
+                isolatedOriginal.HistoricalMapKey="Astraeos_WP";
+                isolatedOriginal.HistoricalArchiveSha256=new string('A',64);
+                Func<LocalMap,ProcessCheck> safelyStopped=_=>
+                    new ProcessCheck(false,"Synthetic independent Windows STOPPED evidence",null,true);
+                SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                    cluster,isolatedOriginal,safelyStopped);
+                bool unprovenDenied=false;
+                try{SteamStoppedMapUpdater.DemandSafeLocalInstallation(cluster,isolatedOriginal);}
+                catch(UnauthorizedAccessException){unprovenDenied=true;}
+                Check(unprovenDenied,"original ASA serial maintenance refuses absent native observer");
+                isolatedOriginal.Arguments="-UnapprovedLaunch";
+                bool changedLaunchDenied=false;
+                try{SteamStoppedMapUpdater.DemandSafeLocalInstallation(
+                    cluster,isolatedOriginal,safelyStopped);}
+                catch(UnauthorizedAccessException){changedLaunchDenied=true;}
+                Check(changedLaunchDenied,
+                    "source-pinned original Store ASA refuses unapproved launch-profile mutation");
+                isolatedOriginal.Arguments="";
+            }
+            finally
+            {
+                cluster.RemoveMap(isolatedOriginal.Id);
+                try{Directory.Delete(originalRoot,true);}catch{}
+            }
             var planned=await Call(batch.HandleAsync,"steam.batchPreview",
                 new{mapIds=new[]{batchTarget.Id,second.Id}});
             IsOk(planned,"native serial SteamCMD preview validates both local map identities");
