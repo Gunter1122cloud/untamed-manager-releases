@@ -2840,6 +2840,19 @@ try
         Check(!File.Exists(iniPath) && !preview.GetRawText().Contains(secret),
             "RCON preview leaves disk untouched and hides credential");
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        // A second independent local ASA map can finish its own first RCON
+        // wizard without revoking the still pending Valguero approval.
+        var customRcon=cluster.Config.LocalMaps.Single(x=>
+            x.Name=="Custom Atlantis Community");
+        int customRconPort=FindFreeTestPort(false,
+            testGamePort,testQueryPort,testRconPort,otherTestRconPort);
+        var customRconPreview=await Call(rconSetup.HandleAsync,
+            "rcon.configPreview",new{mapId=customRcon.Id,
+                rconPort=customRconPort,password=secret,createIni=true});
+        IsOk(customRconPreview,"second map preserves independent native RCON setup");
+        string customToken=customRconPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(token!=customToken,"two separate ASA maps hold distinct config approvals");
         var declined=await Call(rconSetup.HandleAsync,"rcon.configApply",
             new{token,confirm=false});
         Check(IsError(declined,"UM-RCON-CONFIG-CONFIRMATION") &&
@@ -2847,6 +2860,14 @@ try
         var configured=await Call(rconSetup.HandleAsync,"rcon.configApply",
             new{token,confirm=true});
         IsOk(configured,"native RCON bootstrap creates ASA INI and stores DPAPI credential");
+        var customRconApply=await Call(rconSetup.HandleAsync,"rcon.configApply",
+            new{token=customToken,confirm=true});
+        IsOk(customRconApply,"second ASA RCON configuration survives Valguero commit");
+        Check(cluster.Config.LocalMaps.Single(x=>x.Id==customRcon.Id).RconPort==
+                customRconPort&&
+              File.Exists(AsaInitialRconSettings.NewIniPath(
+                  customRcon.InstallationPath)),
+            "native RCON setup makes only the selected map's INI/DPAPI changes");
         var afterSetupStatus=await Call(rconSetup.HandleAsync,"rcon.configStatus",
             new{mapId=fresh.Id});
         Check(afterSetupStatus.GetProperty("data").GetProperty("rconPort").GetInt32()==testRconPort,
