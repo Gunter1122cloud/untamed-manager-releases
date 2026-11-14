@@ -636,7 +636,7 @@ export type SteamPublishedBuild = {
   evidence:"STEAM_PUBLIC_BRANCH_APPINFO_READ_ONLY_NO_UPDATE";
 };
 export type StoppedSteamStatus = {
-  jobId:string;state:"queued"|"running"|"completed"|"needsOperator";
+  jobId:string;mapId:string;state:"queued"|"running"|"completed"|"needsOperator";
   stage:string;changedUtc:string;oldBuild:string;newBuild:string;
   protectedFilesIntact:boolean;restartPerformed:false;storeTouched:false;
 };

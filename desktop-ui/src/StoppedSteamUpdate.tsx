@@ -17,6 +17,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
   const [reconnecting,setReconnecting]=useState(true);
   const [reconnectFailed,setReconnectFailed]=useState(false);
   const [reconnectNonce,setReconnectNonce]=useState(0);
+  const [otherMapUpdating,setOtherMapUpdating]=useState(false);
   const mapRef=useRef("");
   const mapEpoch=useRef(0);
   // A map page locks selection to its own locally registered map. Never
@@ -31,10 +32,12 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
   useEffect(()=>{
     ++mapEpoch.current;
     setPreview(null);setDiagnostics(null);setPublished(null);setApproved(false);
+    setJobId(null);setJob(null);setOtherMapUpdating(false);
   },[mapId]);
   useEffect(()=>{
     let active=true;
     setReconnecting(true);setReconnectFailed(false);
+    setOtherMapUpdating(false);
     managerBridge.steamStoppedCurrent()
       .then(value=>{
         if(!active)return;
@@ -45,10 +48,14 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         // WebView2 remount is not a new SteamCMD approval.
         if(value.activeJob&&
            (value.activeJob.state==="queued"||value.activeJob.state==="running")){
-          if(!value.activeJob.jobId||value.activeJob.restartPerformed||
-             value.activeJob.storeTouched)
+          if(!value.activeJob.jobId||!value.activeJob.mapId||
+             value.activeJob.restartPerformed||value.activeJob.storeTouched)
             throw new Error("UM-STEAM-CURRENT-INVALID-JOB");
-          setJob(value.activeJob);setJobId(value.activeJob.jobId);
+          if(value.activeJob.mapId.toLowerCase()!==mapId.toLowerCase()){
+            setOtherMapUpdating(true);
+          }else{
+            setJob(value.activeJob);setJobId(value.activeJob.jobId);
+          }
         }
       })
       .catch(()=>{
@@ -58,7 +65,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
         }
       }).finally(()=>{if(active)setReconnecting(false);});
     return ()=>{active=false;};
-  },[reconnectNonce]);
+  },[reconnectNonce,mapId]);
   useEffect(()=>{
     if(!jobId)return;
     let active=true,inFlight=false;
@@ -68,7 +75,9 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       try{
         const status=await managerBridge.steamStoppedStatus(jobId);
         if(!active)return;
-        if(status.jobId!==jobId||status.restartPerformed||status.storeTouched||
+        if(status.jobId!==jobId||
+           status.mapId.toLowerCase()!==mapId.toLowerCase()||
+           status.restartPerformed||status.storeTouched||
            (status.state==="completed"&&!status.protectedFilesIntact))
           throw new Error("UM-STEAM-STATUS-RECEIPT-INVALID");
         setError("");setJob(status);
@@ -91,9 +100,9 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
     void check();
     const timer=window.setInterval(()=>{void check();},2500);
     return ()=>{active=false;window.clearInterval(timer);};
-  },[jobId]);
+  },[jobId,mapId]);
 
-  const blocked=busy||!!jobId||reconnecting||reconnectFailed||
+  const blocked=busy||!!jobId||otherMapUpdating||reconnecting||reconnectFailed||
     Boolean(journal?.needsOperatorReview);
   const checkPublished=async()=>{
     if(!mapId||blocked)return;
@@ -152,7 +161,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
          started.remoteHostTouched)
         throw new Error("UM-STEAM-START-RECEIPT-INVALID");
       setJob({
-        jobId:started.jobId,state:"queued",stage:"preflight",
+        jobId:started.jobId,mapId:requested,state:"queued",stage:"preflight",
         changedUtc:new Date().toISOString(),oldBuild:"",newBuild:"",
         protectedFilesIntact:false,restartPerformed:false,storeTouched:false
       });
@@ -170,6 +179,8 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       <h2><HardDrive size={19}/> Valódi SteamCMD-frissítés – leállított mapok</h2>
     </header>
     {reconnecting&&<p role="status" className="muted small">Korábbi kézi SteamCMD-feladat ellenőrzése…</p>}
+    {otherMapUpdating&&<p role="status" className="warning-inline">
+      Másik helyi map SteamCMD-frissítése folyamatban van. A saját map frissítése a másik feladat befejezéséig nem indítható.</p>
     {reconnectFailed&&<button type="button" className="secondary"
       onClick={()=>setReconnectNonce(n=>n+1)}>SteamCMD művelet újraellenőrzése</button>}
     <p>A meglévő C# Core készít védőmentést, ellenőrzi a fájlokat és gépenként sorban frissít. A másik gazdagép teljesen független. Az előellenőrzés a helyi buildet és a biztonságos frissítés feltételeit ellenőrzi; önmagában nem igazolja, hogy újabb Steam build jelent meg.</p>

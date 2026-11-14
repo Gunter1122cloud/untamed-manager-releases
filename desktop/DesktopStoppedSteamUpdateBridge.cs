@@ -20,6 +20,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private sealed class Job
     {
         public Guid Id=Guid.NewGuid();
+        public Guid MapId;
         public string State="queued",Stage="preflight";
         public string OldBuild="",NewBuild="";
         public bool ProtectedFilesIntact;
@@ -31,7 +32,9 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private readonly Func<LocalMap,SteamUpdatePreview> planner;
     private readonly Func<LocalMap,IProgress<SteamMaintenanceStage>,Task<SteamStoppedMapUpdater.Receipt>> runner;
     private readonly Func<LocalMap,CancellationToken,Task<AsaSteamBuildCheck>> publishedBuild;
-    private Preview? pending;
+    // Each local map has its own approval; SteamCMD execution stays serialized.
+    private readonly System.Collections.Generic.Dictionary<Guid,Preview> pendingByMap=new();
+    private readonly System.Collections.Generic.Dictionary<Guid,Job> jobsById=new();
     private Job? job;
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private const long Reserve=10L*1024*1024*1024;
@@ -113,7 +116,7 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     private object Snapshot(Job item)
     {
         lock(sync)return new{
-            jobId=item.Id,state=item.State,stage=item.Stage,
+            jobId=item.Id,mapId=item.MapId,state=item.State,stage=item.Stage,
             changedUtc=item.Changed,oldBuild=item.OldBuild,newBuild=item.NewBuild,
             protectedFilesIntact=item.ProtectedFilesIntact,
             restartPerformed=false,storeTouched=false
@@ -290,10 +293,12 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                 }
                 if(method=="steam.stoppedStatus")
                 {
-                    if(!GuidField(data,"jobId",out var jobId)||
-                       job==null||job.Id!=jobId)
+                    if(!GuidField(data,"jobId",out var jobId))
                         return Fail(id,"UM-STEAM-JOB-MISSING");
-                    return Ok(id,Snapshot(job));
+                    Job? requested;
+                    lock(sync)jobsById.TryGetValue(jobId,out requested);
+                    if(requested==null)return Fail(id,"UM-STEAM-JOB-MISSING");
+                    return Ok(id,Snapshot(requested));
                 }
                 if(job!=null)
                 {
@@ -319,24 +324,27 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                             Path.GetFullPath(owned.InstallationPath),
                             StringComparison.OrdinalIgnoreCase))
                         return Fail(id,"UM-STEAM-PREFLIGHT-FAILED");
-                    pending=new(Guid.NewGuid(),owned.Id,owned.InstallationPath,
+                    var proposed=new Preview(Guid.NewGuid(),owned.Id,owned.InstallationPath,
                         plan.InstalledBuild,steam.ExecutablePath,DateTimeOffset.UtcNow);
+                    pendingByMap[owned.Id]=proposed;
                     return Ok(id,new{
-                        token=pending.Token,mapName=owned.Name,mapId=owned.Id,
+                        token=proposed.Token,mapName=owned.Name,mapId=owned.Id,
                         maps=plan.Maps,installedBuild=plan.InstalledBuild,
                         reserveBytes=plan.EstimatedDownloadBytes,
                         availableBytes=plan.AvailableBytes,
                         evidence="REAL_LOCAL_STOPPED_STEAM_PREFLIGHT_NO_WRITE"
                     });
                 }
-                if(!GuidField(data,"token",out var approval)||
-                    pending==null||pending.Token!=approval||
-                    DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(5))
+                if(!GuidField(data,"token",out var approval))
+                    return Fail(id,"UM-STEAM-TOKEN-EXPIRED");
+                var saved=pendingByMap.Values.SingleOrDefault(p=>p.Token==approval);
+                if(saved==null||DateTimeOffset.UtcNow-saved.Created>TimeSpan.FromMinutes(5))
                     return Fail(id,"UM-STEAM-TOKEN-EXPIRED");
                 if(!data.TryGetProperty("confirm",out var confirm)||
                    confirm.ValueKind!=JsonValueKind.True)
                     return Fail(id,"UM-STEAM-CONFIRMATION-REQUIRED");
-                var saved=pending;pending=null;
+                // One-shot approval is consumed for its own map only.
+                pendingByMap.Remove(saved.MapId);
                 if(HasBlockedJournal())
                     return Fail(id,"UM-STEAM-JOURNAL-NEEDS-REVIEW");
                 var map=cluster.Config.LocalMaps.SingleOrDefault(x=>x.Id==saved.MapId);
@@ -347,8 +355,19 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                        StringComparison.OrdinalIgnoreCase)||
                    AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath)!=saved.Build)
                     return Fail(id,"UM-STEAM-PREFLIGHT-CHANGED");
-                var task=new Job();
-                job=task;
+                var task=new Job{MapId=map.Id};
+                lock(sync)
+                {
+                    job=task;
+                    if(jobsById.Count>=64)
+                    {
+                        var completed=jobsById.Values.Where(j=>
+                            j.State is "completed" or "needsOperator")
+                            .OrderBy(j=>j.Changed).Take(jobsById.Count-63).ToArray();
+                        foreach(var old in completed)jobsById.Remove(old.Id);
+                    }
+                    jobsById[task.Id]=task;
+                }
                 _=Task.Run(async()=>
                 {
                     Stage(task,"running","preflight");
