@@ -7137,6 +7137,29 @@ test("P0 original eredeti Store-v1 mod profiles export and import from native lo
   await expect(panel).toContainText("map módosítva");
 });
 
+test("new enrolled Store map is an editable stopped-only Mod Center copy source and destination",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_STORE_API_MODE_READY__?:()=>void
+  }).__UNTAMED_FRESH_STORE_API_MODE_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Modok",exact:true}).click();
+  await page.getByRole("combobox",{name:"Helyi map"}).selectOption({label:"The Island"});
+  await page.getByRole("tab",{name:"Másolás több mapra"}).click();
+  const panel=page.getByRole("region",{name:"Modlista másolása több mapra"});
+  const targets=panel.getByRole("group",{name:"Célmapok kiválasztása"});
+  await expect(targets).toContainText("Astraeos");
+  await expect(targets).toContainText("Új Store-map – csak leállítva");
+  await targets.getByRole("checkbox").check();
+  await expect(panel.getByRole("button",{name:"Változások előnézete"})).toBeEnabled();
+  await page.getByRole("combobox",{name:"Helyi map"}).selectOption({label:"Astraeos"});
+  await expect(panel).not.toContainText("Nem helyi, még át nem vett Store");
+  await expect(panel.getByRole("button",{name:"Változások előnézete"})).toBeDisabled();
+  await panel.getByRole("group",{name:"Célmapok kiválasztása"})
+    .getByRole("checkbox").check();
+  await expect(panel.getByRole("button",{name:"Változások előnézete"})).toBeEnabled();
+});
+
 test("Mod Center Copy To merges selected local maps only after native diff approval",async ({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Modok",exact:true}).click();
