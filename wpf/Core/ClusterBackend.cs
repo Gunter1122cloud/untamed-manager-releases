@@ -110,8 +110,10 @@ public sealed class ManagerConfig
     public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public string PublisherCertificateThumbprint { get; set; } = "";
     public bool TelemetryHistoryEnabled { get; set; } = false;
-    // SteamCMD preferences are metadata only; auto-update remains opt-in
-    // and the independent production SaveComplete/Stop capability gate applies.
+    // SteamCMD execution is strictly operator-approved and manual-only.
+    // Retain the historical preference fields for compatible profile reads,
+    // but neither their values nor a deserialized legacy schedule authorize
+    // any background SteamCMD update or post-update ASA restart.
     public string SteamCmdExecutable { get; set; } = "";
     public bool AutoSteamUpdatesEnabled { get; set; } = false;
     public int SteamCheckIntervalMinutes { get; set; } = 180;
@@ -119,7 +121,7 @@ public sealed class ManagerConfig
     public string SteamMaintenanceEnd { get; set; } = "05:00";
     public bool SteamWarnPlayers { get; set; } = true;
     public int SteamWaitPlayersMinutes { get; set; } = 30;
-    public bool SteamRestartAfterUpdate { get; set; } = true;
+    public bool SteamRestartAfterUpdate { get; set; } = false;
     public int SteamPostUpdateProbeMinutes { get; set; } = 10;
     public List<ScheduledTask> ScheduledTasks { get; set; } = new();
     public List<RecurringSchedule> RecurringSchedules { get; set; } = new();
