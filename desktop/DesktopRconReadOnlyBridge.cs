@@ -216,7 +216,11 @@ public sealed class DesktopRconReadOnlyBridge
                    !ownsPort(map.RconPort,after.Identity.Pid))
                     return Deny(id,"UM-RCON-PROCESS-CHANGED");
                 if(answer.Length>32000)return Deny(id,"UM-RCON-OVERSIZED-REPLY");
-                string sanitized=UntamedPresentation.Redact(answer);
+                // Some ASA commands echo ServerAdminPassword in log/reply
+                // text. Protect the exact DPAPI-unwrapped credential as a
+                // last defense even when the generic redactor misses it.
+                string sanitized=UntamedPresentation.Redact(answer)
+                    .Replace(password,"[REDACTED]",StringComparison.Ordinal);
                 if(method=="rcon.saveWorld")
                 {
                     if(bookmark!=null)
