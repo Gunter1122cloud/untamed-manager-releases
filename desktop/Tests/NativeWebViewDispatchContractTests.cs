@@ -173,5 +173,16 @@ internal static class NativeWebViewDispatchContractTests
             string.Join("; ",handlerIssues.Take(20)));
         Check(requested.SetEquals(everyRouted),
             "all "+requested.Count+" production React methods have one eligible host dispatcher route");
+        Check(FreshStoreApiPairObserver.StartupObservationWindow==
+                TimeSpan.FromMinutes(10),
+            "native ASA Loader-child observation permits modded world startup");
+        foreach(var path in new[]{
+            "desktop/DesktopFreshAsaRestartBridge.cs",
+            "desktop/DesktopHistoricalRestartBridge.cs",
+            "desktop/DesktopHistoricalActiveStartBridge.cs"})
+            Check(Read(path).Contains(
+                    "FreshStoreApiPairObserver.StartupObservationWindow",
+                    StringComparison.Ordinal),
+                "Loader lifecycle uses shared bounded readiness period: "+path);
     }
 }
