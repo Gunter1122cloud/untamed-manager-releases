@@ -1025,7 +1025,7 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
         onSaved={onLaunchModeSaved}/>}
     {owned&&(!owned.storeProtected||owned.freshStoreEnrolled)&&
       !owned.observedReadOnlyImported&&<AsaApiCoreInstaller key={selected}
-        mapId={selected} onInstalled={()=>{
+        mapId={selected} mapName={owned.name} onInstalled={()=>{
           // The CORE binaries are separate from manually copied plugins.
           // Refresh only read-only native inventory; never trigger a restart.
           setRevision(n=>n+1);
