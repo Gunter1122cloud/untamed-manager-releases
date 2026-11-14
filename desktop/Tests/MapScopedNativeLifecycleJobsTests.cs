@@ -150,5 +150,126 @@ internal static class MapScopedNativeLifecycleJobsTests
             dispatched.Contains(maps[0].Id)&&
             dispatched.Contains(maps[1].Id),
             "both ASA processes receive only their own one approved action");
+        await VerifyOriginalStoreSaveWorldIsolated(root);
+
     }
+    private static async Task VerifyOriginalStoreSaveWorldIsolated(string baseRoot)
+    {
+        string root=Path.Combine(baseRoot,"two-independent-original-store-maps");
+        Directory.CreateDirectory(root);
+        var maps=new LocalMap[2];
+        var processes=new ProcessIdentity[2];
+        for(int i=0;i<2;i++)
+        {
+            string install=Path.Combine(root,"historical-map-"+i);
+            string binary=Path.Combine(install,
+                "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+            File.WriteAllBytes(binary,new byte[]{0x4d,0x5a,0x01,0x02});
+            maps[i]=new LocalMap{
+                Id=Guid.NewGuid(),Name="Isolated original Store map "+i,
+                HistoricalStoreProtected=true,
+                HistoricalMapKey=i==0?"TheIsland_WP":"Ragnarok_WP",
+                HistoricalArchiveSha256=new string('A',64),
+                InstallationPath=install,ExecutablePath=binary,
+                GamePort=7930+i,QueryPort=27130+i,RconPort=37610+i,
+                RconHost="127.0.0.1",
+                RconPasswordProtected=SecureStore.Protect(
+                    "SYNTHETIC-ORIGINAL-STORE-RCON")
+            };
+            processes[i]=new ProcessIdentity{
+                Pid=44901+i,
+                StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-15),
+                ExecutablePath=binary,
+                Arguments=(i==0?"TheIsland_WP":"Ragnarok_WP")+
+                    "?listen -usestore"
+            };
+        }
+        await using var cluster=new ClusterService(
+            "multi-map-original-stop-isolation",
+            Path.Combine(root,"isolated-manager-profile"),
+            _=>new ProcessCheck(false,"synthetic no external ASA",null,true));
+        foreach(var map in maps)cluster.AddMap(map);
+        var sourceSha=new string('E',64);
+        var releaseFirst=new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var saved=new List<Guid>();
+        LegacyStoreV1GracefulStop.Owned Probe(Guid mapId)
+        {
+            int idx=mapId==maps[0].Id?0:mapId==maps[1].Id?1:-1;
+            if(idx<0)throw new UnauthorizedAccessException(
+                "UM-TEST-NO-FOREIGN-STORE-MAP");
+            return new(maps[idx],processes[idx],sourceSha);
+        }
+        Task<AsaGracefulStopReceipt> ForbiddenStop(
+            Guid mapId,int pid,DateTimeOffset started,string source,
+            Action<string> progress)=>
+            Task.FromException<AsaGracefulStopReceipt>(
+                new InvalidOperationException("test never executes DoExit"));
+        async Task<LegacyStoreV1GracefulStop.SaveOnlyReceipt> SaveOnly(
+            Guid mapId,int pid,DateTimeOffset started,string source,
+            Action<string> progress)
+        {
+            lock(saved)saved.Add(mapId);
+            if(mapId==maps[0].Id)
+                await releaseFirst.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            return new LegacyStoreV1GracefulStop.SaveOnlyReceipt(
+                mapId,pid,true,DateTimeOffset.UtcNow,
+                "SYNTHETIC_SAVEWORLD_LOCAL_LOG_WITH_NO_RCON");
+        }
+        using var bridge=new DesktopHistoricalGracefulStopBridge(
+            cluster,Probe,ForbiddenStop,SaveOnly);
+        string[] jobIds=new string[2];
+        for(int i=0;i<2;i++)
+        {
+            var preview=Data(await Call(bridge.HandleAsync,
+                "historical.saveWorldPreview",new{mapId=maps[i].Id}),
+                "original Store map "+i+" receives a distinct SaveWorld preview");
+            Check(preview.GetProperty("mapId").GetGuid()==maps[i].Id,
+                "Store SaveWorld approval remains map-owned");
+            string token=preview.GetProperty("token").GetString()!;
+            var accepted=Data(await Call(bridge.HandleAsync,
+                "historical.saveWorldApply",
+                new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD"}),
+                "original Store SaveWorld "+i+" queues without DoExit");
+            jobIds[i]=accepted.GetProperty("jobId").GetString()!;
+            var replay=await Call(bridge.HandleAsync,
+                "historical.saveWorldApply",
+                new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD"});
+            Check(!replay.GetProperty("ok").GetBoolean(),
+                "Store SaveWorld approval is one-shot even across maps");
+        }
+        Check(jobIds[0]!=jobIds[1],
+            "Store SaveWorld jobs have unique IDs for different maps");
+        var stillRunning=Data(await Call(bridge.HandleAsync,
+            "historical.gracefulStopRecovery",new{mapId=maps[0].Id}),
+            "first Store map remains tracked after sibling dispatch");
+        Check(stillRunning.GetProperty("jobId").GetString()==jobIds[0]&&
+              stillRunning.GetProperty("inMemoryRunning").GetBoolean()&&
+              stillRunning.GetProperty("activeJobKind").GetString()=="SaveWorldOnly",
+            "Store SaveWorld source map still reports the correct in-flight job");
+        var secondJob=Data(await Call(bridge.HandleAsync,
+            "historical.saveWorldStatus",new{jobId=jobIds[1]}),
+            "second Store SaveWorld status remains separately addressable");
+        Check(secondJob.GetProperty("jobId").GetString()==jobIds[1],
+            "Store SaveWorld sibling receipt does not replace first receipt");
+        releaseFirst.TrySetResult(true);
+        for(int n=0;n<90;n++)
+        {
+            var current=Data(await Call(bridge.HandleAsync,
+                "historical.saveWorldStatus",new{jobId=jobIds[0]}),
+                "first SaveWorld native status continues after second started");
+            if(current.GetProperty("state").GetString()=="completed")break;
+            await Task.Delay(25);
+        }
+        var completed=Data(await Call(bridge.HandleAsync,
+            "historical.saveWorldStatus",new{jobId=jobIds[0]}),
+            "completed original SaveWorld survives sibling operation");
+        Check(completed.GetProperty("state").GetString()=="completed",
+            "original Store SaveWorld completed without losing its job ID");
+        lock(saved)Check(saved.Count==2&&
+            saved.Contains(maps[0].Id)&&saved.Contains(maps[1].Id),
+            "exactly one synthetic SaveWorld action per original Store map");
+    }
+
 }
