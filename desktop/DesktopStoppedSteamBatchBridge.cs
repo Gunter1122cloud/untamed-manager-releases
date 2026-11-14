@@ -146,6 +146,11 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                 // its own stopped-family Windows observer. No session/write.
                 _=ObserveForSteam(local);
             }
+            else if(FreshStoreEnrollmentPolicy.IsEnrolled(local))
+            {
+                // Exact local enrollment, never inferred from a UI toggle.
+                FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,local);
+            }
             else if(!string.IsNullOrWhiteSpace(local.HistoricalArchiveSha256) ||
                 !string.IsNullOrWhiteSpace(local.HistoricalMapKey) ||
                 !string.IsNullOrWhiteSpace(local.FreshStoreClusterId) ||
@@ -197,7 +202,8 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
                    state.Identity!=null||state.LoaderIdentity!=null||
                    sibling.Maintenance||
                    sibling.HistoricalStoreProtected!=map.HistoricalStoreProtected||
-                   (!sibling.HistoricalStoreProtected&&(
+                   (!sibling.HistoricalStoreProtected&&
+                    !FreshStoreEnrollmentPolicy.IsEnrolled(sibling)&&(
                        !string.IsNullOrWhiteSpace(sibling.HistoricalMapKey)||
                        !string.IsNullOrWhiteSpace(sibling.HistoricalArchiveSha256)||
                        !string.IsNullOrWhiteSpace(sibling.FreshStoreClusterId)||
