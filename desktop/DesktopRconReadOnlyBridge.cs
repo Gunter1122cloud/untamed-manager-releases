@@ -204,12 +204,40 @@ public sealed class DesktopRconReadOnlyBridge
                         throw new InvalidOperationException(
                             "UM-RCON-POST-AUTH-OWNER-CHANGED");
                 }
+                // SaveWorld is a mutating command. Serialize it against
+                // SteamCMD, Backup, Restart and INI on the same physical
+                // installation across all Manager instances. Read-only
+                // ListPlayers/chat/log never takes this operation lease.
+                using var lease=method=="rcon.saveWorld"?
+                    cluster.Operations.Acquire(map.InstallationPath,
+                        UntamedOperationKind.Configuration):null;
+                string? approvedProfile=lease==null?null:JsonSerializer.Serialize(map);
+                if(lease!=null)
+                {
+                    VerifyOwned();
+                    new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    if(JsonSerializer.Serialize(map)!=approvedProfile)
+                        throw new InvalidOperationException(
+                            "UM-RCON-SAVE-PROFILE-CHANGED");
+                }
                 // Capture log and world-file boundary BEFORE SaveWorld bytes;
                 // RCON success alone can never be a SaveComplete signal.
                 AsaWorldSaveEvidence.Boundary? bookmark=null;
                 if(method=="rcon.saveWorld")
                 {
                     bookmark=AsaWorldSaveEvidence.Begin(map,identity);
+                }
+                if(lease!=null)
+                {
+                    VerifyOwned();
+                    new AsaManualRestartJournal(map.InstallationPath).DemandNoPending();
+                    if(JsonSerializer.Serialize(map)!=approvedProfile)
+                        throw new InvalidOperationException(
+                            "UM-RCON-SAVE-PROFILE-CHANGED");
+                    // Mark before possible network dispatch; an uncertain
+                    // timed-out SaveWorld is never reported as successful or
+                    // automatically sent again after Manager restart.
+                    lease.MarkMutationStarted();
                 }
                 string answer=await send("127.0.0.1",map.RconPort,password,command,
                     VerifyOwned,timeout.Token);
@@ -219,7 +247,15 @@ public sealed class DesktopRconReadOnlyBridge
                    after.Identity.StartedUtc!=identity.StartedUtc ||
                    !ownsPort(map.RconPort,after.Identity.Pid))
                     return Deny(id,"UM-RCON-PROCESS-CHANGED");
-                if(answer.Length>32000)return Deny(id,"UM-RCON-OVERSIZED-REPLY");
+                if(answer==null||answer.Length>32000)
+                    return Deny(id,"UM-RCON-OVERSIZED-REPLY");
+                if(lease!=null)
+                {
+                    VerifyOwned();
+                    if(JsonSerializer.Serialize(map)!=approvedProfile)
+                        return Deny(id,"UM-RCON-SAVE-PROFILE-CHANGED");
+                    lease.Complete();
+                }
                 string sanitized=UntamedPresentation.Redact(answer);
                 if(method=="rcon.saveWorld")
                 {
@@ -249,6 +285,10 @@ public sealed class DesktopRconReadOnlyBridge
                 });
             }
             finally{serial.Release();}
+        }
+        catch(IOException ex) when(ex.Message=="UNTAMED_OPERATION_BUSY")
+        {
+            return Deny(id,"UM-RCON-SAVE-INSTALLATION-BUSY");
         }
         catch(Exception ex) when(ex is ArgumentException or InvalidDataException or
             IOException or UnauthorizedAccessException or InvalidOperationException or
