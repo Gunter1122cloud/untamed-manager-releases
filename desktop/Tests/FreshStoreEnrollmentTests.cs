@@ -325,7 +325,7 @@ internal static class FreshStoreEnrollmentTests
             var pristineBackup=LocalBackupWorkflow.Preview(enrolled,
                 manager.Check(enrolled),Path.Combine(profile,"first-map-steam-prebackup"),
                 pristineScope);
-            Check(pristineBackup.SelectedFiles>0&&pristineBackup.TotalBytes>0,
+            Check(pristineBackup.Files>0&&pristineBackup.SelectedBytes>0,
                 "INI-only first-map Steam protection has a real verified, recoverable backup plan");
             var previousProcess=enrolled.LastProcess;
             try
