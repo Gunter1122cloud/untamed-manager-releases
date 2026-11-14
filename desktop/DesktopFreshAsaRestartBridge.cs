@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -46,8 +47,13 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     private readonly object sync=new();
     private Approval? pending;
     private ReviewApproval? reviewPending;
-    private Job? current;
+    private readonly Dictionary<Guid,Job> jobsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
+    private bool HasActive(Guid mapId)
+    {
+        lock(sync)return jobsByMap.TryGetValue(mapId,out var existing)&&
+            existing.State is ("queued" or "running");
+    }
 
     public DesktopFreshAsaRestartBridge(ClusterService service,
         Func<int,int,bool>? ownsPort=null,
@@ -204,6 +210,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                         return Fail(id,"UM-ASA-RESTART-MAP");
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    if(HasActive(mapId))return Fail(id,"UM-ASA-RESTART-BUSY");
                     var saved=new AsaManualRestartJournal(map.InstallationPath).Observe();
                     bool belongs=saved!=null&&saved.MapId==map.Id;
                     bool pending=saved!=null&&saved.Phase is not (AsaRestartPhase.Completed or AsaRestartPhase.OperatorReviewed);
@@ -211,10 +218,10 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     string? inMemoryJobState=null;
                     lock(sync)
                     {
-                        if(current!=null&&current.MapId==map.Id)
+                        if(jobsByMap.TryGetValue(map.Id,out var tracked))
                         {
-                            inMemoryJobId=current.Id;
-                            inMemoryJobState=current.State;
+                            inMemoryJobId=tracked.Id;
+                            inMemoryJobState=tracked.State;
                         }
                     }
                     return Ok(id,new{
@@ -230,16 +237,13 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                 }
                 if(method=="servers.restartStatus")
                 {
-                    if(!ReadGuid(args,"jobId",out var jobId) ||
-                       current==null||current.Id!=jobId)
+                    if(!ReadGuid(args,"jobId",out var jobId))
                         return Fail(id,"UM-ASA-RESTART-JOB-MISSING");
-                    return Ok(id,Snapshot(current));
-                }
-                if(current!=null)
-                {
-                    lock(sync)
-                        if(current.State is "queued" or "running")
-                            return Fail(id,"UM-ASA-RESTART-BUSY");
+                    Job? tracked;
+                    lock(sync)tracked=jobsByMap.Values.FirstOrDefault(
+                        item=>item.Id==jobId);
+                    if(tracked==null)return Fail(id,"UM-ASA-RESTART-JOB-MISSING");
+                    return Ok(id,Snapshot(tracked));
                 }
                 // A crashed fresh Restart with the ORIGINAL ASA still
                 // running is not a permanent block. The same durable
@@ -326,6 +330,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                         return Fail(id,"UM-ASA-RESTART-MAP");
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
+                    if(HasActive(mapId))return Fail(id,"UM-ASA-RESTART-BUSY");
                     var original=Eligible(map);
                     pending=new(Guid.NewGuid(),map.Id,original.Pid,
                         original.StartedUtc,map.InstallationPath,
@@ -355,6 +360,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                    currentMap.Arguments!=approved.Args ||
                    currentMap.RconPort!=approved.RconPort)
                     return Fail(id,"UM-ASA-RESTART-PROFILE-CHANGED");
+                if(HasActive(currentMap.Id))
+                    return Fail(id,"UM-ASA-RESTART-BUSY");
                 // Reject a changed API launch mode, INI or ASA/Loader binary
                 // before the old server receives any SaveWorld/DoExit.
                 if(!SameApprovedSource(currentMap,approved))
@@ -389,7 +396,7 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     MapId=currentMap.Id,OldPid=approved.Pid,
                     NewProcessRole=currentMap.StartWithAsaApi?"loaderParent":"asaServer"
                 };
-                current=job;
+                lock(sync)jobsByMap[currentMap.Id]=job;
                 _=Task.Run(async()=>{
                     Change(job,"running","SaveWorld → DoExit");
                     try
