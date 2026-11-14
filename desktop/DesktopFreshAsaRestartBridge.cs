@@ -335,7 +335,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null)return Fail(id,"UM-MAP-NOT-OWNED");
                     if(HasActive(mapId))return Fail(id,"UM-ASA-RESTART-BUSY");
-                    approvalsByMap.Remove(mapId);
+                    // Only a successful preview replaces this map's previous
+                    // approval. A rejected preflight leaves it untouched.
                     var original=Eligible(map);
                     var permit=new Approval(Guid.NewGuid(),map.Id,original.Pid,
                         original.StartedUtc,map.InstallationPath,
