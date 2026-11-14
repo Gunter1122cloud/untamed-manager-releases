@@ -1029,7 +1029,7 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
           // The CORE binaries are separate from manually copied plugins.
           // Refresh only read-only native inventory; never trigger a restart.
           setRevision(n=>n+1);
-          void onLaunchModeSaved?.().catch(()=>{});
+          if(onLaunchModeSaved)void onLaunchModeSaved().catch(()=>{});
         }}/>}
     {owned&&(owned.storeProtected||owned.freshStoreEnrolled||
       owned.observedReadOnlyImported)&&<div className="warning-inline" role="status">
