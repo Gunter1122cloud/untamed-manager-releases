@@ -2129,6 +2129,61 @@ try
             "manager can restore verified native Steam job status after UI navigation");
     }
 
+    // A failed, never-executed synthetic install must remain failed after
+    // its worker publishes stale progress. No SteamCMD child or ASA is opened.
+    {
+        string failedRoot=Path.Combine(root,"fresh-asa-synthetic-failure");
+        await using var failedCluster=new ClusterService("fresh-error-progress-fixture",
+            Path.Combine(root,"fresh-error-manager"),
+            _=>new ProcessCheck(false,"No ASA in synthetic failure test",null,true));
+        IProgress<SteamInstallProgress>? delayedFailureProgress=null;
+        int failedAttempts=0;
+        using var failedBridge=new DesktopSteamFreshInstallBridge(failedCluster,
+            async (request,maps,progress,token)=>{
+                failedAttempts++;
+                delayedFailureProgress=progress;
+                progress?.Report(new("download","SYNTHETIC FAILURE BEFORE FILES",15));
+                await Task.Delay(30,token);
+                throw new IOException("SYNTHETIC STEAM INSTALL FAILURE");
+            },
+            ()=>failedRoot,availableFreeBytes:_=>100L*1024*1024*1024);
+        var plan=await Call(failedBridge.HandleAsync,"steam.freshPreflight",
+            new{mapName="Valguero",installRoot=failedRoot,steamExe,
+                allowSteamCmdDownload=false,explicitRetry=false});
+        IsOk(plan,"failed Steam progress fixture has an independent approved preflight");
+        var begun=await Call(failedBridge.HandleAsync,"steam.freshStart",
+            new{token=plan.GetProperty("data").GetProperty("token").GetString(),
+                confirm=true});
+        IsOk(begun,"synthetic failed Steam job receives a real native task ID");
+        string failureJobId=begun.GetProperty("data").GetProperty("jobId").GetString()!;
+        JsonElement failedState=default;
+        for(int attempt=0;attempt<80;attempt++)
+        {
+            failedState=await Call(failedBridge.HandleAsync,"steam.freshStatus",
+                new{jobId=failureJobId});
+            if(failedState.GetProperty("data").GetProperty("errorCode")
+                .ValueKind==JsonValueKind.String)break;
+            await Task.Delay(30);
+        }
+        IsOk(failedState,"failed fresh SteamCMD job is observable without auto-retry");
+        Check(failedState.GetProperty("data").GetProperty("stage").GetString()=="failed"&&
+              failedState.GetProperty("data").GetProperty("errorCode").GetString()
+                =="UM-FRESH-INSTALL-FAILED"&&failedAttempts==1,
+            "failed synthetic SteamCMD installation reports terminal failure once");
+        Check(delayedFailureProgress!=null,
+            "failed Steam fixture captured its worker's own progress callback");
+        delayedFailureProgress!.Report(new("download",
+            "DELAYED_PROGRESS_AFTER_FAILED_STEAM_INSTALL",91));
+        var preserved=await Call(failedBridge.HandleAsync,"steam.freshStatus",
+            new{jobId=failureJobId});
+        IsOk(preserved,"failed Steam install remains observable after stale progress");
+        Check(preserved.GetProperty("data").GetProperty("stage").GetString()=="failed"&&
+              preserved.GetProperty("data").GetProperty("errorCode").GetString()
+                =="UM-FRESH-INSTALL-FAILED"&&failedAttempts==1&&
+              !Directory.Exists(failedRoot),
+            "late native SteamCMD progress cannot hide failure or start another download");
+    }
+
     // Completed SteamCMD install after Manager restart: the memory-only job
     // disappeared, but the SOURCE-PINNED journal and local binaries survived.
     // This fixture creates only synthetic files under a unique TEMP root and
