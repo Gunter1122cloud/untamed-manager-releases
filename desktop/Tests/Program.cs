@@ -232,6 +232,7 @@ LegacyStoreOriginalLinkTests.Run(root);
 OriginalStoreLiveBatchEvidenceTests.Run(root);
 await OriginalStoreLiveReconcileTests.Run(root);
 await MapScopedNativeLifecycleJobsTests.Run(root);
+await AsaApiCoreMapApprovalTests.Run(root);
 OperationJournalInventoryTests.Run(root);
 await OperationJournalIsolationTests.Run(root);
 await OriginalStoreApiRconAttachTests.Run(root);
