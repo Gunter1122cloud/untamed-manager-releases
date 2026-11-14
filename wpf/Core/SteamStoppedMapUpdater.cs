@@ -81,6 +81,20 @@ public static class SteamStoppedMapUpdater
                     throw new UnauthorizedAccessException(
                         "UM-STEAM-ORIGINAL-STORE-IDENTITY-INVALID");
             }
+            else if(FreshStoreEnrollmentPolicy.IsEnrolled(sibling))
+            {
+                // Newly enrolled Store maps retain their own exact
+                // ClusterRegistry membership and transfer file-ID. Updating
+                // ONLY the stopped local ASA install is safe after Core
+                // independently rechecks those source-pinned invariants.
+                // Historical Store-v1 remains on its separate native path.
+                if(!ReferenceEquals(sibling,map) ||
+                   map.HistoricalStoreProtected ||
+                   sibling.ObservedReadOnlyImported || sibling.Maintenance)
+                    throw new UnauthorizedAccessException(
+                        "UM-STEAM-NEW-STORE-SHARED-OWNER-DENIED");
+                FreshStoreEnrollmentPolicy.DemandEnrolled(cluster,sibling);
+            }
             else if(map.HistoricalStoreProtected||
                sibling.ObservedReadOnlyImported||sibling.Maintenance||
                !string.IsNullOrWhiteSpace(sibling.HistoricalArchiveSha256)||
