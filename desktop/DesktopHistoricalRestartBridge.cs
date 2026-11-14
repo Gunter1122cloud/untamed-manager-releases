@@ -113,6 +113,9 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
     {
         lock(sync)
         {
+            // Async ASA/RCON progress belongs only to an active Restart;
+            // a committed terminal Store-v1 receipt is immutable.
+            if(job.State is "completed" or "needsOperator")return;
             job.State=state;job.Step=step;
             job.ChangedUtc=DateTimeOffset.UtcNow;
             if(oldStopped.HasValue)job.OldProcessStopped=oldStopped.Value;
