@@ -309,7 +309,9 @@ public static class SteamFreshInstall
             System.Text.RegularExpressions.RegexOptions.IgnoreCase |
             System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-    private static async Task BootstrapSteamCmdAsync(string steam,
+    // Shared with the explicit stopped-ASA update path. The existing source-
+    // compatible self-update bootstrap is not a background schedule.
+    internal static async Task BootstrapSteamCmdAsync(string steam,
         IProgress<SteamInstallProgress>? progress,CancellationToken ct)
     {
         progress?.Report(new("steamcmd","SteamCMD első indítása / önfrissítésének ellenőrzése",null));
@@ -324,6 +326,9 @@ public static class SteamFreshInstall
                 RedirectStandardOutput=true,RedirectStandardError=true
             };
             psi.ArgumentList.Add("+quit");
+            foreach(string key in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
+                "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})
+                psi.Environment.Remove(key);
             using var process=Process.Start(psi) ??
                 throw new IOException("SteamCMD bootstrap could not start");
             var stdout=CaptureSteamOutput(process.StandardOutput,null,false,deadline.Token);

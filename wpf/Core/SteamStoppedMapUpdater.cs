@@ -346,7 +346,7 @@ public static class SteamStoppedMapUpdater
                 operation.MarkMutationStarted();
                 progress?.Report(SteamMaintenanceStage.SteamCmd);
                 await RunSteamAsync(fakeExecutable??steamExecutable,root,
-                    timeout,fakeExecutable!=null,token);
+                    timeout,fakeExecutable!=null,VerifyStopped,token);
                 VerifyStopped();
                 progress?.Report(SteamMaintenanceStage.VerifyBuild);
                 var after=SteamProtectedFiles.Snapshot(root);
@@ -380,26 +380,31 @@ public static class SteamStoppedMapUpdater
         return result ?? throw new InvalidOperationException("No verified Steam update receipt was committed");
     }
 
+    // Source-compatible, bounded SteamCMD first-run retry. A failed network,
+    // disk or SteamCMD process is NEVER retried blindly. Synthetic/native CI
+    // fixtures never auto-retry, and no retry is a second operator job.
+    internal static bool ShouldRetryMissingConfiguration(
+        int attempt,int exitCode,string output,bool synthetic) =>
+        !synthetic&&attempt is >=0 and <2&&exitCode!=0&&
+        SteamFreshInstall.IsTransientMissingSteamConfiguration(output);
+
     private static async Task RunSteamAsync(string exe,string install,
-        TimeSpan timeout,bool synthetic,CancellationToken ct)
+        TimeSpan timeout,bool synthetic,Action verifyStopped,CancellationToken ct)
     {
-        var psi=new ProcessStartInfo(exe)
-        {
-            UseShellExecute=false,CreateNoWindow=true,
-            WorkingDirectory=Path.GetDirectoryName(exe)!,
-            RedirectStandardOutput=true,RedirectStandardError=true
-        };
-        foreach(var arg in new[]{"+force_install_dir",install,"+login","anonymous",
-            "+app_update","2430930","validate","+quit"})
-            psi.ArgumentList.Add(arg);
-        foreach(string key in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
-            "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})
-            psi.Environment.Remove(key);
-        if(synthetic)psi.Environment["FAKE_STEAM_REFRESH_BUILD"]="1";
+        ArgumentNullException.ThrowIfNull(verifyStopped);
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(timeout);
-        using var child=Process.Start(psi) ??
-            throw new IOException("SteamCMD child could not be launched");
+        // Reuse the working original SteamCMD bootstrap implementation. A
+        // newly installed steamcmd.exe may self-update and exit before it can
+        // process app_update; its first +quit happens under the same approved
+        // local Steam maintenance lease and never starts/stops an ASA server.
+        if(!synthetic)
+        {
+            verifyStopped();
+            await SteamFreshInstall.BootstrapSteamCmdAsync(exe,null,deadline.Token);
+            verifyStopped();
+            _=SteamCmdPreflight.Inspect(exe);
+        }
         static async Task<string> Capture(StreamReader reader,CancellationToken token)
         {
             var output=new StringBuilder();
@@ -414,27 +419,64 @@ public static class SteamStoppedMapUpdater
             }
             return output.ToString();
         }
-        var stdout=Capture(child.StandardOutput,deadline.Token);
-        var stderr=Capture(child.StandardError,deadline.Token);
-        try
+        for(int attempt=0;attempt<3;attempt++)
         {
-            await child.WaitForExitAsync(deadline.Token);
-            var message=await stdout;
-            _=await stderr;
-            if(child.ExitCode!=0 ||
-               !message.Contains("Success! App '2430930' fully installed.",
-                   StringComparison.Ordinal))
-                throw new InvalidDataException("SteamCMD did not acknowledge a complete ASA update");
-        }
-        catch
-        {
-            if(!child.HasExited)
+            deadline.Token.ThrowIfCancellationRequested();
+            // No subsequent SteamCMD process can start unless the full local
+            // ASA/Loader process family and its shared-install siblings are
+            // independently verified STOPPED again.
+            verifyStopped();
+            var psi=new ProcessStartInfo(exe)
             {
-                try{child.Kill(entireProcessTree:true);}catch{}
-                try{await child.WaitForExitAsync(CancellationToken.None)
-                    .WaitAsync(TimeSpan.FromSeconds(5));}catch{}
+                UseShellExecute=false,CreateNoWindow=true,
+                WorkingDirectory=Path.GetDirectoryName(exe)!,
+                RedirectStandardOutput=true,RedirectStandardError=true
+            };
+            foreach(var arg in new[]{"+force_install_dir",install,"+login","anonymous",
+                "+app_update","2430930","validate","+quit"})
+                psi.ArgumentList.Add(arg);
+            foreach(string key in new[]{"STEAM_USERNAME","STEAM_PASSWORD","MYSQL_PWD",
+                "MARIADB_PWD","UNTAMED_RCON_PASSWORD"})
+                psi.Environment.Remove(key);
+            if(synthetic)psi.Environment["FAKE_STEAM_REFRESH_BUILD"]="1";
+            using var child=Process.Start(psi) ??
+                throw new IOException("SteamCMD child could not be launched");
+            var stdout=Capture(child.StandardOutput,deadline.Token);
+            var stderr=Capture(child.StandardError,deadline.Token);
+            try
+            {
+                await child.WaitForExitAsync(deadline.Token);
+                string message=await stdout;
+                string error=await stderr;
+                if(child.ExitCode==0 &&
+                   message.Contains("Success! App '2430930' fully installed.",
+                       StringComparison.OrdinalIgnoreCase))
+                    return;
+                if(ShouldRetryMissingConfiguration(attempt,child.ExitCode,
+                    message+"\n"+error,synthetic))
+                {
+                    // Valve's exact initial Missing configuration response
+                    // may be transient. At most two retries with bounded
+                    // backoff, inside the existing ONE manual update operation.
+                    verifyStopped();
+                    await Task.Delay(TimeSpan.FromSeconds(3*(attempt+1)),
+                        deadline.Token);
+                    continue;
+                }
+                throw new InvalidDataException(
+                    "SteamCMD did not acknowledge a complete ASA update");
             }
-            throw;
+            catch
+            {
+                if(!child.HasExited)
+                {
+                    try{child.Kill(entireProcessTree:true);}catch{}
+                    try{await child.WaitForExitAsync(CancellationToken.None)
+                        .WaitAsync(TimeSpan.FromSeconds(5));}catch{}
+                }
+                throw;
+            }
         }
+        throw new InvalidDataException("SteamCMD initial configuration retry exhausted");
     }
 }

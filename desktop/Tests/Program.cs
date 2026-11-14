@@ -85,6 +85,22 @@ Check(!SteamFreshInstall.NeedsSteamBootstrapRestart(0,
       !SteamFreshInstall.NeedsSteamBootstrapRestart(1,
       "Failed to install app '2430930' (Missing configuration)"),
     "SteamCMD bootstrap does not retry unrelated failures or successful exit");
+Check(SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,8,
+      "Failed to install app '2430930' (Missing configuration)",false) &&
+      SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(1,8,
+      "ERROR! Failed to install app '2430930' (Missing configuration)",false) &&
+      !SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(2,8,
+      "Failed to install app '2430930' (Missing configuration)",false),
+    "manually approved SteamCMD update permits only two exact first-run configuration retries");
+Check(!SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,0,
+      "Failed to install app '2430930' (Missing configuration)",false) &&
+      !SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,8,
+      "Failed to install app '2430930' (Disk write failure)",false) &&
+      !SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,8,
+      "Failed to install app '999999' (Missing configuration)",false) &&
+      !SteamStoppedMapUpdater.ShouldRetryMissingConfiguration(0,8,
+      "Failed to install app '2430930' (Missing configuration)",true),
+    "manual updater rejects retries after success, for unrelated failures and in synthetic CI");
 
 // API Loader is optional: direct ASA with an installed but unused Loader
 // must remain observable, while persisted Loader-child relationships remain
