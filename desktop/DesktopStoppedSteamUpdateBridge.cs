@@ -191,7 +191,8 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
                     bool journalBlocked=HasBlockedJournal();
                     bool historical=related.Any(m=>m.Maintenance||
                         m.ObservedReadOnlyImported||
-                        (!m.HistoricalStoreProtected&&(
+                        (!m.HistoricalStoreProtected&&
+                         !FreshStoreEnrollmentPolicy.IsEnrolled(m)&&(
                             !string.IsNullOrWhiteSpace(m.HistoricalArchiveSha256)||
                             !string.IsNullOrWhiteSpace(m.HistoricalMapKey)||
                             !string.IsNullOrWhiteSpace(m.FreshStoreClusterId)||
