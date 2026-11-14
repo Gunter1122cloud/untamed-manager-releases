@@ -113,7 +113,9 @@ public sealed class ManagerConfig
     public string SteamMaintenanceEnd { get; set; } = "05:00";
     public bool SteamWarnPlayers { get; set; } = true;
     public int SteamWaitPlayersMinutes { get; set; } = 30;
-    public bool SteamRestartAfterUpdate { get; set; } = true;
+    // This historical preference is retained for deserialization, but
+    // fresh Manager profiles must never suggest an automatic ASA restart.
+    public bool SteamRestartAfterUpdate { get; set; } = false;
     public int SteamPostUpdateProbeMinutes { get; set; } = 10;
     public List<ScheduledTask> ScheduledTasks { get; set; } = new();
     public List<RecurringSchedule> RecurringSchedules { get; set; } = new();
