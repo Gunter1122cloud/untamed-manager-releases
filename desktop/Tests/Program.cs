@@ -3027,6 +3027,14 @@ try
         Check(preview.GetProperty("data").GetProperty("steamBuild").GetString()=="123456" &&
               calls==0,"preflight uses local Steam manifest without launching server");
         string firstToken=preview.GetProperty("data").GetProperty("token").GetString()!;
+        // An ineligible same-map re-preview cannot revoke the earlier valid
+        // approval. Restore the exact original profile before apply.
+        fresh.HistoricalStoreProtected=true;
+        var rejectedNewStartPreview=await Call(starter.HandleAsync,
+            "servers.freshStartPreview",new{mapId=fresh.Id});
+        Check(IsError(rejectedNewStartPreview,"UM-FRESH-START-NOT-READY")&&calls==0,
+            "rejected fresh Start preview leaves prior valid map ticket intact");
+        fresh.HistoricalStoreProtected=false;
         var denied=await Call(starter.HandleAsync,"servers.freshStartApply",
             new{token=firstToken,confirm=false});
         Check(IsError(denied,"UM-FRESH-START-APPROVAL")&&calls==0,
