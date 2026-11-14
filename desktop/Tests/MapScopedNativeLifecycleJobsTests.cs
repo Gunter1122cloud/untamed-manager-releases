@@ -96,6 +96,7 @@ internal static class MapScopedNativeLifecycleJobsTests
                     "SYNTHETIC_DISTINCT_MAP_GRACEFUL_STOP_NO_TCP");
             });
         string[] jobIds=new string[2];
+        string[] tokens=new string[2];
         for(int i=0;i<2;i++)
         {
             var preview=Data(await Call(bridge.HandleAsync,
@@ -103,7 +104,13 @@ internal static class MapScopedNativeLifecycleJobsTests
                 "map "+i+" receives an independent owned local Stop preview");
             Check(preview.GetProperty("mapId").GetGuid()==maps[i].Id,
                 "preview is bound to its own local map");
-            string token=preview.GetProperty("token").GetString()!;
+            tokens[i]=preview.GetProperty("token").GetString()!;
+        }
+        Check(tokens[0]!=tokens[1],
+            "Stop approvals are independent even before either is applied");
+        for(int i=0;i<2;i++)
+        {
+            string token=tokens[i];
             var accepted=Data(await Call(bridge.HandleAsync,
                 "servers.gracefulStopApply",new{token,confirm=true}),
                 "map "+i+" queues exactly one native graceful Stop");
@@ -221,6 +228,7 @@ internal static class MapScopedNativeLifecycleJobsTests
         using var bridge=new DesktopHistoricalGracefulStopBridge(
             cluster,Probe,ForbiddenStop,SaveOnly);
         string[] jobIds=new string[2];
+        string[] tokens=new string[2];
         for(int i=0;i<2;i++)
         {
             var preview=Data(await Call(bridge.HandleAsync,
@@ -228,7 +236,13 @@ internal static class MapScopedNativeLifecycleJobsTests
                 "original Store map "+i+" receives a distinct SaveWorld preview");
             Check(preview.GetProperty("mapId").GetGuid()==maps[i].Id,
                 "Store SaveWorld approval remains map-owned");
-            string token=preview.GetProperty("token").GetString()!;
+            tokens[i]=preview.GetProperty("token").GetString()!;
+        }
+        Check(tokens[0]!=tokens[1],
+            "Store SaveWorld approvals for both maps coexist");
+        for(int i=0;i<2;i++)
+        {
+            string token=tokens[i];
             var accepted=Data(await Call(bridge.HandleAsync,
                 "historical.saveWorldApply",
                 new{token,confirm=true,typedApproval="STORE-V1 SAVEWORLD"}),
@@ -346,6 +360,7 @@ internal static class MapScopedNativeLifecycleJobsTests
                 return (stopped,started);
             });
         string[] ids=new string[2];
+        string[] tokens=new string[2];
         for(int i=0;i<2;i++)
         {
             var preview=Data(await Call(bridge.HandleAsync,
@@ -353,7 +368,13 @@ internal static class MapScopedNativeLifecycleJobsTests
                 "fresh ASA map "+i+" receives its own restart preview");
             Check(preview.GetProperty("mapId").GetGuid()==maps[i].Id,
                 "restart approval cannot target a different map");
-            string token=preview.GetProperty("token").GetString()!;
+            tokens[i]=preview.GetProperty("token").GetString()!;
+        }
+        Check(tokens[0]!=tokens[1],
+            "fresh ASA Restart approval tokens do not overwrite across map cards");
+        for(int i=0;i<2;i++)
+        {
+            string token=tokens[i];
             var accepted=Data(await Call(bridge.HandleAsync,
                 "servers.restartApply",new{token,confirm=true}),
                 "fresh ASA map "+i+" receives exactly one approved restart job");
