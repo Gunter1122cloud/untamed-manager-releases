@@ -2881,9 +2881,12 @@ test.beforeEach(async ({ page }) => {
               loaderPid:null,reason:entry.running?"Native ASA PID active":"Verified stopped"}],
             overlaps:[],steamCmdFound:true,steamCmdConfigured:true,
             availableBytes:53687091200,requiredBytes:10737418240,
-            journalBlocked:steamInterrupted,historicalBlocked:Boolean((entry as any).storeProtected),
-            safeInstallation:!entry.running&&!(entry as any).storeProtected,
-            canPreview:!entry.running&&!steamInterrupted&&!(entry as any).storeProtected,
+            journalBlocked:steamInterrupted,
+            historicalBlocked:Boolean((entry as any).storeProtected)&&!(entry as any).freshStoreEnrolled,
+            safeInstallation:!entry.running&&
+              (!(entry as any).storeProtected||(entry as any).freshStoreEnrolled),
+            canPreview:!entry.running&&!steamInterrupted&&
+              (!(entry as any).storeProtected||(entry as any).freshStoreEnrolled),
             noProcessAutoStop:true,remoteWrites:false,
             evidence:"REAL_STOPPED_MAP_STEAM_DIAGNOSTICS_READ_ONLY"};
         }
@@ -2908,7 +2911,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-STEAM-BATCH-INVALID-MAPS");
           const local=m.mapIds.map((id:string)=>
             state.local.maps.find(x=>x.id===id&&!x.running&&
-              !x.maintenance&&!x.observedReadOnlyImported&&!x.freshStoreEnrolled));
+              !x.maintenance&&!x.observedReadOnlyImported));
           if(local.some((x:any)=>!x))throw new Error("UM-STEAM-BATCH-PROTECTED-OR-REMOTE");
           return {token:"00000000-0000-4000-8000-000000008880",
             requestedMaps:local.length,installations:local.length,
@@ -5354,6 +5357,26 @@ test("new empty Store-map uses existing cluster membership, one-shot approval an
   await expect(region).toContainText("Nem fut -converttostore");
   await expect(page.getByRole("button",{name:/ASA indítási mód választása/})).toHaveCount(0);
   await expect(page.getByRole("region",{name:"Új üres Store-map"})).toContainText("játékbeli utazás még nem igazolt");
+});
+
+test("enrolled empty Store map exposes manual stopped-only SteamCMD diagnostics with explicit approval",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_STORE_API_MODE_READY__?:()=>void;
+  }).__UNTAMED_FRESH_STORE_API_MODE_READY__?.());
+  await page.getByRole("navigation",{name:"Fő navigáció"})
+    .getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local")
+    .filter({hasText:"Astraeos"}).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await expect(panel).toBeVisible();
+  await expect(page.getByText(/Új Store-map: csak az egyedül birtokolt/)).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeEnabled();
+  await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  await expect(panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"})).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Valódi frissítés indítása"})).toBeDisabled();
+  await expect(panel).not.toContainText("automatikus újraindítás");
 });
 
 test("new Store API Loader mode needs separate approval and permits direct opt-out without start",async({page})=>{
