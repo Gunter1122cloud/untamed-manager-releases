@@ -217,7 +217,8 @@ public sealed class DesktopFreshAsaStartBridge : IDisposable
                     var map=Owned(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
                     if(!Eligible(map))return Error(id,"UM-FRESH-START-NOT-READY");
-                    approvalsByMap.Remove(mapId);
+                    // Only a successful preview replaces this map's previous
+                    // approval. A rejected preflight leaves it untouched.
                     string? installedBuild=AsaSteamBuildCatalog.InstalledBuild(map.InstallationPath);
                     if(string.IsNullOrWhiteSpace(installedBuild))
                         return Error(id,"UM-FRESH-START-BUILD-NOT-VERIFIED");
