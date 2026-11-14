@@ -95,6 +95,9 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     {
         lock(sync)
         {
+            // A late native progress callback must not reopen a completed
+            // Stop or conceal an interrupted/uncertain shutdown.
+            if(task.State is "completed" or "needsOperator")return;
             task.State=state;task.Step=step;
             task.ChangedUtc=DateTimeOffset.UtcNow;
             if(receipt!=null)
