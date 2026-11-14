@@ -56,8 +56,10 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
     private readonly bool nativeLauncher;
     private readonly Func<LocalMap,bool,bool> modePreflight;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Pending? pending;
-    private ModePending? pendingMode;
+    // Both the Start and API Loader mode approvals belong to a single map.
+    // Selecting a different local map cannot revoke another map's token.
+    private readonly Dictionary<Guid,Pending> startApprovalsByMap=new();
+    private readonly Dictionary<Guid,ModePending> modeApprovalsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopHistoricalActiveStartBridge(ClusterService service):
@@ -188,11 +190,12 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 }
                 if(method=="historical.loaderModePreview")
                 {
-                    pendingMode=null;pending=null;
                     if(!ReadId(request,"mapId",out var mapId)||
                        !request.TryGetProperty("useApi",out var setting)||
                        setting.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                         return Fail(id,"UM-STORE-LOADER-MODE-SELECTION");
+                    modeApprovalsByMap.Remove(mapId);
+                    startApprovalsByMap.Remove(mapId);
                     bool useApi=setting.GetBoolean();
                     var map=Owned(mapId);
                     if(!ModeOwned(map)||
@@ -207,10 +210,11 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         return Fail(id,"UM-STORE-LOADER-MODE-PATH-MISMATCH");
                     if(!modePreflight(map,useApi))
                         return Fail(id,"UM-STORE-LOADER-MODE-PROCESS-OR-API-UNVERIFIED");
-                    pendingMode=new ModePending(Guid.NewGuid(),map.Id,
+                    var permit=new ModePending(Guid.NewGuid(),map.Id,
                         JsonSerializer.Serialize(map),useApi,loader,DateTimeOffset.UtcNow);
+                    modeApprovalsByMap[map.Id]=permit;
                     return Ok(id,new{
-                        token=pendingMode.Token,mapId,mapName=map.Name,useApi,
+                        token=permit.Token,mapId,mapName=map.Name,useApi,
                         mode=useApi?"asaApiLoader":"directAsa",
                         startsServer=false,changesStore=false,
                         requiresStoppedProcess=true,
@@ -220,12 +224,16 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 if(method=="historical.loaderModeApply")
                 {
                     if(!ReadId(request,"token",out var modeToken)||
-                       pendingMode==null||pendingMode.Token!=modeToken||
-                       DateTimeOffset.UtcNow-pendingMode.Created>TimeSpan.FromMinutes(3)||
                        !request.TryGetProperty("confirm",out var modeConfirm)||
                        modeConfirm.ValueKind!=JsonValueKind.True)
                         return Fail(id,"UM-STORE-LOADER-MODE-APPROVAL");
-                    var requested=pendingMode;pendingMode=null;pending=null;
+                    var requested=modeApprovalsByMap.Values.SingleOrDefault(
+                        item=>item.Token==modeToken);
+                    if(requested==null||
+                       DateTimeOffset.UtcNow-requested.Created>TimeSpan.FromMinutes(3))
+                        return Fail(id,"UM-STORE-LOADER-MODE-APPROVAL");
+                    modeApprovalsByMap.Remove(requested.MapId);
+                    startApprovalsByMap.Remove(requested.MapId);
                     var map=Owned(requested.MapId);
                     if(!ModeOwned(map)||
                        (map!.StartWithAsaApi==requested.UseApi&&
@@ -303,9 +311,9 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                 }
                 if(method=="historical.activeStartPreview")
                 {
-                    pending=null;
                     if(!ReadId(request,"mapId",out var mapId))
                         return Fail(id,"UM-STORE-ACTIVE-MAP");
+                    startApprovalsByMap.Remove(mapId);
                     var map=Owned(mapId);
                     if(!Imported(map))return Fail(id,"UM-STORE-ACTIVE-RCON-REQUIRED");
                     if(map!.HistoricalLaunchModeNeedsApproval)
@@ -319,7 +327,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         JsonSerializer.Serialize(map),plan.Fingerprint,
                         plan.GamePort,plan.QueryPort,plan.RconPort,
                         plan.UseApi,DateTimeOffset.UtcNow);
-                    pending=permit;
+                    startApprovalsByMap[mapId]=permit;
                     return Ok(id,new{
                         token=permit.Token,mapId=map.Id,mapName=map.Name,
                         gamePort=permit.Game,queryPort=permit.Query,
@@ -337,9 +345,12 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                         evidence="ORIGINAL_ACTIVE_STORE_NATIVE_START_PREFLIGHT"
                     });
                 }
-                if(!ReadId(request,"token",out var token)||pending==null||
-                   pending.Token!=token||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(3))
+                if(!ReadId(request,"token",out var token))
+                    return Fail(id,"UM-STORE-ACTIVE-APPROVAL-EXPIRED");
+                var approved=startApprovalsByMap.Values.SingleOrDefault(
+                    item=>item.Token==token);
+                if(approved==null||
+                   DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(3))
                     return Fail(id,"UM-STORE-ACTIVE-APPROVAL-EXPIRED");
                 if(!request.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True||
@@ -347,7 +358,7 @@ public sealed class DesktopHistoricalActiveStartBridge : IDisposable
                    phrase.ValueKind!=JsonValueKind.String||
                    phrase.GetString()!="STORE-V1 ACTIVE START")
                     return Fail(id,"UM-STORE-ACTIVE-EXPLICIT-APPROVAL");
-                var approved=pending;pending=null;
+                startApprovalsByMap.Remove(approved.MapId);
                 var live=Owned(approved.MapId);
                 if(!Imported(live)||
                    JsonSerializer.Serialize(live)!=approved.ProfileJson)
