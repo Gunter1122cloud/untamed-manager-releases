@@ -208,8 +208,88 @@ internal static class MapScopedNativeLifecycleJobsTests
             "both ASA processes receive only their own one approved action");
         await VerifyOriginalStoreSaveWorldIsolated(root);
         await VerifyFreshRestartJobs(root);
-
+        await VerifyFreshAdminCapacity(root);
     }
+
+    private static async Task VerifyFreshAdminCapacity(string baseRoot)
+    {
+        // Exercise the real 25-ticket boundary, not only a two-map preview.
+        // All 26 ASA processes and their credentials are synthetic, and the
+        // dispatch delegate does not open TCP or touch a live game server.
+        string root=Path.Combine(baseRoot,"fresh-admin-capacity");
+        Directory.CreateDirectory(root);
+        var maps=new LocalMap[26];
+        var processes=new ProcessIdentity[26];
+        for(int i=0;i<maps.Length;i++)
+        {
+            string install=Path.Combine(root,"capacity-map-"+i);
+            string binary=Path.Combine(install,
+                "ShooterGame","Binaries","Win64","ArkAscendedServer.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+            File.WriteAllBytes(binary,new byte[]{0x4d,0x5a,0x01,0x02});
+            maps[i]=new LocalMap{
+                Id=Guid.NewGuid(),Name="Capacity synthetic map "+i,
+                InstallationPath=install,ExecutablePath=binary,
+                Arguments="TheIsland_WP?listen -port="+(8100+i)+
+                    " -QueryPort="+(27200+i),
+                GamePort=8100+i,QueryPort=27200+i,RconPort=38000+i,
+                RconHost="127.0.0.1",
+                RconPasswordProtected=SecureStore.Protect(
+                    "SYNTHETIC-CAPACITY-RCON-CREDENTIAL")
+            };
+            processes[i]=new ProcessIdentity{
+                Pid=46000+i,StartedUtc=DateTimeOffset.UtcNow.AddMinutes(-10),
+                ExecutablePath=binary,Arguments=maps[i].Arguments
+            };
+        }
+        await using var cluster=new ClusterService(
+            "synthetic-admin-capacity",Path.Combine(root,"isolated-profile"),
+            map=>{
+                int idx=Array.FindIndex(maps,m=>m.Id==map.Id);
+                return idx<0
+                    ?new ProcessCheck(false,"unknown synthetic map",null,false)
+                    :new ProcessCheck(true,"synthetic owned ASA",processes[idx]);
+            });
+        foreach(var map in maps)cluster.AddMap(map);
+        int sends=0;
+        var admin=new DesktopRconAdminBridge(cluster,
+            (port,pid)=>Enumerable.Range(0,maps.Length).Any(i=>
+                maps[i].RconPort==port&&processes[i].Pid==pid),
+            (host,port,password,command,ct)=>{
+                sends++;
+                return Task.FromResult("SYNTHETIC_CAPACITY_ACK");
+            });
+        var tokens=new string[25];
+        for(int i=0;i<tokens.Length;i++)
+        {
+            var preview=Data(await Call(admin.HandleAsync,
+                "rcon.adminPreview",new{mapId=maps[i].Id,
+                    action="broadcast",message="capacity test "+i}),
+                "synthetic capacity slot "+i+" receives its own RCON preview");
+            tokens[i]=preview.GetProperty("token").GetString()!;
+        }
+        var denied=await Call(admin.HandleAsync,"rcon.adminPreview",
+            new{mapId=maps[25].Id,action="broadcast",message="capacity overflow"});
+        Check(!denied.GetProperty("ok").GetBoolean()&&
+              denied.GetProperty("error").GetString()=="UM-RCON-ADMIN-PREVIEW-CAPACITY",
+            "full approval cache rejects new map without clearing existing tokens");
+        var replacement=Data(await Call(admin.HandleAsync,"rcon.adminPreview",
+            new{mapId=maps[1].Id,action="broadcast",message="same map replacement"}),
+            "same map can replace its own approval at full capacity");
+        string replacedToken=replacement.GetProperty("token").GetString()!;
+        Data(await Call(admin.HandleAsync,"rcon.adminSend",
+            new{token=tokens[0],confirm=true,typedApproval=""}),
+            "first of 25 map tokens survives an unrelated capacity rejection");
+        var invalidated=await Call(admin.HandleAsync,"rcon.adminSend",
+            new{token=tokens[1],confirm=true,typedApproval=""});
+        Check(!invalidated.GetProperty("ok").GetBoolean(),
+            "same-map replacement invalidates only the superseded token");
+        Data(await Call(admin.HandleAsync,"rcon.adminSend",
+            new{token=replacedToken,confirm=true,typedApproval=""}),
+            "replacement map token dispatches without affecting other maps");
+        Check(sends==2,"capacity-bound admin requests dispatch exactly twice");
+    }
+
     private static async Task VerifyOriginalStoreSaveWorldIsolated(string baseRoot)
     {
         string root=Path.Combine(baseRoot,"two-independent-original-store-maps");
