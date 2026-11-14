@@ -47,13 +47,21 @@ public sealed class DesktopFreshAsaStopBridge : IDisposable
     public DesktopFreshAsaStopBridge(ClusterService service,
         Func<int,int,bool>? owner=null,
         Func<Guid,ProcessIdentity,Task<AsaGracefulStopReceipt>>? execute=null)
+        : this(service,owner,execute,null) {}
+
+    // Isolated native regression seam; not exposed to WebView2 dispatch.
+    // Production retains the original source-controlled RCON/ASA callback.
+    internal DesktopFreshAsaStopBridge(ClusterService service,
+        Func<int,int,bool>? owner,
+        Func<Guid,ProcessIdentity,Task<AsaGracefulStopReceipt>>? execute,
+        Func<Guid,ProcessIdentity,Action<string>,Task<AsaGracefulStopReceipt>>? progressRunner)
     {
         cluster=service??throw new ArgumentNullException(nameof(service));
         ownsPort=owner??RconPortOwnership.IsOwnedListener;
-        stop=execute==null
+        stop=progressRunner??(execute==null
             ?(map,identity,stage)=>AsaGracefulStop.StopAsync(
                 cluster,map,identity,TimeSpan.FromMinutes(2),evidenceStage:stage)
-            :(map,identity,_)=>execute(map,identity);
+            :(map,identity,_)=>execute(map,identity));
     }
     private LocalMap? Owned(Guid id)=>
         cluster.Config.LocalMaps.SingleOrDefault(map=>map.Id==id);
