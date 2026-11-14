@@ -405,6 +405,12 @@ internal static class MapScopedNativeLifecycleJobsTests
         }
         Check(tokens[0]!=tokens[1],
             "Store SaveWorld approvals for both maps coexist");
+        maps[0].Maintenance=true;
+        var deniedStoreSave=await Call(bridge.HandleAsync,
+            "historical.saveWorldPreview",new{mapId=maps[0].Id});
+        Check(!deniedStoreSave.GetProperty("ok").GetBoolean(),
+            "rejected Store SaveWorld re-preview does not invalidate an earlier token");
+        maps[0].Maintenance=false;
         for(int i=0;i<2;i++)
         {
             string token=tokens[i];
@@ -633,6 +639,12 @@ internal static class MapScopedNativeLifecycleJobsTests
         }
         Check(tokens[0]!=tokens[1],
             "fresh ASA Restart approval tokens do not overwrite across map cards");
+        maps[0].HistoricalStoreProtected=true;
+        var deniedRestart=await Call(bridge.HandleAsync,
+            "servers.restartPreview",new{mapId=maps[0].Id});
+        Check(!deniedRestart.GetProperty("ok").GetBoolean(),
+            "rejected restart re-preview cannot revoke the first map's valid ticket");
+        maps[0].HistoricalStoreProtected=false;
         for(int i=0;i<2;i++)
         {
             string token=tokens[i];
