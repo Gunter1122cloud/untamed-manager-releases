@@ -259,7 +259,8 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
                                 "ASA API Loader indult; gyermek PID és RCON ellenőrzése",
                                 receipt.Started.Pid);
                             bool childVerified=false;
-                            var limit=DateTimeOffset.UtcNow.AddMinutes(2);
+                            var limit=DateTimeOffset.UtcNow+
+                                FreshStoreApiPairObserver.StartupObservationWindow;
                             while(DateTimeOffset.UtcNow<limit)
                             {
                                 closingToken.ThrowIfCancellationRequested();
