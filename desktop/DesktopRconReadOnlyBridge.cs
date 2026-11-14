@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -20,12 +21,14 @@ public sealed class DesktopRconReadOnlyBridge
     private readonly ClusterService cluster;
     private readonly Func<int,int,bool> ownsPort;
     private readonly Func<string,int,string,string,Action,CancellationToken,Task<string>> send;
-    private readonly SemaphoreSlim serial=new(1,1);
+    // One stalled ASA must not hold the RCON lane of any other local map.
+    // SaveWorld and its evidence checks stay serialized within their own map.
+    private readonly ConcurrentDictionary<Guid,SemaphoreSlim> mapSerial=new();
     private sealed record SaveCheck(Guid Token,Guid MapId,int Pid,
         DateTimeOffset StartedUtc,AsaWorldSaveEvidence.Boundary Bookmark,
         DateTimeOffset Expires,bool Completed=false);
     // One map cannot invalidate another map's SaveWorld evidence.
-    private readonly Dictionary<Guid,SaveCheck> pendingSaves=new();
+    private readonly ConcurrentDictionary<Guid,SaveCheck> pendingSaves=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopRconReadOnlyBridge(ClusterService cluster,
@@ -76,6 +79,7 @@ public sealed class DesktopRconReadOnlyBridge
                !Guid.TryParse(mapValue.GetString(),out var mapId) || mapId==Guid.Empty)
                 return Deny(id,"UM-RCON-INVALID-MAP");
 
+            var serial=mapSerial.GetOrAdd(mapId,static _=>new SemaphoreSlim(1,1));
             await serial.WaitAsync();
             try
             {
@@ -169,7 +173,7 @@ public sealed class DesktopRconReadOnlyBridge
                     if(pendingSaves.TryGetValue(map.Id,out var previous)&&
                        !previous.Completed&&previous.Expires>DateTimeOffset.UtcNow)
                         return Deny(id,"UM-RCON-SAVE-ALREADY-PENDING");
-                    pendingSaves.Remove(map.Id);
+                    pendingSaves.TryRemove(map.Id,out _);
                     if(!root.TryGetProperty("confirm",out var approve) ||
                        approve.ValueKind!=JsonValueKind.True)
                         return Deny(id,"UM-RCON-SAVE-EXPLICIT-CONFIRMATION-REQUIRED");
