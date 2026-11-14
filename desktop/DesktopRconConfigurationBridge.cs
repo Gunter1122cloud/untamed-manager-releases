@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -23,7 +24,9 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
         DateTimeOffset Created);
     private readonly ClusterService cluster;
     private readonly SemaphoreSlim serial=new(1,1);
-    private Pending? pending;
+    // One short-lived approval per local ASA map: switching map cards cannot
+    // overwrite another map's unfinished RCON setup.
+    private readonly Dictionary<Guid,Pending> approvalsByMap=new();
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public DesktopRconConfigurationBridge(ClusterService service) =>
@@ -143,6 +146,9 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
             await serial.WaitAsync();
             try
             {
+                foreach(var stale in approvalsByMap.Where(p=>
+                    DateTimeOffset.UtcNow-p.Value.Created>TimeSpan.FromMinutes(5))
+                    .Select(p=>p.Key).ToArray())approvalsByMap.Remove(stale);
                 if(method=="rcon.configStatus")
                 {
                     if(!TryGuid(root,"mapId",out var mapId))return Error(id,"UM-RCON-MAP");
@@ -166,6 +172,7 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                        !root.TryGetProperty("createIni",out var createField) ||
                        createField.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                         return Error(id,"UM-RCON-CONFIG-FIELDS");
+                    approvalsByMap.Remove(mapId);
                     var map=Local(mapId);
                     if(map==null)return Error(id,"UM-MAP-NOT-OWNED");
                     if(!SafeMap(map)||!Stopped(map)||
@@ -186,22 +193,29 @@ public sealed class DesktopRconConfigurationBridge : IDisposable
                     }
                     else VerifyExisting(path,port,password);
                     string digest=Digest(path);
-                    pending=new(Guid.NewGuid(),map.Id,map.Arguments,map.InstallationPath,
-                        map.ExecutablePath,map.RconPort,SecureStore.Protect(password),port,
-                        create,digest,DateTimeOffset.UtcNow);
-                    return Ok(id,new{token=pending.Token,mapId=map.Id,mapName=map.Name,
+                    if(approvalsByMap.Count>=25)approvalsByMap.Clear();
+                    var previewApproval=new Pending(Guid.NewGuid(),map.Id,map.Arguments,
+                        map.InstallationPath,map.ExecutablePath,map.RconPort,
+                        SecureStore.Protect(password),port,create,digest,DateTimeOffset.UtcNow);
+                    approvalsByMap[map.Id]=previewApproval;
+                    return Ok(id,new{token=previewApproval.Token,mapId=map.Id,mapName=map.Name,
                         rconPort=port,createsNewIni=create,existingIniVerified=!create,
                         evidence="STOPPED_LOCAL_RCON_PREVIEW_NO_WRITES"});
                 }
-                if(!TryGuid(root,"token",out var token)||pending==null ||
-                   pending.Token!=token ||
-                   DateTimeOffset.UtcNow-pending.Created>TimeSpan.FromMinutes(5))
+                if(!TryGuid(root,"token",out var token)||
+                   !approvalsByMap.Values.Any(p=>p.Token==token))
                     return Error(id,"UM-RCON-CONFIG-TOKEN-EXPIRED");
+                var approved=approvalsByMap.Values.Single(p=>p.Token==token);
+                if(DateTimeOffset.UtcNow-approved.Created>TimeSpan.FromMinutes(5))
+                {
+                    approvalsByMap.Remove(approved.MapId);
+                    return Error(id,"UM-RCON-CONFIG-TOKEN-EXPIRED");
+                }
                 if(!root.TryGetProperty("confirm",out var approve) ||
                    approve.ValueKind!=JsonValueKind.True)
                     return Error(id,"UM-RCON-CONFIG-CONFIRMATION");
-                var item=pending;
-                pending=null; // one shot, including failed writes
+                var item=approved;
+                approvalsByMap.Remove(item.MapId); // one shot even on failure
                 var current=Local(item.MapId);
                 if(current==null||!SafeMap(current) || !Stopped(current) ||
                    !FreshAsaInstallationSafety.IsProvenFresh(cluster,current) ||
