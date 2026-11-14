@@ -208,6 +208,35 @@ internal static class NativeWebViewDispatchContractTests
         Check(requested.SetEquals(everyRouted),
             "all "+requested.Count+" production React methods have one eligible host dispatcher route");
 
+        // The signed ASA API CORE binary updater already has a native handler.
+        // Regression: it must actually be reachable from the shipped React
+        // Plugin Center for eligible local maps, not only exist as a dead
+        // standalone source file. Plugin DLL installation stays manual-only.
+        string pluginCenter=Read("desktop-ui/src/App.tsx");
+        string apiCoreUi=Read("desktop-ui/src/AsaApiCoreInstaller.tsx");
+        Check(pluginCenter.Contains(
+                "import { AsaApiCoreInstaller } from \"./AsaApiCoreInstaller\";",
+                StringComparison.Ordinal)&&
+              pluginCenter.Contains("<AsaApiCoreInstaller key={selected}",
+                StringComparison.Ordinal)&&
+              pluginCenter.Contains("!owned.storeProtected&&!owned.freshStoreEnrolled",
+                StringComparison.Ordinal)&&
+              pluginCenter.Contains("!owned.observedReadOnlyImported",
+                StringComparison.Ordinal),
+            "ASA API CORE install/rollback component is mounted for eligible local maps only");
+        foreach(string operation in new[]{
+            "apiCoreRelease","apiCorePreview","apiCoreApply",
+            "apiCoreRollbackCandidates","apiCoreRollbackPreview",
+            "apiCoreRollbackApply"})
+            Check(apiCoreUi.Contains("managerBridge."+operation+"(",
+                    StringComparison.Ordinal),
+                "ASA API CORE UI calls production native method: "+operation);
+        Check(pluginCenter.Contains("Pluginmappa megnyitása",
+                StringComparison.Ordinal)&&
+              !pluginCenter.Contains("<PluginZipInstaller",
+                StringComparison.Ordinal),
+            "CORE binary installer does not reintroduce automated plugin ZIP installation");
+
         // Three independent native Loader lifecycle paths must not impose
         // older 2–3-minute false-failure windows on large modded ASA worlds.
         // All use the same bounded read-only family/RCON verification period;
