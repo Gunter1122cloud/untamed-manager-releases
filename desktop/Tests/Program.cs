@@ -6714,6 +6714,27 @@ try
         var sharedSecond=await Call(worldBridge.HandleAsync,"backup.preview",
             new{mapId=centerMap.Id});
         IsOk(sharedSecond,"The Center has its own independent world backup in shared install");
+        string islandBackupToken=sharedFirst.GetProperty("data").GetProperty("token").GetString()!;
+        string centerBackupToken=sharedSecond.GetProperty("data").GetProperty("token").GetString()!;
+        Check(islandBackupToken!=centerBackupToken,
+            "two stopped map cards retain distinct backup approval tokens");
+        var firstSharedBackup=await Call(worldBridge.HandleAsync,
+            "backup.create",new{token=islandBackupToken,confirm=true});
+        IsOk(firstSharedBackup,
+            "first map's backup token survives an independent second-map preview");
+        var secondSharedBackup=await Call(worldBridge.HandleAsync,
+            "backup.create",new{token=centerBackupToken,confirm=true});
+        IsOk(secondSharedBackup,
+            "second map's backup token survives the first map's committed archive");
+        Check(firstSharedBackup.GetProperty("data").GetProperty("mapId").GetGuid()==localMap.Id &&
+              secondSharedBackup.GetProperty("data").GetProperty("mapId").GetGuid()==centerMap.Id &&
+              firstSharedBackup.GetProperty("data").GetProperty("point").GetString()!=
+                secondSharedBackup.GetProperty("data").GetProperty("point").GetString(),
+            "shared-install ASA maps receive separate verified world backup package IDs");
+        var reusedIsland=await Call(worldBridge.HandleAsync,"backup.create",
+            new{token=islandBackupToken,confirm=true});
+        Check(IsError(reusedIsland,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED"),
+            "completed backup tokens cannot replay after another map's backup");
         Check(File.ReadAllBytes(Path.Combine(centerWorld,"TheCenter_WP.ark"))
                 .SequenceEqual(centerBytes),
             "first map backup cannot alter neighboring map world bytes");
