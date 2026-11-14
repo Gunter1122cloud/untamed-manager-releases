@@ -3463,12 +3463,14 @@ try
             ExecutablePath=target.ExecutablePath
         };
         cluster.AddMap(siblingSteamMap);
+        string siblingToken="";
         try
         {
             var siblingPreview=await Call(updater.HandleAsync,"steam.stoppedPreview",
                 new{mapId=siblingSteamMap.Id});
             IsOk(siblingPreview,"separate stopped map receives an independent update preview");
-            Check(siblingPreview.GetProperty("data").GetProperty("token").GetString()!=token &&
+            siblingToken=siblingPreview.GetProperty("data").GetProperty("token").GetString()!;
+            Check(siblingToken!=token &&
                   siblingPreview.GetProperty("data").GetProperty("mapId").GetGuid()==siblingSteamMap.Id &&
                   executions==0,
                 "previewing a sibling never replaces the first map's SteamCMD approval");
@@ -3493,6 +3495,10 @@ try
               resume.GetProperty("activeJob").GetProperty("state").GetString()=="running" &&
               !resume.GetProperty("autoResumeAllowed").GetBoolean() && executions==1,
             "current-status exposes only the existing active Steam job and never restarts it");
+        var parallel=await Call(updater.HandleAsync,"steam.stoppedApply",
+            new{token=siblingToken,confirm=true});
+        Check(IsError(parallel,"UM-STEAM-UPDATE-IN-PROGRESS")&&executions==1,
+            "another map's accepted SteamCMD preview cannot run concurrently on the same host");
         var replay=await Call(updater.HandleAsync,"steam.stoppedApply",
             new{token,confirm=true});
         Check(!replay.GetProperty("ok").GetBoolean(),
@@ -3507,10 +3513,19 @@ try
         }
         IsOk(result,"native SteamCMD update reports progress");
         Check(result.GetProperty("data").GetProperty("state").GetString()=="completed" &&
+              result.GetProperty("data").GetProperty("mapId").GetGuid()==target.Id &&
               executions==1 &&
               result.GetProperty("data").GetProperty("protectedFilesIntact").GetBoolean() &&
               original.SequenceEqual(File.ReadAllBytes(target.ExecutablePath)),
             "SteamCMD update runs once and preserves fixture ASA executable");
+        var missingSibling=await Call(updater.HandleAsync,"steam.stoppedApply",
+            new{token=siblingToken,confirm=true});
+        Check(IsError(missingSibling,"UM-STEAM-PREFLIGHT-CHANGED")&&executions==1,
+            "removed sibling map cannot consume an old SteamCMD approval after the first update");
+        var retained=await Call(updater.HandleAsync,"steam.stoppedStatus",new{jobId=job});
+        IsOk(retained,"completed map-owned SteamCMD job receipt remains readable");
+        Check(retained.GetProperty("data").GetProperty("mapId").GetGuid()==target.Id,
+            "SteamCMD status cannot silently change to a sibling map");
         var emptyJournal=await Call(updater.HandleAsync,"steam.stoppedCurrent");
         IsOk(emptyJournal,"first-run Steam queue journal status is readable");
         Check(!emptyJournal.GetProperty("data").GetProperty("exists").GetBoolean(),
