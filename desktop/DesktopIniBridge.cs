@@ -123,9 +123,13 @@ public sealed class DesktopIniBridge : IDisposable
                 {
                     if(!GetGuid(data,"mapId",out var mapId))
                         return Fail(id,"UM-INI-CREATE-MAP");
-                    pendingGameByMap.Remove(mapId);
                     var selected=MissingGamePreflight(mapId);
-                    if(pendingGameByMap.Count>=25)pendingGameByMap.Clear();
+                    // A rejected preview must not revoke this or another map's
+                    // prior Game.ini creation approval. A successful same-map
+                    // replacement may reuse its existing bounded slot.
+                    if(!pendingGameByMap.ContainsKey(mapId)&&
+                       pendingGameByMap.Count>=25)
+                        return Fail(id,"UM-INI-CREATE-PREVIEW-CAPACITY");
                     var approval=new MissingGameApproval(Guid.NewGuid(),mapId,
                         JsonSerializer.Serialize(selected.Map),DateTimeOffset.UtcNow.AddMinutes(3));
                     pendingGameByMap[mapId]=approval;
