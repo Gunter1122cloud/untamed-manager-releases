@@ -26,7 +26,9 @@ public sealed class DesktopWorldBackupBridge
     private sealed record Ticket(Guid Token,Guid MapId,string Point,string Root,
         string Arguments,DateTimeOffset Until,bool Restore,
         int BudgetFiles,long BudgetBytes,bool BudgetCustomized);
-    private Ticket? pending;
+    // Ten local map cards must retain independent one-use backup/restore
+    // approvals. New preview invalidates only its own map's earlier ticket.
+    private readonly Dictionary<Guid,Ticket> pendingByMap=new();
     private sealed record OriginalBatchTicket(Guid Token,string FourFilesSha,
         string LaunchProfileSha,Guid[] MapIds,DateTimeOffset ExpiresUtc,
         int BudgetFiles,long BudgetBytes,bool BudgetCustomized);
@@ -540,11 +542,14 @@ public sealed class DesktopWorldBackupBridge
                 }
                 if(method is "backup.preview" or "backup.restorePreview")
                 {
-                    pending=null;
+                    foreach(var stale in pendingByMap.Where(p=>
+                        p.Value.Until<DateTimeOffset.UtcNow).Select(p=>p.Key)
+                        .ToArray())pendingByMap.Remove(stale);
                     if(!root.TryGetProperty("mapId",out var m)||
                        m.ValueKind!=JsonValueKind.String||
                        !Guid.TryParse(m.GetString(),out var mid))
                         return Fail(id,"UM-BACKUP-INVALID-MAP");
+                    pendingByMap.Remove(mid);
                     var map=Owned(mid);
                     UniqueWorldDirectory(map);
                     Stopped(map);
@@ -576,12 +581,15 @@ public sealed class DesktopWorldBackupBridge
                         if(new FileInfo(world).Length>budget.MaxTotalBytes)
                             return Fail(id,"UM-BACKUP-RESOURCE-BYTE-LIMIT");
                     }
-                    pending=new(Guid.NewGuid(),map.Id,point,map.InstallationPath,
-                        map.Arguments,DateTimeOffset.UtcNow.AddMinutes(5),
+                    if(pendingByMap.Count>=25)pendingByMap.Clear();
+                    var approved=new Ticket(Guid.NewGuid(),map.Id,point,
+                        map.InstallationPath,map.Arguments,
+                        DateTimeOffset.UtcNow.AddMinutes(5),
                         method=="backup.restorePreview",
                         budget.MaxFiles,budget.MaxTotalBytes,budget.Customized);
+                    pendingByMap[map.Id]=approved;
                     return Ok(id,new{
-                        token=pending.Token,mapId=map.Id,mapName=map.Name,
+                        token=approved.Token,mapId=map.Id,mapName=map.Name,
                         mapKey=key,point=string.IsNullOrEmpty(point)?null:point,
                         confirmedStopped=true,
                         maxFilesPerMap=budget.MaxFiles,
@@ -602,9 +610,10 @@ public sealed class DesktopWorldBackupBridge
                    !Guid.TryParse(tokenRaw.GetString(),out var token)||
                    !root.TryGetProperty("confirm",out var confirmed)||
                    confirmed.ValueKind!=JsonValueKind.True||
-                   pending==null||pending.Token!=token)
+                   !pendingByMap.Values.Any(p=>p.Token==token))
                     return Fail(id,"UM-BACKUP-EXPLICIT-APPROVAL-REQUIRED");
-                Ticket ticket=pending;pending=null;
+                Ticket ticket=pendingByMap.Values.Single(p=>p.Token==token);
+                pendingByMap.Remove(ticket.MapId); // one shot, including failures
                 if(ticket.Until<DateTimeOffset.UtcNow ||
                    ticket.Restore!=(method=="backup.restore"))
                     return Fail(id,"UM-BACKUP-PREVIEW-EXPIRED");
