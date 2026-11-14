@@ -1,4 +1,4 @@
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {AlertTriangle,CheckCircle2,HardDrive,RefreshCw,Shield} from "lucide-react";
 import {managerBridge,type PublicMap,type StoppedSteamPreview,type StoppedSteamStatus,type DurableSteamQueue,type StoppedSteamDiagnostics,type SteamPublishedBuild} from "./bridge";
 import {ScheduledStoppedSteamSettings} from "./ScheduledStoppedSteamSettings";
@@ -14,101 +14,164 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
   const [approved,setApproved]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
+  const [reconnecting,setReconnecting]=useState(true);
+  const [reconnectFailed,setReconnectFailed]=useState(false);
+  const [reconnectNonce,setReconnectNonce]=useState(0);
+  const mapRef=useRef("");
+  const mapEpoch=useRef(0);
   // A map page locks selection to its own locally registered map. Never
   // silently fall back to a different map if the ID disappeared.
   const mapId=fixedMapId!==undefined
     ?(maps.some(m=>m.id===fixedMapId)?fixedMapId:"")
     :(maps.some(m=>m.id===selected)?selected:(maps[0]?.id??""));
 
-  useEffect(()=>{setPreview(null);setDiagnostics(null);setPublished(null);
-    setApproved(false);},[mapId]);
+  mapRef.current=mapId;
+  const belongs=(requested:string,epoch:number)=>
+    mapRef.current===requested&&mapEpoch.current===epoch;
+  useEffect(()=>{
+    ++mapEpoch.current;
+    setPreview(null);setDiagnostics(null);setPublished(null);setApproved(false);
+  },[mapId]);
   useEffect(()=>{
     let active=true;
+    setReconnecting(true);setReconnectFailed(false);
     managerBridge.steamStoppedCurrent()
       .then(value=>{
         if(!active)return;
+        if(value.autoResumeAllowed)
+          throw new Error("UM-STEAM-AUTOMATIC-RESUME-UNEXPECTED");
         setJournal(value);
-        // Reattach to a verified in-memory native job after WebView2/UI
-        // navigation or renderer reload. Never re-dispatch SteamCMD here.
-        if(value.activeJob && (value.activeJob.state==="queued"||
-           value.activeJob.state==="running")){
-          setJob(value.activeJob);
-          setJobId(value.activeJob.jobId);
+        // Reattach read-only to the ONE previously accepted native job.
+        // WebView2 remount is not a new SteamCMD approval.
+        if(value.activeJob&&
+           (value.activeJob.state==="queued"||value.activeJob.state==="running")){
+          if(!value.activeJob.jobId||value.activeJob.restartPerformed||
+             value.activeJob.storeTouched)
+            throw new Error("UM-STEAM-CURRENT-INVALID-JOB");
+          setJob(value.activeJob);setJobId(value.activeJob.jobId);
         }
       })
-      .catch(()=>{/* Older isolated UI fixtures may lack the journal endpoint. */});
+      .catch(()=>{
+        if(active){
+          setReconnectFailed(true);
+          setError("A futó kézi SteamCMD művelet állapota nem olvasható. Új frissítés előtt ellenőrizd a natív naplót.");
+        }
+      }).finally(()=>{if(active)setReconnecting(false);});
     return ()=>{active=false;};
-  },[]);
+  },[reconnectNonce]);
   useEffect(()=>{
     if(!jobId)return;
-    let active=true;
-  const check=async()=>{
+    let active=true,inFlight=false;
+    const check=async()=>{
+      if(!active||inFlight)return;
+      inFlight=true;
       try{
         const status=await managerBridge.steamStoppedStatus(jobId);
         if(!active)return;
-        setJob(status);
+        if(status.jobId!==jobId||status.restartPerformed||status.storeTouched||
+           (status.state==="completed"&&!status.protectedFilesIntact))
+          throw new Error("UM-STEAM-STATUS-RECEIPT-INVALID");
+        setError("");setJob(status);
         if(status.state==="completed"||status.state==="needsOperator"){
           setJobId(null);
-          managerBridge.steamStoppedCurrent().then(setJournal).catch(()=>{});
+          managerBridge.steamStoppedCurrent().then(value=>{
+            if(active)setJournal(value);
+          }).catch(()=>{
+            if(active)setError("A frissítés eredménye megmaradt, de a műveleti napló újraolvasása sikertelen.");
+          });
         }
       }catch{
         if(active){
-          setError("A helyi frissítési folyamat státusza megszakadt. A SteamCMD újraindítása előtt ellenőrizd a natív naplót.");
-          setJobId(null);
+          // A missing response does not mean the native SteamCMD child
+          // finished. Retain the job ID and poll again; no second update.
+          setError("A helyi SteamCMD feladat állapota átmenetileg nem ellenőrizhető. Az elindított frissítést nem ismételjük meg.");
         }
-      }
+      }finally{inFlight=false;}
     };
     void check();
     const timer=window.setInterval(()=>{void check();},2500);
     return ()=>{active=false;window.clearInterval(timer);};
   },[jobId]);
 
+  const blocked=busy||!!jobId||reconnecting||reconnectFailed||
+    Boolean(journal?.needsOperatorReview);
   const checkPublished=async()=>{
-    if(!mapId||busy||jobId||journal?.needsOperatorReview)return;
+    if(!mapId||blocked)return;
+    const requested=mapId,epoch=mapEpoch.current;
     setBusy(true);setPublished(null);setError("");
-    try{setPublished(await managerBridge.steamPublishedBuild(mapId));}
-    catch(e){setError("A Steam nyilvános ASA buildjét nem sikerült hitelesen lekérdezni ("+
-      (e instanceof Error?e.message:"UM-STEAM-PUBLISHED-UNAVAILABLE")+
-      "). Ettől még nem indul frissítés.");}
-    finally{setBusy(false);}
+    try{
+      const proof=await managerBridge.steamPublishedBuild(requested);
+      if(!belongs(requested,epoch))return;
+      if(proof.mapId.toLowerCase()!==requested.toLowerCase()||
+         proof.downloadStarted||proof.serverStopped||proof.storeWriterTouched||
+         proof.remoteHostTouched)
+        throw new Error("UM-STEAM-PUBLISHED-MAP-MISMATCH");
+      setPublished(proof);
+    }catch(e){
+      if(belongs(requested,epoch))
+        setError("A Steam ASA buildje nem ellenőrizhető ("+
+          (e instanceof Error?e.message:"UM-STEAM-PUBLISHED-UNAVAILABLE")+
+          "). Nem indítottunk frissítést.");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const check=async()=>{
-    if(!mapId||busy||jobId||journal?.needsOperatorReview)return;
+    if(!mapId||blocked)return;
+    const requested=mapId,epoch=mapEpoch.current;
     setBusy(true);setPreview(null);setApproved(false);setError("");
     try{
-      const report=await managerBridge.steamStoppedDiagnostics(mapId);
+      const report=await managerBridge.steamStoppedDiagnostics(requested);
+      if(!belongs(requested,epoch))return;
+      if(report.mapId.toLowerCase()!==requested.toLowerCase()||
+         report.noProcessAutoStop!==true||report.remoteWrites!==false)
+        throw new Error("UM-STEAM-DIAGNOSTICS-OTHER-MAP");
       setDiagnostics(report);
       if(!report.canPreview){
-        setError("A frissítési előfeltételek nem teljesülnek. Az alábbi diagnosztika "+
-          "pontosan jelzi a blokkoló mapot, SteamCMD-t, tárhelyet vagy naplót.");
+        setError("A frissítési előfeltételek nem teljesülnek. A diagnosztika jelzi a blokkoló mapot, SteamCMD-t, tárhelyet vagy naplót.");
         return;
       }
-      setPreview(await managerBridge.steamStoppedPreview(mapId));
-    }catch(e){setError("Az előellenőrzés nem sikerült ("+
-      (e instanceof Error?e.message:"nem olvasható")+
-      "). A natív SteamCMD/ASA napló további ellenőrzése szükséges.");}
-    finally{setBusy(false);}
+      const proof=await managerBridge.steamStoppedPreview(requested);
+      if(!belongs(requested,epoch))return;
+      if(proof.mapId.toLowerCase()!==requested.toLowerCase())
+        throw new Error("UM-STEAM-PREVIEW-OTHER-MAP");
+      setPreview(proof);
+    }catch(e){
+      if(belongs(requested,epoch))
+        setError("A kézi SteamCMD előellenőrzés nem igazolható ("+
+          (e instanceof Error?e.message:"nem olvasható")+").");
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
   const update=async()=>{
-    if(!preview||!approved||busy||jobId)return;
-    const token=preview.token;
+    if(!preview||preview.mapId.toLowerCase()!==mapId.toLowerCase()||
+       !approved||blocked)return;
+    const token=preview.token,requested=mapId,epoch=mapEpoch.current;
     setPreview(null);setApproved(false);setBusy(true);setError("");
     try{
       const started=await managerBridge.steamStoppedApply(token);
+      if(!belongs(requested,epoch))return;
+      if(!started.started||!started.jobId||started.restartPerformed||
+         started.remoteHostTouched)
+        throw new Error("UM-STEAM-START-RECEIPT-INVALID");
       setJob({
         jobId:started.jobId,state:"queued",stage:"preflight",
         changedUtc:new Date().toISOString(),oldBuild:"",newBuild:"",
         protectedFilesIntact:false,restartPerformed:false,storeTouched:false
       });
       setJobId(started.jobId);
-    }catch{setError("A SteamCMD frissítés nem indult el. Ellenőrizd a map és a helyi folyamat állapotát.");}
-    finally{setBusy(false);}
+    }catch{
+      if(belongs(requested,epoch)){
+        setReconnectFailed(true);
+        setError("A SteamCMD frissítés indításának eredménye nem igazolható. A natív frissítő már elindulhatott; ne ismételd meg. Ellenőrizd a feladatot.");
+      }
+    }finally{if(belongs(requested,epoch))setBusy(false);}
   };
 
   return <section className="premium-panel" aria-label="Leállított map SteamCMD-frissítése" style={{padding:20,marginBlock:18}}>
     <header className="premium-panel-heading">
       <h2><HardDrive size={19}/> Valódi SteamCMD-frissítés – leállított mapok</h2>
     </header>
+    {reconnecting&&<p role="status" className="muted small">Korábbi kézi SteamCMD-feladat ellenőrzése…</p>}
+    {reconnectFailed&&<button type="button" className="secondary"
+      onClick={()=>setReconnectNonce(n=>n+1)}>SteamCMD művelet újraellenőrzése</button>}
     <p>A meglévő C# Core készít védőmentést, ellenőrzi a fájlokat és gépenként sorban frissít. A másik gazdagép teljesen független. Az előellenőrzés a helyi buildet és a biztonságos frissítés feltételeit ellenőrzi; önmagában nem igazolja, hogy újabb Steam build jelent meg.</p>
     <div className="uk-rcon-admin-grid">
       {fixedMapId!==undefined
@@ -119,9 +182,9 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
             {maps.map(map=><option key={map.id} value={map.id}>{map.name}</option>)}
           </select>
         </label>}
-      <button type="button" className="secondary" disabled={!mapId||busy||!!jobId||Boolean(journal?.needsOperatorReview)}
+      <button type="button" className="secondary" disabled={!mapId||blocked}
         onClick={()=>{void checkPublished();}}><RefreshCw size={16}/> Elérhető ASA verzió ellenőrzése</button>
-      <button type="button" className="secondary" disabled={!mapId||busy||!!jobId||Boolean(journal?.needsOperatorReview)}
+      <button type="button" className="secondary" disabled={!mapId||blocked}
         onClick={()=>{void check();}}><RefreshCw size={16}/> Frissítés előellenőrzése</button>
     </div>
     {published&&<div className="historical-preview" role="region"
@@ -174,7 +237,7 @@ export function StoppedSteamUpdate({maps,fixedMapId}:{maps:PublicMap[];fixedMapI
       <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/>
         Megerősítem, hogy a kiválasztott és a közös telepítést használó mapok leállítva maradnak.</label>
       <div className="uk-rcon-admin-actions">
-        <button type="button" className="primary" disabled={!approved||busy}
+        <button type="button" className="primary" disabled={!approved||blocked||preview.mapId.toLowerCase()!==mapId.toLowerCase()}
           onClick={()=>{void update();}}>Valódi frissítés indítása</button>
         <button type="button" className="secondary" disabled={busy}
           onClick={()=>setPreview(null)}>Mégsem</button>
