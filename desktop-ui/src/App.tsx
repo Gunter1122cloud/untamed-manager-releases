@@ -19,6 +19,7 @@ import { InitialMapSetup } from "./InitialMapSetup";
 import { FreshStoreEnrollmentPanel } from "./FreshStoreEnrollmentPanel";
 import { FreshStoreLoaderModePanel } from "./FreshStoreLoaderModePanel";
 import { AsaApiLaunchModeSwitch } from "./AsaApiLaunchModeSwitch";
+import { AsaApiCoreInstaller } from "./AsaApiCoreInstaller";
 import { HistoricalStoreImport } from "./HistoricalStoreImport";
 import { HistoricalRconAttach } from "./HistoricalRconAttach";
 import { HistoricalActiveStartPanel } from "./HistoricalActiveStartPanel";
@@ -1022,6 +1023,20 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
     </div>
     {owned&&<AsaApiLaunchModeSwitch key={selected} map={owned}
         onSaved={onLaunchModeSaved}/>}
+    {owned&&!owned.storeProtected&&!owned.freshStoreEnrolled&&
+      !owned.observedReadOnlyImported&&<AsaApiCoreInstaller key={selected}
+        mapId={selected} onInstalled={()=>{
+          // The CORE binaries are separate from manually copied plugins.
+          // Refresh only read-only native inventory; never trigger a restart.
+          setRevision(n=>n+1);
+          void onLaunchModeSaved?.().catch(()=>{});
+        }}/>}
+    {owned&&(owned.storeProtected||owned.freshStoreEnrolled||
+      owned.observedReadOnlyImported)&&<div className="warning-inline" role="status">
+      <Shield size={17}/> ASA API CORE binárisfrissítés ezen a mapon nem
+      támogatott a jelenlegi védett telepítési útvonalon. A pluginmappa
+      kézi megnyitása és a meglévő Loader-indítási mód külön működik.
+    </div>}
     <Panel className="premium-plugin-inventory"
       title={info?"Helyi pluginfájlok · "+info.mapName:"Helyi pluginfájlok"}>
       <div className="ini-actions">
