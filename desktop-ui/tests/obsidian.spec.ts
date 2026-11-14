@@ -2977,13 +2977,13 @@ test.beforeEach(async ({ page }) => {
         case "steam.stoppedCurrent": return new URLSearchParams(window.location.search)
           .get("fixture")==="steamReattach"?{
             exists:false,needsOperatorReview:false,autoResumeAllowed:false,
-            activeJob:{jobId:"00000000-0000-4000-8000-000000007777",
+            activeJob:{jobId:"00000000-0000-4000-8000-000000007777",mapId:two,
               state:"running",stage:"steamcmd",changedUtc:"2026-11-10T08:40:00Z",
               oldBuild:"123456",newBuild:"",protectedFilesIntact:false,
               restartPerformed:false,storeTouched:false}
           }:steamUpdateStarted&&singleSteamHeld?{
             exists:false,needsOperatorReview:false,autoResumeAllowed:false,
-            activeJob:{jobId:"00000000-0000-4000-8000-000000007777",
+            activeJob:{jobId:"00000000-0000-4000-8000-000000007777",mapId:two,
               state:"running",stage:"steamcmd",
               changedUtc:"2026-11-10T08:40:00Z",
               oldBuild:"123456",newBuild:"",protectedFilesIntact:false,
@@ -3002,11 +3002,11 @@ test.beforeEach(async ({ page }) => {
             throw new Error("UM-SYNTHETIC-SINGLE-STEAM-STATUS-LOST");
           }
           if(new URLSearchParams(window.location.search).get("fixture")==="steamReattach")
-            return {jobId:"00000000-0000-4000-8000-000000007777",
+            return {jobId:"00000000-0000-4000-8000-000000007777",mapId:two,
               state:"completed",stage:"verified",changedUtc:"2026-11-10T08:42:00Z",
               oldBuild:"123456",newBuild:"123457",protectedFilesIntact:true,
               restartPerformed:false,storeTouched:false};
-          return {jobId:"00000000-0000-4000-8000-000000007777",
+          return {jobId:"00000000-0000-4000-8000-000000007777",mapId:two,
             state:singleSteamHeld?"running":steamUpdateStarted?"completed":"queued",
             stage:singleSteamHeld?"steamcmd":steamUpdateStarted?"verified":"preflight",
             changedUtc:"2026-11-06T10:00:00Z",
@@ -7251,6 +7251,17 @@ test("SteamCMD schedule is permanently disabled; only separately approved manual
   await expect(policy.getByRole("textbox")).toHaveCount(0);
   await expect(policy.getByRole("spinbutton")).toHaveCount(0);
   await expect(policy.getByRole("button")).toHaveCount(0);
+});
+
+test("one ASA map never displays or restarts a different map's SteamCMD job",async({page})=>{
+  await page.goto("/?fixture=steamReattach");
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").first().click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await expect(panel).toContainText("Másik helyi map SteamCMD-frissítése folyamatban van");
+  await expect(panel.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await expect(panel).not.toContainText("Frissítés: completed");
 });
 
 test("SteamCMD monitor reattaches to existing native job after WebView2 reload without another Steam update",async({page})=>{

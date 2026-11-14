@@ -3454,6 +3454,26 @@ try
         IsOk(proposed,"stopped-map SteamCMD update preflight is functional");
         Check(executions==0,"SteamCMD preview has no launch side effect");
         string token=proposed.GetProperty("data").GetProperty("token").GetString()!;
+        // A second locally registered map sharing the ASA installation
+        // may be inspected without invalidating the first map's consent.
+        // Execution remains one SteamCMD at a time per host.
+        var siblingSteamMap=new LocalMap{
+            Name="Second stopped SteamCMD map",
+            InstallationPath=target.InstallationPath,
+            ExecutablePath=target.ExecutablePath
+        };
+        cluster.AddMap(siblingSteamMap);
+        try
+        {
+            var siblingPreview=await Call(updater.HandleAsync,"steam.stoppedPreview",
+                new{mapId=siblingSteamMap.Id});
+            IsOk(siblingPreview,"separate stopped map receives an independent update preview");
+            Check(siblingPreview.GetProperty("data").GetProperty("token").GetString()!=token &&
+                  siblingPreview.GetProperty("data").GetProperty("mapId").GetGuid()==siblingSteamMap.Id &&
+                  executions==0,
+                "previewing a sibling never replaces the first map's SteamCMD approval");
+        }
+        finally{cluster.RemoveMap(siblingSteamMap.Id);}
         var refused=await Call(updater.HandleAsync,"steam.stoppedApply",
             new{token,confirm=false});
         Check(IsError(refused,"UM-STEAM-CONFIRMATION-REQUIRED") && executions==0,
@@ -3469,6 +3489,7 @@ try
         var resume=observedWhileRunning.GetProperty("data");
         Check(!resume.GetProperty("exists").GetBoolean() &&
               resume.GetProperty("activeJob").GetProperty("jobId").GetString()==job &&
+              resume.GetProperty("activeJob").GetProperty("mapId").GetGuid()==target.Id &&
               resume.GetProperty("activeJob").GetProperty("state").GetString()=="running" &&
               !resume.GetProperty("autoResumeAllowed").GetBoolean() && executions==1,
             "current-status exposes only the existing active Steam job and never restarts it");
