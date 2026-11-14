@@ -224,6 +224,17 @@ test.beforeEach(async ({ page }) => {
     let pluginZipInstalled = false;
     let apiCoreRolledBack = false;
     let steamUpdateStarted = false;
+    let singleSteamHeld=false;
+    let singleSteamStatusFailsOnce=false;
+    let singleSteamApplies=0;
+    (window as typeof window & {__UNTAMED_HOLD_SINGLE_STEAM__?:()=>void})
+      .__UNTAMED_HOLD_SINGLE_STEAM__=()=>{singleSteamHeld=true;};
+    (window as typeof window & {__UNTAMED_RELEASE_SINGLE_STEAM__?:()=>void})
+      .__UNTAMED_RELEASE_SINGLE_STEAM__=()=>{singleSteamHeld=false;};
+    (window as typeof window & {__UNTAMED_SINGLE_STEAM_STATUS_FAIL__?:()=>void})
+      .__UNTAMED_SINGLE_STEAM_STATUS_FAIL__=()=>{singleSteamStatusFailsOnce=true;};
+    (window as typeof window & {__UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number})
+      .__UNTAMED_SINGLE_STEAM_APPLIES__=()=>singleSteamApplies;
     let steamBatchApplyCount=0;
     let steamBatchStarted=false;
     let steamBatchHeld=false;
@@ -2959,7 +2970,7 @@ test.beforeEach(async ({ page }) => {
         };
         case "steam.stoppedApply":
           if(!m.confirm)throw new Error("Approval required");
-          steamUpdateStarted=true;
+          steamUpdateStarted=true;singleSteamApplies++;
           return {jobId:"00000000-0000-4000-8000-000000007777",started:true,
             restartPerformed:false,remoteHostTouched:false,
             evidence:"REAL_LOCAL_STOPPED_STEAM_UPDATE_STARTED"};
@@ -2968,6 +2979,13 @@ test.beforeEach(async ({ page }) => {
             exists:false,needsOperatorReview:false,autoResumeAllowed:false,
             activeJob:{jobId:"00000000-0000-4000-8000-000000007777",
               state:"running",stage:"steamcmd",changedUtc:"2026-11-10T08:40:00Z",
+              oldBuild:"123456",newBuild:"",protectedFilesIntact:false,
+              restartPerformed:false,storeTouched:false}
+          }:steamUpdateStarted&&singleSteamHeld?{
+            exists:false,needsOperatorReview:false,autoResumeAllowed:false,
+            activeJob:{jobId:"00000000-0000-4000-8000-000000007777",
+              state:"running",stage:"steamcmd",
+              changedUtc:"2026-11-10T08:40:00Z",
               oldBuild:"123456",newBuild:"",protectedFilesIntact:false,
               restartPerformed:false,storeTouched:false}
           }:steamInterrupted?{
@@ -2979,17 +2997,21 @@ test.beforeEach(async ({ page }) => {
           evidence:"DURABLE_MACHINE_LOCAL_STEAM_QUEUE_JOURNAL"
         }:{exists:false,needsOperatorReview:false,autoResumeAllowed:false};
         case "steam.stoppedStatus":
+          if(singleSteamStatusFailsOnce){
+            singleSteamStatusFailsOnce=false;
+            throw new Error("UM-SYNTHETIC-SINGLE-STEAM-STATUS-LOST");
+          }
           if(new URLSearchParams(window.location.search).get("fixture")==="steamReattach")
             return {jobId:"00000000-0000-4000-8000-000000007777",
               state:"completed",stage:"verified",changedUtc:"2026-11-10T08:42:00Z",
               oldBuild:"123456",newBuild:"123457",protectedFilesIntact:true,
               restartPerformed:false,storeTouched:false};
           return {jobId:"00000000-0000-4000-8000-000000007777",
-            state:steamUpdateStarted?"completed":"queued",
-            stage:steamUpdateStarted?"verified":"preflight",
+            state:singleSteamHeld?"running":steamUpdateStarted?"completed":"queued",
+            stage:singleSteamHeld?"steamcmd":steamUpdateStarted?"verified":"preflight",
             changedUtc:"2026-11-06T10:00:00Z",
             oldBuild:"123456",newBuild:"123457",
-            protectedFilesIntact:steamUpdateStarted,
+            protectedFilesIntact:steamUpdateStarted&&!singleSteamHeld,
             restartPerformed:false,storeTouched:false};
         case "plugins.state": return {
           mapId:m.mapId,mapName:"The Island",historicalProtected:false,
@@ -6028,6 +6050,40 @@ test("SteamCMD install shows exact overlapping map and offers existing ASA impor
   await page.getByRole("button",{name:"Már telepített ASA-könyvtár importálása"}).click();
   await expect(page.getByText(/Meglévő ASA/).first()).toBeVisible();
 });
+test("manual single-map SteamCMD job reattaches through status loss and map page navigation with no second update",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_HOLD_SINGLE_STEAM__?:()=>void
+  }).__UNTAMED_HOLD_SINGLE_STEAM__?.());
+  await page.getByRole("button",{name:"Szerverek",exact:true}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const panel=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await panel.getByRole("button",{name:"Frissítés előellenőrzése"}).click();
+  const consent=panel.getByRole("region",{name:"SteamCMD frissítés jóváhagyása"});
+  await consent.getByRole("checkbox").check();
+  await consent.getByRole("button",{name:"Valódi frissítés indítása"}).click();
+  await expect(panel).toContainText("Frissítés: running");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SINGLE_STEAM_STATUS_FAIL__?:()=>void
+  }).__UNTAMED_SINGLE_STEAM_STATUS_FAIL__?.());
+  await expect(panel).toContainText("állapota átmenetileg nem ellenőrizhető",{timeout:15000});
+  await expect(panel.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await page.getByRole("button",{name:"Vissza a szerverlistához"}).click();
+  await page.locator(".premium-map-line.is-local").nth(1).click();
+  await page.getByRole("tab",{name:"Frissítés"}).click();
+  const resumed=page.getByRole("region",{name:"Leállított map SteamCMD-frissítése"});
+  await expect(resumed).toContainText("Frissítés: running");
+  await expect(resumed.getByRole("button",{name:"Frissítés előellenőrzése"})).toBeDisabled();
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_RELEASE_SINGLE_STEAM__?:()=>void
+  }).__UNTAMED_RELEASE_SINGLE_STEAM__?.());
+  await expect(resumed).toContainText("Frissítés: completed",{timeout:15000});
+  expect(await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_SINGLE_STEAM_APPLIES__?:()=>number
+  }).__UNTAMED_SINGLE_STEAM_APPLIES__?.())).toBe(1);
+});
+
 test("stopped SteamCMD update displays exact local process and reserve evidence",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Szerverek",exact:true}).click();
