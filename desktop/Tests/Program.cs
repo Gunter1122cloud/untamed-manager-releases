@@ -1837,6 +1837,27 @@ try
               !creation.GetProperty("data").GetProperty("createsFile").GetBoolean(),
             "creation preview leaves installation untouched");
         string creationToken=creation.GetProperty("data").GetProperty("token").GetString()!;
+        // A second new ASA map has its OWN installation and Game.ini. Its
+        // preview must not revoke the first map's one-shot creation approval.
+        string secondIniRoot=Path.Combine(root,"second-gameini-synthetic");
+        string secondIniExe=Path.Combine(secondIniRoot,"ShooterGame",
+            "Binaries","Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondIniExe)!);
+        File.WriteAllText(secondIniExe,"synthetic second ASA EXE never executed");
+        var secondIniMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="INI second synthetic",
+            InstallationPath=secondIniRoot,ExecutablePath=secondIniExe,
+            Arguments="TheCenter_WP?listen"
+        };
+        cluster.AddMap(secondIniMap);
+        var secondCreation=await Call(ini.HandleAsync,"ini.createGamePreview",
+            new{mapId=secondIniMap.Id});
+        IsOk(secondCreation,
+            "independent second local ASA has separately scoped Game.ini preview");
+        string secondCreationToken=secondCreation.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(secondCreationToken!=creationToken,
+            "multi-map Game.ini approvals never share a token");
         var declinedCreate=await Call(ini.HandleAsync,"ini.createGameApply",
             new{token=creationToken,confirm=false});
         Check(IsError(declinedCreate,"UM-INI-CREATE-EXPLICIT-APPROVAL") &&
@@ -1845,6 +1866,20 @@ try
         var createdGame=await Call(ini.HandleAsync,"ini.createGameApply",
             new{token=creationToken,confirm=true});
         IsOk(createdGame,"approved fresh Game.ini created using atomic CreateNew");
+        var secondCreated=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=secondCreationToken,confirm=true});
+        IsOk(secondCreated,
+            "second Game.ini create survives first map's approved filesystem write");
+        string secondCreatedIni=Path.Combine(secondIniRoot,
+            "ShooterGame","Saved","Config","WindowsServer","Game.ini");
+        Check(File.Exists(secondCreatedIni)&&
+              File.ReadAllText(secondCreatedIni)
+                  .Contains("ShooterGameMode",StringComparison.Ordinal),
+            "second ASA receives only its own independent Game.ini");
+        var replaySecond=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=secondCreationToken,confirm=true});
+        Check(IsError(replaySecond,"UM-INI-CREATE-EXPLICIT-APPROVAL"),
+            "second-map Game.ini approval cannot be replayed after creation");
         Check(createdGame.GetProperty("data").GetProperty("created").GetBoolean() &&
               File.ReadAllText(iniFile).Contains("ShooterGameMode",StringComparison.Ordinal),
             "native Game.ini creation really writes a valid UTF-8 starter section");
@@ -1862,6 +1897,7 @@ try
         var reopened=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
         IsOk(reopened,"newly created Game.ini opens in the original ETag editor");
+        cluster.RemoveMap(secondIniMap.Id);
         if(!hadServerExe)File.Delete(map.ExecutablePath);
     }
 
