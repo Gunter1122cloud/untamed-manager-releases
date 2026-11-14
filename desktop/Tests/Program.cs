@@ -1591,6 +1591,25 @@ try
               !creation.GetProperty("data").GetProperty("createsFile").GetBoolean(),
             "creation preview leaves installation untouched");
         string creationToken=creation.GetProperty("data").GetProperty("token").GetString()!;
+        string anotherIniRoot=Path.Combine(root,"separate-gameini-map");
+        string anotherIniExe=Path.Combine(anotherIniRoot,"ShooterGame","Binaries",
+            "Win64","ArkAscendedServer.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(anotherIniExe)!);
+        File.WriteAllBytes(anotherIniExe,new byte[]{77,90,0,1});
+        var anotherIniMap=new LocalMap{
+            Id=Guid.NewGuid(),Name="Second INI-only test map",
+            InstallationPath=anotherIniRoot,
+            ExecutablePath=anotherIniExe,Arguments="TheCenter_WP?listen"
+        };
+        cluster.AddMap(anotherIniMap);
+        var anotherIniPreview=await Call(ini.HandleAsync,
+            "ini.createGamePreview",new{mapId=anotherIniMap.Id});
+        IsOk(anotherIniPreview,
+            "two local Game.ini creation wizards can retain separate previews");
+        string anotherIniToken=anotherIniPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(creationToken!=anotherIniToken,
+            "two pending INI approvals are distinct per ASA map");
         var declinedCreate=await Call(ini.HandleAsync,"ini.createGameApply",
             new{token=creationToken,confirm=false});
         Check(IsError(declinedCreate,"UM-INI-CREATE-EXPLICIT-APPROVAL") &&
@@ -1599,6 +1618,20 @@ try
         var createdGame=await Call(ini.HandleAsync,"ini.createGameApply",
             new{token=creationToken,confirm=true});
         IsOk(createdGame,"approved fresh Game.ini created using atomic CreateNew");
+        var secondIniCreated=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=anotherIniToken,confirm=true});
+        IsOk(secondIniCreated,
+            "second map Game.ini approval survives first map's file creation");
+        string secondIniFile=Path.Combine(anotherIniRoot,"ShooterGame","Saved",
+            "Config","WindowsServer","Game.ini");
+        Check(File.Exists(secondIniFile)&&File.Exists(iniFile)&&
+              File.ReadAllText(secondIniFile).Contains("ShooterGameMode",
+                  StringComparison.Ordinal),
+            "two distinct Game.ini paths are created without crossing installations");
+        var secondIniReplay=await Call(ini.HandleAsync,"ini.createGameApply",
+            new{token=anotherIniToken,confirm=true});
+        Check(IsError(secondIniReplay,"UM-INI-CREATE-EXPLICIT-APPROVAL"),
+            "consumed second-map INI token cannot replay");
         Check(createdGame.GetProperty("data").GetProperty("created").GetBoolean() &&
               File.ReadAllText(iniFile).Contains("ShooterGameMode",StringComparison.Ordinal),
             "native Game.ini creation really writes a valid UTF-8 starter section");
@@ -1616,6 +1649,7 @@ try
         var reopened=await Call(ini.HandleAsync,"ini.open",
             new{mapId=map.Id,file="Game.ini"});
         IsOk(reopened,"newly created Game.ini opens in the original ETag editor");
+        cluster.RemoveMap(anotherIniMap.Id);
         if(!hadServerExe)File.Delete(map.ExecutablePath);
     }
 
@@ -2258,6 +2292,19 @@ try
         Check(!File.Exists(iniPath) && !preview.GetRawText().Contains(secret),
             "RCON preview leaves disk untouched and hides credential");
         string token=preview.GetProperty("data").GetProperty("token").GetString()!;
+        var customRcon=cluster.Config.LocalMaps.Single(x=>
+            x.Name=="Custom Atlantis Community");
+        int anotherRconPort=FindFreeTestPort(false,
+            testGamePort,testQueryPort,testRconPort,otherTestRconPort);
+        var anotherRconPreview=await Call(rconSetup.HandleAsync,
+            "rcon.configPreview",new{mapId=customRcon.Id,
+                rconPort=anotherRconPort,password=secret,createIni=true});
+        IsOk(anotherRconPreview,
+            "second local map RCON setup cannot revoke Valguero's pending approval");
+        string anotherRconToken=anotherRconPreview.GetProperty("data")
+            .GetProperty("token").GetString()!;
+        Check(token!=anotherRconToken,
+            "RCON approvals are distinct for independent ASA installations");
         var declined=await Call(rconSetup.HandleAsync,"rcon.configApply",
             new{token,confirm=false});
         Check(IsError(declined,"UM-RCON-CONFIG-CONFIRMATION") &&
@@ -2265,6 +2312,19 @@ try
         var configured=await Call(rconSetup.HandleAsync,"rcon.configApply",
             new{token,confirm=true});
         IsOk(configured,"native RCON bootstrap creates ASA INI and stores DPAPI credential");
+        var anotherConfigured=await Call(rconSetup.HandleAsync,
+            "rcon.configApply",new{token=anotherRconToken,confirm=true});
+        IsOk(anotherConfigured,
+            "second map RCON setup survives Valguero's independent commit");
+        Check(cluster.Config.LocalMaps.Single(m=>m.Id==customRcon.Id).RconPort==
+                anotherRconPort&&
+              File.Exists(AsaInitialRconSettings.NewIniPath(
+                  customRcon.InstallationPath)),
+            "second ASA RCON wizard only edits its own installation and Manager profile");
+        var secondRconReplay=await Call(rconSetup.HandleAsync,
+            "rcon.configApply",new{token=anotherRconToken,confirm=true});
+        Check(IsError(secondRconReplay,"UM-RCON-CONFIG-TOKEN-EXPIRED"),
+            "second-map RCON approval cannot be reused");
         var afterSetupStatus=await Call(rconSetup.HandleAsync,"rcon.configStatus",
             new{mapId=fresh.Id});
         Check(afterSetupStatus.GetProperty("data").GetProperty("rconPort").GetInt32()==testRconPort,
