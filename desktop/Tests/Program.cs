@@ -3352,6 +3352,7 @@ try
     {
         var target=cluster.Config.LocalMaps.Single(x=>x.Name=="Valguero");
         int executions=0;
+        IProgress<SteamMaintenanceStage>? delayedSteamProgress=null;
         // Hold the fake native runner at an observable in-progress boundary;
         // UI reattachment must never schedule a second update.
         var runnerEntered=new TaskCompletionSource<bool>(
@@ -3366,6 +3367,7 @@ try
                 10L*1024*1024*1024,20L*1024*1024*1024,true,"Synthetic plan"),
             async(m,progress)=>{
                 executions++;
+                delayedSteamProgress=progress;
                 progress.Report(SteamMaintenanceStage.Backup);
                 runnerEntered.TrySetResult(true);
                 await allowRunnerFinish.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -3518,6 +3520,22 @@ try
               result.GetProperty("data").GetProperty("protectedFilesIntact").GetBoolean() &&
               original.SequenceEqual(File.ReadAllBytes(target.ExecutablePath)),
             "SteamCMD update runs once and preserves fixture ASA executable");
+        Check(delayedSteamProgress!=null,
+            "synthetic native updater exposes progress for late callback regression");
+        // .NET Progress<T> may dispatch queued callbacks after the awaited
+        // native SteamCMD runner has already committed the success receipt.
+        delayedSteamProgress!.Report(SteamMaintenanceStage.Backup);
+        await Task.Delay(250);
+        var stableAfterLateProgress=await Call(updater.HandleAsync,
+            "steam.stoppedStatus",new{jobId=job});
+        IsOk(stableAfterLateProgress,
+            "verified SteamCMD receipt remains queryable after delayed progress");
+        var stableReceipt=stableAfterLateProgress.GetProperty("data");
+        Check(stableReceipt.GetProperty("state").GetString()=="completed" &&
+              stableReceipt.GetProperty("stage").GetString()=="verified" &&
+              stableReceipt.GetProperty("protectedFilesIntact").GetBoolean() &&
+              executions==1,
+            "late SteamCMD progress cannot revert completed job to running or discard verification");
         var missingSibling=await Call(updater.HandleAsync,"steam.stoppedApply",
             new{token=siblingToken,confirm=true});
         Check(IsError(missingSibling,"UM-STEAM-PREFLIGHT-CHANGED")&&executions==1,
