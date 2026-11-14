@@ -135,17 +135,17 @@ public sealed class DesktopRconAdminBridge
                     string command=BuildCommand(action,message);
                     var (map,identity)=RequireOwned(mapId);
                     if(pendingByMap.Count>=25)pendingByMap.Clear();
-                    var approval=new Pending(Guid.NewGuid(),map.Id,action,command,
+                    var draftApproval=new Pending(Guid.NewGuid(),map.Id,action,command,
                         identity.Pid,identity.StartedUtc,JsonSerializer.Serialize(map),
                         DateTimeOffset.UtcNow.AddMinutes(3));
-                    pendingByMap[map.Id]=approval;
+                    pendingByMap[map.Id]=draftApproval;
                     return Ok(id,new{
-                        token=approval.Token,mapId=map.Id,mapName=map.Name,
+                        token=draftApproval.Token,mapId=map.Id,mapName=map.Name,
                         action,command,requiresApproval=true,
                         dangerous=action is "wildWipe" or "custom",
                         approvalWord=action=="wildWipe"?"DINÓTÖRLÉS":
                                      action=="custom"?"ADMIN":null,
-                        expiresUtc=approval.Expires,
+                        expiresUtc=draftApproval.Expires,
                         dispatched=false,credentialExposed=false,
                         evidence="LOCAL_OS_VERIFIED_ADMIN_RCON_PREVIEW"
                     });
