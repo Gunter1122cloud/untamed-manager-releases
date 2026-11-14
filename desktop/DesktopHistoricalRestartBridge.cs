@@ -315,7 +315,8 @@ public sealed class DesktopHistoricalRestartBridge : IDisposable
                             Update(job,"running",
                                 "ASA API Loader elindult; ASA gyermek PID és RCON ellenőrzése");
                             bool verified=false;
-                            var limit=DateTimeOffset.UtcNow.AddMinutes(2);
+                            var limit=DateTimeOffset.UtcNow+
+                                FreshStoreApiPairObserver.StartupObservationWindow;
                             while(DateTimeOffset.UtcNow<limit)
                             {
                                 var observed=inspectFamily(original);
