@@ -156,6 +156,9 @@ public sealed class DesktopFreshAsaRestartBridge : IDisposable
     {
         lock(sync)
         {
+            // Progress callbacks may arrive after the durable Restart
+            // outcome. Never regress a terminal PID/recovery receipt.
+            if(item.State is "completed" or "needsOperator")return;
             item.State=state;item.Stage=stage;
             item.Changed=DateTimeOffset.UtcNow;
             if(newPid>0)item.NewPid=newPid;
