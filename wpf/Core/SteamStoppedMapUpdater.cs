@@ -157,9 +157,12 @@ public static class SteamStoppedMapUpdater
         ClusterService cluster,IReadOnlyList<LocalMap> candidates,
         string steamExecutable,long downloadReserveBytes,TimeSpan timeout,
         IProgress<SteamQueueProgress>? queueProgress=null,
-        IProgress<SteamMaintenanceStage>? stageProgress=null,CancellationToken ct=default) =>
+        IProgress<SteamMaintenanceStage>? stageProgress=null,CancellationToken ct=default,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserver=null,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null) =>
         BatchCore(cluster,candidates,steamExecutable,downloadReserveBytes,
-            timeout,null,queueProgress,stageProgress,ct);
+            timeout,null,queueProgress,stageProgress,ct,
+            originalStoppedObserver,originalStoppedObserverUnderLease);
 
     internal static Task<IReadOnlyList<Receipt>> RunAllFakeFixtureAsync(
         ClusterService cluster,IReadOnlyList<LocalMap> candidates,
@@ -178,7 +181,9 @@ public static class SteamStoppedMapUpdater
         ClusterService cluster,IReadOnlyList<LocalMap> candidates,
         string steamExecutable,long reserve,TimeSpan timeout,
         string? fakeExecutable,IProgress<SteamQueueProgress>? queueProgress,
-        IProgress<SteamMaintenanceStage>? stageProgress,CancellationToken ct)
+        IProgress<SteamMaintenanceStage>? stageProgress,CancellationToken ct,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserver=null,
+        Func<LocalMap,ProcessCheck>? originalStoppedObserverUnderLease=null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(candidates);
@@ -190,16 +195,29 @@ public static class SteamStoppedMapUpdater
         var selected=candidates.GroupBy(m=>Path.GetFullPath(m.InstallationPath)
             .TrimEnd(Path.DirectorySeparatorChar),StringComparer.OrdinalIgnoreCase)
             .Select(g=>g.First()).ToArray();
-        // Reject any Store owner or nested installation BEFORE writing the
-        // durable serial queue journal, not after marking work in progress.
+        // The original Store-v1 map uses the existing offline ASA update
+        // engine, but ONLY a trusted native Windows process-family observer
+        // may prove it stopped. Never infer control from peer status or a UI flag.
+        if(selected.Any(m=>m.HistoricalStoreProtected)&&
+           (originalStoppedObserver==null||originalStoppedObserverUnderLease==null))
+            throw new UnauthorizedAccessException(
+                "UM-STEAM-BATCH-ORIGINAL-STOPPED-OBSERVER-REQUIRED");
+        ProcessCheck ObserveStopped(LocalMap participant)=>participant.HistoricalStoreProtected?
+            originalStoppedObserver?.Invoke(participant)??
+                throw new UnauthorizedAccessException(
+                    "UM-STEAM-BATCH-ORIGINAL-STOPPED-OBSERVER-REQUIRED"):
+            cluster.Check(participant);
+        // Reject protected or mixed-owner installations before writing the
+        // durable queue journal, even if some siblings were not selected.
         foreach(var selectedMap in selected)
-            DemandSafeLocalInstallation(cluster,selectedMap);
+            DemandSafeLocalInstallation(cluster,selectedMap,originalStoppedObserver);
         var receipts=new List<Receipt>();
         var queue=new SteamSerialMaintenanceQueue(cluster.Store.Root,cluster.Config.LocalHostId);
-        await queue.ExecuteAsync(selected,cluster.Config.LocalMaps,cluster.Check,
+        await queue.ExecuteAsync(selected,cluster.Config.LocalMaps,ObserveStopped,
             async (map,token)=>{
                 var item=await RunCore(cluster,map,steamExecutable,reserve,
-                    timeout,fakeExecutable,stageProgress,true,token);
+                    timeout,fakeExecutable,stageProgress,true,token,
+                    originalStoppedObserver,originalStoppedObserverUnderLease);
                 receipts.Add(item);
             },queueProgress,ct);
         return receipts;

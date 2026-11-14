@@ -9,7 +9,8 @@ const pageSize=25;
 /**
  * Local host only. A selection may span arbitrarily many registered maps
  * across pages, but each explicit native batch admits at most 25 map IDs.
- * No running/uncertain/Store server can be stopped from this UI.
+ * No running or uncertain ASA server may be stopped from this UI.
+ * Original Store-v1 maps require a separate native stopped-family check.
  */
 export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
   const [selected,setSelected]=useState<string[]>([]);
@@ -24,7 +25,8 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const candidates=useMemo(()=>maps.filter(m=>
-    !m.storeProtected&&!m.freshStoreEnrolled&&!m.maintenance&&!m.running),
+    !m.freshStoreEnrolled&&!m.observedReadOnlyImported&&
+    !m.maintenance&&!m.running),
     [maps]);
   const filtered=useMemo(()=>candidates.filter(m=>
     !query.trim()||m.name.toLocaleLowerCase("hu-HU").includes(
@@ -120,7 +122,8 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
     <div className="panel-head"><h2>Helyi mapok soros SteamCMD frissítése</h2></div>
     <div className="panel-inner">
       <p className="muted small">Csak az ezen a Windows gépen regisztrált, bizonyítottan
-        leállított, nem Store-v1 mapok. Azonos ASA telepítés csak egyszer frissül,
+        leállított ASA mapok, köztük az átvett eredeti Store-v1 mapok.
+        Azonos ASA telepítés csak egyszer frissül,
         natív mentéssel és műveleti naplóval. Futó szervert sosem állít le;
         sikertelen vagy félbeszakadt műveletet nem ismétel automatikusan.</p>
       <label>Helyi célmapok keresése
@@ -195,7 +198,8 @@ export function StoppedSteamBatchPanel({maps}:{maps:PublicMap[]}) {
         <AlertTriangle size={16}/>{error}</div>}
       <div className="warning-inline"><Shield size={16}/>
         A távoli gazdagépek függetlenek: ezen a gépen csak helyi ASA telepítések
-        módosíthatók. A történeti eredeti Store-v1 mapok tiltva maradnak.</div>
+        módosíthatók. A Store-v1 mapokhoz ugyanaz a leállított állapot,
+        natív Windows folyamatazonosítás és kézi jóváhagyás szükséges.</div>
     </div>
   </section>;
 }
