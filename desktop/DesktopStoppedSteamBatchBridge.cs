@@ -35,6 +35,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     private readonly Func<IReadOnlyList<LocalMap>,IProgress<SteamQueueProgress>,
         Task<IReadOnlyList<SteamStoppedMapUpdater.Receipt>>> runBatch;
     private readonly Func<LocalMap,SteamUpdatePreview> plan;
+    private readonly Func<LocalMap,bool,ProcessCheck> observeOriginal;
     private readonly SemaphoreSlim gate=new(1,1);
     private readonly object sync=new();
     private const long Reserve=10L*1024*1024*1024;
@@ -45,9 +46,14 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
     public DesktopStoppedSteamBatchBridge(ClusterService owner,
         Func<IReadOnlyList<LocalMap>,IProgress<SteamQueueProgress>,
             Task<IReadOnlyList<SteamStoppedMapUpdater.Receipt>>>? isolatedRunner=null,
-        Func<LocalMap,SteamUpdatePreview>? isolatedPlanner=null)
+        Func<LocalMap,SteamUpdatePreview>? isolatedPlanner=null,
+        Func<LocalMap,bool,ProcessCheck>? isolatedOriginalObserver=null)
     {
         cluster=owner??throw new ArgumentNullException(nameof(owner));
+        // Production always uses the exact native stopped-family guard; an
+        // injected process fixture is not a route exposed to WebView2.
+        observeOriginal=isolatedOriginalObserver??((map,underOwnOperation)=>
+            HistoricalLocalConfigGuard.DemandStopped(cluster,map,underOwnOperation));
         runBatch=isolatedRunner??((maps,progress)=>
             SteamStoppedMapUpdater.UpdateAllStoppedAsync(cluster,maps,
                 cluster.Config.SteamCmdExecutable,Reserve,
@@ -63,8 +69,7 @@ public sealed class DesktopStoppedSteamBatchBridge : IDisposable
 
     private ProcessCheck ObserveForSteam(LocalMap map,bool underOwnOperation=false)=>
         map.HistoricalStoreProtected?
-            HistoricalLocalConfigGuard.DemandStopped(cluster,map,underOwnOperation):
-            cluster.Check(map);
+            observeOriginal(map,underOwnOperation):cluster.Check(map);
 
     private static string Ok(string? id,object data)=>
         JsonSerializer.Serialize(new{id,ok=true,data},Json);

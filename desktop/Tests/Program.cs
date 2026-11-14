@@ -3248,6 +3248,100 @@ try
                   batchRuns==1 &&
                   untouched.SequenceEqual(File.ReadAllBytes(batchTarget.ExecutablePath)),
                 "serial Steam batch executes exactly once and leaves real ASA binary unchanged in fixture");
+            // Exercise the approved original Store-v1 path end to end through
+            // the SAME native bridge/queue contract. The injected observer
+            // never sees a real ASA process, and the runner never calls Steam.
+            var savedOriginal=new{
+                batchTarget.HistoricalStoreProtected,
+                batchTarget.HistoricalMapKey,
+                batchTarget.HistoricalArchiveSha256,
+                batchTarget.HistoricalLaunchModeNeedsApproval,
+                batchTarget.Arguments,batchTarget.ApiLoaderArguments
+            };
+            int historicalRuns=0,observedStopped=0;
+            try
+            {
+                foreach(var m in new[]{batchTarget,second})
+                {
+                    m.HistoricalStoreProtected=true;
+                    m.HistoricalMapKey=m.Name.Replace(" ","")+"WP";
+                    m.HistoricalArchiveSha256=new string('A',64);
+                    m.HistoricalLaunchModeNeedsApproval=false;
+                    m.Arguments="";m.ApiLoaderArguments="";
+                }
+                using var originalBatch=new DesktopStoppedSteamBatchBridge(cluster,
+                    (maps,progress)=>{
+                        historicalRuns++;
+                        Check(maps.Count==1&&maps[0].Id==batchTarget.Id,
+                            "original Store installation deduplicates shared ASA binaries");
+                        IReadOnlyList<SteamStoppedMapUpdater.Receipt> receipts=new[]{
+                            new SteamStoppedMapUpdater.Receipt(maps[0].Id,
+                                maps[0].InstallationPath,"123456","123457",
+                                "synthetic-original-backup",DateTimeOffset.UtcNow,true)
+                        };
+                        return Task.FromResult(receipts);
+                    },
+                    map=>new SteamUpdatePreview(
+                        Path.GetFullPath(map.InstallationPath),
+                        new[]{batchTarget.Name,second.Name},"SYNTHETIC-STEAM",
+                        "123456",10L*1024*1024*1024,20L*1024*1024*1024,
+                        true,"Approved original offline fixture"),
+                    (map,underOwnOperation)=>{
+                        observedStopped++;
+                        return new ProcessCheck(false,"Native original ASA STOPPED fixture",null,true);
+                    });
+                var originalPreview=await Call(originalBatch.HandleAsync,
+                    "steam.batchPreview",new{mapIds=new[]{batchTarget.Id,second.Id}});
+                IsOk(originalPreview,
+                    "native serial batch previews approved original Store-v1 local ASA maps");
+                Check(originalPreview.GetProperty("data").GetProperty("installations")
+                    .GetInt32()==1&&historicalRuns==0&&observedStopped>0,
+                    "original Store batch uses native stopped-family evidence before approval");
+                string originalToken=originalPreview.GetProperty("data")
+                    .GetProperty("token").GetString()!;
+                var originalStarted=await Call(originalBatch.HandleAsync,
+                    "steam.batchApply",new{token=originalToken,confirm=true,
+                        typedApproval="HELYI SOROS STEAMCMD"});
+                IsOk(originalStarted,
+                    "operator approval can run the unchanged original Store ASA batch path");
+                string originalJob=originalStarted.GetProperty("data")
+                    .GetProperty("jobId").GetString()!;
+                JsonElement originalFinished=default;
+                for(int tries=0;tries<60;tries++)
+                {
+                    originalFinished=await Call(originalBatch.HandleAsync,
+                        "steam.batchStatus",new{jobId=originalJob});
+                    if(originalFinished.GetProperty("data").GetProperty("state")
+                       .GetString()=="completed")break;
+                    await Task.Delay(30);
+                }
+                IsOk(originalFinished,"original Store batch status is queryable");
+                Check(originalFinished.GetProperty("data").GetProperty("state")
+                      .GetString()=="completed"&&historicalRuns==1&&
+                      originalFinished.GetProperty("data")
+                        .GetProperty("completedInstallations").GetInt32()==1&&
+                      untouched.SequenceEqual(File.ReadAllBytes(batchTarget.ExecutablePath)),
+                    "one native original Store batch executes exactly once without touching ASA/Store bytes");
+                var originalReplay=await Call(originalBatch.HandleAsync,
+                    "steam.batchApply",new{token=originalToken,confirm=true,
+                        typedApproval="HELYI SOROS STEAMCMD"});
+                Check(!originalReplay.GetProperty("ok").GetBoolean()&&historicalRuns==1,
+                    "original Store serial SteamCMD cannot replay a consumed token");
+            }
+            finally
+            {
+                batchTarget.HistoricalStoreProtected=savedOriginal.HistoricalStoreProtected;
+                batchTarget.HistoricalMapKey=savedOriginal.HistoricalMapKey;
+                batchTarget.HistoricalArchiveSha256=savedOriginal.HistoricalArchiveSha256;
+                batchTarget.HistoricalLaunchModeNeedsApproval=savedOriginal.HistoricalLaunchModeNeedsApproval;
+                batchTarget.Arguments=savedOriginal.Arguments;
+                batchTarget.ApiLoaderArguments=savedOriginal.ApiLoaderArguments;
+                second.HistoricalStoreProtected=false;
+                second.HistoricalMapKey="";
+                second.HistoricalArchiveSha256="";
+                second.HistoricalLaunchModeNeedsApproval=false;
+                second.Arguments="";second.ApiLoaderArguments="";
+            }
         }
         finally{release.TrySetResult(true);cluster.RemoveMap(second.Id);}
     }
