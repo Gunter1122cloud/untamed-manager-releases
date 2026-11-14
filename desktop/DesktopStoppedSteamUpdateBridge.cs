@@ -104,6 +104,10 @@ public sealed class DesktopStoppedSteamUpdateBridge : IDisposable
     {
         lock(sync)
         {
+            // Progress<T> posts asynchronously. A delayed Backup/VerifyBuild
+            // callback must never turn a verified or failed job back into
+            // "running" after the runner has reached a terminal state.
+            if(item.State is "completed" or "needsOperator")return;
             item.State=state;item.Stage=stage;item.Changed=DateTimeOffset.UtcNow;
             if(receipt!=null)
             {
