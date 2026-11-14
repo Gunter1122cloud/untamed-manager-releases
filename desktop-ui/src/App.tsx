@@ -1023,7 +1023,7 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
     </div>
     {owned&&<AsaApiLaunchModeSwitch key={selected} map={owned}
         onSaved={onLaunchModeSaved}/>}
-    {owned&&!owned.storeProtected&&!owned.freshStoreEnrolled&&
+    {owned&&(!owned.storeProtected||owned.freshStoreEnrolled)&&
       !owned.observedReadOnlyImported&&<AsaApiCoreInstaller key={selected}
         mapId={selected} onInstalled={()=>{
           // The CORE binaries are separate from manually copied plugins.
@@ -1031,7 +1031,7 @@ function PluginCenter({ snapshot, selected, setSelected, mapLocked=false,
           setRevision(n=>n+1);
           if(onLaunchModeSaved)void onLaunchModeSaved().catch(()=>{});
         }}/>}
-    {owned&&(owned.storeProtected||owned.freshStoreEnrolled||
+    {owned&&((owned.storeProtected&&!owned.freshStoreEnrolled)||
       owned.observedReadOnlyImported)&&<div className="warning-inline" role="status">
       <Shield size={17}/> ASA API CORE binárisfrissítés ezen a mapon nem
       támogatott a jelenlegi védett telepítési útvonalon. A pluginmappa
