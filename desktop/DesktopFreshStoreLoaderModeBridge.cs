@@ -155,11 +155,11 @@ public sealed class DesktopFreshStoreLoaderModeBridge : IDisposable
                         return Fail(id,"UM-FRESH-STORE-API-UNCHANGED");
                     var (loader,cache)=await Task.Run(()=>Preflight(map,useApi));
                     if(pendingByMap.Count>=25)pendingByMap.Clear();
-                    var approval=new Approval(Guid.NewGuid(),map.Id,
+                    var previewApproval=new Approval(Guid.NewGuid(),map.Id,
                         JsonSerializer.Serialize(map),useApi,loader,DateTimeOffset.UtcNow);
-                    pendingByMap[map.Id]=approval;
+                    pendingByMap[map.Id]=previewApproval;
                     return Ok(id,new{
-                        token=approval.Token,mapId,mapName=map.Name,useApi,
+                        token=previewApproval.Token,mapId,mapName=map.Name,useApi,
                         mode=useApi?"asaApiLoader":"directAsa",
                         cacheState=cache,cacheRuntimeCertified=false,
                         startsServer=false,changesStore=false,
