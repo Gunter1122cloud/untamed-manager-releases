@@ -4894,6 +4894,20 @@ test("native ASA API CORE installation and rollback are available only on eligib
   await expect(core.getByRole("button",{name:"Plugin reload"})).toHaveCount(0);
 });
 
+test("newly enrolled Store has native API CORE access while original Store remains protected",async({page})=>{
+  await page.goto("/");
+  await page.evaluate(()=>(window as typeof window & {
+    __UNTAMED_FRESH_STORE_API_MODE_READY__?:()=>void
+  }).__UNTAMED_FRESH_STORE_API_MODE_READY__?.());
+  await page.getByRole("button",{name:"Állapot frissítése"}).click();
+  await page.getByRole("button",{name:"Pluginok",exact:true}).click();
+  await page.getByRole("combobox",{name:"Pluginok mapja"}).selectOption(second);
+  await expect(page.getByRole("region",
+    {name:"Hivatalos ASA API CORE telepítés"})).toBeVisible();
+  await expect(page.getByRole("button",
+    {name:"Pluginmappa megnyitása"})).toBeVisible();
+});
+
 test("P0 every local map has a real per-map ASA API checkbox in Plugin Center",async({page})=>{
   await page.goto("/");
   await page.getByRole("button",{name:"Pluginok",exact:true}).click();
