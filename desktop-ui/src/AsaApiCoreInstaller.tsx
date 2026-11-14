@@ -104,7 +104,7 @@ export function AsaApiCoreInstaller({mapId,onInstalled}:{
   };
   return <section className="premium-panel" aria-label="Hivatalos ASA API CORE telepítés" style={{marginTop:18,padding:20}}>
     <header className="premium-panel-heading"><h2><Download size={19}/> ASA API CORE · hivatalos GitHub frissítő</h2></header>
-    <p>Csak saját, leállított, nem Store-v1 ASA telepítésen végez célzott binárisfrissítést. A hivatalos kiadás GitHub SHA-256 ellenőrzése és a régi DLL/EXE bájtpontos megőrzése kötelező. Pluginbeállítások, mentések és a világfájlok nem módosulnak.</p>
+    <p>Csak saját, igazoltan leállított friss ASA vagy külön regisztrált új Store mapon végez célzott binárisfrissítést. Az eredetileg importált Store-v1 mapok védettek. A hivatalos kiadás GitHub SHA-256 ellenőrzése és a régi DLL/EXE bájtpontos megőrzése kötelező. Pluginbeállítások, mentések és a világfájlok nem módosulnak.</p>
     <button className="secondary" type="button" disabled={busy}
       onClick={()=>{void refresh();}}>
       <RefreshCcw size={15}/>{busy?"Hivatalos kiadás ellenőrzése...":"Hivatalos ASA API kiadás lekérdezése"}
