@@ -4775,6 +4775,11 @@ try
               target.Arguments==beforeTarget,
             "Merge preview does not write configuration");
         string firstToken=merge.GetProperty("data").GetProperty("token").GetString()!;
+        var rejectedReplacement=await Call(copy.HandleAsync,"mods.copyPreview",
+            new{sourceMapId=source.Id,targets=new[]{historic.Id},mode="replace"});
+        Check(IsError(rejectedReplacement,"UM-MOD-COPY-SAFETY-CHECK-FAILED")&&
+              target.Arguments==beforeTarget,
+            "denied Store-target mod copy cannot erase existing local source approval");
         var applied=await Call(copy.HandleAsync,"mods.copyApply",
             new{token=firstToken,confirm=true});
         IsOk(applied,"one approval commits both local map mod lists atomically");
